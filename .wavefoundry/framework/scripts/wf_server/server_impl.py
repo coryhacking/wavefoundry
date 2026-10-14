@@ -79,6 +79,8 @@ for _wll_key in list(sys.modules):
             "publication_control",
             "context_efficiency",
             "public_contract",
+            "storage_identity",  # retained-upgrade preview compatibility
+            "upgrade_protocol",
             "gardener_metadata",
             "change_doc_checklist",  # wave 1zime: shared checklist parser
             "history_paths",  # wave 1zyb2: shared history components
@@ -549,6 +551,7 @@ from wf_server.context_efficiency_handlers import (
 )
 import lifecycle_lock as _lifecycle_lock_authority
 import publication_control
+from wave_lint_lib.constants import OPEN_CONTAINER_STATUSES
 from gardener_metadata import ambiguous_excluded_headings, canonical_review_policy_body
 from review_policy import (
     FULL_COUNCIL_TRIGGER_FIELDS,
@@ -1829,6 +1832,25 @@ class WaveIndex:
     # precision the index was actually built at, regardless of the CURRENT machine's own
     # classification. "full" (FP16/FP32/legacy-unrecorded) is unchanged fastembed-resident.
     # ------------------------------------------------------------------
+    def _inference_selection(self, role: str, model, reason: str):
+        """Observe existing cache ownership without retaining any model."""
+        import tensorwell_client
+        if role == "query_embedding":
+            for slot, constant in (("docs_embedding", "DOCS_MODEL"), ("code_embedding", "CODE_MODEL")):
+                name = self._indexer_constant(constant)
+                cached = getattr(self, "_embedders", {}).get(name)
+                if cached is not None:
+                    tensorwell_client.observe_owner(slot, cached, name)
+        else:
+            for slot, attr in (("search_reranking", "_reranker"), ("memory_reranking", "_memory_reranker")):
+                cached = getattr(self, attr, None)
+                if cached is not None:
+                    tensorwell_client.observe_owner(slot, cached, getattr(cached, "model_name", "other"))
+            if role == "memory_reranking" and model is not None and not getattr(model, "is_tensorwell", False):
+                tensorwell_client.observe_owner(role, model, getattr(model, "model_name", "other"))
+        tensorwell_client.observe_selection(role, model, reason)
+        return model
+
     def _get_embedder(self, model_name: str):
         # Service selection follows stored precision before the local cache.
         # A shared model cannot represent two distinct layer precision classes.
@@ -1838,16 +1860,19 @@ class WaveIndex:
         classes = {self._indexer_constant("_precision_class_from_version")(versions.get(layer))
                    for layer, constant in (("docs", "DOCS_MODEL"), ("code", "CODE_MODEL"))
                    if model_name == self._indexer_constant(constant)}
-        resident = (tensorwell_client.select_embedder(model_name, next(iter(classes), "full"))
+        diagnostic = {}
+        resident = (tensorwell_client.select_embedder(model_name, next(iter(classes), "full"), diagnostic=diagnostic)
                     if len(classes) <= 1 else None)
         if resident is not None:
-            return resident
+            return self._inference_selection("query_embedding", resident, "qualified_pair")
+        selection_reason = ("index_precision_mismatch" if classes != {"full"} and classes
+                            else diagnostic.get("reason", "selection_unknown"))
         # Wave 1p4wy: per-process embedder cache (mirrors ``_get_reranker``). On the
         # CoreML path the ONNX session compile is ~40s; without this guard a fresh
         # embedder was built on every query, re-paying the compile each time.
         cached = self._embedders.get(model_name)
         if cached is not None:
-            return cached
+            return self._inference_selection("query_embedding", cached, selection_reason)
         lock = getattr(self, "_embedder_lock", None)
         if lock is None:  # bypass-constructed instance (e.g. WaveIndex.__new__ in tests)
             import threading
@@ -1857,7 +1882,7 @@ class WaveIndex:
             # runs once per model even if several queries race the first build.
             cached = self._embedders.get(model_name)
             if cached is not None:
-                return cached
+                return self._inference_selection("query_embedding", cached, selection_reason)
 
             # Wave 1p935/1p936: pick the query embedder's precision from the INDEX's recorded
             # class (model_versions), not the current machine's classification — so query and
@@ -1866,6 +1891,9 @@ class WaveIndex:
             # fastembed-resident path below; "full" (FP16/FP32/legacy-unrecorded) is unchanged.
             docs_model = self._indexer_constant("DOCS_MODEL")
             code_model = self._indexer_constant("CODE_MODEL")
+            for slot, name in (("docs_embedding", docs_model), ("code_embedding", code_model)):
+                if model_name == name:
+                    tensorwell_client.ownership_unknown(slot)
             layer = "docs" if model_name == docs_model else "code" if model_name == code_model else None
             recorded_version = None
             if layer is not None:
@@ -1896,7 +1924,7 @@ class WaveIndex:
                         accel = None
                     if accel is not None:
                         self._embedders[model_name] = accel
-                        return accel
+                        return self._inference_selection("query_embedding", accel, selection_reason)
                     # INT8 build unavailable (e.g. not cached, offline) — fall through to the
                     # fastembed full-precision path below rather than raising; a degraded but
                     # usable query beats no query (residual risk noted in change 1p936 Risks).
@@ -1905,6 +1933,7 @@ class WaveIndex:
                 from fastembed import TextEmbedding
                 venv_bootstrap.disable_onnxruntime_telemetry()
             except ImportError:
+                self._inference_selection("query_embedding", None, "local_model_unavailable")
                 raise IndexNotReadyError(
                     "fastembed is not installed. Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py"
                 )
@@ -1916,27 +1945,39 @@ class WaveIndex:
                     with self._offline_model_env():
                         embedder = TextEmbedding(model_name=model_name)
                 except Exception as exc:  # pragma: no cover - fallback path
+                    self._inference_selection("query_embedding", None, "local_model_unavailable")
                     raise SemanticModelUnavailableOfflineError(
                         f"Semantic query model '{model_name}' is unavailable offline. "
                         "Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root ."
                     ) from exc
             except Exception as exc:
+                self._inference_selection("query_embedding", None, "local_model_unavailable")
                 raise SemanticModelUnavailableOfflineError(
                     f"Semantic query model '{model_name}' is unavailable offline. "
                     "Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root ."
                 ) from exc
             self._embedders[model_name] = embedder
-            return embedder
+            return self._inference_selection("query_embedding", embedder, selection_reason)
 
     def _embed_query(self, text: str, model_name: str) -> "np.ndarray":
         import numpy as np
+        import tensorwell_client
         embedder = self._get_embedder(model_name)
         if getattr(embedder, "is_tensorwell", False) is True:
+            token = tensorwell_client.attempt("query_embedding", embedder)
+            returned = False
             try:
                 # Explicit role owns prefixing; raw text may itself start with
                 # the instruction prefix and must not be stripped or rewritten.
-                return np.asarray(embedder.embed_query(text), dtype=np.float32)
+                raw = embedder.embed_query(text)
+                returned = True
+                tensorwell_client.provider_returned(token)
+                result = np.asarray(raw, dtype=np.float32)
+                tensorwell_client.finish_attempt(token, returned=True, accepted=True)
+                return result
             except Exception as exc:
+                tensorwell_client.finish_attempt(token, returned=returned, accepted=False,
+                    reason="caller_rejected" if returned else "inference_failed")
                 raise SemanticModelUnavailableOfflineError(
                     "Qualified semantic query inference is unavailable; retry or use local inference."
                 ) from exc
@@ -1945,10 +1986,14 @@ class WaveIndex:
         # does not apply it, so prepend it explicitly. Empty for symmetric models.
         prefix = self._indexer_module().query_embedding_prefix(model_name)
         query_text = f"{prefix}{text}" if prefix else text
+        token = tensorwell_client.attempt("query_embedding", embedder)
         try:
             with self._offline_model_env():
-                return next(iter(embedder.embed([query_text])))
+                result = next(iter(embedder.embed([query_text])))
+            tensorwell_client.finish_attempt(token, returned=True, accepted=True)
+            return result
         except Exception as exc:
+            tensorwell_client.finish_attempt(token, returned=False, accepted=False, reason="inference_failed")
             raise SemanticModelUnavailableOfflineError(
                 f"Semantic query model '{model_name}' is unavailable offline. "
                 "Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root ."
@@ -1965,14 +2010,16 @@ class WaveIndex:
         """
         import tensorwell_client
         if os.environ.get("WAVEFOUNDRY_DISABLE_RERANKER", "").strip().lower() in {"1", "true", "yes", "on"}:
-            return None
-        resident = tensorwell_client.select_reranker(self._indexer_constant("RERANKER_MODEL"))
+            return self._inference_selection("search_reranking", None, "reranker_disabled")
+        diagnostic = {}
+        resident = tensorwell_client.select_reranker(self._indexer_constant("RERANKER_MODEL"), diagnostic=diagnostic)
         if resident is not None:
-            return resident
+            return self._inference_selection("search_reranking", resident, "qualified_pair")
+        selection_reason = diagnostic.get("reason", "selection_unknown")
         if self._reranker is not None:
-            return self._reranker
+            return self._inference_selection("search_reranking", self._reranker, selection_reason)
         if getattr(self, "_reranker_disabled", False):
-            return None
+            return self._inference_selection("search_reranking", None, "local_model_unavailable")
         lock = getattr(self, "_reranker_lock", None)
         if lock is None:  # bypass-constructed instance (e.g. WaveIndex.__new__ in tests)
             import threading
@@ -1981,15 +2028,16 @@ class WaveIndex:
             # Re-check under the lock: a racing first query may have finished the build (or marked it
             # disabled) while we waited, so the costly compile/probe runs exactly once per process.
             if self._reranker is not None:
-                return self._reranker
+                return self._inference_selection("search_reranking", self._reranker, selection_reason)
             if getattr(self, "_reranker_disabled", False):
-                return None
+                return self._inference_selection("search_reranking", None, "local_model_unavailable")
             try:
                 import accel_embedder
             except Exception:
                 accel_embedder = None
             reranker = None
             if accel_embedder is not None:
+                tensorwell_client.ownership_unknown("search_reranking")
                 try:
                     RERANKER_MODEL = self._indexer_constant("RERANKER_MODEL")
                     # Wave 1p937: pass the SAME resolved provider list the embedder dispatch uses
@@ -2006,13 +2054,13 @@ class WaveIndex:
                     "[wavefoundry] No reranker (disabled or unbuildable); search uses vector order "
                     "without the cross-encoder rerank stage."
                 )
-                return None
+                return self._inference_selection("search_reranking", None, "local_model_unavailable")
             self._reranker = reranker
             _wf_log(
                 f"[wavefoundry] using cross-encoder reranker: {reranker.model_name} "
                 f"({reranker.provider}, batch {reranker.batch_size}x{accel_embedder.STATIC_SEQ})"
             )
-            return self._reranker
+            return self._inference_selection("search_reranking", self._reranker, selection_reason)
 
     def _memory_candidate_scores(self, query: str, paths: list[str], *,
                                  expected_hashes: dict[str, str]) -> dict[str, Any]:
@@ -2033,32 +2081,35 @@ class WaveIndex:
         """
         try:
             if os.environ.get("WAVEFOUNDRY_DISABLE_RERANKER", "").strip().lower() in {"1", "true", "yes", "on"}:
-                return None
+                return self._inference_selection("memory_reranking", None, "reranker_disabled")
             import tensorwell_client
             model = self._indexer_constant("RERANKER_MODEL")
-            resident = tensorwell_client.select_reranker(model)
+            diagnostic = {}
+            resident = tensorwell_client.select_reranker(model, diagnostic=diagnostic)
             if resident is not None:
-                return resident
+                return self._inference_selection("memory_reranking", resident, "qualified_pair")
+            selection_reason = diagnostic.get("reason", "selection_unknown")
             import accel_embedder
             if accel_embedder._reranker_disabled():
-                return None
+                return self._inference_selection("memory_reranking", None, "reranker_disabled")
             with self._reranker_lock:
                 for reranker in (getattr(self, "_memory_reranker", None),
                                  getattr(self, "_reranker", None)):
                     if (getattr(reranker, "provider", None) == "CPUExecutionProvider"
                             and getattr(reranker, "model_name", None) == model):
-                        return reranker
+                        return self._inference_selection("memory_reranking", reranker, selection_reason)
                 if getattr(self, "_memory_reranker_failed_model", None) == model:
-                    return None
+                    return self._inference_selection("memory_reranking", None, "local_model_unavailable")
                 try:
+                    tensorwell_client.ownership_unknown("memory_reranking")
                     reranker = accel_embedder.StaticShapeReranker(model, ["CPUExecutionProvider"])
                 except Exception:
                     self._memory_reranker_failed_model = model
-                    return None
+                    return self._inference_selection("memory_reranking", None, "local_model_unavailable")
                 self._memory_reranker = reranker
-                return reranker
+                return self._inference_selection("memory_reranking", reranker, selection_reason)
         except Exception:
-            return None
+            return self._inference_selection("memory_reranking", None, "local_model_unavailable")
 
     def _start_background_model_downloads(self) -> None:
         import os
@@ -2126,26 +2177,40 @@ class WaveIndex:
         reranker = self._get_reranker()
         if not reranker or not candidates:
             return False
+        import tensorwell_client
+        token = tensorwell_client.attempt("search_reranking", reranker)
+        returned = False
         try:
             import math
             logits = list(reranker.rerank(query, [c.get("text", "") for c in candidates]))
+            returned = True
+            tensorwell_client.provider_returned(token)
             if len(logits) != len(candidates):
+                tensorwell_client.finish_attempt(token, returned=True, accepted=False, reason="caller_rejected")
                 return False
             for logit, c in zip(logits, candidates):
                 c["score"] = 1.0 / (1.0 + math.exp(-float(logit)))  # sigmoid → relevance prob
                 if c.get("_sym_definition") and c.get("kind") == "code":
                     c["score"] = min(c["score"] + _SYMBOL_DEFINITION_BOOST, 1.0)
+            tensorwell_client.finish_attempt(token, returned=True, accepted=True)
             return True
         except Exception:
+            tensorwell_client.finish_attempt(token, returned=returned, accepted=False,
+                reason="caller_rejected" if returned else "inference_failed")
             return False
 
     def _rerank(self, query: str, candidates: list[dict], top_n: int) -> list[dict]:
         reranker = self._get_reranker()
         if not reranker or not candidates:
             return candidates[:top_n]
+        import tensorwell_client
+        token = tensorwell_client.attempt("search_reranking", reranker)
+        returned = False
         try:
             texts = [c.get("text", "") for c in candidates]
             scores = list(reranker.rerank(query, texts))
+            returned = True
+            tensorwell_client.provider_returned(token)
             min_s = min(scores)
             max_s = max(scores)
             for s, c in zip(scores, candidates):
@@ -2153,8 +2218,12 @@ class WaveIndex:
             for c in candidates:
                 if c.get("_sym_definition") and c.get("kind") == "code":
                     c["score"] = min(c["score"] + _SYMBOL_DEFINITION_BOOST, 1.0)
-            return sorted(candidates, key=lambda x: x.get("score", 0.0), reverse=True)[:top_n]
+            result = sorted(candidates, key=lambda x: x.get("score", 0.0), reverse=True)[:top_n]
+            tensorwell_client.finish_attempt(token, returned=True, accepted=True)
+            return result
         except Exception:
+            tensorwell_client.finish_attempt(token, returned=returned, accepted=False,
+                reason="caller_rejected" if returned else "inference_failed")
             return candidates[:top_n]
 
     def _rrf_merge(self, ranked_lists: list[list[dict]], top_n: int, k: int = 60, weights: Optional[list[float]] = None) -> list[dict]:
@@ -4253,7 +4322,7 @@ def resolve_path_under_root(repo_root: Path, user_path: str) -> tuple[Optional[P
 
 def _current_wave_from(waves: list[dict]) -> Optional[dict]:
     """The open wave if any, else the first planned one, from listed records."""
-    for allowed in (("active", "implementing"), ("planned",)):
+    for allowed in (OPEN_CONTAINER_STATUSES, ("planned",)):
         for wave in waves:
             if wave["status"] in allowed:
                 return wave
@@ -4284,7 +4353,7 @@ def _find_other_active_wave(
     waves = cache.list_waves_cached() if cache else list_waves(root)
     target_resolved = target_wave_path.resolve()
     for wave in waves:
-        if wave["status"] not in ("active", "implementing"):
+        if wave["status"] not in OPEN_CONTAINER_STATUSES:
             continue
         wave_md_path = Path(wave["path"])
         if not wave_md_path.is_absolute():
@@ -5159,7 +5228,7 @@ def _strip_root_forms(text: str, forms: list[str]) -> str:
     return text
 
 
-def run_validate(root: Path) -> dict:
+def run_validate(root: Path, *, read_only: bool = False) -> dict:
     """Run docs_lint and return structured pass/fail.
 
     ``PROJECT_ROOT`` is forwarded explicitly so the subprocess lints the
@@ -5169,7 +5238,13 @@ def run_validate(root: Path) -> dict:
     import subprocess
 
     script = SCRIPTS_DIR / "docs_lint.py"
-    before = _advisory_lint_snapshot(root)
+    before = None if read_only else _advisory_lint_snapshot(root)
+    command = [_preferred_python(), str(script)]
+    environment = {**os.environ, "PROJECT_ROOT": str(root)}
+    if read_only:
+        command = [_preferred_python(), "-B", str(script), "--read-only"]
+        environment.pop("PYTHONPYCACHEPREFIX", None)
+        environment.update(PYTHONDONTWRITEBYTECODE="1", WAVEFOUNDRY_DISABLE_BYTECODE_CACHE="1")
     # Wave 1p9iu makes the timeout configurable via docs/workflow-config.json ``docs_lint.full_scan_
     # timeout_seconds`` (default DOCS_LINT_FULL_SCAN_TIMEOUT_DEFAULT) because the old hardcoded 30s was
     # too short for a large field repo's full-corpus scan. This is a FULL scan (no --changed flag) —
@@ -5182,9 +5257,9 @@ def run_validate(root: Path) -> dict:
     timeout_s = docs_lint_full_scan_timeout_seconds(root)
     try:
         result = _mcp_subprocess_run(
-            [_preferred_python(), str(script)],
+            command,
             cwd=str(root),
-            env={**os.environ, "PROJECT_ROOT": str(root)},
+            env=environment,
             timeout=timeout_s,
         )
     except subprocess.TimeoutExpired as exc:
@@ -5201,7 +5276,8 @@ def run_validate(root: Path) -> dict:
             "warnings": [],
             "output": message,
         }
-        _remember_advisory_lint_proof(root, before, failure)
+        if not read_only:
+            _remember_advisory_lint_proof(root, before, failure)
         return failure
     lines = (result.stdout + result.stderr).strip().splitlines()
     errors = [l for l in lines if l.startswith("ERROR:")]
@@ -5215,7 +5291,8 @@ def run_validate(root: Path) -> dict:
         "warnings": warnings,
         "output": result.stdout + result.stderr,
     }
-    _remember_advisory_lint_proof(root, before, verdict)
+    if not read_only:
+        _remember_advisory_lint_proof(root, before, verdict)
     return verdict
 
 
@@ -6260,7 +6337,7 @@ def wf_current_wave_response(root: Path, cache: Optional[McpRepoCache] = None) -
     ]
     # Drift detection only runs against the active wave (if present) — that's the only
     # wave where in-flight Change Status drift is meaningful.
-    active_entry = entries[0] if entries[0]["status"] in ("active", "implementing") else None
+    active_entry = entries[0] if entries[0]["status"] in OPEN_CONTAINER_STATUSES else None
     if active_entry is not None:
         try:
             drifts = _detect_wave_status_drift(root, active_entry)
@@ -11540,6 +11617,14 @@ def wf_review_event_response(
             # Attribution is metadata of the first write, never retry identity.
             # Keep lookup below the replay branch so retries retain the stored
             # contributor even when local configuration has changed.
+            attribution_policy = _read_workflow_config(root).get("wave_review")
+            if attribution_policy is not None:
+                attribution_policy, attribution_errors = normalize_wave_review_policy(attribution_policy)
+                if attribution_errors:
+                    return _response("error", {"wave_id": wave_id, "mode": mode_s, "event": event},
+                                     diagnostics=[_diagnostic("review_policy_reprepare_required", error,
+                                                              recovery_tools=["wf_validate_docs"])
+                                                  for error in attribution_errors])
             operator, identity_reason = resolve_operator(root, operator_handle)
             if operator is None and identity_reason != "no_contributors_file":
                 stale_warnings.append(_diagnostic(
@@ -11548,8 +11633,9 @@ def wf_review_event_response(
                     "or supply a mapped operator_handle. Attribution omitted.",
                     advisory=True,
                 ))
-            local_user, local_user_reason = resolve_local_user()
-            if local_user is None:
+            record_local_account = (attribution_policy or {}).get("record_local_account", True)
+            local_user, local_user_reason = resolve_local_user() if record_local_account else (None, "")
+            if record_local_account and local_user is None:
                 stale_warnings.append(_diagnostic(
                     "local_user_unresolved",
                     f"{local_user_reason}. Local-account attribution omitted.",
@@ -12080,7 +12166,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
                 _wave_record_unreadable_diagnostic(root, wave_md, wave_read_error)
             )
             return _prepare_envelope("error", {"wave_id": wave_id, "mode": mode_s}, next_tools=["wf_list_waves", "wf_validate_docs"], usage="wf_list_waves()")
-    lint_result = run_validate(root)
+    lint_result = run_validate(root, read_only=True) if _UPGRADE_READ_ONLY_PREVIEW.get() else run_validate(root)
     lint_passed = lint_result["passed"]
     gate_ctx.wave_text = text
     gate_ctx.lint_result = lint_result
@@ -12391,7 +12477,7 @@ def wf_pause_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
         )
     status_match = _STATUS_PATTERN.search(wave_text)
     current_status = status_match.group(1) if status_match else ""
-    if current_status in ("active", "implementing"):
+    if current_status in OPEN_CONTAINER_STATUSES:
         status_transition = {"from": current_status, "to": "paused"}
     elif current_status == "paused":
         status_transition = {"from": "paused", "to": "paused"}
@@ -12411,7 +12497,7 @@ def wf_pause_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     handoff_written = False
     if mode_s == "create":
         # Transition wave status first, then write the handoff entry.
-        if status_transition["from"] in ("active", "implementing") and status_transition["to"] == "paused":
+        if status_transition["from"] in OPEN_CONTAINER_STATUSES and status_transition["to"] == "paused":
             new_text = wave_text[:status_match.start(1)] + "paused" + wave_text[status_match.end(1):]
             wave_md.write_text(new_text, encoding="utf-8")
         # Wave 1zxnz (1zx02): a handoff that resolves to a runtime lock is
@@ -13632,7 +13718,7 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     if mode_s == "create":
         garden_result = run_garden(root)
         garden_passed = garden_result["passed"]
-    lint_result = run_validate(root)
+    lint_result = run_validate(root, read_only=True) if _UPGRADE_READ_ONLY_PREVIEW.get() else run_validate(root)
     # Wave 1v0lw: the read keeps its post-garden position (gardening may
     # refresh record metadata) and routes through the seam; the close hard
     # gate cannot be evaluated over a record that cannot be read.
@@ -14144,7 +14230,7 @@ def wf_close_change_response(
     # Gate: the wave is open.
     status_m = _STATUS_PATTERN.search(text)
     wave_status = status_m.group(1).strip().lower() if status_m else ""
-    if wave_status not in {"active", "implementing"}:
+    if wave_status not in OPEN_CONTAINER_STATUSES:
         diagnostics.append(_diagnostic(
             "wave_not_open",
             f"Wave '{canonical_wave_id}' has status '{wave_status or 'unknown'}'; a change can be closed only "
@@ -19373,7 +19459,7 @@ def _process_info_status() -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
 def wf_server_info_response(root: Path, *, server_runner_version: str | None = None) -> dict[str, Any]:
     data = server_identity(root, server_runner_version=server_runner_version)
     import tensorwell_client
-    data["tensorwell"] = tensorwell_client.status_snapshot()
+    data.update(tensorwell_client.status_bundle_snapshot())
     data["extensions"] = _extension_provenance_for_response(root)
     diagnostics: list[dict[str, Any]] = []
     data["process_info"], process_info_diagnostic = _process_info_status()
@@ -19581,7 +19667,7 @@ def _review_evidence_cost_focus(
             # OSError behavior, now covering decode too).
             return None
         status = str(record.get("status") or "").lower()
-        if status in {"active", "implementing"}:
+        if status in OPEN_CONTAINER_STATUSES:
             stage = context_efficiency._derive_open_wave_stage(wave_md.parent)
         elif status == "closed":
             # The target is still passed through so _commit_event's sealed-wave
@@ -19862,6 +19948,8 @@ def _wrap_lifecycle_mutation_lock(
         def _make(tool_name: str, fn: Any) -> Any:
             @functools.wraps(fn)
             def locked(*args: Any, **kwargs: Any) -> Any:
+                if _UPGRADE_READ_ONLY_PREVIEW.get():
+                    return fn(*args, **kwargs)
                 try:
                     root = get_handler().root
                 except Exception as exc:  # noqa: BLE001
@@ -19901,8 +19989,65 @@ def _wrap_lifecycle_mutation_lock(
         tool.fn = _make(name, original)
 
 
+_UPGRADE_READ_ONLY_PREVIEW = contextvars.ContextVar("upgrade_read_only_preview", default=False)
+_CORE_PREVIEW_MARKER = object()
+
+
+def _core_upgrade_preview(fn):
+    fn._wf_core_upgrade_preview = _CORE_PREVIEW_MARKER
+    return fn
+
+
+def _upgrade_preview_installed_version(root: Path) -> str:
+    from contained_files import read_contained_bytes
+    try:
+        return read_contained_bytes(root, root / ".wavefoundry/framework/VERSION",
+                                    max_bytes=4096, follow_links=False).decode("utf-8").strip()
+    except (OSError, ValueError):
+        return ""
+
+
+def _upgrade_preview_code_current(handler, installed_version: str) -> bool:
+    """Compare existing launch identities through bounded no-follow reads."""
+    import setup_readiness
+    from contained_files import read_contained_bytes
+
+    loaded = getattr(handler, "_setup_loaded_identity", None)
+    if not installed_version or installed_version != SERVER_IMPL_VERSION or not isinstance(loaded, dict):
+        return False
+    try:
+        values = {}
+        for name in setup_readiness.SOURCE_FILES:
+            payload = read_contained_bytes(SCRIPTS_DIR, SCRIPTS_DIR / name,
+                                           max_bytes=setup_readiness.MAX_FILE_BYTES, follow_links=False)
+            values[name] = hashlib.sha256(payload).hexdigest()
+        if loaded != {"schema_version": 1, "sources": values, "errors": []}:
+            return False
+        # These are the two un-reloadable launch files named by the runner's
+        # existing identity contract. Unknown sets cannot prove current code.
+        if (len(_runner_files) != 2 or {Path(p).name for p in _runner_files} != {"server.py", "venv_bootstrap.py"}
+                or not _RUNNER_IDENTITY_RE.fullmatch(_runner_version)):
+            return False
+        digest = hashlib.sha256()
+        for name in _runner_files:
+            digest.update(read_contained_bytes(SCRIPTS_DIR, Path(name),
+                          max_bytes=setup_readiness.MAX_FILE_BYTES, follow_links=False))
+        return digest.hexdigest()[:_RUNNER_IDENTITY_HEX_LEN] == _runner_version
+    except (OSError, ValueError, TypeError, RuntimeError):
+        return False
+
+
+def _upgrade_preview_result(response):
+    response.setdefault("data", {}).update(
+        read_only_preview=True, publication_applied=False,
+        upgrade_preview_authority="advisory_shape_and_current_code_only",
+    )
+    return response
+
+
 def _wrap_upgrade_publication_guard(
     mcp: Any, get_handler: Any, *, checkpoint_writers: Collection[str] = (),
+    excluded_previews: Collection[str] = (),
 ) -> None:
     """Fail every registered publisher fast while Upgrade owns project state.
 
@@ -19944,6 +20089,33 @@ def _wrap_upgrade_publication_guard(
                         root, tool_name
                     )
                 if reason is not None:
+                    eligible = False
+                    if (tool_name not in excluded_previews and not checkpoint_only
+                            and getattr(fn, "_wf_core_upgrade_preview", None) is _CORE_PREVIEW_MARKER):
+                        try:
+                            bound = inspect.signature(fn).bind(*args, **kwargs)
+                            bound.apply_defaults()
+                            mode = str(bound.arguments.get("mode", "")).strip().lower()
+                            eligible = mode in ({"dry_run", "evaluate"} if tool_name == "wf_prepare_wave" else {"dry_run"})
+                        except (TypeError, ValueError):
+                            pass
+                    installed_version = _upgrade_preview_installed_version(root) if eligible else ""
+                    if (eligible and publication_control.preview_checkpoint_compatible(root, installed_version)
+                            and _upgrade_preview_code_current(get_handler(), installed_version)):
+                        token = _UPGRADE_READ_ONLY_PREVIEW.set(True)
+                        try:
+                            return _upgrade_preview_result(fn(*args, **kwargs))
+                        finally:
+                            _UPGRADE_READ_ONLY_PREVIEW.reset(token)
+                    if eligible:
+                        return _response("error", {"tool": tool_name, "upgrade_in_progress": True,
+                            **({"readiness_receipts": None} if tool_name == "wf_prepare_wave" else {})},
+                            diagnostics=[_diagnostic("upgrade_preview_unavailable",
+                                "Read-only preview requires a readable compatible checkpoint and current loaded code. "
+                                "Keep the checkpoint; inspect wf_upgrade_status and reload or restart stale MCP code before retrying. "
+                                "This check does not validate or resume the retained upgrade.",
+                                recovery_tools=["wf_upgrade_status", "wf_server_info"])],
+                            next_tools=["wf_upgrade_status", "wf_server_info"])
                     return _response(
                         "error",
                         {"tool": tool_name, "upgrade_in_progress": True, **({"readiness_receipts": None} if tool_name == "wf_prepare_wave" else {})},
@@ -20829,7 +21001,7 @@ def _guard_pass_kwargs() -> dict[str, Any]:
         name for name in _EXTENSION_REPLACED_CORE
         if name in targets and targets[name][1].get("tier") == mcp_tool_extensions.TIER_WRITE
     )
-    return {"checkpoint_writers": writers} if writers else {}
+    return {"checkpoint_writers": writers, "excluded_previews": frozenset(_EXTENSION_REPLACED_CORE)}
 
 
 def _unhandled_tool_exception_response(tool_name: str, exc: Exception, get_handler: Any) -> dict[str, Any]:
@@ -22177,9 +22349,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wf_server_info(**kwargs: Any) -> dict[str, Any]:
-        """Return the repository root and implementation version info for this MCP server.
+        """Return this MCP process's identity and cached inference diagnostics.
 
         Use immediately after connect when you need to confirm which checkout this server is attached to.
+        Compatibility, per-role execution/acceptance and local ownership are separate observations.
+        Status does not check the service, load models or run inference; other processes are not observed.
         """
         bad = _ensure_no_extra_args("wf_server_info", kwargs)
         if bad is not None:
@@ -23376,6 +23550,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         )
 
     @mcp.tool(annotations=_MUTATING_TOOL)
+    @_core_upgrade_preview
     def wf_prepare_wave(wave_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
         """Transactional prepare check: validates docs, runs the prepare-phase council gate, and (mode-dependent) readies or opens the wave.
 
@@ -23422,6 +23597,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             result = wf_prepare_wave_response(
                 handler.root, wave_id, mode=mode, cache=handler.cache
             )
+            if _UPGRADE_READ_ONLY_PREVIEW.get():
+                return result
             canonical = str(_context_data(result).get("wave_id") or wave_id)
             # A prepare that OPENED the wave is an activation boundary: work
             # after it is implementation, so focus must not stay parked on
@@ -24003,6 +24180,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             return result
 
     @mcp.tool(annotations=_DESTRUCTIVE_TOOL)
+    @_core_upgrade_preview
     def wf_close_wave(wave_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
         """Dry-run or close a wave after validation passes.
 
@@ -24056,6 +24234,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             result = wf_close_wave_response(
                 handler.root, wave_id, mode=mode, cache=handler.cache
             )
+            if _UPGRADE_READ_ONLY_PREVIEW.get():
+                return result
             canonical = str(_context_data(result).get("wave_id") or wave_id)
             return _lifecycle_context_result(
                 handler,

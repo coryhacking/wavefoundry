@@ -39,6 +39,91 @@ The MCP surface is a product contract. Tool names, argument semantics, response
 shape, safety metadata, and retry behavior must be planned and reviewed before
 they change.
 
+## Cached inference status (`wf_server_info`)
+
+The existing `data.tensorwell.backend`, `reason`, `startup` and `profiles` fields
+remain discovery/startup diagnostics. `reason: qualified_pair` means **both pinned
+models were compatible at the last readiness/descriptor check**. It does not prove
+that an inference call ran or that local models were evicted.
+
+`data.tensorwell.availability` adds `state`, `reason`, `observed_at`, `stale` and
+plain-language `detail`. States are `not_checked`, `ready_compatible`, `unavailable`,
+`incompatible`, `policy_disabled` and `unknown`. The timestamp is Unix seconds from
+the actual existing observation boundary. Cached qualification reuse keeps the
+original timestamp. `stale` becomes true after the client's five-second observation
+window, or when no observation exists; it does not imply that the service stopped.
+Local index precision exclusions leave this compatibility observation unchanged.
+
+`data.inference` has these bounded, process-local fields:
+
+| Field | Meaning |
+| --- | --- |
+| `scope.pid` | Reporting OS process; no other MCP server, indexing worker or daemon is observed. |
+| `scope.observation_started_at` | Unix seconds when this process's observation state was first initialized; not OS process birth. |
+| `scope.epoch` | Client reload generation. Execution records reset on reload. |
+| `roles.query_embedding` | MCP query embedding, including queries used by memory retrieval. |
+| `roles.search_reranking` | Both normal rerank callers: agent sigmoid scoring and ordinary normalization/sorting. |
+| `roles.memory_reranking` | Memory relevance calls and the caller's length/type/finite-value/cutoff checks. |
+| `local_models` | Four fixed weak ownership slots: docs/code embedding and search/memory reranking. |
+
+Every role has `selection`, `last_attempt` and `last_success`, initially null.
+Selection records provider (`tensorwell`, `in_process`, or null), accelerator label,
+fixed reason, time, epoch and sequence. Selection alone cannot populate execution
+success. Reasons include service policy opt-out, incompatible/unavailable service,
+`index_precision_mismatch`, `reranker_disabled` and `local_model_unavailable`.
+The reason belongs to that selection invocation, not the latest shared discovery
+status. `discovery_contended` means the existing discovery deadline expired waiting
+for another discovery's lock; `discovery_backoff` means a previous failure's existing
+backoff window prevented another check. Neither updates the cached availability
+observation. A local selection can therefore report `discovery_contended` while
+availability remains stale `ready_compatible`. `unsupported_model` records a model
+outside the pinned service pair. `selection_unknown` preserves uncertainty when a
+selector supplies no diagnostic; it never borrows another invocation's reason.
+An empty candidate set may select a model without attempting inference.
+
+Attempts record scalar provider provenance at call start, `started_at`,
+`completed_at`, epoch, sequence, `provider_outcome` (`running`, `returned`, `failed`),
+`caller_outcome` (`pending`, `accepted`, `degraded`) and a fixed reason. A provider
+return can still fail caller conversion or scoring: `caller_rejected` differs from
+`inference_failed`. A failed selected service operation does not imply a local retry.
+`last_success` records only a caller-accepted operation, with its provider,
+accelerator label, epoch, sequence and completion time. Later retrieval failure
+does not retroactively mean that accepted inference never ran. These diagnostics
+are observations, not execution attestations.
+
+For example, a compatible but unused service has `availability.state:
+ready_compatible` and null role attempts/successes. A retained local embedder can
+have `local_models.docs_embedding.state: loaded` while the newest query's
+`last_success.provider` is `tensorwell`. Service output rejected by normal scoring
+has `provider_outcome: returned`, `caller_outcome: degraded`, `reason:
+caller_rejected`, while the preceding accepted `last_success` remains intact.
+
+Sequence numbers order selection/attempt starts within an epoch. The latest-started
+attempt owns `last_attempt`; late completion of an older attempt cannot overwrite
+it. `last_success` identifies the latest-started accepted operation, independently
+of which operation completed last. Old-epoch or inherited pre-fork tokens cannot
+publish current success. Reload preserves the observation start and PID, resets
+role records and compatibility to unknown, and marks ownership knowledge incomplete.
+A PID change resets inherited observations rather than adopting another process's
+execution history.
+
+Local slots report `loaded` when a tracked framework-owned model object is still
+alive, `not_loaded` for a completely observed fresh slot with no live object, and
+`unknown` when construction, untrackable objects, replacement or reload prevents
+proof of absence. `ownership_complete` exposes that limit. `shared_with` identifies
+slots holding the same object; slots must not be summed as resident session counts.
+Weak references do not retain models. Reload-held models may remain `loaded`; when
+their tracked reference dies, incomplete ownership remains `unknown`. This is not
+RSS, daemon memory, physical allocation, or an eviction guarantee. Accelerator
+labels describe the model's reported provider at selection/attempt start; internal
+recovery can use another provider, so they do not prove physical accelerator use.
+
+Status copies fixed-size metadata under a short lock independent of discovery,
+model construction and inference. It does not poll/start the service, run inference,
+construct/unload models, download, wait for those operations, or persist telemetry.
+It contains no request text, raw exception messages, credentials, account names or
+absolute discovery paths. Returned nested records and lists are detached copies.
+
 ## Server Model
 
 - Transport: stdio.
@@ -485,6 +570,10 @@ extension tools. Tiers join `mcp_tool_roster.tools_for_tiers` / `allow_rules`, s
 the rendered host allowlist and upgrade allowlist reconciliation cover them. New tools are costed
 like first-party tools, and write-tier tools fail fast with `upgrade_in_progress` while Upgrade
 owns project state.
+
+**Retained-upgrade previews:** only native `wf_prepare_wave` in `dry_run`/`evaluate` and `wf_close_wave` in `dry_run` receive an advisory read-only exception, including declared aliases of those core handlers. Argument defaults and positional modes are bound before classification. Replacement handlers, extension writers, other lifecycle previews, unknown modes and mutations remain guarded. Eligible calls require bounded checkpoint shape/identity compatibility and current installed/loaded code; otherwise `upgrade_preview_unavailable` instructs the operator to inspect the checkpoint and refresh stale MCP code. This is not resume validation or authority to mutate later.
+
+Successful inspection carries `data.read_only_preview=true`, `publication_applied=false` and `upgrade_preview_authority=advisory_shape_and_current_code_only`, even when assessment findings block readiness/close. It takes no lifecycle/publication lock and emits no callback, focus, receipt, observation, accounting or index publication. It runs one full `docs-lint --read-only` child: newly found secrets remain visible as unpublished assessment failures, without updating findings or skip ledgers. The CLI flag cannot combine with `--changed`, advisory incremental flags or `--write-migration-audit`. Without a retained upgrade, existing preview and mutation behavior is unchanged.
 
 **Lifecycle tools and artifact credit (wave `1zimf`).** A new extension tool that writes wave
 lifecycle records is declared in `EXTENSION_LIFECYCLE_TOOLS`. The main `MIDDLEWARE` lock pass
@@ -1589,7 +1678,7 @@ change remains active outside the wave.
 - **Blocked-envelope hints (wave `1zime`):** an error envelope from `wf_prepare_wave`, `wf_review_wave` or `wf_close_wave` takes `usage` from the FIRST blocking diagnostic in emitted order that set the status; when it carries `recovery_usage` that is the usage, and its `recovery_tools` followed by the branch defaults (without duplicates) are `next_tools`, and when it carries none the branch defaults stand. A later diagnostic never overrides an earlier blocker, so a docs-lint error still recommends `wf_validate_docs()`. The `another_wave_active` branch keeps its explicit hint. On a declared wave `missing_wave_council_signoff` and the prepare-phase `missing_required_lane` recover to `wf_review_wave(wave_id=..., phase='prepare')` with `wf_review_event`; legacy wording and recovery are unchanged. A readiness-gate block recommends a retry in the caller's mode, never `mode='create'` for a `ready` call.
 - A newly published superseding receipt in `ready`/`create` emits `review_policy_receipt_superseded`, including when readiness approvals are missing. Genesis and unchanged publications do not. Optional non-semantic `policy_inputs` metadata identifies changed admitted documents or project policy when the predecessor provides it; older receipts retain the unattributable fallback. This metadata does not alter the digest, receipt identity, evaluator version, or nested Prepare receipt envelope. Readiness review repeats the advisory while any lane's latest readiness approval names an older receipt; partial reapproval does not clear it, delivery reapproval does not substitute, and all-lane readiness reapproval clears it without deleting history. Unaffected review scope may be reapproved by reference; affected scope must be reviewed first.
 
-- Every handler response includes `configured_gates`; reached required sensors run in `ready`/`create`, while dry-run reports `would_run` without execution. A handler response that returns early carries an empty list. A response produced by a registration wrapper, or returned by a tool body before it calls its handler, carries no `configured_gates` key at all, which today means the lock's busy, unavailable and re-entry refusals, the upgrade guard's in-progress and busy refusals, and the tool body's unknown-argument refusal. Read the key defensively. configured_gates outcomes: `would_run/passed/failed/invalid`.
+- Every handler response includes `configured_gates`; reached required sensors run in `ready`/`create`, while dry-run reports `would_run` without execution. A handler response that returns early carries an empty list. A response produced by a registration wrapper, or returned by a tool body before it calls its handler, carries no `configured_gates` key at all, which today means `lifecycle_mutation_locked`, `lifecycle_lock_unavailable`, `lifecycle_lock_reentry`, `upgrade_in_progress`, `upgrade_preview_unavailable`, `project_publication_busy`, `unknown_arguments`, and `tool_unhandled_exception`. Read the key defensively. configured_gates outcomes: `would_run/passed/failed/invalid`.
 
 - Validates that every admitted change doc is wave-owned.
 - Repairs staged-only admitted docs by moving them into `docs/waves/<wave-id>/`
@@ -1598,6 +1687,7 @@ during `ready`/`create` (readiness mutations); `dry_run` is read-only.
 - Requires admitted changes, passing docs validation, and current readiness authority before reporting a clean readiness verdict: typed `council-readiness` on declared waves, or the structured prose verdict on legacy waves.
 - **Readiness vs activation (wave 1p45l):** `ready` records full readiness WITHOUT activating — the wave stays `planned` ("readied"), with no single-OPEN guard, so any number of waves can be readied while one is OPEN. `create` additionally runs the single-OPEN guard and flips `planned`→`active` (prepare-and-open). `dry_run` never takes the slot.
 - The single-OPEN invariant (at most one wave `active`/`implementing`) is enforced only at activation transitions — `wf_implement_wave`, `wf_reopen_wave`, and `wf_prepare_wave(create)` — not at readiness.
+- Distributions can import immutable `CONTAINER_STATUSES` and `OPEN_CONTAINER_STATUSES` from `wave_lint_lib.constants` without loading the server. The former includes current `planned`, `active`, `implementing`, `paused`, `closed` and readable legacy `ready`, `completed`; the latter contains only `active`, `implementing`. Readying a current wave leaves its status `planned`. Nonclosed, legacy-ready and paused records do not occupy the OPEN slot. These collections describe status vocabulary, not permitted transitions; operation-specific restrictions and member item/change tables remain separate.
 - On `ready`/`create`, requests a background docs-index refresh for the wave record and admitted change docs after repair/status updates complete.
 - **Focus and outcome classes (wave 1tmb3):** the legacy-only `ready_for_council_review` result (technical checks passed, structured compatibility verdict still needed) is explicitly target-engaged — the call both publishes the target wave's durable accounting and moves context-efficiency focus to that wave at stage `plan`, because council review is concentrated retrieval about exactly that wave. Declared waves instead use typed readiness authority. Genuinely failed prepares do not move focus; the response reports the effective attribution destination in `data.focus_attribution` and emits `focus_target_not_engaged` when that destination is an unrelated wave (see the lifecycle focus-reporting contract below).
 
@@ -1664,6 +1754,7 @@ above: typed-exclusive on declared waves, prose only on legacy waves.
 - **Optional contributor identity:** `operator_handle` selects a handle in `docs/contributors.json`; otherwise a bounded local git-email lookup resolves it. New approval, finding and run records carry `verification_context.operator = {handle, source}` when available, including generated convergence contexts. The contributors file maps handles to `{name, emails}`; no network lookup or identity gate is added. An absent map is silent; invalid/unreadable maps, ambiguous or unmapped emails and unknown explicit handles emit one advisory `operator_identity_unresolved` while leaving the event writable. The handle is reference attribution, not proof the human personally approved an agent review. `wave.md` displays the stored handle using its existing review table. Identity is excluded from request digests; replay returns the original attribution without lookup or append. `dry_run` previews the same metadata without writing; `list` performs no identity lookup. **Self-attested name:** the optional `attested_by` input records the name the recording person states for themselves as `verification_context.attested_by`, only when supplied; nothing derives a default from `docs/contributors.json`, git or elsewhere. The name is self-attested and unverified, and once recorded it appears in the committed ledger and in `wave.md`. It is NFC-normalized and trimmed, and refused with `invalid_attested_by` before any write or replay when empty, longer than 100 characters, or containing a control or format character (including bidi and zero-width characters), a lone surrogate, a line or paragraph separator, `<`, `>`, a backtick, `|`, `[`, `]` or a backslash. `evidence` may not supply it. Like the handle it is outside the request digest: a replay keeps the stored name, and a supplied name that differs adds the advisory `attested_by_replay_mismatch`. Self-attested names display with `(self-attested)` so they remain distinct from configured handles. Ledgers without the key are unchanged.
 
 - **Current local account:** new review-event construction also captures `verification_context.local_user = {name, source: "local_os_account"}` automatically. POSIX resolves the effective UID through the account database; Windows uses the native current-account API. No username environment value, shell command, network request or caller-supplied account is trusted. Names are bounded to 256 characters and refuse controls, format characters, surrogates, line/paragraph separators and surrounding whitespace. Unsafe/unavailable lookup omits this metadata with a bounded `local_user_unresolved` advisory; it never blocks the event. The review projection appends a Markdown-safe `local account` label separately from contributor and self-attested attribution. This is the account of the recording process, which may be shared or run an agent on behalf of a person; it does not verify a human approver, enforce owner separation or prove review independence. Account metadata is excluded from semantic event identity and review-policy receipts. Replay preserves the original value without lookup; list/historical reads do not look up or backfill accounts. Preview can show the current account without writing. New metadata needs a reader from the ordinary updated framework; no user enrollment, signature or additional evidence file is required.
+- **Optional local-account omission:** set `wave_review.record_local_account: false` in workflow-config.json to skip OS-account lookup and omit local_user and its warning from new events, previews and their rendered rows. Absent or true retains existing behavior; other types fail normal policy validation. Defaults leave the key absent and upgrades preserve explicit values. This does not remove contributor handles or self-attestation. Replay preserves the original attributed or unattributed record regardless of the new setting; existing events and Git history are not rewritten.
 
 - `artifact_or_test_id_ephemeral` is advisory in finding/approval `dry_run` and `create`: it warns when at least one path-like citation is present and all such citations are temporary. Recognized roots include `/tmp`, `/private/tmp`, `/var/tmp`, `/var/folders`, the runtime temporary directory and `TEMP`/`TMP`; any `scratchpad` path segment also qualifies. A durable repository path suppresses the warning; a bare test ID beside a temporary path does not. Zero path tokens produce no warning. This lexical heuristic neither checks artifact existence nor refuses a valid event.
 - Typed authoring surface for external-ledger executable review evidence. `event` is `approval`, `finding`, an empty lightweight `run`, or the read-only `list`; `dry_run` previews exact derived rows and `create` atomically appends them to the fixed sibling `docs/waves/<wave>/events.jsonl`.

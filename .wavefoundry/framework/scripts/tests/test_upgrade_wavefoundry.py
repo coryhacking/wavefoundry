@@ -4143,12 +4143,39 @@ class DeclaredLegacyReviewPlanTests(unittest.TestCase):
     EXTRA = (("example-contract", (("Heading", "# Examine parcel", ("# Inspect parcel",)),
                                     ("Input", "Given one parcel:", ("Given one parcel or its collection:",)))),)
 
+    @staticmethod
+    def _with_fixture_profile(source, profiles):
+        """Replace the declaration node, independent of its value or formatting."""
+        import ast
+        name = "EXTRA_REVIEW_PLAN_LEGACY_CONTRACT_PROFILES"
+        assignments = [node for node in ast.parse(source).body
+                       if isinstance(node, ast.Assign)
+                       and any(isinstance(target, ast.Name) and target.id == name
+                               for target in node.targets)]
+        if len(assignments) != 1:
+            raise AssertionError("fixture requires one top-level profile declaration")
+        node = assignments[0]
+        lines = source.splitlines(keepends=True)
+        lines[node.lineno - 1:node.end_lineno] = [name + " = " + repr(profiles) + "\n"]
+        return "".join(lines)
+
+    def test_fixture_declaration_precedes_entry_for_nonempty_and_reformatted_sources(self):
+        name = "EXTRA_REVIEW_PLAN_LEGACY_CONTRACT_PROFILES"
+        for declaration in (name + " = ()\n", name + "=(('existing', ()),)\n",
+                            name + " = (\n    ('existing', ()),\n)\n"):
+            with self.subTest(declaration=declaration):
+                source = declaration + '\nif __name__ == "__main__":\n    observed = ' + name + '\n'
+                namespace = {"__name__": "__main__"}
+                exec(compile(self._with_fixture_profile(source, self.EXTRA), "<fixture>", "exec"), namespace)
+                self.assertEqual(namespace["observed"], self.EXTRA)
+
     def test_declared_profile_shared_by_checker_renderer_and_incoming_hook(self):
         import review_plan_prompt_check as checker
         import render_agent_surfaces as ras
         original = b"# Examine parcel\r\nGiven one parcel:\r\nProject prose unchanged.\r\n"
         self.old.write_bytes(original)
-        self.assertTrue(checker.check_review_plan_prompt(self.root)["blocked"])
+        with patch.object(checker, "EXTRA_REVIEW_PLAN_LEGACY_CONTRACT_PROFILES", ()):
+            self.assertTrue(checker.check_review_plan_prompt(self.root)["blocked"])
         with patch.object(checker, "EXTRA_REVIEW_PLAN_LEGACY_CONTRACT_PROFILES", self.EXTRA):
             self.assertFalse(checker.check_review_plan_prompt(self.root)["blocked"])
             # Installed preflight invokes the same checker, before any write.
@@ -4158,7 +4185,7 @@ class DeclaredLegacyReviewPlanTests(unittest.TestCase):
         self.assertEqual(new.read_bytes(), b"# Inspect parcel\r\nGiven one parcel or its collection:\r\nProject prose unchanged.\r\n")
         new.unlink(); self.old.write_bytes(original)
         source = (SCRIPTS_ROOT / "review_plan_prompt_check.py").read_text()
-        source = source.replace("EXTRA_REVIEW_PLAN_LEGACY_CONTRACT_PROFILES = ()", "EXTRA_REVIEW_PLAN_LEGACY_CONTRACT_PROFILES = " + repr(self.EXTRA))
+        source = self._with_fixture_profile(source, self.EXTRA)
         with zipfile.ZipFile(self.pack) as archive:
             members = {name: archive.read(name) for name in archive.namelist()}
         members[".wavefoundry/framework/scripts/review_plan_prompt_check.py"] = source.encode()

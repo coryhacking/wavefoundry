@@ -10,16 +10,25 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [1.31.0] - Unreleased
 
+### Security
+
+- Reconciliation Git queries disable configured filesystem monitors and inherited Git overrides, and treat input paths literally. Review events can omit local-account provenance through `wave_review.record_local_account=false`; worker startup refuses adjacent bootstrap bytecode, and publication errors omit absolute roots. Wave 20nnk.
+
 ### Fixed
 
+- Read-only Prepare and close previews can inspect a compatible unfinished upgrade without publishing. Distribution contract fixtures no longer depend on an empty declaration's source spelling. Wave 20nnk.
+- Publish the child-output test's completion marker atomically, preserving its timeout and held-pipe assertions. Wave 20ngc / 20nnh.
 - Memory retrieval reuses the qualified Tensorwell reranker before local caches or construction, keeping embeddings and both reranking paths outside MCP's local model sessions when the service is usable. Preserve the CPU fallback, relevance cutoff and explicit lexical recovery on service failure; qualify the absolute cutoff separately (wave 20lul).
 
 ### Changed
 
+- Reuse exact retained default qualification details instead of rerunning a current green suite. Compatibility qualification uses a conservative reviewed inventory, expands to full coverage on unknown or changed inputs, and preserves exact skip comparisons. Wave 20ngc.
 - Reduce qualification work by removing 896 inherited docs-lint test repetitions and bounding ordinary reconciliation scanner fixtures, retaining every unique test and an explicit read-only checkout audit (wave 20lkx).
 
 ### Added
 
+- Server information distinguishes cached Tensorwell availability, selected providers, accepted inference results and process-local model ownership for embeddings and both rerankers, without starting inference or probing the service during status reads. Wave 20np5 / 20np4.
+- Export shared container-status and open-status constants for distribution consumers. Wave 20nnk / 20nnj.
 - Optional Tensorwell inference for the qualified pinned embedding/reranking pair, with bounded background startup from MCP serving, private loopback discovery, precision-preserving selection and local fallback. No service installation or configuration changes; opt out with `WAVEFOUNDRY_DISABLE_TENSORWELL=1` (wave 20nju).
 
 ## [1.30.0] - 2026-10-13

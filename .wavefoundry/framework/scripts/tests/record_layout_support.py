@@ -33,6 +33,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import functools
+import hashlib
 import json
 import os
 import re
@@ -305,6 +306,71 @@ def load_profile(name: str, profiles_dir: "Path | None" = None) -> dict:
     if errors:
         raise ProfileInvalid(f"profile {name!r}: " + "; ".join(errors))
     return data
+
+
+def qualification_scope(name: str, scripts_dir: Path | None = None) -> dict:
+    """Reviewed file-level compatibility scope, or the entire discovered suite.
+
+    This is deliberately not an import/name heuristic. The small checked-in
+    inventory classifies every known worker, pins the profile/worker contracts
+    and the reviewed independent test's complete dependency footprint. Any
+    uncertainty costs a full profile run, never missing coverage.
+    """
+    scripts = SCRIPTS_DIR if scripts_dir is None else Path(scripts_dir)
+    discovered = sorted(p.name for p in (scripts / "tests").glob("test_*.py"))
+    full = {"kind": "full", "discovered_workers": discovered}
+    try:
+        path = scripts / "tests/fixtures/profiles/qualification/coverage.json"
+        raw = path.read_bytes()
+        if len(raw) > 1024 * 1024:
+            raise ValueError("coverage inventory exceeds bound")
+        inventory = json.loads(raw)
+        if type(inventory.get("schema_version")) is not int or inventory["schema_version"] != 1 or name not in ("second", "declared"):
+            raise ValueError("unknown coverage profile or schema")
+        required = inventory["required_workers"]
+        independent = inventory["independent_workers"]
+        if (not isinstance(required, list) or not isinstance(independent, dict) or not independent
+                or any(not isinstance(n, str) for n in required)
+                or required != sorted(set(required)) or set(required) & set(independent)
+                or sorted([*required, *independent]) != discovered):
+            raise ValueError("unclassified or duplicated workers")
+        contracts = inventory["contracts"]
+        essential = {"run_tests.py", "qualification_report.py", "qualification_worker.py",
+                     "test_worker_guard.py", "test_worker_bootstrap/sitecustomize.py",
+                     "tests/record_layout_support.py", "vocabulary_profile.py", "record_paths.py",
+                     "mcp_tool_extensions.py"}
+        if not isinstance(contracts, dict) or not essential <= contracts.keys():
+            raise ValueError("missing coverage contracts")
+        profile_paths = {p.relative_to(scripts).as_posix()
+                         for p in (scripts / "tests/fixtures/profiles").glob("*.json")}
+        if profile_paths != set(inventory["profile_assets"]):
+            raise ValueError("unknown profile extension")
+        if not profile_paths <= contracts.keys():
+            raise ValueError("unbound profile asset")
+        for worker, claim in independent.items():
+            if (not isinstance(claim, dict) or not isinstance(claim.get("rationale"), str)
+                    or not claim["rationale"].strip() or claim.get("profiles") != ["second", "declared"]
+                    or not isinstance(claim.get("footprint"), list)
+                    or f"tests/{worker}" not in claim["footprint"]
+                    or not set(claim["footprint"]) <= contracts.keys()):
+                raise ValueError("unproven independence claim")
+        for relative, expected in contracts.items():
+            if (not isinstance(relative, str) or "\\" in relative or ":" in relative
+                    or relative.startswith("/") or any(p in ("", ".", "..") for p in relative.split("/"))
+                    or not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected)
+                    or hashlib.sha256((scripts / relative).read_bytes()).hexdigest() != expected):
+                raise ValueError("changed coverage contract")
+        profile = load_profile(name, scripts / "tests/fixtures/profiles")
+        for relative in profile.get("module_files", {}).values():
+            if f"tests/fixtures/profiles/{relative}" not in contracts:
+                raise ValueError("unbound profile module")
+        encode = lambda value: json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+        return {"kind": "compatibility", "profile": name, "discovered_workers": discovered,
+                "selected_workers": required,
+                "coverage_hash": hashlib.sha256(encode(inventory)).hexdigest(),
+                "profile_input_hash": hashlib.sha256(encode(profile)).hexdigest()}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError, MemoryError):
+        return full
 
 
 def shipped_default_profile() -> dict:

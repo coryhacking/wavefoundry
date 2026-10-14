@@ -2524,7 +2524,9 @@ class ReplacementServingTests(unittest.TestCase):
         self.assertEqual(busy["recovery_tools"], [["wf_add_change", "fork_current_core"]])
 
     def test_core_behaviour_is_upgrade_guarded(self):
-        self.assertEqual(self.out["core_close_guarded"], ["error", "upgrade_in_progress"])
+        # Native dry-run aliases require a compatible retained checkpoint;
+        # this fixture's phase-only checkpoint cannot authorize a preview.
+        self.assertEqual(self.out["core_close_guarded"], ["error", "upgrade_preview_unavailable"])
 
     def test_extractors_run_for_the_core_behaviour_only(self):
         self.assertEqual(self.out["replaced_review"], {"note": "n"})

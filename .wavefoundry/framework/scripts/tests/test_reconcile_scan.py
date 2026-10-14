@@ -244,6 +244,49 @@ class GeneratedAndIgnoredScopeTests(unittest.TestCase):
             self.assertEqual(result.state, "complete", result.reasons)
             self.assertEqual({ref.file for ref in result.findings}, live)
 
+    def test_literal_names_and_inherited_git_environment(self):
+        import os
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.git(root, "init", "-q")
+            live = {":(exclude)live.md", ":(top)hidden.md", "ordinary.md"}
+            for rel in live:
+                self.write(root, rel)
+            self.write(root, ".gitignore", "hidden.md\nignored.md\n")
+            self.write(root, "ignored.md")
+            with patch.dict(os.environ, {"GIT_DIR": str(root / "absent"),
+                                         "GIT_WORK_TREE": str(root / "elsewhere"),
+                                         "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.excludesFile",
+                                         "GIT_CONFIG_VALUE_0": str(root / "absent"),
+                                         "GIT_NOGLOB_PATHSPECS": "1"}):
+                result = self.scan.scan_repo_result(root)
+            self.assertEqual(result.state, "complete", result.reasons)
+            self.assertEqual({ref.file for ref in result.findings}, live)
+
+    @unittest.skipIf(sys.platform == "win32", "POSIX executable marker fixture")
+    def test_repository_fsmonitor_cannot_execute_and_worktree_stays_supported(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "repo"
+            root.mkdir()
+            self.git(root, "init", "-q")
+            self.write(root, "live.md")
+            self.git(root, "add", "live.md")
+            self.git(root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                     "-c", "core.hooksPath=/dev/null", "commit", "-qm", "fixture")
+            linked = Path(td) / "linked"
+            self.git(root, "worktree", "add", "--detach", str(linked))
+            marker = Path(td) / "monitor-ran"
+            command = Path(td) / "monitor"
+            command.write_text("#!/bin/sh\nprintf invoked > '" + str(marker) + "'\n")
+            command.chmod(0o700)
+            self.git(root, "config", "core.fsmonitor", str(command))
+            for target in (root, linked):
+                result = self.scan.scan_repo_result(target)
+                self.assertEqual(result.state, "complete", result.reasons)
+                self.assertEqual({ref.file for ref in result.findings}, {"live.md"})
+                self.assertFalse(marker.exists())
+
     def test_ignored_registered_carriers_and_direct_members_without_generated_descent(self):
         from unittest.mock import patch
         import mcp_tool_extensions

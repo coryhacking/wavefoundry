@@ -1663,6 +1663,10 @@ def claude_stop_source() -> str:
             import vocabulary_profile as _wf_vocab
         except Exception:
             _wf_vocab = None
+        try:
+            from wave_lint_lib.constants import OPEN_CONTAINER_STATUSES as _wf_open_statuses
+        except Exception:
+            _wf_open_statuses = frozenset()
         _wf_record_file = getattr(_wf_vocab, "RECORD_FILENAME", None)
         _wf_id_prefix = getattr(_wf_vocab, "ID_KEY", None)
 
@@ -1713,7 +1717,7 @@ def claude_stop_source() -> str:
                         status = s.split(":", 1)[1].strip().lower()
                     elif _wf_id_prefix and s.startswith(_wf_id_prefix + ":"):
                         wave_id = s.split(":", 1)[1].strip().strip("`")
-                if status in ("active", "implementing"):
+                if status in _wf_open_statuses:
                     return (wave_id, wave_dir)
             return None
 

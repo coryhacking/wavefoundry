@@ -3410,6 +3410,148 @@ class OperatorSignoffTests(unittest.TestCase):
 # Framework ops (mocked subprocess)
 # ---------------------------------------------------------------------------
 
+class RetainedUpgradePreviewTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = _make_repo(Path(self.tmp.name))
+        self.wave_id = "00057 preview"
+        _make_wave(self.root, self.wave_id, "planned", [])
+        version = self.root / ".wavefoundry/framework/VERSION"
+        version.parent.mkdir(parents=True)
+        version.write_text(self.srv.SERVER_IMPL_VERSION)
+        self.runner = load_thin_runner()
+        self.mcp = self.runner.build_server(self.root)
+        self.handler = self.runner._get_handler()
+        self.addCleanup(self.handler.close)
+        import upgrade_lib
+        upgrade_lib.write_upgrade_lock(self.root, self.srv.SERVER_IMPL_VERSION, self.srv.SERVER_IMPL_VERSION,
+                                       runner_protocol=2, pack_protocol=2)
+        upgrade_lib.update_upgrade_lock(self.root, current_phase="awaiting_memory_validation")
+
+    def snapshot(self):
+        return {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+
+    def test_registered_actual_lint_previews_are_read_only_for_default_and_positional_modes(self):
+        before = self.snapshot()
+        with contextlib.ExitStack() as stack:
+            for name in ("_apply_lifecycle_response_callback", "_lifecycle_context_result", "run_garden",
+                         "_trigger_background_index_refresh_for_paths"):
+                stack.enter_context(patch.object(self.srv, name, side_effect=AssertionError(name)))
+            for name, args in (("wf_prepare_wave", (self.wave_id,)), ("wf_prepare_wave", (self.wave_id, "evaluate")),
+                               ("wf_close_wave", (self.wave_id, "dry_run"))):
+                with self.subTest(name=name, args=args):
+                    result = self.mcp._tool_manager._tools[name].fn(*args)
+                    self.assertTrue(result["data"].get("read_only_preview"), result)
+                    self.assertFalse(result["data"]["publication_applied"])
+                    self.assertNotIn("upgrade_in_progress", [d.get("code") for d in result.get("diagnostics", [])])
+                    self.assertIn("configured_gates", result["data"])
+        self.assertEqual(self.snapshot(), before)
+
+    def test_mutations_unknown_corrupt_and_stale_code_remain_refused(self):
+        before = self.snapshot()
+        for name, mode in (("wf_prepare_wave", "create"), ("wf_prepare_wave", "ready"),
+                           ("wf_close_wave", "apply"), ("wf_close_wave", "evaluate"),
+                           ("wf_prepare_wave", "unknown"), ("wf_pause_wave", "dry_run")):
+            result = self.mcp._tool_manager._tools[name].fn(self.wave_id, mode)
+            self.assertTrue(result["data"].get("upgrade_in_progress"), result)
+        with patch.object(self.handler, "_setup_loaded_identity", {}):
+            result = self.mcp._tool_manager._tools["wf_prepare_wave"].fn(self.wave_id)
+            self.assertTrue(result["data"].get("upgrade_in_progress"), result)
+        path = self.root / ".wavefoundry/upgrade-in-progress.json"
+        path.write_text("{}")
+        result = self.mcp._tool_manager._tools["wf_prepare_wave"].fn(self.wave_id)
+        self.assertTrue(result["data"].get("upgrade_in_progress"), result)
+        path.write_bytes(before[".wavefoundry/upgrade-in-progress.json"])
+        self.assertEqual(self.snapshot(), before)
+
+    def test_alias_uses_core_but_override_with_copied_marker_is_still_guarded(self):
+        from declaration_support import base_declaration
+        ext = self.srv.mcp_tool_extensions
+        with base_declaration(EXTENSION_TOOL_ALIASES={"wf_preview_alias": "wf_prepare_wave"}):
+            mcp = self.runner.build_server(self.root)
+            self.handler = self.runner._get_handler()
+            self.addCleanup(self.handler.close)
+            result = mcp._tool_manager._tools["wf_preview_alias"].fn(self.wave_id, mode="evaluate")
+            self.assertTrue(result["data"].get("read_only_preview"), result)
+        # The main pass excludes replacement names even when wraps copied a
+        # core marker. This is stronger than checking the public tool name.
+        calls = []
+        def replacement(wave_id, mode="dry_run"):
+            calls.append(wave_id)
+            return {"status": "ok", "data": {"replacement_executed": True}}
+        replacement._wf_core_upgrade_preview = self.srv._CORE_PREVIEW_MARKER
+        fake = types.SimpleNamespace(_tool_manager=types.SimpleNamespace(_tools={
+            "wf_prepare_wave": types.SimpleNamespace(fn=replacement)}))
+        self.srv._wrap_upgrade_publication_guard(fake, lambda: self.handler, excluded_previews={"wf_prepare_wave"})
+        result = fake._tool_manager._tools["wf_prepare_wave"].fn(self.wave_id)
+        self.assertEqual(calls, [])
+        self.assertTrue(result["data"].get("upgrade_in_progress"), result)
+
+    def test_no_checkpoint_preserves_ordinary_validation_and_completion(self):
+        (self.root / ".wavefoundry/upgrade-in-progress.json").unlink()
+        with patch.object(self.srv, "run_validate", wraps=self.srv.run_validate) as lint, patch.object(self.srv, "_lifecycle_context_result", wraps=self.srv._lifecycle_context_result) as completion:
+            result = self.mcp._tool_manager._tools["wf_prepare_wave"].fn(self.wave_id)
+        self.assertNotIn("read_only_preview", result["data"])
+        self.assertEqual(lint.call_count, 1)
+        self.assertEqual(lint.call_args.kwargs, {})
+        self.assertEqual(completion.call_count, 1)
+        self.assertTrue((self.root / ".wavefoundry/lifecycle-mutation.lock").is_file())
+
+    def test_existing_identity_matches_and_changed_source_runner_or_version_refuses(self):
+        import contained_files
+        installed = self.srv.SERVER_IMPL_VERSION
+        self.assertTrue(self.srv._upgrade_preview_code_current(self.handler, installed))
+        original = contained_files.read_contained_bytes
+        def changed(root, path, **kwargs):
+            data = original(root, path, **kwargs)
+            return data + b"\n# changed" if Path(path).name == "setup_readiness.py" else data
+        with patch.object(contained_files, "read_contained_bytes", side_effect=changed):
+            self.assertFalse(self.srv._upgrade_preview_code_current(self.handler, installed))
+        with patch.object(self.srv, "_runner_version", "0" * 12):
+            self.assertFalse(self.srv._upgrade_preview_code_current(self.handler, installed))
+        version = self.root / ".wavefoundry/framework/VERSION"
+        version.write_text("x" * 4097)
+        self.assertEqual(self.srv._upgrade_preview_installed_version(self.root), "")
+        if hasattr(os, "mkfifo"):
+            version.unlink()
+            os.mkfifo(version)
+            self.assertEqual(self.srv._upgrade_preview_installed_version(self.root), "")
+
+    def test_close_reports_new_unpublished_secrets_in_same_lint_pass(self):
+        from wave_lint_lib.constants import SCAN_RULES_FRAMEWORK_PATH, SCAN_FINDINGS_PATH
+        rules = self.root / SCAN_RULES_FRAMEWORK_PATH
+        rules.parent.mkdir(parents=True, exist_ok=True)
+        rules.write_text('[[rules]]\nid = "synthetic"\ndescription = "Fixture"\nregex = "FAKEKEY-[A-Z0-9]{12}"\nkeywords = ["fakekey-"]\n')
+        (self.root / "sample.py").write_text('token = "' + 'FAKEKEY-' + 'A' * 12 + '"\n')
+        before = self.snapshot()
+        with patch.object(self.srv, "run_validate", wraps=self.srv.run_validate) as lint:
+            result = self.mcp._tool_manager._tools["wf_close_wave"].fn(self.wave_id)
+        self.assertTrue(result["data"].get("read_only_preview"), result)
+        self.assertEqual(lint.call_count, 1)
+        self.assertTrue(lint.call_args.kwargs["read_only"])
+        self.assertIn("unpublished secrets finding", json.dumps(result))
+        self.assertFalse((self.root / SCAN_FINDINGS_PATH).exists())
+        self.assertEqual(self.snapshot(), before)
+
+    def test_read_only_validation_child_disables_bytecode_and_proof_publication(self):
+        completed = types.SimpleNamespace(returncode=1, stdout="ERROR: [secrets] unpublished finding\n", stderr="")
+        with patch.dict(os.environ, {"PYTHONPYCACHEPREFIX": "untrusted-prefix"}), patch.object(self.srv, "_mcp_subprocess_run", return_value=completed) as child, patch.object(self.srv, "_remember_advisory_lint_proof") as remember:
+            result = self.srv.run_validate(self.root, read_only=True)
+        argv = child.call_args.args[0]
+        self.assertIn("-B", argv)
+        self.assertIn("--read-only", argv)
+        self.assertNotIn("PYTHONPYCACHEPREFIX", child.call_args.kwargs["env"])
+        self.assertEqual(child.call_args.kwargs["env"]["PYTHONDONTWRITEBYTECODE"], "1")
+        remember.assert_not_called()
+        self.assertFalse(result["passed"])
+        self.assertIn("[secrets]", result["errors"][0])
+
+
 class RunValidateTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -4189,6 +4331,48 @@ class LocalUserReviewEventTests(unittest.TestCase):
         args.update(extra)
         return self.tool.fn(**args)
 
+    def _set_record_local_account(self, value):
+        path = self.root / "docs/workflow-config.json"
+        config = json.loads(path.read_text())
+        config.setdefault("wave_review", {"enabled": False, "delivery_mode": "disabled"})["record_local_account"] = value
+        path.write_text(json.dumps(config))
+
+    def test_disabled_account_omits_lookup_and_metadata_but_preserves_replay(self):
+        self._set_record_local_account(False)
+        with patch.object(self.srv, "resolve_local_user", return_value=({"name": "should-not-appear", "source": "local_os_account"}, "")) as lookup:
+            preview = self.call(mode="dry_run")
+            actual = self.call()
+            lookup.assert_not_called()
+        self.assertEqual(preview["status"], "dry_run", preview)
+        self.assertEqual(actual["status"], "ok", actual)
+        context = actual["data"]["appended_records"][0]["verification_context"]
+        self.assertNotIn("local_user", context)
+        self.assertEqual(context["attested_by"], "Ada")
+        self.assertNotIn("local_user_unresolved", json.dumps(actual))
+        self.assertNotIn("should-not-appear", self.wave_md.read_text() + self.ledger.read_text() + json.dumps(actual))
+        before = self.ledger.read_bytes()
+        self._set_record_local_account(True)
+        with patch.object(self.srv, "resolve_local_user", side_effect=AssertionError("replay lookup")):
+            replay = self.call()
+        self.assertTrue(replay["data"]["replayed"])
+        self.assertEqual(replay["data"]["appended_records"], actual["data"]["appended_records"])
+        self.assertEqual(self.ledger.read_bytes(), before)
+
+    def test_invalid_account_setting_refuses_new_event_and_normalization_preserves_absence(self):
+        import review_policy
+        raw = {"enabled": True, "delivery_mode": "targeted"}
+        self.assertEqual(review_policy.normalize_wave_review_policy(raw), (raw, ()))
+        self.assertNotIn("record_local_account", review_policy.migrate_wave_review_policy(None))
+        self.assertFalse(review_policy.migrate_wave_review_policy({**raw, "record_local_account": False})["record_local_account"])
+        before = self.ledger.read_bytes()
+        for value in (None, 0, 1, "false", [], {}):
+            with self.subTest(value=value):
+                self._set_record_local_account(value)
+                result = self.call()
+                self.assertEqual(result["status"], "error", result)
+                self.assertIn("wave_review.record_local_account must be boolean", json.dumps(result))
+                self.assertEqual(self.ledger.read_bytes(), before)
+
     def test_registered_preview_create_and_replay_preserve_original_account(self):
         local = {"name": "first-account", "source": "local_os_account"}
         operator = {"handle": "alice", "source": "explicit"}
@@ -4210,6 +4394,7 @@ class LocalUserReviewEventTests(unittest.TestCase):
         self.assertEqual(context["attested_by"], "Ada")
         self.assertIn("local account: first&#45;account", self.wave_md.read_text())
         persisted = self.ledger.read_bytes()
+        self._set_record_local_account(False)
         with patch.object(self.srv, "resolve_local_user", side_effect=AssertionError("replay/list account lookup")), \
                 patch.object(self.srv, "resolve_operator", side_effect=AssertionError("replay/list contributor lookup")):
             replay = self.call()
@@ -17012,7 +17197,9 @@ class CloseGateChecklistBypassTests(unittest.TestCase):
             self.assertEqual(Path(fresh.__file__).resolve(),
                              source_path("change_doc_checklist").resolve())
             self.assertIs(sys.modules["lifecycle_gate_support"].change_doc_checklist, fresh)
-            self.assertIs(sys.modules["wave_lint_lib.wave_validators"].change_doc_checklist, fresh)
+            # The lightweight package loads the lint consumer only on demand.
+            from wave_lint_lib import wave_validators
+            self.assertIs(wave_validators.change_doc_checklist, fresh)
             self.assertIs(sys.modules["lifecycle_gate_support"]._CLOSE_GATE_CHECKBOX_LINE_RE,
                           fresh.CHECKLIST_ITEM_RE)
         finally:

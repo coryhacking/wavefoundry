@@ -43,6 +43,13 @@ async def run():
         assert await asyncio.to_thread(started.wait, 2)
         worker, lock, probe, status = tc._startup_worker, tc._lock, tc._probe_lock, tc._status
         generation = tc._generation
+        class HeldModel:
+            pass
+        held = HeldModel()
+        tc.observe_owner('docs_embedding', held, tc.EMBEDDING_MODEL)
+        token = tc.attempt('query_embedding', held)
+        tc.finish_attempt(token, returned=True, accepted=True)
+        scope_before = tc.inference_status_snapshot()['scope']
         tc._pair, tc._cache_until, tc._backoff_until = object(), 1e20, 1e20
         source_path = scripts / 'tensorwell_client.py'
         source = source_path.read_text()
@@ -61,6 +68,21 @@ async def run():
         assert tc._pair is None and tc._cache_until == 0 and tc._backoff_until == 0
         assert tc._lock is lock and tc._probe_lock is probe and tc._status is status
         assert tc._startup_scheduled and tc._startup_worker is worker and worker.is_alive()
+        tc.finish_attempt(token, returned=True, accepted=True)
+        def forbidden(*args, **kwargs):
+            raise AssertionError('status-triggered service work')
+        tc._discovery, tc._cli = forbidden, forbidden
+        content, result = await mcp.call_tool('wf_server_info', {})
+        if result is None:
+            result = json.loads(next(item.text for item in content if item.type == 'text'))
+        info = result['data']['inference']
+        assert info['scope']['pid'] == scope_before['pid']
+        assert info['scope']['observation_started_at'] == scope_before['observation_started_at']
+        assert info['scope']['epoch'] > scope_before['epoch']
+        assert info['roles']['query_embedding']['last_success'] is None
+        assert info['local_models']['docs_embedding']['state'] == 'loaded'
+        del held
+        assert tc.inference_status_snapshot()['local_models']['docs_embedding']['state'] == 'unknown'
         # A mutant resetting the once flag must remain a synthetic worker,
         # never an attempt to run the real service after code is refreshed.
         tc._startup = pending
@@ -155,6 +177,310 @@ class IntegrationTests(unittest.TestCase):
                   for i, path in enumerate(paths)}
         obj._memory_candidate_scores = lambda *args, **kwargs: {"complete": True, "scores": scores}
         return obj
+
+    def test_status_records_all_service_roles_and_selected_without_execution(self):
+        obj = self.memory_index()
+        obj._get_embedder(self.indexer.DOCS_MODEL)
+        obj._agent_rerank("private-query", [])
+        roles = tc.inference_status_snapshot()["roles"]
+        for role in ("query_embedding", "search_reranking"):
+            self.assertEqual(roles[role]["selection"]["provider"], "tensorwell")
+            self.assertIsNone(roles[role]["last_attempt"])
+            self.assertIsNone(roles[role]["last_success"])
+        obj._embed_query("private-query", self.indexer.DOCS_MODEL)
+        self.assertTrue(obj._agent_rerank("private-query", [{"text": "private-document"}]))
+        obj._rerank("private-query", [{"text": "a"}, {"text": "b"}], 1)
+        response = self.srv.memory_search_response(obj.root, query="semantic-only", index=obj)
+        self.assertEqual(response["data"]["retrieval"]["qualification"], "model_relevance")
+        status = self.srv.wf_server_info_response(obj.root)["data"]
+        for role in tc._ROLES:
+            entry = status["inference"]["roles"][role]
+            self.assertEqual(entry["last_attempt"]["provider_outcome"], "returned")
+            self.assertEqual(entry["last_attempt"]["caller_outcome"], "accepted")
+            self.assertEqual(entry["last_success"]["provider"], "tensorwell")
+        encoded = json.dumps({key: status[key] for key in ("inference", "tensorwell")})
+        for private in ("private-query", "private-document", fixtures.TOKEN, str(self.fixture.state)):
+            self.assertNotIn(private, encoded)
+
+    def test_local_status_preserves_compatible_service_and_shared_owned_models(self):
+        import numpy as np
+        class Local:
+            def __init__(self, provider, model):
+                self.provider, self.model_name = provider, model
+            def embed(self, texts):
+                return iter([np.zeros(384, dtype=np.float32)])
+            def rerank(self, query, texts):
+                return [0.0] * len(texts)
+        tc.select_embedder(tc.EMBEDDING_MODEL)
+        compatible = tc.status_snapshot()["availability"]
+        obj = self.memory_index()
+        obj._meta = {"project": {"model_versions": {"docs": "model@int8", "code": "model@int8"}}}
+        embedder = Local("CPUExecutionProvider", self.indexer.DOCS_MODEL)
+        obj._embedders[self.indexer.DOCS_MODEL] = embedder
+        obj._embed_query("raw", self.indexer.DOCS_MODEL)
+        self.assertEqual(tc.status_snapshot()["availability"], compatible)
+        role = tc.inference_status_snapshot()["roles"]["query_embedding"]
+        self.assertEqual(role["selection"]["reason"], "index_precision_mismatch")
+        self.assertEqual(role["last_success"]["provider"], "in_process")
+        # Reranking can be accelerated locally. Memory separately keeps CPU singleton qualification.
+        with patch.dict(os.environ, {"WAVEFOUNDRY_DISABLE_TENSORWELL": "1"}):
+            obj._reranker = Local("CoreMLExecutionProvider", self.indexer.RERANKER_MODEL)
+            self.assertTrue(obj._agent_rerank("q", [{"text": "a"}]))
+            self.assertEqual(tc.inference_status_snapshot()["roles"]["search_reranking"]["last_success"]["accelerator"],
+                             "CoreMLExecutionProvider")
+            cpu = Local("CPUExecutionProvider", self.indexer.RERANKER_MODEL)
+            obj._reranker = cpu
+            response = self.srv.memory_search_response(obj.root, query="semantic-only", index=obj)
+            self.assertEqual(response["data"]["retrieval"]["qualification"], "model_relevance")
+            models = tc.inference_status_snapshot()["local_models"]
+            self.assertEqual(models["search_reranking"]["shared_with"], ["memory_reranking"])
+            self.assertEqual(models["memory_reranking"]["state"], "loaded")
+        obj._meta = {"project": {"model_versions": {"docs": "model@full", "code": "model@full"}}}
+        obj._get_embedder(self.indexer.DOCS_MODEL)
+        self.assertEqual(tc.inference_status_snapshot()["local_models"]["docs_embedding"]["state"], "loaded")
+        self.assertIs(obj._embedders[self.indexer.DOCS_MODEL], embedder)
+
+    def test_provider_return_rejected_by_each_rerank_caller_preserves_success(self):
+        obj = self.memory_index()
+        self.assertTrue(obj._agent_rerank("q", [{"text": "a"}]))
+        self.srv.memory_search_response(obj.root, query="semantic-only", index=obj)
+        successes = {role: tc.inference_status_snapshot()["roles"][role]["last_success"]
+                     for role in ("search_reranking", "memory_reranking")}
+        model = SimpleNamespace(is_tensorwell=True, rerank=lambda query, texts: [-1000.] * len(texts))
+        with patch.object(obj, "_get_reranker", return_value=model):
+            self.assertFalse(obj._agent_rerank("q", [{"text": "a"}]))
+            entry = tc.inference_status_snapshot()["roles"]["search_reranking"]
+            self.assertEqual((entry["last_attempt"]["provider_outcome"], entry["last_attempt"]["caller_outcome"]),
+                             ("returned", "degraded"))
+            model.rerank = lambda query, texts: [object()] * len(texts)
+            candidates = [{"text": "a"}, {"text": "b"}]
+            self.assertEqual(obj._rerank("q", candidates, 1), candidates[:1])
+        model.rerank = lambda query, texts: [True] * len(texts)
+        with patch.object(obj, "_get_memory_reranker", return_value=model):
+            response = self.srv.memory_search_response(obj.root, query="semantic-only", index=obj)
+            self.assertEqual(response["data"]["retrieval"]["method"], "lexical_policy")
+        for role, success in successes.items():
+            entry = tc.inference_status_snapshot()["roles"][role]
+            self.assertEqual(entry["last_success"], success)
+            self.assertEqual(entry["last_attempt"]["reason"], "caller_rejected")
+
+    def test_selected_service_failure_records_no_local_retry_for_all_roles(self):
+        obj = self.memory_index()
+        embedding = tc.select_embedder(self.indexer.DOCS_MODEL)
+        reranking = tc.select_reranker(self.indexer.RERANKER_MODEL)
+        with patch.object(obj, "_get_embedder", return_value=embedding), \
+             patch.object(obj, "_get_reranker", return_value=reranking), \
+             patch.object(obj, "_get_memory_reranker", return_value=reranking), \
+             patch.object(tc, "_http", side_effect=RuntimeError("secret-failure-text")):
+            with self.assertRaises(self.srv.SemanticModelUnavailableOfflineError):
+                obj._embed_query("secret-input", self.indexer.DOCS_MODEL)
+            self.assertFalse(obj._agent_rerank("q", [{"text": "a"}]))
+            response = self.srv.memory_search_response(obj.root, query="semantic-only", index=obj)
+            self.assertEqual(response["data"]["retrieval"]["method"], "lexical_policy")
+        snapshot = tc.inference_status_snapshot()
+        for role in tc._ROLES:
+            entry = snapshot["roles"][role]
+            self.assertEqual(entry["last_attempt"]["provider"], "tensorwell")
+            self.assertEqual(entry["last_attempt"]["provider_outcome"], "failed")
+            self.assertIsNone(entry["last_success"])
+        self.assertNotIn("secret-failure-text", json.dumps(snapshot))
+
+    def test_registered_status_during_inference_is_detached_and_does_no_work(self):
+        runner = support.load_thin_runner()
+        mcp = runner.build_server(self.fixture.home)
+        obj = self.bare_index()
+        started, release = threading.Event(), threading.Event()
+        class Local:
+            def rerank(self, query, texts):
+                started.set()
+                if not release.wait(5):
+                    raise RuntimeError("fixture release missing")
+                return [0.] * len(texts)
+        local = Local()
+        local.provider, local.model_name = "CPUExecutionProvider", self.indexer.RERANKER_MODEL
+        obj._reranker = local
+        with patch.dict(os.environ, {"WAVEFOUNDRY_DISABLE_TENSORWELL": "1"}):
+            worker = threading.Thread(target=obj._agent_rerank, args=("q", [{"text": "a"}]))
+            worker.start()
+            try:
+                self.assertTrue(started.wait(3))
+                tc._probe_lock.acquire()
+                obj._reranker_lock.acquire()
+                try:
+                    with contextlib.ExitStack() as stack:
+                        traps = [stack.enter_context(patch.object(tc, name, side_effect=AssertionError("status work")))
+                                 for name in ("_discovery", "_http", "_cli", "start_background", "select_embedder", "select_reranker", "attempt")]
+                        traps.extend(stack.enter_context(patch.object(self.srv.WaveIndex, name,
+                                     side_effect=AssertionError("status model getter")))
+                                     for name in ("_get_embedder", "_get_reranker", "_get_memory_reranker"))
+                        async def call():
+                            content, result = await asyncio.wait_for(mcp.call_tool("wf_server_info", {}), 3)
+                            return result or json.loads(next(item.text for item in content if item.type == "text"))
+                        result = asyncio.run(call())
+                        self.assertEqual(result["status"], "ok", result)
+                        entry = result["data"]["inference"]["roles"]["search_reranking"]
+                        self.assertEqual(entry["last_attempt"]["provider_outcome"], "running")
+                        self.assertFalse(release.is_set())
+                        for trap in traps:
+                            trap.assert_not_called()
+                finally:
+                    obj._reranker_lock.release()
+                    tc._probe_lock.release()
+            finally:
+                release.set()
+                worker.join(3)
+                self.assertFalse(worker.is_alive())
+
+    def test_registered_status_compatible_unused_and_blocked_construction(self):
+        import accel_embedder
+        runner = support.load_thin_runner()
+        mcp = runner.build_server(self.fixture.home)
+        tc.select_embedder(self.indexer.DOCS_MODEL)
+        async def call():
+            content, result = await asyncio.wait_for(mcp.call_tool("wf_server_info", {}), 3)
+            return result or json.loads(next(item.text for item in content if item.type == "text"))
+        unused = asyncio.run(call())["data"]
+        self.assertEqual(unused["tensorwell"]["availability"]["state"], "ready_compatible")
+        for row in unused["inference"]["roles"].values():
+            self.assertIsNone(row["last_attempt"])
+            self.assertIsNone(row["last_success"])
+        obj = self.bare_index()
+        started, release = threading.Event(), threading.Event()
+        class Local:
+            pass
+        local = Local()
+        local.provider, local.model_name = "CPUExecutionProvider", self.indexer.RERANKER_MODEL
+        def building(*args):
+            started.set()
+            if not release.wait(5):
+                raise AssertionError("missing build release")
+            return local
+        with patch.object(tc, "select_reranker", return_value=None), \
+             patch.object(accel_embedder, "StaticShapeReranker", side_effect=building) as build:
+            worker = threading.Thread(target=obj._get_memory_reranker)
+            worker.start()
+            try:
+                self.assertTrue(started.wait(3))
+                result = asyncio.run(call())
+                self.assertEqual(result["data"]["inference"]["local_models"]["memory_reranking"]["state"], "unknown")
+                self.assertFalse(release.is_set())
+                self.assertEqual(build.call_count, 1)
+            finally:
+                release.set()
+                worker.join(3)
+                self.assertFalse(worker.is_alive())
+        self.assertEqual(tc.inference_status_snapshot()["local_models"]["memory_reranking"]["state"], "loaded")
+
+    def test_registered_expired_cache_contention_reports_each_local_selection_reason(self):
+        runner = support.load_thin_runner()
+        mcp = runner.build_server(self.fixture.home)
+        self.assertIsNotNone(tc.select_reranker(tc.RERANKER_MODEL))
+        obj = self.bare_index()
+        class Local:
+            pass
+        embedder, reranker = Local(), Local()
+        embedder.provider, embedder.model_name = "CPUExecutionProvider", tc.EMBEDDING_MODEL
+        reranker.provider, reranker.model_name = "CPUExecutionProvider", tc.RERANKER_MODEL
+        obj._embedders[self.indexer.DOCS_MODEL] = embedder
+        obj._reranker = reranker
+        # Exercise the unchanged five-second cache and two-second discovery deadline.
+        time.sleep(tc.CACHE_SECONDS + 0.05)
+        started, release = threading.Event(), threading.Event()
+        original = tc._discovery
+        def held(deadline):
+            started.set()
+            if not release.wait(8):
+                raise AssertionError("fixture discovery release missing")
+            return original(deadline)
+        chosen, errors = {}, []
+        def select(role, getter):
+            try:
+                chosen[role] = getter()
+            except Exception as exc:
+                errors.append(type(exc).__name__)
+        with patch.object(tc, "_discovery", side_effect=held):
+            discovery = threading.Thread(target=tc._qualified_pair)
+            discovery.start()
+            workers = []
+            try:
+                self.assertTrue(started.wait(3))
+                for role, getter in (("query_embedding", lambda: obj._get_embedder(self.indexer.DOCS_MODEL)),
+                                     ("search_reranking", obj._get_reranker),
+                                     ("memory_reranking", obj._get_memory_reranker)):
+                    thread = threading.Thread(target=select, args=(role, getter))
+                    thread.start()
+                    workers.append(thread)
+                for thread in workers:
+                    thread.join(tc.DISCOVERY_SECONDS + 3)
+                    self.assertFalse(thread.is_alive())
+                self.assertEqual(errors, [])
+                self.assertIs(chosen["query_embedding"], embedder)
+                self.assertIs(chosen["search_reranking"], reranker)
+                self.assertIs(chosen["memory_reranking"], reranker)
+                async def status():
+                    content, result = await mcp.call_tool("wf_server_info", {})
+                    return result or json.loads(next(item.text for item in content if item.type == "text"))
+                data = asyncio.run(status())["data"]
+                for role in tc._ROLES:
+                    row = data["inference"]["roles"][role]
+                    self.assertEqual(row["selection"]["provider"], "in_process")
+                    self.assertEqual(row["selection"]["reason"], "discovery_contended")
+                    self.assertIsNone(row["last_attempt"])
+                self.assertEqual(data["tensorwell"]["availability"]["state"], "ready_compatible")
+                self.assertTrue(data["tensorwell"]["availability"]["stale"])
+                self.assertFalse(release.is_set())
+            finally:
+                release.set()
+                discovery.join(3)
+                for thread in workers:
+                    thread.join(3)
+
+    def test_overlapping_selection_does_not_replace_another_invocations_reason(self):
+        class Local:
+            pass
+        for role, selector in (("query_embedding", "select_embedder"),
+                               ("search_reranking", "select_reranker"),
+                               ("memory_reranking", "select_reranker")):
+            with self.subTest(role=role):
+                obj = self.bare_index()
+                local = Local()
+                local.provider = "CPUExecutionProvider"
+                local.model_name = tc.EMBEDDING_MODEL if role == "query_embedding" else tc.RERANKER_MODEL
+                obj._embedders[self.indexer.DOCS_MODEL] = local
+                obj._reranker = local
+                original = getattr(tc, selector)
+                returned, release = threading.Event(), threading.Event()
+                def waiting(*args, **kwargs):
+                    model = original(*args, **kwargs)
+                    if threading.current_thread().name == "first-selector":
+                        returned.set()
+                        if not release.wait(3):
+                            raise AssertionError("first selector release missing")
+                    return model
+                getter = (lambda: obj._get_embedder(self.indexer.DOCS_MODEL)) if role == "query_embedding" else (
+                    obj._get_reranker if role == "search_reranking" else obj._get_memory_reranker)
+                chosen = []
+                tc._probe_lock.acquire()
+                with patch.object(tc, "DISCOVERY_SECONDS", 0.04), patch.object(tc, selector, side_effect=waiting):
+                    worker = threading.Thread(name="first-selector", target=lambda: chosen.append(getter()))
+                    worker.start()
+                    try:
+                        self.assertTrue(returned.wait(3))
+                        second = {}
+                        with patch.dict(os.environ, {"WAVEFOUNDRY_DISABLE_TENSORWELL": "1"}):
+                            self.assertIsNone(getattr(tc, selector)(local.model_name, diagnostic=second))
+                        self.assertEqual(second["reason"], "disabled")
+                        self.assertEqual(tc.status_snapshot()["reason"], "disabled")
+                        release.set()
+                        worker.join(3)
+                        self.assertFalse(worker.is_alive())
+                        self.assertEqual(chosen, [local])
+                        selection = tc.inference_status_snapshot()["roles"][role]["selection"]
+                        self.assertEqual(selection["reason"], "discovery_contended")
+                    finally:
+                        release.set()
+                        tc._probe_lock.release()
+                        worker.join(3)
 
     def test_all_query_models_use_service_without_local_construction(self):
         import accel_embedder

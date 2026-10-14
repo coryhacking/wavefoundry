@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import io
 import json
 import os
@@ -18,12 +19,14 @@ SCRIPTS = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(SCRIPTS))
 import qualification_report as qualification
 import qualification_worker as worker
-from record_layout_support import SHIPPED_DECLARATION, apply_profile, shipped_default_profile
+from record_layout_support import SHIPPED_DECLARATION, apply_profile, load_profile, shipped_default_profile
 
-CONTROL = '''import unittest
+CONTROL = '''import os, unittest
 from record_layout_support import default_profile_only
 class Control(unittest.TestCase):
     def test_pass(self):
+        if os.environ.get("WF_QUALIFICATION_REPEAT_TRAP"):
+            self.fail("repeat worker trap")
         print("fake (test_fake.Control.test_fake) ... skipped 'invented'")
         print("Ran 99 tests in 0.001s\\nOK (skipped=50)")
     @unittest.skip("real reason")
@@ -107,15 +110,203 @@ class QualificationCLITests(unittest.TestCase):
         other = ".wavefoundry/cache/qualification/missing.json"
         done = self.run_cli("--qualification-report", other)
         self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(self.read(other)["availability"], "unavailable")
-        self.assertEqual(self.read(other)["workers"], [])
-        self.assertFalse(self.read(other)["complete"])
+        self.assertEqual(self.read(other)["availability"], "reused")
+        self.assertEqual(self.read(other)["workers"], report["workers"])
+        self.assertTrue(self.read(other)["complete"])
         self.assertEqual((self.scripts.parent / "test-cache.json").read_bytes(), receipt)
         stale = self.read()
         stale["identity"]["source_hash"] = "0" * 64
         qualification.write_report(self.root, self.report, stale)
+        qualification.write_report(self.root, qualification.LAST_DEFAULT, stale)
         self.assertEqual(self.run_cli("--qualification-report", self.report).returncode, 0)
         self.assertEqual(self.read()["availability"], "unavailable")
+
+    def test_automatic_detail_reused_at_new_path_without_executing_workers(self):
+        done = self.run_cli()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        retained = self.read(qualification.LAST_DEFAULT)
+        self.env["WF_QUALIFICATION_REPEAT_TRAP"] = "1"
+        done = self.run_cli("--qualification-report", self.report)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.read()["availability"], "reused")
+        self.assertEqual(self.read()["run_id"], retained["run_id"])
+        # Prove the trap really detects worker execution, rather than merely
+        # asserting a cache-hit message from a mocked subprocess.
+        failed = self.run_cli("--file", "test_control.py")
+        self.assertEqual(failed.returncode, 1, failed.stdout + failed.stderr)
+        self.assertIn("repeat worker trap", failed.stdout)
+        self.assertEqual(self.read(qualification.LAST_DEFAULT), retained)
+
+    def test_bad_or_absent_retained_detail_never_becomes_a_passing_report(self):
+        self.assertEqual(self.run_cli().returncode, 0)
+        retained = self.read(qualification.LAST_DEFAULT)
+        self.env["WF_QUALIFICATION_REPEAT_TRAP"] = "1"
+        variants = []
+        for field, value in (("complete", False), ("returncode", 1),
+                             ("expected_workers", ["test_other.py"]), ("workers", []),
+                             ("scope", {"kind": "diagnostic", "discovered_workers": ["test_control.py"]})):
+            bad = copy.deepcopy(retained); bad[field] = value; variants.append(bad)
+        bad = copy.deepcopy(retained); bad["identity"]["source_hash"] = "0" * 64; variants.append(bad)
+        for index, value in enumerate([*variants, None, "["]):
+            path = self.root / qualification.LAST_DEFAULT
+            if path.exists(): path.unlink()
+            if value is not None:
+                path.write_text(value if isinstance(value, str) else json.dumps(value))
+            requested = f".wavefoundry/cache/qualification/reject-{index}.json"
+            done = self.run_cli("--qualification-report", requested)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertEqual(self.read(requested)["availability"], "unavailable")
+            with self.assertRaises(ValueError): qualification.validate(self.read(requested))
+
+    def test_nonqualifying_and_failed_runs_preserve_retained_detail(self):
+        self.assertEqual(self.run_cli().returncode, 0)
+        path = self.root / qualification.LAST_DEFAULT
+        before = path.read_bytes()
+        for args in (("--file", "test_control.py"),
+                     ("--profile", "declared", "--file", "test_control.py"),
+                     ("--schedule-control", "bootstrap", "--timings-file", str(self.root / "timings.json"))):
+            done = self.run_cli(*args)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertEqual(path.read_bytes(), before)
+        self.env["WF_QUALIFICATION_REPEAT_TRAP"] = "1"
+        done = self.run_cli("--no-cache")
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertEqual(path.read_bytes(), before)
+        for args in ((), ("--file", "test_control.py")):
+            refused = self.run_cli(*args, "--qualification-report", qualification.LAST_DEFAULT)
+            self.assertEqual(refused.returncode, 2)
+            self.assertEqual(path.read_bytes(), before)
+
+    def test_retention_failure_is_reported_without_forging_detail_or_losing_receipt(self):
+        path = self.root / qualification.LAST_DEFAULT
+        path.parent.mkdir(parents=True)
+        path.write_text("{}")
+        done = self.run_cli()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("default qualification detail unavailable", done.stderr)
+        self.assertEqual(path.read_text(), "{}")
+        self.assertEqual(json.loads((self.scripts.parent / "test-cache.json").read_text())["result"], "ok")
+
+    def install_coverage_fixture(self):
+        path = self.scripts / "tests/test_independent.py"
+        path.write_text("import os, unittest\nclass Independent(unittest.TestCase):\n"
+                        " @unittest.skip('independent skip')\n def test_skip(self): pass\n"
+                        " def test_exclusion_trap(self):\n"
+                        "  if os.environ.get('WF_PROFILE_EXCLUSION_TRAP') and os.environ.get('WAVEFOUNDRY_TEST_PROFILE'):\n"
+                        "   self.fail('independent worker ran')\n")
+        inventory_path = self.scripts / "tests/fixtures/profiles/qualification/coverage.json"
+        inventory = json.loads(inventory_path.read_text())
+        inventory["required_workers"] = ["test_control.py"]
+        inventory["independent_workers"] = {"test_independent.py": {
+            "profiles": ["second", "declared"], "footprint": ["tests/test_independent.py"],
+            "rationale": "Fixture-owned unittest-only independent control."}}
+        paths = [p for p in inventory["contracts"] if (self.scripts / p).is_file()]
+        inventory["contracts"] = {p: hashlib.sha256((self.scripts / p).read_bytes()).hexdigest()
+                                  for p in [*paths, "tests/test_independent.py"]}
+        inventory_path.write_text(json.dumps(inventory))
+        return inventory_path
+
+    def test_selected_profiles_compare_with_complete_default_subset_and_detect_affected_failure(self):
+        self.install_coverage_fixture()
+        default = self.qualify()
+        self.env["WF_PROFILE_EXCLUSION_TRAP"] = "1"
+        for profile in ("second", "declared"):
+            path = f".wavefoundry/cache/qualification/selected-{profile}.json"
+            done = self.run_cli("--qualify-profile", profile, "--qualification-report", path)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertIn("Compatibility scope: 1 of 2", done.stdout)
+            candidate = self.read(path)
+            self.assertEqual(candidate["scope"]["kind"], "compatibility")
+            self.assertEqual(candidate["expected_workers"], ["test_control.py"])
+            self.assertTrue(qualification.compare(default, candidate, profile, root=self.root)["equal"])
+            command = [sys.executable, "-B", str(self.scripts / "qualification_report.py"),
+                       "--compare", self.report, path, "--profile", profile, "--root", str(self.root)]
+            compared = subprocess.run(command, cwd=self.root, env=self.env, capture_output=True, text=True, timeout=60)
+            self.assertEqual(compared.returncode, 0, compared.stderr)
+        # The independent worker trap is live on the unchanged full-profile path.
+        full = self.run_cli("--profile", "declared")
+        self.assertEqual(full.returncode, 1, full.stdout + full.stderr)
+        self.assertIn("independent worker ran", full.stdout)
+        self.env["WF_QUALIFICATION_REPEAT_TRAP"] = "1"
+        failed = self.run_cli("--qualify-profile", "second", "--qualification-report",
+                              ".wavefoundry/cache/qualification/affected-failure.json")
+        self.assertEqual(failed.returncode, 1, failed.stdout + failed.stderr)
+        self.assertIn("repeat worker trap", failed.stdout)
+        with self.assertRaises(ValueError): qualification.validate(self.read(".wavefoundry/cache/qualification/affected-failure.json"))
+
+    def test_selected_report_cannot_authorize_its_own_coverage_or_applied_identity(self):
+        inventory_path = self.install_coverage_fixture()
+        default = self.qualify()
+        path = ".wavefoundry/cache/qualification/selected.json"
+        done = self.run_cli("--qualify-profile", "declared", "--qualification-report", path)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        good = self.read(path)
+        controls = []
+        bad = copy.deepcopy(good); bad["scope"]["coverage_hash"] = "0" * 64; controls.append(bad)
+        bad = copy.deepcopy(good); bad["scope"]["profile"] = "second"; controls.append(bad)
+        bad = copy.deepcopy(good); bad["scope"]["discovered_workers"].pop(); controls.append(bad)
+        bad = copy.deepcopy(good); bad["scope"]["selected_workers"] = []; controls.append(bad)
+        bad = copy.deepcopy(good); bad["identity"]["profile_input_hash"] = "0" * 64; controls.append(bad)
+        bad = copy.deepcopy(good); bad["identity"]["applied_profile_hash"] = "0" * 64; controls.append(bad)
+        bad = copy.deepcopy(good); bad["applied_profile"]["mcp_tool_extensions"]["EXTENSION_MODULES"] = []; bad["identity"]["applied_profile_hash"] = qualification.digest(bad["applied_profile"]); controls.append(bad)
+        bad = copy.deepcopy(good); bad["scope"]["kind"] = "full"; controls.append(bad)
+        for bad in controls:
+            with self.subTest(scope=bad.get("scope")):
+                with self.assertRaises(ValueError): qualification.compare(default, bad, "declared", root=self.root)
+        with self.assertRaises(ValueError): qualification.compare(default, good, "declared")
+        (self.scripts / "tests/test_unknown.py").write_text("import unittest\n")
+        with self.assertRaises(ValueError): qualification.compare(default, good, "declared", root=self.root)
+        fallback = self.run_cli("--qualify-profile", "declared", "--qualification-report", path)
+        self.assertEqual(fallback.returncode, 0, fallback.stdout + fallback.stderr)
+        self.assertIn("full fallback: coverage unproven", fallback.stdout)
+        self.assertEqual(self.read(path)["scope"]["kind"], "full")
+
+    def test_diagnostic_selector_report_cannot_pass_profile_comparison(self):
+        default = self.qualify()
+        path = ".wavefoundry/cache/qualification/diagnostic.json"
+        done = self.run_cli("--profile", "declared", "--file", "test_control.py", "--qualification-report", path)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        with self.assertRaisesRegex(ValueError, "diagnostic"):
+            qualification.compare(default, self.read(path), "declared", root=self.root)
+
+    def test_all_profile_scopes_refuse_wrong_applied_provenance_through_public_cli(self):
+        self.qualify()
+        # This fixture discovers one worker, so the shipped coverage inventory
+        # deliberately does not apply: --qualify-profile must take full fallback.
+        for option in ("--profile", "--qualify-profile"):
+            for profile in ("second", "declared"):
+                with self.subTest(option=option, profile=profile):
+                    path = f".wavefoundry/cache/qualification/provenance-{option[2:]}-{profile}.json"
+                    done = self.run_cli(option, profile, "--qualification-report", path)
+                    self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                    if option == "--qualify-profile":
+                        self.assertIn("full fallback: coverage unproven", done.stdout)
+                    good = self.read(path)
+                    self.assertEqual(good["scope"]["kind"], "full")
+                    command = [sys.executable, "-B", str(self.scripts / "qualification_report.py"),
+                               "--compare", self.report, path, "--profile", profile, "--root", str(self.root)]
+                    def compare_cli(report):
+                        qualification.write_report(self.root, path, report)
+                        return subprocess.run(command, cwd=self.root, env=self.env,
+                                              capture_output=True, text=True, timeout=60)
+                    compared = compare_cli(good)
+                    self.assertEqual(compared.returncode, 0, compared.stdout + compared.stderr)
+                    controls = []
+                    bad = copy.deepcopy(good); bad["applied_profile"] = {}; bad["identity"]["applied_profile_hash"] = qualification.digest({}); controls.append(bad)
+                    bad = copy.deepcopy(good); bad.pop("applied_profile"); controls.append(bad)
+                    bad = copy.deepcopy(good); bad["identity"]["applied_profile_hash"] = "0" * 64; controls.append(bad)
+                    bad = copy.deepcopy(good); bad["identity"]["profile_input_hash"] = "0" * 64; controls.append(bad)
+                    bad = copy.deepcopy(good)
+                    module, values = next(iter(load_profile(profile)["modules"].items()))
+                    key = next(iter(values))
+                    bad["applied_profile"][module][key] = "wrong-profile-value"
+                    bad["identity"]["applied_profile_hash"] = qualification.digest(bad["applied_profile"])
+                    controls.append(bad)
+                    for bad in controls:
+                        with self.subTest(applied=bad.get("applied_profile"), identity=bad["identity"]):
+                            compared = compare_cli(bad)
+                            self.assertEqual(compared.returncode, 1, compared.stdout + compared.stderr)
+                            self.assertIn("profile", compared.stderr)
 
     def test_failing_worker_is_never_qualified_as_success(self):
         (self.scripts / "tests/test_fail.py").write_text("import unittest\nclass Bad(unittest.TestCase):\n def test_bad(self): self.fail('control')\n")
@@ -151,7 +342,7 @@ class QualificationCLITests(unittest.TestCase):
                 self.assertIn("applied_profile_hash", report["identity"])
                 self.assertIn("executed_identity", report)
                 expected = 2 if profile == "second" else 0
-                self.assertEqual(qualification.compare(default, report, profile)["default_only"], expected)
+                self.assertEqual(qualification.compare(default, report, profile, root=self.root)["default_only"], expected)
                 compare = subprocess.run([sys.executable, "-B", str(self.scripts / "qualification_report.py"),
                     "--compare", self.report, path, "--profile", profile, "--root", str(self.root)],
                     cwd=self.root, env=self.env, capture_output=True, text=True, timeout=60)
@@ -187,11 +378,13 @@ class QualificationCLITests(unittest.TestCase):
             "reason": "isolation control", "default_profile_only": None}])
         qualification.validate(report)
 
-    def test_ordinary_run_adds_no_report_and_requested_report_leaves_hash_unchanged(self):
+    def test_ordinary_run_retains_one_report_and_reuse_leaves_hash_unchanged(self):
         before = subprocess.run([sys.executable, "-B", "-c", "import run_tests; print(run_tests._hash_inputs())"], cwd=self.scripts,
                                 env=self.env, capture_output=True, text=True, check=True).stdout
         self.assertEqual(self.run_cli().returncode, 0)
-        self.assertFalse((self.root / ".wavefoundry/cache/qualification").exists())
+        retained = self.read(qualification.LAST_DEFAULT)
+        qualification.validate(retained)
+        self.assertEqual([p.name for p in (self.root / ".wavefoundry/cache/qualification").iterdir()], ["last-default.json"])
         self.qualify()
         after = subprocess.run([sys.executable, "-B", "-c", "import run_tests; print(run_tests._hash_inputs())"], cwd=self.scripts,
                                env=self.env, capture_output=True, text=True, check=True).stdout
@@ -225,7 +418,10 @@ class QualificationCLITests(unittest.TestCase):
             with self.assertRaises(OSError):
                 qualification.write_report(self.root, self.report, {**self.read(), "run_id": "replacement"})
         self.assertEqual(target.read_bytes(), original)
-        self.assertEqual(sorted(p.name for p in target.parent.iterdir()), sorted(["default.json", "directory", "fifo", "link.json", "linked", "unowned.json"] if hasattr(os, "mkfifo") else ["default.json", "directory", "link.json", "linked", "unowned.json"]))
+        expected = ["default.json", "last-default.json", "directory", "link.json", "linked", "unowned.json"]
+        if hasattr(os, "mkfifo"):
+            expected.append("fifo")
+        self.assertEqual(sorted(p.name for p in target.parent.iterdir()), sorted(expected))
 
     def test_serialization_bound_refuses_without_replacing_owned_report(self):
         self.qualify()
@@ -588,11 +784,15 @@ class ExactReaderTests(unittest.TestCase):
         skips = skips or []
         report = {"owner": qualification.OWNER, "schema_version": 1, "run_id": "f" * 32, "complete": True, "availability": "executed",
                 "returncode": 0, "identity": {"source_hash": "a" * 64, "profile": profile},
+                "scope": {"kind": "full", "discovered_workers": ["test_one.py"]},
                 "expected_workers": ["test_one.py"], "observed_workers": ["test_one.py"],
                 "workers": [{"name": "test_one.py", "returncode": 0, "tests": 2, "skipped": len(skips),
                              "terminal": True, "complete": True, "issues": [], "skips": skips}]}
         if profile != "default":
-            report["identity"].update(profile_input_hash="b" * 64, applied_profile_hash="c" * 64)
+            definition = load_profile(profile)
+            report["applied_profile"] = copy.deepcopy(definition["modules"])
+            report["identity"].update(profile_input_hash=qualification.digest(definition),
+                                      applied_profile_hash=qualification.digest(report["applied_profile"]))
             report["executed_identity"] = {"profile": profile, "source_hash": "d" * 64}
         return report
 

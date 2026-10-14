@@ -41,6 +41,10 @@ class UpgradeProtocolTests(unittest.TestCase):
             target = fw / "scripts" / source.relative_to(SCRIPTS)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
+        # The flat-script helper omits packages other than wf_server. Status
+        # consumers also need this lightweight package in the feature fixture.
+        shutil.copytree(SCRIPTS / "wave_lint_lib", fw / "scripts" / "wave_lint_lib",
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         (fw / "VERSION").write_text("1.15.0+test\n", encoding="utf-8")
         return build_pack.build_zip(
             root,

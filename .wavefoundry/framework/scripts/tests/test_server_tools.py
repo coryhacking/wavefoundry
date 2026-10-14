@@ -1043,6 +1043,13 @@ class GuidedContractTests(unittest.TestCase):
             self.assertIn("server_runner_version", result["data"])
             self.assertIn("server_impl_version", result["data"])
             self.assertIn("impl_matches_disk", result["data"])
+            self.assertIn("availability", result["data"]["tensorwell"])
+            for key in ("backend", "reason", "startup", "profiles"):
+                self.assertIn(key, result["data"]["tensorwell"])
+            inference = result["data"]["inference"]
+            self.assertEqual(set(inference["roles"]), {"query_embedding", "search_reranking", "memory_reranking"})
+            self.assertEqual(inference["scope"]["pid"], os.getpid())
+            self.assertEqual(inference["scope"]["other_processes"], "not_observed")
             self.assertEqual(result["data"]["server_runner_version"], runner.SERVER_RUNNER_VERSION)
             self.assertEqual(result["data"]["server_impl_version"], self.srv.SERVER_IMPL_VERSION)
             # Runner files unchanged on disk: the query-time hash matches launch, not stale.

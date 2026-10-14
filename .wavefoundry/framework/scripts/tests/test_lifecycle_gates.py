@@ -208,6 +208,7 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
         expected = {
             "lifecycle_mutation_locked", "lifecycle_lock_unavailable",
             "upgrade_in_progress", "project_publication_busy", "unknown_arguments",
+            "upgrade_preview_unavailable",
             # Wave 1zls7 (1zlts): a same-thread re-entry of the lifecycle lock.
             "lifecycle_lock_reentry",
             # Wave 1zoju (1zodw): the final render pass turns an exception no

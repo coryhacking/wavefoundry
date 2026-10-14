@@ -4,6 +4,7 @@ from __future__ import annotations
 import contextlib
 import copy
 import hashlib
+import importlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -52,6 +53,14 @@ class ClientTests(unittest.TestCase):
         for key, value in (("_pair", None), ("_cache_until", 0), ("_backoff_until", 0), ("_startup_scheduled", False), ("_startup_worker", None)):
             self.enterContext(patch.object(tc, key, value))
         self.enterContext(patch.object(tc, "_status", {"backend": "local", "reason": "not_checked", "startup": "not_scheduled", "profiles": []}))
+        self.enterContext(patch.object(tc, "_roles", {role: {"selection": None, "last_attempt": None, "last_success": None}
+                                                    for role in tc._ROLES}))
+        self.enterContext(patch.object(tc, "_owners", {slot: {"ref": None, "complete": True, "model": None}
+                                                     for slot in tc._OWNER_SLOTS}))
+        self.enterContext(patch.object(tc, "_availability", {"state": "not_checked", "reason": "not_checked",
+                                                           "observed_at": None, "observed_monotonic": None}))
+        self.enterContext(patch.object(tc, "_process_pid", os.getpid()))
+        self.enterContext(patch.object(tc, "_sequence", 0))
         self.models = [descriptor("embedding"), descriptor("reranking")]
         self.requests = []
         self.reply = None
@@ -374,6 +383,129 @@ class ClientTests(unittest.TestCase):
             release.set()
             thread.join(1)
             cli.assert_not_called()
+
+    def test_availability_observation_is_not_selection_or_execution(self):
+        initial = tc.status_snapshot()
+        self.assertEqual(initial["availability"]["state"], "not_checked")
+        self.assertIsNone(initial["availability"]["observed_at"])
+        self.fake_ready()
+        model = tc.select_embedder(tc.EMBEDDING_MODEL)
+        first = tc.status_snapshot()
+        self.assertEqual(first["reason"], "qualified_pair")
+        self.assertEqual(first["availability"]["state"], "ready_compatible")
+        self.assertIn("Both pinned models", first["availability"]["detail"])
+        tc.observe_selection("query_embedding", model, "qualified_pair")
+        self.assertIsNone(tc.inference_status_snapshot()["roles"]["query_embedding"]["last_success"])
+        self.assertIs(tc._qualified_pair(), model._pair)
+        self.assertEqual(tc.status_snapshot()["availability"]["observed_at"], first["availability"]["observed_at"])
+        with patch.object(tc.time, "monotonic", return_value=tc._availability["observed_monotonic"] + tc.CACHE_SECONDS):
+            self.assertTrue(tc.status_snapshot()["availability"]["stale"])
+        # Precision exclusion is a local routing reason, not a failed service check.
+        self.assertIsNone(tc.select_embedder(tc.EMBEDDING_MODEL, "int8"))
+        self.assertEqual(tc.status_snapshot()["availability"], first["availability"])
+
+    def test_selection_diagnostics_are_invocation_owned_and_keep_model_or_none_api(self):
+        self.fake_ready()
+        reason = {}
+        service = tc.select_embedder(tc.EMBEDDING_MODEL, diagnostic=reason)
+        self.assertIsNotNone(service)
+        self.assertEqual(reason, {"reason": "qualified_pair"})
+        self.assertIsNotNone(tc.select_reranker(tc.RERANKER_MODEL))
+        compatible = tc.status_snapshot()["availability"]
+        for name, precision, expected in (("other", "full", "unsupported_model"),
+                                          (tc.EMBEDDING_MODEL, "int8", "index_precision_mismatch")):
+            reason = {}
+            self.assertIsNone(tc.select_embedder(name, precision, diagnostic=reason))
+            self.assertEqual(reason["reason"], expected)
+        self.assertEqual(tc.status_snapshot()["availability"], compatible)
+        with patch.dict(os.environ, {"WAVEFOUNDRY_DISABLE_TENSORWELL": "1"}):
+            policy = {}
+            self.assertIsNone(tc.select_reranker(tc.RERANKER_MODEL, diagnostic=policy))
+            self.assertEqual(policy["reason"], "disabled")
+        self.assertEqual(reason["reason"], "index_precision_mismatch")
+        for profiles, expected in (([], "incompatible_profiles"), (None, "discovery_unavailable")):
+            tc._pair, tc._cache_until, tc._backoff_until = None, 0, 0
+            self.models = profiles or []
+            first, backed_off = {}, {}
+            with patch.object(tc, "_discovery", side_effect=OSError) if profiles is None else contextlib.nullcontext():
+                self.assertIsNone(tc.select_reranker(tc.RERANKER_MODEL, diagnostic=first))
+            count = len(self.requests)
+            self.assertIsNone(tc.select_reranker(tc.RERANKER_MODEL, diagnostic=backed_off))
+            self.assertEqual(first["reason"], expected)
+            self.assertEqual(backed_off["reason"], "discovery_backoff")
+            self.assertEqual(len(self.requests), count)
+
+    def test_attempt_order_success_provenance_and_detached_snapshots(self):
+        local = SimpleNamespace(provider="CUDAExecutionProvider")
+        service = SimpleNamespace(is_tensorwell=True)
+        old = tc.attempt("search_reranking", local)
+        newer = tc.attempt("search_reranking", service)
+        tc.finish_attempt(newer, returned=False, accepted=False, reason="inference_failed")
+        tc.finish_attempt(old, returned=True, accepted=True)
+        role = tc.inference_status_snapshot()["roles"]["search_reranking"]
+        self.assertEqual(role["last_attempt"]["sequence"], newer[2])
+        self.assertEqual(role["last_attempt"]["provider"], "tensorwell")
+        self.assertEqual(role["last_attempt"]["provider_outcome"], "failed")
+        self.assertEqual(role["last_attempt"]["caller_outcome"], "degraded")
+        self.assertEqual(role["last_attempt"]["reason"], "inference_failed")
+        self.assertEqual(role["last_success"]["provider"], "in_process")
+        self.assertEqual(role["last_success"]["accelerator"], "CUDAExecutionProvider")
+        newest = tc.attempt("search_reranking", service)
+        tc.provider_returned(newest)
+        pending = tc.inference_status_snapshot()["roles"]["search_reranking"]["last_attempt"]
+        self.assertEqual((pending["provider_outcome"], pending["caller_outcome"]), ("returned", "pending"))
+        tc.finish_attempt(newest, returned=True, accepted=True)
+        tc.finish_attempt(old, returned=True, accepted=True)
+        snapshot = tc.inference_status_snapshot()
+        self.assertEqual(snapshot["roles"]["search_reranking"]["last_success"]["sequence"], newest[2])
+        snapshot["roles"]["search_reranking"]["last_success"]["provider"] = "corrupt"
+        snapshot["local_models"]["docs_embedding"]["shared_with"].append("corrupt")
+        self.assertEqual(tc.inference_status_snapshot()["roles"]["search_reranking"]["last_success"]["provider"], "tensorwell")
+        self.assertNotIn("corrupt", tc.inference_status_snapshot()["local_models"]["docs_embedding"]["shared_with"])
+
+    def test_reload_keeps_weak_ownership_but_invalidates_attempts(self):
+        class Model:
+            pass
+        held = Model()
+        tc.observe_owner("docs_embedding", held, tc.EMBEDDING_MODEL)
+        token = tc.attempt("query_embedding", held)
+        before = tc.inference_status_snapshot()
+        with tc.process_hold_guard():
+            importlib.reload(tc)
+        after = tc.inference_status_snapshot()
+        self.assertEqual(after["scope"]["pid"], before["scope"]["pid"])
+        self.assertEqual(after["scope"]["observation_started_at"], before["scope"]["observation_started_at"])
+        self.assertGreater(after["scope"]["epoch"], before["scope"]["epoch"])
+        self.assertEqual(after["local_models"]["docs_embedding"]["state"], "loaded")
+        tc.finish_attempt(token, returned=True, accepted=True)
+        self.assertIsNone(tc.inference_status_snapshot()["roles"]["query_embedding"]["last_success"])
+        del held
+        self.assertEqual(tc.inference_status_snapshot()["local_models"]["docs_embedding"]["state"], "unknown")
+
+    def test_changed_pid_never_adopts_inherited_observations(self):
+        token = tc.attempt("query_embedding", SimpleNamespace(is_tensorwell=True))
+        tc.finish_attempt(token, returned=True, accepted=True)
+        with patch.object(tc.os, "getpid", return_value=tc._process_pid + 1000):
+            snapshot = tc.inference_status_snapshot()
+            self.assertIsNone(snapshot["roles"]["query_embedding"]["last_success"])
+            self.assertTrue(all(row["state"] == "unknown" for row in snapshot["local_models"].values()))
+            self.assertEqual(tc.status_snapshot()["availability"]["reason"], "process_changed")
+            tc.finish_attempt(token, returned=True, accepted=True)
+            self.assertIsNone(tc.inference_status_snapshot()["roles"]["query_embedding"]["last_success"])
+
+    def test_ownership_is_bounded_shared_and_does_not_keep_models_alive(self):
+        class Model:
+            pass
+        model = Model()
+        for slot in ("search_reranking", "memory_reranking"):
+            tc.observe_owner(slot, model, tc.RERANKER_MODEL)
+        snapshot = tc.inference_status_snapshot()["local_models"]
+        self.assertEqual(snapshot["search_reranking"]["shared_with"], ["memory_reranking"])
+        del model
+        self.assertEqual(tc.inference_status_snapshot()["local_models"]["search_reranking"]["state"], "not_loaded")
+        self.assertEqual(len(tc._owners), 4)
+        tc.observe_owner("docs_embedding", object(), tc.EMBEDDING_MODEL)
+        self.assertEqual(tc.inference_status_snapshot()["local_models"]["docs_embedding"]["state"], "unknown")
 
     def test_discovery_contention_within_total_budget(self):
         tc._probe_lock.acquire()

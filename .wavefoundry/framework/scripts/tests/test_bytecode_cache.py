@@ -9,9 +9,11 @@ prefix, warm-up and child rules. AC-7: the close-gate borrow. AC-8: exclusions.
 AC-12: no exported prefix. AC-13: the server reload writes no bytecode. AC-16: the
 upgrade runner members run without ``bytecode_cache``.
 
-Subprocess children run with ``PYTHONDONTWRITEBYTECODE`` and any inherited
-``PYTHONPYCACHEPREFIX`` removed, so a child started by a test worker never writes
-into the real project cache before its own configuration runs.
+Cache-enabled fixture children remove inherited bytecode opt-outs. When no
+explicit prefix is under test, a private per-invocation command-line startup
+prefix contains bootstrap bytecode before framework configuration selects the
+scratch project cache. The prefix is never exported to descendants. Explicit
+prefix and interpreter opt-out controls retain their original startup behavior.
 """
 from __future__ import annotations
 
@@ -87,9 +89,85 @@ def _cached_module_names(prefix: Path, scripts: Path) -> set[str]:
 
 
 def _run(argv: list[str], *, cwd: Path, env: dict | None = None, timeout: float = 240) -> subprocess.CompletedProcess:
-    return subprocess.run(argv, cwd=str(cwd), env=env or _child_env(), capture_output=True,
-                          text=True, encoding="utf-8", errors="replace", timeout=timeout,
-                          stdin=subprocess.DEVNULL)
+    child_env = env if env is not None else _child_env()
+    # Cache-enabled tests must not write a shim cache beside an inherited
+    # canonical-worker bootstrap before their own configure() can run.
+    private_startup = "-B" not in argv and not child_env.get("PYTHONDONTWRITEBYTECODE") and _PREFIX_ENV not in child_env
+    with tempfile.TemporaryDirectory(prefix="wf-test-startup-cache-") if private_startup else contextlib.nullcontext(None) as startup:
+        command = [argv[0], "-X", "pycache_prefix=" + startup, *argv[1:]] if startup else argv
+        return subprocess.run(command, cwd=str(cwd), env=child_env, capture_output=True,
+                              text=True, encoding="utf-8", errors="replace", timeout=timeout,
+                              stdin=subprocess.DEVNULL)
+
+
+class FixtureStartupCacheTests(unittest.TestCase):
+    def test_writable_probe_preserves_nested_guard_and_chain_without_adjacent_cache(self):
+        import test_worker_guard
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            scripts = root / ".wavefoundry/framework/scripts"
+            outer = root / "outer-scripts"
+            for directory in (scripts, outer):
+                (directory / "test_worker_bootstrap").mkdir(parents=True)
+                for relative in ("test_worker_guard.py", "test_worker_bootstrap/sitecustomize.py"):
+                    shutil.copy2(SCRIPTS / relative, directory / relative)
+            shutil.copy2(SCRIPTS / "bytecode_cache.py", scripts / "bytecode_cache.py")
+            (scripts.parent / "VERSION").write_text("9.9.9+fixture\n")
+            custom = root / "custom"
+            custom.mkdir()
+            (custom / "sitecustomize.py").write_text("import sys; sys.fixture_chain_count = getattr(sys, 'fixture_chain_count', 0) + 1\n")
+            protected = [root / "outer-root", root / "inner-root"]
+            for path in protected:
+                (path / "records").mkdir(parents=True)
+            # Own the fixture's path chain; inherited protected-root entries
+            # remain in the marker and are enforced by the copied source guard.
+            env = _child_env(PYTHONPATH=str(custom))
+            with mock.patch.object(test_worker_guard, "__file__", str(outer / "test_worker_guard.py")):
+                env = test_worker_guard.worker_environment(env, protected[0], ["records"])
+            with mock.patch.object(test_worker_guard, "__file__", str(scripts / "test_worker_guard.py")):
+                env = test_worker_guard.worker_environment(env, protected[1], ["records"])
+            code = r"""import json, os, sys
+from pathlib import Path
+startup = sys.pycache_prefix
+sys.path.insert(0, sys.argv[1])
+import bytecode_cache
+chosen = bytecode_cache.configure()
+refused = []
+for name in sys.argv[2:]:
+    try:
+        (Path(name) / 'records/probe.md').write_text('refused fixture write')
+    except PermissionError:
+        refused.append(True)
+    else:
+        refused.append(False)
+print(json.dumps({'startup': bool(startup), 'chosen': chosen, 'refused': refused,
+                  'exported': 'PYTHONPYCACHEPREFIX' in os.environ,
+                  'chain': getattr(sys, 'fixture_chain_count', 0)}))
+"""
+            result = _run([sys.executable, "-c", code, str(scripts), *map(str, protected)], cwd=root, env=env, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            data = json.loads(result.stdout)
+            self.assertTrue(data["startup"])
+            self.assertEqual(data["chosen"], str(root / ".wavefoundry/cache/pycache"))
+            self.assertEqual(data["refused"], [True, True])
+            self.assertFalse(data["exported"])
+            self.assertEqual(data["chain"], 1)
+            for directory in (scripts, outer):
+                self.assertFalse((directory / "test_worker_bootstrap/__pycache__").exists())
+                test_worker_guard._validate_bootstrap(directory / "test_worker_bootstrap")
+            self.assertFalse(any((path / "records/probe.md").exists() for path in protected))
+
+    def test_explicit_prefix_and_interpreter_opt_out_arguments_are_unchanged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for flags, extra in ((["-B"], {}), ([], {"PYTHONDONTWRITEBYTECODE": "1"}),
+                                 ([], {_PREFIX_ENV: str(root / "explicit")})):
+                argv = [sys.executable, *flags, "-c", "pass"]
+                env = _child_env(**extra)
+                with self.subTest(flags=flags, extra=extra), mock.patch.object(subprocess, "run", return_value=object()) as launch:
+                    _run(argv, cwd=root, env=env)
+                self.assertEqual(launch.call_args.args[0], argv)
+                self.assertEqual(launch.call_args.kwargs["env"], env)
 
 
 class _ScratchCase(unittest.TestCase):
@@ -596,11 +674,12 @@ class CallSiteCensusTests(unittest.TestCase):
 
 _PROBE = """\
 import json, sys
+startup_prefix = sys.pycache_prefix
 sys.path.insert(0, sys.argv[1])
 sys.dont_write_bytecode = True
 import bytecode_cache
 result = bytecode_cache.configure(read_only="--read-only" in sys.argv)
-out = {"result": result, "prefix": sys.pycache_prefix, "dont_write": sys.dont_write_bytecode,
+out = {"result": result, "prefix": sys.pycache_prefix, "startup_prefix": startup_prefix, "dont_write": sys.dont_write_bytecode,
        "env": __import__("os").environ.get("PYTHONPYCACHEPREFIX")}
 if len(sys.argv) > 2:
     import probe_mod
@@ -725,7 +804,8 @@ print(json.dumps([first, second, third, sys.pycache_prefix, sys.dont_write_bytec
                 _run([sys.executable, str(self.scripts / "docs_lint.py")], cwd=self.root)
                 self.assertEqual(list(target.rglob("*")), [])
                 state = _probe(self.scripts)
-                self.assertEqual((state["result"], state["prefix"], state["dont_write"]), (None, None, True))
+                self.assertEqual((state["result"], state["prefix"], state["dont_write"]),
+                                 (None, state["startup_prefix"], True))
                 self.assert_no_in_tree_bytecode()
                 if self.cache_root.is_symlink():
                     self.cache_root.unlink()
@@ -1015,6 +1095,46 @@ class WorkerBootstrapSourceTests(unittest.TestCase):
         self.env = _child_env(PYTHONPATH=str(self.bootstrap), PYTHONDONTWRITEBYTECODE="1")
         self.env["WAVEFOUNDRY_TEST_WORKER_PROTECTED_ROOTS"] = json.dumps([
             {"root": str(self.root), "record_dirs": ["records"]}])
+
+    def test_environment_refuses_bootstrap_cache_and_nonregular_source_without_cleanup(self):
+        import test_worker_guard
+        with mock.patch.object(test_worker_guard, "__file__", str(self.guard)):
+            for name in ("__pycache__", "sitecustomize.pyc", "sitecustomize.pyo"):
+                carrier = self.bootstrap / name
+                carrier.write_bytes(b"retained diagnostic")
+                with self.subTest(carrier=name), self.assertRaisesRegex(RuntimeError, "bytecode carrier"):
+                    test_worker_guard.worker_environment(self.env, self.root, ["records"])
+                self.assertEqual(carrier.read_bytes(), b"retained diagnostic")
+                carrier.unlink()
+            carrier = self.bootstrap / "__pycache__"
+            carrier.mkdir()
+            with self.assertRaisesRegex(RuntimeError, "bytecode carrier"):
+                test_worker_guard.worker_environment(self.env, self.root, ["records"])
+            self.assertTrue(carrier.is_dir())
+            carrier.rmdir()
+            source = self.bootstrap / "sitecustomize.py"
+            source.unlink(); source.mkdir()
+            with self.assertRaisesRegex(RuntimeError, "regular source"):
+                test_worker_guard.worker_environment(self.env, self.root, ["records"])
+            self.assertTrue(source.is_dir())
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "symlinks unavailable")
+    def test_environment_refuses_linked_bootstrap_and_inherited_cache(self):
+        import test_worker_guard
+        other = self.root / "other" / "test_worker_bootstrap"
+        other.mkdir(parents=True)
+        (other / "sitecustomize.py").write_text("pass\n")
+        (other / "__pycache__").symlink_to(self.cwd, target_is_directory=True)
+        with mock.patch.object(test_worker_guard, "__file__", str(self.guard)):
+            with self.assertRaisesRegex(RuntimeError, "bytecode carrier"):
+                test_worker_guard.worker_environment({"PYTHONPATH": str(other)}, self.root, ["records"])
+            self.assertTrue((other / "__pycache__").is_symlink())
+            (other / "__pycache__").unlink()
+            shutil.rmtree(self.bootstrap)
+            self.bootstrap.symlink_to(other, target_is_directory=True)
+            with self.assertRaisesRegex(RuntimeError, "regular source"):
+                test_worker_guard.worker_environment({}, self.root, ["records"])
+            self.assertTrue(self.bootstrap.is_symlink())
 
     def test_source_wins_over_adjacent_unchecked_bytecode_even_under_no_write_flags(self):
         marker = self.root / "cached-payload-ran"
@@ -1432,7 +1552,7 @@ import bytecode_cache
 had = "PYTHONPYCACHEPREFIX" in os.environ
 prefix = bytecode_cache.configure()
 import sensor_runner
-result = sensor_runner.run_sensor(sys.argv[2], {"name": "env", "command": [sys.executable, "-c",
+result = sensor_runner.run_sensor(sys.argv[2], {"name": "env", "command": [sys.executable, "-B", "-c",
     "import os; print('PREFIX=' + os.environ.get('PYTHONPYCACHEPREFIX', '<none>'))"]}, timeout_seconds=60)
 print(json.dumps({"had": had, "has": "PYTHONPYCACHEPREFIX" in os.environ, "prefix": prefix,
                   "sensor": result["output_summary"]}))
@@ -1441,13 +1561,20 @@ print(json.dumps({"had": had, "has": "PYTHONPYCACHEPREFIX" in os.environ, "prefi
 
 class NoExportedPrefixTests(_ScratchCase):
     def test_configure_exports_nothing_and_a_sensor_child_gets_no_prefix(self):
-        done = _run([sys.executable, "-c", _EXPORT, str(self.scripts), str(self.root)], cwd=self.root)
+        import test_worker_guard
+        from record_layout_support import waves_rel
+        # Keep inherited root protections, but own the bootstrap source for this
+        # nested sensor probe so its no-bytecode assertion is fixture-local.
+        with mock.patch.object(test_worker_guard, "__file__", str(self.scripts / "test_worker_guard.py")):
+            env = test_worker_guard.worker_environment(_child_env(PYTHONPATH=""), self.root, [waves_rel()])
+        done = _run([sys.executable, "-c", _EXPORT, str(self.scripts), str(self.root)], cwd=self.root, env=env)
         self.assertEqual(done.returncode, 0, done.stderr)
         state = json.loads(done.stdout.strip().splitlines()[-1])
         self.assertEqual(state["prefix"], str(self.prefix))
         self.assertFalse(state["had"])
         self.assertFalse(state["has"])
         self.assertIn("PREFIX=<none>", state["sensor"])
+        self.assert_no_in_tree_bytecode()
 
 
 # ---------------------------------------------------------------------------

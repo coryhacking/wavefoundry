@@ -1,6 +1,8 @@
 """Context-efficiency projection and response ownership."""
 from __future__ import annotations
 
+from wave_lint_lib.constants import OPEN_CONTAINER_STATUSES
+
 import json
 import time
 from contextlib import nullcontext
@@ -316,7 +318,7 @@ def _flush_context_efficiency(
         # actually in — plan while planned/paused (create/prepare boundaries),
         # implement while OPEN, review once the ledger holds a delivery run.
         wave_status = status_match.group(1) if status_match else ""
-        if wave_status in ("active", "implementing"):
+        if wave_status in OPEN_CONTAINER_STATUSES:
             transfer_stage = context_efficiency._derive_open_wave_stage(wave_md.parent)
         else:
             transfer_stage = "plan"

@@ -1,6 +1,8 @@
 """Memory response handlers; lifecycle compositions remain in server_impl."""
 from __future__ import annotations
 
+from wave_lint_lib.constants import OPEN_CONTAINER_STATUSES
+
 import contextlib
 import hashlib
 import json
@@ -444,7 +446,7 @@ def _credit_exploration_avoided_surface(
         # and can surface a readied (planned) wave that sorts ahead of the
         # implementing one (they coexist under the single-OPEN rule).
         wave = next(
-            (w for w in server_impl.list_waves(root) if w.get("status") in ("active", "implementing")),
+            (w for w in server_impl.list_waves(root) if w.get("status") in OPEN_CONTAINER_STATUSES),
             None,
         )
         if not wave:
@@ -1629,6 +1631,9 @@ def _memory_query_records(
     is not proof that a memory answers the question or establishes authority.
     """
     from wf_server import server_impl
+    import tensorwell_client
+    token = None
+    returned = False
     retrieval = {
         "method": "lexical_policy", "qualification": "unavailable",
         "checked_candidate_cap": MEMORY_QUERY_CHECK_CAP, "checked_candidates": 0,
@@ -1685,20 +1690,29 @@ def _memory_query_records(
             if reranker is None:
                 return None, retrieval
             texts = [str(by_id[mid].get("summary") or by_id[mid].get("title") or "") for mid in order]
+            token = tensorwell_client.attempt("memory_reranking", reranker)
             raw = list(reranker.rerank(query, texts))
+            returned = True
+            tensorwell_client.provider_returned(token)
             if len(raw) != len(order) or any(isinstance(value, (bool, str, bytes)) for value in raw):
+                tensorwell_client.finish_attempt(token, returned=True, accepted=False, reason="caller_rejected")
                 return None, retrieval
             values = [float(value) for value in raw]
             if not all(math.isfinite(value) for value in values):
+                tensorwell_client.finish_attempt(token, returned=True, accepted=False, reason="caller_rejected")
                 return None, retrieval
             retrieval["checked_candidates"] = len(order)
             selected = [mid for mid, score in zip(order, values) if score >= MEMORY_QUERY_MIN_LOGIT]
+            tensorwell_client.finish_attempt(token, returned=True, accepted=True)
         else:
             selected = []
         retrieval.update(method="hybrid_rrf", qualification="model_relevance",
                          fallback_reason=None)
         return [by_id[mid] for mid in selected], retrieval
     except Exception:
+        if token is not None:
+            tensorwell_client.finish_attempt(token, returned=returned, accepted=False,
+                reason="caller_rejected" if returned else "inference_failed")
         # Never put query/model exception text into the response. Recovery is
         # the old eligible all-token lexical path, not unchecked dense hits.
         return None, retrieval

@@ -22,6 +22,7 @@ import stat
 import subprocess
 import threading
 import time
+import weakref
 
 EMBEDDING_MODEL = "Snowflake/snowflake-arctic-embed-s"
 RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -93,6 +94,159 @@ _pair: _Pair | None = None
 _cache_until = 0.0
 _backoff_until = 0.0
 
+# Process-local diagnostics. Reload keeps weak ownership observations without
+# keeping a model alive; absence after a reload is deliberately indeterminate.
+_ROLES = ("query_embedding", "search_reranking", "memory_reranking")
+_OWNER_SLOTS = ("docs_embedding", "code_embedding", "search_reranking", "memory_reranking")
+if "_observation_started_at" not in globals():
+    _observation_started_at = time.time()
+if "_process_pid" not in globals():
+    _process_pid = os.getpid()
+if "_owners" not in globals():
+    _owners = {slot: {"ref": None, "complete": _generation == 0, "model": None}
+               for slot in _OWNER_SLOTS}
+else:
+    for _owner in _owners.values():
+        _owner["complete"] = False
+_sequence = 0
+_roles = {role: {"selection": None, "last_attempt": None, "last_success": None}
+          for role in _ROLES}
+_availability = {"state": "not_checked" if _generation == 0 else "unknown",
+                 "reason": "not_checked" if _generation == 0 else "client_reloaded",
+                 "observed_at": None, "observed_monotonic": None}
+
+
+def _observation_process() -> None:
+    """Invalidate inherited telemetry on fork without changing provider routing."""
+    global _process_pid, _observation_started_at, _sequence, _roles, _owners
+    pid = os.getpid()
+    if pid != _process_pid:
+        _process_pid, _observation_started_at, _sequence = pid, time.time(), 0
+        _roles = {role: {"selection": None, "last_attempt": None, "last_success": None} for role in _ROLES}
+        _owners = {slot: {"ref": None, "complete": False, "model": None} for slot in _OWNER_SLOTS}
+        _status.update(backend="local", reason="process_changed", profiles=[])
+        _availability.update(state="unknown", reason="process_changed", observed_at=None, observed_monotonic=None)
+
+
+def _observe_availability(state: str, reason: str) -> None:
+    # Called only at the existing observation boundary, never by status reads.
+    _observation_process()
+    _availability.update(state=state, reason=reason, observed_at=time.time(),
+                         observed_monotonic=time.monotonic())
+
+
+def _provider(model) -> dict:
+    # Read plain instance/class dictionaries, not arbitrary inference properties.
+    try:
+        attrs = vars(model)
+    except TypeError:
+        attrs = {}
+    service = attrs.get("is_tensorwell", vars(type(model)).get("is_tensorwell")) is True
+    accelerator = attrs.get("provider")
+    if not isinstance(accelerator, str) or accelerator not in {"CPUExecutionProvider", "CoreMLExecutionProvider", "CUDAExecutionProvider",
+                           "ROCMExecutionProvider", "DmlExecutionProvider"}:
+        accelerator = "unknown"
+    return {"provider": "tensorwell" if service else "in_process" if model is not None else None,
+            "accelerator": "service_managed" if service else accelerator}
+
+
+def observe_selection(role: str, model, reason: str) -> None:
+    global _sequence
+    with _lock:
+        _observation_process()
+        _sequence += 1
+        _roles[role]["selection"] = {**_provider(model), "reason": reason,
+                                    "at": time.time(), "sequence": _sequence, "epoch": _generation}
+
+
+def attempt(role: str, model) -> tuple:
+    global _sequence
+    with _lock:
+        _observation_process()
+        _sequence += 1
+        provenance = _provider(model)
+        token = (role, _generation, _sequence, provenance, _process_pid)
+        _roles[role]["last_attempt"] = {**provenance, "epoch": _generation,
+            "sequence": _sequence, "started_at": time.time(), "completed_at": None,
+            "provider_outcome": "running", "caller_outcome": "pending", "reason": None}
+        return token
+
+
+def provider_returned(token: tuple) -> None:
+    role, epoch, sequence, _, pid = token
+    with _lock:
+        _observation_process()
+        current = _roles[role]["last_attempt"]
+        if epoch == _generation and pid == _process_pid and current is not None and current["sequence"] == sequence:
+            current["provider_outcome"] = "returned"
+
+
+def finish_attempt(token: tuple, *, returned: bool, accepted: bool, reason: str | None = None) -> None:
+    role, epoch, sequence, start, pid = token
+    with _lock:
+        _observation_process()
+        if epoch != _generation or pid != _process_pid:
+            return
+        current = _roles[role]["last_attempt"]
+        # Latest-started attempt wins, independently of completion ordering.
+        if current is not None and current["sequence"] == sequence:
+            current.update(completed_at=time.time(), provider_outcome="returned" if returned else "failed",
+                           caller_outcome="accepted" if accepted else "degraded", reason=reason)
+        # A success from an older overlapping operation is still useful if no
+        # newer-started accepted operation has been recorded. Its provenance is
+        # carried in the token, rather than copied from the current attempt.
+        success = _roles[role]["last_success"]
+        if accepted and (success is None or sequence > success["sequence"]):
+            # The caller keeps a bounded detached start record in its token.
+            _roles[role]["last_success"] = {**start, "epoch": epoch, "sequence": sequence,
+                                           "completed_at": time.time()}
+
+
+def observe_owner(slot: str, model, model_name: str) -> None:
+    with _lock:
+        _observation_process()
+        owner = _owners[slot]
+        old = owner["ref"]() if owner["ref"] is not None else None
+        if old is not None and old is not model:
+            owner["complete"] = False
+        try:
+            owner["ref"] = weakref.ref(model)
+        except TypeError:
+            owner["ref"] = None
+            owner["complete"] = False
+        owner["model"] = (model_name if model_name in {EMBEDDING_MODEL, RERANKER_MODEL} else "other")
+
+
+def ownership_unknown(slot: str) -> None:
+    """Construction may create sessions before a cache takes ownership."""
+    with _lock:
+        _observation_process()
+        _owners[slot]["complete"] = False
+
+
+def inference_status_snapshot() -> dict:
+    """Detached fixed-size observations; no model, filesystem or service work."""
+    with _lock:
+        _observation_process()
+        models = {}
+        identities = {}
+        live = {slot: owner["ref"]() if owner["ref"] is not None else None
+                for slot, owner in _owners.items()}
+        for slot, owner in _owners.items():
+            model = live[slot]
+            identities[slot] = id(model) if model is not None else None
+            models[slot] = {"state": "loaded" if model is not None else
+                           "not_loaded" if owner["complete"] else "unknown",
+                           "model": owner["model"], "ownership_complete": owner["complete"]}
+        for slot, entry in models.items():
+            entry["shared_with"] = [other for other in _OWNER_SLOTS if other != slot
+                                    and identities[slot] is not None and identities[slot] == identities[other]]
+        return {"scope": {"pid": _process_pid, "observation_started_at": _observation_started_at,
+                          "epoch": _generation, "other_processes": "not_observed"},
+                "roles": {role: {key: dict(value) if value is not None else None
+                                  for key, value in record.items()} for role, record in _roles.items()},
+                "local_models": models}
+
 
 def process_hold_guard():
     """Serialize reload with short state transitions, never discovery I/O."""
@@ -102,12 +256,28 @@ def process_hold_guard():
 def _reason(reason: str) -> None:
     with _lock:
         _status.update(backend="local", reason=reason, profiles=[])
+        state = ("policy_disabled" if reason in {"disabled", "unsupported_host", "provider_policy"}
+                 else "incompatible" if reason == "incompatible_profiles" else "unavailable")
+        _observe_availability(state, reason)
 
 
 def status_snapshot() -> dict:
     """Cached, nonsecret diagnostics only: no discovery, HTTP or CLI calls."""
     with _lock:
-        return {**_status, "profiles": list(_status["profiles"])}
+        _observation_process()
+        observed = _availability["observed_monotonic"]
+        availability = {key: value for key, value in _availability.items() if key != "observed_monotonic"}
+        availability["stale"] = observed is None or time.monotonic() - observed >= CACHE_SECONDS
+        availability["detail"] = ("Both pinned models were compatible at the last readiness/descriptor check."
+                                  if availability["reason"] == "qualified_pair" else
+                                  "Last process-local observation; status does not check the service.")
+        return {**_status, "profiles": list(_status["profiles"]), "availability": availability}
+
+
+def status_bundle_snapshot() -> dict:
+    """Keep availability and inference in the same process/reload snapshot."""
+    with _lock:
+        return {"tensorwell": status_snapshot(), "inference": inference_status_snapshot()}
 
 
 def _truthy(name: str) -> bool:
@@ -289,26 +459,33 @@ def _descriptor(value, task: str) -> bool:
                  if embedding else value.get("dimensions") is None))
 
 
-def _qualified_pair(total_deadline: float | None = None) -> _Pair | None:
+def _selection_result(value, reason: str, diagnostic: dict | None):
+    # Owned by this invocation, never read back from process-global status.
+    if diagnostic is not None:
+        diagnostic["reason"] = reason
+    return value
+
+
+def _qualified_pair(total_deadline: float | None = None, *, diagnostic: dict | None = None) -> _Pair | None:
     global _pair, _cache_until, _backoff_until
     policy = _policy_reason()
     if policy:
         _reason(policy)
-        return None
+        return _selection_result(None, policy, diagnostic)
     # Separate serialization from the status lock: status_snapshot never waits
     # for disk/HTTP discovery running in another thread.
     deadline = time.monotonic() + DISCOVERY_SECONDS
     if total_deadline is not None:
         deadline = min(deadline, total_deadline)
     if not _probe_lock.acquire(timeout=max(0, deadline - time.monotonic())):
-        return None
+        return _selection_result(None, "discovery_contended", diagnostic)
     try:
         now = time.monotonic()
         generation = _generation
         if now < _backoff_until:
-            return None
+            return _selection_result(None, "discovery_backoff", diagnostic)
         if _pair is not None and now < _cache_until:
-            return _pair
+            return _selection_result(_pair, "qualified_pair", diagnostic)
         try:
             # Model-set mappings are code pins, not facts learned from HTTP.
             import model_bundle
@@ -330,21 +507,24 @@ def _qualified_pair(total_deadline: float | None = None) -> _Pair | None:
                         _reason("incompatible_profiles")
                         _pair = None
                         _backoff_until = now + BACKOFF_SECONDS
-                return None
+                        return _selection_result(None, "incompatible_profiles", diagnostic)
+                    return _selection_result(None, "client_reloaded", diagnostic)
             with _lock:
                 if generation != _generation:
-                    return None
+                    return _selection_result(None, "client_reloaded", diagnostic)
                 _pair = _Pair(snapshot, embedding[0], reranking[0], generation)
                 _cache_until = time.monotonic() + CACHE_SECONDS
                 _status.update(backend="tensorwell", reason="qualified_pair", profiles=[embedding[0]["id"], reranking[0]["id"]])
-                return _pair
+                _observe_availability("ready_compatible", "qualified_pair")
+                return _selection_result(_pair, "qualified_pair", diagnostic)
         except Exception:
             with _lock:
                 if generation == _generation:
                     _pair = None
                     _backoff_until = time.monotonic() + BACKOFF_SECONDS
                     _reason("discovery_unavailable")
-            return None
+                    return _selection_result(None, "discovery_unavailable", diagnostic)
+                return _selection_result(None, "client_reloaded", diagnostic)
     finally:
         _probe_lock.release()
 
@@ -457,17 +637,21 @@ class _Adapter:
         return self._operation(texts, query=query)
 
 
-def select_embedder(model_name: str, precision_class: str = "full"):
-    if model_name != EMBEDDING_MODEL or precision_class != "full":
-        return None
-    pair = _qualified_pair()
+def select_embedder(model_name: str, precision_class: str = "full", *, diagnostic: dict | None = None):
+    if model_name != EMBEDDING_MODEL:
+        return _selection_result(None, "unsupported_model", diagnostic)
+    if precision_class != "full":
+        return _selection_result(None, "index_precision_mismatch", diagnostic)
+    pair = _qualified_pair(diagnostic=diagnostic)
     return _Adapter(pair, model_name, "embedding") if pair is not None else None
 
 
-def select_reranker(model_name: str):
-    if model_name != RERANKER_MODEL or _truthy("WAVEFOUNDRY_DISABLE_RERANKER"):
-        return None
-    pair = _qualified_pair()
+def select_reranker(model_name: str, *, diagnostic: dict | None = None):
+    if model_name != RERANKER_MODEL:
+        return _selection_result(None, "unsupported_model", diagnostic)
+    if _truthy("WAVEFOUNDRY_DISABLE_RERANKER"):
+        return _selection_result(None, "reranker_disabled", diagnostic)
+    pair = _qualified_pair(diagnostic=diagnostic)
     return _Adapter(pair, model_name, "reranking") if pair is not None else None
 
 

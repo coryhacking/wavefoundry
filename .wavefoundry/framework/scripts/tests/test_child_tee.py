@@ -538,7 +538,9 @@ class ChildTeeTests(unittest.TestCase):
                       f"pathlib.Path({str(ready)!r}).write_text('ready'); "
                       "deadline=time.monotonic()+30; "
                       "exec('while not release.exists() and time.monotonic()<deadline: time.sleep(.02)'); "
-                      f"pathlib.Path({str(finished)!r}).write_text('finished')")
+                      f"pending=pathlib.Path({str(self.root / 'finished.pending')!r}); "
+                      "pending.write_text('finished'); "
+                      f"pending.replace({str(finished)!r})")
         parent = f"import subprocess,sys; subprocess.Popen([sys.executable,'-c',{descendant!r}]); print('EARLY-PARENT')"
         actual = child_tee.subprocess_util.isolated_popen
         children = []

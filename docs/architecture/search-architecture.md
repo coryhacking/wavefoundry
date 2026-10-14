@@ -14,6 +14,31 @@ scores. Unavailable service selection preserves local inference. Selected-operat
 failures retain the existing explicit embedding-unavailable or rerank-degradation path;
 memory search recovers lexically without constructing a local reranker mid-call.
 
+The existing `wf_server_info` tool reports cached process-local observations in
+`data.inference`, separately from Tensorwell's last compatibility check. Query
+embedding is accepted after service-vector conversion or local iterator consumption.
+Normal reranking observes both the agent sigmoid/boost caller and ordinary
+normalization/sorting caller; memory reranking observes its length, scalar type,
+finite-value and threshold checks. A provider returning output is distinct from
+the caller accepting it. Failed inference or caller rejection records degradation
+without overwriting the last accepted provider or fabricating a local retry.
+Empty candidates can select a provider without executing it. A subsequent unrelated
+retrieval failure does not erase accepted inference evidence.
+Local selection reasons are invocation-owned: discovery contention/deadline and
+backoff are separate from cached service compatibility. Concurrent selection
+outcomes cannot replace the reason carried by an earlier invocation. In particular,
+`discovery_contended` local routing can coexist with stale `ready_compatible`
+availability; no extra discovery or retry is introduced to explain that result.
+
+Latest-started attempt sequence, successful-attempt sequence and reload epoch make
+overlapping/late completions explicit. Reload clears execution observations; old
+completions cannot become current. Local cache ownership is independent of provider
+choice and uses four fixed weak slots, shared-object labels and conservative unknown
+absence after reload. Status does no discovery, construction or inference and
+describes only the reporting MCP process. Provider labels are diagnostic, not
+physical-device or execution attestation. See the
+schema and examples in `docs/specs/mcp-tool-surface.md`, "Cached inference status".
+
 Agents navigating a project through Wavefoundry's MCP server face two distinct retrieval problems:
 
 **Discovery**: "I don't know where this is documented" — finding relevant docs, prompts, or code without knowing the exact filename or keyword. A query like "how do I start a wave?" should surface the prepare-wave prompt even though that doc uses the word "prepare," not "start." Lexical search fails here; semantic similarity handles it.

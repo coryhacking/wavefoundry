@@ -416,6 +416,8 @@ def normalize_wave_review_policy(
     if mode is None and allow_legacy_missing_mode:
         mode = FRESH_INSTALL_DELIVERY_MODE if enabled else "disabled"
     errors: list[str] = []
+    if "record_local_account" in value and not isinstance(value["record_local_account"], bool):
+        errors.append("wave_review.record_local_account must be boolean")
     if mode not in DELIVERY_MODES:
         errors.append(
             "wave_review.delivery_mode must be disabled, targeted, or universal"

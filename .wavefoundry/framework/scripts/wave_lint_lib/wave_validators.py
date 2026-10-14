@@ -22,6 +22,7 @@ import change_doc_checklist  # shared checklist parser (wave 1zime, 1zimq)
 from history_paths import is_history_path  # shared history components (wave 1zyb2, 1zxnt)
 
 from .constants import (
+    OPEN_CONTAINER_STATUSES,
     ALLOWED_CHANGE_STATUS_TRANSITIONS,
     ALLOWED_ITEM_STATUS_TRANSITIONS,
     allowed_values_suffix,
@@ -2658,7 +2659,7 @@ def check_prepare_council_verdict(root: Path) -> tuple[list[str], list[str]]:
         if not re.search(rf"(?m)^{_vocab.ID_KEY_RE}:", text):
             continue
         status = (_metadata_value(text, "Status") or "").casefold().strip()
-        if status not in ("active", "implementing"):
+        if status not in OPEN_CONTAINER_STATUSES:
             continue
         # Declared waves use their typed events.jsonl readiness approval as
         # authority. Resolve that declaration through the canonical parser so
@@ -2797,7 +2798,7 @@ def check_prepare_council_roster_evidence(root: Path) -> tuple[list[str], list[s
         if not re.search(rf"(?m)^{_vocab.ID_KEY_RE}:", text):
             continue
         status = (_metadata_value(text, "Status") or "").casefold().strip()
-        if status not in ("active", "implementing"):
+        if status not in OPEN_CONTAINER_STATUSES:
             continue
         sections = _extract_sections(text)
         corpus_sections = (

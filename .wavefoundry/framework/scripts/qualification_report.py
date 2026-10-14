@@ -29,6 +29,7 @@ MAX_BYTES = 8 * 1024 * 1024
 MAX_WORKERS = 2000
 MAX_SKIPS = 20000
 MAX_FIELD = 4096
+LAST_DEFAULT = ".wavefoundry/cache/qualification/last-default.json"
 
 
 def digest(value):
@@ -145,7 +146,7 @@ def worker_detail(output, nonce, returncode, tests, skipped):
             "skips": sorted(valid, key=lambda r: r["id"]), "issues": sorted(set(str(x)[:256] for x in issues))[:20]}
 
 
-def make_report(identity, expected, results, rc, availability="executed"):
+def make_report(identity, expected, results, rc, availability="executed", *, scope=None):
     workers = []
     for result in sorted(results, key=lambda r: r.name):
         detail = result.qualification or {"terminal": False, "complete": False, "skips": [], "issues": ["executed detail unavailable"]}
@@ -158,6 +159,7 @@ def make_report(identity, expected, results, rc, availability="executed"):
     return {"owner": OWNER, "schema_version": 1, "run_id": uuid.uuid4().hex,
             "identity": identity, "availability": availability, "expected_workers": sorted(expected),
             "observed_workers": observed, "returncode": rc, "complete": complete,
+            "scope": scope or {"kind": "full", "discovered_workers": sorted(expected)},
             "workers": workers[:MAX_WORKERS]}
 
 
@@ -204,7 +206,23 @@ def validate(report):
     return skips
 
 
-def compare(default, candidate, profile):
+def _validate_profile_provenance(candidate, profile, scripts):
+    """Every profile scope must prove the source-owned profile was applied."""
+    from tests.record_layout_support import load_profile
+    definition = load_profile(profile, scripts / "tests/fixtures/profiles")
+    identity = candidate["identity"]
+    if identity["profile_input_hash"] != digest(definition):
+        raise ValueError("mismatched source-profile provenance")
+    applied = candidate.get("applied_profile")
+    if not isinstance(applied, dict) or digest(applied) != identity["applied_profile_hash"]:
+        raise ValueError("mismatched applied-profile provenance")
+    for module, values in definition["modules"].items():
+        if not isinstance(applied.get(module), dict) or any(
+                applied[module].get(key) != value for key, value in values.items()):
+            raise ValueError("mismatched applied-profile values")
+
+
+def compare(default, candidate, profile, *, root=None):
     baseline = validate(default)
     actual = validate(candidate)
     if profile not in ("second", "declared"):
@@ -223,9 +241,35 @@ def compare(default, candidate, profile):
             or not isinstance(executed.get("source_hash"), str)
             or not re.fullmatch(r"[0-9a-f]{64}", executed["source_hash"])):
         raise ValueError("missing or malformed actual-profile provenance")
+    default_scope = default.get("scope")
+    candidate_scope = candidate.get("scope")
+    if (not isinstance(default_scope, dict) or default_scope.get("kind") != "full"
+            or default_scope.get("discovered_workers") != default["expected_workers"]
+            or not isinstance(candidate_scope, dict)):
+        raise ValueError("qualification scope is not a complete default baseline")
+    scripts = (Path(root) / ".wavefoundry/framework/scripts" if root is not None
+               else Path(__file__).resolve().parent)
+    _validate_profile_provenance(candidate, profile, scripts)
+    if candidate_scope.get("kind") == "compatibility":
+        # Coverage is recomputed from checked-in source, never accepted merely
+        # because the candidate claims that its own subset was sufficient.
+        if root is None:
+            raise ValueError("compatibility comparison requires the source root")
+        from tests.record_layout_support import qualification_scope
+        expected_scope = qualification_scope(profile, scripts)
+        if (candidate_scope != expected_scope or expected_scope.get("kind") != "compatibility"
+                or expected_scope["discovered_workers"] != default["expected_workers"]
+                or expected_scope["selected_workers"] != candidate["expected_workers"]
+                or expected_scope["profile_input_hash"] != identity["profile_input_hash"]):
+            raise ValueError("stale or mismatched compatibility coverage")
+        selected = set(candidate["expected_workers"])
+        baseline = {key: row for key, row in baseline.items() if key[0] in selected}
+    elif (candidate_scope.get("kind") != "full"
+          or candidate_scope.get("discovered_workers") != default["expected_workers"]
+          or default["expected_workers"] != candidate["expected_workers"]):
+        raise ValueError("qualification scope mismatch; diagnostic selectors are not qualification")
     if (default["identity"]["profile"] != "default" or candidate["identity"]["profile"] != profile
-            or default["identity"]["source_hash"] != candidate["identity"]["source_hash"]
-            or default["expected_workers"] != candidate["expected_workers"]):
+            or default["identity"]["source_hash"] != candidate["identity"]["source_hash"]):
         raise ValueError("qualification identity mismatch")
     for key, row in baseline.items():
         if key not in actual or actual[key]["reason"] != row["reason"]:
@@ -250,7 +294,8 @@ def main():
     parser.add_argument("--root", default=str(Path(__file__).resolve().parents[3]))
     args = parser.parse_args()
     try:
-        print(json.dumps(compare(*(read_report(args.root, path) for path in args.compare), args.profile), sort_keys=True))
+        print(json.dumps(compare(*(read_report(args.root, path) for path in args.compare), args.profile,
+                                 root=args.root), sort_keys=True))
         return 0
     except (ValueError, OSError, KeyError, TypeError) as exc:
         print(f"qualification refused: {str(exc)[:256]}", file=sys.stderr)

@@ -194,6 +194,7 @@ _BYTECODE_WARM_CODE = (
 )
 
 _USAGE = """usage: run_tests.py [--no-cache | --file NAME ... | --profile NAME [--file NAME ...]
+                    | --qualify-profile NAME --qualification-report PATH
                     | --schedule-control MODE --timings-file PATH]
                     [--qualification-report PATH]
 
@@ -222,11 +223,17 @@ Run the framework test suite, one subprocess per test file.
                             delivery evidence. On demand and at release.
   --schedule-control MODE   benchmark-only run (bootstrap|alphabetical|timing);
                             needs --timings-file PATH
+  --qualify-profile NAME    release compatibility scope from the reviewed
+                            inventory, falling back to the full profile on
+                            uncertainty; requires --qualification-report;
+                            never writes this tree's receipt
   --qualification-report PATH
-                            opt-in bounded exact execution detail under
+                            export bounded exact execution detail under
                             .wavefoundry/cache/qualification/; profiles export
                             before cleanup; cache hits reuse matching detail
-                            or report unavailable. Never receipt authority.
+                            or report unavailable. Successful complete default
+                            runs retain last-default.json automatically.
+                            Never receipt authority.
   --help                    show this message
 """
 
@@ -883,7 +890,7 @@ def _parse_args(argv: list[str]) -> dict:
     or ``--no-cache`` only, so this narrowing strands no caller.
     """
     opts: dict = {"no_cache": False, "files": [], "schedule_control": None, "timings_file": None,
-                  "profile": None, "help": False, "qualification_report": None}
+                  "profile": None, "qualify_profile": None, "help": False, "qualification_report": None}
     args = argv[1:]
     i = 0
     while i < len(args):
@@ -899,12 +906,13 @@ def _parse_args(argv: list[str]) -> dict:
                 raise _UsageError("--qualification-report may be given only once")
             opts["qualification_report"] = args[i + 1]
             i += 1
-        elif arg == "--profile":
+        elif arg in ("--profile", "--qualify-profile"):
+            key = "profile" if arg == "--profile" else "qualify_profile"
             if i + 1 >= len(args):
-                raise _UsageError("--profile requires a value (a profile asset name under tests/fixtures/profiles)")
-            if opts["profile"] is not None:
-                raise _UsageError("--profile may be given only once")
-            opts["profile"] = args[i + 1]
+                raise _UsageError(f"{arg} requires a value (a profile asset name under tests/fixtures/profiles)")
+            if opts[key] is not None:
+                raise _UsageError(f"{arg} may be given only once")
+            opts[key] = args[i + 1]
             i += 1
         elif arg == "--file":
             if i + 1 >= len(args):
@@ -934,7 +942,10 @@ def _parse_args(argv: list[str]) -> dict:
             kind = "unknown option" if arg.startswith("-") else "positional argument"
             raise _UsageError(f"{kind} {arg!r} is not accepted")
         i += 1
-    if opts["profile"] is not None and (
+    if opts["qualify_profile"] is not None and (
+            opts["profile"] is not None or opts["files"] or not opts["qualification_report"]):
+        raise _UsageError("--qualify-profile requires --qualification-report and excludes --profile and --file")
+    if (opts["profile"] is not None or opts["qualify_profile"] is not None) and (
         opts["no_cache"] or opts["schedule_control"] is not None or opts["timings_file"] is not None
     ):
         raise _UsageError(
@@ -1728,7 +1739,7 @@ def _profile_run_in(work: Path, name: str, profile: dict, profiles, scripts_rel:
     return rc, "".join(lines), True
 
 
-def _run_profile(name: str, selectors: "list[str]", qualification_path=None) -> int:
+def _run_profile(name: str, selectors: "list[str]", qualification_path=None, *, qualify=False) -> int:
     """The second-profile run (change 1zim1, Requirement 4)."""
     import tempfile
     # The runner is test infrastructure, so it may use the test support's
@@ -1753,6 +1764,13 @@ def _run_profile(name: str, selectors: "list[str]", qualification_path=None) -> 
         print(f"run_tests: {_SCRIPT_DIR} is not inside {_REPO_ROOT}", file=sys.stderr)
         return 2
     receipt_before = _CACHE_FILE.read_bytes() if _CACHE_FILE.exists() else None
+    discovered = sorted(p.name for p in (_SCRIPT_DIR / "tests").glob("test_*.py"))
+    scope = {"kind": "diagnostic" if selectors else "full", "discovered_workers": discovered}
+    if qualify:
+        scope = profiles.qualification_scope(name, _SCRIPT_DIR)
+        selectors = scope.get("selected_workers", discovered)
+        print(f"Compatibility scope: {len(selectors)} of {len(discovered)} files "
+              f"({'reviewed inventory' if scope['kind'] == 'compatibility' else 'full fallback: coverage unproven'}).", flush=True)
     print(_PROFILE_NOT_EVIDENCE.format(name=name), flush=True)
     print(f"Expected profile: {expected}.", flush=True)
     work = Path(tempfile.mkdtemp(prefix="wf-profile-run-"))
@@ -1787,10 +1805,16 @@ def _run_profile(name: str, selectors: "list[str]", qualification_path=None) -> 
             report = qualification_report.make_report(
                 {"source_hash": original_hash, "profile": name}, selectors, [], rc, "unavailable")
         else:
+            expected_workers = sorted(selectors or discovered)
+            if report.get("expected_workers") != expected_workers:
+                report["complete"] = False
+                report["issues"] = ["profile worker inventory mismatch"]
             report["executed_identity"] = report["identity"]
             report["identity"] = {"source_hash": original_hash, "profile": name,
                                   "profile_input_hash": qualification_report.digest(profile),
                                   "applied_profile_hash": qualification_report.digest(state["loaded_profile"])}
+            report["applied_profile"] = state["loaded_profile"]
+            report["scope"] = scope
             report["returncode"] = rc
             if _hash_inputs() != original_hash:
                 report["complete"] = False
@@ -1825,6 +1849,7 @@ def _stray_profile_refusal(environ=None) -> "str | None":
 
 
 def main() -> int:
+    global _QUALIFICATION_REQUESTED
     # Strict mode validation first (Requirement 9 of 1tm6d): every flag is
     # parsed and validated before any input hashing, cache, or timing read.
     try:
@@ -1844,9 +1869,11 @@ def main() -> int:
     _BYTECODE_PREFIX, top_level = _configure_bytecode_cache()
     if top_level and _BYTECODE_PREFIX:
         _warm_bytecode_cache(_BYTECODE_PREFIX)
+    previous_qualification = _QUALIFICATION_REQUESTED
     try:
         return _main(opts)
     finally:
+        _QUALIFICATION_REQUESTED = previous_qualification
         if top_level and _BYTECODE_PREFIX:
             _remove_bytecode_temp_mirrors(_BYTECODE_PREFIX)
 
@@ -1858,7 +1885,9 @@ def _main(opts: dict) -> int:
     if qualification_path:
         import qualification_report
         try:
-            qualification_report.output_path(_REPO_ROOT, qualification_path)
+            requested = qualification_report.output_path(_REPO_ROOT, qualification_path)
+            if requested == _REPO_ROOT / qualification_report.LAST_DEFAULT:
+                raise ValueError("last-default.json is runner-owned; request a different report path")
             path = Path(qualification_path)
             if not path.is_absolute():
                 path = _REPO_ROOT / path
@@ -1867,6 +1896,8 @@ def _main(opts: dict) -> int:
         except (ValueError, OSError) as exc:
             print(f"run_tests: qualification report refused: {str(exc)[:256]}", file=sys.stderr)
             return 2
+    if opts.get("qualify_profile") is not None:
+        return _run_profile(opts["qualify_profile"], [], qualification_path, qualify=True)
     if opts["profile"] is not None:
         if qualification_path:
             return _run_profile(opts["profile"], opts["files"], qualification_path)
@@ -1901,7 +1932,8 @@ def _main(opts: dict) -> int:
                     if qualification_path else None)
         rc, _results = _execute_files(selected)
         if qualification_path:
-            return _publish_qualification(qualification_path, identity, selected, _results, rc)
+            return _publish_qualification(qualification_path, identity, selected, _results, rc,
+                                          scope={"kind": "diagnostic", "discovered_workers": [p.name for p in test_files]})
         return rc
 
     if opts["schedule_control"] is not None:
@@ -1911,6 +1943,11 @@ def _main(opts: dict) -> int:
     # so the cache entry always reflects the state that caused the run, not
     # post-run file changes.
     inputs_hash = _hash_inputs()
+    # Exact detail is captured once during the canonical run, even when its
+    # caller did not anticipate a later package request. This does not change
+    # receipt authority or enable reports for focused/schedule/profile runs.
+    _QUALIFICATION_REQUESTED = True
+    import qualification_report
 
     # One cache read per ordinary run (Requirement 3 of 1tm6d). Only a matching
     # inputs_hash with result "ok" authorizes a skip. The advisory durations_s
@@ -1928,19 +1965,7 @@ def _main(opts: dict) -> int:
             )
             if qualification_path:
                 identity = {"source_hash": inputs_hash, "profile": "default"}
-                try:
-                    old = qualification_report.read_report(_REPO_ROOT, qualification_path)
-                except (ValueError, OSError):
-                    old = None
-                if (old and old.get("identity") == identity
-                        and old.get("expected_workers") == [p.name for p in test_files]
-                        and old.get("availability") in ("executed", "reused")):
-                    try:
-                        qualification_report.validate(old)
-                    except (ValueError, KeyError, TypeError):
-                        old = None
-                else:
-                    old = None
+                old = _reusable_default_detail(identity, test_files, qualification_path)
                 if old:
                     old["availability"] = "reused"
                     try:
@@ -1964,20 +1989,51 @@ def _main(opts: dict) -> int:
     if rc == 0 and _hash_inputs() != inputs_hash:
         print("FRAMEWORK INPUTS CHANGED DURING THE TEST RUN: no new green receipt; rerun after material inputs settle.", file=sys.stderr)
         rc = 1
+    report = qualification_report.make_report(
+        {"source_hash": inputs_hash, "profile": "default"}, [p.name for p in order], results, rc)
     if rc == 0:
         _write_cache(
             inputs_hash,
             sum(r.test_count for r in results),
             {r.name: r.elapsed_s for r in results},
         )
+        try:
+            qualification_report.validate(report)
+            qualification_report.write_report(_REPO_ROOT, qualification_report.LAST_DEFAULT, report)
+        except (ValueError, OSError, KeyError, TypeError) as exc:
+            # Optional detail never turns into a new canonical-suite gate. The
+            # green receipt remains truthful; packaging must refuse unavailable
+            # detail instead of reconstructing it or silently rerunning tests.
+            print(f"run_tests: default qualification detail unavailable: {str(exc)[:256]}", file=sys.stderr)
     if qualification_path:
-        return _publish_qualification(qualification_path, {"source_hash": inputs_hash, "profile": "default"}, order, results, rc)
+        return _write_qualification_report(qualification_path, report, rc)
     return rc
 
 
-def _publish_qualification(path, identity, files, results, rc, availability="executed"):
+def _reusable_default_detail(identity, files, requested_path):
+    """Called only behind a current green receipt; never starts a worker."""
     import qualification_report
-    report = qualification_report.make_report(identity, [p.name for p in files], results, rc, availability)
+    expected = [p.name for p in files]
+    for path in (qualification_report.LAST_DEFAULT, requested_path):
+        try:
+            report = qualification_report.read_report(_REPO_ROOT, path)
+            qualification_report.validate(report)
+            if (report.get("identity") == identity and report.get("expected_workers") == expected
+                    and report.get("scope") == {"kind": "full", "discovered_workers": expected}):
+                return report
+        except (ValueError, OSError, KeyError, TypeError):
+            pass
+    return None
+
+
+def _publish_qualification(path, identity, files, results, rc, availability="executed", *, scope=None):
+    import qualification_report
+    report = qualification_report.make_report(identity, [p.name for p in files], results, rc, availability, scope=scope)
+    return _write_qualification_report(path, report, rc)
+
+
+def _write_qualification_report(path, report, rc):
+    import qualification_report
     try:
         qualification_report.write_report(_REPO_ROOT, path, report)
     except (ValueError, OSError) as exc:

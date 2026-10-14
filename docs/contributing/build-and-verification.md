@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-12
+Last verified: 2026-10-14
 
 ## Verification Commands
 
@@ -103,8 +103,10 @@ The incoming plan runs within the existing pre-extraction hook; the renderer com
 
 ### Packaging profile qualification
 
-Run the full default suite and the `--profile second` and
-`--profile declared` suites against the same frozen source tree. Retain
+Use one full default suite and the `--qualify-profile second` and
+`--qualify-profile declared` compatibility runs against the same settled source tree,
+each with `--qualification-report` as shown in the packaging prompt. A matching
+retained default report avoids repeating the default workers. Retain
 skip identities and reasons, not just totals: each extra renamed-profile skip
 must explicitly come from `default_profile_only`; the declared-tools profile
 must have no extra skips. The admitted-ID corpus test runs for declared tools
@@ -113,15 +115,19 @@ and pinned historical fixtures keep copied checkouts independent of local
 indexes and missing Git references. A local-pack operator waiver applies only
 to its named artifact and does not qualify a later build.
 
-### Optional compact qualification reports
+Compatibility scope comes from the reviewed `tests/fixtures/profiles/qualification/coverage.json` inventory. Its initial independent footprint is the version-comparison test and its direct stdlib-only helper chain; all other workers remain profile-required or uncertain. Pins cover the test, helper dependencies, runner/worker/profile contracts and profile assets. Unknown tests or extensions, changed contracts and invalid inventory expand to a full profile. The comparator recomputes coverage from source, checks source-owned profile identity and applied-profile values for full, fallback and selected reports, and compares only the selected workers against a complete default baseline. `--profile NAME` still runs the full reference; `--file` is diagnostic even when it happens to list every worker. The initial reduction is one of 187 workers per profile, with no timing claim. Pins are never refreshed automatically. When a pinned file changes, review whether its independence claim still holds, run the affected focused controls and update only the reviewed hash. Until then, full fallback is correct. A full reference matrix is required for the initial selection or a substantive expansion of its coverage claims, not for routine pin refreshes that preserve the reviewed footprint.
 
-Use `--qualification-report .wavefoundry/cache/qualification/<name>.json` for an explicit qualifying run. The callback-origin report records actual worker/test/skip identities and reasons, completeness and source/profile identity without verbose transcripts. Ordinary runs write no report; focused/profile runs never write the canonical source receipt. Profile detail is exported before temporary-tree cleanup. A matching executed report may be reused on cache hit; unavailable detail requires an explicit uncached qualifying run when exact comparison is needed.
+### Compact qualification reports
 
-Run `python3 .wavefoundry/framework/scripts/qualification_report.py --compare <default-report> <candidate-report> --profile second|declared` from the repository. Paths are restricted to the qualification cache; report bytes are outside framework hashes and pack payloads. Comparison rejects incomplete, substituted or malformed observations and changed reasons. Second-profile extras must carry actual default-profile-only markers; declared skips must equal default. The facility is opt-in source/release qualification, without a consumer-upgrade call.
+Use `--qualification-report .wavefoundry/cache/qualification/<name>.json` for an explicit qualifying run. The callback-origin report records actual worker/test/skip identities and reasons, completeness and source/profile identity without verbose transcripts. A complete successful default run automatically retains one bounded `last-default.json` in the ignored qualification cache. Focused/profile/schedule-control and failed runs never replace it or write the canonical source receipt. Profile detail is exported before temporary-tree cleanup. Behind a current matching green receipt, a complete retained report with the exact source and discovered worker inventory can be exported at a new requested path without executing workers. Missing, stale or invalid detail is explicitly unavailable; it is never rebuilt from counts and a cache hit never starts tests. An optional retention failure is reported separately while preserving truthful receipt authority; explicit report publication failures still fail the command.
+
+Run `python3 .wavefoundry/framework/scripts/qualification_report.py --compare <default-report> <candidate-report> --profile second|declared` from the repository. Paths are restricted to the qualification cache; report bytes are outside framework hashes and pack payloads. Comparison rejects incomplete, substituted or malformed observations and changed reasons. Second-profile extras must carry actual default-profile-only markers; declared skips must equal default. Export and comparison are opt-in source/release qualification; default detail retention is automatic. No consumer upgrade calls this facility.
 
 The worker nonce is visible to code in the test process (including through its command-line arguments). It correlates a terminal protocol frame with a worker invocation; it does not authenticate the worker against its tests. Callback observations and exact comparisons are diagnostic evidence, not independent execution attestation or canonical test receipts. They add no receipt or close gate.
 
-Report reads normalize JSON decoder `RecursionError` and `MemoryError` into a concise caught refusal. Writes retain the 8 MiB cap, complete JSON format and mode `0600`. They carry the identity of the initially owned regular file, or its initial absence, and refuse detected final-file substitutions and lexical parent links or identity changes. Even identical-content and mode-only report writes use atomic replacement so they pass the same publication checks; ordinary runs still write no report.
+Before constructing a guarded child environment, `test_worker_guard.worker_environment` refuses a linked/nonregular owned bootstrap or source, and any existing adjacent `__pycache__`, `sitecustomize.pyc` or `sitecustomize.pyo`. It checks inherited directories named `test_worker_bootstrap` too, covering nested runner copies; those names are reserved for owned bootstrap carriers. Refused entries remain untouched and no unguarded fallback runs. The shim still executes its guard from source and chains legitimate customization. This is cooperative prelaunch hygiene: it cannot undo startup imports already executed, authenticate source, or exclude a same-user swap after inspection.
+
+Report reads normalize JSON decoder `RecursionError` and `MemoryError` into a concise caught refusal. Writes retain the 8 MiB cap, complete JSON format and mode `0600`. They carry the identity of the initially owned regular file, or its initial absence, and refuse detected final-file substitutions and lexical parent links or identity changes. Even identical-content and mode-only report writes use atomic replacement so they pass the same publication checks; the retained last-successful report uses the same safe writer and bound; no report history or permanent wave evidence folder is created.
 
 On POSIX with `dir_fd`/`O_NOFOLLOW`, publication uses an exclusive temporary file relative to a held parent descriptor. Immediately before replacement, the writer rechecks every lexical parent identity, the held parent identity, and the unlinked final entry against the initial ownership judgment; a detected parent rename or substitution refuses and removes the temporary file through the descriptor. Native Windows uses path checks and path replacement, with a wider check-to-commit interval and no descriptor guarantee. A parent renamed after temporary creation can make that temporary unreachable at its original path; refusal preserves targets but cannot guarantee cleanup of the moved temporary. Neither branch excludes every adversarial same-user rename between the final check and replacement. Native-Windows execution remains separately unqualified.
 

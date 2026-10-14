@@ -98,7 +98,11 @@ def parse_args() -> argparse.Namespace:
             "pass/fail, the `docs-lint: ok` line, or the exit code. Inert in incremental (--changed) mode."
         ),
     )
+    parser.add_argument("--read-only", action="store_true",
+                        help="Full assessment without scanner findings, skip-ledger or audit publication; unpublished secret findings fail the assessment")
     args = parser.parse_args()
+    if args.read_only and (args.changed or args.advisory_trigger_proof is not None or args.advisory_incremental_only or args.write_migration_audit):
+        parser.error("--read-only requires full lint and cannot write a migration audit")
     if (args.advisory_trigger_proof is not None or args.advisory_incremental_only) and not args.changed:
         parser.error("advisory trigger options require --changed")
     return args
@@ -329,7 +333,8 @@ def _run_full_checks(root: Path, args: argparse.Namespace, timings: dict | None 
     # the post-edit hook, wf_validate_docs, and the upgrade docs gate from blocking on a
     # found secret; only a malformed inline-suppression directive (a real lint error) fails.
     with _timed(timings, "secrets"):
-        failures.extend(check_hardcoded_secrets(root, scan_all=args.scan_all, record_only=True))
+        failures.extend(check_hardcoded_secrets(root, scan_all=args.scan_all, record_only=True,
+                                                   publish=not getattr(args, "read_only", False)))
     # Wave 1p9c6: the corpus-wide + structural checks are grouped as one timing phase; the two per-file
     # loops (metadata/links) are timed separately since those are the parallelization candidates.
     # Wave 1y0gz: the record layout (the `record_paths` constants applied to this root) is

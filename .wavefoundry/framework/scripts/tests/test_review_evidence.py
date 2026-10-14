@@ -275,6 +275,8 @@ class WorkerPublicationRefusalTests(unittest.TestCase):
                     self.assertEqual(list(root.iterdir()), [])
                     self.assertIn("test-worker protection refused publication", raised.exception.detail)
                     self.assertNotIn(str(root), raised.exception.detail)
+                    self.assertNotIn(str(root), str(raised.exception))
+                    self.assertEqual(str(raised.exception), "test-worker protection refused publication")
 
     def test_site_disabled_child_refuses_protected_publication_but_allows_fixture(self):
         import test_worker_guard
@@ -297,7 +299,8 @@ try:
     with review_evidence.project_state_publication_lock(root):
         (root / 'published').write_text('forbidden')
 except review_evidence.ProjectPublicationUnavailable as error:
-    assert 'test worker cannot publish' in str(error), error
+    assert str(error) == 'test-worker protection refused publication', error
+    assert str(root) not in error.detail
 else:
     raise AssertionError('protected publication succeeded')
 with review_evidence.project_state_publication_lock(fixture):

@@ -60,6 +60,55 @@ def wf_upgrade_response(root, invocation, mode="apply", exit_code=3, after_read=
     return namespace, bounded_inputs
 
 
+class AdvisoryCheckpointCompatibilityTests(unittest.TestCase):
+    def test_producer_legacy_and_setup_shapes_and_fail_closed_controls(self):
+        import publication_control as pc
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            upgrade_lib.write_upgrade_lock(root, "1.0.0", "2.0.0", runner_protocol=2, pack_protocol=2)
+            path = upgrade_lib.upgrade_lock_path(root)
+            current = json.loads(path.read_text())
+            variants = [current, {"from_version": "1.0.0", "to_version": "2.0.0", "memory_backfill_run_id": "old-run"},
+                        {**current, "entry_path": "setup", "current_phase": "setup_storage", "root_identity": migration._identity(root)},
+                        {**current, "current_phase": "extension_specific_phase"}]
+            for value in variants:
+                path.write_text(json.dumps(value))
+                before = path.read_bytes()
+                self.assertTrue(pc.preview_checkpoint_compatible(root, "2.0.0"), value)
+                self.assertEqual(path.read_bytes(), before)
+            invalid = [{}, [], {**current, "entry_path": {}},
+                       *({**current, "root": value} for value in (None, [], {})),
+                       *({**current, "root_identity": value} for value in (None, [], {})),
+                       *({**current, "index_guard_handoff": value} for value in (None, [], "bad")), {**current, "runner_protocol": True}, {**current, "pack_protocol": 99},
+                       {**current, "current_phase": []}, {**current, "to_version": {}},
+                       {**current, "entry_path": "unknown"}, {**current, "root": str(root / "other")},
+                       {**current, "root_identity": {"device": 0, "inode": root.stat().st_ino + 1}},
+                       {**current, "index_guard_handoff": {"root": str(root / "other")}}]
+            for value in invalid:
+                path.write_text(json.dumps(value))
+                before = path.read_bytes()
+                self.assertFalse(pc.preview_checkpoint_compatible(root, "2.0.0"), value)
+                self.assertEqual(path.read_bytes(), before)
+            for value in ("[" * 200000, " " * (256 * 1024 + 1)):
+                path.write_text(value)
+                self.assertFalse(pc.preview_checkpoint_compatible(root, "2.0.0"))
+            path.write_text(json.dumps(current))
+            self.assertFalse(pc.preview_checkpoint_compatible(root, "unrelated"))
+            path.unlink()
+            self.assertIsNone(pc.read_upgrade_checkpoint(root))
+            if hasattr(os, "mkfifo"):
+                os.mkfifo(path)
+                self.assertFalse(pc.preview_checkpoint_compatible(root, "2.0.0"))
+                path.unlink()
+            target = root / "linked.json"
+            target.write_text(json.dumps(current))
+            try:
+                path.symlink_to(target)
+            except OSError:
+                return  # platform link capability is optional; other controls ran
+            self.assertFalse(pc.preview_checkpoint_compatible(root, "2.0.0"))
+
+
 class IndexUpgradeGuardTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

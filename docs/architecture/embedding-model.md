@@ -68,6 +68,38 @@ startup failure cleanup remains Tensorwell's responsibility.
 Service selection suppresses unnecessary local session construction and optional
 background downloads. Explicit setup validation/provisioning and local dependencies
 remain supported. Compact state appears under `wf_server_info().data.tensorwell`.
+Its legacy `qualified_pair` reason means both pinned models matched at the last
+readiness/descriptor check, not that they executed. The additive `availability`
+record keeps the observation time when compatibility is reused and marks stale or
+unknown observations explicitly. INT8 or conflicting index precision can select
+local inference while that last service observation remains compatible.
+Each selection invocation carries its own fixed reason. Waiting beyond the existing
+discovery deadline reports `discovery_contended`; an existing failure backoff reports
+`discovery_backoff`. These selection outcomes leave the prior compatibility
+observation untouched, even when another selection updates shared discovery status.
+
+`wf_server_info().data.inference` separately reports selection, attempted provider
+return, caller acceptance and the last accepted provider for query embedding,
+normal search reranking and memory reranking. Failed selected service calls retain
+their service provenance without inventing a local retry. `in_process` may mean
+CoreML or another supported accelerator; the recorded accelerator label describes
+the model's reported provider, not proof of physical device use or internal recovery.
+
+Four fixed weak ownership slots observe the docs/code embedding and search/memory
+reranker model objects independently of current selection. A retained local cache
+can remain `loaded` after service selection; shared normal/memory CPU objects expose
+`shared_with` rather than doubled session counts. A fresh service-only lifetime can
+report `not_loaded`. Construction, untrackable/replaced objects and reload-held
+references make absence `unknown` when ownership is incomplete. Weak observations
+never keep a model alive and say nothing about native daemon memory or physical
+memory reclamation. This change adds no eviction.
+
+Observations belong to one MCP process and reload epoch. Reload resets execution
+records and compatibility, retains live weak ownership evidence and makes absent
+ownership conservative; old completions cannot publish into the new epoch. A fork
+does not adopt the parent's observation history. Status reads copy only bounded
+metadata under a short lock and do no model, inference or service work. See the
+`docs/specs/mcp-tool-surface.md`, "Cached inference status", for the complete contract.
 See [transport trust](threat-model.md#optional-tensorwell-client) and
 [verification](testing-architecture.md#tensorwell-qualification).
 

@@ -183,6 +183,57 @@ class _DocsLintFixture:
         return plan_path
 
 
+class ReadOnlyDocsLintTests(_DocsLintFixture, unittest.TestCase):
+    def test_full_cli_reports_unpublished_findings_without_writing_and_normal_cli_records(self):
+        root = self.copy_fixture()
+        self.addCleanup(shutil.rmtree, root)
+        # A synthetic well-shaped token is never a credential.
+        from wave_lint_lib.constants import SCAN_RULES_FRAMEWORK_PATH
+        rules = root / SCAN_RULES_FRAMEWORK_PATH
+        rules.parent.mkdir(parents=True, exist_ok=True)
+        rules.write_text('[policy]\nfalse_positive_confirmations_required = 2\n\n[[rules]]\nid = "synthetic"\ndescription = "Fixture"\nregex = "FAKEKEY-[A-Z0-9]{12}"\nkeywords = ["fakekey-"]\n')
+        (root / "sample.py").write_text('token = "' + 'FAKEKEY-' + 'A' * 12 + '"\n')
+        before = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+        result = self.run_docs_lint_with_args(root, "--scan-all", "--read-only")
+        after = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+        self.assertEqual(after, before)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("unpublished secrets finding", result.stderr)
+        self.assertIn("[secrets]", result.stdout + result.stderr)
+        self.assertNotIn("finding(s) recorded", result.stderr)
+        self.run_docs_lint_with_args(root, "--scan-all")
+        from wave_lint_lib.secrets_validators import SCAN_FINDINGS_PATH
+        self.assertTrue((root / SCAN_FINDINGS_PATH).is_file())
+        self.assertTrue(json.loads((root / SCAN_FINDINGS_PATH).read_text()))
+
+    def test_scanner_nonpublication_guard_leaves_both_ledgers_untouched(self):
+        from wave_lint_lib import secrets_validators as scanner
+        root = self.copy_fixture()
+        self.addCleanup(shutil.rmtree, root)
+        rules = root / scanner.SCAN_RULES_FRAMEWORK_PATH
+        rules.parent.mkdir(parents=True, exist_ok=True)
+        rules.write_text('[[rules]]\nid = "synthetic"\ndescription = "Fixture"\nregex = "FAKEKEY-[A-Z0-9]{12}"\nkeywords = ["fakekey-"]\n')
+        source = root / "sample.py"
+        source.write_text('token = "' + 'FAKEKEY-' + 'A' * 12 + '"\n')
+        with patch.object(scanner, "update_scanner_skips", wraps=scanner.update_scanner_skips) as skips, patch.object(scanner, "save_exceptions", wraps=scanner.save_exceptions) as findings:
+            result = scanner.check_hardcoded_secrets(root, files=[source], record_only=True, publish=False)
+        skips.assert_not_called()
+        findings.assert_not_called()
+        self.assertTrue(any("[secrets]" in message for message in result))
+
+    def test_read_only_rejects_incremental_and_audit_write_combinations(self):
+        from wave_lint_lib import cli
+        import contextlib
+        import io
+        for args in (["--changed"], ["--write-migration-audit"],
+                     ["--changed", "--advisory-incremental-only"],
+                     ["--changed", "--advisory-trigger-proof", "{}"]):
+            with self.subTest(args=args), patch.object(sys, "argv", ["docs-lint", "--read-only", *args]), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as caught:
+                    cli.parse_args()
+                self.assertEqual(caught.exception.code, 2)
+
+
 class DocsLintFixtureTests(_DocsLintFixture, unittest.TestCase):
 
 

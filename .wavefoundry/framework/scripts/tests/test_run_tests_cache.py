@@ -727,6 +727,16 @@ class ParseArgsTests(unittest.TestCase):
         self.assertEqual(opts["schedule_control"], "timing")
         self.assertEqual(opts["timings_file"], "t.json")
 
+    def test_compatibility_qualification_cannot_promote_diagnostic_selectors(self):
+        base = ["--qualify-profile", "second", "--qualification-report", "report.json"]
+        self.assertEqual(run_tests._parse_args(["run_tests.py", *base])["qualify_profile"], "second")
+        for extra in (["--file", "test_a.py"], ["--profile", "declared"], ["--no-cache"],
+                      ["--schedule-control", "bootstrap", "--timings-file", "timings.json"],
+                      ["--qualify-profile", "declared"]):
+            with self.subTest(extra=extra):
+                self._usage([*base, *extra])
+        self.assertIn("requires --qualification-report", self._usage(["--qualify-profile", "second"]))
+
     def test_unknown_option_rejected(self):
         self.assertIn("unknown option", self._usage(["--frobnicate"]))
 

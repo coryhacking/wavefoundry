@@ -1223,7 +1223,8 @@ def project_state_publication_lock(repo_root: Path, *, wait: bool = True):
         # Keep inherited protection fail-closed, including site-disabled
         # descendants, while using the refusal contract callers already handle.
         raise ProjectPublicationUnavailable(
-            str(exc), detail=f"test-worker protection refused publication ({type(exc).__name__})"
+            "test-worker protection refused publication",
+            detail=f"test-worker protection refused publication ({type(exc).__name__})"
         ) from exc
     thread_lock_acquired = _WRITE_THREAD_LOCK.acquire(blocking=wait)
     if not thread_lock_acquired:

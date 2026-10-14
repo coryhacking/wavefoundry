@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 from pathlib import Path
 import sys
 import threading
@@ -51,6 +52,25 @@ def _entries(env):
         raise RuntimeError(f"invalid test-worker protection marker: {exc}") from exc
 
 
+def _validate_bootstrap(path: Path) -> None:
+    """Cooperative prelaunch hygiene, not exclusion of same-user swaps."""
+    try:
+        for candidate, directory in ((path, True), (path / "sitecustomize.py", False)):
+            info = candidate.lstat()
+            if (stat.S_ISLNK(info.st_mode)
+                    or getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+                    or not (stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode))):
+                raise RuntimeError("test-worker bootstrap is not a regular source carrier")
+        for name in ("__pycache__", "sitecustomize.pyc", "sitecustomize.pyo"):
+            try:
+                (path / name).lstat()
+            except FileNotFoundError:
+                continue
+            raise RuntimeError("test-worker bootstrap contains a bytecode carrier; preserve it for diagnosis")
+    except OSError as exc:
+        raise RuntimeError("test-worker bootstrap cannot be inspected") from exc
+
+
 def worker_environment(env: dict, repo_root: Path, record_dirs) -> dict:
     """Return child environment preserving outer protection and Python path order."""
     result = dict(env)
@@ -60,11 +80,18 @@ def worker_environment(env: dict, repo_root: Path, record_dirs) -> dict:
         entries.append(entry)
     result[MARKER] = json.dumps(entries, separators=(",", ":"))
     _entries(result)  # Reject malformed new input as well as inherited input.
-    bootstrap = _canonical(Path(__file__).resolve().parent / "test_worker_bootstrap")
+    bootstrap_path = Path(__file__).resolve().parent / "test_worker_bootstrap"
+    _validate_bootstrap(bootstrap_path)
+    bootstrap = _canonical(bootstrap_path)
     old_path = result.get("PYTHONPATH")
     remaining = [] if old_path is None else [
         part for part in old_path.split(os.pathsep) if part and _canonical(part) != bootstrap
     ]
+    # Nested runners can chain an earlier owned copy. Do not leave that copy's
+    # cache unchecked merely because the newest bootstrap is clean.
+    for part in remaining:
+        if Path(part).name == "test_worker_bootstrap":
+            _validate_bootstrap(Path(part))
     result["PYTHONPATH"] = os.pathsep.join([bootstrap, *remaining])
     return result
 

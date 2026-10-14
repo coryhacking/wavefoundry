@@ -995,7 +995,9 @@ class WrapperOrderTests(unittest.TestCase):
         received = {
             "_wrap_first_party_tool_costs": declared["_wrap_first_party_tool_costs"],
             "_wrap_lifecycle_mutation_lock": declared["_wrap_lifecycle_mutation_lock"],
-            "_wrap_upgrade_publication_guard": {},
+            "_wrap_upgrade_publication_guard": {
+                "checkpoint_writers": frozenset(), "excluded_previews": frozenset(),
+            },
         }
         self.assertEqual(self._observe(_WRAPPER_NAMES, block=False, declared=declared), self.EXPECTED_PASS)
         self.assertEqual(self.received, received)

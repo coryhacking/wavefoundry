@@ -42,6 +42,7 @@ from typing import Any, Callable, Iterable, Mapping, Optional
 from runtime_lock import RuntimeFileLock, RuntimeLockBusy, RuntimeLockError
 import record_paths  # record roots (wave 1y0gz)
 from contained_files import read_contained_bytes
+from wave_lint_lib.constants import OPEN_CONTAINER_STATUSES
 
 
 STORE_RELATIVE_PATH = Path(".wavefoundry/logs/context-efficiency.sqlite")
@@ -345,7 +346,7 @@ def implement_stage_retrieval_calls(
 _OPEN_WAVE_CACHE_TTL_SECONDS = 10.0
 _open_wave_cache_lock = threading.Lock()
 _open_wave_cache: dict[str, tuple[float, Optional[tuple[str, str]]]] = {}
-_OPEN_WAVE_STATUSES = ("active", "implementing")
+_OPEN_WAVE_STATUSES = OPEN_CONTAINER_STATUSES
 _DELIVERY_RUN_KINDS = frozenset(
     {"initial_delivery", "repair_start", "reverification", "convergence_checkpoint"}
 )

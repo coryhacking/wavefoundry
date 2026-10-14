@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-13
+Last verified: 2026-10-14
 
 ## Configuration
 
@@ -16,6 +16,8 @@ Last verified: 2026-10-13
 
 All layers may access: `docs/workflow-config.json`.
 Only `render_platform_surfaces.py` writes to platform config files.
+
+Optional `wave_review.record_local_account` is a boolean controlling new review-event OS-account provenance. Absent means true without inserting a default into normalized policy; false skips the OS lookup, metadata and unresolved-account notice. Contributor handles, self-attestation and role/lane authority are unchanged. Install defaults leave this optional key absent; config migration preserves either explicit value. Opt-out is prospective: replay returns original immutable records, and existing committed account metadata or Git history is never redacted automatically.
 
 ### Distribution council actor compatibility (wave 204mp)
 
@@ -41,7 +43,7 @@ Review-lane policy: `required_review_lanes` names lanes required at both readine
 
 Prepare `ready`/`create` executes required sensors with the server's environment and `PATH`, using the repository root as the working directory; close `create` (alias `apply`) executes them on the same terms, but only when no blocking diagnostic has accumulated by the time its sensor gate runs. Required commands use argument lists, never a shell. Nonzero exits, timeouts, and launch failures block the phase. Prefer fast checks: `subprocess_ops.sensor_timeout_seconds` defaults to 120 seconds. Explicit `wf_run_sensors` shares this runner and timeout; its existing string-command support remains available there.
 
-Read-only `dry_run` (including prepare alias `evaluate`) executes nothing. Reached gates report `would_run` and a `phase_sensor_not_executed` advisory; this is not proof that a sensor passes. A blocked close `create` reports the same row shape and the same advisory code, with the message naming the blocking-diagnostic condition rather than read-only mode, and read-only takes precedence when both apply. Every prepare, review and close response produced by the handler includes `configured_gates`; review's list is always empty, and a handler response that returns before the gate stage carries an empty list. Entries identify the phase, sensor, configuration source, outcome and duration. A response produced by a registration wrapper, or returned by a tool body before it calls its handler, carries no `configured_gates` key at all. The rule is stated over the producing layer rather than over call order, because two of its own members are returned from an `except` clause after the handler was invoked and raised: the upgrade-publication guard's busy refusal and, for a re-entry raised by the body, the lifecycle lock's re-entry refusal (wave 1zls7). It currently resolves to six members, today the lifecycle mutation lock's busy, unavailable and re-entry refusals, the upgrade-publication guard's in-progress and busy refusals, and the tool body's unknown-argument refusal. A consumer therefore reads the key defensively rather than unconditionally.
+Read-only `dry_run` (including prepare alias `evaluate`) executes nothing. Reached gates report `would_run` and a `phase_sensor_not_executed` advisory; this is not proof that a sensor passes. A blocked close `create` reports the same row shape and the same advisory code, with the message naming the blocking-diagnostic condition rather than read-only mode, and read-only takes precedence when both apply. Every prepare, review and close response produced by the handler includes `configured_gates`; review's list is always empty, and a handler response that returns before the gate stage carries an empty list. Entries identify the phase, sensor, configuration source, outcome and duration. A response produced by a registration wrapper, or returned by a tool body before it calls its handler, carries no `configured_gates` key at all. The rule is stated over the producing layer rather than over call order, because two of its own members are returned from an `except` clause after the handler was invoked and raised: the upgrade-publication guard's busy refusal and, for a re-entry raised by the body, the lifecycle lock's re-entry refusal (wave 1zls7). The current eight diagnostic classes are `lifecycle_mutation_locked`, `lifecycle_lock_unavailable`, `lifecycle_lock_reentry`, `upgrade_in_progress`, `upgrade_preview_unavailable`, `project_publication_busy`, `unknown_arguments`, and `tool_unhandled_exception`. They include an unavailable retained-upgrade preview and the final wrapper's unhandled-exception envelope. A consumer therefore reads the key defensively rather than unconditionally.
 
 Prepare sensors run at its existing readiness stage. A failed sensor can leave an already-published policy receipt, which is not an approval. Legacy waves without a valid council verdict do not reach that stage and report an empty list. Close runs its sensor stage only when no blocking diagnostic has accumulated at that point, so a doomed close reports its sensors as `would_run` rather than executing them; the bound is what the gate stage can see, and two later checks can still fail a close whose sensors already ran. Policy digests include nonempty phase-gate declarations and the referenced sensor definitions; editing either invalidates readiness. With no phase gates, existing digests remain unchanged.
 
@@ -164,6 +166,10 @@ canonical record, including the rejected fresh-phase-emission alternative, is
 `docs/architecture/decisions/1u49j-adr fresh-code-summary-producer-contract.md`.
 
 ## Error Handling
+
+Test-worker publication refusal preserves `ProjectPublicationUnavailable` with stable path-free text and structured detail, including malformed inherited protection metadata. Raw exception causes are diagnostic internals, never public response text. Guarded child startup refuses observable bootstrap links, special files and adjacent bytecode carriers without deleting them; source-only guard loading and legitimate customization chaining remain. This is prelaunch hygiene, not hostile same-user isolation or protection against imports that ran before the check.
+
+Reconciliation's bounded Git queries discard inherited `GIT_*` routing and configuration variables, disable `core.fsmonitor` and optional index writes, and send NUL-delimited paths with `./` prefixes to prevent pathspec magic. Existing repository ignore files, tracked-file rules and linked worktrees still apply. No hooks, pager or diff command is invoked by these `rev-parse`/`check-ignore` queries. This does not constrain arbitrary Git commands or authenticate the host Git executable. Failures retain explicit incomplete/error scan status.
 
 - Framework scripts: exit non-zero on failure; print error to stderr. No retry logic.
 - MCP server: return structured error responses per MCP protocol; never silently ignore failures.

@@ -345,7 +345,7 @@ class HandlerDigestTests(unittest.TestCase):
         # Known-bad: the comparison must see a change confined to one
         # handler's docstring, and only that handler's digest may move.
         source = source_path("server_impl.py").read_text(encoding="utf-8")
-        needle = "Return the repository root and implementation version info for this MCP server."
+        needle = "Return this MCP process's identity and cached inference diagnostics."
         self.assertEqual(source.count(needle), 1)
         before = _handler_digests(source)
         after = _handler_digests(source.replace(needle, needle.replace("Return", "Report"), 1))

@@ -246,6 +246,11 @@ MEMORY_DISALLOWED_PATTERNS = JOURNAL_DISALLOWED_PATTERNS + (
 )
 WAVE_WATCHPOINT_MARKERS = ("watchpoint", "follow-up", "block", "retry", "defer", "move")
 
+# Container metadata, distinct from member item/change status. `ready` and
+# `completed` remain readable legacy states; current readiness keeps `planned`.
+CONTAINER_STATUSES = frozenset({"planned", "ready", "active", "implementing", "paused", "closed", "completed"})
+OPEN_CONTAINER_STATUSES = frozenset({"active", "implementing"})
+
 TERMINAL_ITEM_STATUSES = ("complete", "completed", "deferred", "moved", "superseded")
 PROGRESSABLE_ITEM_STATUSES = ("ready", "active", "review", "complete", "completed")
 ALLOWED_ITEM_STATUS_TRANSITIONS = {

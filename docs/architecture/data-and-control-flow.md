@@ -46,6 +46,14 @@ core execution. The helper uses the existing declared-source loader, provenance 
 reload cleanup; no extra scan, evidence file, approval step or network work is added.
 The callback is trusted synchronous code, not a sandbox, deadline or rollback boundary.
 
+### Read-only lifecycle inspection during a retained upgrade
+
+Only the native Prepare `dry_run`/`evaluate` and close-wave `dry_run` paths may inspect a retained upgrade. The registration guard binds the actual arguments and checks the native handler identity; canonical aliases use the same route, while replacement handlers and other publishers retain the guard. A private call context skips the lifecycle lock, completion callback, focus and accounting publication only after bounded checkpoint compatibility and loaded-code checks pass. Validation still runs once; no upgrade continuation, indexing, model startup or checkpoint changes occur.
+
+The checkpoint check accepts supported protocol and legacy memory shapes, extension phase names, and checks repository identities when supplied. It compares installed VERSION with recorded versions and uses the existing loaded-source and ordered runner digest formats through capped no-follow reads. These local read adapters must stay aligned with `setup_readiness`'s source inventory/schema and the runner's two launch files. This proves advisory shape/current-code compatibility, not pack integrity, resume authority or upgraded readiness. Unreadable, incompatible or stale state refuses with `upgrade_preview_unavailable` and preserves the checkpoint.
+
+The child uses `docs-lint --read-only` with bytecode disabled and no inherited cache prefix. This full assessment performs the existing checks but publishes neither scanner findings nor skip observations. Newly detected secret findings are returned as failures with an explicit unpublished notice, so a close preview cannot mistake an unchanged findings ledger for a clean scan. There is no second scan. `--changed`, advisory incremental options and `--write-migration-audit` are incompatible with `--read-only`. Ordinary no-upgrade previews retain their existing observation/callback behavior.
+
 ### Path 1: Lifecycle ID Generation
 
 1. Operator mints an ID via the MCP `wf_create_wave` / `wave_new_<kind>` tools (preferred — they dedupe against on-disk IDs), or, when MCP is unavailable, the CLI `python3 .wavefoundry/framework/scripts/lifecycle_id.py --kind wave --slug <slug>`
@@ -67,7 +75,7 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 4. Exits 0 on pass or non-zero with actionable error on failure
 
 **State read:** `docs/`, `.wavefoundry/framework/VERSION`
-**State written:** none
+**State written:** scanner findings and skip observations by ordinary lint; none with `--read-only`
 **Triggered by:** Claude Code post-edit hook (after any `docs/` file edit), manual operator run
 
 ### Path 3: Platform Surface Rendering

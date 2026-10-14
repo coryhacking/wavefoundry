@@ -1556,6 +1556,7 @@ def check_hardcoded_secrets(
     max_workers: int = 1,
     as_of: datetime | None = None,
     record_only: bool = False,
+    publish: bool = True,
 ) -> list[str]:
     """Scan tracked/changed files for secrets matching the merged ruleset.
 
@@ -1568,6 +1569,9 @@ def check_hardcoded_secrets(
         secrets gate is enforced solely at ``wf_close_wave`` (`_check_secrets_gate`), so
         docs-lint (post-edit hook, ``wf_validate_docs``, the upgrade docs gate) must not
         block on secret findings. A non-fatal stderr notice surfaces the recorded count.
+
+    publish: False retains all findings in the returned assessment, even with
+        record_only, and never writes findings or scanner observations.
 
     files: when provided, scan exactly these files instead of calling get_scan_files().
            Used by the incremental indexer path to pass pre-computed changed-file sets.
@@ -1858,6 +1862,13 @@ def check_hardcoded_secrets(
         _SCANNER_SKIPS_UNPUBLISHED.append(rel)
         if is_recordable_path(rel):
             scan_outcomes[rel] = {"complete": False, "skips": _SCANNER_SKIPS[before:]}
+
+    if not publish:
+        _SCANNER_SKIPS_UNPUBLISHED.extend(scan_outcomes)
+        findings = [f for f in failures if "[secrets]" in f]
+        if findings:
+            print(f"WARNING: {len(findings)} unpublished secrets finding(s); read-only assessment did not update the findings ledger.", file=sys.stderr, flush=True)
+        return failures
 
     try:
         update_scanner_skips(root, scan_outcomes)

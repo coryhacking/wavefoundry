@@ -83,14 +83,63 @@ _BY_NATIVE_PRODUCER = {
 def read_upgrade_checkpoint(root: Path) -> dict[str, Any] | None:
     path = root / UPGRADE_CHECKPOINT_REL
     try:
-        value = json.loads(path.read_text("utf-8"))
+        from contained_files import read_contained_bytes
+        value = json.loads(read_contained_bytes(root, path, max_bytes=256 * 1024, follow_links=False))
     except FileNotFoundError:
         return None
-    except (OSError, UnicodeError, json.JSONDecodeError):
+    except (OSError, ValueError, RecursionError, MemoryError):
         return {}
     # Presence is authoritative. Valid JSON of the wrong shape is corruption,
     # not evidence that no upgrade is running.
     return value if isinstance(value, dict) else {}
+
+
+def preview_checkpoint_compatible(root: Path, installed_version: str) -> bool:
+    """Bounded advisory shape/identity check, never recovery or pack authority."""
+    from upgrade_protocol import SUPPORTED_RUNNER_PROTOCOLS
+    import storage_identity
+
+    checkpoint = read_upgrade_checkpoint(root)
+    if not checkpoint or not isinstance(installed_version, str) or not installed_version:
+        return False
+    target = checkpoint.get("to_version")
+    origin = checkpoint.get("from_version")
+    if (not isinstance(target, str) or not target or
+            (origin is not None and not isinstance(origin, str)) or
+            installed_version not in {target, origin}):
+        return False
+    if checkpoint.get("entry_path", "upgrade") not in ("upgrade", "setup"):
+        return False
+    for key in ("runner_protocol", "pack_protocol"):
+        protocol = checkpoint.get(key)
+        if protocol is not None and (type(protocol) is not int or protocol not in SUPPORTED_RUNNER_PROTOCOLS):
+            return False
+    phase = checkpoint.get("current_phase") or checkpoint.get("failed_phase") or checkpoint.get("phase")
+    # The existing resume reader accepts pre-protocol-2 memory checkpoints
+    # without current_phase. Do not require newer producer fields there.
+    if phase is None and isinstance(checkpoint.get("memory_backfill_run_id"), str) and checkpoint["memory_backfill_run_id"]:
+        phase = "awaiting_memory_validation"
+    if not isinstance(phase, str) or not phase.strip():
+        return False
+    # Setup has a top-level identity; upgrades may carry their identity in the
+    # index handoff. Check supplied locators without demanding them of old runs.
+    records = [checkpoint]
+    if "index_guard_handoff" in checkpoint:
+        handoff = checkpoint["index_guard_handoff"]
+        if not isinstance(handoff, dict):
+            return False
+        records.append(handoff)
+    try:
+        observed = root.stat()
+        live = {"device": observed.st_dev, "inode": observed.st_ino}
+        for record in records:
+            if "root" in record and not storage_identity.same_path(record["root"], root):
+                return False
+            if "root_identity" in record and not storage_identity.compare_identity(record["root_identity"], live)["matches"]:
+                return False
+    except (OSError, ValueError, TypeError, RuntimeError):
+        return False
+    return True
 
 
 def publication_checkpoint_reason(

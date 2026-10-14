@@ -1258,7 +1258,10 @@ def _git_run(root, args, work, *, data=None):
         # NUL check-ignore emits only a subset of its bounded input. Discard
         # stderr rather than retaining an unbounded diagnostic stream.
         result = subprocess_util.run_with_tree_kill(
-            ["git", *args], cwd=root, input=data, stdout=subprocess.PIPE,
+            ["git", "-c", "core.fsmonitor=", *args],
+            cwd=root, input=data, stdout=subprocess.PIPE,
+            env={**{key: value for key, value in os.environ.items()
+                    if not key.upper().startswith("GIT_")}, "GIT_OPTIONAL_LOCKS": "0"},
             stderr=subprocess.DEVNULL, timeout=work.limits.seconds - work.result.elapsed)
     except subprocess.TimeoutExpired:
         work.omit("deadline")
@@ -1290,7 +1293,10 @@ def _in_git_worktree(root, work):
 def _git_ignored(root, rels, work):
     if not rels:
         return set()
-    data = b"".join(os.fsencode(rel) + b"\0" for rel in rels)
+    # check-ignore rejects --literal-pathspecs on supported Git versions.
+    # An explicit relative prefix prevents leading ':(' from becoming magic.
+    encoded = {b"./" + os.fsencode(rel): rel for rel in rels}
+    data = b"".join(raw + b"\0" for raw in encoded)
     if len(data) > work.limits.file_bytes:
         work.omit("git_query_bytes")
         raise _ScanStop()
@@ -1302,7 +1308,7 @@ def _git_ignored(root, rels, work):
             or (result.returncode == 0 and not output)):
         work.omit("git_query_failed", error=True)
         raise _ScanStop()
-    allowed = {os.fsencode(rel) for rel in rels}
+    allowed = set(encoded)
     ignored = set()
     for raw in output.split(b"\0")[:-1]:
         work.checkpoint("git_result")
@@ -1310,7 +1316,7 @@ def _git_ignored(root, rels, work):
             work.omit("git_query_failed", error=True)
             raise _ScanStop()
         ignored.add(raw)
-    return {os.fsdecode(raw) for raw in ignored}
+    return {encoded[raw] for raw in ignored}
 
 
 def _iter_scannable_files(root: Path, work=None) -> Iterator[tuple[Path, str]]:
@@ -1389,7 +1395,7 @@ def _iter_scannable_files(root: Path, work=None) -> Iterator[tuple[Path, str]]:
                         continue
                     if not is_directory and (rel in seen or not eligible(rel)):
                         continue
-                    path_bytes = len(os.fsencode(rel)) + 1
+                    path_bytes = len(os.fsencode(rel)) + 3  # './' plus NUL
                     if batch and batch_bytes + path_bytes > work.limits.file_bytes:
                         yield from admit_batch()
                         batch.clear()

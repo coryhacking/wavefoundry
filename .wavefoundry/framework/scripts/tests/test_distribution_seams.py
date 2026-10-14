@@ -36,6 +36,125 @@ from record_layout_support import waves_dir
 from framework_text_ownership import load_inventory
 
 SCRIPTS = Path(__file__).resolve().parents[1]
+
+
+class ContainerStatusContractTests(unittest.TestCase):
+    def test_lightweight_immutable_contract_and_legacy_boundaries(self):
+        from wave_lint_lib.constants import CONTAINER_STATUSES, OPEN_CONTAINER_STATUSES
+        from wave_lint_lib.wave_validators import _wave_requires_wave_owned_change_docs
+        self.assertIsInstance(CONTAINER_STATUSES, frozenset)
+        self.assertIsInstance(OPEN_CONTAINER_STATUSES, frozenset)
+        self.assertEqual(OPEN_CONTAINER_STATUSES, {"active", "implementing"})
+        self.assertEqual(CONTAINER_STATUSES, {"planned", "ready", "active", "implementing", "paused", "closed", "completed"})
+        self.assertTrue(_wave_requires_wave_owned_change_docs("Status: ready\n"))
+        self.assertFalse(_wave_requires_wave_owned_change_docs("Status: completed\n"))
+        self.assertFalse(_wave_requires_wave_owned_change_docs("Status: unknown\n"))
+        probe = subprocess.run([sys.executable, "-B", "-c",
+                                "import sys; from wave_lint_lib.constants import CONTAINER_STATUSES; "
+                                "assert 'wf_server.server_impl' not in sys.modules"],
+                               cwd=SCRIPTS, capture_output=True, text=True, timeout=10)
+        self.assertEqual(probe.returncode, 0, probe.stderr)
+
+    def test_cold_context_first_and_constants_first_do_not_cycle_or_import_server(self):
+        for order in ("import context_efficiency; import wave_lint_lib.constants",
+                      "import wave_lint_lib.constants; import context_efficiency"):
+            with self.subTest(order=order):
+                probe = subprocess.run([sys.executable, "-B", "-c", order +
+                    "; import sys; assert 'wf_server.server_impl' not in sys.modules"],
+                    cwd=SCRIPTS, capture_output=True, text=True, timeout=10)
+                self.assertEqual(probe.returncode, 0, probe.stderr)
+
+    def test_package_main_keeps_noarg_api_and_actual_cli_return_behavior(self):
+        import inspect
+        from test_docs_lint import _DocsLintFixture
+        import wave_lint_lib
+        import importlib
+        cli = importlib.import_module("wave_lint_lib.cli")
+        self.assertEqual(wave_lint_lib.__all__, ["main"])
+        self.assertEqual(len(inspect.signature(wave_lint_lib.main).parameters), 0)
+        with mock.patch.object(cli, "main", return_value=17) as delegate:
+            self.assertEqual(wave_lint_lib.main(), 17)
+            delegate.assert_called_once_with()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            clean = _DocsLintFixture().copy_fixture()
+            self.addCleanup(shutil.rmtree, clean)
+            absent = root / "absent"
+            absent.mkdir()
+            for target, expected in ((clean, 0), (absent, 1)):
+                env = {key: value for key, value in os.environ.items() if key != "PYTHONPYCACHEPREFIX"}
+                env.update(PROJECT_ROOT=str(target), PYTHONDONTWRITEBYTECODE="1")
+                package = subprocess.run([sys.executable, "-B", "-c",
+                    "from wave_lint_lib import main; raise SystemExit(main())"],
+                    cwd=SCRIPTS, env=env, capture_output=True, text=True, timeout=15)
+                entry = subprocess.run([sys.executable, "-B", str(SCRIPTS / "docs_lint.py")],
+                    cwd=SCRIPTS, env=env, capture_output=True, text=True, timeout=15)
+                self.assertEqual(package.returncode, expected, package.stdout + package.stderr)
+                self.assertEqual((package.returncode, package.stdout, package.stderr),
+                                 (entry.returncode, entry.stdout, entry.stderr))
+
+    def test_open_consumers_preserve_planned_paused_and_unknown_controls(self):
+        import context_efficiency as ce
+        from wf_server import server_impl as srv
+        import render_platform_surfaces as renderer
+        from wave_lint_lib.constants import OPEN_CONTAINER_STATUSES
+        tree = ast.parse(renderer.claude_stop_source())
+        active = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_active_wave")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = waves_dir(root) / "1abcd specimen"
+            folder.mkdir(parents=True)
+            wave = folder / vocabulary_profile.RECORD_FILENAME
+            namespace = {"Path": Path, "_wf_record_file": wave.name,
+                         "_wf_id_prefix": vocabulary_profile.ID_KEY,
+                         "_wf_open_statuses": OPEN_CONTAINER_STATUSES,
+                         "_wave_dirs": lambda root: [folder]}
+            exec(compile(ast.Module(body=[active], type_ignores=[]), "<rendered-hook>", "exec"), namespace)
+            for status in ("planned", "ready", "active", "implementing", "paused", "closed", "completed", "unknown"):
+                with self.subTest(status=status):
+                    wave.write_text(f"Status: {status}\n")
+                    ce._reset_open_wave_cache()
+                    expected = status in {"active", "implementing"}
+                    self.assertEqual(ce.resolve_open_wave(root) is not None, expected)
+                    self.assertEqual(namespace["_active_wave"](root) is not None, expected)
+                    with mock.patch.object(srv, "list_waves", return_value=[{"status": status, "path": str(wave)}]):
+                        self.assertEqual(srv._find_other_active_wave(root, root / "other.md") is not None, expected)
+
+    def test_complete_rendered_hook_imports_shared_statuses_and_degrades_when_unavailable(self):
+        import render_platform_surfaces as renderer
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = waves_dir(root) / "1abcd specimen"
+            folder.mkdir(parents=True)
+            wave = folder / vocabulary_profile.RECORD_FILENAME
+            hook = root / ".claude/hooks/capture.py"
+            hook.parent.mkdir(parents=True)
+            hook.write_text(renderer.claude_stop_source())
+            code = r"""import builtins, json, runpy, sys
+from pathlib import Path
+original = builtins.__import__
+def guarded(name, *args, **kwargs):
+    if sys.argv[3] == 'refuse' and name == 'wave_lint_lib.constants':
+        raise ImportError('fixture transient tree')
+    return original(name, *args, **kwargs)
+builtins.__import__ = guarded
+ns = runpy.run_path(sys.argv[1], run_name='contract_probe')
+root, wave = Path(sys.argv[2]), Path(sys.argv[4])
+observed = []
+for status in ('active', 'implementing', 'paused', 'ready', 'planned', 'unknown'):
+    wave.write_text('Status: ' + status + '\n')
+    observed.append(ns['_active_wave'](root) is not None)
+print(json.dumps(observed))
+"""
+            env = {key: value for key, value in os.environ.items() if key != "PYTHONPYCACHEPREFIX"}
+            env.update(PYTHONPATH=str(SCRIPTS), PYTHONDONTWRITEBYTECODE="1", WAVEFOUNDRY_DISABLE_BYTECODE_CACHE="1")
+            for mode in ("normal", "refuse"):
+                result = subprocess.run([sys.executable, "-B", "-c", code, str(hook), str(root), mode, str(wave)],
+                                        cwd=root, env=env, capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), [True, True, False, False, False, False] if mode == "normal" else [False] * 6)
+
+
 FRAMEWORK = SCRIPTS.parent
 TESTS = SCRIPTS / "tests"
 LEGACY_ACTOR = review_evidence.LEGACY_COUNCIL_ACTORS[0]

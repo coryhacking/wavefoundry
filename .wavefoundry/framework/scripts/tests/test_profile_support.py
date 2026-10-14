@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -928,6 +929,78 @@ print("-" * 70 + "\nRan 4 tests in 0.2s\n\nFAILED (failures=2, errors=1)")
 print("\n" + "-" * 70 + "\nSlowest files (top 2 of 2):\nFAILED (test_beta.py)")
 sys.exit(0 if (repo / "exit-zero").exists() else 1)
 '''
+
+
+class CompatibilityCoverageTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.scripts = Path(self.tmp.name) / "scripts"
+        self.path = self.scripts / "tests/fixtures/profiles/qualification/coverage.json"
+        self.inventory = json.loads((SCRIPTS_DIR / "tests/fixtures/profiles/qualification/coverage.json").read_text())
+        # Fixture owns all pins, including a distribution's current declaration;
+        # it does not assume the executing checkout has shipped-default bytes.
+        for relative in self.inventory["contracts"]:
+            dest = self.scripts / relative
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(SCRIPTS_DIR / relative, dest)
+            self.inventory["contracts"][relative] = hashlib.sha256(dest.read_bytes()).hexdigest()
+        for name in self.inventory["required_workers"]:
+            path = self.scripts / "tests" / name
+            if not path.exists(): path.write_text("# known required worker\n")
+        self.path.parent.mkdir(parents=True)
+        self.write_inventory()
+
+    def write_inventory(self):
+        self.path.write_text(json.dumps(self.inventory))
+
+    def test_reviewed_independence_omits_only_the_named_worker(self):
+        for profile in ("second", "declared"):
+            scope = record_layout_support.qualification_scope(profile, self.scripts)
+            self.assertEqual(scope["kind"], "compatibility")
+            self.assertEqual(set(scope["discovered_workers"]) - set(scope["selected_workers"]),
+                             {"test_check_version.py"})
+            self.assertIn("test_profile_support.py", scope["selected_workers"])
+            self.assertIn("test_server_tools.py", scope["selected_workers"])
+
+    def test_every_changed_contract_forces_full_profile(self):
+        for relative in self.inventory["contracts"]:
+            path = self.scripts / relative
+            original = path.read_bytes()
+            try:
+                path.write_bytes(original + b"\n")
+                for profile in ("second", "declared"):
+                    with self.subTest(path=relative, profile=profile):
+                        self.assertEqual(record_layout_support.qualification_scope(profile, self.scripts)["kind"], "full")
+            finally:
+                path.write_bytes(original)
+
+    def test_unknown_worker_or_profile_extension_forces_full_profile(self):
+        for relative in ("tests/test_new_contract.py", "tests/fixtures/profiles/new-extension.json"):
+            path = self.scripts / relative
+            try:
+                path.write_text("{}")
+                scope = record_layout_support.qualification_scope("second", self.scripts)
+                self.assertEqual(scope["kind"], "full")
+                if relative.endswith(".py"):
+                    self.assertIn("test_new_contract.py", scope["discovered_workers"])
+            finally:
+                path.unlink()
+        self.assertEqual(record_layout_support.qualification_scope("unknown", self.scripts)["kind"], "full")
+
+    def test_invalid_missing_duplicate_and_unbound_claims_force_full_profile(self):
+        original = json.loads(json.dumps(self.inventory))
+        controls = []
+        bad = json.loads(json.dumps(original)); bad["required_workers"].pop(); controls.append(bad)
+        bad = json.loads(json.dumps(original)); bad["required_workers"].append(bad["required_workers"][0]); controls.append(bad)
+        bad = json.loads(json.dumps(original)); bad["contracts"].pop("run_tests.py"); controls.append(bad)
+        bad = json.loads(json.dumps(original)); bad["independent_workers"]["test_check_version.py"]["footprint"] = []; controls.append(bad)
+        bad = json.loads(json.dumps(original)); bad["independent_workers"]["test_check_version.py"]["rationale"] = ""; controls.append(bad)
+        for bad in [*controls, [], "[" * 2000]:
+            self.path.write_text(bad if isinstance(bad, str) else json.dumps(bad))
+            self.assertEqual(record_layout_support.qualification_scope("second", self.scripts)["kind"], "full")
+        self.path.unlink()
+        self.assertEqual(record_layout_support.qualification_scope("second", self.scripts)["kind"], "full")
 
 
 class ProfileRunTests(unittest.TestCase):
