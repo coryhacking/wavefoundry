@@ -150,6 +150,9 @@ ROUTED = {
 
 # Timed calls that stay as they are, each with the reason. Only these (wave 1z8ox).
 EXCLUDED = {
+    ("tensorwell_client.py", "_cli", "wait"): (
+        2, "qualified controller only: deadline wait and exact owned Popen child reap; "
+           "never signal shared daemon, descendants, process groups or discovery PIDs"),
     ("child_tee.py", "run", "wait"): (
         1, "foreground tee preserves isolated_run session flags and direct-child-only timeout; "
            "readers drain independently, and current upgrade callers supply no timeout"),

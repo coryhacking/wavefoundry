@@ -1839,8 +1839,8 @@ class RuntimeLockReloadInPlaceTests(unittest.TestCase):
 
     def test_without_the_in_place_reload_the_import_fails(self):
         out = _run_reload_driver(lambda source: source.replace(
-            '_IN_PLACE_RELOAD_MODULES = ("runtime_lock", "sqlite_storage_migration")',
-            '_IN_PLACE_RELOAD_MODULES = ("sqlite_storage_migration",)', 1))
+            '_IN_PLACE_RELOAD_MODULES = ("runtime_lock", "sqlite_storage_migration", "tensorwell_client")',
+            '_IN_PLACE_RELOAD_MODULES = ("sqlite_storage_migration", "tensorwell_client")', 1))
         self.assertIn("ImportError", out.get("raised", ""), out)
         self.assertIn("reload_probe_marker", out.get("raised", ""), out)
 

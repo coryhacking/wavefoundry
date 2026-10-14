@@ -6,7 +6,12 @@
 [![Python](https://img.shields.io/badge/python-%E2%89%A53.11-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-Your AI coding agent forgets what it did last session, skips review steps you told it to follow, and ships work that drifts from the plan. Wavefoundry is a local harness for all three. It runs on your machine. No service, no account, no telemetry.
+Your AI coding agent forgets what it did last session, skips review steps you told it to follow, and ships work that drifts from the plan. Wavefoundry is a local harness for all three. It runs on your machine. No required service, no account, no telemetry.
+
+An installed, qualified local Tensorwell service can optionally share the pinned embedding
+and reranking models. MCP startup can start its existing configuration in the background;
+`WAVEFOUNDRY_DISABLE_TENSORWELL=1` opts out. See the
+[optional inference contract](.wavefoundry/framework/README.md#optional-tensorwell-inference).
 
 ## Who this is for
 

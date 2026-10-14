@@ -118,7 +118,7 @@ for _wll_key in list(sys.modules):
 # ``upgrade_extensions._reload_in_place`` idiom). The whole reload runs under
 # the module's ``process_hold_guard()``, so no in-process acquire or reader
 # check interleaves with it.
-_IN_PLACE_RELOAD_MODULES = ("runtime_lock", "sqlite_storage_migration")
+_IN_PLACE_RELOAD_MODULES = ("runtime_lock", "sqlite_storage_migration", "tensorwell_client")
 
 
 def _reload_module_in_place(name: str) -> None:
@@ -1830,6 +1830,18 @@ class WaveIndex:
     # classification. "full" (FP16/FP32/legacy-unrecorded) is unchanged fastembed-resident.
     # ------------------------------------------------------------------
     def _get_embedder(self, model_name: str):
+        # Service selection follows stored precision before the local cache.
+        # A shared model cannot represent two distinct layer precision classes.
+        import tensorwell_client
+        meta = getattr(self, "_meta", None) or {}
+        versions = (meta.get("project") or {}).get("model_versions") or {}
+        classes = {self._indexer_constant("_precision_class_from_version")(versions.get(layer))
+                   for layer, constant in (("docs", "DOCS_MODEL"), ("code", "CODE_MODEL"))
+                   if model_name == self._indexer_constant(constant)}
+        resident = (tensorwell_client.select_embedder(model_name, next(iter(classes), "full"))
+                    if len(classes) <= 1 else None)
+        if resident is not None:
+            return resident
         # Wave 1p4wy: per-process embedder cache (mirrors ``_get_reranker``). On the
         # CoreML path the ONNX session compile is ~40s; without this guard a fresh
         # embedder was built on every query, re-paying the compile each time.
@@ -1919,6 +1931,15 @@ class WaveIndex:
     def _embed_query(self, text: str, model_name: str) -> "np.ndarray":
         import numpy as np
         embedder = self._get_embedder(model_name)
+        if getattr(embedder, "is_tensorwell", False) is True:
+            try:
+                # Explicit role owns prefixing; raw text may itself start with
+                # the instruction prefix and must not be stripped or rewritten.
+                return np.asarray(embedder.embed_query(text), dtype=np.float32)
+            except Exception as exc:
+                raise SemanticModelUnavailableOfflineError(
+                    "Qualified semantic query inference is unavailable; retry or use local inference."
+                ) from exc
         # Wave 1p4wx: asymmetric models (such as the current Arctic S embedder)
         # require an instruction prefix on the QUERY side. fastembed ``.embed()``
         # does not apply it, so prepend it explicitly. Empty for symmetric models.
@@ -1942,6 +1963,12 @@ class WaveIndex:
         (``WAVEFOUNDRY_DISABLE_RERANKER``) or the model can't be built — then the search path degrades
         to vector order (the call sites tolerate ``None``), logged once so it's observable.
         """
+        import tensorwell_client
+        if os.environ.get("WAVEFOUNDRY_DISABLE_RERANKER", "").strip().lower() in {"1", "true", "yes", "on"}:
+            return None
+        resident = tensorwell_client.select_reranker(self._indexer_constant("RERANKER_MODEL"))
+        if resident is not None:
+            return resident
         if self._reranker is not None:
             return self._reranker
         if getattr(self, "_reranker_disabled", False):
@@ -1997,17 +2024,24 @@ class WaveIndex:
         )
 
     def _get_memory_reranker(self):
-        """CPU-only raw-logit model for the separately qualified memory gate.
+        """Qualified service first, CPU INT8 fallback for memory relevance.
 
-        Do not use make_reranker: its CPU provider argument still permits GPU
-        discovery. Memory's fixed cutoff was qualified with CPU INT8 singleton
-        scoring. Keep the normal code/docs provider and cache untouched.
+        Memory's absolute cutoff has separate Tensorwell qualification. Select
+        the service before local caches (including prior failures). The local
+        fallback stays CPU-only: make_reranker permits GPU discovery and would
+        change its qualified singleton scoring. Do not cache service adapters.
         """
         try:
+            if os.environ.get("WAVEFOUNDRY_DISABLE_RERANKER", "").strip().lower() in {"1", "true", "yes", "on"}:
+                return None
+            import tensorwell_client
+            model = self._indexer_constant("RERANKER_MODEL")
+            resident = tensorwell_client.select_reranker(model)
+            if resident is not None:
+                return resident
             import accel_embedder
             if accel_embedder._reranker_disabled():
                 return None
-            model = self._indexer_constant("RERANKER_MODEL")
             with self._reranker_lock:
                 for reranker in (getattr(self, "_memory_reranker", None),
                                  getattr(self, "_reranker", None)):
@@ -2053,6 +2087,11 @@ class WaveIndex:
 
             for model_type, model_name in all_models:
                 try:
+                    import tensorwell_client
+                    resident = (tensorwell_client.select_embedder(model_name)
+                                if model_type == "embedding" else tensorwell_client.select_reranker(model_name))
+                    if resident is not None:
+                        continue
                     _ensure_model_cached(model_name, model_type, root=self.root)
                 except Exception as exc:
                     _wf_log(f"[wavefoundry] Background download failed for {model_name}: {exc}")
@@ -19333,6 +19372,8 @@ def _process_info_status() -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
 
 def wf_server_info_response(root: Path, *, server_runner_version: str | None = None) -> dict[str, Any]:
     data = server_identity(root, server_runner_version=server_runner_version)
+    import tensorwell_client
+    data["tensorwell"] = tensorwell_client.status_snapshot()
     data["extensions"] = _extension_provenance_for_response(root)
     diagnostics: list[dict[str, Any]] = []
     data["process_info"], process_info_diagnostic = _process_info_status()
@@ -24971,8 +25012,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         """Search agent memory records by query, target file/symbol, kind, or status.
 
         Free-text queries fuse memory-scoped semantic and lexical candidates,
-        then screen only the first five summaries with the local CPU relevance
-        model. Returned records are ranked evidence, not verified answers: the
+        then screen only the first five summaries through qualified local Tensorwell
+        or the CPU fallback. Returned records are ranked evidence, not verified answers: the
         calling agent must judge each result's relevance, support and applicability.
         Missing semantic/relevance infrastructure uses explicit all-token lexical
         and policy recovery; response retrieval metadata distinguishes that case.

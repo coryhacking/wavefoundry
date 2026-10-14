@@ -2143,6 +2143,13 @@ def _prewarm_gpu_accel(models: list[str]) -> list[tuple[str, str]]:
     from ``accel_embedder._coreml_static_probe_cache`` (the only failure signal: the make_*
     builders swallow it, and a CPU provider alone is also the normal INT8 path without a GPU).
     """
+    import tensorwell_client
+    # Reuse resident sessions before any local native construction. Explicit
+    # prewarm_models provisioning/validation remains in its existing caller.
+    resident_models = {model for model in models if tensorwell_client.select_embedder(model) is not None}
+    resident_reranker = tensorwell_client.select_reranker(_indexer_reranker_model())
+    if len(resident_models) == len(set(models)) and resident_reranker is not None:
+        return []
     try:
         import accel_embedder
     except ImportError:
@@ -2154,7 +2161,7 @@ def _prewarm_gpu_accel(models: list[str]) -> list[tuple[str, str]]:
     # query is fast. No-op when reranking is disabled (WAVEFOUNDRY_DISABLE_RERANKER).
     reranker_model = _indexer_reranker_model()
     try:
-        reranker = accel_embedder.make_reranker(reranker_model, providers)
+        reranker = resident_reranker or accel_embedder.make_reranker(reranker_model, providers)
         if reranker is not None:
             print(f"Prewarmed reranker ({reranker.provider}, compile cached): {reranker_model}", flush=True)
         else:
@@ -2169,6 +2176,8 @@ def _prewarm_gpu_accel(models: list[str]) -> list[tuple[str, str]]:
     # providers if the selection lacks one, so we don't short-circuit on a (possibly flaky) decision
     # either — let it decide.
     for model_name in models:
+        if model_name in resident_models:
+            continue
         try:
             embedder = accel_embedder.make_embedder(model_name, providers)
         except Exception as exc:  # noqa: BLE001 - prewarm is best-effort

@@ -37,6 +37,32 @@ downloads no models and does not repair or rebuild indexes. It is read-only for
 application data; SQLite may create or update normal WAL/SHM coordination files.
 It is a bounded readiness check, not a complete integrity, freshness or search-quality audit.
 
+## Optional Tensorwell inference
+
+An already-installed compatible Tensorwell service can share the pinned Arctic S
+embedding and MiniLM-L6 reranking models across local Wavefoundry processes. Initial
+support is the qualified macOS CoreML pair; unknown profile/runtime identities and
+partial configurations retain local inference. Existing model pins, index precision,
+CPU/provider overrides and reranker-disable settings remain in force. Memory retrieval
+also uses the qualified service, without loading a separate local reranker. When service
+selection is unavailable, its existing CPU INT8 fallback remains. A failed selected
+service call uses explicit lexical recovery, without retrying through a local model.
+
+At actual MCP serving startup, Wavefoundry schedules one background attempt to discover
+and, for a qualified installed controller, start the configured service with no menu.
+The 30-second budget includes cancellation/reaping of only its own CLI child. It never
+stops a shared service, changes Tensorwell configuration, installs Tensorwell or downloads
+its models. Setup/indexing processes may reuse a ready service but do not auto-start one.
+Imports, dry runs, status and reload do not start it either.
+
+Set `WAVEFOUNDRY_DISABLE_TENSORWELL=1` in the Wavefoundry process environment to disable
+both service selection and automatic start. `wf_server_info().data.tensorwell` reports
+compact backend/startup/fallback state without credentials or input text. Incompatible
+or unavailable service discovery keeps the local route. Failure after service selection
+discards unpublished output; retry after the service recovers or use the local route.
+No backend switch alone requires rebuilding a compatible index. Normal `wf setup`
+validation, explicit provisioning and local fallback dependencies are retained.
+
 ## Python runtime advisory and transition
 
 On native Windows, diagnose the required `python3` command before first setup and when an already-seeded checkout is opened on a new workstation: `powershell -NoProfile -File ".\.wavefoundry\framework\scripts\diagnose_python.ps1"` from the repository root. The read-only script requires neither Python nor MCP. A discovered `python.exe` is evidence for diagnosis, never an alternate MCP command. Use the approved executable or a permitted user PATH repair; when policy blocks both, keep setup unready and use the IT handoff in `.wavefoundry/framework/seeds/011-install-wavefoundry-phase-1.prompt.md` **Python prerequisite**. Do not bypass execution policy, reseed, or rebuild index data for this local command gap. After repair, verify fresh-host `python3 --version` and `python3 .wavefoundry/framework/scripts/server.py --dry-run`, then restart/reconnect the host. Native-Windows qualification for this change is pending real host execution. On first installation, a successful supported `python3` check permits setup to provision the tool environment before the server dry-run; do not require MCP bootstrap before its dependencies exist. Existing provisioned checkouts need no forced setup or rebuild merely for command repair.

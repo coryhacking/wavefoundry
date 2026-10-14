@@ -1114,6 +1114,9 @@ def _run_file(file_path: Path) -> FileResult:
     """
     env = os.environ.copy()
     env["WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER"] = "1"
+    # Always isolate ordinary workers from the real optional shared service.
+    # Tensorwell fixture tests explicitly enable only their private fixtures.
+    env["WAVEFOUNDRY_DISABLE_TENSORWELL"] = "1"
     # Wave 1p52p: the test suite is hardware-INDEPENDENT (CI has no GPU, so it must pass on CPU).
     # Force the CPU provider so tests never build/run the real CoreML/CUDA embedder OR cross-encoder
     # reranker — that downloads models, pays the ~20s CoreML compile per process, runs ~0.8s/rerank

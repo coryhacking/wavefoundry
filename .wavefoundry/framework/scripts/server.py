@@ -871,6 +871,15 @@ def _disable_fastmcp_dotenv() -> None:
 
 def build_server(root: Path):
     from mcp.server.fastmcp import FastMCP
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def inference_lifespan(app):
+        # FastMCP enters this after stdio transport initialization. Building a
+        # server (including --dry-run) and implementation reload never enter it.
+        import tensorwell_client
+        tensorwell_client.start_background(root)
+        yield {}
 
     global _root
     _root = root  # Wave 1p8kz: enable _get_handler lazy-build before/after the explicit _set_handler.
@@ -879,7 +888,7 @@ def build_server(root: Path):
         print(f"wavefoundry: {identity_warning}", file=sys.stderr)
     _set_handler(server_impl.build_handler(root))
     _disable_fastmcp_dotenv()
-    mcp = FastMCP("wavefoundry_mcp")
+    mcp = FastMCP("wavefoundry_mcp", lifespan=inference_lifespan)
     _set_mcp(mcp)  # Wave 131bt (131d8): expose for perform_mcp_reload tool refresh.
     server_impl.register_mcp_surface(mcp, _get_handler)
 

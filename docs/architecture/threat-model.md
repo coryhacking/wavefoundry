@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-13
+Last verified: 2026-10-14
 
 ## Trust Boundaries
 
@@ -19,6 +19,26 @@ Last verified: 2026-10-13
 The source qualification worker shim loads `test_worker_guard.py` directly from source; adjacent guard bytecode is not consulted, including under `-B`. Empty inherited Python search-path entries are removed. This does not authenticate source, the shim, standard-library bytecode or deliberately configured customization. Worker protection remains a cooperative accidental-write guard; inherited markers also refuse protected publication in site-disabled descendants. Expected marker refusals use the normal publication-unavailable error before locking or writing.
 
 Review events may record the current local OS process account as separately labeled attribution. Native account lookup ignores username environment overrides; missing or unsafe results remain a nonblocking advisory. Only the bounded account name and a fixed source label are stored, without hostname, home path or email. Shared accounts and agent delegation mean this is not authentication of the human reviewer, owner-separation enforcement or evidence of reviewer independence. Replay retains the original attribution; historical records need no backfill and metadata does not rotate approval identity. POSIX behavior is locally exercised; native Windows execution remains unqualified.
+
+## Optional Tensorwell client
+
+The optional client sends repository-derived text only to the operator's local service
+at literal `127.0.0.1`, authenticated by a private file credential. No proxies or redirects
+are followed. Discovery uses bounded no-follow regular-file reads, checks ownership and
+permissions, and accepts an endpoint/token pair only after the endpoint is read again
+unchanged. Requests and responses have byte/count/deadline limits; result identities,
+indices, dimensions and numeric values finite in the caller's float32 domain are checked
+before use. A finite JSON number that would overflow float32 is refused. Credentials,
+input text and raw service errors are excluded from diagnostics.
+
+This is a same-user trust relationship, not protection against a malicious process
+already able to replace that user's service, credentials or framework code. Qualified
+profile digests prevent accidental model/runtime drift; they are not remote attestation.
+Automatic start additionally requires a qualified controller digest and controlled
+executable lookup excluding repository/current-directory entries. Deadline cancellation
+uses only the exact child handle; discovery PIDs never authorize signals. Tensorwell
+retains its native startup-failure cleanup. Native qualification is macOS-only; unknown
+contracts and unsupported hosts retain local inference.
 
 ## Threat Actors and Trust Classification
 

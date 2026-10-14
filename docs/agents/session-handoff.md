@@ -2,19 +2,23 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-13
+Last verified: 2026-10-14
 
 ## Current Session
 
-**Active wave:** *(none)*
+**Active wave:** none. Waves `20nju optional-tensorwell-inference`, `20lul tensorwell-memory-reranking` and `20lkx test-suite-runtime` are closed.
 
-**Last closed:** `20k5w lifecycle-core-response-callback`, after 20k0e, 20k14, 20k56 and 20k5v. All five waves are closed with completed ACs/tasks, required independent reviews, cleared findings and explicit operator signoff.
+**Last closed:** `20lkx test-suite-runtime` — removed 896 inherited test repetitions and bounded ordinary scanner fixtures while preserving unique coverage and the explicit checkout audit.
 
-**Delivered:** Broader pre-edit dispatch and accurate legacy signoffs; bounded worker startup/capture; contained document checks and migration compatibility; optional current OS-user provenance; additive lifecycle completion callbacks before accounting. Scope details and durable evidence remain in each wave.md, admitted change and authoritative ledger.
+**Done:** Optional qualified Tensorwell inference now covers embedding, normal reranking and memory reranking before local model construction, with bounded startup, strict identity checks and preserved local fallback. All required reviews and closure gates passed. Wave folders retain only their wave/change records and authoritative ledgers.
 
-**Qualification:** 12,471 tests across 185 files passed with 12 reported skips; current green framework receipt hash 83e8456ae65b35e56e2409ee1f48216471edb27552d52272329cd7bcbfc7c520. Required specialist and council reviews passed after independent reverification of the three findings. No native Windows, live-host or new-archive claim. Both edit gates remain closed.
+**Next:** Commit the completed work, then produce an operator-confirmed 1.31.0 local test pack before new implementation. No official release or push is requested. Incoming private feedback remains outside committed records.
 
-**Next:** Official 1.30.0 is published; await operator direction. Source qualification remains current; no framework code changed during release preparation.
+**Local packaging exception:** Operator explicitly approved retaining verified `uv==0.12.17` for this 1.31.0 local test pack on 2026-10-14. PyPI confirms all 18 recorded wheel hashes; the newer eligible 0.12.18 is deferred. This exception waives only the pin bump, not source/profile qualification or archive checks.
+
+**Test state:** Current framework receipt is green for 11,609 tests / 187 files / 12 existing aggregate skips, 627.384 seconds, hash `b240480388326e02c42685eb78d282f68a335f98d052027b6326a2a6f655bae4`. Both close mutations verified it; full docs validation passed. Performance timings are observational on a contended host. Raw logs remain temporary and edit gates are closed.
+
+**Open questions / Deferred decisions:** Further test scheduling and per-test profiling remain follow-ups. Three completed-review MCP servers retained host pipe connections and were stopped under explicit operator instruction; host connection cleanup and intermittent idle CPU work remain unimplemented follow-ups. Last setup assessment reported changed setup inputs; recheck readiness before relying on indexed retrieval. No setup or index rebuild was performed by this close.
 
 **Official release:** [v1.30.0](https://github.com/coryhacking/wavefoundry/releases/tag/v1.30.0), build `1.30.0+pwgi`, tagged at `624c7f62d77ae28820de009a4ad4aa0baf87184a`. GitHub confirms a published, non-prerelease release with both assets uploaded. `wavefoundry-1.30.0.pwgi.zip`: 10,538,661 bytes, SHA-256 `f60cd13394bd352b3a06433e4f20aa4aa19686d3982a0957437a38b498004f2b`. `wavefoundry-models-3.zip`: 351,495,236 bytes, SHA-256 `10727d5324507acffa2a6c4459b1bdbc01e65252581dd8000d18fca92f65f291`. GitHub asset sizes and digests match the verified local archives. Feature CRC, safe paths, source parity, nested feature/bridge integrity, and model manifests, file digests, revisions and licenses passed; docs validation passed. This verifies archive contents and publication, not a downstream installation of this exact release.
 

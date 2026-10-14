@@ -2,7 +2,65 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-13
+Last verified: 2026-10-14
+
+## Tensorwell qualification
+
+Ordinary qualification workers force the Tensorwell opt-out; adapter tests explicitly
+enable isolated discovery/HTTP/controller fixtures. Registered-path checks exercise
+indexing, query roles, reranking, MCP serving lifespan, dry-run/reload and publication
+failure. They must not contact or manage the operator's service. Control-removal mutants
+verify identity, transport and lifecycle guards through their owning assertions.
+
+Separate bounded macOS native checks use synthetic text and the installed ready pair.
+Before measurement, wave 20nju froze embedding cosine at least 0.999 against local full
+inference, matching nearest-document top-1, and raw reranker maximum absolute delta
+strictly below 0.05 with order preserved for reference margins above 0.10. Empty text,
+Unicode, long input, repeated calls and batch composition are included. A failing
+profile is not admitted. Artifact identity, simulated lifecycle ownership, native
+inference and performance claims are distinct; no speed claim follows from parity.
+
+The opt-in [native parity harness](../../.wavefoundry/framework/scripts/tests/oracle/tensorwell_parity.py)
+uses the production adapters and cached local references with a 120-second process
+deadline. Run it with the tool environment's Python and a ready service; it performs
+no downloads, service lifecycle actions or index writes. Ordinary contract/integration
+coverage lives in `test_tensorwell_client.py` and `test_tensorwell_integration.py`.
+
+Memory retrieval has a separate [native quality oracle](../../.wavefoundry/framework/scripts/tests/oracle/tensorwell_memory_parity.py)
+against the frozen 24-case, 120-pair memory corpus and cached CPU INT8 singleton.
+It retains the `>= -4` cutoff and existing blind relevance judgments, with one
+explicit independent nonblind judgment for a newly admitted candidate. It requires
+no useful-support, recall@3/10, MRR or direct-support-precision regression and no
+new no-match returns; numerical logit equality is not a requirement. Its 120-second
+deadline, pinned input/reference/profile identities and already-ready service
+requirement keep it separate from the hermetic suite. It does not measure latency
+or memory usage. Hermetic integration tests trap local model construction across
+embedding, normal reranking and memory retrieval, exercise raw-cutoff boundaries,
+late service failure, disable controls and local fallback, and reject degraded
+oracle scores. No previously loaded local model is evicted by this change.
+
+## Bounded ordinary test work
+
+Reusable docs-lint fixtures live in helper-only bases, separate from runnable
+`TestCase` classes. Each distinct test method runs once; fixture reuse must not
+silently rediscover the base class's tests in every subclass. CLI subprocess
+isolation and the assertions remain unchanged.
+
+The prefix-collapse suite uses a fixed scratch corpus for exact file eligibility,
+completed no-keyword scans, positive findings, existing input guards and dense-input
+cost reporting. Ordinary discovery does not scan the growing checkout or its large
+historical cost artifact. Both diagnostic checks remain available explicitly:
+
+```sh
+python3 -B .wavefoundry/framework/scripts/tests/test_secrets_prefix_collapse.py --checkout-audit
+```
+
+This audit reads the current checkout and historical artifact under the existing
+no-repository-write boundary. A missing historical artifact is reported as an audit
+skip; ordinary discovery adds no skips. A bounded scratch test exercises the audit
+dispatch and verifies unchanged file contents, including the findings ledger.
+Audit results are optional diagnostics, not a canonical green test receipt.
+Production scanner scope, rules, input guards, and qualification settings are unchanged.
 
 ## Test Tiers
 

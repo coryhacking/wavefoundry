@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-10
+Last verified: 2026-10-14
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -11,6 +11,12 @@ storage. The intended audience is a developer who is new to the system.
 ---
 
 ## Overview
+
+The embedding stage may reuse a [qualified Tensorwell service](embedding-model.md#optional-tensorwell-execution-wave-20nju),
+including for small incremental builds. It still follows the existing precision policy.
+The adapter validates a complete operation before yielding vectors, so failure cannot
+publish a partial service batch or mix it with a different local precision. Corpus
+selection, chunking, prepared updates and atomic index publication are unchanged.
 
 ```
 Repository files

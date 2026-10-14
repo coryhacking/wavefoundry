@@ -8,6 +8,20 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.31.0] - Unreleased
+
+### Fixed
+
+- Memory retrieval reuses the qualified Tensorwell reranker before local caches or construction, keeping embeddings and both reranking paths outside MCP's local model sessions when the service is usable. Preserve the CPU fallback, relevance cutoff and explicit lexical recovery on service failure; qualify the absolute cutoff separately (wave 20lul).
+
+### Changed
+
+- Reduce qualification work by removing 896 inherited docs-lint test repetitions and bounding ordinary reconciliation scanner fixtures, retaining every unique test and an explicit read-only checkout audit (wave 20lkx).
+
+### Added
+
+- Optional Tensorwell inference for the qualified pinned embedding/reranking pair, with bounded background startup from MCP serving, private loopback discovery, precision-preserving selection and local fallback. No service installation or configuration changes; opt out with `WAVEFOUNDRY_DISABLE_TENSORWELL=1` (wave 20nju).
+
 ## [1.30.0] - 2026-10-13
 
 ### Added

@@ -34,9 +34,10 @@ scripts, root = Path(sys.argv[1]), Path(sys.argv[2])
 sys.path.insert(0, str(scripts))
 import server
 mcp = server.build_server(root)
+assert callable(mcp.settings.lifespan)
 tools = sorted(mcp._tool_manager._tools)
 print(json.dumps({"tool_count": len(tools), "has_reload": "wf_reload_mcp" in tools,
-                  "settings": mcp.settings.model_dump(mode="json")}, default=str))
+                  "settings": mcp.settings.model_dump(mode="json", exclude={"lifespan"})}, default=str))
 """
 
 

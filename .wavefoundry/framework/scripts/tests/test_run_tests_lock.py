@@ -136,6 +136,7 @@ class RunFileEncodingTests(unittest.TestCase):
         # host shell that happens to export them (delta-review advisory).
         scrubbed = {k: v for k, v in os.environ.items()
                     if k not in ("PYTHONUTF8", "PYTHONIOENCODING")}
+        scrubbed["WAVEFOUNDRY_DISABLE_TENSORWELL"] = "0"
         with patch.dict(os.environ, scrubbed, clear=True), \
                 patch.object(run_tests.subprocess, "run", side_effect=fake_run):
             result = run_tests._run_file(Path("test_example.py"))
@@ -148,6 +149,7 @@ class RunFileEncodingTests(unittest.TestCase):
         # An inherited PYTHONIOENCODING=cp1252 would win over PYTHONUTF8 in the child;
         # utf8_child_env overrides it unconditionally.
         self.assertEqual(env.get("PYTHONIOENCODING"), "utf-8")
+        self.assertEqual(env.get("WAVEFOUNDRY_DISABLE_TENSORWELL"), "1")
 
 
 @unittest.skipIf(os.name == "nt", "POSIX fcntl mutual-exclusion path")

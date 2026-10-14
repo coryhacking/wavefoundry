@@ -13,6 +13,7 @@ engine edit existed, never against the rewritten pattern's own output.
 """
 from __future__ import annotations
 
+import io
 import json
 import random
 import re
@@ -36,6 +37,8 @@ FROZEN = FIXTURES / "secrets_prefix_collapse_baseline.json"
 
 NESTED = "[\\w.-]{0,50}?(?i:[\\w.-]{0,50}?"
 COLLAPSED = "(?i:[\\w.-]{0,100}?"
+# Repository-owned historical input: its location intentionally does not follow a profile.
+_HISTORICAL_CENSUS_PATH = Path("docs", "waves") / "1tmtx test-suite-performance" / "evidence" / "census.json"
 IDENT_DENSE_LINE = (
     '"test_upgrade_wavefoundry.PublicUpgradeReviewProtocolIntegrationTests.'
     'test_surface_phase_reconciles_stale_carriers": 0.472,'
@@ -309,16 +312,17 @@ keywords = ["a"]
         self.assertEqual({"b.txt"}, {r["file"] for r in sv.most_expensive_rules()},
                          "a previous run's rows leaked into this run's report")
 
-    def test_on_the_real_slow_file_the_report_names_a_lazy_prefix_rule(self):
-        # The identifier-dense artifact that cost 173.6 s before this wave.
-        target = REPO_ROOT / "docs" / "waves" / "1tmtx test-suite-performance" / "evidence" / "census.json"
-        if not target.is_file():
-            self.skipTest("the slow evidence artifact is not in this tree")
+    def test_on_bounded_dense_input_the_report_names_a_lazy_prefix_rule(self):
+        root = self._scratch_root((REPO_ROOT / sv.SCAN_RULES_FRAMEWORK_PATH).read_text(encoding="utf-8"))
+        target = root / "dense.json"
+        target.write_text((IDENT_DENSE_LINE + "\n") * 32, encoding="utf-8")
         with _NoRepoWrites():
-            sv.check_hardcoded_secrets(REPO_ROOT, files=[target], max_workers=1, record_only=True)
-        rows = [r for r in sv.most_expensive_rules() if r["file"].endswith("census.json")]
-        self.assertTrue(rows, "no cost row for the scanned file")
-        rules, _p, _e = sv.load_merged_ruleset(REPO_ROOT)
+            sv.check_hardcoded_secrets(root, files=[target], max_workers=1, record_only=True)
+        rows = sv.most_expensive_rules()
+        self.assertEqual(["dense.json"], [r["file"] for r in rows])
+        self.assertGreater(rows[0]["rules_timed"], 0)
+        rules, _p, errs = sv.load_merged_ruleset(root)
+        self.assertFalse(errs)
         pat = next(r["regex"] for r in rules if r["id"] == rows[0]["rule"])
         self.assertTrue(re.match(r"^(\(\?i\))?\[\\w\.-\]\{0,50\}\?", pat),
                         f"top rule {rows[0]['rule']} does not carry the lazy prefix: {pat[:40]}")
@@ -343,8 +347,9 @@ class NothingNewIsSkippedTests(unittest.TestCase):
 
     Wave 1x4ol preserved the file walk and input guards. Wave 1x5tr subsequently
     made the existing line-length guard observable as partial coverage, without
-    adding a new guard. Assert over the REAL repository that every eligible file
-    produced a scan result or a known guard observation, and reject unknown reasons.
+    adding a new guard. A fixed corpus checks exact eligibility, completed scans
+    (including no-keyword input), partial scans and every pre-existing guard.
+    Whole-checkout accounting remains available through --checkout-audit.
     """
 
     PRE_EXISTING_SKIP_REASONS = {
@@ -353,23 +358,69 @@ class NothingNewIsSkippedTests(unittest.TestCase):
     }
 
     def test_every_eligible_file_is_scanned_or_skipped_for_a_pre_existing_reason(self):
-        files = sv.get_scan_files(REPO_ROOT, scan_all=True)
-        self.assertGreater(len(files), 100)
-        with _NoRepoWrites():
-            sv.check_hardcoded_secrets(REPO_ROOT, files=list(files), max_workers=1, record_only=True)
-        reasons = {s["reason"] for s in sv._SCANNER_SKIPS}
-        unknown = reasons - self.PRE_EXISTING_SKIP_REASONS
-        self.assertEqual(set(), unknown, f"a NEW skip reason appeared: {unknown}")
-        # Every file is accounted for: scanned (a cost row or no rule ran) or guard-skipped.
-        skipped = {s["file"] for s in sv._SCANNER_SKIPS}
-        costed = {c["file"] for c in sv._SCANNER_COSTS}
-        rels = {str(f.relative_to(REPO_ROOT)).replace("\\", "/") for f in files}
-        unaccounted = rels - skipped - costed
-        # A file with zero active rules (no keyword hit) legitimately has no cost
-        # row; it was still read and considered. Bound that residue tightly so a
-        # silent-skip regression cannot hide inside it.
-        self.assertLess(len(unaccounted), len(rels) * 0.5,
-                        f"too many files neither scanned nor guard-skipped: {len(unaccounted)}")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / sv.SCAN_RULES_FRAMEWORK_PATH).parent.mkdir(parents=True)
+            (root / sv.SCAN_RULES_FRAMEWORK_PATH).write_text("""
+[policy]
+false_positive_confirmations_required = 2
+[[rules]]
+id = "fixture-probe"
+description = "fixture probe"
+regex = 'ZZTOKEN-[0-9]{4}'
+keywords = ["zztoken-"]
+""", encoding="utf-8")
+            for rel, content in {
+                "ordinary.txt": b"ZZTOKEN-0001\n",
+                "nested/candidate.md": b"ZZTOKEN-0002\n",
+                "quiet.txt": b"plain text\n",
+                "binary.data": b"\0ZZTOKEN-0003",
+                "archive.bin": b"ZZTOKEN-0004",
+                "long.txt": b"a" * (sv.MAX_LINE_BYTES + 1) + b"\nZZTOKEN-0005\n",
+                "docs/scan-findings.json": b"[]",
+                ".git/excluded.txt": b"ZZTOKEN-0006\n",
+            }.items():
+                path = root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
+            # A sparse size-boundary witness; its contents must never be read.
+            with (root / "large.txt").open("wb") as stream:
+                stream.truncate(sv.MAX_FILE_BYTES + 1)
+            expected = {
+                ".wavefoundry/framework/scan-rules.toml", "ordinary.txt",
+                "nested/candidate.md", "quiet.txt", "binary.data", "archive.bin",
+                "long.txt", "large.txt",
+            }
+            files = sv.get_scan_files(root, scan_all=True)
+            self.assertEqual(expected, {f.relative_to(root).as_posix() for f in files})
+            observations = {}
+            real_scan = sv.scan_file_raw
+
+            def observe(*args, **kwargs):
+                result = real_scan(*args, **kwargs)
+                observations[args[1]] = (kwargs["_outcome"]["complete"], len(result[2]))
+                return result
+
+            with _NoRepoWrites() as recorder, patch.object(sv, "scan_file_raw", observe):
+                sv.check_hardcoded_secrets(root, files=list(files), max_workers=1, record_only=True)
+            self.assertEqual(expected, set(observations), "an eligible file was not processed")
+            self.assertEqual({
+                "archive.bin": "binary file (extension)",
+                "binary.data": "binary file",
+                "large.txt": "file too large",
+                "long.txt": "line too long",
+            }, {s["file"]: s["reason"] for s in sv._SCANNER_SKIPS})
+            self.assertEqual({
+                ".wavefoundry/framework/scan-rules.toml": (True, 0),
+                "ordinary.txt": (True, 1), "nested/candidate.md": (True, 1),
+                "quiet.txt": (True, 0), "long.txt": (False, 1),
+                "archive.bin": (False, 0), "binary.data": (False, 0),
+                "large.txt": (False, 0),
+            }, observations)
+            self.assertNotIn("quiet.txt", {row["file"] for row in sv._SCANNER_COSTS})
+            self.assertTrue(recorder.saved, "positive controls must reach findings serialization")
+            self.assertEqual({"ordinary.txt", "nested/candidate.md", "long.txt"},
+                             {row["file"] for row in json.loads(recorder.saved[-1])})
 
     def test_the_source_declares_no_new_skip_reason(self):
         # Belt and braces on the same claim, from the source rather than a run.
@@ -407,5 +458,93 @@ class FixturesYieldNoFindingsTests(unittest.TestCase):
         self.assertEqual(before, ledger.read_bytes() if ledger.is_file() else None)
 
 
+def _checkout_audit_suite(root):
+    """Explicit diagnostics, not module-level TestCases discovered by the runner."""
+    class CheckoutAudit(unittest.TestCase):
+        def test_on_the_real_slow_file_the_report_names_a_lazy_prefix_rule(self):
+            # The identifier-dense artifact that cost 173.6 s before this wave.
+            target = root / _HISTORICAL_CENSUS_PATH
+            if not target.is_file():
+                self.skipTest("the slow evidence artifact is not in this tree")
+            with _NoRepoWrites():
+                sv.check_hardcoded_secrets(root, files=[target], max_workers=1, record_only=True)
+            rows = [r for r in sv.most_expensive_rules() if r["file"].endswith("census.json")]
+            self.assertTrue(rows, "no cost row for the scanned file")
+            rules, _p, _e = sv.load_merged_ruleset(root)
+            pat = next(r["regex"] for r in rules if r["id"] == rows[0]["rule"])
+            self.assertTrue(re.match(r"^(\(\?i\))?\[\\w\.-\]\{0,50\}\?", pat),
+                            f"top rule {rows[0]['rule']} does not carry the lazy prefix: {pat[:40]}")
+
+
+        def test_every_eligible_file_is_scanned_or_skipped_for_a_pre_existing_reason(self):
+            files = sv.get_scan_files(root, scan_all=True)
+            self.assertGreater(len(files), 100)
+            with _NoRepoWrites():
+                sv.check_hardcoded_secrets(root, files=list(files), max_workers=1, record_only=True)
+            reasons = {s["reason"] for s in sv._SCANNER_SKIPS}
+            unknown = reasons - NothingNewIsSkippedTests.PRE_EXISTING_SKIP_REASONS
+            self.assertEqual(set(), unknown, f"a NEW skip reason appeared: {unknown}")
+            # Every file is accounted for: scanned (a cost row or no rule ran) or guard-skipped.
+            skipped = {s["file"] for s in sv._SCANNER_SKIPS}
+            costed = {c["file"] for c in sv._SCANNER_COSTS}
+            rels = {str(f.relative_to(root)).replace("\\", "/") for f in files}
+            unaccounted = rels - skipped - costed
+            # A file with zero active rules (no keyword hit) legitimately has no cost
+            # row; it was still read and considered. Bound that residue tightly so a
+            # silent-skip regression cannot hide inside it.
+            self.assertLess(len(unaccounted), len(rels) * 0.5,
+                            f"too many files neither scanned nor guard-skipped: {len(unaccounted)}")
+
+
+    return unittest.defaultTestLoader.loadTestsFromTestCase(CheckoutAudit)
+
+
+def _main(argv=None):
+    args = sys.argv[1:] if argv is None else argv
+    if args == ["--checkout-audit"]:
+        result = unittest.TextTestRunner(verbosity=2).run(_checkout_audit_suite(REPO_ROOT))
+        return 0 if result.wasSuccessful() else 1
+    unittest.main(argv=[sys.argv[0], *args])
+    return 0
+
+
+class CheckoutAuditDispatchTests(unittest.TestCase):
+    def test_explicit_audit_dispatch_is_contained_and_not_normally_discovered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rules = root / sv.SCAN_RULES_FRAMEWORK_PATH
+            rules.parent.mkdir(parents=True)
+            rules.write_text(r"""
+[policy]
+false_positive_confirmations_required = 2
+[[rules]]
+id = "cheap-literal"
+description = "positive serialization control"
+regex = 'ZZTOKEN-[0-9]{4}'
+keywords = ["zztoken-"]
+[[rules]]
+id = "lazy-prefix"
+description = "bounded historical-artifact control"
+regex = '[\w.-]{0,50}?test_upgrade_NO_MATCH'
+keywords = ["test_upgrade"]
+""", encoding="utf-8")
+            census = root / _HISTORICAL_CENSUS_PATH
+            census.parent.mkdir(parents=True)
+            census.write_text(IDENT_DENSE_LINE + "\n", encoding="utf-8")
+            (root / sv.SCAN_FINDINGS_PATH).write_text("[]", encoding="utf-8")
+            for i in range(101):
+                (root / f"candidate-{i}.txt").write_text("ZZTOKEN-no-match\n", encoding="utf-8")
+            (root / "positive.txt").write_text("ZZTOKEN-1234\n", encoding="utf-8")
+            before = {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+            output = io.StringIO()
+            with patch.object(sys.modules[__name__], "REPO_ROOT", root), patch.object(sys, "stderr", output):
+                self.assertEqual(0, _main(["--checkout-audit"]), output.getvalue())
+            self.assertIn("Ran 2 tests", output.getvalue())
+            self.assertNotIn("(skipped=", output.getvalue())
+            self.assertEqual(before, {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()})
+            suite = unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])
+            self.assertFalse(any(type(test).__name__ == "CheckoutAudit" for group in suite for test in group))
+
+
 if __name__ == "__main__":
-    unittest.main()
+    raise SystemExit(_main())

@@ -3552,6 +3552,12 @@ def _get_embedder_inner(model_name: str, n_chunks: Optional[int] = None):
     index, a "full"-class no-op under wave 1p936's re-embed guard. Cached under a distinct key so a
     later bulk/full run in the same process still resolves (and caches) the real GPU embedder.
     """
+    # Resident qualified inference precedes probes, caches and the small-run
+    # optimization. Precision prediction is availability-only, as at publication.
+    import tensorwell_client
+    resident = tensorwell_client.select_embedder(model_name)
+    if resident is not None and _predicted_precision_class(model_name, []) == "full":
+        return resident
     providers = _onnx_providers()
     has_gpu = accel_embedder is not None and (
         any(p in accel_embedder.GPU_PROVIDERS for p in providers) or accel_embedder._available_gpu_providers()

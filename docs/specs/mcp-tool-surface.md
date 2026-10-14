@@ -2,13 +2,20 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-13
+Last verified: 2026-10-14
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
 implementation and review must preserve.
 
 ## Purpose
+
+Actual MCP serving may schedule one bounded background start of an installed,
+qualified Tensorwell controller using its existing configuration. Registration and
+non-inference tools remain responsive; imports, dry-run, reload and status reads do not
+start it. `wf_server_info().data.tensorwell` adds compact cached backend, profile and
+startup/fallback state without credentials or input text. No new MCP tool is added.
+See [inference compatibility and opt-out](../architecture/embedding-model.md#optional-tensorwell-execution-wave-20nju).
 
 Wavefoundry exposes framework-aware operations through a local MCP stdio server so
 agents can inspect project state, search indexed content, create change documents,
@@ -1781,7 +1788,7 @@ above: typed-exclusive on declared waves, prose only on legacy waves.
 **Memory record identity (wave 1t9w7):** generated records mint the repository-wide lifecycle naming `<lifecycleId>-mem <slug>` (the prefix comes from the repo's own lifecycle policy; the filename stem is the memory id, so resolution is unchanged). Legacy bare-slug ids (`mem-...`) remain valid indefinitely — field stores reference them — but nothing mints one again; upgrades from pre-1.15 rename existing generated `mem-*` records deterministically, backdating each prefix from the record's `Created` date (explicit bare-slug ids stay frozen-valid and are never auto-renamed) so filesystem order shows true chronology (append-only history keeps the old ids).
 
 **Explicit memory-query retrieval (wave 1yad2):** `memory_search(query=...)`
-uses memory-scoped dense20 + lexical20 candidates, equal RRF k=60 and CPU
+uses memory-scoped dense20 + lexical20 candidates, equal RRF k=60 and cross-encoder
 summary relevance checks over only the first five candidates. Empty summaries
 use their title. Finite raw logits >= -4 pass; output preserves RRF order and
 is capped at min(limit,5), with no unchecked refill. Status, kind and exact
@@ -1798,10 +1805,15 @@ body bytes must match published docs-layer source hashes in the vector read
 transaction. Recovery
 must not masquerade as healthy qualification or healthy zero matches. Archived
 history stays readable through this recovery when its bodies are not indexed.
-A cached CPU model-load failure needs a runtime restart after correcting the
+The qualified local Tensorwell pair supplies memory scores before any local cache
+or construction; explicit reranker-disable and provider opt-outs remain effective.
+Unavailable service selection preserves the CPU INT8 singleton fallback. A failed
+selected service call yields lexical recovery without a local retry or partial scores.
+A cached CPU fallback model-load failure needs a runtime restart after correcting the
 reranker-disable setting or local model/runtime availability (`wf setup` when
-provisioning is needed); index refresh alone does not reset it. No additional
-host-agent service or network model is invoked by memory search.
+provisioning is needed); index refresh alone does not reset it. A usable Tensorwell
+service bypasses that failure cache. Memory search invokes no additional host agent
+or hosted model; optional Tensorwell inference uses authenticated local loopback.
 
 **Memory physical archive (wave 1t8la):**
 

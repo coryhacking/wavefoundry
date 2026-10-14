@@ -4642,6 +4642,8 @@ class MemoryQueryQualificationTests(_MemoryCase):
         import accel_embedder
         import threading
         from types import SimpleNamespace
+        self.enterContext(patch.dict(os.environ, {"WAVEFOUNDRY_DISABLE_RERANKER": "0"}))
+        self.enterContext(patch("tensorwell_client.select_reranker", return_value=None))
         index = object.__new__(self.srv.WaveIndex)
         index._reranker_lock = threading.Lock()
         index._indexer_constant = lambda name: "existing-model"
@@ -4661,6 +4663,8 @@ class MemoryQueryQualificationTests(_MemoryCase):
     def test_cpu_model_failure_is_cached_without_disabling_other_search(self):
         import accel_embedder
         import threading
+        self.enterContext(patch.dict(os.environ, {"WAVEFOUNDRY_DISABLE_RERANKER": "0"}))
+        self.enterContext(patch("tensorwell_client.select_reranker", return_value=None))
         index = object.__new__(self.srv.WaveIndex)
         index._reranker_lock = threading.Lock()
         index._indexer_constant = lambda name: "existing-model"

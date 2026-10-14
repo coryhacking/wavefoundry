@@ -70,12 +70,19 @@ _FIXTURE_RECORD_REFERENCE_DOCS = (
 )
 
 
-class DocsLintFixtureTests(unittest.TestCase):
+class _DocsLintFixture:
+    """Shared fixture only; no inherited runnable test methods."""
+
     VALID_WAVE_ID = "00057 routine-behavior-contract"
+
     BASELINE_WAVE_ID = "00000 wave-zero-plans-and-specs"
+
     VALID_CHANGE_ID = "00058-bug fixture-core"
+
     FOLLOW_UP_CHANGE_ID = "00059-enh fixture-follow-up"
+
     FIXTURE_WAVE_DIR = "change-2026-03"
+
     PERSONA_DOC_PATH = Path("docs/agents/personas/wave-coordinator.md")
 
     @property
@@ -107,6 +114,79 @@ class DocsLintFixtureTests(unittest.TestCase):
             capture_output=True,
             check=False,
         )
+
+    @property
+    def AC_REPO_STATE_DOC(self) -> Path:  # noqa: N802 (kept as the historical attribute name)
+        return self.WAVE_DOC_PATH.parent / "00058-bug fixture-core.md"
+
+    def _replace_acs(self, root, acs: str, priorities: str) -> None:
+        change_doc = root / self.AC_REPO_STATE_DOC
+        text = change_doc.read_text(encoding="utf-8")
+        text = text.replace(
+            "## Acceptance Criteria\n\n- [x] AC-1: Fixture criterion satisfied.\n",
+            f"## Acceptance Criteria\n\n{acs}",
+        )
+        text = text.replace("| AC-1 | required |\n", priorities)
+        change_doc.write_text(text, encoding="utf-8")
+
+    def _write_repo_profile(self, root: Path, factor_review: dict) -> None:
+        profile = {
+            "schema_version": "1.0",
+            "factor_review": factor_review,
+        }
+        profile_path = root / "docs" / "repo-profile.json"
+        profile_path.parent.mkdir(parents=True, exist_ok=True)
+        profile_path.write_text(json.dumps(profile, indent=2), encoding="utf-8")
+
+    def _set_applicable_factors(self, root: Path, applicable_factors: list[str]) -> None:
+        """Set the operational active-lane set in the fixture's workflow-config.json."""
+        config_path = root / "docs" / "workflow-config.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        policy = config.get("factor_review_policy")
+        if not isinstance(policy, dict):
+            policy = {}
+            config["factor_review_policy"] = policy
+        policy["applicable_factors"] = applicable_factors
+        config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+    def _write_factor_canonical(self, root: Path, slug: str) -> None:
+        doc = root / "docs" / "agents" / f"{slug}.md"
+        doc.parent.mkdir(parents=True, exist_ok=True)
+        doc.write_text(
+            f"# {slug}\n\nOwner: Engineering\nStatus: active\n"
+            f"Role: {slug}\nCategory: factor\nLast verified: 2026-06-22\n\n"
+            "## What This Factor Covers\n\nGeneric factor coverage for the fixture.\n",
+            encoding="utf-8",
+        )
+
+    def _write_factor_wrapper(self, root: Path, slug: str, *, frontmatter: bool = True) -> None:
+        wrapper = root / ".claude" / "agents" / f"{slug}.md"
+        wrapper.parent.mkdir(parents=True, exist_ok=True)
+        if frontmatter:
+            body = (
+                f"---\nname: {slug}\ndescription: PROACTIVELY use for factor review.\n"
+                f"tools: Read, Grep, Glob, Bash\nmodel: sonnet\n---\n\n"
+                f"# {slug} (Wrapper)\n\nCanonical factor doc: `docs/agents/{slug}.md`.\n"
+            )
+        else:
+            body = (
+                f"# {slug} (Wrapper)\n\nCanonical factor doc: `docs/agents/{slug}.md`.\n"
+                "No frontmatter — cannot load as a subagent.\n"
+            )
+        wrapper.write_text(body, encoding="utf-8")
+
+    def _write_plan_fixture(self, root: Path, basename: str, body: str) -> Path:
+        plans_dir = RecordTreeBuilder(root).plans_dir
+        plans_dir.mkdir(parents=True, exist_ok=True)
+        plan_path = plans_dir / f"{basename}.md"
+        plan_path.write_text(body, encoding="utf-8")
+        return plan_path
+
+
+class DocsLintFixtureTests(_DocsLintFixture, unittest.TestCase):
+
+
+
 
     def test_base_fixture_passes(self) -> None:
         root = self.copy_fixture()
@@ -793,19 +873,6 @@ class DocsLintFixtureTests(unittest.TestCase):
         self.assertIn("uses plain bullet format", result.stderr)
         self.assertIn("checkbox syntax", result.stderr)
 
-    @property
-    def AC_REPO_STATE_DOC(self) -> Path:  # noqa: N802 (kept as the historical attribute name)
-        return self.WAVE_DOC_PATH.parent / "00058-bug fixture-core.md"
-
-    def _replace_acs(self, root, acs: str, priorities: str) -> None:
-        change_doc = root / self.AC_REPO_STATE_DOC
-        text = change_doc.read_text(encoding="utf-8")
-        text = text.replace(
-            "## Acceptance Criteria\n\n- [x] AC-1: Fixture criterion satisfied.\n",
-            f"## Acceptance Criteria\n\n{acs}",
-        )
-        text = text.replace("| AC-1 | required |\n", priorities)
-        change_doc.write_text(text, encoding="utf-8")
 
     def test_ac_asserting_repository_state_warns_across_named_families(self) -> None:
         # Wave 1wur7 (1wuui AC-2): the three phrasing families named in
@@ -1435,51 +1502,8 @@ class DocsLintFixtureTests(unittest.TestCase):
     # assessment-vs-lane drift surfaces as a non-blocking WARNING.
     # ------------------------------------------------------------------
 
-    def _write_repo_profile(self, root: Path, factor_review: dict) -> None:
-        profile = {
-            "schema_version": "1.0",
-            "factor_review": factor_review,
-        }
-        profile_path = root / "docs" / "repo-profile.json"
-        profile_path.parent.mkdir(parents=True, exist_ok=True)
-        profile_path.write_text(json.dumps(profile, indent=2), encoding="utf-8")
 
-    def _set_applicable_factors(self, root: Path, applicable_factors: list[str]) -> None:
-        """Set the operational active-lane set in the fixture's workflow-config.json."""
-        config_path = root / "docs" / "workflow-config.json"
-        config = json.loads(config_path.read_text(encoding="utf-8"))
-        policy = config.get("factor_review_policy")
-        if not isinstance(policy, dict):
-            policy = {}
-            config["factor_review_policy"] = policy
-        policy["applicable_factors"] = applicable_factors
-        config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
 
-    def _write_factor_canonical(self, root: Path, slug: str) -> None:
-        doc = root / "docs" / "agents" / f"{slug}.md"
-        doc.parent.mkdir(parents=True, exist_ok=True)
-        doc.write_text(
-            f"# {slug}\n\nOwner: Engineering\nStatus: active\n"
-            f"Role: {slug}\nCategory: factor\nLast verified: 2026-06-22\n\n"
-            "## What This Factor Covers\n\nGeneric factor coverage for the fixture.\n",
-            encoding="utf-8",
-        )
-
-    def _write_factor_wrapper(self, root: Path, slug: str, *, frontmatter: bool = True) -> None:
-        wrapper = root / ".claude" / "agents" / f"{slug}.md"
-        wrapper.parent.mkdir(parents=True, exist_ok=True)
-        if frontmatter:
-            body = (
-                f"---\nname: {slug}\ndescription: PROACTIVELY use for factor review.\n"
-                f"tools: Read, Grep, Glob, Bash\nmodel: sonnet\n---\n\n"
-                f"# {slug} (Wrapper)\n\nCanonical factor doc: `docs/agents/{slug}.md`.\n"
-            )
-        else:
-            body = (
-                f"# {slug} (Wrapper)\n\nCanonical factor doc: `docs/agents/{slug}.md`.\n"
-                "No frontmatter — cannot load as a subagent.\n"
-            )
-        wrapper.write_text(body, encoding="utf-8")
 
     def test_factor_surface_lane_active_missing_canonical_fails(self) -> None:
         """Lane-active: a factor in applicable_factors with no canonical doc -> ERROR."""
@@ -2208,12 +2232,6 @@ class DocsLintFixtureTests(unittest.TestCase):
             f"change `{self.VALID_CHANGE_ID}` is missing `{vocabulary_profile.MEMBER_STATUS_LABEL}`", result.stderr
         )
 
-    def _write_plan_fixture(self, root: Path, basename: str, body: str) -> Path:
-        plans_dir = RecordTreeBuilder(root).plans_dir
-        plans_dir.mkdir(parents=True, exist_ok=True)
-        plan_path = plans_dir / f"{basename}.md"
-        plan_path.write_text(body, encoding="utf-8")
-        return plan_path
 
     def test_plan_filename_matches_change_id_passes(self) -> None:
         root = self.copy_fixture()
@@ -2846,7 +2864,7 @@ class LinkValidatorUnitTests(unittest.TestCase):
         self.assertEqual(len(result), 1)
 
 
-class LinkValidatorIntegrationTests(DocsLintFixtureTests):
+class LinkValidatorIntegrationTests(_DocsLintFixture, unittest.TestCase):
     """Integration tests that run the full docs-lint pipeline to verify link checking."""
 
     def test_broken_link_in_docs_fails_lint(self) -> None:
@@ -2884,7 +2902,7 @@ class LinkValidatorIntegrationTests(DocsLintFixtureTests):
         self.assertIn("docs-lint: ok", result.stdout)
 
 
-class PrepareCouncilVerdictLintTests(DocsLintFixtureTests):
+class PrepareCouncilVerdictLintTests(_DocsLintFixture, unittest.TestCase):
     """AC-7: check_prepare_council_verdict — at least one passing and one failing test."""
 
     @property
@@ -3770,7 +3788,6 @@ class ReviewCycleChurnControlPinTests(unittest.TestCase):
         agent = self._doc("prompts", "agents", "review-wave.prompt.md")
         self.assertNotIn("inline — see Wavefoundry Review Specifics", agent)
         self.assertIn("re-Prepare when `wf_review_wave` reports `review_policy_reprepare_required`", agent)
-
 
 
 class AdvisoryFirstRulePinTests(unittest.TestCase):
@@ -4901,7 +4918,7 @@ class ReviewPolicyCarrierParityTests(unittest.TestCase):
         )
 
 
-class IncrementalDocsLintTests(DocsLintFixtureTests):
+class IncrementalDocsLintTests(_DocsLintFixture, unittest.TestCase):
     """Wave 1p9c1: incremental (`--changed`) post-edit docs-lint self-detects the git working-tree
     changed set (reusing secrets' `_get_changed_files`) and runs only the per-file validators on
     changed docs, skipping the corpus-wide checks; a changed config file falls back to the full lint;
@@ -5132,7 +5149,7 @@ class RelativeToRootCrossPlatformTests(unittest.TestCase):
         self.assertFalse(old.startswith("docs/reports/"), "str() backslashes break the skip — must not regress to str()")
 
 
-class PerfCacheAndTimingsTests(DocsLintFixtureTests):
+class PerfCacheAndTimingsTests(_DocsLintFixture, unittest.TestCase):
     """Wave 1p9c6: a transparent `helpers.read_text` cache (keyed on `(path, st_mtime_ns, st_size)`)
     dedupes the redundant per-run reads, and an opt-in `--timings` flag emits per-phase wall-clock
     without changing the pass/fail or exit contract."""
@@ -5218,7 +5235,7 @@ class PerfCacheAndTimingsTests(DocsLintFixtureTests):
         self.assertNotIn("TIMING:", result.stderr)
 
 
-class DocsLintFileSizeGuardTests(DocsLintFixtureTests):
+class DocsLintFileSizeGuardTests(_DocsLintFixture, unittest.TestCase):
     """Wave 1p9cj: an oversized `docs/**` doc has its content validators skipped with a loud
     non-blocking WARNING (never a silent skip, never a blocking ERROR), matching the secrets/indexing
     file-size caps. Configurable via `docs_lint.max_file_bytes`, default 5 MB."""
@@ -5410,7 +5427,6 @@ class LifecyclePrefixWidthPatternTests(unittest.TestCase):
         self.assertIsNone(_SEC_ID_RE.match("1234-sec"))
 
 
-
 class ReviewCarrierCRLFParityTests(unittest.TestCase):
     def _families(self, root):
         import review_policy as policy
@@ -5486,7 +5502,6 @@ class ReviewCarrierCRLFParityTests(unittest.TestCase):
                     end_line = expected.splitlines()[-1]
                     path.write_bytes(expected.replace(end_line, b"", 1))
                     self.assertTrue(any("malformed" in finding for finding in check(root, only={path})))
-
 
 
 class LeadingBOMDocsLintTests(unittest.TestCase):
@@ -5585,10 +5600,8 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class MemoryRecordLintTests(DocsLintFixtureTests):
-    """1p8gy AC-1: memory record schema validation — required fields, known
-    kinds/statuses, evidence/target refs, supersession integrity, forbidden
-    content. Per-kind fixtures per the readiness-council guidance."""
+class _MemoryRecordFixture(_DocsLintFixture):
+    """Shared fixture only; no inherited runnable test methods."""
 
     ALL_KINDS = (
         "failed_attempt", "successful_pattern", "review_finding",
@@ -5615,6 +5628,14 @@ class MemoryRecordLintTests(DocsLintFixtureTests):
         mem_dir = root / "docs" / "agents" / "memory"
         mem_dir.mkdir(parents=True, exist_ok=True)
         (mem_dir / f"{memory_id}.md").write_text(content, encoding="utf-8")
+
+
+class MemoryRecordLintTests(_MemoryRecordFixture, unittest.TestCase):
+    """1p8gy AC-1: memory record schema validation — required fields, known
+    kinds/statuses, evidence/target refs, supersession integrity, forbidden
+    content. Per-kind fixtures per the readiness-council guidance."""
+
+
 
     def test_wellformed_records_of_every_kind_pass(self):
         root = self.copy_fixture()
@@ -5837,7 +5858,7 @@ class MemoryRecordLintTests(DocsLintFixtureTests):
             self.assertIn(expected, result.stderr, label)
 
 
-class MemoryRecordSchemaCompletenessTests(MemoryRecordLintTests):
+class MemoryRecordSchemaCompletenessTests(_MemoryRecordFixture, unittest.TestCase):
     """Delivery-review P1: lint must REQUIRE every schema field — a
     status-less (or otherwise incomplete) record must fail, not pass."""
 
@@ -5871,7 +5892,7 @@ class MemoryRecordSchemaCompletenessTests(MemoryRecordLintTests):
         self.assertIn("`## Summary` must not be empty", result.stderr)
 
 
-class MemoryRecordValueParityLintTests(MemoryRecordLintTests):
+class MemoryRecordValueParityLintTests(_MemoryRecordFixture, unittest.TestCase):
     """Adversarial-pass: lint value grammars — `*` bullets fail, float
     confidence passes, impossible dates fail (calendar-validated)."""
 

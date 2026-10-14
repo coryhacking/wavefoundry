@@ -2,9 +2,17 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-10
+Last verified: 2026-10-14
 
 ## The Problem
+
+Inference can use the optional [qualified Tensorwell pair](embedding-model.md#optional-tensorwell-execution-wave-20nju)
+before local model construction. This changes execution ownership, not retrieval order:
+query prefixes still apply once, service logits enter the existing sigmoid/reranking
+stage, and memory retrieval applies its separately qualified raw cutoff to service
+scores. Unavailable service selection preserves local inference. Selected-operation
+failures retain the existing explicit embedding-unavailable or rerank-degradation path;
+memory search recovers lexically without constructing a local reranker mid-call.
 
 Agents navigating a project through Wavefoundry's MCP server face two distinct retrieval problems:
 
@@ -548,8 +556,9 @@ Eligible body files are SHA-256 checked against their published docs-layer
 source hashes inside the vector read transaction. Missing or changed source
 provenance takes the explicit fallback path. The SQLite query groups eligible
 chunk distances by canonical path before its limit; compact archive entries remain individual lexical identities. Equal-weight
-RRF (k=60) orders the union. Only the first five candidates receive CPU
-cross-encoder checks of their summary (title when summary is empty), with raw
+RRF (k=60) orders the union. Only the first five candidates receive cross-encoder
+checks through the qualified local Tensorwell service, or the CPU INT8 singleton
+when service selection is unavailable, using their summary (title when summary is empty), with raw
 finite logit >= -4 admitted; rejected records do not trigger an unchecked refill.
 The result cap is the smaller of five and the caller's limit, in RRF order.
 

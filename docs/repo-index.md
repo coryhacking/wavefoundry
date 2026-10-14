@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-13
+Last verified: 2026-10-14
 
 ## Repository Summary
 
@@ -35,25 +35,25 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 20427 |
-| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1074 |
-| wave_validators | `.wavefoundry/framework/scripts` | code | 768 |
-| upgrade | `.wavefoundry/framework/scripts` | code | 494 |
-| graph | `.wavefoundry/framework/scripts` | code | 420 |
-| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 344 |
-| framework index | `.wavefoundry/framework/scripts` | code | 289 |
-| indexer | `.wavefoundry/framework/scripts` | code | 284 |
-| setup | `.wavefoundry/framework/scripts` | code | 269 |
-| docs/graph_eval | `.wavefoundry/framework/scripts` | code | 249 |
-| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 237 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 20508 |
+| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1422 |
+| upgrade | `.wavefoundry/framework/scripts` | code | 493 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 452 |
+| graph | `.wavefoundry/framework/scripts` | code | 415 |
+| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 356 |
+| setup | `.wavefoundry/framework/scripts` | code | 333 |
+| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 319 |
+| indexer | `.wavefoundry/framework/scripts` | code | 301 |
 | chunker | `.wavefoundry/framework/scripts` | code | 229 |
+| docs/graph_eval | `.wavefoundry/framework/scripts` | code | 228 |
+| framework index | `.wavefoundry/framework/scripts` | code | 226 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 225 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 154 |
-| run_tests | `.wavefoundry/framework/scripts` | code | 122 |
+| context_efficiency | `.wavefoundry/framework/scripts` | code | 148 |
+| run_tests | `.wavefoundry/framework/scripts` | code | 123 |
+| eval | `.wavefoundry/framework/scripts` | code | 109 |
 | upgrade_bridge_bootstrap | `.wavefoundry/framework/scripts` | code | 109 |
-| eval | `.wavefoundry/framework/scripts` | code | 105 |
-| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 67 |
-| memory_records | `.wavefoundry/framework/scripts` | code | 52 |
+| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 52 |
+| oracle | `.wavefoundry/framework/scripts/tests/oracle` | code | 52 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 47 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
 | design_token_build | `.wavefoundry/framework/scripts` | code | 25 |

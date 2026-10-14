@@ -251,7 +251,7 @@ FRAMEWORK_SCRIPT_MODULE_NAMES = frozenset({
     'setup_index', 'setup_readiness', 'setup_reconciliation', 'setup_requirements',
     'setup_wavefoundry', 'sqlite_runtime', 'sqlite_storage_migration', 'sqlite_vector_store',
     'storage_identity', 'subprocess_util', 'techdocs_audit', 'techdocs_audit_lib',
-    'techdocs_baseline', 'test_worker_guard', 'tree_sitter_cache', 'upgrade_bridge_bootstrap', 'upgrade_bundle',
+    'techdocs_baseline', 'tensorwell_client', 'test_worker_guard', 'tree_sitter_cache', 'upgrade_bridge_bootstrap', 'upgrade_bundle',
     'upgrade_extensions', 'upgrade_lib', 'upgrade_protocol', 'upgrade_wavefoundry',
     'vendored_integrity', 'venv_bootstrap', 'verify_vendored_scripts', 'vocabulary_profile',
     'wave_gate', 'wf_cli', 'workflow_include_prefixes',

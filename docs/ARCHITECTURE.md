@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-11
+Last verified: 2026-10-14
 
 Hub index for Wavefoundry architecture documentation. Child docs provide detail; this file provides scope, update triggers, and cross-links.
 
@@ -17,6 +17,13 @@ The framework's write footprint in a target is documented and code-scoped: `.wav
 The documented principle (repository `AGENTS.md`) is that no network call is required at runtime for install, upgrade, validation, indexing, or packaging; the one network touchpoint to know is that setup may download Python dependencies and embedding models before verifying the cache offline (`setup_index._offline_env`, lines 597-607; [Data and control flow](architecture/data-and-control-flow.md), Path 5 steps 2-3); the dashboard's browser assets are vendored and served from its own origin (Path 7 step 5). Everything runs with the operator's own authority: the MCP server speaks stdio to its host process and opens no listener, the dashboard binds loopback by default, warns on any other host, and answers only requests addressed to a loopback host name or the bound host, and neither carries authentication; the [threat model](architecture/threat-model.md) names the promotion triggers that would re-scope that (Trust Boundaries, Promotion Triggers).
 
 The review-authority tables (Boundary Invariants and Allowed Dependencies in the layering rules, Interaction Edges and Dependency Direction Rules in the domain map, State Ownership in data-and-control-flow) are the structural authority; this hub summarizes and links to them and does not restate their rows.
+
+Optional [Tensorwell inference](architecture/embedding-model.md#optional-tensorwell-execution-wave-20nju)
+adds an authenticated loopback client to an operator-installed service. It is not a
+remote runtime dependency: local inference remains available. Tensorwell owns native
+models and its daemon lifetime; Wavefoundry owns compatibility selection, bounded client
+operations and its one background MCP startup attempt. Model pins and project index
+publication remain Wavefoundry-owned.
 
 ## Scope
 

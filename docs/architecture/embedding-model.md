@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-10
+Last verified: 2026-10-14
 
 ## What This Document Covers
 
@@ -25,6 +25,51 @@ The trade-off is operational complexity: the model must be cached locally before
 | `DOCS_MODEL` | `Snowflake/snowflake-arctic-embed-s` | 384 | `indexer.py` |
 | `CODE_MODEL` | `Snowflake/snowflake-arctic-embed-s` | 384 | `indexer.py` |
 | `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` (logical) → `Xenova/ms-marco-MiniLM-L-6-v2` `onnx/model_fp16.onnx` (GPU) | logit | `indexer.py` |
+
+### Optional Tensorwell execution (wave 20nju)
+
+`tensorwell_client.py` can reuse an installed local Tensorwell service for both pinned
+models. The initial compatibility table admits the qualified macOS CoreML Arctic S
+and MiniLM-L6 pair only. Matching model names is insufficient: the full immutable
+profile identities bind artifact hashes, runtime, preprocessing and precision to the
+Wavefoundry model-set fingerprint. Unknown identities or partial configurations keep
+the local path. Model pins and the `full`/`int8` index compatibility rules are unchanged.
+
+Index builds, including small incremental batches, select a compatible service before
+constructing local sessions. Queries follow recorded index precision; a shared model
+with conflicting layer precisions is not eligible for service selection. Explicit
+provider controls and `WAVEFOUNDRY_DISABLE_TENSORWELL=1` retain local inference.
+`WAVEFOUNDRY_DISABLE_RERANKER` disables both normal and memory reranking. Memory
+retrieval also selects the service before local caches or construction, including a
+prior CPU-load failure. Its separately qualified raw-logit cutoff stays `>= -4`;
+unavailable service selection retains the CPU INT8 singleton fallback. Selected-call
+failure uses explicit lexical recovery without a local retry. This is retrieval
+relevance, not memory approval or publication. Previously loaded fallback sessions
+are not evicted by service selection.
+
+The adapter sends raw text with an explicit document/query role. Tensorwell applies
+the query prefix once; local embedding keeps its existing prefix handling. Reranking
+returns raw logits in input order, leaving normal search to apply sigmoid and
+ranking, and memory search to apply its unchanged raw cutoff. Requests split on serialized UTF-8 bytes and item counts, without truncating
+text. One operation pins its service instance and profile identity and validates all
+results, including finite float32 representability, before returning them. A failed
+selected operation does not mix partial service output with local output; existing
+unavailability/publication handling applies.
+
+Only actual MCP serving schedules one background startup attempt. A qualified installed
+controller may start the configured service, with a 30-second total budget including
+controller cancellation and reaping. Timeout signals only the exact owned CLI child,
+never a process group or discovery PID. Starting is observed read-only; unknown
+controller binaries may reuse ready compatible services but cannot auto-start them.
+Imports, dry runs, reloads, status reads and standalone indexing do not start a service.
+Wavefoundry neither installs/configures Tensorwell nor stops it on shutdown. Native
+startup failure cleanup remains Tensorwell's responsibility.
+
+Service selection suppresses unnecessary local session construction and optional
+background downloads. Explicit setup validation/provisioning and local dependencies
+remain supported. Compact state appears under `wf_server_info().data.tensorwell`.
+See [transport trust](threat-model.md#optional-tensorwell-client) and
+[verification](testing-architecture.md#tensorwell-qualification).
 
 ### Reranker (cross-encoder), FP16-on-GPU / INT8-on-CPU (1p52p, ADR `1p52q`)
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-13
+Last verified: 2026-10-14
 
 ## Runtime advisory boundary
 
@@ -11,6 +11,23 @@ Last verified: 2026-10-13
 `setup_readiness.assess_setup` includes the data in `advisories`, separate from reasons and actions. Existing status, startup blocking, text formatting and exit-code decisions remain unchanged. Index health exposes the assessment for agents whose host hides stderr.
 
 ## Primary Control Paths
+
+### Optional inference service
+
+Actual MCP serving enters the FastMCP lifespan and schedules a once-per-process
+Tensorwell discovery/start worker; tool registration does not wait for it. The worker
+uses a qualified installed controller only for a bounded start of the existing
+configuration. Client deadlines terminate/reap only the exact owned CLI child and grant
+no authority over the shared daemon. Ready services can also be reused by standalone
+index/setup processes, whose imports never initiate startup. Inference selection and
+raw query/document roles are specified in [Embedding model](embedding-model.md#optional-tensorwell-execution-wave-20nju).
+Compact server-info status reads cached client state without a fresh probe.
+
+Implementation reload refreshes the client in place while preserving its process-owned
+locks, startup-once flag and any existing startup worker. It invalidates the qualified
+pair cache; discovery or inference from the previous client generation cannot publish
+new cached state or return service output. The existing worker keeps its original
+deadline, and reload never schedules another start or stops the shared service.
 
 ### Lifecycle response completion
 

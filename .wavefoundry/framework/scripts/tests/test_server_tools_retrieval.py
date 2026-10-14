@@ -6470,6 +6470,7 @@ class RerankerTests(unittest.TestCase):
 
     # --- _get_reranker caching ---
 
+    @patch.dict(os.environ, {"WAVEFOUNDRY_DISABLE_RERANKER": "0", "WAVEFOUNDRY_DISABLE_TENSORWELL": "1"})
     def test_get_reranker_does_not_cache_none(self):
         """Wave 1p52p: _get_reranker uses accel_embedder.make_reranker (GPU FP16 / CPU INT8). It returns
         None only when reranking is disabled or unbuildable; in that case it must NOT cache a non-None
@@ -6496,6 +6497,7 @@ class RerankerTests(unittest.TestCase):
         self.assertIsNone(idx._reranker, "must not cache a non-None reranker when make_reranker returns None")
         self.assertTrue(getattr(idx, "_reranker_disabled", False), "must mark reranker disabled to avoid re-probing")
 
+    @patch.dict(os.environ, {"WAVEFOUNDRY_DISABLE_RERANKER": "0", "WAVEFOUNDRY_DISABLE_TENSORWELL": "1"})
     def test_get_reranker_caches_on_success(self):
         """Report the effective CPU/GPU inference batch through the real lazy-loader seam."""
         import accel_embedder

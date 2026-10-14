@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-17
+Last verified: 2026-10-14
 
 ## Purpose
 
@@ -168,7 +168,18 @@ Each finite raw score >= -4 independently admits its record. Results preserve
 RRF order; no unchecked tail refills rejected candidates. No-query listings,
 briefings and advisories retain existing policy ordering. Failure uses explicit
 lexical-policy recovery, and archive history remains available without embedding
-archived bodies. Model checks are local CPU work with existing model artifacts.
+archived bodies. Model checks use the qualified local Tensorwell pair when available,
+before any local model cache or constructor. Unavailable service selection retains
+the CPU INT8 singleton; a selected service-call failure recovers lexically without a
+local retry. Explicit reranker-disable and provider opt-outs remain effective.
+
+Wave 20lul separately qualifies Tensorwell's memory cutoff against the frozen 24-case,
+120-pair integration corpus and current CPU INT8 reference. The gate requires no loss
+of useful query support, recall@3/10, MRR or independently judged direct-support
+precision, and no new no-match returns. Historical blind labels remain unchanged;
+the newly admitted integration-10 candidate has an explicit independent nonblind
+direct-support judgment. Numerical equality across INT8 and FP16 is not claimed.
+See the [bounded native oracle](../../.wavefoundry/framework/scripts/tests/oracle/tensorwell_memory_parity.py).
 
 Relevance-screened records are evidence for the calling agent to evaluate, as
 with semantic, lexical and graph search. A score is neither verified answer
@@ -189,4 +200,5 @@ source hashes within the vector read transaction. Changed or missing provenance
 uses explicit lexical-policy recovery until indexing catches up. A failed CPU
 model load is cached for the process: check the disable setting and local model/runtime
 availability, use `wf setup` if provisioning is needed, then restart MCP. An index
-refresh alone does not clear the cached model failure.
+refresh alone does not clear the cached model failure. An available qualified
+Tensorwell service is selected ahead of that failure cache.

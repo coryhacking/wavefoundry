@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-11
+Last verified: 2026-10-14
 
 ## Allowed Dependencies
 
@@ -14,6 +14,13 @@ Last verified: 2026-10-11
 | `docs/` | N/A (markdown only; consumed by scripts, not importing scripts) | — |
 
 ## Boundary Invariants
+
+The stdlib-only `tensorwell_client` owns private discovery, loopback transport,
+compatibility checks and bounded controller operations. It does not import the MCP
+orchestrator, index publisher or Tensorwell source. Indexer and query callers select
+adapters and retain their precision/publication policy; the MCP serving lifespan alone
+may request automatic start. Tensorwell owns daemon/native-session lifetime. See
+[Embedding model](embedding-model.md#optional-tensorwell-execution-wave-20nju).
 
 Controlled role/lifecycle document migration remains renderer-owned. Its two existing move tables share exact Markdown destination helpers and one bounded current-doc plan per operation, not a general migration service. Existing incoming pre-extraction/dry-run hooks invoke that read-only plan; the later renderer replans fresh rather than reusing stale bytes across extraction. No confirmed pair traverses no docs; existing role metadata can confirm modern new-only candidates. Per-file safety refusals preserve/report unrelated paths, while candidate conflicts and aggregate limits refuse before plan mutation (and in incoming preflight before extraction). Lifecycle source-present authority survives planned-edit failure; new-only authority is limited to the registered matching policy region. See [document migration flow](data-and-control-flow.md#upgrade-council-role-link-reconciliation-wave-204mp).
 
