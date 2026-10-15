@@ -44,10 +44,11 @@ Depends On: `20lr2-enh reuse-default-qualification-detail`
 <!-- wave:finding-synthesis begin -->
 | Current finding | Disposition | Open block | Repair | Approval recheck |
 | --- | --- | --- | --- | --- |
+| QA-CONTROLLER-OVERFLOW-FIXTURE | do_now | no | completed | code-reviewer, qa-reviewer, release-reviewer |
 | QA-FINAL-MARKER-PUBLICATION | do_now | no | completed | code-reviewer, qa-reviewer, release-reviewer |
 | QUAL-DEL-1 | do_now | no | completed | code-reviewer, qa-reviewer, architecture-reviewer, docs-contract-reviewer, release-reviewer |
 
-*Machine review state — 2 findings; current: do_now 2, maybe_later 0, dont_do_later 0, not_issue 0*
+*Machine review state — 3 findings; current: do_now 3, maybe_later 0, dont_do_later 0, not_issue 0*
 <!-- wave:finding-synthesis end -->
 
 ## Review Evidence
@@ -57,10 +58,10 @@ Depends On: `20lr2-enh reuse-default-qualification-detail`
 | --- | --- | --- | --- |
 | council-readiness | approved | current executed approval by coryhacking follows every affected repair (local account: coryhacking) | none |
 | code-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
-| qa-reviewer | withheld | repaired findings require fresh approval: QUAL-DEL-1, QA-FINAL-MARKER-PUBLICATION | record a fresh independent approval for qa-reviewer |
+| qa-reviewer | withheld | repaired findings require fresh approval: QUAL-DEL-1, QA-FINAL-MARKER-PUBLICATION, QA-CONTROLLER-OVERFLOW-FIXTURE | record a fresh independent approval for qa-reviewer |
 | architecture-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | docs-contract-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
-| release-reviewer | withheld | repaired findings require fresh approval: QUAL-DEL-1, QA-FINAL-MARKER-PUBLICATION | record a fresh independent approval for release-reviewer |
+| release-reviewer | withheld | repaired findings require fresh approval: QUAL-DEL-1, QA-FINAL-MARKER-PUBLICATION, QA-CONTROLLER-OVERFLOW-FIXTURE | record a fresh independent approval for release-reviewer |
 | operator-signoff | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 <!-- wave:review-status end -->
 
@@ -79,12 +80,12 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 
 | Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
-| plan | 139 | 905,884 |
-| implement | 305 | 2,114,696 |
-| review | 348 | 1,981,513 |
-| **Total** | **792** | **5,002,093** |
+| plan | 155 | 1,174,831 |
+| implement | 309 | 2,114,335 |
+| review | 402 | 2,569,981 |
+| **Total** | **866** | **5,859,147** |
 
-<!-- wave:context-efficiency-state {"generation":734,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":305,"content_source_credit":2708649,"derived_artifact_credit":0,"direct_net":2114696,"estimated_tokens_saved":2114696,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":10453,"response_debit":586572,"source_credit_count":108,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3072},"plan":{"calls":139,"content_source_credit":1223965,"derived_artifact_credit":3858,"direct_net":905884,"estimated_tokens_saved":905884,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":30111,"response_debit":301029,"source_credit_count":60,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":9201},"review":{"calls":348,"content_source_credit":2990427,"derived_artifact_credit":46,"direct_net":1981513,"estimated_tokens_saved":1981513,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":42097,"response_debit":966863,"source_credit_count":123,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":792,"content_source_credit":6923041,"derived_artifact_credit":3904,"direct_net":5002093,"estimated_tokens_saved":5002093,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":82661,"response_debit":1854464,"source_credit_count":291,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":12273},"wave_id":"20ngc qualification-reuse"} -->
+<!-- wave:context-efficiency-state {"generation":786,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":309,"content_source_credit":2708649,"derived_artifact_credit":0,"direct_net":2114335,"estimated_tokens_saved":2114335,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":10605,"response_debit":587067,"source_credit_count":108,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3358},"plan":{"calls":155,"content_source_credit":1524422,"derived_artifact_credit":4852,"direct_net":1174831,"estimated_tokens_saved":1174831,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":38127,"response_debit":328215,"source_credit_count":74,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":11899},"review":{"calls":402,"content_source_credit":3713873,"derived_artifact_credit":247,"direct_net":2569981,"estimated_tokens_saved":2569981,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":49495,"response_debit":1094644,"source_credit_count":155,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":866,"content_source_credit":7946944,"derived_artifact_credit":5099,"direct_net":5859147,"estimated_tokens_saved":5859147,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":98227,"response_debit":2009926,"source_credit_count":337,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":15257},"wave_id":"20ngc qualification-reuse"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided
@@ -95,11 +96,11 @@ This is a bounded estimate from exact-match memory advisories. It is not added t
 
 | Advisory surfaces | Citations | Records credited | Estimated tokens avoided |
 | ---: | ---: | ---: | ---: |
-| 63 | 0 | 36 | 22,090,758 |
+| 65 | 0 | 38 | 22,253,663 |
 
 estimated: a surfaced (or cited) advisory does not prove a re-exploration was avoided; this is grounded in the measured cost of the original exploration, scaled by a bounded exact-match attribution, and is NEVER summed into the measured Context Efficiency token total.
 
-<!-- wave:exploration-avoided-state {"cited_events":0,"credited_records":36,"estimated_exploration_avoided":22090758,"surfaced_events":63} -->
+<!-- wave:exploration-avoided-state {"cited_events":0,"credited_records":38,"estimated_exploration_avoided":22253663,"surfaced_events":65} -->
 <!-- wave:exploration-avoided end -->
 ## Current assumptions
 
@@ -147,3 +148,5 @@ First implementation priority: reuse default execution detail before profile sel
 - 2026-10-14: Implementation and focused independent repair review complete; QUAL-DEL-1 terminal. Repaired-tree canonical default ran 11,622 tests / 187 files / 12 skips, with only the existing lifecycle projection timing assertion failing (42.784 ms versus 33.242 ms). No fresh green receipt or full reference profile matrix. Paused with QA/release qualification pending; timing investigation remains deferred, no assertion weakened and no successful qualification claimed. Continue the other admitted waves; revisit final qualification after meaningful source work.
 
 - 2026-10-14: Resumed for final combined qualification after both later implementations paused. Refreshed only coverage.json test_worker_guard pin to reviewed ff40736fc2c972b31a35e19d5e7227f7486261b5994a8a96405ce32f7c32b6fd. Independent code/architecture reviewer reconfirmed unchanged 16-contract inventory and omitted version-worker footprint; bootstrap hygiene adds no profile-sensitive dependency. This is reviewed coverage maintenance, not automatic trust or completed matrix evidence.
+
+- 2026-10-14 final shared qualification: repaired default green (11,672 tests, 187 files, 12 skips); declared reference green with exact 12-skip comparison. Renamed reference completed 11,664 tests with only two timing assertions failing (candidate p95 32.098 > 25 ms; projection p95 31.372 > 30.432 ms), plus 16 correctly marked default-profile-only skips. Reports retained in ignored qualification cache; red comparator result preserved. No functional errors, timing root-cause claim, unchanged retry or duplicate selected matrix. Timing investigation remains deferred. Wave paused pending explicit local-pack/closure timing exception and remaining conditional review approvals.

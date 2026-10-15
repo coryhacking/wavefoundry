@@ -1,8 +1,8 @@
 # Wave Record
 
 Owner: Engineering
-Status: paused
-Last verified: 2026-10-12
+Status: closed
+Last verified: 2026-10-14
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -25,12 +25,15 @@ Change Status: `implemented`
 - Requested review lanes: code-reviewer, qa-reviewer, security-reviewer, release-reviewer
 - Required review lanes: code-reviewer, qa-reviewer, release-reviewer, security-reviewer
 
+Completed At: 2026-10-14
+
 ## Wave Summary
 
-Release authorization (2026-10-12): the operator requested a follow-up wave for the combined log-tail fixture and then said, "So we can release now." This explicitly permits the 1.29.0 pack with the second-profile timing-budget exception deferred under concurrent load and the declared-profile log-content exception tracked in wave 20h6q / change 20gz6. Reports remain red; no passing canonical profile comparison is claimed. Existing uv users are not forced to update. Source qualification remains the green default receipt for 7ed6f72bf5f7df9eb7940d2f5039f915634c10d145f54598c409b960b6dcabac.
+Wave `20gz3` (Uv Release Bootstrap) delivered one change: Refresh the uv bootstrap pin for release.
 
-A bounded release dependency refresh: only the bootstrap pin and hashes change; installed uv remains operator-managed.
+**Changes delivered:**
 
+- **Refresh the uv bootstrap pin for release** (`20gz2-maint refresh-uv-release-bootstrap`) — 2 ACs completed. Key decisions: Refresh only the exact bootstrap pin and its full wheel hashes
 ## Watchpoints
 
 - Watchpoint: do not force-upgrade an existing uv or change setup control flow.
@@ -54,7 +57,7 @@ A bounded release dependency refresh: only the bootstrap pin and hashes change; 
 <!-- wave:review-status begin -->
 | Signoff | State | Why | Next action |
 | --- | --- | --- | --- |
-| council-readiness | pending | approval binding is stale: pinned receipt `review-policy-6b938e38cd2e63317ecd` does not match current receipt `review-policy-bfa3f06889d8d7c371fe` | record approval evidence for council-readiness |
+| council-readiness | approved | current executed approval by coryhacking follows every affected repair (local account: coryhacking) | none |
 | council-delivery | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
 | code-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
 | qa-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
@@ -77,12 +80,12 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 
 | Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
-| plan | 150 | 204,834 |
+| plan | 153 | 215,401 |
 | implement | 137 | 0 |
-| review | 42 | 127,767 |
-| **Total** | **329** | **332,601** |
+| review | 44 | 128,787 |
+| **Total** | **334** | **344,188** |
 
-<!-- wave:context-efficiency-state {"generation":216,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":137,"content_source_credit":312015,"derived_artifact_credit":0,"direct_net":-67597,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3955,"response_debit":378593,"source_credit_count":22,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2936},"plan":{"calls":150,"content_source_credit":776506,"derived_artifact_credit":1802,"direct_net":204834,"estimated_tokens_saved":204834,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":23682,"response_debit":556295,"source_credit_count":58,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6503},"review":{"calls":42,"content_source_credit":269596,"derived_artifact_credit":1260,"direct_net":127767,"estimated_tokens_saved":127767,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":4624,"response_debit":138465,"source_credit_count":25,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":329,"content_source_credit":1358117,"derived_artifact_credit":3062,"direct_net":265004,"estimated_tokens_saved":332601,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":32261,"response_debit":1073353,"source_credit_count":105,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":9439},"wave_id":"20gz3 uv-release-bootstrap"} -->
+<!-- wave:context-efficiency-state {"generation":221,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":137,"content_source_credit":312015,"derived_artifact_credit":0,"direct_net":-67597,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3955,"response_debit":378593,"source_credit_count":22,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2936},"plan":{"calls":153,"content_source_credit":806756,"derived_artifact_credit":1937,"direct_net":215401,"estimated_tokens_saved":215401,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":25418,"response_debit":574377,"source_credit_count":61,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6503},"review":{"calls":44,"content_source_credit":269596,"derived_artifact_credit":1260,"direct_net":128787,"estimated_tokens_saved":128787,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":4642,"response_debit":140358,"source_credit_count":25,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2931}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":334,"content_source_credit":1388367,"derived_artifact_credit":3197,"direct_net":276591,"estimated_tokens_saved":344188,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":34015,"response_debit":1093328,"source_credit_count":108,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":12370},"wave_id":"20gz3 uv-release-bootstrap"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided

@@ -17,7 +17,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - Read-only Prepare and close previews can inspect a compatible unfinished upgrade without publishing. Distribution contract fixtures no longer depend on an empty declaration's source spelling. Wave 20nnk.
-- Publish the child-output test's completion marker atomically, preserving its timeout and held-pipe assertions. Wave 20ngc / 20nnh.
+- Publish the child-output test's completion marker atomically and isolate controller output-limit checks from process-startup latency, preserving real timeout, held-pipe and child-cleanup assertions. Wave 20ngc / 20nnh.
 - Memory retrieval reuses the qualified Tensorwell reranker before local caches or construction, keeping embeddings and both reranking paths outside MCP's local model sessions when the service is usable. Preserve the CPU fallback, relevance cutoff and explicit lexical recovery on service failure; qualify the absolute cutoff separately (wave 20lul).
 
 ### Changed

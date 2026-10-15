@@ -1,7 +1,7 @@
 # Wave Record
 
 Owner: Engineering
-Status: paused
+Status: closed
 Last verified: 2026-10-14
 review-evidence-source: events.jsonl
 
@@ -25,10 +25,15 @@ Change Status: `implemented`
 - Requested review lanes: architecture-reviewer, security-reviewer, docs-contract-reviewer, performance-reviewer
 - Required review lanes: code-reviewer, qa-reviewer, architecture-reviewer, docs-contract-reviewer, performance-reviewer, security-reviewer
 
+Completed At: 2026-10-14
+
 ## Wave Summary
 
-Implemented: optional docs/lint-rules.toml literal file/folder exclusions for generic metadata/link lint, protected contracts and unchanged search behavior. Pre-audit install guidance preserves existing guides and README. All ACs and scoped tasks are complete; final QA/close qualification remains pending the deferred timing check.
+Wave `20np7` (Docs Lint Exclusions) delivered one change: Explicit project documentation lint exclusions.
 
+**Changes delivered:**
+
+- **Explicit project documentation lint exclusions** (`20np6-enh explicit-docs-lint-exclusions`) — 5 ACs completed. Key decisions: Literal [exclude] paths in docs/lint-rules.toml, filtered only at generic lint loops; Protected contract checks override broad matches; README keeps presence validation
 ## Watchpoints
 
 - Timing investigation remains deferred. Existing waves 20ngc, 20nnk and 20np5 remain paused. The operator authorized closure; the close dry-run remains blocked by final QA approval and a stale framework test receipt. No commit or release authorization.
@@ -51,7 +56,7 @@ Implemented: optional docs/lint-rules.toml literal file/folder exclusions for ge
 | --- | --- | --- | --- |
 | council-readiness | approved | current executed approval by coryhacking follows every affected repair (local account: coryhacking) | none |
 | code-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
-| qa-reviewer | withheld | repaired findings require fresh approval: QA-20NP7-COMPAT-01 | record a fresh independent approval for qa-reviewer |
+| qa-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | architecture-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | docs-contract-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | performance-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
@@ -80,12 +85,12 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 
 | Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
-| plan | 156 | 2,405,845 |
+| plan | 158 | 2,420,341 |
 | implement | 85 | 706,665 |
-| review | 39 | 343,797 |
-| **Total** | **280** | **3,456,307** |
+| review | 41 | 341,976 |
+| **Total** | **284** | **3,468,982** |
 
-<!-- wave:context-efficiency-state {"generation":153,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":85,"content_source_credit":906545,"derived_artifact_credit":0,"direct_net":706665,"estimated_tokens_saved":706665,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":2668,"response_debit":200058,"source_credit_count":27,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2846},"plan":{"calls":156,"content_source_credit":2673095,"derived_artifact_credit":3015,"direct_net":2405845,"estimated_tokens_saved":2405845,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":9133,"response_debit":265267,"source_credit_count":104,"source_credit_drop_count":0,"structural_source_credit":330,"workflow_prompt_credit":3805},"review":{"calls":39,"content_source_credit":430712,"derived_artifact_credit":1226,"direct_net":343797,"estimated_tokens_saved":343797,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":7962,"response_debit":80179,"source_credit_count":28,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":280,"content_source_credit":4010352,"derived_artifact_credit":4241,"direct_net":3456307,"estimated_tokens_saved":3456307,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":19763,"response_debit":545504,"source_credit_count":159,"source_credit_drop_count":0,"structural_source_credit":330,"workflow_prompt_credit":6651},"wave_id":"20np7 docs-lint-exclusions"} -->
+<!-- wave:context-efficiency-state {"generation":157,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":85,"content_source_credit":906545,"derived_artifact_credit":0,"direct_net":706665,"estimated_tokens_saved":706665,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":2668,"response_debit":200058,"source_credit_count":27,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2846},"plan":{"calls":158,"content_source_credit":2691704,"derived_artifact_credit":3033,"direct_net":2420341,"estimated_tokens_saved":2420341,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":10673,"response_debit":267858,"source_credit_count":106,"source_credit_drop_count":0,"structural_source_credit":330,"workflow_prompt_credit":3805},"review":{"calls":41,"content_source_credit":430712,"derived_artifact_credit":1226,"direct_net":341976,"estimated_tokens_saved":341976,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":7982,"response_debit":84911,"source_credit_count":28,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2931}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":284,"content_source_credit":4028961,"derived_artifact_credit":4259,"direct_net":3468982,"estimated_tokens_saved":3468982,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":21323,"response_debit":552827,"source_credit_count":161,"source_credit_drop_count":0,"structural_source_credit":330,"workflow_prompt_credit":9582},"wave_id":"20np7 docs-lint-exclusions"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided
@@ -102,7 +107,6 @@ estimated: a surfaced (or cited) advisory does not prove a re-exploration was av
 
 <!-- wave:exploration-avoided-state {"cited_events":0,"credited_records":9,"estimated_exploration_avoided":6967495,"surfaced_events":12} -->
 <!-- wave:exploration-avoided end -->
-
 ## Progress Log
 
 - 2026-10-14: Operator authorized closing all six paused waves, committing/pushing and a local 1.31.0 pack, with timing investigation still deferred and one shared default qualification run. That run completed 11,671 tests / 187 files / 12 skips in 884.077s, exit 1: test_tensorwell_client.ClientTests.test_cli_exact_child_timeout_bounded_capture expected the oversized-output ValueError but the child wait reached its deadline and raised TimeoutError. The projection-timing file passed. Source-only independent triage does not establish a capture-cap defect or a harmless scheduling flake; final QA remains unproven. All 60 reviewed source hashes stayed unchanged. No retry or profile run followed the failed default; no current green receipt, closure or new pack is claimed. Compact report remains in ignored cache (close-pack-1.31-default.json); routine log remains temporary. Existing source reviews and terminal repairs stand. Memory proposals add no action beyond canonical tests/guidance, so none were selected; folders retain only wave/change records and typed ledgers.

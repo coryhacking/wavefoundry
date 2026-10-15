@@ -19,12 +19,15 @@ The current release workflow runs all discovered test files under default, renam
 4. Compare selected profile observations with the same worker subset of a complete matching default report; verify exact expected/observed membership, source/applied-profile identity and existing skip-ID/reason rules. A focused report must never pass as a full-suite report.
 5. Qualify the initial selection against a full reference matrix and finite negative controls at affected seams; record retained coverage and worker count savings. No timing pass threshold, permanent raw artifacts, additional ordinary wave gate or consumer-upgrade work.
 6. Repair the operator-approved child-timeout fixture completion-marker race: write and close a sibling temporary marker before atomically publishing the final marker. Preserve the existing timeout, held-pipe, reader/thread cleanup and completion assertions; make no production child-output change.
+7. Separate controller output-cap validation from process-startup latency in test_tensorwell_client.py. Preserve the real exact-owned-child timeout/reaping and sibling-survival checks. Exercise the real capture/drain and overflow rejection on a controlled completed child for stdout and stderr, with valid JSON beneath the overflow so ignoring the overflow fails the test. No production deadline, output limit, controller behavior or timing threshold changes.
 
 ## Scope
 
 Runner/profile support, compact report coverage identity/comparison, test-file coverage inventory and packaging documentation. No removal of unique assertions, weakening of default-only skip rules, model benchmark, scheduler change or general changed-test planner.
 
 The bounded qualification-fixture repair additionally covers only completion-marker publication in ChildTeeTests.test_explicit_timeout_includes_withheld_descendant_pipes_and_closes_readers. It does not change timing budgets or resolve the separately deferred performance gate.
+
+The operator-approved follow-up also covers ClientTests.test_cli_exact_child_timeout_bounded_capture and its separated output-cap control in test_tensorwell_client.py. This isolates exception-priority validation from executable startup without claiming to diagnose the observed host delay.
 
 ## Acceptance Criteria
 
@@ -33,6 +36,7 @@ The bounded qualification-fixture repair additionally covers only completion-mar
 - [ ] AC-3: At least one proven independent test file avoids repeat execution, while affected contract regressions are still caught by selected profile runs; observed file counts and qualification limits are recorded.
 - [ ] AC-4: Full default and explicit full-profile behavior and worker protection remain intact, and no ordinary upgrade invokes compatibility tests.
 - [x] AC-5: The child-timeout fixture publishes a complete final marker atomically; a controlled delay before its payload write cannot expose an empty final marker. Existing timeout and cleanup assertions remain unchanged, and reverting atomic publication reproduces the failure.
+- [x] AC-6: Controller output overflow is rejected for either stream through the actual capture path without requiring a child to launch before the overflow assertion; a missing-overflow guard is detected, and the real timeout/reaping/sibling-survival checks remain intact.
 
 ## Tasks
 
@@ -40,6 +44,7 @@ The bounded qualification-fixture repair additionally covers only completion-mar
 - [x] Implement explicit compatibility selection and report scope validation without reclassifying existing diagnostic selectors.
 - [ ] Use a reference full matrix plus contract regression controls once to qualify the selection, then document the smaller release workflow.
 - [x] Publish the child fixture completion marker atomically and independently verify the ordinary, delayed-write and reverted-publication controls.
+- [x] Separate deterministic controller overflow controls from the unchanged real child-timeout test and independently verify the repaired oracle.
 
 ## Agent Execution Graph
 
@@ -61,6 +66,7 @@ Only the implementer edits the declared targets after readiness. Reviewers are r
 - `.wavefoundry/framework/scripts/tests/test_qualification_report.py`
 - `.wavefoundry/framework/scripts/tests/test_run_tests_cache.py`
 - `.wavefoundry/framework/scripts/tests/test_child_tee.py`
+- `.wavefoundry/framework/scripts/tests/test_tensorwell_client.py`
 - `.wavefoundry/framework/scripts/tests/fixtures/profiles/`
 - `docs/prompts/package-wavefoundry.prompt.md`
 - `docs/architecture/testing-architecture.md`
@@ -78,9 +84,13 @@ docs/architecture/testing-architecture.md, docs/contributing/build-and-verificat
 | AC-3 | required | Establishes the scoped behavior or preserves its boundary. |
 | AC-4 | required | Establishes the scoped behavior or preserves its boundary. |
 | AC-5 | required | Removes a reproduced fixture race without weakening its child timeout or cleanup oracle. |
+| AC-6 | required | Qualifies controller overflow independently of startup latency without accepting a timeout as overflow proof. |
 
 ## Progress Log
 
+- 2026-10-14: Fresh independent grouped code/QA verification passed both exact tests (0.018s) and independently replayed both mutants: each produced two intended assertion failures, zero errors/skips. Test blob a7694fa0c3bfca4b662ff246145c819dc553c6ff and production blob 2ce387037b409eb5d98791c1db0ac871fa64a0e5 stayed unchanged. QA-CONTROLLER-OVERFLOW-FIXTURE cycle3 is terminal; code approval recorded, final QA/release await shared qualification. Focused readiness used isolated primer, one disclosed five-remit delta reviewer and independent chair; no whole-council rerun or source timing diagnosis was claimed.
+- 2026-10-14: Requirement7/AC6 implemented in test_tensorwell_client.py only. Existing real timeout/reaping/sibling checks are byte-for-byte retained; the output check uses a completed-child substitute and synchronous adapter executing the actual drainer, with exact-limit and limit+1 stdout/stderr cases, valid JSON, capped captured lengths and EOF/closed streams. Two focused tests passed (0.051s); removing overflow rejection and removing retention clipping in memory each produced exactly two assertion failures, zero errors/skips. Production blob remains 2ce387037b409eb5d98791c1db0ac871fa64a0e5. Independent repair verification follows; final qualification remains pending. No production or timing threshold changed.
+- 2026-10-14: Operator approved fixing the newly observed controller fixture failure and closing the batch. Readback: test-only separation of output overflow from real process deadline coverage; production tensorwell_client.py stays read-only. Default qualification previously reached the timeout branch before the overflow assertion, not an established cap defect. Update Requirement 7 / AC-6 and refresh focused readiness before editing the test.
 - 2026-10-14: QA-FINAL-MARKER-PUBLICATION cycle 2 is terminal after fresh independent verification; convergence checkpoint recorded. Reviewer independently executed ordinary/delayed-write positives and the reverting-publication mutant: two passes and the exact expected empty-read failure, zero errors/skips. Only the three-line fixture publication hunk differs from its original source; all assertions/deadlines remain intact. Code delivery approval is current; full QA/release remains pending qualification. AC-5 and the marker task are complete. Canonical evidence: .wavefoundry/framework/scripts/tests/test_child_tee.py::ChildTeeTests.test_explicit_timeout_includes_withheld_descendant_pipes_and_closes_readers. Timing stays deferred, all waves paused, no new permanent evidence artifact or separate memory record needed.
 
 Repair verification: the named child-timeout fixture passes normally and with a 250 ms pause between opening the sibling temporary marker and writing its payload; the final marker is absent during that gap. Reverting only atomic publication in the in-memory child command reproduces exactly one empty-string assertion failure. All three controls execute the actual fixture with zero errors/skips; production child_tee.py and every existing assertion are unchanged. Canonical reference: .wavefoundry/framework/scripts/tests/test_child_tee.py::ChildTeeTests.test_explicit_timeout_includes_withheld_descendant_pipes_and_closes_readers. Source SHA-256 b594624f17597eb1022b28276ad89ff0561bb90dce8a3bd5dc82a3afebda3e8f. Fresh independent verification follows; full qualification and timing remain deferred.
@@ -108,6 +118,8 @@ The operator explicitly approved this bounded fixture repair on 2026-10-14 after
 | 2026-10-14 | Combined default completed 11,658 tests / 187 files / 12 skips in 775.265 seconds and was red in ten files. No receipt/export/profile run followed. Distribution integration and provider diagnostic repairs are being collected before one revised-tree qualification. | Full failure report remains temporary. Existing timing assertion also failed at 40.156 ms against 30.375 ms; no timing threshold changed or timing waiver inferred. Sole reviewed guard pin refresh leaves both compatibility scopes at 186/187. |
 
 ## Decision Log
+
+- 2026-10-14: Chose a controlled completed-child output fixture using the real drainer and valid JSON plus excess whitespace. Increasing the three-second budget would retain startup dependence and change timing assumptions; accepting either TimeoutError or ValueError would stop proving overflow rejection. Preserve the existing real child timeout as a separate test and qualify the missing-overflow guard with a temporary mutant. No production repair is justified by the available failure.
 
 | Date | Decision | Reason | Alternatives |
 | --- | --- | --- | --- |

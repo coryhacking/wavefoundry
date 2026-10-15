@@ -1,7 +1,7 @@
 # Wave Record
 
 Owner: Engineering
-Status: paused
+Status: closed
 Last verified: 2026-10-14
 review-evidence-source: events.jsonl
 
@@ -25,10 +25,15 @@ Change Status: `implemented`
 - Requested review lanes: code-reviewer, qa-reviewer, architecture-reviewer, security-reviewer, performance-reviewer, docs-contract-reviewer
 - Required review lanes: code-reviewer, qa-reviewer, architecture-reviewer, docs-contract-reviewer, performance-reviewer, security-reviewer
 
+Completed At: 2026-10-14
+
 ## Wave Summary
 
-*(Populated at closure.)*
+Wave `20np5` (Inference Provider Status) delivered one change: Report inference availability, execution and local residency. Notable adjustments during implementation: Report inference availability, execution and local residency: Additive implementation controls: 43 expanded client/integration tests pass, no skips (8.084 s). Registered wf_server_info completed with inference/probe/model-build locks held and discovery/HTTP/CLI/start/selection/attempt traps untouched. Contract and architecture explain compatibility, actual acceptance, local ownership, process scope and accelerator-label limits.; Report inference availability, execution and local residency: Delivery found PROVIDER-DEL-SELECTION-REASON: an expired compatibility cache plus competing discovery selects a retained local model while inheriting qualified_pair from the previous check. AC-2 and AC-6 reopened for per-invocation reason repair. Added the existing registry test and digest fixture to Serialization Points for required handler-contract maintenance; no routing or schema authority expansion.
 
+**Changes delivered:**
+
+- **Report inference availability, execution and local residency** (`20np4-enh inference-provider-observability`) — 6 ACs completed. Key decisions: Separate bounded availability, execution and residency observations on existing MCP status.; Keep observations process-local and unknown states explicit.
 ## Watchpoints
 
 - Watchpoint: compatible service discovery does not prove request execution, local model eviction or physical accelerator use.
@@ -52,7 +57,7 @@ Change Status: `implemented`
 | --- | --- | --- | --- |
 | council-readiness | approved | current executed approval by coryhacking follows every affected repair (local account: coryhacking) | none |
 | code-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
-| qa-reviewer | withheld | repaired findings require fresh approval: PROVIDER-DEL-SELECTION-REASON | record a fresh independent approval for qa-reviewer |
+| qa-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | architecture-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | docs-contract-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | performance-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
@@ -96,12 +101,12 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 
 | Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
-| plan | 63 | 206,831 |
+| plan | 72 | 248,785 |
 | implement | 54 | 1,002,330 |
-| review | 49 | 617,207 |
-| **Total** | **166** | **1,826,368** |
+| review | 51 | 615,132 |
+| **Total** | **177** | **1,866,247** |
 
-<!-- wave:context-efficiency-state {"generation":180,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":54,"content_source_credit":1069442,"derived_artifact_credit":0,"direct_net":1002330,"estimated_tokens_saved":1002330,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":1822,"response_debit":68590,"source_credit_count":17,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3300},"plan":{"calls":63,"content_source_credit":381188,"derived_artifact_credit":1870,"direct_net":206831,"estimated_tokens_saved":206831,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":50963,"response_debit":131767,"source_credit_count":51,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6503},"review":{"calls":49,"content_source_credit":793224,"derived_artifact_credit":0,"direct_net":617207,"estimated_tokens_saved":617207,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":4049,"response_debit":171968,"source_credit_count":21,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":166,"content_source_credit":2243854,"derived_artifact_credit":1870,"direct_net":1826368,"estimated_tokens_saved":1826368,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":56834,"response_debit":372325,"source_credit_count":89,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":9803},"wave_id":"20np5 inference-provider-status"} -->
+<!-- wave:context-efficiency-state {"generation":185,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":54,"content_source_credit":1069442,"derived_artifact_credit":0,"direct_net":1002330,"estimated_tokens_saved":1002330,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":1822,"response_debit":68590,"source_credit_count":17,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3300},"plan":{"calls":72,"content_source_credit":440918,"derived_artifact_credit":1878,"direct_net":248785,"estimated_tokens_saved":248785,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":52790,"response_debit":147724,"source_credit_count":56,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6503},"review":{"calls":51,"content_source_credit":793224,"derived_artifact_credit":0,"direct_net":615132,"estimated_tokens_saved":615132,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":4069,"response_debit":176954,"source_credit_count":21,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2931}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":177,"content_source_credit":2303584,"derived_artifact_credit":1878,"direct_net":1866247,"estimated_tokens_saved":1866247,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":58681,"response_debit":393268,"source_credit_count":94,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":12734},"wave_id":"20np5 inference-provider-status"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided

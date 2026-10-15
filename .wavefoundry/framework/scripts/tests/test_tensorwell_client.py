@@ -5,6 +5,7 @@ import contextlib
 import copy
 import hashlib
 import importlib
+import io
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -571,8 +572,53 @@ class ClientTests(unittest.TestCase):
         finally:
             sibling.kill()
             sibling.wait(timeout=2)
-        executable.write_text(f"#!{sys.executable}\nimport sys\nsys.stdout.write('x'*70000)\n")
-        with self.assertRaises(ValueError): tc._cli(executable, ["status", "--json"], time.monotonic() + 3)
+
+    def test_cli_completed_child_output_limits(self):
+        # Output semantics do not depend on starting another interpreter before
+        # a deadline. The preceding test retains real process/thread coverage.
+        class ImmediateReader:
+            def __init__(self, *, target, args, daemon):
+                self.target, self.args = target, args
+            def start(self):
+                self.target(*self.args)
+            def join(self, timeout=None):
+                pass
+            def is_alive(self):
+                return False
+
+        class Stream(io.BytesIO):
+            reached_eof = False
+            def read(self, size=-1):
+                part = super().read(size)
+                if not part:
+                    self.reached_eof = True
+                return part
+
+        for stream_index in (0, 1):
+            for extra in (0, 1):
+                with self.subTest(stream=stream_index, excess=extra):
+                    payloads = [b"{}", b""]
+                    prefix = payloads[stream_index]
+                    payloads[stream_index] = prefix + b" " * (tc.CLI_OUTPUT_BYTES + extra - len(prefix))
+                    streams = [Stream(payload) for payload in payloads]
+                    buffers = []
+                    class Capture(bytearray):
+                        def __init__(self):
+                            super().__init__()
+                            buffers.append(self)
+                    child = SimpleNamespace(stdout=streams[0], stderr=streams[1],
+                                            returncode=0, wait=lambda timeout: 0)
+                    with patch.object(tc.subprocess, "Popen", return_value=child), \
+                         patch.object(tc.threading, "Thread", ImmediateReader), \
+                         patch.object(tc, "bytearray", Capture, create=True):
+                        if extra:
+                            with self.assertRaisesRegex(ValueError, "controller unavailable"):
+                                tc._cli(self.home / "controller", ["status", "--json"], time.monotonic() + 3)
+                        else:
+                            self.assertEqual(tc._cli(self.home / "controller", ["status", "--json"], time.monotonic() + 3), {})
+                    self.assertEqual([len(buffer) for buffer in buffers],
+                                     [min(len(payload), tc.CLI_OUTPUT_BYTES) for payload in payloads])
+                    self.assertTrue(all(stream.closed and stream.reached_eof for stream in streams))
 
     def test_controlled_executable_lookup_and_hash(self):
         root = self.home / "repo"

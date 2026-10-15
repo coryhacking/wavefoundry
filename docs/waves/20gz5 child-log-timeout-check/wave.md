@@ -1,8 +1,8 @@
 # Wave Record
 
 Owner: Engineering
-Status: paused
-Last verified: 2026-10-12
+Status: closed
+Last verified: 2026-10-14
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -25,10 +25,15 @@ Change Status: `implemented`
 - Requested review lanes: code-reviewer, qa-reviewer
 - Required review lanes: code-reviewer, qa-reviewer
 
+Completed At: 2026-10-14
+
 ## Wave Summary
 
-Test-only finalization fixture repair; production code and timeout policy remain unchanged.
+Wave `20gz5` (Child Log Timeout Check) delivered one change: Make the large child-log timeout check deterministic.
 
+**Changes delivered:**
+
+- **Make the large child-log timeout check deterministic** (`20gz4-bug deterministic-child-log-timeout-check`) — 3 ACs completed. Key decisions: Observe delivered endings, then inject timeout at the process wait boundary in this finalization test
 ## Watchpoints
 
 - Watchpoint: observe both output endings before the injected timeout; keep the independent real-deadline tests.
@@ -73,10 +78,10 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 | --- | ---: | ---: |
 | plan | 107 | 0 |
 | implement | 58 | 92,800 |
-| review | 19 | 0 |
-| **Total** | **184** | **92,800** |
+| review | 26 | 8,773 |
+| **Total** | **191** | **101,573** |
 
-<!-- wave:context-efficiency-state {"generation":86,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":58,"content_source_credit":240904,"derived_artifact_credit":0,"direct_net":92800,"estimated_tokens_saved":92800,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":1563,"response_debit":149137,"source_credit_count":16,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2596},"plan":{"calls":107,"content_source_credit":168253,"derived_artifact_credit":471,"direct_net":-218479,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":7735,"response_debit":383273,"source_credit_count":26,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3805},"review":{"calls":19,"content_source_credit":17017,"derived_artifact_credit":136,"direct_net":-6203,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":4504,"response_debit":18852,"source_credit_count":6,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":184,"content_source_credit":426174,"derived_artifact_credit":607,"direct_net":-131882,"estimated_tokens_saved":92800,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":13802,"response_debit":551262,"source_credit_count":48,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6401},"wave_id":"20gz5 child-log-timeout-check"} -->
+<!-- wave:context-efficiency-state {"generation":93,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":58,"content_source_credit":240904,"derived_artifact_credit":0,"direct_net":92800,"estimated_tokens_saved":92800,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":1563,"response_debit":149137,"source_credit_count":16,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2596},"plan":{"calls":107,"content_source_credit":168253,"derived_artifact_credit":471,"direct_net":-218479,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":7735,"response_debit":383273,"source_credit_count":26,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3805},"review":{"calls":26,"content_source_credit":40747,"derived_artifact_credit":136,"direct_net":8773,"estimated_tokens_saved":8773,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":4677,"response_debit":30364,"source_credit_count":12,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2931}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":191,"content_source_credit":449904,"derived_artifact_credit":607,"direct_net":-116906,"estimated_tokens_saved":101573,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":13975,"response_debit":562774,"source_credit_count":54,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":9332},"wave_id":"20gz5 child-log-timeout-check"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided
