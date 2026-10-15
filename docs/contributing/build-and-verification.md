@@ -22,6 +22,46 @@ wf docs-gardener && wf docs-lint
 python3 .wavefoundry/framework/scripts/run_tests.py
 ```
 
+### Project documentation exclusions
+
+Keep existing guides at their current locations and list deliberate generic-lint
+exclusions in optional `docs/lint-rules.toml`, following the TOML naming style of
+`docs/scan-rules.toml`:
+
+```toml
+[exclude]
+paths = [
+  "docs/user-guide/",
+  "docs/api/",
+  "docs/README.md",
+]
+```
+
+Paths are literal and repository-relative, using `/` on every platform. A file
+entry matches exactly; a trailing slash matches descendants, so `docs/api/`
+does not match `docs/api-old/`. Globs, regexes, absolute paths, backslashes,
+empty/dot/parent components and control characters are invalid. Only the optional
+`[exclude]` table and its `paths` array are supported. Missing or empty rules
+preserve normal lint behavior. Invalid rules block lint without granting partial
+exclusions; the reader refuses links and special files and limits input to
+64 KiB, 512 entries and 4096 characters per path.
+
+Exclusions suppress generic metadata and outgoing-link findings only. Checked
+documents still validate links into those locations against actual files. Required
+file presence, lifecycle/review contracts, secrets scanning and refused-read
+diagnostics remain active. Required documents and registered policy/protocol
+carriers, agent/prompt trees and resolved record roots retain their checks even
+under a broad exclusion. `docs/README.md` may exclude generic checks while its
+presence remains required. This does not change indexing, search or gardener
+behavior, and is not permission to rewrite or relocate documents.
+
+Set the list before the first install audit, including resumed installations;
+preserve an existing `docs/README.md`. No rules file is generated automatically.
+Full lint, incremental lint and install/upgrade audits consume the same policy.
+Adding, editing or removing the file invalidates advisory reuse and requests full
+lint through the existing trigger inventory. This adds no upgrade phase or
+permanent evidence files.
+
 ### Focused Diagnostic Runs (repair loops)
 
 ```bash

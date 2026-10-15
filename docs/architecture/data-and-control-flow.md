@@ -72,7 +72,22 @@ The `scheme_version: "v2"` policy is provisioned by code, not agents: fresh inst
 1. **Agents:** MCP **`wf_validate_docs`** / **`wf_garden_docs`** call the same `docs_lint.py` / `docs_gardener.py` backends as the CLI launchers. **Hooks / CI:** **`wf docs-lint`** (canonical cross-OS dispatcher subcommand) calls `python3 .wavefoundry/framework/scripts/docs_lint.py`. This repository does not rely on repo-root `./docs-lint`.
 2. Linter reads `docs/prompts/prompt-surface-manifest.json`, checks `framework_revision` against `.wavefoundry/framework/VERSION`
 3. Validates required prompt docs exist, metadata fields are present, wave/journal roots exist
-4. Exits 0 on pass or non-zero with actionable error on failure
+4. Reads optional `docs/lint-rules.toml` once per invocation through a capped,
+   contained no-link read. Its literal `[exclude].paths` list filters only the
+   generic metadata and outgoing-link loops in full and incremental lint.
+   Existing required-document and renderer policy/protocol registries plus
+   resolved record roots and agent/prompt trees protect operating contracts from
+   exclusions. `docs/README.md` is the presence-only exception: its content may
+   opt out while the required-file check remains. Excluded docs still receive
+   bounded read/refusal checks; corpus, lifecycle and secrets checks remain active.
+   Invalid rules grant no exemptions and produce a blocking diagnostic.
+5. Exits 0 on pass or non-zero with actionable error on failure
+
+The shared incremental full-fallback inventory includes the rules file. Its
+creation, content change or removal invalidates advisory lint identity; there is
+no persistent rules cache. Install and upgrade audits reuse this lint path, with
+no new scan or upgrade phase. Search/index eligibility is independent of lint
+exclusions. See [configuration and examples](../contributing/build-and-verification.md#project-documentation-exclusions).
 
 **State read:** `docs/`, `.wavefoundry/framework/VERSION`
 **State written:** scanner findings and skip observations by ordinary lint; none with `--read-only`

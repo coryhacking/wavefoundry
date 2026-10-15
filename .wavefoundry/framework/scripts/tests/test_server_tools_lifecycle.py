@@ -15566,6 +15566,29 @@ Status: in-progress
             lines.append(line)
         self._write_log("\n".join(lines) + "\n")
 
+    def test_real_install_audit_excludes_existing_guides_but_keeps_required_artifacts(self):
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()):
+            self._build_phase_one_complete_tree()
+        guide = self.root / "docs/product-guide.md"
+        readme = self.root / "docs/README.md"
+        original = b"# Existing project docs\n[old link](missing-before-install.md)\n"
+        guide.write_bytes(original)
+        readme.write_bytes(original)
+        blocked = self.srv.wf_audit_install_response(self.root, phase=1)
+        self.assertEqual(blocked["data"]["status"], "lint_errors", blocked)
+        (self.root / "docs/lint-rules.toml").write_text('[exclude]\npaths=["docs/product-guide.md", "docs/README.md"]\n')
+        allowed = self.srv.wf_audit_install_response(self.root, phase=1)
+        self.assertEqual(allowed["data"]["status"], "phase_complete", allowed)
+        self.assertEqual(guide.read_bytes(), original)
+        self.assertEqual(readme.read_bytes(), original)
+        # A generated Phase-1 contract remains blocking, even under a broad rule.
+        (self.root / "docs/lint-rules.toml").write_text('[exclude]\npaths=["docs/"]\n')
+        (self.root / "docs/prompts/review-plan.prompt.md").write_text("# Damaged contract\n")
+        missing = self.srv.wf_audit_install_response(self.root, phase=1)
+        self.assertEqual(missing["data"]["status"], "lint_errors", missing)
+
     def test_real_validator_phase_one_complete_repo_reaches_phase_two_seed(self):
         import contextlib
         import io

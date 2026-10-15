@@ -7113,3 +7113,151 @@ class MemberStatusDriftLintTests(_CloseChangeCase):
         self.assertEqual(self.lint_drift(only={self.doc(_DRIFT_B)})[1], [])
         _failures, both = self.lint_drift(only={self.doc(_DRIFT_A), self.wave_md})
         self.assertEqual(both, drift)
+
+
+class DocsLintExclusionTests(_DocsLintFixture, unittest.TestCase):
+    """20np6: real CLI paths, with independent failures left visible."""
+
+    def setUp(self):
+        self.root = self.copy_fixture()
+        self.addCleanup(shutil.rmtree, self.root)
+
+    def rules(self, paths):
+        (self.root / "docs/lint-rules.toml").write_text("[exclude]\npaths = " + json.dumps(paths) + "\n")
+
+    def doc(self, relative, text="# Product guide\n[missing](missing.md)\n"):
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        return path
+
+    def test_full_and_incremental_literal_matching_and_incoming_links(self):
+        from datetime import date
+        from wave_lint_lib import cli
+        from wave_lint_lib.helpers import read_text_cache_clear
+        excluded = ["docs/user-guide/nested/a.md", "docs/exact.md", "docs/README.md", "docs/Guide (v2).md"]
+        for path in excluded:
+            self.doc(path)
+        near = self.doc("docs/user-guides/near.md")
+        incoming = self.doc("docs/current.md", "# Current\nOwner: Test\nStatus: active\nLast verified: " + date.today().isoformat() + "\n[ok](exact.md)\n[missing](user-guide/absent.md)\n")
+        self.rules(["docs/user-guide/", "docs/exact.md", "docs/README.md", "docs/Guide (v2).md"])
+        full = self.run_docs_lint(self.root)
+        self.assertNotEqual(full.returncode, 0)
+        for rel in excluded:
+            self.assertNotIn(rel + ":", full.stderr)
+        self.assertIn("docs/user-guides/near.md: missing", full.stderr)
+        self.assertIn("broken link → user-guide/absent.md", full.stderr)
+        read_text_cache_clear()
+        with patch.object(cli, "_get_changed_files", return_value={self.root / p for p in excluded} | {near, incoming}):
+            errors, _ = cli._run_incremental_checks(self.root)
+        self.assertTrue(any("docs/user-guides/near.md: missing" in e for e in errors), errors)
+        self.assertTrue(any("broken link → user-guide/absent.md" in e for e in errors), errors)
+        self.assertFalse(any(any(e.startswith(p + ":") for p in excluded) for e in errors), errors)
+        near.unlink(); incoming.unlink()
+        clean = self.run_docs_lint(self.root)
+        self.assertEqual(clean.returncode, 0, clean.stderr)
+        (self.root / "docs/README.md").unlink()
+        self.assertIn("docs/README.md: missing required", self.run_docs_lint(self.root).stderr)
+
+    def test_protected_paths_and_safe_read_refusals_survive_broad_exclusion(self):
+        from wave_lint_lib.lint_rules import load_lint_rules
+        from wave_lint_lib import cli, helpers
+        self.rules(["docs/", record_paths.WAVES_ROOT + "/", record_paths.PLANS_ROOT + "/", "AGENTS.md"])
+        rules = load_lint_rules(self.root)
+        for rel in (self.WAVE_DOC_PATH.as_posix(), "docs/agents/custom.md", "docs/prompts/custom.prompt.md", "docs/references/project-overview.md", "docs/contributing/build-and-verification.md", "AGENTS.md"):
+            with self.subTest(path=rel):
+                self.assertFalse(rules.excludes(self.root, self.root / rel))
+        target = self.doc("docs/user-guide.md")
+        helpers.read_text_cache_clear()
+        original = helpers.contained_files.read_contained_bytes
+        def refuse(root, path, **kwargs):
+            if path == target:
+                raise PermissionError("fixture unreadable ordinary file")
+            return original(root, path, **kwargs)
+        with patch.object(helpers.contained_files, "read_contained_bytes", side_effect=refuse), patch.object(cli, "_get_changed_files", return_value={target}):
+            errors, _ = cli._run_incremental_checks(self.root, lint_rules=rules)
+        self.assertTrue(any("docs/user-guide.md" in e and "could not be read" in e for e in errors), errors)
+        protected = self.doc("docs/references/project-overview.md")
+        result = self.run_docs_lint(self.root)
+        self.assertIn("docs/references/project-overview.md: missing", result.stderr)
+        self.assertIn("docs/references/project-overview.md: broken link", result.stderr)
+
+    def test_missing_empty_and_invalid_rules(self):
+        from wave_lint_lib.lint_rules import load_lint_rules
+        self.assertEqual(load_lint_rules(self.root).paths, ())
+        rules = self.root / "docs/lint-rules.toml"
+        for value in ("", "[exclude]\n", "[exclude]\npaths=[]\n"):
+            rules.write_text(value)
+            self.assertEqual(load_lint_rules(self.root).paths, ())
+        invalid = ["[", "unknown=[]", "exclude=[]", "[exclude]\nunknown=[]", "[exclude]\npaths=1", "[exclude]\npaths=[1]", "[exclude]\npaths=" + json.dumps(["docs/good.md", "../bad"]), "#" * (65536 + 1)]
+        invalid += ["[exclude]\npaths=" + json.dumps([p]) for p in ("/tmp/x", "C:x", "docs\\x", "docs/../x", "docs/./x", "docs//x", "docs/*.md", "docs/[x].md", "docs/a\n.md", "x" * 4097)]
+        invalid += ["[exclude]\npaths=" + json.dumps(["docs/x"] * 513)]
+        for value in invalid:
+            with self.subTest(value=value[:60]):
+                rules.write_text(value)
+                with self.assertRaisesRegex(ValueError, "docs/lint-rules.toml"):
+                    load_lint_rules(self.root)
+        result = self.run_docs_lint(self.root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("docs/lint-rules.toml", result.stderr)
+
+    def test_linked_special_and_swapped_docs_are_not_exempt(self):
+        from wave_lint_lib.lint_rules import load_lint_rules
+        rules = self.root / "docs/lint-rules.toml"
+        target = self.root / "rules-target.toml"
+        target.write_text('[exclude]\npaths=["docs/"]')
+        rules.symlink_to(target)
+        with self.assertRaises(ValueError):
+            load_lint_rules(self.root)
+        rules.unlink()
+        if hasattr(os, "mkfifo"):
+            os.mkfifo(rules)
+            with self.assertRaises(ValueError):
+                load_lint_rules(self.root)
+            rules.unlink()
+        self.rules(["docs/product/"])
+        linked = self.root / "docs/product/linked.md"
+        linked.parent.mkdir()
+        linked.symlink_to(target)
+        result = self.run_docs_lint(self.root)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("docs/product/linked.md", result.stderr)
+
+
+    def test_public_changed_cli_and_rules_trigger_full_validation(self):
+        self.rules(["docs/product/"])
+        guide = self.doc("docs/product/guide.md")
+        for args in (("init", "-q"), ("add", "-A"), ("-c", "user.email=fixture@example.invalid", "-c", "user.name=Fixture", "commit", "-qm", "fixture")):
+            subprocess.run(["git", *args], cwd=self.root, check=True, capture_output=True)
+        guide.write_text("# Changed product guide\n[missing](other.md)\n")
+        result = self.run_docs_lint_with_args(self.root, "--changed")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("scope incremental", result.stdout)
+        self.rules([])
+        result = self.run_docs_lint_with_args(self.root, "--changed")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scope full", result.stdout)
+        self.assertIn("docs/product/guide.md: missing", result.stderr)
+
+
+    def test_relocated_record_roots_remain_protected(self):
+        from record_layout_support import apply_layout
+        from wave_lint_lib.lint_rules import load_lint_rules
+        apply_layout(self, waves_root="project/records", plans_root="project/plans")
+        self.rules(["project/"])
+        rules = load_lint_rules(self.root)
+        self.assertFalse(rules.excludes(self.root, self.root / "project/records/a" / vocabulary_profile.RECORD_FILENAME))
+        self.assertFalse(rules.excludes(self.root, self.root / "project/plans/a.md"))
+        self.assertTrue(rules.excludes(self.root, self.root / "project/manual.md"))
+
+    def test_excluded_document_still_runs_secrets_check(self):
+        from wave_lint_lib.constants import SCAN_RULES_FRAMEWORK_PATH
+        rules = self.root / SCAN_RULES_FRAMEWORK_PATH
+        rules.parent.mkdir(parents=True, exist_ok=True)
+        rules.write_text('[[rules]]\nid="synthetic"\ndescription="Fixture"\nregex="FAKEKEY-[A-Z0-9]{12}"\nkeywords=["fakekey-"]\n')
+        self.doc("docs/product/guide.md", "# Guide\n" + "FAKEKEY-" + "A" * 12 + "\n")
+        self.rules(["docs/product/"])
+        result = self.run_docs_lint_with_args(self.root, "--scan-all", "--read-only")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unpublished secrets finding", result.stderr)
+        self.assertNotIn("docs/product/guide.md: missing", result.stderr)

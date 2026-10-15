@@ -57,7 +57,7 @@ Change Status: `implemented`
 | docs-contract-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | performance-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | security-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
-| operator-signoff | withheld | repaired findings require fresh approval: PROVIDER-DEL-SELECTION-REASON | record a fresh independent approval for operator-signoff |
+| operator-signoff | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 <!-- wave:review-status end -->
 
 - operator-signoff: pending; closure not requested.
@@ -96,12 +96,12 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 
 | Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
-| plan | 62 | 207,978 |
+| plan | 63 | 206,831 |
 | implement | 54 | 1,002,330 |
-| review | 48 | 621,426 |
-| **Total** | **164** | **1,831,734** |
+| review | 49 | 617,207 |
+| **Total** | **166** | **1,826,368** |
 
-<!-- wave:context-efficiency-state {"generation":178,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":54,"content_source_credit":1069442,"derived_artifact_credit":0,"direct_net":1002330,"estimated_tokens_saved":1002330,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":1822,"response_debit":68590,"source_credit_count":17,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3300},"plan":{"calls":62,"content_source_credit":381188,"derived_artifact_credit":1870,"direct_net":207978,"estimated_tokens_saved":207978,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":50570,"response_debit":131013,"source_credit_count":51,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6503},"review":{"calls":48,"content_source_credit":793224,"derived_artifact_credit":0,"direct_net":621426,"estimated_tokens_saved":621426,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":4038,"response_debit":167760,"source_credit_count":21,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":164,"content_source_credit":2243854,"derived_artifact_credit":1870,"direct_net":1831734,"estimated_tokens_saved":1831734,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":56430,"response_debit":367363,"source_credit_count":89,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":9803},"wave_id":"20np5 inference-provider-status"} -->
+<!-- wave:context-efficiency-state {"generation":180,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":54,"content_source_credit":1069442,"derived_artifact_credit":0,"direct_net":1002330,"estimated_tokens_saved":1002330,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":1822,"response_debit":68590,"source_credit_count":17,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3300},"plan":{"calls":63,"content_source_credit":381188,"derived_artifact_credit":1870,"direct_net":206831,"estimated_tokens_saved":206831,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":50963,"response_debit":131767,"source_credit_count":51,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6503},"review":{"calls":49,"content_source_credit":793224,"derived_artifact_credit":0,"direct_net":617207,"estimated_tokens_saved":617207,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":4049,"response_debit":171968,"source_credit_count":21,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":166,"content_source_credit":2243854,"derived_artifact_credit":1870,"direct_net":1826368,"estimated_tokens_saved":1826368,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":56834,"response_debit":372325,"source_credit_count":89,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":9803},"wave_id":"20np5 inference-provider-status"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided
@@ -119,6 +119,8 @@ estimated: a surfaced (or cited) advisory does not prove a re-exploration was av
 <!-- wave:exploration-avoided-state {"cited_events":0,"credited_records":17,"estimated_exploration_avoided":11626065,"surfaced_events":25} -->
 <!-- wave:exploration-avoided end -->
 ## Progress Log
+
+- 2026-10-14: Operator authorized closing all six paused waves, committing/pushing and a local 1.31.0 pack, with timing investigation still deferred and one shared default qualification run. That run completed 11,671 tests / 187 files / 12 skips in 884.077s, exit 1: test_tensorwell_client.ClientTests.test_cli_exact_child_timeout_bounded_capture expected the oversized-output ValueError but the child wait reached its deadline and raised TimeoutError. The projection-timing file passed. Source-only independent triage does not establish a capture-cap defect or a harmless scheduling flake; final QA remains unproven. All 60 reviewed source hashes stayed unchanged. No retry or profile run followed the failed default; no current green receipt, closure or new pack is claimed. Compact report remains in ignored cache (close-pack-1.31-default.json); routine log remains temporary. Existing source reviews and terminal repairs stand. Memory proposals add no action beyond canonical tests/guidance, so none were selected; folders retain only wave/change records and typed ledgers.
 
 - 2026-10-14: Operator chose to keep timing deferred and commit/push the reviewed implementation with this wave paused. Final qualification, closure and a new local pack remain pending; no waiver, passing receipt or final delivery approval is claimed.
 

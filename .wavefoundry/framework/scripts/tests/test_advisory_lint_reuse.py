@@ -57,7 +57,7 @@ class AdvisoryLintReuseTests(unittest.TestCase):
             target.write_text(target.read_text() + "\n")
         else:
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text("{}\n")
+            target.write_text("# rules\n" if target.suffix == ".toml" else "{}\n")
 
     def establish(self):
         self.dirty()
@@ -88,6 +88,22 @@ class AdvisoryLintReuseTests(unittest.TestCase):
                 self.assertFalse(invalid["passed"], invalid)
                 self.assertEqual(invalid["mode"], "incremental")
                 self.assertTrue(any("new-invalid.md" in error for error in invalid["errors"]))
+
+    def test_lint_exclusion_creation_edit_and_deletion_invalidate_identity(self):
+        self.establish()
+        path = self.root / "docs/lint-rules.toml"
+        before = self.identity.advisory_lint_identity(self.root, SCRIPTS)
+        path.write_text('[exclude]\npaths=["docs/user-guide/"]\n')
+        created = self.identity.advisory_lint_identity(self.root, SCRIPTS)
+        self.assertNotEqual(before, created)
+        self.assertEqual(self.srv.run_validate_changed(self.root)["mode"], "full-fallback")
+        self.assertEqual(self.srv.run_validate_changed(self.root)["mode"], "incremental")
+        path.write_text('[exclude]\npaths=["docs/manual/"]\n')
+        self.assertNotEqual(created, self.identity.advisory_lint_identity(self.root, SCRIPTS))
+        self.assertEqual(self.srv.run_validate_changed(self.root)["mode"], "full-fallback")
+        path.unlink()
+        self.assertEqual(before, self.identity.advisory_lint_identity(self.root, SCRIPTS))
+        self.assertEqual(self.srv.run_validate_changed(self.root)["mode"], "full-fallback")
 
     def test_changed_trigger_missing_baseline_and_other_root_force_full(self):
         self.establish()

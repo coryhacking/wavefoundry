@@ -12,6 +12,7 @@ INCREMENTAL_FULL_FALLBACK_FILES = (
     "docs/workflow-config.json",
     "docs/prompts/prompt-surface-manifest.json",
     "docs/repo-profile.json",
+    "docs/lint-rules.toml",
 )
 
 ADVISORY_IDENTITY_MAX_FILE_BYTES = 8 * 1024 * 1024

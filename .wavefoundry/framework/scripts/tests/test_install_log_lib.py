@@ -499,6 +499,18 @@ class FreshInstallContractParityTests(unittest.TestCase):
         cls.seed_text = SEED_012_PATH.read_text(encoding="utf-8")
         cls.seed_sections = _seed_012_sections()
 
+    def test_existing_docs_rules_precede_first_audit_without_new_rows(self):
+        prefix = self.seed_text.split("### 2.1", 1)[0]
+        self.assertIn("## Before the first audit, including resumed installs", prefix)
+        self.assertIn("docs/lint-rules.toml", prefix)
+        self.assertIn("preserve an existing `docs/README.md`", prefix)
+        self.assertIn("[exclude]", prefix)
+        phase_one = (SCRIPTS_DIR.parent / "seeds/011-install-wavefoundry-phase-1.prompt.md").read_text()
+        self.assertIn("docs/lint-rules.toml", phase_one)
+        structure = (SCRIPTS_DIR.parent / "seeds/040-docs-structure-bootstrap.prompt.md").read_text()
+        self.assertIn("Create `docs/README.md` only when absent", structure)
+        self.assertNotIn("lint-rules.toml", "\n".join(str(row) for row in self.template_rows))
+
     def test_every_template_seed_reference_resolves(self):
         for row in self.template_rows:
             if row.kind != "seed":
@@ -615,12 +627,13 @@ class FreshInstallContractParityTests(unittest.TestCase):
         self.assertIn("2.3a", steps)
         self.assertEqual(steps.index("2.3a"), steps.index("2.4") - 1)
         _, section = self.seed_sections["2.3a"]
-        for clause in ("**Inventory**", "**Keep reference material.**", "without discarding its content",
+        for clause in ("**Reconcile the inventory**", "**Keep reference material.**", "keep the existing content",
                        "**Check for name collisions**", "Never overwrite an existing file without reporting it"):
             self.assertIn(clause, section)
         # Moves, renames, rewrites and header additions to existing docs are proposals until the operator confirms.
-        self.assertIn("Propose any move, rename, rewrite or header addition for an existing doc to the operator and apply it "
-                      "only after the operator confirms it.", section)
+        self.assertIn("For other existing docs, propose any move, rename, rewrite or header addition to the operator "
+                      "and apply it only after confirmation.", section)
+        self.assertIn("Exclusion does not authorize adoption, rewriting, header insertion or relocation.", section)
         self.assertNotIn("2.3a", {r.number for r in self.template_rows})
         _, summary = self.seed_sections["2.15"]
         self.assertIn("**Existing documentation**: what step 2.3a found, kept, moved or skipped", summary)

@@ -1590,7 +1590,7 @@ class PostWriteLintFreshGitTests(unittest.TestCase):
             with self.subTest(rel=rel):
                 content = json.dumps({"docs_lint": {
                     "hook_timeout_seconds": 77, "full_scan_timeout_seconds": 555,
-                }}) if rel == "docs/workflow-config.json" else "{}\n"
+                }}) if rel == "docs/workflow-config.json" else ("# rules\n" if rel.endswith(".toml") else "{}\n")
                 root = self._fresh_root(rel, content)
                 collapsed = subprocess.run(["git", "status", "--porcelain"], cwd=root,
                                            capture_output=True, text=True, check=True)

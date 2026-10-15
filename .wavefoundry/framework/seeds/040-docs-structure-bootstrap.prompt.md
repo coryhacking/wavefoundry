@@ -6,7 +6,7 @@ Intent:
 
 Tasks:
 
-1. Create or update the canonical `docs/` structure.
+1. Create or update the canonical `docs/` structure. Preserve existing project documents at their current paths. Create `docs/README.md` only when absent; an existing project landing page satisfies its presence requirement. Propose any navigation additions before editing it, and never replace its content with a framework template. Respect optional `docs/lint-rules.toml` exclusions established before the first install audit (seed-011/012); they exempt only generic metadata/outgoing-link checks and grant no rewrite or relocation authority. Do not generate an empty rules file. Report other framework-path collisions before modifying existing content.
 2. Ensure architecture, plans, specs, references, reports, wave artifacts, agent memory records, prompt manifests, and contributing docs have clear topical homes.
 3. Ensure the target project has the expected canonical folder set in the repository, including as applicable:
    - `docs/architecture/`

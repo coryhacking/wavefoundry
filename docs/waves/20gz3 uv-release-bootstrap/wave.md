@@ -60,7 +60,7 @@ A bounded release dependency refresh: only the bootstrap pin and hashes change; 
 | qa-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
 | release-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
 | security-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair | none |
-| operator-signoff | pending | no current executed approval | record approval evidence for operator-signoff |
+| operator-signoff | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 <!-- wave:review-status end -->
 
 - operator-signoff: <approved when operator confirms closure>
@@ -77,12 +77,12 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 
 | Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
-| plan | 149 | 205,977 |
+| plan | 150 | 204,834 |
 | implement | 137 | 0 |
-| review | 41 | 131,325 |
-| **Total** | **327** | **337,302** |
+| review | 42 | 127,767 |
+| **Total** | **329** | **332,601** |
 
-<!-- wave:context-efficiency-state {"generation":214,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":137,"content_source_credit":312015,"derived_artifact_credit":0,"direct_net":-67597,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3955,"response_debit":378593,"source_credit_count":22,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2936},"plan":{"calls":149,"content_source_credit":776506,"derived_artifact_credit":1802,"direct_net":205977,"estimated_tokens_saved":205977,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":23289,"response_debit":555545,"source_credit_count":58,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6503},"review":{"calls":41,"content_source_credit":269596,"derived_artifact_credit":1260,"direct_net":131325,"estimated_tokens_saved":131325,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":4613,"response_debit":134918,"source_credit_count":25,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":327,"content_source_credit":1358117,"derived_artifact_credit":3062,"direct_net":269705,"estimated_tokens_saved":337302,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":31857,"response_debit":1069056,"source_credit_count":105,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":9439},"wave_id":"20gz3 uv-release-bootstrap"} -->
+<!-- wave:context-efficiency-state {"generation":216,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":137,"content_source_credit":312015,"derived_artifact_credit":0,"direct_net":-67597,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3955,"response_debit":378593,"source_credit_count":22,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2936},"plan":{"calls":150,"content_source_credit":776506,"derived_artifact_credit":1802,"direct_net":204834,"estimated_tokens_saved":204834,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":23682,"response_debit":556295,"source_credit_count":58,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6503},"review":{"calls":42,"content_source_credit":269596,"derived_artifact_credit":1260,"direct_net":127767,"estimated_tokens_saved":127767,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":4624,"response_debit":138465,"source_credit_count":25,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":329,"content_source_credit":1358117,"derived_artifact_credit":3062,"direct_net":265004,"estimated_tokens_saved":332601,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":32261,"response_debit":1073353,"source_credit_count":105,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":9439},"wave_id":"20gz3 uv-release-bootstrap"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided
@@ -107,3 +107,7 @@ estimated: a surfaced (or cited) advisory does not prove a re-exploration was av
 - Artifacts: feature `wavefoundry-1.29.0.pw6p.zip`, SHA256 `e766964f6334d33a5db1ed7e0365aed6087114563145dda365ca16acb80bea5a`; models `wavefoundry-models-3.zip`, SHA256 `c3de8d60e8dd55dd6c357f8256af4748a90b089ec92d6c677671b22c56030142`. Verified CRC, safe unique paths, 248 exact source counterparts, stamped version/changelog, 18 pinned uv wheel hashes, 15 model hashes and license notices. Native Windows execution is not claimed. These candidate checks preceded the final publication recorded above.
 
 - Readiness: full adversarial primer followed by independent architecture-reviewer, security-reviewer, qa-reviewer and reality-checker fixed seats; rotating release-reviewer and separate code-reviewer. Council unanimously approved after an anonymous merits pass and fixed-seat consideration of the release alternative. No blockers or material disagreements. Exact registry comparison, real binary exercise and sequential final-source qualification remain delivery obligations; native Windows execution is not claimed.
+
+## Progress Log
+
+- 2026-10-14: Operator authorized closing all six paused waves, committing/pushing and a local 1.31.0 pack, with timing investigation still deferred and one shared default qualification run. That run completed 11,671 tests / 187 files / 12 skips in 884.077s, exit 1: test_tensorwell_client.ClientTests.test_cli_exact_child_timeout_bounded_capture expected the oversized-output ValueError but the child wait reached its deadline and raised TimeoutError. The projection-timing file passed. Source-only independent triage does not establish a capture-cap defect or a harmless scheduling flake; final QA remains unproven. All 60 reviewed source hashes stayed unchanged. No retry or profile run followed the failed default; no current green receipt, closure or new pack is claimed. Compact report remains in ignored cache (close-pack-1.31-default.json); routine log remains temporary. Existing source reviews and terminal repairs stand. Memory proposals add no action beyond canonical tests/guidance, so none were selected; folders retain only wave/change records and typed ledgers.

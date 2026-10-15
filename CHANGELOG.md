@@ -27,6 +27,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Optional `docs/lint-rules.toml` excludes explicit files or folders from generic documentation metadata and outgoing-link checks, preserving required workflow and safe-read checks. Install guidance establishes exclusions before the first audit and preserves existing project guides and `docs/README.md`. Wave 20np7.
 - Server information distinguishes cached Tensorwell availability, selected providers, accepted inference results and process-local model ownership for embeddings and both rerankers, without starting inference or probing the service during status reads. Wave 20np5 / 20np4.
 - Export shared container-status and open-status constants for distribution consumers. Wave 20nnk / 20nnj.
 - Optional Tensorwell inference for the qualified pinned embedding/reranking pair, with bounded background startup from MCP serving, private loopback discovery, precision-preserving selection and local fallback. No service installation or configuration changes; opt out with `WAVEFOUNDRY_DISABLE_TENSORWELL=1` (wave 20nju).

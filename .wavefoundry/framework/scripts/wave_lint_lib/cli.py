@@ -32,6 +32,7 @@ from .helpers import (
     write_if_changed,
 )
 from .link_validators import check_markdown_links
+from .lint_rules import LintRules, load_lint_rules
 from .helpers import doc_refusal, doc_refusal_failures, doc_entry_is_regular, RECORD_CAUSE_SIZE
 from contained_files import DEFAULT_MAX_BYTES
 from .metadata_validators import check_metadata
@@ -225,7 +226,7 @@ def _record_refusal_report(root: Path) -> list[str]:
     return record_refusal_failures() + doc_refusal_failures()
 
 
-def _run_incremental_checks(root: Path, *, proven_trigger_identity: str | None = None):
+def _run_incremental_checks(root: Path, *, proven_trigger_identity: str | None = None, lint_rules: LintRules | None = None):
     """Post-edit incremental lint (wave 1p9c1).
 
     Self-detects the git working-tree changed set (reusing secrets' ``_get_changed_files`` — the same
@@ -235,6 +236,11 @@ def _run_incremental_checks(root: Path, *, proven_trigger_identity: str | None =
     or non-git changed set is a safe ok no-op (``([], [])``) — it never falls through to a whole-tree
     scan. The authoritative corpus lint stays at wf_validate_docs / wf_close_wave / prepare / install /
     upgrade, which call the cli without ``--changed``."""
+    if lint_rules is None:
+        try:
+            lint_rules = load_lint_rules(root)
+        except ValueError as exc:
+            return ([str(exc)], [])
     changed = _get_changed_files(root)
     # Wave 200xy (200v1): the changed-set filter drops a linked or special
     # record document without following it; keep its refusal for the report.
@@ -282,11 +288,13 @@ def _run_incremental_checks(root: Path, *, proven_trigger_identity: str | None =
     for path in sorted(changed_docs):
         if path in oversized:
             continue
-        failures.extend(check_metadata(root, path))
+        if not lint_rules.skip_generic_checks(root, path):
+            failures.extend(check_metadata(root, path))
     for path in sorted(changed_docs | changed_entry):
         if path in oversized:
             continue
-        failures.extend(check_markdown_links(root, path))
+        if not lint_rules.skip_generic_checks(root, path):
+            failures.extend(check_markdown_links(root, path))
 
     if changed_docs:
         failures.extend(check_journal_docs(root, only=changed_docs, skip=oversized))
@@ -316,10 +324,15 @@ def _run_incremental_checks(root: Path, *, proven_trigger_identity: str | None =
     return (failures, warnings)
 
 
-def _run_full_checks(root: Path, args: argparse.Namespace, timings: dict | None = None):
+def _run_full_checks(root: Path, args: argparse.Namespace, timings: dict | None = None, *, lint_rules: LintRules | None = None):
     failures: list[str] = []
     warnings: list[str] = []
     infos: list[str] = []
+    if lint_rules is None:
+        try:
+            lint_rules = load_lint_rules(root)
+        except ValueError as exc:
+            return ([str(exc)], warnings, infos)
 
     # Wave 1p9cj: file-size guard — one stat pass; oversized docs skip their content validators (below)
     # with a loud non-blocking WARNING. Protects the regex/section passes + the read cache from a
@@ -408,13 +421,15 @@ def _run_full_checks(root: Path, args: argparse.Namespace, timings: dict | None 
         for path in iter_markdown_docs(root):
             if path in oversized:
                 continue
-            failures.extend(check_metadata(root, path))
+            if not lint_rules.skip_generic_checks(root, path):
+                failures.extend(check_metadata(root, path))
 
     with _timed(timings, "links"):
         for path in iter_linkable_docs(root):
             if path in oversized:
                 continue
-            failures.extend(check_markdown_links(root, path))
+            if not lint_rules.skip_generic_checks(root, path):
+                failures.extend(check_markdown_links(root, path))
 
     failures.extend(_record_refusal_report(root))
     return failures, warnings, infos
@@ -478,6 +493,10 @@ def main() -> int:
     # reflects on-disk state deterministically (the stat-identity key already handles cross-run edits;
     # this makes the guarantee explicit and keeps the cache bounded per run).
     read_text_cache_clear()
+    try:
+        lint_rules = load_lint_rules(root)
+    except ValueError as exc:
+        return _emit([str(exc)], [], [], root, args, incremental=args.changed)
 
     # Wave 1p9c1: incremental (post-edit) mode runs only the per-file validators on the git-detected
     # changed docs. A changed config/corpus file returns None here → fall through to the full lint.
@@ -488,8 +507,7 @@ def main() -> int:
         if proof is not None and proof != advisory_lint_identity(root, rules_root):
             return _emit(["advisory lint trigger/rule identity changed; retry full validation"], [], [], root, args, incremental=True)
         try:
-            incremental = (_run_incremental_checks(root, proven_trigger_identity=proof)
-                           if proof is not None else _run_incremental_checks(root))
+            incremental = _run_incremental_checks(root, proven_trigger_identity=proof, lint_rules=lint_rules)
         except record_paths.RecordRootUnreadable as exc:
             # Wave 1zrak (1zu4y): the tree changed mid-run; report the refusal, never a traceback.
             return _emit(list(exc.diagnostics), [], [], root, args, incremental=True)
@@ -510,7 +528,7 @@ def main() -> int:
     timings: dict | None = {} if args.timings else None
     total_start = time.perf_counter()
     try:
-        failures, warnings, infos = _run_full_checks(root, args, timings=timings)
+        failures, warnings, infos = _run_full_checks(root, args, timings=timings, lint_rules=lint_rules)
     except record_paths.RecordRootUnreadable as exc:
         # Wave 1zrak (1zu4y): a refusal raised by a validator after the discovery
         # probe (the tree changed mid-run) is reported the same way, never a traceback.
