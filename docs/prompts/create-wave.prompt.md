@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-22
+Last verified: 2026-10-15
 
 Shortcut: **`Create wave`**
 
@@ -26,7 +26,7 @@ Create a wave record at `docs/waves/<wave-id>/wave.md`. The wave is the coordina
      projection; use `wf_create_wave` when available so the scaffold and its
      empty sibling ledger are created atomically. The fixed sibling
      `events.jsonl` is the sole machine authority for review evidence
-3. Only one wave may be **OPEN** (`active`/`implementing`) per `change-id` at a time — enforced at the activation step (wave 1p45l). Creating, admitting, and **readying** additional waves needs no pause; only opening one is single-gated.
+3. Only one wave may be **OPEN** (`active`/`implementing`) per configured activation scope at a time — enforced at the activation step (wave 1p45l). Creating, admitting, and **readying** additional waves needs no pause; only opening one is single-gated.
 
 Do not put canonical JSONL inside `wave.md`. If MCP is unavailable, create an
 exactly empty `events.jsonl` and copy this minimal contract into the Markdown
@@ -87,3 +87,7 @@ loops count only through quality-equivalent paired evidence, recorded separately
 in the checkpoint state. Runtime lifecycle tools own projection;
 manual/non-MCP creation may omit the snapshot until a projection boundary.
 <!-- wave:context-efficiency-carrier end -->
+
+## Distribution activation scope
+
+Repository-wide single-OPEN activation is the default. Distributions may set `record_paths.OPEN_CONTAINER_SCOPE = "parent"` only with `NESTED = True`: each canonical immediate parent of a wave directory has one OPEN slot, and direct children share the waves root. Prepare activation, Implement and Reopen share this guard; repository publication and lifecycle locks remain global. When several waves are OPEN, implicit current-wave selection reports ambiguity and requires an explicit ID; it never selects the first parent or falls back to a planned wave.

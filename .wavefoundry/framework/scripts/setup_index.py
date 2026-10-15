@@ -2115,9 +2115,21 @@ def _prewarm_required_model(
             ) from exc
 
 
+def _resident_setup_embedder(model_name: str):
+    """Skip local preparation only for the same precision the indexer will use."""
+    import inference_provider
+    resident = inference_provider.select_embedder(model_name)
+    if resident is not None and _load_indexer_module()._predicted_precision_class(model_name, []) == "full":
+        return resident
+    return None
+
+
 def prewarm_models(*, include_code: bool, code_only: bool = False) -> None:
     models = _indexer_models(include_code, code_only=code_only)
     for model_name in models:
+        if _resident_setup_embedder(model_name) is not None:
+            print(f"Using qualified service for semantic model: {model_name}", flush=True)
+            continue
         print(f"Prewarming semantic model cache: {model_name}", flush=True)
         _prewarm_required_model(
             model_name,
@@ -2143,11 +2155,11 @@ def _prewarm_gpu_accel(models: list[str]) -> list[tuple[str, str]]:
     from ``accel_embedder._coreml_static_probe_cache`` (the only failure signal: the make_*
     builders swallow it, and a CPU provider alone is also the normal INT8 path without a GPU).
     """
-    import tensorwell_client
-    # Reuse resident sessions before any local native construction. Explicit
-    # prewarm_models provisioning/validation remains in its existing caller.
-    resident_models = {model for model in models if tensorwell_client.select_embedder(model) is not None}
-    resident_reranker = tensorwell_client.select_reranker(_indexer_reranker_model())
+    import inference_provider
+    # Match initial provisioning and the indexer's precision decision before
+    # skipping native construction for each individual workload.
+    resident_models = {model for model in models if _resident_setup_embedder(model) is not None}
+    resident_reranker = inference_provider.select_reranker(_indexer_reranker_model())
     if len(resident_models) == len(set(models)) and resident_reranker is not None:
         return []
     try:

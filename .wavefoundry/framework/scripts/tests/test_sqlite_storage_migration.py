@@ -73,6 +73,21 @@ class ReceiptTests(unittest.TestCase):
         with patch.dict(os.environ, {migration.CONFIRM_ENV: "1"}):
             return migration.prepare_upgrade(self.ctx)
 
+    def test_legacy_rebuild_captures_graph_before_conversion_and_reuses_it(self):
+        graph = self.index / migration.GRAPH_OUTPUT_DIRNAME
+        graph.mkdir()
+        source = graph / "project-graph.json"
+        source.write_bytes(b"original graph")
+        self.ctx.rebuild_storage = True
+        receipt = self.prepare()
+        self.assertEqual(receipt["retired_graph_ownership"]["state"], "captured")
+        original = receipt["retired_graph_ownership"]
+        source.write_bytes(b"changed after receipt")
+        self.confirm()
+        self.assertEqual(migration.read_receipt(self.index)["retired_graph_ownership"], original)
+        self.assertEqual(migration._plan_captured_graph(self.index, receipt)["state"],
+                         migration.RETAINED_UNOWNED_CONTENTS)
+
     def test_direct_identity_equalities_are_only_reviewed_boundaries(self):
         # Bounded syntax guard, not arbitrary dataflow proof. Exact normalized
         # comparisons are excluded: same-run snapshots, content/configuration
@@ -152,6 +167,16 @@ class ReceiptTests(unittest.TestCase):
          ('upgrade_extensions', 'validate_index_guard_durable_pack', "_guard_file_identity(opened) != proof['identity']"),
          ('upgrade_extensions', '_retain_index_guard_pack', 'hashlib.sha256(retained).hexdigest() != digest'),
          ('upgrade_extensions', 'finalize_index_guard_terminal_cleanup', "tmp_proof.get('identity') == _guard_file_identity(remaining)")}
+        # Retired graph deletion deliberately requires exact device/inode and
+        # file metadata ownership, unlike portable live database continuity.
+        allowed.update({
+            ('sqlite_storage_migration', '_apply_retired_graph_directory', "_graph_identity(metadata) != evidence['files'].get(name)"),
+            ('sqlite_storage_migration', 'check', "_graph_identity(metadata) != evidence['files'].get(name)"),
+            ('sqlite_storage_migration', '_apply_retired_graph_directory', "_graph_identity(current, directory=True) != evidence['directory']"),
+            ('sqlite_storage_migration', '_apply_retired_graph_directory', "_graph_identity(os.fstat(directory), directory=True) != evidence['directory']"),
+            ('sqlite_storage_migration', '_plan_captured_graph', 'files[name] != _graph_identity((graph / name).lstat())'),
+            ('sqlite_storage_migration', '_plan_captured_graph', "evidence['directory'] != _graph_identity(graph.lstat(), directory=True)"),
+        })
         observed = set().union(*(scan(name, source) for name, source in sources.items()))
         self.assertEqual(observed, allowed)
         mutations = (
@@ -2640,6 +2665,11 @@ class SchemaEightKindTests(unittest.TestCase):
             "framework-graph-state.json", "framework-graph-clusters.json")
         self._run()
         self._verify_in_child()
+        if os.unlink not in os.supports_dir_fd or not hasattr(os, "O_NOFOLLOW"):
+            with self.assertRaisesRegex(migration.MigrationRequired, "descriptor_unavailable"):
+                migration.cleanup_legacy(self.root)
+            self.assertTrue(folder.exists())
+            return
         final = migration.cleanup_legacy(self.root)
         self.assertEqual(final["state"], "complete")
         self.assertFalse(folder.exists(), "a normal framework-owned folder is removed completely")
@@ -2654,16 +2684,27 @@ class SchemaEightKindTests(unittest.TestCase):
         with patch("upgrade_wavefoundry._remove_retired_component",
                    side_effect=AssertionError(
                        "the whole-tree primitive was used as the classifier")):
-            final = migration.cleanup_legacy(self.root)
-        self.assertEqual(final["state"], "complete")
+            with self.assertRaisesRegex(migration.MigrationRequired, "storage_graph_cleanup_retained"):
+                migration.cleanup_legacy(self.root)
+        final = migration.read_receipt(self.index)
+        self.assertEqual(final["state"], "cleanup_pending")
         self.assertEqual(final["graph_directory_cleanup"]["state"],
                          migration.RETAINED_UNOWNED_CONTENTS)
         self.assertEqual(final["graph_directory_cleanup"]["entries"], ["operator-notes.txt"])
         self.assertTrue((folder / "operator-notes.txt").is_file())
         self.assertTrue((folder / "project-graph.json").is_file(),
                         "an unowned entry preserves the WHOLE folder, not only itself")
-        # The rest of cleanup still completed: the retired source is gone.
-        self.assertFalse(self.legacy.exists())
+        # Plan refusal precedes all deletion. Removing only the unowned entry
+        # permits retry against the original captured identities.
+        self.assertTrue(self.legacy.exists())
+        (folder / "operator-notes.txt").unlink()
+        if os.unlink not in os.supports_dir_fd or not hasattr(os, "O_NOFOLLOW"):
+            with self.assertRaisesRegex(migration.MigrationRequired, "descriptor_unavailable"):
+                migration.cleanup_legacy(self.root)
+            self.assertTrue(folder.exists())
+            return
+        self.assertEqual(migration.cleanup_legacy(self.root)["state"], "complete")
+        self.assertFalse(folder.exists())
 
     def test_a_nonempty_write_ahead_log_preserves_the_retired_source(self):
         self._seed("7")

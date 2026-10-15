@@ -67,6 +67,18 @@ class OperatorIdentityTests(unittest.TestCase):
                 self.assertIn("explicit", reason)
         run.assert_not_called()
 
+    def test_local_handle_needs_no_hosting_identity_and_does_not_publish_email(self):
+        self.write_map({"release-owner": {"name": "Owner", "emails": ["owner@offline.test"]}})
+        with patch.object(subject, "_run_tree_kill", return_value=self.git_result("owner@offline.test")) as run:
+            identity, reason = subject.resolve_operator(self.root)
+        self.assertEqual(reason, "")
+        self.assertEqual(identity, {"handle": "release-owner", "source": "git_email"})
+        self.assertNotIn("owner@offline.test", json.dumps(identity))
+        self.assertEqual(run.call_args.args[0][-2:], ["config", "user.email"])
+        with patch.object(subject, "_run_tree_kill", side_effect=AssertionError("offline explicit identity must not invoke Git")):
+            self.assertEqual(subject.resolve_operator(self.root, "release-owner"),
+                             ({"handle": "release-owner", "source": "explicit"}, ""))
+
     def test_invalid_map_shapes_never_reach_git(self):
         entry = {"name": "Alice", "emails": ["alice@example.test"]}
         malformed = [[], None, {"": entry}, {" ": entry}, {"alice": None},

@@ -244,6 +244,37 @@ resume the ordinary upgrade. There is no separate manual editing checkpoint
 before the first gate. Repositories without that document need no edit; an
 existing document with a missing required claim must be corrected.
 
+**Repeated builds and repair.** An ordinary upgrade selecting the installed
+full VERSION/build refuses before adoption, including a package that reuses the
+same build label with changed contents. This refusal is not a health check.
+A newer build suffix at the same semantic version can proceed. An unfinished
+upgrade takes precedence: use its reported continuation and retained package,
+not a new adoption attempt. For an already-installed current index, use
+`--update-index` or `--rebuild-index`; these explicit repair paths remain available.
+`--rebuild-storage` requires a pending legacy conversion. With no legacy index,
+an already-complete receipt, or a current schema conversion it refuses without
+starting adoption; it is not a synonym for rebuilding the current index.
+
+The primary phase can exit zero while cleanup remains pending; zero means that
+phase succeeded, not that the complete upgrade is terminal. Failed index
+publication exits nonzero and does not mark historical memory indexed. Preserve
+any reported memory/host checkpoint and follow its continuation before cleanup.
+Unchanged renderer-owned documents keep their existing dates; the docs gardener
+still stamps genuinely changed documents. Do not exclude dates from historical
+memory fingerprints to hide real changes.
+
+A new storage receipt captures retired `graph/` directory and allowlisted file
+identities before rebuilding. Cleanup requires verified publication, old-host
+release and unchanged captured identities. Unknown or new entries, replacements,
+links, nested folders, missing ownership evidence or unavailable descriptor-safe
+deletion preserve the directory and cleanup state. Correct the reported condition
+and retry against the original receipt; never recapture new files as owned. Older
+complete receipts remain no-ops; an older pending receipt without graph ownership
+preserves that directory for explicit operator disposition.
+Deletion is not an atomic directory transaction: a concurrent change after the
+first unlink can leave partial progress. Retry retains the original ownership
+and never treats a replacement or newly added file as captured.
+
 **Rebuild legacy semantic storage from current sources.** If faithful transfer
 refuses historical duplicate or missing chunk IDs, or legacy vectors cannot be
 read, explicitly add `--rebuild-storage` to the retained ordinary CLI continuation

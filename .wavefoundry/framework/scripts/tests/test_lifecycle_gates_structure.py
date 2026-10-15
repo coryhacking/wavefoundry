@@ -292,6 +292,7 @@ _RELOAD_RETAINED_FLAT_MODULES = {
     "index_state_store": "index store bound to the loaded index runtime, read lazily",
     "install_log_lib": "stable install-log reader API, imported lazily",
     "machine_authority": "stable scanner path predicate used by the secrets validators",
+    "model_bundle": "model compatibility fingerprint bound to the loaded index runtime; changed model pins require process restart",
     "process_info": "process-wide psutil loader, deliberately left loaded",
     "provider_policy": "stable execution-provider selection, imported lazily",
     "render_agent_surfaces": "stable renderer API, imported lazily at call time",
@@ -816,7 +817,7 @@ class ReloadClosureGuardTests(unittest.TestCase):
         self.assertEqual(_runtime_lock_binding_problems(self.source, _RUNTIME_LOCK_STALE_BINDINGS), [])
         # 1zyv1 adds bytecode_cache; 200ew evicts lifecycle_id; 20gff retains
         # the test-worker bootstrap's installed process state.
-        self.assertEqual(len(_RELOAD_RETAINED_FLAT_MODULES), 24)
+        self.assertEqual(len(_RELOAD_RETAINED_FLAT_MODULES), 25)
         self.assertNotIn("runtime_lock", _RELOAD_RETAINED_FLAT_MODULES)
         self.assertTrue(_RELOAD_BOOTSTRAP_EXCLUSIONS <= set(_RELOAD_RETAINED_FLAT_MODULES))
         self.assertTrue(all(reason.strip() for reason in _RELOAD_RETAINED_FLAT_MODULES.values()))

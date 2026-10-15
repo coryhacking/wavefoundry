@@ -691,3 +691,7 @@ Guardrails:
 - Edit project role or persona policy in canonical docs under `docs/agents/`, not thin wrappers.
 - Do not generate platform-native wrappers for platforms that are not enabled in repo-local config.
 - When seeding `.claude/settings.json`, merge into the existing file rather than replacing it.
+
+## Declared legacy hook ownership
+
+Distributions may declare `EXTENSION_LEGACY_CLAUDE_HOOK_COMMANDS` in `mcp_tool_extensions.py` as a tuple of mappings with exactly `event` and `command`. Match the complete command only for that event; allow at most one literal `{{repo_root}}` placeholder for an old absolute launcher. Validate before any settings write. Do not infer ownership from a basename, substring or regex, parse shell syntax or execute commands. Preserve foreign commands within mixed entries and their metadata; repeat rendering must be byte-stable. Existing canonical cleanup remains unchanged.

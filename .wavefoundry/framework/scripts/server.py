@@ -354,10 +354,11 @@ def _record_runner_identity() -> Optional[str]:
         )
 
 
-# Wave 1zf1y: the only fingerprinted source an in-process reload re-executes. The
+# Fingerprinted sources an in-process reload re-executes. The routing modules
+# execute exact source bytes in server_impl (wave 20qvt). The
 # root ``server_impl.py`` shim is aliased to it, never re-executed, so it keeps its
 # launch value like every other source.
-_RELOADED_SOURCES = ("wf_server/server_impl.py",)
+_RELOADED_SOURCES = ("wf_server/server_impl.py", "inference_profile.py", "inference_provider.py")
 
 
 def _reloaded_source_digests() -> dict[str, str]:
@@ -400,7 +401,7 @@ def _discard_reloaded_bytecode(module: Any) -> bool:
 
 
 def _refresh_reloaded_source_identity(before_reload: dict[str, str]) -> None:
-    """Mark the re-executed implementation module current in the launch identity.
+    """Mark the re-executed implementation and routing sources current in launch identity.
 
     Updates the runner's identity dict IN PLACE: the implementation module and the
     next handler share this object, and the next reload copies it again, so the
@@ -877,8 +878,8 @@ def build_server(root: Path):
     async def inference_lifespan(app):
         # FastMCP enters this after stdio transport initialization. Building a
         # server (including --dry-run) and implementation reload never enter it.
-        import tensorwell_client
-        tensorwell_client.start_background(root)
+        import inference_provider
+        inference_provider.start_background(root)
         yield {}
 
     global _root

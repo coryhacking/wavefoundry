@@ -1906,7 +1906,12 @@ def collect_dashboard_snapshot(root: Path, skip_git: bool = False) -> dict[str, 
     config = read_dashboard_config(root)
     waves = collect_waves(root)
     change_sets = collect_changes(root)
-    current = server.current_wave(root)
+    current_diagnostic = None
+    try:
+        current = server.current_wave(root)
+    except server.AmbiguousCurrentWave as exc:
+        current = None
+        current_diagnostic = {"code": "ambiguous_current_wave", "message": str(exc)}
     manifest = read_prompt_manifest(root)
     project_name = derive_project_name(root)
     change_lookup = {c["change_id"]: c for c in change_sets["wave"]}
@@ -1950,6 +1955,7 @@ def collect_dashboard_snapshot(root: Path, skip_git: bool = False) -> dict[str, 
             "framework_version": read_framework_version(root),
             "project_archetypes": read_repo_profile(root).get("project_archetypes", []),
             "active_wave_id": current.get("wave_id") if isinstance(current, dict) else None,
+            "current_wave_diagnostic": current_diagnostic,
             "wave_status_counts": wave_status_counts,
             "public_prompt_count": len(manifest.get("public_prompt_surface", [])) if isinstance(manifest.get("public_prompt_surface"), list) else 0,
         },

@@ -10,6 +10,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Distributions can keep automatic Tensorwell, select local-only inference, or declare a trusted enterprise inference adapter. Setup, indexing, query and memory consumers share compatibility checks, safe failures and provider reporting; explicit adapters never fall back to another provider. Synthetic fixtures cover deadlines, raw reranking scores and source-aware reload. Wave 20qvt.
+
 - Optional `--with-embedded-models` packaging produces a directly upgradeable combined ZIP alongside the lean framework and standalone model assets. Reuse verified model caches or provision from the embedded companion, with retained-source recovery and an executable entry for older installations. Wave 20omx / 20nt1.
 
 ## [1.31.0] - 2026-10-14

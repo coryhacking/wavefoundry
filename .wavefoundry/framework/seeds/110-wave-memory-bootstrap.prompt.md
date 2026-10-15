@@ -153,7 +153,7 @@ Wave status model:
 - `completed` / `closed`
 - `superseded`
 
-Only one wave may be **OPEN** (`active`/`implementing`) at a time; this single-OPEN invariant is enforced at the activation transitions (`wf_implement_wave` / `wf_reopen_wave` / `wf_prepare_wave(mode='create')`), not at readiness.
+Only one wave may be **OPEN** (`active`/`implementing`) per configured activation scope at a time; this single-OPEN invariant is enforced at the activation transitions (`wf_implement_wave` / `wf_reopen_wave` / `wf_prepare_wave(mode='create')`), not at readiness.
 
 Recommended change status model:
 
@@ -170,7 +170,7 @@ Recommended change status model:
 
 Guardrails:
 
-- Only one wave may be **OPEN** (`active`/`implementing`) for a given feature thread at a time — the hard single-OPEN rule, enforced at the activation transitions. Any number of waves may be planned and readied in parallel; readiness never takes the slot.
+- Only one wave may be **OPEN** (`active`/`implementing`) per configured activation scope at a time — the hard single-OPEN rule, enforced at the activation transitions. Any number of waves may be planned and readied in parallel; readiness never takes the slot.
 - Parallelism is allowed inside a wave only after its shared assumptions and interfaces are stable enough.
 - Keep the artifact contract stable enough that later prompts, scripts, and agents can recover wave state, decisions, and carry-forward intent without requiring identical prose layout.
 - Do not split a change into a new `Change ID` merely because the wave ended; carry unfinished work forward by default and split only when the remaining work is materially different.
@@ -178,3 +178,7 @@ Guardrails:
 - Keep salience lightweight in wave records. Use it only when it changes admission priority, reviewer/persona routing, escalation, handoff, memory preservation, or future behavior.
 - **State each wave-level rule once in its most natural `wave.md` section; cite rather than restate.** `wave.md` is a coordination record, not a marketing summary: every fact (objective, admitted changes, serialization points, protected surfaces, reviewer roster, completion criteria, etc.) should appear **in exactly one section**, namely the section whose anchor it most naturally belongs to. If another section needs to reference the fact, cite the anchor (e.g. "see `## Changes`", "per `Serialization Points` below") instead of repeating the prose. Details that belong in a change doc (`## Requirements`, `## Acceptance Criteria`, `## Tasks`, `## Risks`, `## Decision Log`, `## Agent Execution Graph`) **must stay in the change doc** — `wave.md` cites them, it does not duplicate them. The admitted-changes list plus the `## Changes` table is the authoritative in-scope record; prose elsewhere in `wave.md` must not re-narrate what those entries already say. Keep the scaffolding sections (`Objective`, `Participants`, `Protected Surfaces`, `Knowledge Transfer Plan`, `Persona Review Plan`, `Watchpoints`, `Review Checkpoints`, `Readiness Checkpoints`, `Serialization Points`, `Completion Criteria`, `Wave Summary`, `Changes`) — just state each bullet inside them **once**. `Wave Summary` is populated at closure and must be retained empty (`*(Populated at closure.)*` or equivalent placeholder) pre-closure rather than dropped.
 - When bootstrapping from legacy material: record the closed wave-0 baseline in `docs/waves/00000 wave-zero-plans-and-specs/wave.md` with a `## Corpus` table indexing all captured plans; run applicable review lanes and document real findings per change type; capture distilled lessons as typed memory records; update `docs/references/project-context-memory.md` and other core memory docs with reusable workflow guidance; then admit subsequent execution waves only after wave-0 is fully closed with all reviews and promotions recorded.
+
+## Distribution activation scope
+
+Repository-wide single-OPEN activation is the default. Distributions may set `record_paths.OPEN_CONTAINER_SCOPE = "parent"` only with `NESTED = True`: each canonical immediate parent of a wave directory has one OPEN slot, and direct children share the waves root. Prepare activation, Implement and Reopen share this guard; repository publication and lifecycle locks remain global. When several waves are OPEN, implicit current-wave selection reports ambiguity and requires an explicit ID; it never selects the first parent or falls back to a planned wave.

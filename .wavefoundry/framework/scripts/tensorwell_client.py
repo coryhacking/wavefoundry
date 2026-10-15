@@ -142,12 +142,15 @@ def _provider(model) -> dict:
     except TypeError:
         attrs = {}
     service = attrs.get("is_tensorwell", vars(type(model)).get("is_tensorwell")) is True
+    label = attrs.get("provider_label")
+    declared_service = (attrs.get("is_service_provider", vars(type(model)).get("is_service_provider")) is True
+                        and isinstance(label, str) and re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", label) is not None)
     accelerator = attrs.get("provider")
     if not isinstance(accelerator, str) or accelerator not in {"CPUExecutionProvider", "CoreMLExecutionProvider", "CUDAExecutionProvider",
                            "ROCMExecutionProvider", "DmlExecutionProvider"}:
         accelerator = "unknown"
-    return {"provider": "tensorwell" if service else "in_process" if model is not None else None,
-            "accelerator": "service_managed" if service else accelerator}
+    return {"provider": label if declared_service else "tensorwell" if service else "in_process" if model is not None else None,
+            "accelerator": "service_managed" if service or declared_service else accelerator}
 
 
 def observe_selection(role: str, model, reason: str) -> None:

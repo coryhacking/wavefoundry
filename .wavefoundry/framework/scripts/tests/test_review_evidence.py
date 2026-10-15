@@ -11,6 +11,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -277,6 +278,23 @@ class WorkerPublicationRefusalTests(unittest.TestCase):
                     self.assertNotIn(str(root), raised.exception.detail)
                     self.assertNotIn(str(root), str(raised.exception))
                     self.assertEqual(str(raised.exception), "test-worker protection refused publication")
+                    formatted = "".join(traceback.format_exception(raised.exception))
+                    self.assertNotIn(str(root), formatted)
+                    self.assertNotIn("direct cause", formatted)
+                    self.assertTrue(raised.exception.__suppress_context__)
+
+
+    def test_read_only_preview_refuses_before_lock_or_directory_creation(self):
+        import publication_control
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with publication_control.read_only_preview(), patch.object(subject, "_WRITE_THREAD_LOCK") as lock:
+                with self.assertRaises(subject.ProjectPublicationUnavailable):
+                    with subject.project_state_publication_lock(root):
+                        self.fail("preview entered publication body")
+                lock.acquire.assert_not_called()
+            self.assertEqual(list(root.iterdir()), [])
 
     def test_site_disabled_child_refuses_protected_publication_but_allows_fixture(self):
         import test_worker_guard
@@ -337,7 +355,9 @@ with review_evidence.project_state_publication_lock(root):
             env[test_worker_guard.MARKER] = "malformed"
             result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=30)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("invalid test-worker protection marker", result.stderr)
+            self.assertIn("test-worker protection refused publication", result.stderr)
+            self.assertNotIn("invalid test-worker protection marker", result.stderr)
+            self.assertNotIn("direct cause", result.stderr)
             self.assertFalse((root / "published").exists())
 
 
@@ -4693,6 +4713,39 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
         )
         self.assertFalse(forged.signoff_current("qa-reviewer"))
 
+    def test_legacy_reviewer_prose_never_authorizes(self):
+        for lane, prose in (
+            ("qa-reviewer", "qa-reviewer has not approved"),
+            ("qa-reviewer", "qa-reviewer approval pending; checks passed earlier"),
+            ("qa-reviewer", "qa-reviewer might approve after acceptance"),
+            ("qa-reviewer", "qa-reviewer completed the review"),
+            ("acceptance-reviewer", "acceptance-reviewer has no verdict"),
+            ("signoff-reviewer", "signoff-reviewer pending"),
+        ):
+            for authorization in (None, False, True):
+                with self.subTest(lane=lane, prose=prose, authorization=authorization):
+                    self.assertFalse(subject.lane_has_signoff_in_evidence(
+                        prose, lane, authorization=authorization))
+
+    def test_legacy_explicit_states_keep_last_state_and_table_precedence(self):
+        lane = "qa-reviewer"
+        for state in ("approved", "passed", "complete"):
+            self.assertTrue(subject.lane_has_signoff_in_evidence(f"- **{lane}**: {state}; current check", lane))
+        for state in ("not approved", "pending", "blocked because checks passed", "rejected", "withdrawn", "<approved>", "approval pending"):
+            self.assertFalse(subject.lane_has_signoff_in_evidence(
+                f"{lane}: approved\n{lane}: {state}\n{lane}(superseded): approved", lane))
+        self.assertTrue(subject.lane_has_signoff_in_evidence(f"{lane}: pending\n{lane}: approved", lane))
+        self.assertFalse(subject.lane_has_signoff_in_evidence(f"| {lane} | pending |\n{lane}: approved", lane))
+        self.assertTrue(subject.lane_has_signoff_in_evidence(f"| {lane} | approved |\n{lane}: pending", lane))
+        self.assertFalse(subject.lane_has_signoff_in_evidence(f"{lane}-notes: approved", lane))
+
+    def test_legacy_current_table_last_row_governs(self):
+        for first, last, approved in (("approved", "pending", False), ("pending", "approved", True)):
+            with self.subTest(last=last):
+                self.assertEqual(subject.lane_has_signoff_in_evidence(
+                    f"| qa-reviewer | {first} |\n| qa-reviewer | {last} |\nqa-reviewer: approved",
+                    "qa-reviewer"), approved)
+
     def test_prose_branch_matches_legacy_parsers(self):
         wave_text = (
             "# Wave Record\n\n"
@@ -5181,6 +5234,29 @@ class OperatorReviewEvidenceTests(unittest.TestCase):
                 blocking_required_lanes=["qa-reviewer"], approval_recheck_lanes=["qa-reviewer"],
             )
         return event
+
+    def test_explicit_current_attestation_preserves_legacy_text_without_inventing_runs(self):
+        legacy = "## Review Evidence\n\nThe qa-reviewer has not approved; historical review pending.\n"
+        # component-fixture: in-memory typed projection preserves prose without inventing historical runs.
+        text = "# Wave\nOwner: local-owner\nreview-evidence-source: events.jsonl\n\n" + legacy + "\n" + subject.empty_external_finding_synthesis_section()
+        self.assertFalse(subject.ReviewAuthority(typed=True, wave_text=text).signoff_current("qa-reviewer"))
+        event = dict(self.event("approval"), actor="operator", signoff_key="operator-signoff",
+                     context_id="current-operator-attestation", observed="Explicit current approval")
+        rows, errors = subject.build_identified_review_event(
+            [], "20qvp fixture", event,
+            operator={"handle": "local-owner", "source": "explicit"}, attested_by="local-owner")
+        self.assertEqual(errors, ())
+        self.assertFalse(subject.validate_review_evidence_records(rows))
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["record_type"], "executable_evidence")
+        self.assertEqual(rows[0]["claim_id"], "approval:operator-signoff")
+        self.assertEqual(rows[0]["verification_context"]["attested_by"], "local-owner")
+        projected = subject.render_review_evidence_projection(text, rows)
+        self.assertIn(legacy, projected)
+        self.assertIn("Owner: local-owner", projected)
+        authority = subject.ReviewAuthority(typed=True, wave_text=projected, records=rows)
+        self.assertTrue(authority.signoff_current("operator-signoff"))
+        self.assertFalse(authority.signoff_current("qa-reviewer"))
 
     def test_identified_operator_propagates_without_changing_digest(self) -> None:
         for kind in ("run", "approval", "finding"):

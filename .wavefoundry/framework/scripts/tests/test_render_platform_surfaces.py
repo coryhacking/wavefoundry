@@ -3930,3 +3930,35 @@ class IdentityBoundPlatformRemovalTests(unittest.TestCase):
             self.assertFalse(any(isinstance(node.func, ast.Attribute) and node.func.attr == "unlink" for node in calls))
         fn = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "remove_files")
         self.assertIn("contained_files.unlink_contained", ast.unparse(fn))
+
+
+class DeclaredLegacyHookTests(unittest.TestCase):
+    def test_exact_event_command_preserves_mixed_foreign_metadata_and_rerender(self):
+        import mcp_tool_extensions as ext
+        import render_platform_surfaces as renderer
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / ".claude/settings.json"
+            path.parent.mkdir()
+            legacy = str(root.resolve()) + "/.claude/hooks/old-launcher"
+            foreign = {"type": "command", "command": legacy + " --foreign", "timeout": 17}
+            original = {"custom": True, "hooks": {"Stop": [{"matcher": "*", "custom": 7,
+                "hooks": [{"type": "command", "command": legacy}, foreign]}],
+                "OtherEvent": [{"hooks": [{"type": "command", "command": legacy}]}]}}
+            path.write_text(json.dumps(original))
+            declaration = ({"event": "Stop", "command": "{{repo_root}}/.claude/hooks/old-launcher"},)
+            with patch.object(ext, "EXTENSION_LEGACY_CLAUDE_HOOK_COMMANDS", declaration):
+                renderer.render_claude_settings(root)
+                once = path.read_bytes()
+                result = json.loads(once)
+                self.assertEqual(result["hooks"]["Stop"][0], {"matcher": "*", "custom": 7, "hooks": [foreign]})
+                self.assertEqual(result["hooks"]["OtherEvent"], original["hooks"]["OtherEvent"])
+                self.assertTrue(result["custom"])
+                renderer.render_claude_settings(root)
+                self.assertEqual(path.read_bytes(), once)
+            for bad in ([], ({"event": "Stop", "command": "{{other}}/old"},),
+                        ({"event": "Stop", "command": "{{repo_root}}/{{repo_root}}"},)):
+                with patch.object(ext, "EXTENSION_LEGACY_CLAUDE_HOOK_COMMANDS", bad):
+                    with self.assertRaises(ext.ExtensionDeclarationError):
+                        renderer.render_claude_settings(root)
+                self.assertEqual(path.read_bytes(), once)

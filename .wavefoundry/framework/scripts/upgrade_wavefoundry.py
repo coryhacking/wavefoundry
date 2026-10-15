@@ -1156,6 +1156,7 @@ class UpgradeContext:
         # extraction through ``post_preflight``.
         self.runner_protocol = 2
         self.index_guard_coordinator_capability = 1
+        self.index_published = None  # Populated only from the observed phase result.
         # Storage-conversion protocol. 2 declares that this coordinator can run
         # the schema-8 kind in-process; 1 (or an older context that defines
         # nothing) receives the restart handoff and the installed CLI resumes
@@ -1672,7 +1673,8 @@ def _clear_stale_upgrade_lock_for_preflight(root: Path, upgrade_lib: Any) -> Non
 
 
 def phase_preflight(
-    root: Path, yes: bool, *, explicit_pack: Path | None = None
+    root: Path, yes: bool, *, explicit_pack: Path | None = None,
+    retained_recovery: bool = False,
 ) -> tuple[str | None, str | None, Path | None]:
     """Run pre-flight checks, compute seed diffs, and print change plan.
 
@@ -1752,6 +1754,19 @@ def phase_preflight(
         # No zip — upgrading using the current tree as-is
         to_version = _read_pack_version(root) or "unknown"
         zip_path = None
+
+    # Equality is not evidence of health. Refuse ordinary repeated adoption,
+    # including same-label content collisions, before creating its checkpoint.
+    # Retained recovery was inspected first; explicit index repair uses its own
+    # entry path, and applicable storage recovery must retain its original pack.
+    if (not retained_recovery and from_version not in (None, "unknown")
+            and from_version == to_version):
+        _err(f"already_installed_build: {to_version}; repeated adoption refused. "
+             "This does not attest installation health. Use --update-index or "
+             "--rebuild-index for index repair, or the retained continuation "
+             "for an unfinished upgrade. Same-build content changes require a "
+             "distinct build identity.")
+        sys.exit(3)
 
     # Version guard (R4)
     from check_version import compare_versions
@@ -5767,6 +5782,19 @@ def main(argv: list[str] | None = None) -> int:
         if retained is not None:
             return retained
 
+    if args.rebuild_storage:
+        import sqlite_storage_migration
+        state = sqlite_storage_migration.detect(root / ".wavefoundry/index")
+        receipt = state["receipt"]
+        if (sqlite_storage_migration.is_kind_receipt(receipt)
+                or sqlite_storage_migration._kind_dispatch(state)
+                or (receipt is None and not state["migration_required"])
+                or (receipt is not None and receipt["state"] == "complete"
+                    and not state["kind_required"])):
+            _err("storage_rebuild_not_applicable: no pending legacy storage conversion; "
+                 "use --update-index or --rebuild-index for an existing current index.")
+            return 3
+
     # Terminal finalization precedes receipt restoration, memory backstops and
     # archive resolution. It can authorize absence only after fatal obligations.
     if args.cleanup:
@@ -6196,7 +6224,9 @@ def main(argv: list[str] | None = None) -> int:
             # never does) is covered by the sibling call in the `--cleanup` branch below.
             # Permissions-only, idempotent, fail-safe.
             _ensure_rendered_permissions_backstop(root)
-            _run_hook("post_index_update", _rb_ctx, _rb_ext)
+            _rb_ctx.index_published = _ui_published
+            if _ui_published:
+                _run_hook("post_index_update", _rb_ctx, _rb_ext)
             # 1u44n: stamp the lock from the OBSERVED outcome only; a failed
             # publication records index_publication_failed and exits non-zero
             # instead of a false process-level success.
@@ -6554,6 +6584,10 @@ def main(argv: list[str] | None = None) -> int:
                 root,
                 yes=args.yes,
                 explicit_pack=Path(args.pack) if args.pack else None,
+                # _report_pending_upgrade already validated any retained full
+                # continuation before restoration. Its same target is recovery,
+                # not an ordinary repeated adoption.
+                retained_recovery=(args.rebuild_storage or upgrade_lib.read_upgrade_lock(root) is not None),
             )
         except BaseException:
             upgrade_transaction.__exit__(*sys.exc_info())
@@ -7013,12 +7047,12 @@ def main(argv: list[str] | None = None) -> int:
                 index_published = bool(phase_index_update(root))
             if publication_pending:
                 memory_backfill.complete_index_publication(root, memory_run_id)
-            _run_hook("post_index_update", ctx, ext_mod)
-            # 1u44n: stamp the lock from the OBSERVED outcome only. On failure the
-            # upgrade still completes (the documented recovery is index_build +
-            # index_health, which needs no retained lock), but nothing may claim
-            # the phase succeeded: no index_rebuilt_at, no "indexed" state.
+            ctx.index_published = index_published
             _record_index_publication_outcome(root, index_published)
+            if index_published:
+                _run_hook("post_index_update", ctx, ext_mod)
+            # A failed publication never marks memory indexed. Existing cleanup
+            # recovery policy remains separate from this phase's nonzero result.
             if index_published:
                 upgrade_lib.update_upgrade_lock(
                     root,
@@ -7084,6 +7118,13 @@ def main(argv: list[str] | None = None) -> int:
             review_sidecar_cleanup=sidecar_counts,
             index_published=index_published,
         )
+
+        if not index_published:
+            _err("Index publication failed; phases 0–4 are not complete. "
+                 "Inspect the reported index repair and retained recovery state "
+                 "before continuing with --cleanup.")
+            _close_log()
+            return 1
 
         _log(
             "\n✓ Phases 0–4 complete. Proceed with agent editing pass, then run:\n"

@@ -74,7 +74,7 @@ If memory conflicts with current evidence from the repository, favor that eviden
 
 - Waves are the unit of coordinated execution and knowledge transfer for non-trivial work.
 - A wave may contain multiple features, feature slices, reviews, docs, or integration items when their assumptions and dependencies are compatible.
-- Only one wave may be **OPEN** (`active`/`implementing`) per `change-id` at a time — the hard single-OPEN rule, enforced at activation (`wf_implement_wave` / `wf_reopen_wave` / `wf_prepare_wave(mode='create')`). Any number of waves may be planned and **readied** (`wf_prepare_wave(mode='ready')`, `Status: planned`) in parallel; readiness never takes the slot.
+- Only one wave may be **OPEN** (`active`/`implementing`) per configured activation scope at a time — the hard single-OPEN rule, enforced at activation (`wf_implement_wave` / `wf_reopen_wave` / `wf_prepare_wave(mode='create')`). Any number of waves may be planned and **readied** (`wf_prepare_wave(mode='ready')`, `Status: planned`) in parallel; readiness never takes the slot.
 - The wave coordinator owns wave activation, execution order, role assignment, conflict avoidance, and wave completion.
 - Wave artifacts should distinguish completed work, deferred work, moved work, retried work, and failed assumptions clearly enough for later agents to resume safely.
 
@@ -122,3 +122,7 @@ If memory conflicts with current evidence from the repository, favor that eviden
 - Keep durable architecture, product, reliability, security, and process decisions in canonical docs or decision records, not only in wave artifacts or memory records.
 - Use wave-close summaries and next-wave handoffs to preserve current understanding.
 - If work pauses, refresh the session handoff artifact in the target repository.
+
+## Distribution activation scope
+
+Repository-wide single-OPEN activation is the default. Distributions may set `record_paths.OPEN_CONTAINER_SCOPE = "parent"` only with `NESTED = True`: each canonical immediate parent of a wave directory has one OPEN slot, and direct children share the waves root. Prepare activation, Implement and Reopen share this guard; repository publication and lifecycle locks remain global. When several waves are OPEN, implicit current-wave selection reports ambiguity and requires an explicit ID; it never selects the first parent or falls back to a planned wave.

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-12
+Last verified: 2026-10-15
 
 Shortcut: **`Implement wave`**
 
@@ -14,7 +14,7 @@ Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neut
 
 Implement the admitted changes, then hand the evidence to **Review wave**. **Prepare wave** must have passed; declared review-enabled waves require the typed `council-readiness` approval on the current receipt, with legacy prose-verdict and review-disabled behavior preserved. Implementation consumes that authority without repeating the critique.
 
-Activation enforces the single-OPEN invariant: pause any other OPEN wave before `wf_implement_wave` opens this readied wave.
+Activation enforces the single-OPEN invariant: pause any other OPEN wave in the same configured activation scope before `wf_implement_wave` opens this readied wave.
 
 **Readback before editing:**
 
@@ -97,3 +97,7 @@ workflow-scoped instruction delivery, without native Codex enforcement or proof
 of agent adherence. It does not automatically refresh existing root AGENTS,
 universal startup instructions or single-change workflows.
 <!-- wavefoundry:review-policy:end -->
+
+## Distribution activation scope
+
+Repository-wide single-OPEN activation is the default. Distributions may set `record_paths.OPEN_CONTAINER_SCOPE = "parent"` only with `NESTED = True`: each canonical immediate parent of a wave directory has one OPEN slot, and direct children share the waves root. Prepare activation, Implement and Reopen share this guard; repository publication and lifecycle locks remain global. When several waves are OPEN, implicit current-wave selection reports ambiguity and requires an explicit ID; it never selects the first parent or falls back to a planned wave.

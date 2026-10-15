@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-14
+Last verified: 2026-10-15
 
 ## Trust Boundaries
 
@@ -34,6 +34,13 @@ input text and raw service errors are excluded from diagnostics.
 This is a same-user trust relationship, not protection against a malicious process
 already able to replace that user's service, credentials or framework code. Qualified
 profile digests prevent accidental model/runtime drift; they are not remote attestation.
+The inference provider owns model downloads and artifact integrity. Wavefoundry
+checks supported inference/index compatibility and validates returned results;
+it does not inspect a service's weight files. A matching reported identity or
+dimension is not proof of authentic model bytes. Existing offline model-bundle
+verification is unchanged. The legacy online `attest_online_cache` check remains
+non-blocking on a mismatch; enforcing that local-download path is deferred, not
+resolved by service qualification.
 Automatic start additionally requires a qualified controller digest and controlled
 executable lookup excluding repository/current-directory entries. Deadline cancellation
 uses only the exact child handle; discovery PIDs never authorize signals. Tensorwell

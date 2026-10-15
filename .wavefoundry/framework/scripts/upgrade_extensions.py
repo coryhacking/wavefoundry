@@ -3103,6 +3103,26 @@ def _pause_for_memory_action(ctx, *, state: str, run_id: str, message: str) -> N
     raise SystemExit(4)
 
 
+def _observe_parent_index_outcome(ctx):
+    if hasattr(ctx, "index_published"):
+        return  # Current coordinators pass the observed result themselves.
+    # Older installing parents invoke this incoming hook before their index
+    # phase, but do not pass its result to post_index_update. Observe that
+    # result without changing its API; restore the original even on failure.
+    parent = sys.modules.get(type(ctx).__module__)
+    original = getattr(parent, "phase_index_update", None)
+    if callable(original) and not getattr(original, "_observes_index_outcome", False):
+        def observed_index_update(*args, **kwargs):
+            try:
+                outcome = original(*args, **kwargs)
+                ctx.index_published = bool(outcome)
+                return outcome
+            finally:
+                parent.phase_index_update = original
+        observed_index_update._observes_index_outcome = True
+        parent.phase_index_update = observed_index_update
+
+
 def pre_index_update(ctx):
     """Keep candidate publication on the newly installed runner."""
 
@@ -3124,6 +3144,7 @@ def pre_index_update(ctx):
         pass
     run_id = str(lock.get("memory_backfill_run_id") or "").strip()
     if not run_id:
+        _observe_parent_index_outcome(ctx)
         return
     # Wave 200ey (200ev): held on sys.path across the coordinator's calls.
     with _scripts_on_sys_path(_journal_scripts_dir(ctx.root)):
@@ -3151,11 +3172,17 @@ def pre_index_update(ctx):
             + summary["failures"]
         ),
     )
+    _observe_parent_index_outcome(ctx)
 
 
 def post_index_update(ctx):
     """Seal an old runner's zero-candidate/no-source historical run."""
 
+    if getattr(ctx, "index_published", None) is not True:
+        _update_upgrade_state(ctx.root, index_publication_failed=True)
+        print("Index publication failed; historical memory was not marked indexed. "
+              "Use the retained index repair/continuation before cleanup.", flush=True)
+        raise SystemExit(1)
     lock = _read_json_object(
         ctx.root / ".wavefoundry" / "upgrade-in-progress.json"
     )

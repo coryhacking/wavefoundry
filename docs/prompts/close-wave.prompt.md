@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-12
+Last verified: 2026-10-15
 
 Shortcut: **`Close wave`**
 
@@ -97,3 +97,7 @@ Close Wave consumes the same shared delivery evaluator and current
 `wave_review.delivery_mode`; it performs closure-only delta checks and does not
 recompute a parallel review policy.
 <!-- wavefoundry:review-policy:end -->
+
+## Distribution upgrade preview
+
+Declared compatible Prepare/close overrides may opt in through `EXTENSION_UPGRADE_PREVIEW_TOOLS`. Only supported dry-run modes run during a compatible retained upgrade with current loaded core, launcher, declaration, module and helper provenance. `mcp.upgrade_preview_active()` exposes the inherited no-publication context, including through `core_handler`. Framework publication APIs refuse writes; trusted extension code is responsible for direct I/O. This preview grants no mutation or recovery authority.

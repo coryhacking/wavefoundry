@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-14
+Last verified: 2026-10-15
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -323,6 +323,47 @@ timeout guarantee. It must remain short and nonmutating, perform no external wor
 MCP stdout, and never recursively publish lifecycle state. It is an enrichment hook, not a veto or
 transaction rollback mechanism.
 
+**Inference adapters (wave `20qvt`).** A distribution may set
+`inference_profile.PROVIDER = "extension"` and `ADAPTER_MODULE = "acme_inference"`,
+and list that ASCII flat module in `mcp_tool_extensions.EXTENSION_HELPER_MODULES`.
+Its file lives directly in the framework scripts directory and ships with the
+distribution. No repository settings, module discovery or dependency installation
+are involved. `PROVIDER = "local"` with an empty module disables service use/start;
+the shipped `"tensorwell"` with an empty module preserves automatic Tensorwell.
+
+The synchronous factory is exactly `create_provider(*, deadline)`. It returns a
+mapping with `provider`, `embedding`, `reranking`, `embed` and `rerank`. The public
+provider label matches `[a-z][a-z0-9_-]{0,31}` and cannot be `tensorwell` or
+`in_process`; use a nonsecret product label, never an endpoint or credential.
+Both descriptors contain `model`, `task`, `precision_class = "full"` and
+`compatibility_fingerprint = model_bundle.EMBEDDING_COMPATIBILITY_FINGERPRINT`.
+Embedding uses the pinned Arctic S model, task `embedding`, and `dimensions = 384`;
+reranking uses the pinned MiniLM-L6 model, task `reranking`, and
+`score_type = "raw_logits"`. All descriptor fields must match; dimensions alone
+do not establish compatibility. A different model requires an explicit distribution
+model migration. This trusted mapping asserts qualified model equivalence and is
+not proof based on local weight hashes.
+
+The operations are `embed(texts, *, role, deadline)` and
+`rerank(query, texts, *, deadline)`. `role` is `document` or `query`; the adapter
+owns pinned preprocessing/prefixing exactly once. Each returns
+`{"descriptor": descriptor, "results": [...]}` in original input order, with
+one 384-number vector or one raw logit per input. Values must be finite, nonboolean
+and float32-representable. Reranking must preserve the pinned model's calibrated
+raw-logit scale across batches: no sigmoid, normalization or rank-only scores.
+The facade supplies existing `embed`, `embed_query` and `rerank` model methods.
+
+Deadlines are absolute `time.monotonic()` values: two seconds for selection and
+30 seconds for an operation. The trusted adapter must enforce the total budget in
+its transport and any batching; the core checks completion and introduces no retries.
+This is not a sandbox or a termination guarantee for arbitrary Python code.
+Incomplete capabilities, missing modules, incompatible descriptors, expired budgets
+and malformed outputs raise a fixed provider error without arbitrary exception text.
+Explicit extension selection never falls back to Tensorwell/local models; existing
+caller degradation remains explicit. Credentials, endpoints and model files remain
+downstream-owned. An adapter gains no daemon lifecycle ownership. The synthetic
+adapter tests exercise the contract without live enterprise or hardware qualification.
+
 **Helper modules (wave `1zls8`).** A distribution's extension modules may share code through
 helper modules named in `EXTENSION_HELPER_MODULES`. Each is loaded in declaration order, before any
 extension module, through the extension loader: its `.py` file must sit directly in the scripts
@@ -571,7 +612,7 @@ the rendered host allowlist and upgrade allowlist reconciliation cover them. New
 like first-party tools, and write-tier tools fail fast with `upgrade_in_progress` while Upgrade
 owns project state.
 
-**Retained-upgrade previews:** only native `wf_prepare_wave` in `dry_run`/`evaluate` and `wf_close_wave` in `dry_run` receive an advisory read-only exception, including declared aliases of those core handlers. Argument defaults and positional modes are bound before classification. Replacement handlers, extension writers, other lifecycle previews, unknown modes and mutations remain guarded. Eligible calls require bounded checkpoint shape/identity compatibility and current installed/loaded code; otherwise `upgrade_preview_unavailable` instructs the operator to inspect the checkpoint and refresh stale MCP code. This is not resume validation or authority to mutate later.
+**Retained-upgrade previews:** native `wf_prepare_wave` in `dry_run`/`evaluate` and `wf_close_wave` in `dry_run` receive an advisory read-only exception, including declared aliases of those core handlers. Argument defaults and positional modes are bound before classification. Compatible overrides of these two canonical tools may opt in through `EXTENSION_UPGRADE_PREVIEW_TOOLS`; the staging surface exposes `upgrade_preview_active()` and `core_handler` delegation inherits the no-publication context. Eligibility also checks loaded declaration, module and helper provenance. Framework publication entry points refuse writes; extension Python remains trusted and responsible for direct I/O, not sandboxed. Incompatible replacements, undeclared overrides, extension writers, other lifecycle previews, unknown modes and mutations remain guarded. Eligible calls require bounded checkpoint shape/identity compatibility and current installed/loaded code; otherwise `upgrade_preview_unavailable` instructs the operator to inspect the checkpoint and refresh stale MCP code. This is not resume validation or authority to mutate later.
 
 Successful inspection carries `data.read_only_preview=true`, `publication_applied=false` and `upgrade_preview_authority=advisory_shape_and_current_code_only`, even when assessment findings block readiness/close. It takes no lifecycle/publication lock and emits no callback, focus, receipt, observation, accounting or index publication. It runs one full `docs-lint --read-only` child: newly found secrets remain visible as unpublished assessment failures, without updating findings or skip ledgers. The CLI flag cannot combine with `--changed`, advisory incremental flags or `--write-migration-audit`. Without a retained upgrade, existing preview and mutation behavior is unchanged.
 

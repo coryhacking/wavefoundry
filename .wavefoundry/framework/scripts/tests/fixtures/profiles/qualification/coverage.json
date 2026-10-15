@@ -70,6 +70,7 @@
     "test_index_upgrade_guard.py",
     "test_indexer.py",
     "test_indexer_secrets_scope.py",
+    "test_inference_provider.py",
     "test_install_log_lib.py",
     "test_install_resume_integration.py",
     "test_label_reader_census.py",

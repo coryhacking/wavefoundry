@@ -1217,6 +1217,13 @@ def project_state_publication_lock(repo_root: Path, *, wait: bool = True):
     fixed: ``lifecycle-mutation.lock`` → this lock; never invert it.
     """
 
+    import publication_control
+
+    if publication_control.read_only_preview_active():
+        raise ProjectPublicationUnavailable(
+            "read-only upgrade preview refuses publication",
+            detail="read-only upgrade preview refuses publication",
+        )
     try:
         refuse_publication(repo_root)
     except (PermissionError, RuntimeError) as exc:
@@ -1225,7 +1232,7 @@ def project_state_publication_lock(repo_root: Path, *, wait: bool = True):
         raise ProjectPublicationUnavailable(
             "test-worker protection refused publication",
             detail=f"test-worker protection refused publication ({type(exc).__name__})"
-        ) from exc
+        ) from None
     thread_lock_acquired = _WRITE_THREAD_LOCK.acquire(blocking=wait)
     if not thread_lock_acquired:
         raise ProjectPublicationUnavailable(
@@ -2458,10 +2465,9 @@ def lane_has_signoff_in_evidence(evidence_text: str, lane: str, *, authorization
       ``rescinded``, placeholders, unknown wording — is unapproved, and a
       positive word appearing ELSEWHERE in the value never authorizes
       ("blocked because previous checks passed" is blocked).
-    - AUTHORIZATION lanes (operator and council signoffs — auto-detected
-      unless ``authorization`` is passed explicitly) require a state line:
-      prose evidence never authorizes lifecycle closure. Reviewer-seat lanes
-      keep prose-line compatibility for their per-seat evidence.
+    - Every lane requires an explicit state line or current-state table row.
+      Free prose is retained as narrative only. ``authorization`` remains an
+      accepted compatibility argument, but does not loosen this requirement.
 
     This is the LEGACY prose branch of the review authority facade (wave
     1to78): on declared waves, gate reads never consult it.
@@ -2469,25 +2475,20 @@ def lane_has_signoff_in_evidence(evidence_text: str, lane: str, *, authorization
     lane_l = lane.strip().lower()
     if not lane_l or not evidence_text.strip():
         return False
-    if authorization is None:
-        authorization = (
-            lane_l in ("operator", "operator-signoff")
-            or any(lane_l.startswith(actor) for actor in COUNCIL_ACTORS)
-            or is_council_signoff_key(lane_l)
-        )
     # The bounded current-state projection is authoritative for keys it
     # contains.  It deliberately appears before prose/history parsing so an
     # older approval line cannot override a current withheld/pending row.
+    table_state = None
     for raw in evidence_text.splitlines():
         stripped = raw.strip()
         if not (stripped.startswith("|") and stripped.endswith("|")):
             continue
         cells = [cell.strip().lower() for cell in stripped.strip("|").split("|")]
         if len(cells) >= 2 and canonical_signoff_key(cells[0]) == canonical_signoff_key(lane_l):
-            return cells[1] == "approved"
+            table_state = cells[1]
+    if table_state is not None:
+        return table_state == "approved"
     state_values: list[str] = []
-    any_prose_signoff = False
-    lane_pattern = rf"(?<![a-z0-9-]){re.escape(lane_l)}(?![a-z0-9-])"
     for raw in evidence_text.splitlines():
         low = raw.strip().lower()
         if not low or low.startswith("#"):
@@ -2507,24 +2508,13 @@ def lane_has_signoff_in_evidence(evidence_text: str, lane: str, *, authorization
             if _signoff_key_matches_lane(key_clean, lane_l):
                 state_values.append(value.strip())
                 continue
-        # Prose evidence (reviewer seats only): the lane must appear as a
-        # WHOLE word — "qa" never matches inside "qa-reviewer" — and
-        # placeholders never count.
-        if "<" not in low and re.search(lane_pattern, low):
-            # A lane name is not approval evidence. Mask every occurrence with
-            # whitespace so removal cannot join fragments into a signoff token.
-            prose = re.sub(lane_pattern, " ", low)
-            if any(tok in prose for tok in SIGNOFF_TOKENS):
-                any_prose_signoff = True
     if state_values:
         current = state_values[-1]
         if not current or current.startswith("<"):
             return False
         first_word = re.match(r"[a-z][a-z-]*", current)
         return bool(first_word and first_word.group(0) in SIGNOFF_POSITIVE_STATES)
-    if authorization:
-        return False  # fail closed: no state line = not authorized
-    return any_prose_signoff
+    return False  # No explicit current state: narrative never authorizes.
 
 
 def review_evidence_has_any_signoff_line(wave_text: str) -> bool:

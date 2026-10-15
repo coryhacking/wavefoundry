@@ -188,6 +188,7 @@ class ResumeGuidanceTests(unittest.TestCase):
             action = json.loads(checkpoint.read_text())['action_required']
             self.assertEqual(action['command_argv'], migration.resume_guidance(self.root, resume_flag='--resume-after-memory')['command_argv'])
             self.assertFalse(action['agent_execution_allowed'])
+        ctx.index_published = True  # The index succeeded; candidate publication still needs its owner.
         with patch.object(extensions, '_installed_memory_backfill', return_value=backfill) as loaded:
             with self.assertRaises(RuntimeError) as stopped:
                 extensions.post_index_update(ctx)

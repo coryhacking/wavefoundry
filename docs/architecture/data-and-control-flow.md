@@ -14,6 +14,27 @@ Last verified: 2026-10-15
 
 ### Optional inference service
 
+`inference_provider.py` reads the distribution-owned `inference_profile.py` for
+every selection. The default delegates to the existing Tensorwell client; local-only
+selection returns the existing local fallback; an explicit extension loads its
+declared flat helper and validates both capabilities before use. Setup and indexing
+use the same facade outside MCP. Extension factories and operations receive finite
+monotonic deadlines; their trusted transports enforce them, and late or malformed
+results are refused with fixed nonsecret errors. No failed extension request retries
+another provider. Existing search/lexical degradation still reports unavailable
+inference and does not construct a replacement model.
+
+The server reload evicts the facade and declaration with other framework routing
+modules, and the existing helper inventory reloads the adapter and reports its source
+digest. The profile and facade are explicit members of the core script and setup
+source inventories. Implementation reload executes their exact source bytes and
+refreshes their launch digests only when pre/post source hashes agree. Before reload,
+a changed profile or facade is reported as stale; after reload its current routing is
+represented by the updated identity. Model compatibility pins remain bound to the
+loaded index runtime and require restart when changed.
+Selection and actual execution reuse the existing status fields with a bounded public
+provider label. Status itself performs no adapter or network work.
+
 Actual MCP serving enters the FastMCP lifespan and schedules a once-per-process
 Tensorwell discovery/start worker; tool registration does not wait for it. The worker
 uses a qualified installed controller only for a bounded start of the existing
@@ -230,6 +251,27 @@ operator-driven behavior. Persistent lock-file presence alone never blocks work.
 
 **State written:** write-through opaque event/source/evaluation accounting, producer lease files, sealed checkpoint floors and compact replay tombstones, plus separately labeled memory-advisory estimates in `.wavefoundry/logs/`; durable gap poison on failed transactions; marker-owned Context Efficiency and Estimated Exploration Avoided `wave.md` projections at lifecycle/reload/upgrade barriers and accounting-neutral turn-end/quiet-period opportunities. Monitor observations remain bounded process memory only.
 **Failure semantics:** ordinary measurement uncertainty undercounts; a durable accounting gap suppresses the headline; only the inability to persist both an event and the poison barrier fails the public tool call
+
+### Upgrade rerun and cleanup outcomes
+
+Retained recovery is evaluated before ordinary build comparison. Selecting the
+installed full VERSION refuses before adoption; equal semantic versions with
+different build suffixes remain eligible. Equality does not prove terminal health
+and no terminal receipt is created. Explicit index repair stays independent;
+storage rebuild requires an applicable pending legacy conversion. A successful
+primary phase still requires cleanup, while observed index publication failure
+returns nonzero and cannot seal historical memory. The incoming extension observes
+an older parent's index result before sealing its zero-candidate run.
+
+Retired graph ownership is captured in the existing storage receipt before the
+rebuild. Cleanup revalidates publication and stopped hosts, then validates the
+entire graph directory before deleting regular files through its descriptor with
+identity checks. Missing ownership, replaced/new/unowned entries or unsupported
+safe deletion retain the directory and cleanup state. Retry reuses the original
+identities. Classification preserves the whole directory before deletion; concurrent
+mutation after the first unlink can leave partial progress. Deletion is not atomic.
+Unchanged renderer output remains byte-stable across dates; existing
+gardener behavior still records actual changed documents.
 
 ### Upgrade journal hook selection and migration (wave 206is)
 
@@ -934,3 +976,9 @@ replacement rows. No new transaction, writer or persisted digest format is added
 ## Combined upgrade input
 
 The builder creates lean output once, then adds one byte-exact model companion and descriptor to a separate combined ZIP. An incoming executable on protocol 2 retains the verified outer archive and stages a fresh runner outside installed source, releasing parent locks before the runner acquires its transaction. The protocol-1 bridge remains separate. The upgrade passes its retained combined source to canonical setup; setup verifies the cache first and streams the embedded companion only on a miss. A paused run retains its source after transient downloads disappear. Dry run publishes no target/cache state, and cleanup removes only recorded owned artifacts.
+
+## Distribution activation and preview boundaries
+
+Repository-wide single-OPEN activation is the default. Distributions may set `record_paths.OPEN_CONTAINER_SCOPE = "parent"` only with `NESTED = True`: each canonical immediate parent of a wave directory has one OPEN slot, and direct children share the waves root. Prepare activation, Implement and Reopen share this guard; repository publication and lifecycle locks remain global. When several waves are OPEN, implicit current-wave selection reports ambiguity and requires an explicit ID; it never selects the first parent or falls back to a planned wave.
+
+Upgrade previews for explicitly declared compatible Prepare/close overrides inherit a no-publication context exposed by the staging surface. Loaded declaration, module and helper digests must match current source in addition to core/launcher identity and checkpoint compatibility. Framework publication APIs refuse publication before taking locks; delegated core calls preserve dry-run validation without focus, accounting or receipt writes. This is trusted extension code, not a direct-I/O sandbox. Renderer-only legacy hook ownership is exact event plus whole command, with one optional `{{repo_root}}` expansion; mixed foreign commands and metadata survive.

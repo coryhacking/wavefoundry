@@ -1056,6 +1056,7 @@ def _new_receipt(ctx, root: Path, index_dir: Path, state: dict,
                "source_database": role,
                "source_sqlite_identity": _identity_if_present(source),
                "artifacts": {name: _identity(index_dir / name) for name in state["legacy"]}}
+    receipt["retired_graph_ownership"] = _capture_retired_graph(index_dir)
     if getattr(ctx, "entry_path", None) == "setup":
         receipt.update(entry_path="setup", installed_framework_sha256=ctx.installed_framework_sha256,
                        setup_args=list(ctx.setup_args))
@@ -2351,7 +2352,7 @@ def _inventory_retired_graph_directory(index_dir: Path) -> dict:
         child_metadata = os.lstat(entry.path)
         if _is_link_or_reparse(child_metadata):
             unowned.append(entry.name)
-        elif stat.S_ISDIR(child_metadata.st_mode):
+        elif not stat.S_ISREG(child_metadata.st_mode):
             unowned.append(entry.name)
         elif not _is_owned_graph_entry(entry.name):
             unowned.append(entry.name)
@@ -2366,20 +2367,91 @@ def _inventory_retired_graph_directory(index_dir: Path) -> dict:
             "entries": [entry.name for entry in children], "bytes": reclaimed}
 
 
+def _graph_identity(metadata, *, directory=False) -> list[int]:
+    """Strict persisted ownership: unavailable identity never grants deletion."""
+    if not metadata.st_ino:
+        return []
+    values = [metadata.st_dev, metadata.st_ino]
+    if not directory:
+        values += [metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns]
+    return values
+
+
+def _capture_retired_graph(index_dir: Path) -> dict:
+    plan = _inventory_retired_graph_directory(index_dir)
+    graph = index_dir / GRAPH_OUTPUT_DIRNAME
+    if plan["state"] == "absent":
+        return {"state": "absent"}
+    metadata = graph.lstat()
+    if _is_link_or_reparse(metadata) or not stat.S_ISDIR(metadata.st_mode):
+        return {"state": RETAINED_UNOWNED_CONTENTS}
+    files = {}
+    for child in graph.iterdir():
+        item = child.lstat()
+        if (_is_owned_graph_entry(child.name) and stat.S_ISREG(item.st_mode)
+                and not _is_link_or_reparse(item)):
+            files[child.name] = _graph_identity(item)
+    return {"state": "captured", "directory": _graph_identity(metadata, directory=True),
+            "files": files}
+
+
+def _plan_captured_graph(index_dir: Path, receipt: dict) -> dict:
+    plan = _inventory_retired_graph_directory(index_dir)
+    if plan["state"] != "removable":
+        return plan
+    evidence = receipt.get("retired_graph_ownership", {})
+    graph = index_dir / GRAPH_OUTPUT_DIRNAME
+    files = evidence.get("files", {})
+    if (evidence.get("state") != "captured" or not evidence.get("directory")
+            or evidence["directory"] != _graph_identity(graph.lstat(), directory=True)
+            or not isinstance(files, dict)
+            or any(name not in files or not files[name]
+                   or files[name] != _graph_identity((graph / name).lstat())
+                   for name in plan["entries"])):
+        return {**plan, "state": RETAINED_UNOWNED_CONTENTS, "bytes": 0,
+                "reason": "retired graph ownership is missing or changed; original receipt retained"}
+    return {**plan, "ownership": evidence}
+
+
 def _apply_retired_graph_directory(root: Path, index_dir: Path, plan: dict) -> int:
-    """Delete the all-owned retired graph folder. The inventory already ruled."""
+    """Delete captured regular entries through an identity-checked directory fd."""
     if plan["state"] != "removable":
         return 0
-    from upgrade_wavefoundry import _remove_retired_component
-    outcome = _remove_retired_component(index_dir, GRAPH_OUTPUT_DIRNAME,
-                                        custom=False, ownership_root=root)
-    if outcome == "absent":
-        return 0
-    if outcome != "removed":
-        raise MigrationRequired(
-            f"storage_cleanup_removal_failed: {plan['path']} ({outcome}). Release handles or "
-            "correct permissions and resume the recorded owning setup or upgrade continuation; receipt and remaining "
-            "sources are retained.")
+    if os.unlink not in os.supports_dir_fd or not hasattr(os, "O_NOFOLLOW"):
+        raise MigrationRequired("storage_graph_cleanup_descriptor_unavailable: directory retained")
+    evidence = plan["ownership"]
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    parent = os.open(_safe(index_dir), flags)
+    directory = None
+    try:
+        directory = os.open(GRAPH_OUTPUT_DIRNAME, flags, dir_fd=parent)
+        if _graph_identity(os.fstat(directory), directory=True) != evidence["directory"]:
+            raise MigrationRequired("storage_graph_cleanup_identity_changed")
+        # Validate the complete directory again before the first unlink. A new
+        # or replaced entry never becomes owned merely because its name is known.
+        names = sorted(os.listdir(directory))
+        if names != sorted(plan["entries"]):
+            raise MigrationRequired("storage_graph_cleanup_contents_changed")
+        def check(name):
+            metadata = os.stat(name, dir_fd=directory, follow_symlinks=False)
+            if (not stat.S_ISREG(metadata.st_mode) or _is_link_or_reparse(metadata)
+                    or _graph_identity(metadata) != evidence["files"].get(name)):
+                raise MigrationRequired("storage_graph_cleanup_identity_changed")
+        for name in names:
+            check(name)
+        for name in names:
+            check(name)
+            os.unlink(name, dir_fd=directory)
+        current = os.stat(GRAPH_OUTPUT_DIRNAME, dir_fd=parent, follow_symlinks=False)
+        if _graph_identity(current, directory=True) != evidence["directory"]:
+            raise MigrationRequired("storage_graph_cleanup_identity_changed")
+        os.rmdir(GRAPH_OUTPUT_DIRNAME, dir_fd=parent)
+    except OSError as exc:
+        raise MigrationRequired("storage_graph_cleanup_refused: original receipt retained") from exc
+    finally:
+        if directory is not None:
+            os.close(directory)
+        os.close(parent)
     return plan["bytes"]
 
 
@@ -2480,8 +2552,13 @@ def cleanup_legacy(root: Path) -> dict:
         _published_identity(index_dir, receipt)
         source_plan = _plan_retire_source_database(index_dir, receipt)
     staging_plan = _plan_staging(index_dir, receipt)
-    graph_plan = (_inventory_retired_graph_directory(index_dir)
-                  if is_kind_receipt(receipt) else None)
+    graph_plan = _plan_captured_graph(index_dir, receipt)
+    if graph_plan["state"] == RETAINED_UNOWNED_CONTENTS:
+        receipt.update(state="cleanup_pending", graph_directory_cleanup={
+            key: graph_plan[key] for key in ("state", "path", "entries", "reason") if key in graph_plan})
+        _write(index_dir, receipt)
+        raise MigrationRequired("storage_graph_cleanup_retained: " + graph_plan.get(
+            "reason", "retired graph ownership is unproven; original receipt retained"))
 
     # --- APPLY. Validation is finished; from here the work is irreversible. -
     receipt["state"] = "cleanup_pending"

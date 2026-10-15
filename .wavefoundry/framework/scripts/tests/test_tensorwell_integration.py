@@ -657,9 +657,15 @@ class IntegrationTests(unittest.TestCase):
     def test_setup_and_optional_downloads_avoid_native_construction(self):
         import setup_index
         import accel_embedder
-        with patch.object(accel_embedder, "make_embedder", side_effect=AssertionError("local embedding")), \
+        with patch.object(setup_index, "_load_indexer_module", return_value=self.indexer), \
+             patch.object(self.indexer, "_predicted_precision_class", return_value="full"), \
+             patch.object(setup_index, "_indexer_models", return_value=[self.indexer.DOCS_MODEL]), \
+             patch.object(setup_index, "_prewarm_required_model", side_effect=AssertionError("local weights")) as warm, \
+             patch.object(accel_embedder, "make_embedder", side_effect=AssertionError("local embedding")), \
              patch.object(accel_embedder, "make_reranker", side_effect=AssertionError("local reranking")), \
              patch.object(setup_index.provider_policy, "select_embedding_providers", side_effect=AssertionError("probe")):
+            setup_index.prewarm_models(include_code=True)
+            warm.assert_not_called()
             self.assertEqual(setup_index._prewarm_gpu_accel([self.indexer.DOCS_MODEL]), [])
         obj = self.bare_index()
         obj._model_downloads_started = False
@@ -669,6 +675,37 @@ class IntegrationTests(unittest.TestCase):
             worker.side_effect = lambda **kwargs: type("Worker", (), {"start": lambda self: kwargs["target"]()})()
             obj._start_background_model_downloads()
             ensure.assert_not_called()
+
+    def test_initial_provisioning_preserves_mixed_and_ineligible_workloads(self):
+        import setup_index
+        model = self.indexer.DOCS_MODEL
+        for precision, disabled, available, expected in (
+            ("full", False, True, ["unsupported-fixture-model"]),
+            ("int8", False, True, [model, "unsupported-fixture-model"]),
+            ("full", True, True, [model, "unsupported-fixture-model"]),
+            ("full", False, False, [model, "unsupported-fixture-model"]),
+        ):
+            with self.subTest(precision=precision, disabled=disabled, available=available), contextlib.ExitStack() as stack:
+                stack.enter_context(patch.object(setup_index, "_indexer_models", return_value=[model, "unsupported-fixture-model"]))
+                stack.enter_context(patch.object(setup_index, "_load_indexer_module", return_value=self.indexer))
+                stack.enter_context(patch.object(self.indexer, "_predicted_precision_class", return_value=precision))
+                stack.enter_context(patch.dict(os.environ, {"WAVEFOUNDRY_DISABLE_TENSORWELL": "1" if disabled else "0"}))
+                if not available:
+                    stack.enter_context(patch.object(tc, "_qualified_pair", return_value=None))
+                warm = stack.enter_context(patch.object(setup_index, "_prewarm_required_model"))
+                setup_index.prewarm_models(include_code=True)
+                self.assertEqual([call.args[0] for call in warm.call_args_list], expected)
+
+    def test_native_prewarm_preserves_int8_eligibility(self):
+        import setup_index
+        import accel_embedder
+        with patch.object(setup_index, "_load_indexer_module", return_value=self.indexer), \
+             patch.object(self.indexer, "_predicted_precision_class", return_value="int8"), \
+             patch.object(setup_index.provider_policy, "select_embedding_providers", return_value=SimpleNamespace(providers=["CPUExecutionProvider"])), \
+             patch.object(accel_embedder, "make_embedder", return_value=None) as local, \
+             patch.object(accel_embedder, "make_reranker", side_effect=AssertionError("qualified reranker")):
+            setup_index._prewarm_gpu_accel([self.indexer.DOCS_MODEL])
+            local.assert_called_once_with(self.indexer.DOCS_MODEL, ["CPUExecutionProvider"])
 
     def test_failed_incremental_build_preserves_published_vectors_and_file_meta(self):
         import test_indexer as ix_tests

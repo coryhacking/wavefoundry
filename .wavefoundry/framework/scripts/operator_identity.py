@@ -82,6 +82,10 @@ def resolve_operator(
 ) -> tuple[dict[str, str] | None, str]:
     """Resolve a configured handle without persisting names, emails, or failures.
 
+    Handles are local contributor-map labels, independent of a hosting vendor.
+    Git email is used only for matching, never returned as recorded attribution.
+    Neither this match nor an explicit selection authenticates a human.
+
     Missing configuration is silent to callers; every other unresolved reason
     can be shown as a warning. Explicit selections never fall back to Git.
     """

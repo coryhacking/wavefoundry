@@ -116,6 +116,7 @@ def _wave_dirs(root: Path) -> list:
 def _active_wave(root: Path):
     if _wf_record_file is None:
         return None
+    opened = []
     for wave_dir in _wave_dirs(root):
         wave_md = wave_dir / _wf_record_file
         try:
@@ -131,8 +132,10 @@ def _active_wave(root: Path):
             elif _wf_id_prefix and s.startswith(_wf_id_prefix + ":"):
                 wave_id = s.split(":", 1)[1].strip().strip("`")
         if status in _wf_open_statuses:
-            return (wave_id, wave_dir)
-    return None
+            opened.append((wave_id, wave_dir))
+    if len(opened) > 1:
+        raise ValueError("Multiple waves are open; supply an explicit wave ID.")
+    return opened[0] if opened else None
 
 
 def _ac_progress(wave_dir: Path):
@@ -257,7 +260,11 @@ def main() -> int:
             return 0
         # Wave 1p9am: flush the turn's coalesced reindex before capture (fail-safe, non-blocking).
         _flush_reindex_if_pending(root)
-        wave = _active_wave(root)
+        try:
+            wave = _active_wave(root)
+        except ValueError as exc:
+            print(f"[wavefoundry] {exc}")
+            return 0
         lines = ["# Session capture", ""]
         if wave:
             wave_id, wave_dir = wave

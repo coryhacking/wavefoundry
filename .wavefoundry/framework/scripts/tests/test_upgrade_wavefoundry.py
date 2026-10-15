@@ -2238,7 +2238,7 @@ class UpgradeManifestRecoveryTests(unittest.TestCase):
                 "materialize_secrets_policy": {"return_value": "ok"},
                 "materialize_lifecycle_policy": {"return_value": "ok"},
                 "phase_docs_gate": {},
-                "phase_index_update": {"return_value": True},
+                "phase_index_update": {"return_value": failure != "index_publication"},
                 "_emit_primary_summary_via_delegate_or_fallback": {},
             }.items():
                 stack.enter_context(patch.object(mod, name, **kwargs))
@@ -2265,6 +2265,19 @@ class UpgradeManifestRecoveryTests(unittest.TestCase):
             except (SystemExit, OSError, RuntimeError) as exc:
                 result = exc
         return result, len(extracted)
+
+    def test_failed_primary_index_publication_is_not_phase_success(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            pack = self._fixture(root)
+            self.addCleanup(lambda: pack.unlink(missing_ok=True))
+            result, extracted = self._attempt(root, pack, failure="index_publication")
+            self.assertEqual(result, 1)
+            self.assertEqual(extracted, 1)
+            import upgrade_lib
+            lock = upgrade_lib.read_upgrade_lock(root)
+            self.assertTrue(lock["index_publication_failed"])
+            self.assertNotEqual(lock.get("memory_backfill_state"), "indexed")
 
     def _assert_recovered(self, root, mod):
         framework = root / ".wavefoundry/framework"
@@ -5886,6 +5899,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
                     "docs/contributing/review-and-evals.md",
                 ):
                     self.assertTrue((root / rel).is_file(), f"{rel} must exist before index update")
+                return True  # Explicitly successful fixture publication.
 
             with patch.object(mod, "phase_preflight", return_value=(None, None, None)), \
                  patch.object(mod, "_load_extension_module", return_value=None), \
@@ -13354,6 +13368,7 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
                 )
             )
             run_id = lock["memory_backfill_run_id"]
+            self.ctx.index_published = True
             self.ext.post_index_update(self.ctx)
         self.assertEqual(
             self.backfill.run_summary(self.root, run_id)["state"], "indexed"

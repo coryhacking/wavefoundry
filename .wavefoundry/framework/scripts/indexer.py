@@ -3478,6 +3478,10 @@ def _predicted_precision_class(model_name: str, providers: list[str]) -> str:
 
     Note FP16 and FP32 both collapse to ``"full"`` (cos 1.0, interchangeable per 1p517 AC-8); only
     INT8 actually shifts vectors, so it is the only distinct class."""
+    import inference_provider
+    declared_precision = inference_provider.extension_precision(model_name)
+    if declared_precision is not None:
+        return declared_precision
     if accel_embedder is None:
         return "full"
     provider_list = list(providers)
@@ -3554,8 +3558,8 @@ def _get_embedder_inner(model_name: str, n_chunks: Optional[int] = None):
     """
     # Resident qualified inference precedes probes, caches and the small-run
     # optimization. Precision prediction is availability-only, as at publication.
-    import tensorwell_client
-    resident = tensorwell_client.select_embedder(model_name)
+    import inference_provider
+    resident = inference_provider.select_embedder(model_name)
     if resident is not None and _predicted_precision_class(model_name, []) == "full":
         return resident
     providers = _onnx_providers()

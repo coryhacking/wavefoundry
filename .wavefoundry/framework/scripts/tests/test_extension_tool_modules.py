@@ -758,6 +758,70 @@ with tempfile.TemporaryDirectory() as tmp:
         out["deltas_installed"] = sorted(impl._EXTENSION_OVERRIDE_DELTAS)
         runner._get_handler().close()
 
+    elif MODE == "upgrade_preview":
+        (SCRATCH.parent / "VERSION").write_text("1.0.0")
+        from unittest import mock
+        import upgrade_lib
+        DECL.write_text(DECL_ORIG + """
+EXTENSION_MODULES = ("preview_tools",)
+EXTENSION_HELPER_MODULES = ("preview_helper",)
+EXTENSION_OVERRIDES = {"preview_tools": ("wf_prepare_wave", "wf_close_wave")}
+EXTENSION_UPGRADE_PREVIEW_TOOLS = ("wf_prepare_wave", "wf_close_wave")
+EXTENSION_TOOL_ALIASES = {"wf_preview_alias": "wf_prepare_wave"}
+""")
+        write_module("preview_helper", "VALUE = 1\n")
+        write_module("preview_tools", """
+import preview_helper
+import review_evidence
+ATTEMPT = False
+DELEGATE = False
+def register(mcp, get_handler):
+    prepare = mcp.core_handler("wf_prepare_wave")
+    close = mcp.core_handler("wf_close_wave")
+    def answer(core, wave_id, mode):
+        if ATTEMPT:
+            with review_evidence.project_state_publication_lock(get_handler().root):
+                raise AssertionError("publication boundary entered")
+        if DELEGATE:
+            return core(wave_id=wave_id, mode=mode)
+        return {"status": "ok", "data": {"preview_context": mcp.upgrade_preview_active()}}
+    @mcp.tool()
+    def wf_prepare_wave(wave_id: str, mode: str = "dry_run", **kwargs):
+        return answer(prepare, wave_id, mode)
+    @mcp.tool()
+    def wf_close_wave(wave_id: str, mode: str = "dry_run", **kwargs):
+        return answer(close, wave_id, mode)
+""")
+        load_server(); runner = load_thin_runner()
+        mcp = runner.build_server(root); impl = runner.server_impl
+        version = root / ".wavefoundry/framework/VERSION"
+        version.parent.mkdir(parents=True, exist_ok=True)
+        version.write_text(impl.SERVER_IMPL_VERSION)
+        upgrade_lib.write_upgrade_lock(root, impl.SERVER_IMPL_VERSION, impl.SERVER_IMPL_VERSION, runner_protocol=2, pack_protocol=2)
+        upgrade_lib.update_upgrade_lock(root, current_phase="awaiting_memory_validation")
+        def snapshot():
+            return {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+        before = snapshot()
+        out["positive"] = [ccall(mcp, name, {"wave_id": "00057 preview"}) for name in
+                           ("wf_prepare_wave", "wf_close_wave", "wf_preview_alias")]
+        sys.modules["preview_tools"].DELEGATE = True
+        out["delegated"] = ccall(mcp, "wf_preview_alias", {"wave_id": "00057 preview"})
+        sys.modules["preview_tools"].DELEGATE = False
+        sys.modules["preview_tools"].ATTEMPT = True
+        out["publication"] = ccall(mcp, "wf_close_wave", {"wave_id": "00057 preview"})
+        sys.modules["preview_tools"].ATTEMPT = False
+        out["mutating"] = ccall(mcp, "wf_prepare_wave", {"wave_id": "00057 preview", "mode": "ready"})
+        with mock.patch.object(impl.mcp_tool_extensions, "EXTENSION_UPGRADE_PREVIEW_TOOLS", ()):
+            out["undeclared"] = ccall(mcp, "wf_prepare_wave", {"wave_id": "00057 preview"})
+        for filename in ("preview_tools.py", "preview_helper.py", "mcp_tool_extensions.py"):
+            path = SCRATCH / filename
+            original = path.read_bytes()
+            path.write_bytes(original + b"\n# changed\n")
+            out[filename] = ccall(mcp, "wf_prepare_wave", {"wave_id": "00057 preview"})
+            path.write_bytes(original)
+        out["unchanged"] = snapshot() == before
+        runner._get_handler().close()
+
     elif MODE == "alias":
         # Wave 1z8oz: an aliases-only declaration (no module) with a hidden name.
         DECL.write_text(DECL_ORIG + ALIAS_DECL)
@@ -1548,7 +1612,7 @@ with tempfile.TemporaryDirectory() as tmp:
             "lifecycle_reserved_name": dict(EXTENSION_MODULES=("retired_name",), EXTENSION_TOOL_PREFIXES=("wf_",), EXTENSION_TOOL_TIERS={"wf_review_evidence": "write"}, EXTENSION_LIFECYCLE_TOOLS=("wf_review_evidence",), EXTENSION_ARTIFACT_PATH_FIELDS={"wf_review_evidence": "path"}),
             "lifecycle_invalid_declaration": dict(EXTENSION_MODULES=("twin_a",), EXTENSION_TOOL_PREFIXES=("acme_",), EXTENSION_TOOL_TIERS={"acme_twin": "read"}, EXTENSION_LIFECYCLE_TOOLS=("acme_twin",)),
         }
-        empty = dict(EXTENSION_MODULES=(), EXTENSION_HELPER_MODULES=(), EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS={}, EXTENSION_TOOL_PREFIXES=(), EXTENSION_TOOL_TIERS={}, EXTENSION_OVERRIDES={},
+        empty = dict(EXTENSION_UPGRADE_PREVIEW_TOOLS=(), EXTENSION_LEGACY_CLAUDE_HOOK_COMMANDS=(), EXTENSION_MODULES=(), EXTENSION_HELPER_MODULES=(), EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS={}, EXTENSION_TOOL_PREFIXES=(), EXTENSION_TOOL_TIERS={}, EXTENSION_OVERRIDES={},
                      EXTENSION_TOOL_ALIASES={}, EXTENSION_TOOL_PARAMETERS={}, EXTENSION_HIDDEN_TOOLS=(),
                      EXTENSION_LIFECYCLE_TOOLS=(), EXTENSION_ARTIFACT_PATH_FIELDS={}, EXTENSION_SKILLS={},
                      EXTENSION_JOURNAL_TEMPLATES=(), EXTENSION_JOURNAL_PRE_MIGRATION_HOOK="",
@@ -5248,3 +5312,35 @@ class LifecycleCallbackDeclarationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DistributionUpgradePreviewTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.out = _run("upgrade_preview")
+
+    def test_registered_overrides_alias_and_delegation_inherit_readonly_context(self):
+        for response in self.out["positive"]:
+            self.assertTrue(response["data"].get("read_only_preview"), response)
+            self.assertTrue(response["data"]["preview_context"], response)
+        self.assertTrue(self.out["delegated"]["data"].get("read_only_preview"), self.out["delegated"])
+        self.assertTrue(self.out["unchanged"])
+
+    def test_publication_mutating_undeclared_and_changed_provenance_refuse(self):
+        for name in ("publication", "mutating", "undeclared", "preview_tools.py", "preview_helper.py", "mcp_tool_extensions.py"):
+            response = self.out[name]
+            self.assertEqual(response["status"], "error", (name, response))
+            self.assertFalse(response.get("data", {}).get("preview_context"), (name, response))
+
+
+class UpgradePreviewDeclarationTests(unittest.TestCase):
+    def test_only_explicit_compatible_canonical_overrides_are_eligible(self):
+        import mcp_tool_extensions as ext
+        from declaration_support import base_declaration
+        for value in ([], ("wf_pause_wave",), ("wf_prepare_wave", "wf_prepare_wave"), (123,)):
+            with base_declaration(EXTENSION_MODULES=("preview_fixture",),
+                                  EXTENSION_OVERRIDES={"preview_fixture": ("wf_prepare_wave",)},
+                                  EXTENSION_UPGRADE_PREVIEW_TOOLS=value):
+                self.assertTrue(ext.declaration_problems(core_tools={"wf_prepare_wave", "wf_close_wave"}, runner_tools=set()), value)
+        with base_declaration(EXTENSION_UPGRADE_PREVIEW_TOOLS=("wf_prepare_wave",)):
+            self.assertTrue(ext.declaration_problems(core_tools={"wf_prepare_wave"}, runner_tools=set()))

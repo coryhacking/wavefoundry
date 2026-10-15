@@ -3,9 +3,28 @@
 from __future__ import annotations
 
 import json
+import contextvars
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+
+_READ_ONLY_PREVIEW = contextvars.ContextVar("publication_read_only_preview", default=False)
+
+
+def read_only_preview_active() -> bool:
+    """Whether this call is a no-publication upgrade preview (not a sandbox)."""
+    return _READ_ONLY_PREVIEW.get()
+
+
+@contextmanager
+def read_only_preview():
+    token = _READ_ONLY_PREVIEW.set(True)
+    try:
+        yield
+    finally:
+        _READ_ONLY_PREVIEW.reset(token)
 
 
 UPGRADE_CHECKPOINT_REL = Path(".wavefoundry/upgrade-in-progress.json")
@@ -150,6 +169,8 @@ def publication_checkpoint_reason(
 ) -> str | None:
     """Guard a concrete writer boundary, including non-MCP/background writers."""
 
+    if read_only_preview_active():
+        return "upgrade_in_progress: read-only upgrade preview refuses publication"
     checkpoint = read_upgrade_checkpoint(root)
     if checkpoint is None:
         return None

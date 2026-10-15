@@ -1703,6 +1703,7 @@ def claude_stop_source() -> str:
         def _active_wave(root: Path):
             if _wf_record_file is None:
                 return None
+            opened = []
             for wave_dir in _wave_dirs(root):
                 wave_md = wave_dir / _wf_record_file
                 try:
@@ -1718,8 +1719,10 @@ def claude_stop_source() -> str:
                     elif _wf_id_prefix and s.startswith(_wf_id_prefix + ":"):
                         wave_id = s.split(":", 1)[1].strip().strip("`")
                 if status in _wf_open_statuses:
-                    return (wave_id, wave_dir)
-            return None
+                    opened.append((wave_id, wave_dir))
+            if len(opened) > 1:
+                raise ValueError("Multiple waves are open; supply an explicit wave ID.")
+            return opened[0] if opened else None
 
 
         def _ac_progress(wave_dir: Path):
@@ -1844,7 +1847,11 @@ def claude_stop_source() -> str:
                     return 0
                 # Wave 1p9am: flush the turn's coalesced reindex before capture (fail-safe, non-blocking).
                 _flush_reindex_if_pending(root)
-                wave = _active_wave(root)
+                try:
+                    wave = _active_wave(root)
+                except ValueError as exc:
+                    print(f"[wavefoundry] {exc}")
+                    return 0
                 lines = ["# Session capture", ""]
                 if wave:
                     wave_id, wave_dir = wave
@@ -1888,6 +1895,8 @@ def claude_stop_source() -> str:
 
 
 def render_claude_settings(repo_root: Path) -> None:
+    import mcp_tool_extensions
+    legacy_commands = mcp_tool_extensions.legacy_claude_hook_commands(str(repo_root.resolve()))
     settings_path = repo_root / ".claude" / "settings.json"
     existing: dict[str, object] = {}
     if settings_path.exists():
@@ -1925,10 +1934,11 @@ def render_claude_settings(repo_root: Path) -> None:
                     for command in commands
                     if not (
                         isinstance(command, dict)
-                        and any(
+                        and (any(
                             marker in str(command.get("command", ""))
                             for marker in owned_markers
-                        )
+                        ) or (isinstance(command.get("command"), str)
+                              and (event, command["command"]) in legacy_commands))
                     )
                 ]
                 if kept_commands:

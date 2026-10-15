@@ -182,7 +182,11 @@ TEST_ALLOWANCES: dict[str, frozenset[str]] = {
     }),
     # Prose-evidence helpers: legacy-branch probes exercised through the
     # review_evidence facade module object, never through server_impl.
-    "lane_has_signoff_in_evidence": frozenset({f"{_TESTS_PREFIX}/test_server_tools_lifecycle.py"}),
+    "lane_has_signoff_in_evidence": frozenset({
+        f"{_TESTS_PREFIX}/test_server_tools_lifecycle.py",
+        # Direct facade controls pin free-prose refusal and explicit-state precedence.
+        f"{_TESTS_PREFIX}/test_review_evidence.py",
+    }),
     "combined_review_evidence": frozenset({f"{_TESTS_PREFIX}/test_server_tools_lifecycle.py"}),
     "prose_max_severity": frozenset({f"{_TESTS_PREFIX}/test_server_tools_lifecycle.py"}),
 }

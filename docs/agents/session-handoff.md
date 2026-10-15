@@ -7,9 +7,15 @@ Last verified: 2026-10-15
 ## Current Session
 
 **Active wave:** *(none)*
-**Session state:** idle.
-**Last closed wave:** 20omx — combined framework/model ZIP for normal fresh installation and direct upgrades, with verified cache reuse and owned recovery cleanup.
-**Validation:** 11,684 tests / 187 files / 12 skips passed; six delivery lanes and operator approval recorded. Both edit gates are closed. Commit and push are authorized; no release or new local package was requested.
+**Session state:** idle; all four waves closed on operator instruction.
+**Last closed wave:** `20qvt` — framework provider selection and enterprise adapters; Tensorwell remains automatic by default.
+**Also closed:** `20oqx` upgrade rerun reliability, `20qvn` distribution lifecycle compatibility and attribution, and `20qvq` provider compatibility boundary.
+**Qualification:** 11,731 tests across 189 files, 12 skips, 796.576 seconds; current green receipt verified by every close. All required delivery approvals current; QVN-D1 and QVN-D2 terminal. Both edit gates closed.
+**Publication:** operator authorized commit and push of this reviewed batch. No package or release requested. Private intake remains outside tracked records.
+
+## Open questions / Deferred decisions
+
+Timing investigation and release provenance remain deferred. Enterprise adapters have synthetic contract qualification, not native service deployment qualification. No new timing waiver or threshold change.
 
 ## Prior session and release context
 
@@ -74,3 +80,11 @@ No unfinished AC or task in 1ymzq. Broader search/WaveIndex, lifecycle/registrar
 The historical default-policy eligibility re-add/reap loop is repaired by closed wave `204jj` / change `2038p`. Wave `20dkg` delivery verification reconfirmed six setup argv modes, detached docs/code child routes, MCP rebuild/refresh and rendered-hook bare launch shapes against the common layer-prefix reader. Three existing scratch tests pass; setup → incremental → setup converges, historical leaked test rows are removed once without later embedding, and eligible folded docs/docstrings/code remain. The unchanged corpus oracle rejects a runtime-only historical forward with “setup build: framework test rows in chunks_docs.” These are scratch/source results, not live-index, native-Windows or every-eligibility-fault qualification. `1ymzk`'s measured benefit remains removal of approximately 187 policy-ineligible test paths rather than extraction; its invalid receipt dispositions and original historical records remain unchanged. Explicit manual opt-in flag persistence and stray historical Progress Log bookkeeping remain separate work. Current delivery authority is recorded in `20dkg`'s typed review ledger.
 
 Automatic reuse of a full-class embedding model on CPU remains outside this wave; the shipped guard preserves the index and reports compatible-provider or explicit-rebuild remedies. Waveforge owns its merge-time chunker version/invalidation verification and terminology-key remap; no downstream integration ran here.
+
+## Current multi-wave implementation
+
+20qvt's focused tests passed (provider 9, Tensorwell 23, extensions 229, reload 15, setup readiness 49 plus integration 20, package seams 31); eight named guard mutants were detected. It is paused with its delivery task open. The profile/facade reload check detects stale source before reload and verifies current identity and fresh routing afterward. No actual model or enterprise service was used.
+
+20qvq's focused integration, model-bundle and compatibility tests passed; two sandbox-only mocked uv fixture failures passed when rerun with the required temporary-file permissions. Four guard mutants were detected. 20oqx's focused upgrade/storage and real process-resume tests passed, including eight guard mutants. These are focused results, not a combined green suite claim.
+
+20qvn is the only open wave; its implementer owns source integration and may delegate disjoint attribution/parser files. Reviewers do not write source or ledger. One final canonical suite is planned after implementation settles. Do not repeat qualification merely for review bookkeeping.

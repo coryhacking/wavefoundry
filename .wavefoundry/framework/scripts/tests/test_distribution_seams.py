@@ -1052,3 +1052,22 @@ class DisplayNameLiteralCensusTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AmbiguousCaptureTests(unittest.TestCase):
+    def test_capture_reports_multiple_open_waves_without_selecting_first(self):
+        import render_platform_surfaces as renderer
+        tree = ast.parse(renderer.claude_stop_source())
+        active = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_active_wave")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folders = [root / "first", root / "second"]
+            for folder in folders:
+                folder.mkdir()
+                (folder / vocabulary_profile.RECORD_FILENAME).write_text("Status: active\n")
+            namespace = {"Path": Path, "_wf_record_file": vocabulary_profile.RECORD_FILENAME,
+                         "_wf_id_prefix": vocabulary_profile.ID_KEY,
+                         "_wf_open_statuses": {"active", "implementing"}, "_wave_dirs": lambda root: folders}
+            exec(compile(ast.Module(body=[active], type_ignores=[]), "<capture>", "exec"), namespace)
+            with self.assertRaisesRegex(ValueError, "explicit wave ID"):
+                namespace["_active_wave"](root)

@@ -2693,8 +2693,8 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 "- prepare wave completed\n\n"
                 "## Review Evidence\n\n"
                 "- operator-signoff: approved\n"
-                "- architecture-reviewer sign-off: approved\n"
-                "- code-reviewer sign-off: approved\n")
+                "- architecture-reviewer: approved\n"
+                "- code-reviewer: approved\n")
             ),
             encoding="utf-8",
         )
@@ -2717,7 +2717,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 "## Review Checkpoints\n\n"
                 "- Wave approved globally with one sign-off line.\n\n"
                 "## Review Evidence\n\n"
-                "- architecture-reviewer sign-off: approved\n")
+                "- architecture-reviewer: approved\n")
             ),
             encoding="utf-8",
         )
@@ -2785,7 +2785,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
                 "| architecture-reviewer | review | x |\n"
                 "| code-reviewer | review | x |\n\n"
                 "## Review Evidence\n\n"
-                "- architecture-reviewer sign-off: approved\n")
+                "- architecture-reviewer: approved\n")
             ),
             encoding="utf-8",
         )
@@ -4330,6 +4330,33 @@ class LocalUserReviewEventTests(unittest.TestCase):
                     evidence={"observed": "passed", "artifact_or_test_id": "test:local-account"})
         args.update(extra)
         return self.tool.fn(**args)
+
+    def test_explicit_migration_attestation_preserves_prose_and_never_invents_review(self):
+        narrative = "The qa-reviewer has not approved; historical review pending."
+        self.wave_md.write_text(self.wave_md.read_text().replace("Owner: Engineering", "Owner: Ada") +
+                                "\n## Legacy Review Notes\n\n" + narrative + "\n")
+        self._set_record_local_account(False)
+        before = self.ledger.read_bytes()
+        preview = self.call(mode="dry_run", actor="operator", signoff_key="operator-signoff")
+        self.assertEqual(preview["status"], "dry_run", preview)
+        self.assertEqual(self.ledger.read_bytes(), before)
+        result = self.call(actor="operator", signoff_key="operator-signoff")
+        self.assertEqual(result["status"], "ok", result)
+        rows = result["data"]["appended_records"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["claim_id"], "approval:operator-signoff")
+        self.assertEqual(rows[0]["verification_context"]["attested_by"], "Ada")
+        self.assertNotIn("local_user", rows[0]["verification_context"])
+        self.assertIn(narrative, self.wave_md.read_text())
+        self.assertIn("Owner: Ada", self.wave_md.read_text())
+
+    def test_registered_publication_refusal_does_not_display_protected_root(self):
+        review = sys.modules["review_evidence"]
+        with patch.object(review, "refuse_publication", side_effect=PermissionError(str(self.root) + "/sensitive")):
+            result = self.call()
+        self.assertEqual(result["status"], "error", result)
+        self.assertNotIn(str(self.root), json.dumps(result))
+        self.assertNotIn("sensitive", json.dumps(result))
 
     def _set_record_local_account(self, value):
         path = self.root / "docs/workflow-config.json"
@@ -13019,7 +13046,7 @@ class SignoffLatestStateTests(unittest.TestCase):
                 with self.subTest(lane=lane, evidence=evidence):
                     self.assertFalse(self._check(evidence, lane))
             self.assertTrue(self._check(f"- {lane}: approved", lane))
-            self.assertTrue(self._check(f"- {lane} (delivery): checks passed", lane))
+            self.assertFalse(self._check(f"- {lane} (delivery): checks passed", lane))
         self.assertFalse(self._check("- qa-reviewer pending; qa-reviewer-more passed", "qa"))
         self.assertFalse(self._check("- operator (delivery): checks passed", "operator"))
 
@@ -13058,8 +13085,8 @@ class SignoffLatestStateTests(unittest.TestCase):
             ("- operator-signoff: approved 2026-07-13 — operator directed close.\n", "operator", True),
             ("- operator-signoff: <approved when operator confirms closure>\n", "operator", False),
             ("- the operator's review passed all gates and approved everything\n", "operator", False),
-            # reviewer-seat prose compatibility preserved (spaced descriptor is not historical)
-            ("- **red-team (delivery):** probes executed. Stance: approve. Signoff recorded.\n", "red-team", True),
+            # reviewer-seat prose stays narrative; it cannot approve
+            ("- **red-team (delivery):** probes executed. Stance: approve. Signoff recorded.\n", "red-team", False),
         ]
         for ev, lane, expect in cases:
             self.assertIs(self._check(ev, lane), expect, (lane, ev.splitlines()[0]))
@@ -17587,3 +17614,120 @@ class LifecycleHintGapTests(unittest.TestCase):
         brief = resp["data"]["council_brief"]
         self.assertIn("signoff_key='council-readiness'", brief["instructions"])
         self.assertIn("wf_review_event(", brief["verdict_format"])
+
+
+class ParentScopedActivationTests(unittest.TestCase):
+    def setUp(self):
+        self.fixture = WaveImplementTests()
+        WaveImplementTests.setUpClass()
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.doCleanups)
+        self.addCleanup(self.fixture.tearDown)
+        self.srv, self.root = self.fixture.srv, self.fixture.root
+        self.stack = contextlib.ExitStack()
+        self.addCleanup(self.stack.close)
+        self.stack.enter_context(patch.object(record_paths, "NESTED", True))
+        self.stack.enter_context(patch.object(self.srv.record_paths, "NESTED", True))
+        self.stack.enter_context(patch.object(self.srv.record_paths, "OPEN_CONTAINER_SCOPE", "parent"))
+        self.stack.enter_context(patch.object(record_paths, "OPEN_CONTAINER_SCOPE", "parent"))
+        self.stack.enter_context(patch.object(self.srv, "_trigger_background_index_refresh_for_paths", return_value={}))
+        self.stack.enter_context(patch.object(self.srv, "_run_post_write_lint", return_value={"passed": True}))
+        self.stack.enter_context(patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}))
+        self.stack.enter_context(patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}))
+
+    def move(self, wave_id, parent):
+        dest = _waves_dir(self.root) / parent
+        dest.mkdir(exist_ok=True)
+        source = _waves_dir(self.root) / wave_id
+        source.rename(dest / wave_id)
+        return dest / wave_id / vocabulary_profile.RECORD_FILENAME
+
+    def test_all_activation_paths_obey_parent_scope_and_repository_default(self):
+        active = self.fixture._make_wave("existing", "active")
+        self.move(active, "alpha")
+        for operation in ("prepare", "implement", "reopen"):
+            target = self.fixture._make_wave(operation, "planned")
+            self.fixture._add_council_verdict(target)
+            path = self.move(target, "beta")
+            if operation == "reopen":
+                path.write_text(path.read_text().replace("Status: planned", "Status: paused"))
+            original = path.read_bytes()
+            call = {"prepare": lambda: self.srv.wf_prepare_wave_response(self.root, target, mode="create"),
+                    "implement": lambda: self.srv.wf_implement_wave_response(self.root, target, mode="create"),
+                    "reopen": lambda: self.srv.wf_reopen_wave_response(self.root, target)}[operation]
+            with patch.object(record_paths, "OPEN_CONTAINER_SCOPE", "repository"), patch.object(self.srv.record_paths, "OPEN_CONTAINER_SCOPE", "repository"):
+                refused = call()
+            self.assertIn("another_wave_active", [d["code"] for d in refused["diagnostics"]], refused)
+            path.write_bytes(original)
+            allowed = call()
+            self.assertEqual(allowed["status"], "ok", (operation, allowed))
+            path.write_text(path.read_text().replace("Status: implementing", "Status: paused").replace("Status: active", "Status: paused"))
+        same = self.fixture._make_wave("same", "paused")
+        path = self.move(same, "alpha")
+        refused = self.srv.wf_reopen_wave_response(self.root, same)
+        self.assertIn("another_wave_active", [d["code"] for d in refused["diagnostics"]])
+        self.assertIn("Status: paused", path.read_text())
+
+    def test_multiple_open_waves_are_explicit_ambiguity_not_planned_fallback(self):
+        for parent in ("alpha", "beta"):
+            wave = self.fixture._make_wave(parent, "active")
+            self.move(wave, parent)
+        self.fixture._make_wave("planned", "planned")
+        with self.assertRaises(self.srv.AmbiguousCurrentWave):
+            self.srv.current_wave(self.root)
+        audit = self.srv.wf_audit_response(self.root)
+        self.assertIn("ambiguous_current_wave", [d["code"] for d in audit["diagnostics"]])
+        listing = self.srv.wf_current_wave_response(self.root)
+        self.assertIn("ambiguous_current_wave", [d["code"] for d in listing["diagnostics"]])
+        self.assertEqual(listing["usage"], "wf_list_waves()")
+        import dashboard_lib
+        with patch.object(dashboard_lib, "server", self.srv):
+            snapshot = dashboard_lib.collect_dashboard_snapshot(self.root, skip_git=True)
+        self.assertIsNone(snapshot["project"]["active_wave_id"])
+        self.assertEqual(snapshot["project"]["current_wave_diagnostic"]["code"], "ambiguous_current_wave")
+        runner = load_thin_runner()
+        mcp = runner.build_server(self.root)
+        self.addCleanup(runner._get_handler().close)
+        resource = mcp._resource_manager._resources["wavefoundry://wave/current"]
+        self.assertIn("Ambiguous Current Wave", resource.fn())
+
+    def test_registered_concurrent_activation_keeps_repository_lock_and_same_scope_exclusion(self):
+        import threading
+        candidates = []
+        for parent, slug in (("alpha", "first"), ("alpha", "same"), ("beta", "different")):
+            wid = self.fixture._make_wave(slug, "paused")
+            candidates.append((wid, self.move(wid, parent)))
+        runner = load_thin_runner()
+        mcp = runner.build_server(self.root)
+        self.addCleanup(runner._get_handler().close)
+        # The registration rebuild keeps the implementation module but may reload
+        # record_paths through its fixture loader; patch its live dependency.
+        with patch.object(runner.server_impl.record_paths, "NESTED", True), patch.object(runner.server_impl.record_paths, "OPEN_CONTAINER_SCOPE", "parent"):
+            tool = mcp._tool_manager._tools["wf_reopen_wave"].fn
+            entered, release = threading.Event(), threading.Event()
+            actual = runner.server_impl._find_other_active_wave
+            results = []
+            def held(*args, **kwargs):
+                entered.set()
+                if not release.wait(10):
+                    raise AssertionError("fixture release timeout")
+                return actual(*args, **kwargs)
+            with patch.object(runner.server_impl, "_find_other_active_wave", side_effect=held):
+                worker = threading.Thread(target=lambda: results.append(tool(candidates[0][0], purpose="implement")))
+                worker.start()
+                try:
+                    self.assertTrue(entered.wait(10))
+                    before = candidates[2][1].read_bytes()
+                    blocked = tool(candidates[2][0], purpose="implement")
+                    self.assertEqual(blocked["status"], "error", blocked)
+                    self.assertIn("lifecycle_mutation_locked", [d["code"] for d in blocked["diagnostics"]])
+                    self.assertEqual(candidates[2][1].read_bytes(), before)
+                finally:
+                    release.set()
+                    worker.join(10)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(results[0]["status"], "ok", results)
+            same = tool(candidates[1][0], purpose="implement")
+            self.assertIn("another_wave_active", [d["code"] for d in same["diagnostics"]], same)
+            different = tool(candidates[2][0], purpose="implement")
+            self.assertEqual(different["status"], "ok", different)

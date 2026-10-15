@@ -76,6 +76,17 @@ EXTENSION_TOOL_TIERS: Mapping[str, str] = {}
 # the core name and tier; it is never listed in EXTENSION_TOOL_TIERS.
 EXTENSION_OVERRIDES: Mapping[str, tuple[str, ...]] = {}
 
+# Compatible overrides of canonical Prepare/close that explicitly support the
+# inherited no-publication context. Query mcp.upgrade_preview_active() inside
+# the handler; core_handler delegation inherits it. Trusted Python is not sandboxed.
+EXTENSION_UPGRADE_PREVIEW_TOOLS: tuple[str, ...] = ()
+
+# Renderer-only exact legacy ownership: tuple of {"event": ..., "command": ...}.
+# A command may contain one {{repo_root}} placeholder for an absolute launcher.
+# No substring, glob, regex or shell evaluation; unrelated commands survive.
+EXTENSION_LEGACY_CLAUDE_HOOK_COMMANDS: tuple[Mapping[str, str], ...] = ()
+
+
 # Additional served names, ``{alias: canonical_name}`` (wave 1z8oz). An alias is
 # a copy of the canonical tool as served, so the lifecycle lock, publication
 # guard and cost accounting keyed on the canonical name apply to it, and it
@@ -251,7 +262,7 @@ FRAMEWORK_SCRIPT_MODULE_NAMES = frozenset({
     'setup_index', 'setup_readiness', 'setup_reconciliation', 'setup_requirements',
     'setup_wavefoundry', 'sqlite_runtime', 'sqlite_storage_migration', 'sqlite_vector_store',
     'storage_identity', 'subprocess_util', 'techdocs_audit', 'techdocs_audit_lib',
-    'techdocs_baseline', 'tensorwell_client', 'test_worker_guard', 'tree_sitter_cache', 'upgrade_bridge_bootstrap', 'upgrade_bundle',
+    'inference_profile', 'inference_provider', 'techdocs_baseline', 'tensorwell_client', 'test_worker_guard', 'tree_sitter_cache', 'upgrade_bridge_bootstrap', 'upgrade_bundle',
     'upgrade_extensions', 'upgrade_lib', 'upgrade_protocol', 'upgrade_wavefoundry',
     'vendored_integrity', 'venv_bootstrap', 'verify_vendored_scripts', 'vocabulary_profile',
     'wave_gate', 'wf_cli', 'workflow_include_prefixes',
@@ -266,7 +277,7 @@ def declared() -> bool:
     """True when any extension declaration is non-empty."""
     return bool(
         EXTENSION_MODULES or EXTENSION_HELPER_MODULES or EXTENSION_TOOL_PREFIXES or EXTENSION_TOOL_TIERS
-        or EXTENSION_OVERRIDES or EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS
+        or EXTENSION_OVERRIDES or EXTENSION_UPGRADE_PREVIEW_TOOLS or not isinstance(EXTENSION_UPGRADE_PREVIEW_TOOLS, tuple) or EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS
         or EXTENSION_TOOL_ALIASES or EXTENSION_TOOL_PARAMETERS or EXTENSION_HIDDEN_TOOLS
         or EXTENSION_REPLACEMENTS or EXTENSION_LIFECYCLE_TOOLS or EXTENSION_ARTIFACT_PATH_FIELDS
     )
@@ -376,6 +387,15 @@ def declaration_problems(
             elif name in owners:
                 problems.append(f"override {name!r} is declared twice by {module_name!r}")
             owners[name] = module_name
+    previews = EXTENSION_UPGRADE_PREVIEW_TOOLS
+    if not isinstance(previews, tuple) or any(not isinstance(name, str) for name in previews):
+        problems.append("EXTENSION_UPGRADE_PREVIEW_TOOLS must be a tuple of canonical tool names")
+    else:
+        if len(previews) != len(set(previews)):
+            problems.append("EXTENSION_UPGRADE_PREVIEW_TOOLS contains duplicate names")
+        for name in previews:
+            if name not in ("wf_prepare_wave", "wf_close_wave") or name not in owners or name in replacement_targets():
+                problems.append("upgrade preview requires a compatible declared Prepare/close override")
     problems.extend(_alias_hide_replacement_problems(core, runner, seen_modules, owners, core_tiers or {}))
     problems.extend(_lock_and_credit_problems(core, runner))
     problems.extend(_lifecycle_response_callback_problems(core))
@@ -1017,3 +1037,21 @@ def journal_declaration_problems(templates: object = None, hook: object = None,
             if not function_name.isidentifier() or keyword.iskeyword(function_name):
                 problems.append(f"{label} function {function_name!r} is not an identifier")
     return problems
+
+
+def legacy_claude_hook_commands(repo_root: str) -> set[tuple[str, str]]:
+    """Validate renderer-only declarations and expand the one literal placeholder."""
+    entries = EXTENSION_LEGACY_CLAUDE_HOOK_COMMANDS
+    if not isinstance(entries, tuple):
+        raise ExtensionDeclarationError("EXTENSION_LEGACY_CLAUDE_HOOK_COMMANDS must be a tuple")
+    result = set()
+    for entry in entries:
+        if not isinstance(entry, Mapping) or set(entry) != {"event", "command"}:
+            raise ExtensionDeclarationError("legacy hook entries require exactly event and command")
+        event, command = entry["event"], entry["command"]
+        if not isinstance(event, str) or not event.strip() or not isinstance(command, str) or not command.strip():
+            raise ExtensionDeclarationError("legacy hook event and command must be nonempty strings")
+        if command.count("{{repo_root}}") > 1 or "{{" in command.replace("{{repo_root}}", "") or "}}" in command.replace("{{repo_root}}", ""):
+            raise ExtensionDeclarationError("legacy hook commands support only one {{repo_root}} placeholder")
+        result.add((event, command.replace("{{repo_root}}", repo_root)))
+    return result

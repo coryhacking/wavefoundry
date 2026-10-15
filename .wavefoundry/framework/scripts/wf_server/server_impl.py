@@ -101,6 +101,8 @@ for _wll_key in list(sys.modules):
             "child_tee",  # wave 20b3a: current canonical child-output sanitization
             "advisory_lint_identity",
             "mcp_tool_extensions",
+            "inference_profile",
+            "inference_provider",
             # Wave 1zls8: the roster validates through the declaration module
             # it imported, so it is purged with it and never validates an
             # evicted copy.
@@ -159,6 +161,20 @@ if not os.environ.get("FASTEMBED_CACHE_PATH"):
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
+
+# These two routing sources are part of the runner's loaded-source identity.
+# Execute exact source bytes on every implementation load, without timestamp
+# bytecode reuse; only then may the runner refresh their pre/post reload hashes.
+for _routing_name in ("inference_profile", "inference_provider"):
+    _routing_path = SCRIPTS_DIR / (_routing_name + ".py")
+    _routing_spec = importlib.util.spec_from_file_location(_routing_name, _routing_path)
+    _routing_module = importlib.util.module_from_spec(_routing_spec)
+    sys.modules[_routing_name] = _routing_module
+    try:
+        exec(compile(_routing_path.read_bytes(), str(_routing_path), "exec"), _routing_module.__dict__)
+    except BaseException:
+        sys.modules.pop(_routing_name, None)
+        raise
 
 import bytecode_cache  # noqa: E402
 
@@ -1846,7 +1862,7 @@ class WaveIndex:
                 cached = getattr(self, attr, None)
                 if cached is not None:
                     tensorwell_client.observe_owner(slot, cached, getattr(cached, "model_name", "other"))
-            if role == "memory_reranking" and model is not None and not getattr(model, "is_tensorwell", False):
+            if role == "memory_reranking" and model is not None and not (getattr(model, "is_tensorwell", False) or getattr(model, "is_service_provider", False)):
                 tensorwell_client.observe_owner(role, model, getattr(model, "model_name", "other"))
         tensorwell_client.observe_selection(role, model, reason)
         return model
@@ -1855,16 +1871,19 @@ class WaveIndex:
         # Service selection follows stored precision before the local cache.
         # A shared model cannot represent two distinct layer precision classes.
         import tensorwell_client
+        import inference_provider
         meta = getattr(self, "_meta", None) or {}
         versions = (meta.get("project") or {}).get("model_versions") or {}
         classes = {self._indexer_constant("_precision_class_from_version")(versions.get(layer))
                    for layer, constant in (("docs", "DOCS_MODEL"), ("code", "CODE_MODEL"))
                    if model_name == self._indexer_constant(constant)}
         diagnostic = {}
-        resident = (tensorwell_client.select_embedder(model_name, next(iter(classes), "full"), diagnostic=diagnostic)
+        if len(classes) > 1 and inference_provider.mode() == "extension":
+            raise inference_provider.ProviderUnavailable()
+        resident = (inference_provider.select_embedder(model_name, next(iter(classes), "full"), diagnostic=diagnostic)
                     if len(classes) <= 1 else None)
         if resident is not None:
-            return self._inference_selection("query_embedding", resident, "qualified_pair")
+            return self._inference_selection("query_embedding", resident, diagnostic.get("reason", "qualified_pair"))
         selection_reason = ("index_precision_mismatch" if classes != {"full"} and classes
                             else diagnostic.get("reason", "selection_unknown"))
         # Wave 1p4wy: per-process embedder cache (mirrors ``_get_reranker``). On the
@@ -1963,7 +1982,8 @@ class WaveIndex:
         import numpy as np
         import tensorwell_client
         embedder = self._get_embedder(model_name)
-        if getattr(embedder, "is_tensorwell", False) is True:
+        if (getattr(embedder, "is_tensorwell", False) is True
+                or getattr(embedder, "is_service_provider", False) is True):
             token = tensorwell_client.attempt("query_embedding", embedder)
             returned = False
             try:
@@ -2009,12 +2029,13 @@ class WaveIndex:
         to vector order (the call sites tolerate ``None``), logged once so it's observable.
         """
         import tensorwell_client
+        import inference_provider
         if os.environ.get("WAVEFOUNDRY_DISABLE_RERANKER", "").strip().lower() in {"1", "true", "yes", "on"}:
             return self._inference_selection("search_reranking", None, "reranker_disabled")
         diagnostic = {}
-        resident = tensorwell_client.select_reranker(self._indexer_constant("RERANKER_MODEL"), diagnostic=diagnostic)
+        resident = inference_provider.select_reranker(self._indexer_constant("RERANKER_MODEL"), diagnostic=diagnostic)
         if resident is not None:
-            return self._inference_selection("search_reranking", resident, "qualified_pair")
+            return self._inference_selection("search_reranking", resident, diagnostic.get("reason", "qualified_pair"))
         selection_reason = diagnostic.get("reason", "selection_unknown")
         if self._reranker is not None:
             return self._inference_selection("search_reranking", self._reranker, selection_reason)
@@ -2083,11 +2104,12 @@ class WaveIndex:
             if os.environ.get("WAVEFOUNDRY_DISABLE_RERANKER", "").strip().lower() in {"1", "true", "yes", "on"}:
                 return self._inference_selection("memory_reranking", None, "reranker_disabled")
             import tensorwell_client
+            import inference_provider
             model = self._indexer_constant("RERANKER_MODEL")
             diagnostic = {}
-            resident = tensorwell_client.select_reranker(model, diagnostic=diagnostic)
+            resident = inference_provider.select_reranker(model, diagnostic=diagnostic)
             if resident is not None:
-                return self._inference_selection("memory_reranking", resident, "qualified_pair")
+                return self._inference_selection("memory_reranking", resident, diagnostic.get("reason", "qualified_pair"))
             selection_reason = diagnostic.get("reason", "selection_unknown")
             import accel_embedder
             if accel_embedder._reranker_disabled():
@@ -2108,6 +2130,8 @@ class WaveIndex:
                     return self._inference_selection("memory_reranking", None, "local_model_unavailable")
                 self._memory_reranker = reranker
                 return self._inference_selection("memory_reranking", reranker, selection_reason)
+        except inference_provider.ProviderUnavailable:
+            raise
         except Exception:
             return self._inference_selection("memory_reranking", None, "local_model_unavailable")
 
@@ -2139,8 +2163,9 @@ class WaveIndex:
             for model_type, model_name in all_models:
                 try:
                     import tensorwell_client
-                    resident = (tensorwell_client.select_embedder(model_name)
-                                if model_type == "embedding" else tensorwell_client.select_reranker(model_name))
+                    import inference_provider
+                    resident = (inference_provider.select_embedder(model_name)
+                                if model_type == "embedding" else inference_provider.select_reranker(model_name))
                     if resident is not None:
                         continue
                     _ensure_model_cached(model_name, model_type, root=self.root)
@@ -3680,6 +3705,9 @@ def _fail_closed_on_record_layout(tool: str):
                 return _record_layout_error_response(tool, exc)
             except record_paths.AmbiguousWaveId as exc:
                 return _ambiguous_wave_id_lines_response(tool, exc.diagnostics)
+            except AmbiguousCurrentWave as exc:
+                return _response("error", {"tool": tool}, diagnostics=[
+                    _diagnostic("ambiguous_current_wave", str(exc), recovery_tools=["wf_list_waves"])])
 
         return wrapped
 
@@ -4320,13 +4348,17 @@ def resolve_path_under_root(repo_root: Path, user_path: str) -> tuple[Optional[P
     return candidate, None
 
 
+class AmbiguousCurrentWave(RuntimeError):
+    """Several open waves require an explicit selection, never planned fallback."""
+
+
 def _current_wave_from(waves: list[dict]) -> Optional[dict]:
-    """The open wave if any, else the first planned one, from listed records."""
-    for allowed in (OPEN_CONTAINER_STATUSES, ("planned",)):
-        for wave in waves:
-            if wave["status"] in allowed:
-                return wave
-    return None
+    opened = [wave for wave in waves if wave["status"] in OPEN_CONTAINER_STATUSES]
+    if len(opened) > 1:
+        raise AmbiguousCurrentWave("Multiple waves are open; supply an explicit wave ID.")
+    if opened:
+        return opened[0]
+    return next((wave for wave in waves if wave["status"] == "planned"), None)
 
 
 def current_wave(
@@ -4351,6 +4383,7 @@ def _find_other_active_wave(
     allow self-prepare).
     """
     waves = cache.list_waves_cached() if cache else list_waves(root)
+    target_scope = record_paths.open_container_scope(root, target_wave_path)
     target_resolved = target_wave_path.resolve()
     for wave in waves:
         if wave["status"] not in OPEN_CONTAINER_STATUSES:
@@ -4359,6 +4392,8 @@ def _find_other_active_wave(
         if not wave_md_path.is_absolute():
             wave_md_path = root / wave_md_path
         if wave_md_path.resolve() == target_resolved:
+            continue
+        if record_paths.open_container_scope(root, wave_md_path) != target_scope:
             continue
         return wave
     return None
@@ -6337,7 +6372,11 @@ def wf_current_wave_response(root: Path, cache: Optional[McpRepoCache] = None) -
     ]
     # Drift detection only runs against the active wave (if present) — that's the only
     # wave where in-flight Change Status drift is meaningful.
-    active_entry = entries[0] if entries[0]["status"] in OPEN_CONTAINER_STATUSES else None
+    opened_entries = [entry for entry in entries if entry["status"] in OPEN_CONTAINER_STATUSES]
+    active_entry = opened_entries[0] if len(opened_entries) == 1 else None
+    if len(opened_entries) > 1:
+        diagnostics.append(_diagnostic("ambiguous_current_wave",
+            "Multiple waves are open; supply an explicit wave ID.", recovery_tools=["wf_list_waves"]))
     if active_entry is not None:
         try:
             drifts = _detect_wave_status_drift(root, active_entry)
@@ -6362,7 +6401,8 @@ def wf_current_wave_response(root: Path, cache: Optional[McpRepoCache] = None) -
         except Exception:
             pass  # Drift detection is advisory; never let it block the response
     first_entry = entries[0]
-    usage = f"wf_get_change(change_id={first_entry['changes'][0]['id']!r})" if first_entry.get("changes") else ""
+    usage = (f"wf_get_change(change_id={first_entry['changes'][0]['id']!r})"
+             if len(opened_entries) <= 1 and first_entry.get("changes") else "wf_list_waves()")
     data: dict[str, Any] = {"waves": entries}
     # 1svuk: a SEPARATE, labeled estimate for the active wave — never summed into
     # the measured Context Efficiency total, always carrying its causal caveat.
@@ -13229,7 +13269,7 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
     if other_open is not None:
         diagnostics.append(_diagnostic(
             "another_wave_active",
-            f"Wave {other_open['wave_id']!r} is already OPEN (active/implementing); only one wave may be OPEN at a time. "
+            f"Wave {other_open['wave_id']!r} is already OPEN (active/implementing); only one wave may be OPEN in its configured activation scope at a time. "
             f"Pause it before opening {wave_id!r}.",
             recovery_tools=["wf_pause_wave", "wf_current_wave"],
             recovery_usage=f"wf_pause_wave(wave_id={other_open['wave_id']!r}, mode='create')",
@@ -14565,7 +14605,7 @@ def wf_reopen_wave_response(root: Path, wave_id: str) -> dict[str, Any]:
             {"wave_id": wave_id, "current_status": current_status, "active_wave_id": other_open["wave_id"]},
             diagnostics=[_diagnostic(
                 "another_wave_active",
-                f"Wave {other_open['wave_id']!r} is already OPEN (active/implementing); only one wave may be OPEN at a time. "
+                f"Wave {other_open['wave_id']!r} is already OPEN (active/implementing); only one wave may be OPEN in its configured activation scope at a time. "
                 f"Pause it before reopening {wave_id!r}.",
                 recovery_tools=["wf_pause_wave", "wf_current_wave"],
                 recovery_usage=f"wf_pause_wave(wave_id={other_open['wave_id']!r}, mode='create')",
@@ -20007,7 +20047,7 @@ def _upgrade_preview_installed_version(root: Path) -> str:
         return ""
 
 
-def _upgrade_preview_code_current(handler, installed_version: str) -> bool:
+def _upgrade_preview_code_current(handler, installed_version: str, *, extension: bool = False) -> bool:
     """Compare existing launch identities through bounded no-follow reads."""
     import setup_readiness
     from contained_files import read_contained_bytes
@@ -20032,7 +20072,29 @@ def _upgrade_preview_code_current(handler, installed_version: str) -> bool:
         for name in _runner_files:
             digest.update(read_contained_bytes(SCRIPTS_DIR, Path(name),
                           max_bytes=setup_readiness.MAX_FILE_BYTES, follow_links=False))
-        return digest.hexdigest()[:_RUNNER_IDENTITY_HEX_LEN] == _runner_version
+        if digest.hexdigest()[:_RUNNER_IDENTITY_HEX_LEN] != _runner_version:
+            return False
+        if extension:
+            provenance = _EXTENSION_PROVENANCE
+            declaration_bytes = read_contained_bytes(SCRIPTS_DIR, SCRIPTS_DIR / "mcp_tool_extensions.py",
+                max_bytes=setup_readiness.MAX_FILE_BYTES, follow_links=False)
+            declaration_digest = hashlib.sha256(declaration_bytes).hexdigest()
+            if not isinstance(provenance, dict) or provenance.get("declaration") != _extension_declaration_provenance(source_digest=declaration_digest):
+                return False
+            for key, names in (("modules", mcp_tool_extensions.EXTENSION_MODULES),
+                               ("helper_modules", mcp_tool_extensions.EXTENSION_HELPER_MODULES)):
+                rows = provenance.get(key, [])
+                if [row.get("module") for row in rows] != list(names):
+                    return False
+                for row in rows:
+                    path = SCRIPTS_DIR / (row["module"] + ".py")
+                    if str(path.resolve()) != row.get("path"):
+                        return False
+                    payload = read_contained_bytes(SCRIPTS_DIR, path,
+                        max_bytes=setup_readiness.MAX_FILE_BYTES, follow_links=False)
+                    if hashlib.sha256(payload).hexdigest() != row.get("sha256"):
+                        return False
+        return True
     except (OSError, ValueError, TypeError, RuntimeError):
         return False
 
@@ -20090,8 +20152,11 @@ def _wrap_upgrade_publication_guard(
                     )
                 if reason is not None:
                     eligible = False
+                    extension_preview = (tool_name in mcp_tool_extensions.EXTENSION_UPGRADE_PREVIEW_TOOLS
+                                         and tool_name in mcp_tool_extensions.override_targets())
                     if (tool_name not in excluded_previews and not checkpoint_only
-                            and getattr(fn, "_wf_core_upgrade_preview", None) is _CORE_PREVIEW_MARKER):
+                            and (extension_preview or (tool_name not in mcp_tool_extensions.override_targets()
+                                and getattr(fn, "_wf_core_upgrade_preview", None) is _CORE_PREVIEW_MARKER))):
                         try:
                             bound = inspect.signature(fn).bind(*args, **kwargs)
                             bound.apply_defaults()
@@ -20101,10 +20166,11 @@ def _wrap_upgrade_publication_guard(
                             pass
                     installed_version = _upgrade_preview_installed_version(root) if eligible else ""
                     if (eligible and publication_control.preview_checkpoint_compatible(root, installed_version)
-                            and _upgrade_preview_code_current(get_handler(), installed_version)):
+                            and _upgrade_preview_code_current(get_handler(), installed_version, extension=extension_preview)):
                         token = _UPGRADE_READ_ONLY_PREVIEW.set(True)
                         try:
-                            return _upgrade_preview_result(fn(*args, **kwargs))
+                            with publication_control.read_only_preview():
+                                return _upgrade_preview_result(fn(*args, **kwargs))
                         finally:
                             _UPGRADE_READ_ONLY_PREVIEW.reset(token)
                     if eligible:
@@ -21251,11 +21317,11 @@ def _file_sha256(path: Path) -> Optional[str]:
         return None
 
 
-def _extension_declaration_provenance() -> dict[str, Any]:
+def _extension_declaration_provenance(*, source_digest: Optional[str] = None) -> dict[str, Any]:
     declaration_path = Path(mcp_tool_extensions.__file__).resolve()
     return {
         "path": str(declaration_path),
-        "sha256": _file_sha256(declaration_path),
+        "sha256": source_digest if source_digest is not None else _file_sha256(declaration_path),
         "prefixes": list(mcp_tool_extensions.EXTENSION_TOOL_PREFIXES),
         "tiers": dict(sorted(mcp_tool_extensions.EXTENSION_TOOL_TIERS.items())),
         # Wave 1zimf (1zimo): what the lock and credit declarations grant.
@@ -21264,6 +21330,7 @@ def _extension_declaration_provenance() -> dict[str, Any]:
         # Wave 1zls8 (1zltx): the declared helper modules, in load order.
         "helper_modules": _declared_names(getattr(mcp_tool_extensions, "EXTENSION_HELPER_MODULES", ())),
         "lifecycle_response_callbacks": _sorted_fields(mcp_tool_extensions.EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS),
+        "upgrade_preview_tools": _sorted_names(mcp_tool_extensions.EXTENSION_UPGRADE_PREVIEW_TOOLS),
     }
 
 
@@ -21357,6 +21424,10 @@ def _extension_staging_surface(core_table: Optional[Mapping[str, Any]] = None) -
         def add_tool(self, fn: Any, name: Optional[str] = None, *args: Any, **kwargs: Any) -> Any:
             self.wf_attempts.append(name or getattr(fn, "__name__", repr(fn)))
             return super().add_tool(fn, name, *args, **kwargs)
+
+        def upgrade_preview_active(self) -> bool:
+            """Read inherited preview status; framework publication APIs refuse writes."""
+            return publication_control.read_only_preview_active()
 
         def core_handler(self, name: str) -> Any:
             module_name = self.wf_registering
@@ -26272,7 +26343,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         ambiguous = record_paths.ambiguous_wave_id_diagnostics(root, wave_dirs)
         if ambiguous:
             return _ambiguous_wave_id_markdown(ambiguous)
-        wave_info = current_wave(root, waves=waves)
+        try:
+            wave_info = current_wave(root, waves=waves)
+        except AmbiguousCurrentWave as exc:
+            return f"# Ambiguous Current Wave\n\n{exc}\n"
         if wave_info is None:
             return "# No Active Wave\n\nNo active wave found. Use `wf_create_wave` to start one.\n"
         wave_path = get_handler().root / wave_info["path"]

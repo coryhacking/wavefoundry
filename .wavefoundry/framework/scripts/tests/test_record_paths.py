@@ -485,3 +485,32 @@ class NestedDiscoveryTests(_TempRoot):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OpenContainerScopeTests(_TempRoot):
+    def test_parent_scope_is_opt_in_nested_and_canonical(self):
+        from unittest.mock import patch
+        with patch.object(rp, "NESTED", True), patch.object(rp, "OPEN_CONTAINER_SCOPE", "parent"):
+            paths = []
+            for parent, name in (("alpha", "00001 a"), ("alpha", "00002 b"), ("beta", "00003 c")):
+                folder = rp.load_record_roots(self.root).waves / parent / name
+                folder.mkdir(parents=True)
+                record = folder / vp.RECORD_FILENAME
+                record.write_text("Status: active\n")
+                paths.append(record)
+            self.assertEqual(rp.open_container_scope(self.root, paths[0]), rp.open_container_scope(self.root, paths[1]))
+            self.assertNotEqual(rp.open_container_scope(self.root, paths[0]), rp.open_container_scope(self.root, paths[2]))
+            for bad in (self.root / "escape" / vp.RECORD_FILENAME, paths[0].parent / "other.md"):
+                with self.assertRaises(rp.RecordLayoutInvalid):
+                    rp.open_container_scope(self.root, bad)
+            link = paths[0].parent.parent / "alias"
+            link.symlink_to(paths[0].parent, target_is_directory=True)
+            with self.assertRaises(rp.RecordLayoutInvalid):
+                rp.open_container_scope(self.root, link / vp.RECORD_FILENAME)
+        with patch.object(rp, "OPEN_CONTAINER_SCOPE", "parent"), patch.object(rp, "NESTED", False):
+            with self.assertRaises(rp.RecordLayoutInvalid):
+                rp.load_record_roots(self.root)
+        for bad in (None, [], "unknown"):
+            with patch.object(rp, "OPEN_CONTAINER_SCOPE", bad):
+                with self.assertRaises(rp.RecordLayoutInvalid):
+                    rp.load_record_roots(self.root)

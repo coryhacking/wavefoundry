@@ -44,6 +44,8 @@ import vocabulary_profile
 WAVES_ROOT = "docs/waves"
 PLANS_ROOT = "docs/plans"
 NESTED = False
+# Repository-wide by default; parent scope requires NESTED.
+OPEN_CONTAINER_SCOPE = "repository"
 MAX_DEPTH = 4
 # Optional read-only archive of closed records, often frozen under an older
 # vocabulary (``vocabulary_profile.ARCHIVE_PROFILE``). ``None`` disables it.
@@ -206,9 +208,12 @@ def layout_constants() -> tuple[object, object, object, object]:
     """The current constant values, read at call time. Cache keys fold this in
     so a process whose constants were patched (tests) re-resolves. The archive
     root is appended only when set, so the default key is unchanged."""
-    if ARCHIVE_ROOT is None:
-        return (WAVES_ROOT, PLANS_ROOT, NESTED, MAX_DEPTH)
-    return (WAVES_ROOT, PLANS_ROOT, NESTED, MAX_DEPTH, ARCHIVE_ROOT)
+    values = (WAVES_ROOT, PLANS_ROOT, NESTED, MAX_DEPTH)
+    if ARCHIVE_ROOT is not None:
+        values += (ARCHIVE_ROOT,)
+    if OPEN_CONTAINER_SCOPE != "repository":
+        values += (OPEN_CONTAINER_SCOPE,)
+    return values
 
 
 def _canonical_parts(value: str) -> list[str]:
@@ -428,6 +433,10 @@ def validate_record_layout(root: Path) -> list[str]:
     diagnostics.extend(errs)
     if not isinstance(NESTED, bool):
         diagnostics.append(f"{DIAGNOSTIC_CODE}: record_paths.NESTED must be True or False")
+    if OPEN_CONTAINER_SCOPE not in ("repository", "parent"):
+        diagnostics.append(f"{DIAGNOSTIC_CODE}: OPEN_CONTAINER_SCOPE must be repository or parent")
+    elif OPEN_CONTAINER_SCOPE == "parent" and NESTED is not True:
+        diagnostics.append(f"{DIAGNOSTIC_CODE}: parent OPEN_CONTAINER_SCOPE requires NESTED")
     low, high = MAX_DEPTH_RANGE
     if isinstance(MAX_DEPTH, bool) or not isinstance(MAX_DEPTH, int) or not (low <= MAX_DEPTH <= high):
         diagnostics.append(
@@ -512,6 +521,24 @@ def load_record_roots(root: Path) -> RecordRoots:
         archive_rel=archive_rel,
         archive=_join_rel(root, archive_rel) if archive_rel else None,
     )
+
+
+def open_container_scope(root: Path, wave_path: Path) -> Path:
+    """Return the validated activation domain; never partition publication locks.
+
+    Parent scope uses the immediate parent of the canonical wave directory.
+    Only discovered records qualify, excluding aliases, escapes and archives.
+    """
+    roots = load_record_roots(root)
+    if OPEN_CONTAINER_SCOPE == "repository":
+        return roots.waves
+    path = Path(wave_path)
+    if not path.is_absolute():
+        path = Path(root) / path
+    directories = discover_wave_dirs(root)
+    if path.name != vocabulary_profile.RECORD_FILENAME or path.parent not in directories or path.is_symlink():
+        raise RecordLayoutInvalid([f"{DIAGNOSTIC_CODE}: activation target must be a canonical discovered wave record"])
+    return path.parent.parent
 
 
 def unvalidated_record_roots(root: Path) -> RecordRoots:

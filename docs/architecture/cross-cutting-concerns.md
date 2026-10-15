@@ -19,6 +19,14 @@ Only `render_platform_surfaces.py` writes to platform config files.
 
 Optional `wave_review.record_local_account` is a boolean controlling new review-event OS-account provenance. Absent means true without inserting a default into normalized policy; false skips the OS lookup, metadata and unresolved-account notice. Contributor handles, self-attestation and role/lane authority are unchanged. Install defaults leave this optional key absent; config migration preserves either explicit value. Opt-out is prospective: replay returns original immutable records, and existing committed account metadata or Git history is never redacted automatically.
 
+### Owner, approver and legacy evidence
+
+Document `Owner` is operator-authored and may name the same configured handle or chosen account label as the approver. Review events reuse `verification_context.operator` (`explicit` or `git_email`), optional self-attested `attested_by`, and optional observed `local_user` (`local_os_account`). Contributor handles are hosting-independent local configuration; Git email is matched locally without publishing the email in the event. None authenticates a human or proves independent review, and missing attribution does not block review.
+
+Legacy evidence requires explicit lane-state lines (`approved`, `passed`, `complete`) or current-state table rows. The last explicit state governs; table state takes precedence. Free prose, including negation or pending text containing approval words, remains narrative only. For operator-directed migration from undeclared prose-only authority, preserve historical prose outside generated markers, add the exact `review-evidence-source: events.jsonl` header, an empty sibling ledger only when none exists, and the canonical Finding Synthesis scaffold. Re-Prepare for current policy, then preview the typed event with `wf_review_event(mode="dry_run")`, then record only current, actually performed review and explicitly supplied approval with honest context. Self-attestation is labelled and never substitutes for required reviewer execution; historical execution is never inferred from prose. Declared waves read only the typed ledger.
+
+Test-worker publication refusals retain their path-free error type and detail while suppressing the underlying exception chain, so ordinary formatted tracebacks do not expose the protected root.
+
 ### Distribution council actor compatibility (wave 204mp)
 
 The fork-editable `vocabulary_profile.EXTRA_LEGACY_COUNCIL_ACTORS` tuple defaults to empty. `review_evidence` keeps the built-in historical actor tuple separate, then merges and deduplicates declared aliases. Recognition, stored-identity replay and the existing approval input wrapper consume that merged identity; new approvals write `council-chair` and historical ledger bytes are never rewritten. The existing MCP reload purges the profile and evidence modules together, so an edited declaration takes effect after reload.

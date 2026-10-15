@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-14
+Last verified: 2026-10-15
 
 ## What This Document Covers
 
@@ -27,6 +27,32 @@ The trade-off is operational complexity: the model must be cached locally before
 | `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` (logical) → `Xenova/ms-marco-MiniLM-L-6-v2` `onnx/model_fp16.onnx` (GPU) | logit | `indexer.py` |
 
 ### Optional Tensorwell execution (wave 20nju)
+
+The distribution declaration in `inference_profile.py` selects `tensorwell` (the
+shipped automatic default), `local`, or `extension`. All setup, index build, query,
+search reranking, memory reranking and background preparation consumers select
+through `inference_provider.py`. Repository configuration never selects a provider.
+`local` prevents Tensorwell discovery and startup while preserving eligible local
+inference. `extension` requires both pinned-model capabilities and never falls back
+to local inference or Tensorwell. Only the default mode schedules Tensorwell startup;
+neither changing modes nor shutting down Wavefoundry stops the shared daemon.
+
+An extension declares full precision independently of host hardware. The same
+validated identity drives index comparison, publication metadata and query
+selection. An existing INT8 index still requires an explicit compatible rebuild;
+mixed stored layer classes cannot select the extension. Tensorwell and local modes
+retain their existing host-based build policy. The adapter receives raw query text
+and applies preprocessing exactly once. Its reranker returns calibrated raw logits;
+agent search applies one sigmoid and memory retains the `>= -4` cutoff.
+
+`WAVEFOUNDRY_DISABLE_RERANKER` disables reranking in every mode.
+`WAVEFOUNDRY_DISABLE_TENSORWELL` and the existing local execution-provider controls
+continue to constrain the default Tensorwell mode; they do not redirect an explicitly
+declared enterprise adapter. Adapter authors own endpoint, credentials, transport
+deadlines and model identity assertions, with no requirement to expose local weights.
+The exact contract is in `docs/specs/mcp-tool-surface.md`, **Inference adapters**.
+Synthetic fixture qualification covers dispatch and response validation, not a live
+enterprise endpoint, model equivalence qualification or enterprise hardware.
 
 `tensorwell_client.py` can reuse an installed local Tensorwell service for both pinned
 models. The initial compatibility table admits the qualified macOS CoreML Arctic S
@@ -66,8 +92,23 @@ Wavefoundry neither installs/configures Tensorwell nor stops it on shutdown. Nat
 startup failure cleanup remains Tensorwell's responsibility.
 
 Service selection suppresses unnecessary local session construction and optional
-background downloads. Explicit setup validation/provisioning and local dependencies
-remain supported. Compact state appears under `wf_server_info().data.tensorwell`.
+background downloads. Setup also skips initial local weight provisioning for each
+qualified embedding workload when the indexer's predicted precision is `full`.
+Unqualified models, disabled/unavailable service and INT8 workloads retain local
+provisioning; a mixed model list is evaluated per model. Later native warmup uses
+the same eligibility rule. Local dependencies remain supported.
+
+The provider owns model acquisition and file integrity. Wavefoundry validates its
+supported model/configuration mapping, preprocessing, dimensions, response values
+and persisted index compatibility. The service's reported profile identity is
+compatibility metadata, not authentication of inaccessible weight files. Matching
+dimensions alone cannot establish the same embedding space. Existing local and
+bundled verification remains in place; online cache attestation is currently
+non-blocking and this provider boundary does not repair or remove that legacy path.
+Future API adapters need an explicit supported compatibility mapping, not access
+to local weights or a new model hash. Framework provider selection is separate.
+
+Compact state appears under `wf_server_info().data.tensorwell`.
 Its legacy `qualified_pair` reason means both pinned models matched at the last
 readiness/descriptor check, not that they executed. The additive `availability`
 record keeps the observation time when compatibility is reused and marks stale or

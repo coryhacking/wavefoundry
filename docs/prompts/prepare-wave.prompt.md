@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-08
+Last verified: 2026-10-15
 
 Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
 
@@ -45,17 +45,17 @@ A clean readiness verdict confirms the wave is **admissible** and is the single 
 
 ## Single-OPEN-Wave Rule
 
-Only one wave may be **OPEN** (`active` or `implementing`) at a time — but any number of waves may be **planned, admitted, and fully readied** in parallel. Readiness never takes the OPEN slot (wave 1p45l).
+Only one wave may be **OPEN** (`active` or `implementing`) per configured activation scope at a time — but any number of waves may be **planned, admitted, and fully readied** in parallel. Readiness never takes the OPEN slot (wave 1p45l).
 
 - `wf_prepare_wave(mode='ready')` records full readiness and leaves the wave **readied** (`Status: planned`); it is **not** blocked while another wave is OPEN. Ready as many waves as you like.
-- The single-OPEN guard fires only at **activation** — `wf_implement_wave` (open a readied wave), `wf_reopen_wave`, and `wf_prepare_wave(mode='create')` (prepare-and-open). When another wave is already OPEN, these return an `another_wave_active` diagnostic; recover by **pausing** the open wave, or by **readying** the target instead (`mode='ready'`) without opening it.
+- The single-OPEN guard fires only at **activation** — `wf_implement_wave` (open a readied wave), `wf_reopen_wave`, and `wf_prepare_wave(mode='create')` (prepare-and-open). When another wave in the same configured activation scope is already OPEN, these return an `another_wave_active` diagnostic; recover by **pausing** the open wave, or by **readying** the target instead (`mode='ready'`) without opening it.
 
 To open a second wave while one is OPEN, free the slot first:
 
 1. `wf_pause_wave(wave_id='<current-open>', mode='create')` — transitions the OPEN wave to `paused` and records a session-handoff entry. (Readying another wave needs no pause.)
 2. Open the target: `wf_implement_wave(wave_id='<readied-target>', mode='create')` for a readied `planned` wave, or `wf_prepare_wave(wave_id='<target>', mode='create')` to prepare-and-open in one step.
 
-**Resume semantics:** a paused wave is resumed by `wf_prepare_wave(mode='create')` (paused → active) — an activation, so the single-OPEN guard applies; pause any other OPEN wave first.
+**Resume semantics:** a paused wave is resumed by `wf_prepare_wave(mode='create')` (paused → active) — an activation, so the single-OPEN guard applies; pause any other OPEN wave in the same configured activation scope first.
 
 The `wf_current_wave` tool returns `data.waves[]` with all non-closed waves: OPEN first (active/implementing), then planned, then paused. Each entry's `next_action`: `implement_wave` (active), `prepare_wave` (planned — readies it; open later), or `resume_wave` (paused).
 
@@ -101,3 +101,11 @@ single document being edited. Expect one re-Prepare per open wave, disclose it
 in the change document, and avoid making the edit while waves are readied but
 unclosed without saying so.
 <!-- wavefoundry:review-policy:end -->
+
+## Distribution activation scope
+
+Repository-wide single-OPEN activation is the default. Distributions may set `record_paths.OPEN_CONTAINER_SCOPE = "parent"` only with `NESTED = True`: each canonical immediate parent of a wave directory has one OPEN slot, and direct children share the waves root. Prepare activation, Implement and Reopen share this guard; repository publication and lifecycle locks remain global. When several waves are OPEN, implicit current-wave selection reports ambiguity and requires an explicit ID; it never selects the first parent or falls back to a planned wave.
+
+## Distribution upgrade preview
+
+Declared compatible Prepare/close overrides may opt in through `EXTENSION_UPGRADE_PREVIEW_TOOLS`. Only supported dry-run modes run during a compatible retained upgrade with current loaded core, launcher, declaration, module and helper provenance. `mcp.upgrade_preview_active()` exposes the inherited no-publication context, including through `core_handler`. Framework publication APIs refuse writes; trusted extension code is responsible for direct I/O. This preview grants no mutation or recovery authority.
