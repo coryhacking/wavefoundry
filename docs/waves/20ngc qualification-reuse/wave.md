@@ -1,7 +1,7 @@
 # Wave Record
 
 Owner: Engineering
-Status: paused
+Status: closed
 Last verified: 2026-10-14
 review-evidence-source: events.jsonl
 
@@ -19,7 +19,7 @@ Change ID: `20lr2-enh reuse-default-qualification-detail`
 Change Status: `implemented`
 
 Change ID: `20nnh-enh focused-profile-qualification`
-Change Status: `active`
+Change Status: `implemented`
 Depends On: `20lr2-enh reuse-default-qualification-detail`
 
 ## Participants
@@ -29,10 +29,16 @@ Depends On: `20lr2-enh reuse-default-qualification-detail`
 - Requested review lanes: code-reviewer, qa-reviewer, architecture-reviewer, release-reviewer
 - Required review lanes: code-reviewer, qa-reviewer, architecture-reviewer, docs-contract-reviewer, release-reviewer
 
+Completed At: 2026-10-14
+
 ## Wave Summary
 
-*(Populated at closure.)*
+Wave `20ngc` (Qualification Efficiency) delivered two changes: Reuse default qualification detail and Focus compatibility profile qualification. Notable adjustments during implementation: Focus compatibility profile qualification: Observe: Explicit compatibility selection and report scope validation implemented. Focused report/profile-support/cache modules passed 41/80/97 tests. A real two-worker fixture executed only the selected worker, retained exact skip comparison, detected failure in an affected worker and exercised the excluded worker trap through the full path.; Focus compatibility profile qualification: Guard-removal evidence: isolated removal of coverage contract hash checking caused 32 assertion failures in CompatibilityCoverageTests.test_every_changed_contract_forces_full_profile; removal of trusted scope equality caused four assertion failures in QualificationCLITests.test_selected_report_cannot_authorize_its_own_coverage_or_applied_identity. No errors or skips in either mutant control.
 
+**Changes delivered:**
+
+- **Reuse default qualification detail** (`20lr2-enh reuse-default-qualification-detail`) — 4 ACs completed. Key decisions: Select bounded automatic detail retention for qualifying default runs: it removes dependence on agents remembering an extra flag.
+- **Focus compatibility profile qualification** (`20nnh-enh focused-profile-qualification`) — 6 ACs completed. Key decisions: Select explicit file-level compatibility scope with conservative full-profile fallback and one reference qualification.
 ## Watchpoints
 
 - Watchpoint: No new suite or review solely for recording bookkeeping; validate work reduction by worker invocations, not host-dependent wall-clock targets.
@@ -58,10 +64,10 @@ Depends On: `20lr2-enh reuse-default-qualification-detail`
 | --- | --- | --- | --- |
 | council-readiness | approved | current executed approval by coryhacking follows every affected repair (local account: coryhacking) | none |
 | code-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
-| qa-reviewer | withheld | repaired findings require fresh approval: QUAL-DEL-1, QA-FINAL-MARKER-PUBLICATION, QA-CONTROLLER-OVERFLOW-FIXTURE | record a fresh independent approval for qa-reviewer |
+| qa-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | architecture-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | docs-contract-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
-| release-reviewer | withheld | repaired findings require fresh approval: QUAL-DEL-1, QA-FINAL-MARKER-PUBLICATION, QA-CONTROLLER-OVERFLOW-FIXTURE | record a fresh independent approval for release-reviewer |
+| release-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | operator-signoff | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 <!-- wave:review-status end -->
 
@@ -80,12 +86,12 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 
 | Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
-| plan | 155 | 1,174,831 |
+| plan | 162 | 1,265,904 |
 | implement | 309 | 2,114,335 |
-| review | 402 | 2,569,981 |
-| **Total** | **866** | **5,859,147** |
+| review | 405 | 2,566,591 |
+| **Total** | **876** | **5,946,830** |
 
-<!-- wave:context-efficiency-state {"generation":786,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":309,"content_source_credit":2708649,"derived_artifact_credit":0,"direct_net":2114335,"estimated_tokens_saved":2114335,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":10605,"response_debit":587067,"source_credit_count":108,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3358},"plan":{"calls":155,"content_source_credit":1524422,"derived_artifact_credit":4852,"direct_net":1174831,"estimated_tokens_saved":1174831,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":38127,"response_debit":328215,"source_credit_count":74,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":11899},"review":{"calls":402,"content_source_credit":3713873,"derived_artifact_credit":247,"direct_net":2569981,"estimated_tokens_saved":2569981,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":49495,"response_debit":1094644,"source_credit_count":155,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":866,"content_source_credit":7946944,"derived_artifact_credit":5099,"direct_net":5859147,"estimated_tokens_saved":5859147,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":98227,"response_debit":2009926,"source_credit_count":337,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":15257},"wave_id":"20ngc qualification-reuse"} -->
+<!-- wave:context-efficiency-state {"generation":794,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":309,"content_source_credit":2708649,"derived_artifact_credit":0,"direct_net":2114335,"estimated_tokens_saved":2114335,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":10605,"response_debit":587067,"source_credit_count":108,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3358},"plan":{"calls":162,"content_source_credit":1626675,"derived_artifact_credit":4852,"direct_net":1265904,"estimated_tokens_saved":1265904,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":42454,"response_debit":335068,"source_credit_count":78,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":11899},"review":{"calls":405,"content_source_credit":3713873,"derived_artifact_credit":247,"direct_net":2566591,"estimated_tokens_saved":2566591,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":49524,"response_debit":1100936,"source_credit_count":155,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2931}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":876,"content_source_credit":8049197,"derived_artifact_credit":5099,"direct_net":5946830,"estimated_tokens_saved":5946830,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":102583,"response_debit":2023071,"source_credit_count":341,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":18188},"wave_id":"20ngc qualification-reuse"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided
@@ -150,3 +156,5 @@ First implementation priority: reuse default execution detail before profile sel
 - 2026-10-14: Resumed for final combined qualification after both later implementations paused. Refreshed only coverage.json test_worker_guard pin to reviewed ff40736fc2c972b31a35e19d5e7227f7486261b5994a8a96405ce32f7c32b6fd. Independent code/architecture reviewer reconfirmed unchanged 16-contract inventory and omitted version-worker footprint; bootstrap hygiene adds no profile-sensitive dependency. This is reviewed coverage maintenance, not automatic trust or completed matrix evidence.
 
 - 2026-10-14 final shared qualification: repaired default green (11,672 tests, 187 files, 12 skips); declared reference green with exact 12-skip comparison. Renamed reference completed 11,664 tests with only two timing assertions failing (candidate p95 32.098 > 25 ms; projection p95 31.372 > 30.432 ms), plus 16 correctly marked default-profile-only skips. Reports retained in ignored qualification cache; red comparator result preserved. No functional errors, timing root-cause claim, unchanged retry or duplicate selected matrix. Timing investigation remains deferred. Wave paused pending explicit local-pack/closure timing exception and remaining conditional review approvals.
+
+- 2026-10-14 operator disposition: accepted the two observed renamed-profile timing failures (50-candidate p95 32.098 ms > 25 ms; lifecycle projection p95 31.372 ms > 30.432 ms) for closure and this local 1.31.0 pack. Preserve the red report and comparator refusal; timing investigation remains deferred. Default and declared are green and source identities match. This grants no official release or performance qualification. Current approvals reconcile this exception without another test run. Canonical tests and existing guidance retain the fixture/qualification lessons; no new memory candidate or disposable evidence file is needed.

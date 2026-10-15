@@ -1,7 +1,7 @@
 # Focus compatibility profile qualification
 
 Change ID: `20nnh-enh focused-profile-qualification`
-Change Status: `active`
+Change Status: `implemented`
 Owner: Engineering
 Status: active
 Last verified: 2026-10-14
@@ -31,10 +31,10 @@ The operator-approved follow-up also covers ClientTests.test_cli_exact_child_tim
 
 ## Acceptance Criteria
 
-- [ ] AC-1: The qualification selector includes every discovered file with an affected or unknown customization contract, and safely expands to full-profile work on incomplete or invalid classification.
-- [ ] AC-2: Partial, omitted, duplicated, mismatched-profile and stale-inventory reports refuse; valid selected reports compare against the corresponding complete default subset using unchanged skip rules.
-- [ ] AC-3: At least one proven independent test file avoids repeat execution, while affected contract regressions are still caught by selected profile runs; observed file counts and qualification limits are recorded.
-- [ ] AC-4: Full default and explicit full-profile behavior and worker protection remain intact, and no ordinary upgrade invokes compatibility tests.
+- [x] AC-1: The qualification selector includes every discovered file with an affected or unknown customization contract, and safely expands to full-profile work on incomplete or invalid classification.
+- [x] AC-2: Partial, omitted, duplicated, mismatched-profile and stale-inventory reports refuse; valid selected reports compare against the corresponding complete default subset using unchanged skip rules.
+- [x] AC-3: At least one proven independent test file avoids repeat execution, while affected contract regressions are still caught by selected profile runs; observed file counts and qualification limits are recorded.
+- [x] AC-4: Full default and explicit full-profile behavior and worker protection remain intact, and no ordinary upgrade invokes compatibility tests.
 - [x] AC-5: The child-timeout fixture publishes a complete final marker atomically; a controlled delay before its payload write cannot expose an empty final marker. Existing timeout and cleanup assertions remain unchanged, and reverting atomic publication reproduces the failure.
 - [x] AC-6: Controller output overflow is rejected for either stream through the actual capture path without requiring a child to launch before the overflow assertion; a missing-overflow guard is detected, and the real timeout/reaping/sibling-survival checks remain intact.
 
@@ -42,7 +42,7 @@ The operator-approved follow-up also covers ClientTests.test_cli_exact_child_tim
 
 - [x] Derive and review a small file-level coverage inventory from the current profile definitions and consumers; classify uncertainty conservatively.
 - [x] Implement explicit compatibility selection and report scope validation without reclassifying existing diagnostic selectors.
-- [ ] Use a reference full matrix plus contract regression controls once to qualify the selection, then document the smaller release workflow.
+- [x] Use a reference full matrix plus contract regression controls once to qualify the selection, then document the smaller release workflow.
 - [x] Publish the child fixture completion marker atomically and independently verify the ordinary, delayed-write and reverted-publication controls.
 - [x] Separate deterministic controller overflow controls from the unchanged real child-timeout test and independently verify the repaired oracle.
 
@@ -87,6 +87,8 @@ docs/architecture/testing-architecture.md, docs/contributing/build-and-verificat
 | AC-6 | required | Qualifies controller overflow independently of startup latency without accepting a timeout as overflow proof. |
 
 ## Progress Log
+
+- 2026-10-14 final acceptance: all selector, report-scope, fallback and worker-guard controls are satisfied by the recorded negative controls and full reference matrix. Default and declared each passed 11,672 tests / 187 files / 12 skips; declared exact comparison passed. Second completed 11,664 / 187 / 28 skips with two timing assertion failures only and 16 marked default-profile-only additions. Operator explicitly accepted these two failures for remaining closures and this local 1.31.0 pack; the second report remains red and its strict comparator still refuses. No official release or performance approval, threshold change, retry or duplicate selected run is claimed. AC-1–4 and the reference-matrix task are complete under that bounded exception.
 
 - 2026-10-14: Fresh independent grouped code/QA verification passed both exact tests (0.018s) and independently replayed both mutants: each produced two intended assertion failures, zero errors/skips. Test blob a7694fa0c3bfca4b662ff246145c819dc553c6ff and production blob 2ce387037b409eb5d98791c1db0ac871fa64a0e5 stayed unchanged. QA-CONTROLLER-OVERFLOW-FIXTURE cycle3 is terminal; code approval recorded, final QA/release await shared qualification. Focused readiness used isolated primer, one disclosed five-remit delta reviewer and independent chair; no whole-council rerun or source timing diagnosis was claimed.
 - 2026-10-14: Requirement7/AC6 implemented in test_tensorwell_client.py only. Existing real timeout/reaping/sibling checks are byte-for-byte retained; the output check uses a completed-child substitute and synchronous adapter executing the actual drainer, with exact-limit and limit+1 stdout/stderr cases, valid JSON, capped captured lengths and EOF/closed streams. Two focused tests passed (0.051s); removing overflow rejection and removing retention clipping in memory each produced exactly two assertion failures, zero errors/skips. Production blob remains 2ce387037b409eb5d98791c1db0ac871fa64a0e5. Independent repair verification follows; final qualification remains pending. No production or timing threshold changed.

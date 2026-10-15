@@ -1,7 +1,7 @@
 # Wave Record
 
 Owner: Engineering
-Status: paused
+Status: closed
 Last verified: 2026-10-14
 review-evidence-source: events.jsonl
 
@@ -40,10 +40,20 @@ Change Status: `implemented`
 - Requested review lanes: code-reviewer, qa-reviewer, architecture-reviewer, security-reviewer, docs-contract-reviewer
 - Required review lanes: code-reviewer, qa-reviewer, architecture-reviewer, docs-contract-reviewer, security-reviewer
 
+Completed At: 2026-10-14
+
 ## Wave Summary
 
-*(Populated at closure.)*
+Wave `20nnk` (Distribution Compatibility and Hardening) delivered 6 changes: Export the container status contract, Make the declared contract fixture independent of shipped wording, Permit genuinely read-only lifecycle previews during an upgrade, Constrain reconciliation Git query execution, Allow projects to omit local-account review provenance, and Harden worker startup and public refusal diagnostics. Notable adjustments during implementation: Permit genuinely read-only lifecycle previews during an upgrade: Observe: Reconciled the exact docs-lint owners required by the existing read-only preview contract. check_hardcoded_secrets publishes both scanner skips and findings; record_only does not suppress publication, and CLI migration-audit output is another write. Added CLI, secrets validator and their existing tests to review targets.; Harden worker startup and public refusal diagnostics: Observe: Added the existing bytecode-cache test file to review targets because it owns the scratch bootstrap and chaining fixtures needed by the admitted startup controls.
 
+**Changes delivered:**
+
+- **Export the container status contract** (`20nnj-ref export-container-status-contract`) — 4 ACs completed. Key decisions: Select immutable shared constants with equivalent-consumer replacement.
+- **Make the declared contract fixture independent of shipped wording** (`20nnl-bug distribution-independent-contract-fixture`) — 3 ACs completed. Key decisions: Select a fixture-owned assignment placed before module execution reaches any entry-point invocation, with live declarations patched explicitly in test scope.
+- **Permit genuinely read-only lifecycle previews during an upgrade** (`20nnm-enh read-only-lifecycle-preview-during-upgrade`) — 4 ACs completed. Key decisions: Select explicit read-only core evaluation with conservative refusal for unaudited producers.
+- **Constrain reconciliation Git query execution** (`20nno-bug bounded-literal-git-queries`) — 4 ACs completed. Key decisions: Select query-local environment sanitization, explicit command-feature suppression and literal path semantics.
+- **Allow projects to omit local-account review provenance** (`20nnq-enh optional-local-account-provenance`) — 4 ACs completed. Key decisions: Select a backward-compatible boolean opt-out that omits new local-account metadata.; Place `record_local_account` under the existing `wave_review` object; an absent value means true without normalization insertion.
+- **Harden worker startup and public refusal diagnostics** (`20nns-bug worker-bootstrap-and-refusal-boundaries`) — 4 ACs completed. Key decisions: Select prelaunch refusal of cached bootstrap carriers and path-free boundary translation.
 ## Watchpoints
 
 - Watchpoint: Each change retains its own ACs and targeted regression checks; one coordinated readiness/delivery cycle and final canonical suite cover the combined result.
@@ -70,11 +80,11 @@ Change Status: `implemented`
 | Signoff | State | Why | Next action |
 | --- | --- | --- | --- |
 | council-readiness | approved | current executed approval by coryhacking follows every affected repair (local account: coryhacking) | none |
-| council-delivery | withheld | repaired findings require fresh approval: ARCH-DEL-BOOTSTRAP, ARCH-DEL-IMPORT, QA-DEL-RELOAD-CLOSURE | record a fresh independent approval for council-delivery |
+| council-delivery | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | code-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
-| qa-reviewer | withheld | repaired findings require fresh approval: ARCH-DEL-BOOTSTRAP, ARCH-DEL-IMPORT, QA-DEL-RELOAD-CLOSURE, QA-DEL-RELOAD-INTEGRATION | record a fresh independent approval for qa-reviewer |
+| qa-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | architecture-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
-| docs-contract-reviewer | withheld | repaired findings require fresh approval: QA-DEL-RELOAD-CLOSURE | record a fresh independent approval for docs-contract-reviewer |
+| docs-contract-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | security-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | operator-signoff | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 <!-- wave:review-status end -->
@@ -93,12 +103,12 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 
 | Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
-| plan | 123 | 4,055,051 |
+| plan | 129 | 4,199,657 |
 | implement | 311 | 5,255,885 |
-| review | 315 | 2,366,749 |
-| **Total** | **749** | **11,677,685** |
+| review | 318 | 2,363,460 |
+| **Total** | **758** | **11,819,002** |
 
-<!-- wave:context-efficiency-state {"generation":629,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":311,"content_source_credit":5320266,"derived_artifact_credit":0,"direct_net":5255885,"estimated_tokens_saved":5255885,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":11508,"response_debit":303355,"source_credit_count":108,"source_credit_drop_count":0,"structural_source_credit":245212,"workflow_prompt_credit":5270},"plan":{"calls":123,"content_source_credit":4476140,"derived_artifact_credit":3997,"direct_net":4055051,"estimated_tokens_saved":4055051,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":50883,"response_debit":388800,"source_credit_count":253,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":14597},"review":{"calls":315,"content_source_credit":3081875,"derived_artifact_credit":389,"direct_net":2366749,"estimated_tokens_saved":2366749,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":36686,"response_debit":678829,"source_credit_count":128,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":749,"content_source_credit":12878281,"derived_artifact_credit":4386,"direct_net":11677685,"estimated_tokens_saved":11677685,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":99077,"response_debit":1370984,"source_credit_count":489,"source_credit_drop_count":0,"structural_source_credit":245212,"workflow_prompt_credit":19867},"wave_id":"20nnk distribution-status-fixtures"} -->
+<!-- wave:context-efficiency-state {"generation":638,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":311,"content_source_credit":5320266,"derived_artifact_credit":0,"direct_net":5255885,"estimated_tokens_saved":5255885,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":11508,"response_debit":303355,"source_credit_count":108,"source_credit_drop_count":0,"structural_source_credit":245212,"workflow_prompt_credit":5270},"plan":{"calls":129,"content_source_credit":4637894,"derived_artifact_credit":3997,"direct_net":4199657,"estimated_tokens_saved":4199657,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":57501,"response_debit":399330,"source_credit_count":259,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":14597},"review":{"calls":318,"content_source_credit":3081875,"derived_artifact_credit":389,"direct_net":2363460,"estimated_tokens_saved":2363460,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":36725,"response_debit":685010,"source_credit_count":128,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2931}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":758,"content_source_credit":13040035,"derived_artifact_credit":4386,"direct_net":11819002,"estimated_tokens_saved":11819002,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":105734,"response_debit":1387695,"source_credit_count":495,"source_credit_drop_count":0,"structural_source_credit":245212,"workflow_prompt_credit":22798},"wave_id":"20nnk distribution-status-fixtures"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided
@@ -186,3 +196,5 @@ Prepare after qualification-efficiency work so this batch can benefit from resul
 | 2026-10-14 | QA-DEL-RELOAD-CLOSURE is terminal after fresh independent cycle-2 verification; convergence checkpoint recorded. The reviewer exercised closure, actual parser reload, real bridge/feature bundle, wrapper permutations and registered preview/contracts with zero skips; both removed-helper mutants were rejected. | Durable regression owners: .wavefoundry/framework/scripts/tests/test_lifecycle_gates_structure.py, test_server_tools_lifecycle.py, test_upgrade_protocol.py and test_tool_surface_golden.py. All 42 reviewed target hashes remained stable. Final delivery synthesis and whole-source qualification remain pending. |
 
 - 2026-10-14 final shared qualification: repaired default green (11,672 tests, 187 files, 12 skips); declared reference green with exact 12-skip comparison. Renamed reference completed 11,664 tests with only two timing assertions failing (candidate p95 32.098 > 25 ms; projection p95 31.372 > 30.432 ms), plus 16 correctly marked default-profile-only skips. Reports retained in ignored qualification cache; red comparator result preserved. No functional errors, timing root-cause claim, unchanged retry or duplicate selected matrix. Timing investigation remains deferred. Wave paused pending explicit local-pack/closure timing exception and remaining conditional review approvals.
+
+- 2026-10-14 operator disposition: accepted the two observed renamed-profile timing failures (50-candidate p95 32.098 ms > 25 ms; lifecycle projection p95 31.372 ms > 30.432 ms) for closure and this local 1.31.0 pack. Preserve the red report and comparator refusal; timing investigation remains deferred. Default and declared are green and source identities match. This grants no official release or performance qualification. Current approvals reconcile this exception without another test run. Canonical tests and existing guidance retain the fixture/qualification lessons; no new memory candidate or disposable evidence file is needed.
