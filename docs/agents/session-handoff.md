@@ -6,6 +6,9 @@ Last verified: 2026-10-14
 
 ## Current Session
 
+**Official 1.31.0 authorization:** Operator explicitly approved extending the two observed renamed-profile timing exceptions to official v1.31.0 publication, retaining uv 0.12.17. Default and declared qualification remain green; the second-profile report remains red. No timing rerun, threshold change or performance-pass claim. Feature and model assets passed release preflight; publishing follows.
+
+
 **Done:** All six batch waves are closed: 20gz3, 20gz5, 20ngc, 20nnk, 20np5 and 20np7. Final approvals consumed the unchanged reviewed source and existing qualification; no repeat suite or full council. Both edit gates are closed.
 
 **Test state:** Default and declared each passed 11,672 tests / 187 files / 12 skips; declared exact comparison passed. Renamed completed 11,664 / 187 / 28 skips, with only two timing failures: candidate p95 32.098 ms > 25 ms; projection p95 31.372 ms > 30.432 ms. Its 16 extra skips are marked default-profile-only. Operator explicitly accepted these two failures for closure and this local 1.31.0 build. The report remains red and its strict comparator refuses; no official release or performance approval is implied. Timing investigation remains deferred.
