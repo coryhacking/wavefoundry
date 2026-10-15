@@ -6,7 +6,7 @@ Last verified: 2026-10-14
 
 ## Current Session
 
-**Official 1.31.0 authorization:** Operator explicitly approved extending the two observed renamed-profile timing exceptions to official v1.31.0 publication, retaining uv 0.12.17. Default and declared qualification remain green; the second-profile report remains red. No timing rerun, threshold change or performance-pass claim. Feature and model assets passed release preflight; publishing follows.
+**Official 1.31.0 authorization:** Operator explicitly approved extending the two observed renamed-profile timing exceptions to official v1.31.0 publication, retaining uv 0.12.17. Default and declared qualification remain green; the second-profile report remains red. No timing rerun, threshold change or performance-pass claim. Published v1.31.0 at https://github.com/coryhacking/wavefoundry/releases/tag/v1.31.0, build 1.31.0+pwp1, tag commit 0e9f1db9605dbccab13788023c1f44c1bf305b4a. Both assets are uploaded, non-draft/non-prerelease; GitHub sizes and SHA-256 digests match locally verified archives. Feature: 10,604,499 bytes, SHA-256 5f5d37110d48444a5e9c7d1bc812170ed950f9b2cf7ed73d85960577aa010e41. Models: 351,495,236 bytes, SHA-256 be46d20b0defd6bf1b8c13dc39e9db04792ea0ff06833b93c436b4e5b5564e9c. CRC/path/source/changelog/bridge and model file-hash/revision/license checks passed. This verifies publication, not a downstream installation.
 
 
 **Done:** All six batch waves are closed: 20gz3, 20gz5, 20ngc, 20nnk, 20np5 and 20np7. Final approvals consumed the unchanged reviewed source and existing qualification; no repeat suite or full council. Both edit gates are closed.
