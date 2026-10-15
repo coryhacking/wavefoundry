@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-14
+Last verified: 2026-10-15
 
 ## Verification Commands
 
@@ -469,6 +469,10 @@ longer belongs in per-change acceptance criteria; see **Writing Acceptance
 Criteria** in `change-workflow.md`.
 
 ## Wave Framework Pack Upgrade Verification
+
+The optional `--with-embedded-models` build adds `wavefoundry-<semver>.<build>.with-models.zip` and implies `--with-models`. It preserves the lean and standalone assets, one VERSION stamp and identical framework bytes. Release modes publish this exact three-asset set when requested. Models are built from warmed cache without downloads.
+
+The combined archive is directly upgradeable. An existing 1.31.0 runner needs its executable entry after host quiescence: `python3 <combined.zip> --root <repo> --confirm-hosts-stopped`. The fresh runner retains the verified outer source for resume. Current discovery collapses equal-build variants with lean preferred, preserving ordering between distinct builds. Explicit selection remains authoritative. Use the returned recovery command rather than deleting retained artifacts.
 
 When a new framework version is available, upgrade using this procedure:
 

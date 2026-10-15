@@ -8,6 +8,8 @@ Install Wavefoundry
 
 That is the only operator-typed command — the agent runs the rest of the install. Prerequisites: Python 3.11+, an MCP-aware agent host. Full walkthrough and host-specific notes in the [README](https://github.com/coryhacking/wavefoundry#quick-start).
 
+Choose the lean ZIP for the smallest download, or the optional `.with-models.zip` for included offline model sources. Extract the same framework paths from either choice; never unpack `payload/` into the project. Keep the combined ZIP available and pass it to setup with `--model-bundle <combined.zip>` when model provisioning is needed.
+
 ## Upgrade
 
 Already running Wavefoundry on protocol 2? Drop the attached `.zip` at your repo root **without extracting it** and type this shortcut phrase to your agent:
@@ -17,6 +19,8 @@ Upgrade Wavefoundry
 ```
 
 The agent unpacks the zip, advances the framework, runs any required migrations and index rebuilds, and reloads the MCP server. **Review the version notes below** for anything that re-indexes or changes behavior on this upgrade.
+
+For the optional combined ZIP on an existing 1.31.0 installation, automatic discovery cannot recognize the new filename. Stop the target dashboard and attached MCP servers, then have the agent run `python3 <combined.zip> --root <repo> --confirm-hosts-stopped` through its ordinary shell. Follow its retained continuation or restart instructions. New discovery prefers lean when both variants have the same version/build; select combined explicitly when it is needed.
 
 **Upgrading a protocol-1 installation at 1.8.0 or later:** same package, same shortcut phrase, and
 no intermediate version to stage through. The agent stops the dashboard and every attached MCP/agent

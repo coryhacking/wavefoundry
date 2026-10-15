@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-14
+Last verified: 2026-10-15
 
 ## Runtime advisory boundary
 
@@ -930,3 +930,7 @@ replacement rows. No new transaction, writer or persisted digest format is added
 ## Selective wave memory capture
 
 `memory_supply` proposes only current contained regular source anchors. `memory_propose` remains read-only by default; create requires explicit reviewed source-event selection. The server derives bodies and identities, rejects unknown/ineligible selections before writes, and preserves source dispositions across retries. Omitted selection creates nothing, and an empty list is a no-op. Close checks all actual wave-linked pending candidates independently of current proposal eligibility, so a disappeared target cannot conceal unfinished validation. A no-new-memory retrospective lives in wave.md and cannot approve an existing candidate. Ordinary upgrades retain their existing bounded historical-memory checkpoint without broad recuration or a new backfill.
+
+## Combined upgrade input
+
+The builder creates lean output once, then adds one byte-exact model companion and descriptor to a separate combined ZIP. An incoming executable on protocol 2 retains the verified outer archive and stages a fresh runner outside installed source, releasing parent locks before the runner acquires its transaction. The protocol-1 bridge remains separate. The upgrade passes its retained combined source to canonical setup; setup verifies the cache first and streams the embedded companion only on a miss. A paused run retains its source after transient downloads disappear. Dry run publishes no target/cache state, and cleanup removes only recorded owned artifacts.

@@ -53,6 +53,90 @@ class ModelBundleTests(unittest.TestCase):
         else: os.environ["WAVEFOUNDRY_ONNX_SRC_CACHE"] = self.old_onnx
         shutil.rmtree(self.tmp)
 
+    def _combined(self):
+        import build_pack
+        lean = self.out / "wavefoundry-9.0.0.test.zip"
+        with zipfile.ZipFile(lean, "w") as archive:
+            archive.writestr(".wavefoundry/framework/VERSION", "9.0.0+test")
+            archive.writestr(".wavefoundry/framework/scripts/model_bundle.py", 'MODEL_SET_VERSION = "3"')
+        companion = model_bundle.build_bundle(self.out, cache_root=self.cache)
+        combined = build_pack.build_embedded_package(lean, companion)
+        return lean, companion, combined
+
+    def test_combined_exact_companion_and_cold_then_current_cache(self):
+        import embedded_model_bundle as envelope
+        lean, companion, combined = self._combined()
+        with zipfile.ZipFile(combined) as archive, zipfile.ZipFile(lean) as original:
+            declaration = envelope.inspect(archive, model_bundle.MODEL_SET_VERSION)
+            self.assertEqual(archive.read(declaration["member"]), companion.read_bytes())
+            for name in original.namelist():
+                self.assertEqual(archive.read(name), original.read(name))
+        result = model_bundle.materialize_source(combined)
+        self.assertEqual(result["published_components"], len(model_bundle.COMPONENTS))
+        self.assertTrue(model_bundle.canonical_cache_matches())
+        with patch.object(model_bundle.tempfile, "TemporaryDirectory", side_effect=AssertionError("cache hit extracted embedded ZIP")):
+            self.assertEqual(model_bundle.materialize_source(combined)["published_components"], 0)
+        component = self._test_manifest["components"][0]
+        base = model_bundle._target_root(component["target"]) / component["directory"]
+        # A self-consistent forged marker cannot authorize cache reuse.
+        weight = base / "snapshots/rev/onnx/model.onnx"
+        weight.write_bytes(b"changed")
+        marker = base / ".wavefoundry-model-bundle.json"
+        value = json.loads(marker.read_text())
+        value["files"]["snapshots/rev/onnx/model.onnx"] = hashlib.sha256(b"changed").hexdigest()
+        marker.write_text(json.dumps(value))
+        self.assertFalse(model_bundle.canonical_cache_matches())
+
+    def test_combined_cache_hit_requires_exact_bounded_reference_bytes(self):
+        _, _, combined = self._combined()
+        model_bundle.materialize_source(combined)
+        component = self._test_manifest["components"][0]
+        reference = model_bundle._target_root(component["target"]) / component["directory"] / "refs/main"
+        reference.write_bytes(component["revision"].encode() + b"\n")
+        self.assertFalse(model_bundle.canonical_cache_matches())
+        model_bundle.materialize_source(combined)
+        self.assertEqual(reference.read_bytes(), component["revision"].encode())
+        reference.write_bytes(b"x" * 4097)
+        self.assertFalse(model_bundle.canonical_cache_matches())
+        with self.assertRaisesRegex(RuntimeError, "byte limit"):
+            model_bundle._cache_member_bytes(reference, "refs/main")
+
+    def test_combined_bad_declaration_refused_even_with_current_cache(self):
+        import embedded_model_bundle as envelope
+        _, _, combined = self._combined()
+        model_bundle.materialize_source(combined)
+        before = [(p, p.read_bytes()) for p in self.fast.rglob("*") if p.is_file()]
+        with zipfile.ZipFile(combined) as archive:
+            members = {i.filename: archive.read(i) for i in archive.infolist()}
+        original = json.loads(members[envelope.DESCRIPTOR])
+        for key, value in (("schema_version", True), ("model_set_version", "999"),
+                           ("member", "../models.zip"), ("size_bytes", envelope.MAX_BUNDLE_BYTES + 1)):
+            with self.subTest(key=key):
+                altered = dict(original, **{key: value})
+                bad = self.out / "bad.zip"
+                with zipfile.ZipFile(bad, "w") as archive:
+                    for name, body in members.items():
+                        archive.writestr(name, json.dumps(altered) if name == envelope.DESCRIPTOR else body)
+                with self.assertRaises(ValueError):
+                    model_bundle.materialize_source(bad)
+                self.assertEqual(before, [(p, p.read_bytes()) for p in self.fast.rglob("*") if p.is_file()])
+
+    def test_combined_hash_corruption_preserves_empty_cache(self):
+        import embedded_model_bundle as envelope
+        _, _, combined = self._combined()
+        with zipfile.ZipFile(combined) as archive:
+            members = {i.filename: archive.read(i) for i in archive.infolist()}
+        descriptor = json.loads(members[envelope.DESCRIPTOR])
+        descriptor["sha256"] = "0" * 64
+        bad = self.out / "bad.zip"
+        with zipfile.ZipFile(bad, "w") as archive:
+            for name, body in members.items():
+                archive.writestr(name, json.dumps(descriptor) if name == envelope.DESCRIPTOR else body)
+        with self.assertRaisesRegex(RuntimeError, "hash mismatch"):
+            model_bundle.materialize_source(bad)
+        self.assertFalse(self.fast.exists())
+        self.assertFalse(self.onnx.exists())
+
     def test_checked_in_canonical_manifest_is_valid(self):
         self._manifest_patch.stop()
         manifest = model_bundle.load_canonical_verification_manifest()

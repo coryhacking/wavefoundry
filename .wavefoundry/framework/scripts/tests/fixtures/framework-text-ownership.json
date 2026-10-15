@@ -61,6 +61,7 @@
     "scripts/diagnose_python.ps1",
     "scripts/docs_gardener.py",
     "scripts/docs_lint.py",
+    "scripts/embedded_model_bundle.py",
     "scripts/eval_chunker.py",
     "scripts/exploration_avoided.py",
     "scripts/gardener_metadata.py",

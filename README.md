@@ -49,7 +49,7 @@ All exposed as MCP tools — `docs_search`, `code_search`, `code_ask`, `code_lex
 
 - **Local-first.** Operational state lives on disk in your repo and your home directory. No service, no account, no telemetry.
 - **Structural enforcement over policy.** Gates fire in the framework, not in seed-prompt language. An agent cannot talk its way past `wf_close_wave`.
-- **Framework as one deployable feature package.** Wavefoundry ships one extractable `wavefoundry-*.zip` for fresh installs and protocol-2 upgrades; that same zip is directly executable when a protocol-1 installation must cross to protocol 2. An optional, independently versioned `wavefoundry-models-<set>.zip` supplies verified offline embedding and reranker sources for controlled environments. The framework evolves in Wavefoundry's own wave process, gets packaged, and propagates to downstream projects.
+- **Framework package choices.** Wavefoundry ships a lean extractable `wavefoundry-*.zip` for fresh installs and protocol-2 upgrades; that same zip is directly executable when a protocol-1 installation must cross to protocol 2. An optional, independently versioned `wavefoundry-models-<set>.zip` supplies verified offline embedding and reranker sources for controlled environments. The framework evolves in Wavefoundry's own wave process, gets packaged, and propagates to downstream projects.
 - **Honest about scope.** What's required is required; what's optional is clearly labeled.
 
 ---
@@ -450,6 +450,8 @@ instruct a full host restart instead), and updates the semantic index. The upgra
 project root, `~/`, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, and `~/Downloads/` for the highest
 semver feature zip. If that feature declares an offline model set, it looks in the same locations
 for the exact `wavefoundry-models-<set>.zip` asset; it does not select a model asset by "latest".
+
+An optional `wavefoundry-<semver>.<build>.with-models.zip` embeds that companion and is directly upgradeable. Matching canonical caches avoid extraction; models stay outside installed framework source. New discovery prefers lean for an equal version/build. On an installed 1.31.0 runner, use the incoming ZIP executable after stopping target services: `python3 <combined.zip> --root <repo> --confirm-hosts-stopped`. Follow its retained continuation on a pause. Fresh installs extract only `.wavefoundry/*` and `install-wavefoundry.md`; setup accepts the combined ZIP through `--model-bundle`.
 
 A protocol-1 installation at 1.8.0 or later moves to the current release the same way: same
 package, same shortcut phrase, no intermediate version to stage through. The agent stops the

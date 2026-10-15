@@ -6,6 +6,8 @@ You've extracted the Wavefoundry framework zip at your repository root. This fil
 
 The framework tree lives under `.wavefoundry/`. macOS Finder hides dot-prefixed folders by default — that's why this extracted folder may look empty. Press **Cmd + Shift + .** in Finder to show hidden files, or run `ls -la` in a terminal.
 
+For an optional `.with-models.zip`, extract only `.wavefoundry/*` and `install-wavefoundry.md`, as for the lean ZIP. Leave its `payload/` and executable runner members outside the project. Keep the combined ZIP and pass it to canonical setup with `--model-bundle <combined.zip>` if offline models are needed; setup validates the companion and reuses a matching canonical cache without loading models merely to inspect it.
+
 ## Quick reference
 
 - `.wavefoundry/framework/` — seeds, scripts, dashboard assets, VERSION

@@ -16,6 +16,16 @@ The first upgrade into 1.22.0 runs with the installed older runner, so it does n
 
 When `.wavefoundry/upgrade-manifest-old.json` exists, preserve it and retry the same target pack. Do not delete it or switch targets to bypass a pending-recovery refusal; only observed successful pruning retires it. A snapshot cannot reconstruct authority already lost by an earlier unfixed attempt; do not guess retired paths in that case. Existing preflight, permission, host-quiescence, reconciliation, memory, index, cleanup, and protocol-1 bridge requirements remain unchanged.
 
+## Optional combined framework and model ZIP
+
+The lean `wavefoundry-<semver>.<build>.zip` remains available. Optional `wavefoundry-<semver>.<build>.with-models.zip` is directly upgradeable and carries one exact model companion under `payload/models/`, described by `payload/models.json`. Current discovery prefers lean for the same version/build; explicit selection preserves the requested variant. Standalone `wavefoundry-models-<set>.zip` is never a framework upgrade candidate.
+
+An installed 1.31.0 runner cannot automatically discover this new filename. After stopping the target dashboard and attached MCP servers, the agent runs `python3 <combined.zip> --root <repo> --confirm-hosts-stopped` through its ordinary shell. The incoming executable stages a fresh runner outside installed framework source and passes the verified retained outer archive; it preserves the existing protocol-1 bridge route. Use the returned continuation if paused, and restart attached hosts when instructed. Do not substitute a newer pack or delete retained upgrade assets.
+
+The combined upgrade reuses a cache only after checking the selected canonical component identities, revisions and hashes. Otherwise it streams the embedded companion through the existing model installer. Models never become installed framework source. Preview publishes no target or cache data. Invalid declared payloads refuse rather than silently falling back to network downloads. Cache reuse validates the envelope but does not claim verification of embedded bytes that are never consumed.
+
+Optional manual recovery: extract only the companion named by `payload/models.json` (currently `unzip -p <combined.zip> payload/models/wavefoundry-models-3.zip > wavefoundry-models-3.zip`), then pass that zipped companion to `wf setup --model-bundle <models.zip>`. Current setup also accepts the combined ZIP directly through `--model-bundle`; preliminary extraction is unnecessary. Preserve the original archive until the upgrade completes, or follow the returned retained-artifact recovery command.
+
 **Check first when unsure:** `wf setup --check` (optionally `--root PATH --json`)
 reports `ready` (exit 0), `action_required` (exit 1), or `indeterminate` (exit 2).
 Follow the reported action: plain setup for local preparation, a host restart for

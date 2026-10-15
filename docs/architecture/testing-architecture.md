@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-14
+Last verified: 2026-10-15
 
 ## Tensorwell qualification
 
@@ -997,3 +997,7 @@ The report directory is outside framework input hashes and pack payloads. Linked
 `--qualify-profile NAME --qualification-report PATH` is the explicit compatibility path. The source-owned coverage inventory classifies all discovered files and pins the independent footprint plus runner, worker, profile application, profile module and profile asset contracts. The initial exemption is only `test_check_version.py`: pure version comparisons and temporary revision-file fixtures with a stdlib-only helper chain, independent of both vocabulary/layout and tool declarations. All 186 other current workers stay required or uncertain. Unknown or changed inputs fall back to all files; no import graph, filename heuristic or changed-only planner is used. Full `--profile` runs remain available. Reports distinguish full, compatibility and diagnostic scope; comparison recomputes trusted selection from the source tree, verifies exact membership and applied profile, and filters skips from the complete default baseline to the same subset. Diagnostic selectors never become compatibility qualification merely by reporting success. Initial coverage is checked against one full reference matrix and finite fault controls; no timing threshold or additional ordinary wave/upgrade gate is introduced.
 
 Routine review working packets and green transcripts stay temporary. Final evidence, source/profile identities, disagreements, reproducible commands, limits and retained unique-proof references belong in wave.md, with typed authority in immutable events.jsonl. Reuse a matching current receipt after source qualification; validated routine bookkeeping alone does not require another suite or reviewer cycle. Independent required review and fresh full documentation gates remain mandatory.
+
+## Combined package qualification
+
+Combined-package coverage verifies lean/combined framework parity, one companion copy, exact asset-set guards and deterministic same-build selection. Tiny canonical model fixtures exercise cold-cache provisioning, exact-cache reuse without extraction, malformed envelopes and payload refusal with cache preservation. Public executable, CLI and MCP entry tests cover the older-runner boundary; retained-source interruption and launch-failure controls must remain recoverable after the original input disappears. Preview checks compare target/cache state. Focused controls and the normal shared qualification receipt are reused across the wave; packaging does not justify another unchanged default suite.

@@ -9743,7 +9743,10 @@ class BoundedUpgradeReportingTests(unittest.TestCase):
             lib.write_upgrade_lock(root, "1.28.0", "1.29.0")
             owned = self._stage_verified_fixture(root)
             proof = self.mod._VERIFIED_PACK_IDENTITIES[str(owned)]
-            lib.update_upgrade_lock(root, verified_pack_identity=proof)
+            import embedded_model_bundle
+            embedded_proof = embedded_model_bundle.retain(root, owned)
+            embedded = Path(embedded_proof["path"])
+            lib.update_upgrade_lock(root, verified_pack_identity=proof, embedded_source_proof=embedded_proof)
             # A fresh runner represents the separate --cleanup/resume process.
             self.mod = load_upgrade_module()
             unowned = root / "operator.zip"
@@ -9756,6 +9759,7 @@ class BoundedUpgradeReportingTests(unittest.TestCase):
                  contextlib.redirect_stdout(io.StringIO()):
                 self.mod.phase_cleanup(root, "1.28.0", "1.29.0", owned, 0, True)
             self.assertFalse(owned.exists())
+            self.assertFalse(embedded.exists())
             self.assertEqual(unowned.read_bytes(), b"operator")
             self.assertIsNone(lib.read_upgrade_lock(root))
 

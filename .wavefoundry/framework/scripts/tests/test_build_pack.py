@@ -1575,6 +1575,12 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
         )
 
     def test_release_main_wires_feature_and_matching_model_assets(self):
+        self._assert_release_assets(False)
+
+    def test_release_main_wires_additional_combined_asset(self):
+        self._assert_release_assets(True)
+
+    def _assert_release_assets(self, embedded):
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -1588,6 +1594,8 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
                 "bridge": output / "internal-bridge.zip",
                 "selection": output / "internal-selection.json",
             }
+            combined = output / "wavefoundry-1.16.0.ptest.with-models.zip"
+            combined.write_bytes(b"combined")
             orchestration = MagicMock()
             argv = [
                 "build_pack.py",
@@ -1595,7 +1603,7 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
                 "1.16.0",
                 "--output",
                 str(output),
-                "--with-models",
+                "--with-embedded-models" if embedded else "--with-models",
                 "--release-dry-run",
             ]
             with patch.object(sys, "argv", argv), patch.object(
@@ -1630,8 +1638,9 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
                 build_pack, "_run_release_orchestration", orchestration
             ), patch(
                 "model_bundle.build_bundle", return_value=model
-            ) as model_build:
+            ) as model_build, patch.object(build_pack, "build_embedded_package", return_value=combined) as embedded_build:
                 build_pack.main()
+                self.assertEqual(embedded_build.call_count, int(embedded))
 
             bridge_build.assert_called_once()
             bundle_build.assert_called_once_with(
@@ -1649,10 +1658,10 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
                 feature,
                 "assembled notes",
                 dry_run=True,
-                extra_assets=[model],
+                extra_assets=[model, combined] if embedded else [model],
             )
             self.assertEqual(orchestration.call_args.args[2], feature)
-            self.assertEqual(orchestration.call_args.kwargs["extra_assets"], [model])
+            self.assertEqual(orchestration.call_args.kwargs["extra_assets"], [model, combined] if embedded else [model])
 
     def test_release_main_rejects_extra_current_build_public_package(self):
         import tempfile

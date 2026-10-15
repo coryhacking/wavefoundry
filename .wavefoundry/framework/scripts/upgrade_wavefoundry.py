@@ -410,7 +410,7 @@ def _detect_dashboard(root: Path) -> tuple[bool, int | None, str | None]:
 
 import re as _re
 
-_ZIP_NAME_RE = _re.compile(r"^wavefoundry-(\d+\.\d+\.\d+)\.([A-Za-z0-9]+)\.zip$")
+_ZIP_NAME_RE = _re.compile(r"^wavefoundry-(\d+\.\d+\.\d+)\.([A-Za-z0-9]+)(\.with-models)?\.zip$")
 _MODEL_SET_VERSION_RE = _re.compile(
     r'^MODEL_SET_VERSION\s*=\s*["\'](\d+(?:\.\d+)*)["\']\s*$', _re.MULTILINE
 )
@@ -436,6 +436,10 @@ def _matching_model_bundle(feature_zip: Path) -> Path | None:
     model_set_version = _model_set_version_from_pack(feature_zip)
     if model_set_version is None:
         return None
+    import embedded_model_bundle
+    with zipfile.ZipFile(feature_zip) as archive:
+        if embedded_model_bundle.inspect(archive, model_set_version) is not None:
+            return feature_zip
     name = f"wavefoundry-models-{model_set_version}.zip"
     search_dirs = (
         feature_zip.parent,
@@ -544,6 +548,7 @@ def _find_latest_release_zip(root: Path) -> Path | None:
         return None
     best: tuple | None = None
     best_path: Path | None = None
+    candidates = []
     search_dirs = (
         root,
         _HOME_DIR.expanduser(),
@@ -569,11 +574,15 @@ def _find_latest_release_zip(root: Path) -> Path | None:
                 mtime = entry.stat().st_mtime
             except OSError:
                 mtime = 0.0
-            # Tuple comparison: semver primary, then mtime, then build string for determinism.
-            key = (v, mtime, build)
-            if best is None or key > best:
-                best = key
-                best_path = entry
+            candidates.append((v, mtime, build, bool(m.group(3)), entry))
+    lean_builds = {(v, build) for v, _, build, combined, _ in candidates if not combined}
+    for v, mtime, build, combined, entry in candidates:
+        if combined and (v, build) in lean_builds:
+            continue
+        key = (v, mtime, build, str(entry))
+        if best is None or key > best:
+            best = key
+            best_path = entry
     return best_path
 
 
@@ -633,7 +642,8 @@ def _print_all_release_zips(root: Path) -> None:
         return
     # Sort highest-first by (semver, mtime, build).
     ordered = sorted(seen.items(), key=lambda kv: kv[1], reverse=True)
-    selected = ordered[0][0] if ordered else None
+    selected = _find_latest_release_zip(root)
+    selected = selected.resolve() if selected is not None else None
     for path, (_v, _mtime, _build, ver_str) in ordered:
         marker = "*" if path == selected else " "
         print(f"{marker} {ver_str} {path}")
@@ -2779,6 +2789,9 @@ def phase_index_update(root: Path) -> bool:
             import upgrade_lib
             model_lock = upgrade_lib.read_upgrade_lock(root) or {}
             model_env = dict(os.environ)
+            if model_lock.get("embedded_source_proof"):
+                import embedded_model_bundle
+                embedded_model_bundle.validate_retained(root, model_lock["embedded_source_proof"])
             if model_lock.get("model_bundle_path"):
                 model_env["WAVEFOUNDRY_MODEL_BUNDLE"] = str(model_lock["model_bundle_path"])
                 model_env["WAVEFOUNDRY_MODEL_BUNDLE_MODEL_SET_VERSION"] = str(model_lock.get("model_bundle_model_set_version") or "")
@@ -2806,6 +2819,9 @@ def phase_index_update(root: Path) -> bool:
     child_env = dict(os.environ)
     import upgrade_lib
     lock = upgrade_lib.read_upgrade_lock(root) or {}
+    if lock.get("embedded_source_proof"):
+        import embedded_model_bundle
+        embedded_model_bundle.validate_retained(root, lock["embedded_source_proof"])
     if lock.get("model_bundle_path"):
         child_env["WAVEFOUNDRY_MODEL_BUNDLE"] = str(lock["model_bundle_path"])
         child_env["WAVEFOUNDRY_MODEL_BUNDLE_MODEL_SET_VERSION"] = str(lock.get("model_bundle_model_set_version") or "")
@@ -3680,6 +3696,10 @@ def phase_cleanup(
     elif not upgrade_lib.remove_upgrade_lock(root):
         _err("Upgrade checkpoint removal failed; retry --cleanup.")
         raise SystemExit(1)
+    import embedded_model_bundle
+    embedded_proof = lock_state.get("embedded_source_proof")
+    if embedded_proof and not embedded_model_bundle.cleanup(root, embedded_proof):
+        _log("  Owned embedded archive retained — cleanup could not prove ownership or remove it.")
     _log("  Upgrade lock removed — dashboard will trigger post-upgrade reindex.")
 
     _warn_if_background_code_incomplete(root)
@@ -6527,6 +6547,8 @@ def main(argv: list[str] | None = None) -> int:
         log_path = upgrade_log_path(root)
         _log(f"  Upgrade log: {log_path}")
         _log(f"  Watch:       tail -f {log_path}")
+        import upgrade_lib
+        previous_embedded_source_proof = (upgrade_lib.read_upgrade_lock(root) or {}).get("embedded_source_proof")
         try:
             from_version, to_version, zip_path = phase_preflight(
                 root,
@@ -6539,6 +6561,15 @@ def main(argv: list[str] | None = None) -> int:
             raise
 
         selected_feature_zip = zip_path
+        embedded_source_proof = None
+        preserved_source_proof = previous_embedded_source_proof
+        import embedded_model_bundle
+        raw_source_proof = os.environ.get(embedded_model_bundle.SOURCE_PROOF_ENV)
+        if (raw_source_proof is not None
+                and not (isinstance(previous_embedded_source_proof, dict)
+                         and str(selected_feature_zip) == previous_embedded_source_proof.get("path"))):
+            preserved_source_proof = embedded_model_bundle.source_handoff(
+                root, selected_feature_zip, args.expected_pack_sha256, raw_source_proof)
         selected_model_bundle = _matching_model_bundle(selected_feature_zip) if selected_feature_zip is not None else None
         if zip_path is not None:
             try:
@@ -6552,6 +6583,23 @@ def main(argv: list[str] | None = None) -> int:
                 _err(f"upgrade_protocol_invalid: cannot freeze selected feature pack: {exc}")
                 return 3
 
+        if zip_path is not None and (selected_model_bundle == selected_feature_zip or preserved_source_proof is not None):
+            import embedded_model_bundle
+            has_embedded_models = selected_model_bundle == selected_feature_zip
+            if (isinstance(preserved_source_proof, dict)
+                    and str(selected_feature_zip) == preserved_source_proof.get("path")):
+                embedded_model_bundle.validate_retained(root, preserved_source_proof)
+                if _file_sha256(zip_path) != preserved_source_proof["sha256"]:
+                    raise ValueError("retained source changed during staging")
+                embedded_source_proof = preserved_source_proof
+            else:
+                embedded_source_proof = embedded_model_bundle.retain(root, zip_path)
+            _cleanup_verified_pack(zip_path, _VERIFIED_PACK_IDENTITIES.get(str(zip_path)))
+            zip_path = Path(embedded_source_proof["path"])
+            selected_feature_zip = zip_path
+            if has_embedded_models:
+                selected_model_bundle = zip_path
+
         # Build context and load extension module from zip (before extraction).
         ctx = UpgradeContext(root, from_version, to_version, zip_path, args.yes)
         # Hooks consume the private verified copy, but restart commands need the
@@ -6564,6 +6612,8 @@ def main(argv: list[str] | None = None) -> int:
             _run_hook("post_preflight", ctx, ext_mod)
         except BaseException:
             _cleanup_verified_pack(zip_path, _VERIFIED_PACK_IDENTITIES.get(str(zip_path)))
+            if embedded_source_proof is not None:
+                embedded_model_bundle.cleanup(root, embedded_source_proof, preserve=preserved_source_proof)
             raise
 
         # The complete review-policy/config/carrier/wave plan is a true preflight:
@@ -6625,6 +6675,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 if selected_model_bundle is not None:
                     _log(f"  Matching offline model-set asset found: {selected_model_bundle.name}")
+            if embedded_source_proof is not None:
+                upgrade_lib.update_upgrade_lock(root, embedded_source_proof=embedded_source_proof)
             _log("  Upgrade lock written — dashboard will pause indexing.")
 
 

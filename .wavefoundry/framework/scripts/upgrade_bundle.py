@@ -16,6 +16,10 @@ import os
 import subprocess
 import sys
 import zipfile
+import tempfile
+import hashlib
+import shutil
+import embedded_model_bundle as envelope
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import upgrade_bridge_bootstrap
@@ -56,6 +60,7 @@ def _materializer(bundle: Path):
                     "__main__.py",
                     "upgrade_bridge_bootstrap.py",
                     "subprocess_util.py",
+                    *({"embedded_model_bundle.py"} if "embedded_model_bundle.py" in names else set()),
                 }
                 allowed_feature = {
                     name
@@ -63,6 +68,8 @@ def _materializer(bundle: Path):
                     if name.startswith(FEATURE_MEMBER_PREFIX)
                     or name in FEATURE_ROOT_MEMBERS
                 }
+                declaration = envelope.inspect(archive)
+                model_members = {envelope.DESCRIPTOR, declaration["member"]} if declaration else set()
                 allowed_payload = {
                     name for name in names if name.startswith(PAYLOAD_PREFIX)
                 }
@@ -72,7 +79,7 @@ def _materializer(bundle: Path):
                     raise upgrade_bridge_bootstrap.BridgeError(
                         "upgrade_protocol_invalid: bundle contains an unexpected member"
                     )
-                payload = [name for name in names if name.startswith(PAYLOAD_PREFIX)]
+                payload = [name for name in names if name.startswith(PAYLOAD_PREFIX) and name not in model_members]
                 if (
                     not payload
                     or len(payload) != len(set(payload))
@@ -111,7 +118,8 @@ def _materializer(bundle: Path):
                     )
                 for name in sorted(expected):
                     target = destination / PurePosixPath(name).name
-                    target.write_bytes(archive.read(name))
+                    with target.open("xb") as output:
+                        envelope.copy_member(archive, archive.getinfo(name), output, limit=envelope.MAX_BUNDLE_BYTES)
                 return destination / PurePosixPath(selections[0]).name
         except (OSError, UnicodeError, ValueError, zipfile.BadZipFile) as exc:
             if isinstance(exc, upgrade_bridge_bootstrap.BridgeError):
@@ -238,22 +246,96 @@ def _recovery(root: Path, bridge: dict, feature_state: str) -> dict:
     }
 
 
-def run(bundle: Path, root: Path, *, hosts_stopped: bool) -> tuple[int, dict]:
+def _incoming_runner(bundle: Path, root: Path, *, dry_run=False):
+    """Run current pack code without swapping a protocol-2 installed framework."""
+    root = root.resolve(strict=True)
+    if (root / ".wavefoundry/upgrade-in-progress.json").exists():
+        raise upgrade_bridge_bootstrap.BridgeError("upgrade_in_progress: resume the retained upgrade first")
+    retained = None
+    stage = Path(tempfile.mkdtemp(prefix="wf-incoming-runner-"))
+    try:
+        # A preview owns only temporary system storage; no target locks or files.
+        if not dry_run:
+            from contextlib import ExitStack
+            with ExitStack() as locks:
+                for relative, offset, style in (
+                    (upgrade_bridge_bootstrap.LIFECYCLE_LOCK, upgrade_bridge_bootstrap.LIFECYCLE_OFFSET, "record"),
+                    (upgrade_bridge_bootstrap.PUBLICATION_LOCK, 0, "flock"),
+                    (upgrade_bridge_bootstrap.DASHBOARD_LOCK, upgrade_bridge_bootstrap.LIFECYCLE_OFFSET, "flock")):
+                    locks.enter_context(upgrade_bridge_bootstrap._StrictLock(root / relative, offset, style=style))
+                retained = envelope.retain(root, bundle)
+            selected = Path(retained["path"])
+            expected = retained["sha256"]
+        else:
+            selected = stage / "preview.zip"
+            shutil.copyfile(bundle, selected)
+            expected = upgrade_bridge_bootstrap._sha256(selected)
+        payload = stage / "payload"
+        payload.mkdir()
+        selection_path = _materializer(selected)(payload)
+        selection = upgrade_bridge_bootstrap._load_selection(selection_path)
+        feature = payload / selection["feature_archive"]
+        if upgrade_bridge_bootstrap._sha256(feature) != selection["feature_sha256"]:
+            raise ValueError("selected feature hash mismatch")
+        upgrade_bridge_bootstrap._verify_bridge_archive(payload / selection["bridge_archive"], selection["bridge_sha256"])
+        with zipfile.ZipFile(feature) as archive:
+            infos = [i for i in archive.infolist() if i.filename.startswith(".wavefoundry/framework/")]
+            if sum(i.file_size for i in infos) > envelope.MAX_MEMBER_BYTES:
+                raise ValueError("incoming runner exceeds extraction budget")
+            for info in infos:
+                if not envelope.regular_member(info):
+                    raise ValueError("incoming runner contains unsafe member")
+                target = stage / info.filename
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with target.open("xb") as output:
+                    envelope.copy_member(archive, info, output, limit=64 * 1024 * 1024)
+        argv = [sys.executable, "-B", str(stage / ".wavefoundry/framework/scripts/upgrade_wavefoundry.py"),
+                "--root", str(root), "--pack", str(selected), "--expected-pack-sha256", expected, "--yes"]
+        if dry_run:
+            argv.append("--dry-run")
+        return ({"status": "incoming_runner_ready", "source_version": (root / ".wavefoundry/framework/VERSION").read_text().strip(),
+                 "source_protocol": 2, "target_version": selection["feature_release_version"], "target_protocol": 2,
+                 "rollback": None, "next_argv": argv, "feature_archive": str(selected)}, stage, retained)
+    except BaseException:
+        shutil.rmtree(stage, ignore_errors=True)
+        if retained:
+            envelope.cleanup(root, retained)
+        raise
+
+
+def run(bundle: Path, root: Path, *, hosts_stopped: bool, dry_run: bool = False) -> tuple[int, dict]:
     if not hosts_stopped:
         raise upgrade_bridge_bootstrap.BridgeError(
             "host_quiescence_required: fully stop dashboard and attached agent/MCP hosts, "
             "then retry with --confirm-hosts-stopped"
         )
-    bridge = upgrade_bridge_bootstrap.install(
-        root,
-        None,
-        hosts_stopped=True,
-        materialize=_materializer(bundle),
-    )
+    protocol_path = root / ".wavefoundry/framework/UPGRADE-PROTOCOL.json"
+    protocol = json.loads(protocol_path.read_text())["upgrade_protocol_version"] if protocol_path.exists() else 1
+    declaration = None
+    if bundle.is_file():
+        with zipfile.ZipFile(bundle) as archive:
+            declaration = envelope.inspect(archive)
+    retained = None
+    runner_stage = None
+    if protocol == 2 or dry_run:
+        bridge, runner_stage, retained = _incoming_runner(bundle, root, dry_run=dry_run)
+    else:
+        bridge = upgrade_bridge_bootstrap.install(
+            root, None, hosts_stopped=True, materialize=_materializer(bundle))
+        if declaration is not None:
+            retained = envelope.retain(root, bundle)
+            argv = bridge["next_argv"]
+            argv[argv.index("--pack") + 1] = retained["path"]
+            argv[argv.index("--expected-pack-sha256") + 1] = retained["sha256"]
+    child_env = dict(os.environ)
+    child_env.pop(envelope.SOURCE_PROOF_ENV, None)
+    if retained is not None:
+        child_env[envelope.SOURCE_PROOF_ENV] = json.dumps(retained, sort_keys=True)
     try:
         result = subprocess_util.isolated_run(
             bridge["next_argv"],
             cwd=str(root),
+            env=child_env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -262,6 +344,10 @@ def run(bundle: Path, root: Path, *, hosts_stopped: bool) -> tuple[int, dict]:
             check=False,
         )
     except OSError as exc:
+        if retained is not None:
+            bridge["next_argv"] = [sys.executable, "-B", retained["path"], "--root", str(root), "--confirm-hosts-stopped"]
+        if runner_stage is not None:
+            shutil.rmtree(runner_stage, ignore_errors=True)
         feature_state = "spawn_failed"
         payload = {
             "status": "action_required",
@@ -281,6 +367,27 @@ def run(bundle: Path, root: Path, *, hosts_stopped: bool) -> tuple[int, dict]:
             "stderr": _bounded(str(exc)),
         }
         return 2, payload
+    if runner_stage is not None:
+        shutil.rmtree(runner_stage, ignore_errors=True)
+        if retained is not None:
+            bridge["next_argv"] = [sys.executable, "-B", retained["path"], "--root", str(root), "--confirm-hosts-stopped"]
+    if retained is not None:
+        checkpoint_path = root / ".wavefoundry/upgrade-in-progress.json"
+        try:
+            state = json.loads(checkpoint_path.read_text()) if checkpoint_path.exists() else None
+        except (OSError, ValueError, RecursionError):
+            state = {}  # Unreadable recovery authority never authorizes deletion.
+        if state is None and result.returncode == 0:
+            envelope.cleanup(root, retained)
+        elif isinstance(state, dict):
+            child_proof = state.get("embedded_source_proof")
+            if isinstance(child_proof, dict) and child_proof.get("path") != retained["path"]:
+                try:
+                    envelope.validate_retained(root, child_proof)
+                except (OSError, ValueError):
+                    pass
+                else:
+                    envelope.cleanup(root, retained)
     feature_state, checkpoint = _feature_state(root, result.returncode)
     payload = {
         "status": "ok" if result.returncode == 0 else "action_required",
@@ -306,14 +413,16 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True)
     parser.add_argument("--confirm-hosts-stopped", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     try:
         code, payload = run(
             Path(sys.argv[0]).resolve(),
             Path(args.root),
             hosts_stopped=args.confirm_hosts_stopped,
+            dry_run=args.dry_run,
         )
-    except upgrade_bridge_bootstrap.BridgeError as exc:
+    except (upgrade_bridge_bootstrap.BridgeError, ValueError, OSError, zipfile.BadZipFile) as exc:
         code = 2
         payload = {
             "status": "error",

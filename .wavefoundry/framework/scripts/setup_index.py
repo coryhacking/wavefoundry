@@ -2667,7 +2667,7 @@ def main(argv: list[str] | None = None) -> int:
              Path("~/.wavefoundry/dist").expanduser(), Path("~/Downloads").expanduser())
         )
     if model_bundle_path is not None:
-        materialized = model_bundle.materialize_bundle(
+        materialized = model_bundle.materialize_source(
             model_bundle_path,
             expected_model_set_version=(args.model_bundle_model_set_version
                                         or os.environ.get("WAVEFOUNDRY_MODEL_BUNDLE_MODEL_SET_VERSION")

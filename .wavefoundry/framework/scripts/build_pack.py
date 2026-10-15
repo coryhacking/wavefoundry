@@ -1058,6 +1058,7 @@ def build_upgrade_bundle(
             archive.write(source, "__main__.py")
             archive.write(bootstrap_source, "upgrade_bridge_bootstrap.py")
             archive.write(subprocess_source, "subprocess_util.py")
+            archive.write(source.parent / "embedded_model_bundle.py", "embedded_model_bundle.py")
             archive.write(
                 bridge_artifacts["selection"],
                 "payload/" + bridge_artifacts["selection"].name,
@@ -1077,6 +1078,33 @@ def build_upgrade_bundle(
             artifact.unlink(missing_ok=True)
 
 
+def build_embedded_package(lean: Path, model: Path) -> Path:
+    """Append the companion once; preserve the executable and nested lean payload."""
+    import embedded_model_bundle as envelope
+    import model_bundle
+    with zipfile.ZipFile(model) as archive:
+        model_bundle.verify_bundle_archive(archive, model_bundle.MODEL_SET_VERSION)
+    destination = lean.with_name(lean.stem + ".with-models.zip")
+    descriptor = {"schema_version": 1, "model_set_version": model_bundle.MODEL_SET_VERSION,
+                  "member": envelope.PREFIX + model_bundle.bundle_name(),
+                  "size_bytes": model.stat().st_size, "sha256": _file_sha256(model)}
+    if descriptor["size_bytes"] > envelope.MAX_BUNDLE_BYTES:
+        raise RuntimeError("model companion exceeds combined-package byte limit")
+    fd, name = tempfile.mkstemp(prefix=".combined-", dir=lean.parent)
+    os.close(fd)
+    staged = Path(name)
+    try:
+        shutil.copyfile(lean, staged)
+        with zipfile.ZipFile(staged, "a") as archive:
+            archive.writestr(envelope.DESCRIPTOR, json.dumps(descriptor, sort_keys=True))
+            archive.write(model, descriptor["member"], compress_type=zipfile.ZIP_STORED)
+            envelope.inspect(archive, model_bundle.MODEL_SET_VERSION)
+        os.replace(staged, destination)
+        return destination
+    finally:
+        staged.unlink(missing_ok=True)
+
+
 def _public_package_snapshot(output_dir: Path) -> dict[Path, tuple[int, str]]:
     """Fingerprint every top-level Wavefoundry-named release artifact."""
 
@@ -1094,7 +1122,7 @@ def _public_package_snapshot(output_dir: Path) -> dict[Path, tuple[int, str]]:
 def _is_normal_release_zip(path: Path) -> bool:
     return bool(
         re.fullmatch(
-            r"wavefoundry-\d+\.\d+\.\d+\.[A-Za-z0-9]+\.zip",
+            r"wavefoundry-\d+\.\d+\.\d+\.[A-Za-z0-9]+(?:\.with-models)?\.zip",
             path.name,
         )
     )
@@ -1145,7 +1173,7 @@ def _enforce_single_public_package(
         raise RuntimeError(
             f"release build did not produce the expected feature zip: {expected_package}"
         )
-    if any(asset not in after or not _is_model_companion_zip(asset) for asset in (extra_expected or [])):
+    if any(asset not in after or not (_is_model_companion_zip(asset) or (asset.name == expected_package.stem + ".with-models.zip" and _is_normal_release_zip(asset))) for asset in (extra_expected or [])):
         raise RuntimeError("release build did not produce the expected model companion")
     removed = sorted(path.name for path in before if path not in after)
     changed = {
@@ -1246,7 +1274,10 @@ def main():
             "the release pipeline before a real --release."
         ),
     )
+    parser.add_argument("--with-embedded-models", action="store_true",
+                        help="Also build a directly upgradeable ZIP containing the model companion.")
     args = parser.parse_args()
+    args.with_models = args.with_models or args.with_embedded_models
 
     # Validate version format.
     if not re.match(r"^\d+\.\d+\.\d+$", args.version):
@@ -1383,6 +1414,7 @@ def main():
         sys.exit(1)
 
     model_zip: Path | None = None
+    combined_zip: Path | None = None
     try:
         zip_path = build_zip(
             output_dir,
@@ -1420,11 +1452,14 @@ def main():
             import model_bundle
             model_zip = model_bundle.build_bundle(output_dir)
             print(f"Model companion: {model_zip}", file=sys.stderr)
+        if args.with_embedded_models:
+            combined_zip = build_embedded_package(zip_path, model_zip)
+            print(f"Combined upgrade package: {combined_zip}", file=sys.stderr)
         _enforce_single_public_package(
             output_dir,
             zip_path,
             public_packages_before,
-            extra_expected=[model_zip] if model_zip is not None else [],
+            extra_expected=[p for p in (model_zip, combined_zip) if p is not None],
         )
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -1449,7 +1484,7 @@ def main():
                 zip_path,
                 release_notes_body,
                 dry_run=args.release_dry_run,
-                extra_assets=[model_zip] if model_zip is not None else [],
+                extra_assets=[p for p in (model_zip, combined_zip) if p is not None],
             )
         except RuntimeError as exc:
             print(f"error: release orchestration failed: {exc}", file=sys.stderr)

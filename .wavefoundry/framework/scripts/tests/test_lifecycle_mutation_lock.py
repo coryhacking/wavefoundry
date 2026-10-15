@@ -968,7 +968,7 @@ class LifecycleOpenerCensusTests(unittest.TestCase):
     """1zimg AC-7: the lifecycle lock file has a fixed set of openers."""
 
     LITERALS = ("lifecycle-mutation", "LIFECYCLE_MUTATION_LOCK_REL", "LIFECYCLE_LOCK")
-    OPENERS = {"lifecycle_lock.py", "review_evidence.py", "upgrade_bridge_bootstrap.py"}
+    OPENERS = {"lifecycle_lock.py", "review_evidence.py", "upgrade_bridge_bootstrap.py", "upgrade_bundle.py"}
     NAME_ONLY = {"wf_server/server_impl.py"}
 
     def _matches(self) -> dict[str, list[str]]:

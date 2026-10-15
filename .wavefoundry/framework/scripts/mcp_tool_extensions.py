@@ -233,7 +233,7 @@ FRAMEWORK_SCRIPT_MODULE_NAMES = frozenset({
     '_tag_utils', 'accel_embedder', 'advisory_lint_identity', 'agent_surface_integrity', 'ann_reference_eval', 'build_pack',
     'build_scan_allowlist', 'bytecode_cache', 'change_doc_checklist', 'check_version', 'child_tee', 'chunker', 'cli_stdio',
     'commit_provenance', 'contained_files', 'context_efficiency', 'dashboard_handlers', 'dashboard_lib',
-    'dashboard_server', 'design_token_build', 'docs_gardener', 'docs_lint', 'eval_chunker',
+    'dashboard_server', 'design_token_build', 'docs_gardener', 'docs_lint', 'embedded_model_bundle', 'eval_chunker',
     'exploration_avoided', 'gardener_metadata', 'gen_codebase_map', 'gpu_doctor',
     'graph_call_census', 'graph_cluster', 'graph_di_signals', 'graph_indexer',
     'graph_quality_eval', 'graph_query', 'graph_snapshot', 'graph_store', 'history_paths',

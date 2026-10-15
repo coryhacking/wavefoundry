@@ -16,6 +16,7 @@ import shutil
 import stat
 import tempfile
 import zipfile
+import embedded_model_bundle as envelope
 from pathlib import Path
 from typing import Any
 
@@ -128,8 +129,16 @@ def _cache_member_sha256(candidate: Path, relative: str) -> str:
 
 def _cache_member_bytes(candidate: Path, relative: str) -> bytes:
     """Read a cache file for packing/hashing, normalizing ``refs/*`` members."""
-    data = candidate.read_bytes()  # dereference only trusted local cache links
-    return _normalized_ref_bytes(data) if _is_ref_member(relative) else data
+    if _is_ref_member(relative):
+        descriptor = os.open(candidate, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+        with os.fdopen(descriptor, "rb") as source:
+            if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                raise RuntimeError("model cache reference is not a regular file")
+            data = source.read(4097)
+        if len(data) > 4096:
+            raise RuntimeError("model cache reference exceeds byte limit")
+        return _normalized_ref_bytes(data)
+    return candidate.read_bytes()  # used only for explicitly requested local bytes
 
 def _version_key(value: object) -> tuple[int, ...]:
     """Parse the deliberately small dotted-integer model-set version contract."""
@@ -230,7 +239,7 @@ def build_bundle(
     built_manifest = _manifest_from_cache(root)
     if built_manifest != canonical_manifest:
         raise RuntimeError("warmed model cache does not match the canonical verification manifest")
-    payload: list[tuple[str, bytes]] = []
+    payload: list[tuple[str, Path, str]] = []
     for component_id, target, directory, license_id, upstream in COMPONENTS:
         source = root / target / directory
         snapshots = source / "snapshots"
@@ -243,21 +252,22 @@ def build_bundle(
             relative = candidate.relative_to(source).as_posix()
             if relative.startswith("/") or ".." in Path(relative).parts:
                 raise RuntimeError(f"unsafe cache path: {candidate}")
-            data = _cache_member_bytes(candidate, relative)
             arc = f"models/{target}/{directory}/{relative}"
-            payload.append((arc, data))
+            payload.append((arc, candidate, relative))
     out = output_dir / bundle_name()
     with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(_MANIFEST_NAME, json.dumps(canonical_manifest, sort_keys=True, indent=2) + "\n")
         for license_id in ("Apache-2.0", "MIT"):
             archive.writestr(f"THIRD_PARTY_LICENSES/{license_id}.txt", _license_text(license_id))
-        for arc, data in payload:
-            archive.writestr(arc, data)
+        for arc, candidate, relative in payload:
+            if _is_ref_member(relative):
+                archive.writestr(arc, _cache_member_bytes(candidate, relative))
+            else:
+                archive.write(candidate, arc)
     return out
 
 def _safe_member(name: str, info: zipfile.ZipInfo) -> bool:
-    return (not name.startswith("/") and ".." not in Path(name).parts
-            and not (info.external_attr >> 16 & stat.S_IFLNK))
+    return envelope.regular_member(info)
 
 def _component_file_map(component: dict[str, Any]) -> dict[str, str]:
     target, directory = component["target"], component["directory"]
@@ -461,6 +471,74 @@ def _validate_manifest(manifest: dict[str, Any], infos: dict[str, zipfile.ZipInf
     return components
 
 
+def canonical_cache_matches() -> bool:
+    """Read-only comparison with the release authority, never marker-only trust."""
+    try:
+        manifest = load_canonical_verification_manifest()
+        for component in manifest["components"]:
+            destination = _target_root(component["target"]) / component["directory"]
+            reference = destination / "refs/main"
+            descriptor = os.open(reference, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+            with os.fdopen(descriptor, "rb") as stream:
+                if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                    return False
+                revision = stream.read(4097)
+            if len(revision) > 4096 or revision != component["revision"].encode("utf-8"):
+                return False
+            if _cached_component_file_map(destination) != _component_file_map(component):
+                return False
+        return True
+    except (OSError, ValueError, RuntimeError, UnicodeError):
+        return False
+
+
+def materialize_source(bundle: Path, *, expected_model_set_version: str | None = None) -> dict[str, Any]:
+    """Accept a standalone companion or the retained combined upgrade archive."""
+    expected = expected_model_set_version or MODEL_SET_VERSION
+    if expected != MODEL_SET_VERSION:
+        raise RuntimeError("model bundle does not match the installed canonical model set")
+    with zipfile.ZipFile(bundle) as archive:
+        declaration = envelope.inspect(archive, expected)
+        if declaration is None:
+            return materialize_bundle(bundle, expected_model_set_version=expected)
+        if canonical_cache_matches():
+            return {"model_set_version": expected, "published_components": 0,
+                    "embedding_compatibility_fingerprint": EMBEDDING_COMPATIBILITY_FINGERPRINT}
+        with tempfile.TemporaryDirectory(prefix="wf-embedded-models-") as temporary:
+            staged = Path(temporary) / "models.zip"
+            with staged.open("xb") as output:
+                digest = envelope.copy_member(archive, archive.getinfo(declaration["member"]), output,
+                                              limit=envelope.MAX_BUNDLE_BYTES)
+            if digest != declaration["sha256"]:
+                raise RuntimeError("embedded model companion hash mismatch")
+            return materialize_bundle(staged, expected_model_set_version=expected)
+
+
+def verify_bundle_archive(archive, expected_model_set_version=None):
+    members = archive.infolist()
+    infos = {item.filename: item for item in members}
+    if len(infos) != len(members) or _MANIFEST_NAME not in infos or any(not _safe_member(name, info) for name, info in infos.items()):
+        raise RuntimeError("model bundle contains a missing manifest, unsafe path, or link")
+    if sum(item.file_size for item in members) > envelope.MAX_TOTAL_BYTES or any(item.file_size > envelope.MAX_MEMBER_BYTES for item in members):
+        raise RuntimeError("model bundle exceeds byte limits")
+    manifest = json.loads(envelope.read_small(archive, infos[_MANIFEST_NAME], 1024 * 1024))
+    if expected_model_set_version and manifest.get("model_set_version") != expected_model_set_version:
+        raise RuntimeError("model bundle does not match the selected model set")
+    canonical = load_canonical_verification_manifest()
+    if manifest != canonical:
+        raise RuntimeError("model bundle manifest does not match the installed canonical model set")
+    components = _validate_manifest(manifest, infos)
+    for component in components:
+        for relative, digest in _component_file_map(component).items():
+            name = f"models/{component['target']}/{component['directory']}/{relative}"
+            if envelope.copy_member(archive, infos[name]) != digest:
+                raise RuntimeError(f"model bundle hash mismatch: {name}")
+        revision_name = f"models/{component['target']}/{component['directory']}/refs/main"
+        if envelope.read_small(archive, infos[revision_name], 4096).decode("utf-8").strip() != component["revision"].strip():
+            raise RuntimeError("model bundle revision does not match its cache reference")
+    return manifest, components
+
+
 def materialize_bundle(
     bundle: Path,
     *,
@@ -468,25 +546,8 @@ def materialize_bundle(
 ) -> dict[str, Any]:
     """Validate a bundle and atomically publish its declared cache directories."""
     with zipfile.ZipFile(bundle) as archive:
-        members = archive.infolist()
-        infos = {item.filename: item for item in members}
-        if len(infos) != len(members) or _MANIFEST_NAME not in infos or any(not _safe_member(name, info) for name, info in infos.items()):
-            raise RuntimeError("model bundle contains a missing manifest, unsafe path, or link")
-        manifest = json.loads(archive.read(_MANIFEST_NAME))
-        if expected_model_set_version and manifest.get("model_set_version") != expected_model_set_version:
-            raise RuntimeError("model bundle does not match the selected model set")
-        canonical = load_canonical_verification_manifest()
-        if manifest != canonical:
-            raise RuntimeError("model bundle manifest does not match the installed canonical model set")
-        components = _validate_manifest(manifest, infos)
-        for component in components:
-            for relative, digest in _component_file_map(component).items():
-                name = f"models/{component['target']}/{component['directory']}/{relative}"
-                if _sha256(archive.read(name)) != digest:
-                    raise RuntimeError(f"model bundle hash mismatch: {name}")
-            revision_name = f"models/{component['target']}/{component['directory']}/refs/main"
-            if archive.read(revision_name).decode("utf-8").strip() != component["revision"].strip():
-                raise RuntimeError("model bundle revision does not match its cache reference")
+        manifest, components = verify_bundle_archive(archive, expected_model_set_version)
+        infos = {item.filename: item for item in archive.infolist()}
         pending: list[tuple[dict[str, Any], Path, Path, Path]] = []
         for component in components:
             target = _target_root(component["target"])
@@ -516,7 +577,11 @@ def materialize_bundle(
                 rel = Path(*rel.parts[2:])
                 output = staging / rel
                 output.parent.mkdir(parents=True, exist_ok=True)
-                payload = archive.read(path)
+                if not _is_ref_member(rel.as_posix()):
+                    with output.open("xb") as stream:
+                        envelope.copy_member(archive, infos[path], stream)
+                    continue
+                payload = envelope.read_small(archive, infos[path], 4096)
                 # Wave 1vglb: install-side normalization is defensive and independent
                 # of build-side normalization. A set-3 asset already packs the 40-byte
                 # form (the manifest gates above pin it), so this only matters if a

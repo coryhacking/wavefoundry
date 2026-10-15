@@ -56,6 +56,233 @@ class UpgradeProtocolTests(unittest.TestCase):
             inject_install_templates=False,
         )
 
+    def test_embedded_envelope_rejects_unsafe_duplicate_and_actual_overflow(self):
+        import embedded_model_bundle as envelope
+        import hashlib
+        import stat
+        import warnings
+        member = envelope.PREFIX + "wavefoundry-models-3.zip"
+        descriptor = {"schema_version": 1, "model_set_version": "3", "member": member,
+                      "size_bytes": 1, "sha256": hashlib.sha256(b"x").hexdigest()}
+        for invalid in ("duplicate", "link", "extra", "descriptor-limit"):
+            with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / "archive.zip"
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)
+                    with zipfile.ZipFile(path, "w") as archive:
+                        archive.writestr(envelope.DESCRIPTOR, json.dumps(descriptor))
+                        info = zipfile.ZipInfo(member)
+                        if invalid == "link":
+                            info.external_attr = (stat.S_IFLNK | 0o777) << 16
+                        archive.writestr(info, b"x")
+                        if invalid == "duplicate":
+                            archive.writestr(member, b"x")
+                        if invalid == "extra":
+                            archive.writestr(envelope.PREFIX + "unrelated", b"x")
+                with zipfile.ZipFile(path) as archive:
+                    if invalid == "descriptor-limit":
+                        with patch.object(envelope, "MAX_DESCRIPTOR_BYTES", 1):
+                            # Explicit argument exercises configured limit (defaults bind at definition).
+                            with self.assertRaises(ValueError):
+                                envelope.read_small(archive, archive.getinfo(envelope.DESCRIPTOR), 1)
+                    else:
+                        with self.assertRaises(ValueError):
+                            envelope.inspect(archive, "3")
+        for name in ("/abs", "../up", "C:x", "a\\b", "folder/"):
+            self.assertFalse(envelope.regular_member(zipfile.ZipInfo(name)))
+        class LyingArchive:
+            def open(self, info):
+                return io.BytesIO(b"12345")
+        info = zipfile.ZipInfo("models.bin"); info.file_size = 4
+        with self.assertRaisesRegex(ValueError, "exceeded"):
+            envelope.copy_member(LyingArchive(), info, io.BytesIO(), limit=4)
+
+    def test_combined_envelope_retention_refuses_links_and_preserves_replacements(self):
+        import embedded_model_bundle as envelope
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "input.zip"
+            source.write_bytes(b"selected bytes")
+            proof = envelope.retain(root, source)
+            self.assertFalse(envelope.cleanup(root, proof, preserve=dict(proof)))
+            self.assertTrue(Path(proof["path"]).exists())
+            with patch.object(os, "unlink", side_effect=PermissionError("refused")):
+                self.assertFalse(envelope.cleanup(root, proof))
+            self.assertTrue(Path(proof["path"]).exists())
+            source.unlink()
+            retained = Path(proof["path"])
+            self.assertEqual(retained.read_bytes(), b"selected bytes")
+            retained.write_bytes(b"changed bytes")
+            self.assertFalse(envelope.cleanup(root, proof))
+            self.assertTrue(retained.exists())
+            linked = root / "linked.zip"
+            linked.symlink_to(retained)
+            with self.assertRaises(OSError):
+                envelope.retain(root, linked)
+            other = envelope.retain(root, retained)
+            self.assertTrue(envelope.cleanup(root, other))
+            self.assertTrue(retained.exists())
+
+    def test_combined_selection_across_directories_keeps_lean_equal_build(self):
+        import upgrade_wavefoundry as upgrade
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            other = root / "other"
+            other.mkdir()
+            lean = root / "wavefoundry-9.0.0.aaaa.zip"
+            combined = other / "wavefoundry-9.0.0.aaaa.with-models.zip"
+            lean.touch(); combined.touch()
+            os.utime(lean, (1, 1)); os.utime(combined, (100, 100))
+            with patch.multiple(upgrade, _HOME_DIR=other, _HOME_WAVEFOUNDRY_DIR=other,
+                                _DIST_DIR=other, _DOWNLOADS_DIR=other):
+                self.assertEqual(upgrade._find_latest_release_zip(root), lean)
+                newer = other / "wavefoundry-9.0.0.bbbb.with-models.zip"
+                newer.touch(); os.utime(newer, (10, 10))
+                self.assertEqual(upgrade._find_latest_release_zip(root), newer)
+                (other / "wavefoundry-models-999.zip").touch()
+                self.assertEqual(upgrade._find_latest_release_zip(root), newer)
+                lean.unlink()
+                self.assertEqual(upgrade._find_latest_release_zip(root), combined)
+
+    def test_protocol_two_incoming_runner_uses_retained_outer_and_releases_locks(self):
+        import embedded_model_bundle as envelope
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            source = base / "source"; source.mkdir()
+            feature = self._feature(source)
+            artifacts = build_pack.build_protocol_bridge_artifacts(feature, version="1.15.0", build_prefix="test")
+            bundle = build_pack.build_upgrade_bundle(feature, artifacts, version="1.15.0", build_prefix="test")
+            target = base / "target"
+            framework = target / ".wavefoundry/framework"
+            framework.mkdir(parents=True)
+            (framework / "VERSION").write_text("1.31.0+pwp1")
+            (framework / "UPGRADE-PROTOCOL.json").write_text(json.dumps({"upgrade_protocol_version": 2}))
+            bridge, stage, proof = upgrade_bundle._incoming_runner(bundle, target)
+            try:
+                selected = Path(bridge["next_argv"][bridge["next_argv"].index("--pack") + 1])
+                self.assertEqual(selected.read_bytes(), bundle.read_bytes())
+                self.assertEqual(proof["sha256"], upgrade_bridge_bootstrap._sha256(bundle))
+                self.assertTrue((stage / ".wavefoundry/framework/scripts/upgrade_wavefoundry.py").is_file())
+                # Parent must have released the same ownership domain before spawn.
+                with upgrade_bridge_bootstrap._StrictLock(target / upgrade_bridge_bootstrap.PUBLICATION_LOCK, 0, style="flock"):
+                    pass
+                self.assertEqual((framework / "VERSION").read_text(), "1.31.0+pwp1")
+                bundle.unlink()
+                self.assertTrue(selected.is_file())
+            finally:
+                shutil.rmtree(stage)
+                envelope.cleanup(target, proof)
+
+    def test_public_protocol_two_wrapper_transfers_and_cleans_owned_source(self):
+        import embedded_model_bundle as envelope
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            source = base / "source"; source.mkdir()
+            feature = self._feature(source)
+            artifacts = build_pack.build_protocol_bridge_artifacts(feature, version="1.15.0", build_prefix="test")
+            bundle = build_pack.build_upgrade_bundle(feature, artifacts, version="1.15.0", build_prefix="test")
+            for outcome in ("complete", "same-proof", "new-proof", "invalid-proof", "replaced", "failed", "spawn-failed"):
+                with self.subTest(outcome=outcome):
+                    target = base / outcome
+                    framework = target / ".wavefoundry/framework"
+                    framework.mkdir(parents=True)
+                    (framework / "VERSION").write_text("1.31.0+pwp1")
+                    (framework / "UPGRADE-PROTOCOL.json").write_text(json.dumps({"upgrade_protocol_version": 2}))
+                    sentinel = target / "operator.zip"; sentinel.write_bytes(b"operator-owned")
+                    seen = {}
+                    def child(argv, **kwargs):
+                        selected = Path(argv[argv.index("--pack") + 1])
+                        expected = argv[argv.index("--expected-pack-sha256") + 1]
+                        proof = envelope.source_handoff(target, selected, expected, kwargs["env"][envelope.SOURCE_PROOF_ENV])
+                        seen.update(proof=proof, runner=Path(argv[2]))
+                        self.assertEqual(selected.read_bytes(), bundle.read_bytes())
+                        if outcome == "spawn-failed":
+                            raise OSError("cannot spawn")
+                        if outcome in ("same-proof", "new-proof", "invalid-proof"):
+                            adopted = proof
+                            if outcome != "same-proof":
+                                adopted = envelope.retain(target, bundle)
+                                seen["adopted"] = adopted
+                            if outcome == "invalid-proof":
+                                adopted = dict(adopted, sha256="0" * 64)
+                            (target / ".wavefoundry/upgrade-in-progress.json").write_text(json.dumps({"embedded_source_proof": adopted}))
+                        if outcome == "replaced":
+                            selected.unlink(); selected.write_bytes(b"replacement")
+                        return subprocess.CompletedProcess(argv, 1 if outcome == "failed" else 0, "", "")
+                    with patch.object(upgrade_bundle.subprocess_util, "isolated_run", side_effect=child):
+                        code, result = upgrade_bundle.run(bundle, target, hosts_stopped=True)
+                    owned = Path(seen["proof"]["path"])
+                    self.assertEqual(sentinel.read_bytes(), b"operator-owned")
+                    self.assertFalse(seen["runner"].exists())
+                    self.assertEqual(owned.exists(), outcome not in ("complete", "new-proof"))
+                    if outcome in ("failed", "spawn-failed"):
+                        self.assertNotEqual(code, 0)
+                        self.assertIn(str(owned), json.dumps(result["recovery"]))
+                    if outcome == "replaced":
+                        self.assertEqual(owned.read_bytes(), b"replacement")
+                    if "adopted" in seen:
+                        self.assertTrue(Path(seen["adopted"]["path"]).is_file())
+                    if outcome == "same-proof":
+                        # Canonical cleanup consumes precisely the transferred proof.
+                        self.assertTrue(envelope.cleanup(target, seen["proof"]))
+                        self.assertFalse(owned.exists())
+
+    def test_actual_incoming_main_publishes_lean_wrapper_source_ownership(self):
+        import embedded_model_bundle as envelope
+        import upgrade_wavefoundry as upgrade
+        import upgrade_lib
+        import review_policy_upgrade
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            source = base / "source"; source.mkdir()
+            feature = self._feature(source)
+            target = base / "target"
+            framework = target / ".wavefoundry/framework"; framework.mkdir(parents=True)
+            (framework / "VERSION").write_text("1.14.0+old")
+            proof = envelope.retain(target, feature)
+            selected = Path(proof["path"])
+            def stop_after_checkpoint(*args):
+                state = upgrade_lib.read_upgrade_lock(target)
+                self.assertEqual(state["embedded_source_proof"], proof)
+                self.assertEqual(state["zip_path"], str(selected))
+                self.assertFalse(state.get("model_bundle_path"))
+                raise SystemExit(3)
+            with patch.dict(os.environ, {envelope.SOURCE_PROOF_ENV: json.dumps(proof)}), \
+                 patch.object(upgrade, "phase_preflight", return_value=("1.14.0", "1.15.0", selected)), \
+                 patch.object(upgrade, "_matching_model_bundle", return_value=None), \
+                 patch.object(upgrade, "_load_extension_module", return_value=None), \
+                 patch.object(upgrade, "_run_hook"), \
+                 patch.object(review_policy_upgrade, "plan_review_policy_upgrade", return_value=None), \
+                 patch.object(upgrade, "_extract_feature_members", side_effect=stop_after_checkpoint), \
+                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as raised:
+                    upgrade.main(["--root", str(target), "--yes", "--pack", str(selected),
+                                  "--expected-pack-sha256", proof["sha256"]])
+            self.assertEqual(raised.exception.code, 3)
+            self.assertEqual(upgrade_lib.read_upgrade_lock(target)["embedded_source_proof"], proof)
+            self.assertTrue(selected.is_file())
+            self.assertEqual([path.resolve() for path in (target / ".wavefoundry/upgrade-assets").glob("embedded-*.zip")], [selected])
+
+    def test_wrapper_source_handoff_requires_explicit_owned_identity(self):
+        import embedded_model_bundle as envelope
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "operator.zip"; source.write_bytes(b"pack")
+            proof = envelope.retain(root, source)
+            raw = json.dumps(proof)
+            self.assertEqual(envelope.source_handoff(root, proof["path"], proof["sha256"], raw), proof)
+            for selected, digest, value in ((source, proof["sha256"], raw),
+                                             (None, proof["sha256"], raw),
+                                             (proof["path"], None, raw),
+                                             (proof["path"], "0" * 64, raw),
+                                             (proof["path"], proof["sha256"], "[" * 20000)):
+                with self.subTest(selected=selected, digest=digest), self.assertRaises(ValueError):
+                    envelope.source_handoff(root, selected, digest, value)
+            Path(proof["path"]).write_bytes(b"changed")
+            with self.assertRaises(ValueError):
+                envelope.source_handoff(root, proof["path"], proof["sha256"], raw)
+            self.assertEqual(source.read_bytes(), b"pack")
+
     def test_feature_metadata_and_exact_protocol_mappings(self):
         with tempfile.TemporaryDirectory() as tmp:
             feature = self._feature(Path(tmp))

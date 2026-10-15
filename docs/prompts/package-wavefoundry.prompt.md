@@ -2,16 +2,15 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-14
+Last verified: 2026-10-15
 
 Shortcut: **`Package Wavefoundry`** | Legacy: **`Package wave framework`** / **`Package wave context`**
 
 ## Purpose
 
-Build the semver Wavefoundry feature package and, when the model set has
-changed, its independently versioned model-set asset. The feature zip carries the executable
-protocol-bridge entry point used by **Upgrade Wavefoundry**; it remains the
-only automatically selectable framework-upgrade artifact.
+Build the semver Wavefoundry feature package and its optional, independently
+versioned model-set asset. An optional combined ZIP embeds that same model asset
+and can be used directly for upgrades. The lean package remains available.
 
 ## Run
 
@@ -24,6 +23,9 @@ python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH
 python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH --with-models
 python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH --with-models --release-dry-run
 python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH --with-models --release
+
+# Additional directly upgradeable ZIP, plus the lean ZIP and standalone models.
+python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH --with-embedded-models
 ```
 
 ## Required Packaging Order
@@ -86,7 +88,7 @@ python3 -B .wavefoundry/framework/scripts/qualification_report.py --compare .wav
    **Changelog completeness and amendments:** the entry must be COMPLETE — covering every landed change for the version — before the final pack that goes out for field testing, so the archive's internal changelog matches what ships. If the changelog is amended after a pack was built (late fixes, post-test additions), rebuild before publishing: a released zip must never carry a stale internal changelog. When only the changelog changed, the rebuild differs from the tested archive in that one file, which keeps ship-what-you-tested honest. For the actual publish, prefer `build_pack.py --release`: its preflight requires a clean tree on `main` with the matching changelog section and then builds fresh, so the uploaded archive cannot lag the repo.
    - Also list every sensor registered `advisory` without a `decided_wave` in `.wavefoundry/framework/scripts/wave_lint_lib/constants.py` (`SENSOR_POLARITY_REGISTRY`) with its introducing wave, and decide each; a flip to `blocking`, or a decision to keep it advisory, is a recorded change in a later wave, never a release-day edit. Entries with a `decided_wave` are settled and are not re-raised.
 7. Ensure `docs/prompts/prompt-surface-manifest.json` `framework_revision` matches the packaged revision unless you intentionally use `--skip-manifest-check`.
-8. Run the packaging command once. It stamps `.wavefoundry/framework/VERSION` and creates one self-contained `wavefoundry-<version>.zip`: normally extractable as the feature pack and directly executable for protocol-1→2 upgrades. No framework index is built or shipped (framework seeds fold into each project's docs index at setup/upgrade).
+8. Run the packaging command once. It stamps `.wavefoundry/framework/VERSION` and creates the lean `wavefoundry-<version>.zip`. With `--with-embedded-models`, it also creates `wavefoundry-<version>.with-models.zip` with the same framework bytes and build identity. Both carry the executable upgrade entry. No framework index is built or shipped (framework seeds fold into each project's docs index at setup/upgrade).
 9. Review the feature ZIP, its model-set asset when requested, and stamped `VERSION` for consistency. Spot-check that `CHANGELOG.md` is present in the feature ZIP (`unzip -l <feature-zip> | grep CHANGELOG`), that the latest section matches the version just stamped, and that the model-set manifest declares the intended set version, fingerprint, component revisions, hashes, and licenses. Internal bridge composition files must be removed from `dist/` after assembly.
 10. Hand off diff + suggested commit message unless the operator explicitly asks to finalize the commit in this request.
 
@@ -105,7 +107,8 @@ wavefoundry-models-MODEL.SET.zip
 - `MAJOR.MINOR.PATCH` is the required semver release version passed via `--version`.
 - `<build>` is a standalone 4-character base36 pure-time build suffix (5-minute buckets on a pinned build epoch), computed automatically by `build_pack.py` — independent of the lifecycle-ID policy.
 - `VERSION` is stamped to `MAJOR.MINOR.PATCH+<build>` before zip creation, and manifest `framework_revision` must match unless `--skip-manifest-check` is used.
-- The feature zip is both the normal feature pack and the protocol-bridge executable. It is the sole `wavefoundry-*.zip` candidate selected by upgrade discovery.
+- Optional `wavefoundry-MAJOR.MINOR.PATCH.<build>.with-models.zip` contains the same framework and one byte-exact standalone model ZIP under `payload/models/`, described by `payload/models.json`.
+- Discovery accepts lean and combined variants, preferring lean when both have the same version/build. Existing ordering between distinct builds is unchanged; an explicit pack path selects that exact variant.
 - The `wavefoundry-models-*` asset is never independently selected as a framework upgrade. It contains only validated model sources, provenance, hashes, attribution, and license notices. The selected feature ZIP declares the required model-set version; upgrade locates that exact asset in its standard distribution directories and setup rejects a set that does not match the declaration.
 
 ## Options
@@ -119,6 +122,7 @@ wavefoundry-models-MODEL.SET.zip
   local model cache. It never downloads missing model files during packaging.
   Required with `--release` and `--release-dry-run`; optional for non-release
   local builds.
+- `--with-embedded-models`: implies `--with-models` and additionally builds the combined ZIP. With either release mode, the declared asset set is lean, combined and standalone models. It uses the warmed cache and never downloads models during packaging.
 
 ## Operator Recovery When Model Download Is Unavailable
 
@@ -133,9 +137,9 @@ After packaging, target repositories should consume the pack via **Upgrade Wavef
 - keep the cross-OS `wf` / `wf.cmd` dispatcher (and its `wf docs-lint` / `wf docs-gardener` subcommands) aligned with the packaged scripts,
 - validate MCP recovery paths (`wf_audit`, `index_build`) plus docs gate.
 
-A protocol-1 / 1.14 target moving to protocol 2 / 1.15 consumes the matching `.pyz` directly after
-explicitly stopping attached hosts. The bundle verifies and executes the embedded feature zip in
-one invocation; do not publish or instruct the operator to coordinate the internal bridge pieces.
+A supported protocol-1 target consumes the matching executable ZIP after explicit host quiescence; internal bridge pieces remain private build inputs. An existing 1.31.0 runner does not discover the new combined filename automatically. Use the incoming combined ZIP's executable entry after stopping the target's dashboard and attached MCP servers: `python3 <combined.zip> --root <repo> --confirm-hosts-stopped`. Its fresh protocol-2 runner receives the verified retained outer archive. Follow the returned continuation on a pause; do not delete retained upgrade assets.
+
+The combined source is also accepted by setup's `--model-bundle` option. A matching canonical cache avoids embedded extraction and model loading. For optional manual recovery, extract only the declared companion (currently `unzip -p <combined.zip> payload/models/wavefoundry-models-3.zip > wavefoundry-models-3.zip`) and give that ZIP to setup; do not unpack its model files into the repository. Cache reuse verifies canonical component identities and hashes; it does not claim to hash embedded bytes that are never consumed. An invalid declared envelope or consumed payload is refused rather than silently falling back to download.
 
 ## Notes
 

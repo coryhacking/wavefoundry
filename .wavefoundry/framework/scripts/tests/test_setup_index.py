@@ -192,7 +192,7 @@ class VersionAwareDependencyTests(unittest.TestCase):
             model_bundle = types.SimpleNamespace(
                 MODEL_SET_VERSION="1",
                 find_local_bundle=MagicMock(return_value=asset),
-                materialize_bundle=MagicMock(
+                materialize_source=MagicMock(
                     return_value={"model_set_version": "1", "published_components": 5}
                 ),
             )
@@ -201,7 +201,7 @@ class VersionAwareDependencyTests(unittest.TestCase):
                  patch.object(self.mod, "_reexec_with_venv_if_needed"), \
                  patch.object(self.mod, "_run_indexer"):
                 self.assertEqual(self.mod.main(["--root", tmp, "--graph-only"]), 0)
-        model_bundle.materialize_bundle.assert_called_once_with(
+        model_bundle.materialize_source.assert_called_once_with(
             asset, expected_model_set_version="1"
         )
 

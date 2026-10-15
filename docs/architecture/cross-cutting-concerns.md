@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-14
+Last verified: 2026-10-15
 
 ## Configuration
 
@@ -253,3 +253,7 @@ binding. See [the decision](decisions/1yja8-adr%20persisted-storage-continuity.m
 ## Advisory lint proof
 
 `advisory_lint_identity` binds repository identity, the three full-fallback triggers, executing validation modules, scanner configuration, VERSION and installed/source seed and template assets by content. Finite contained reads and inventory limits decline reuse on linked, special, unreadable or oversized inputs. Only a stable completed green full check establishes process-local proof; entries are capped and no proof file is written. Repeated post-write feedback may exempt identical dirty triggers while checking the current changed documents and their existing dependency closure in an isolated child. Identity movement or unavailable provenance cannot yield clean cached feedback. `run_validate` remains a fresh full scan for every explicit lifecycle boundary.
+
+## Embedded model transport
+
+The optional combined package keeps model payloads outside installed source. A bounded stdlib envelope helper validates the exact descriptor/member contract; canonical model identity and cache publication remain owned by the existing model installer. Cache reuse compares the full canonical component map, revisions and hashes without model loading or embedded extraction. Unconsumed embedded bytes are not claimed verified. Invalid declared or consumed payloads refuse rather than becoming a network fallback. Retained outer archives and staging have explicit ownership; cleanup must preserve unrelated files.

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-13
+Last verified: 2026-10-15
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -720,3 +720,13 @@ When seed 050 changes, merge its **Check readiness after Git changes** instructi
 During the editing pass, reconcile this tooling-only policy into existing install/upgrade prompts and Wavefoundry Python support guidance, preserving project additions and renderer-owned regions. Explain the once-per-`wf` invocation and once-per-MCP-serving-start stderr notice, silent dry-run verification, and structured `setup_readiness.advisories` visibility. The advisory is nonblocking and must not be treated as a setup/rebuild action.
 
 Use `.wavefoundry/framework/README.md` **Python runtime advisory and transition** for the deliberate transition: select newer PATH `python3` for both setup and the restarted host; stop all consumers before ordinary setup replaces an incompatible shared environment, or select and propagate an isolated `WAVEFOUNDRY_TOOL_VENV`. Setup does not install Python. Preserve pending recovery ownership and perform a full host restart after changing interpreters.
+
+## Optional combined framework and model ZIP
+
+The lean `wavefoundry-<semver>.<build>.zip` remains available. Optional `wavefoundry-<semver>.<build>.with-models.zip` is directly upgradeable and carries one exact model companion under `payload/models/`, described by `payload/models.json`. Current discovery prefers lean for the same version/build; explicit selection preserves the requested variant. Standalone `wavefoundry-models-<set>.zip` is never a framework upgrade candidate.
+
+An installed 1.31.0 runner cannot automatically discover this new filename. After stopping the target dashboard and attached MCP servers, the agent runs `python3 <combined.zip> --root <repo> --confirm-hosts-stopped` through its ordinary shell. The incoming executable stages a fresh runner outside installed framework source and passes the verified retained outer archive; it preserves the existing protocol-1 bridge route. Use the returned continuation if paused, and restart attached hosts when instructed. Do not substitute a newer pack or delete retained upgrade assets.
+
+The combined upgrade reuses a cache only after checking the selected canonical component identities, revisions and hashes. Otherwise it streams the embedded companion through the existing model installer. Models never become installed framework source. Preview publishes no target or cache data. Invalid declared payloads refuse rather than silently falling back to network downloads. Cache reuse validates the envelope but does not claim verification of embedded bytes that are never consumed.
+
+Optional manual recovery: extract only the companion named by `payload/models.json` (currently `unzip -p <combined.zip> payload/models/wavefoundry-models-3.zip > wavefoundry-models-3.zip`), then pass that zipped companion to `wf setup --model-bundle <models.zip>`. Current setup also accepts the combined ZIP directly through `--model-bundle`; preliminary extraction is unnecessary. Preserve the original archive until the upgrade completes, or follow the returned retained-artifact recovery command.

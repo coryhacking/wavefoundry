@@ -4113,6 +4113,23 @@ def post_extract(ctx):
         _preview_council_role_links(ctx)
         return _post_extract(ctx)
     with _scripts_on_sys_path(_journal_scripts_dir(ctx.root)):
+        # The incoming hook also supplies the companion to an already-running
+        # older parent, whose standalone-only discovery cannot see this envelope.
+        import embedded_model_bundle
+        pack = getattr(ctx, "zip_path", None)
+        if pack is not None:
+            with zipfile.ZipFile(pack) as archive:
+                declaration = embedded_model_bundle.inspect(archive)
+            if declaration is not None:
+                import upgrade_lib
+                lock = upgrade_lib.read_upgrade_lock(ctx.root) or {}
+                proof = lock.get("embedded_source_proof")
+                if not isinstance(proof, dict):
+                    proof = embedded_model_bundle.retain(ctx.root, pack)
+                    upgrade_lib.update_upgrade_lock(ctx.root, embedded_source_proof=proof,
+                        model_bundle_path=proof["path"], model_bundle_model_set_version=declaration["model_set_version"])
+                os.environ["WAVEFOUNDRY_MODEL_BUNDLE"] = proof["path"]
+                os.environ["WAVEFOUNDRY_MODEL_BUNDLE_MODEL_SET_VERSION"] = declaration["model_set_version"]
         return _post_extract(ctx)
 
 
