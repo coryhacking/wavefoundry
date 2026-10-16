@@ -8,9 +8,11 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.32.0] - 2026-10-16
+
 ### Changed
 
-- Negotiate Tensorwell capabilities and send explicit batch/interactive workloads, per-request deadlines, optional process session hints and timing. Bound retries and concurrency, preserve distinct safe failure reasons, and report cached capacity and outcome counters without loading local models after selected-service failure. Legacy pre-capabilities services use the local route; deployed-candidate acceptance remains pending. Wave 20tpp.
+- Negotiate Tensorwell capabilities and send explicit batch/interactive workloads, per-request deadlines, optional process session hints and timing. Bound retries and concurrency, preserve distinct safe failure reasons, and report cached capacity and outcome counters without loading local models after selected-service failure. Legacy pre-capabilities services use the local route. Live embeddings, reranking and adaptive statistics were verified on macOS ARM64. Wave 20tpp.
 
 ### Added
 
@@ -19,6 +21,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Optional `--with-embedded-models` packaging produces a directly upgradeable combined ZIP alongside the lean framework and standalone model assets. Reuse verified model caches or provision from the embedded companion, with retained-source recovery and an executable entry for older installations. Wave 20omx / 20nt1.
 
 ### Fixed
+
+- Keep the legacy temporary-pack alias fixture in a private staging directory so compatibility qualification preserves worker protection. Release qualification follow-up to wave 20tzs.
 
 - Repair legacy temporary-parent aliases, apply name-surrogate classification at archive/recovery boundaries, and preserve guard-pack ownership after a failed publication read-back. Keep actual uv trust refusals visible after ordinary PATH misses. Existing proof formats and no-clobber checks remain; native Windows sharing and OneDrive execution are unqualified. Wave 20tzs.
 

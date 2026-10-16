@@ -194,7 +194,9 @@ class GuardOwnershipTests(unittest.TestCase):
         return patch.object(hooks, '_read_guard_pack', side_effect=read)
 
     def test_legacy_temp_alias_is_removed_by_terminal_cleanup_consumer(self):
-        self.prepare(staged=True)
+        pack_parent = self.enterContext(tempfile.TemporaryDirectory())
+        with patch.object(tempfile, 'gettempdir', return_value=pack_parent):
+            self.prepare(staged=True)
         staged = Path(upgrade_lib.read_upgrade_lock(self.root)['zip_path'])
         self.addCleanup(staged.unlink, missing_ok=True)
         alias = self.root / 'legacy-temp-alias'
