@@ -18,6 +18,7 @@ import publication_control
 import re
 import shlex
 import time
+import uuid
 
 
 BACKGROUND_INDEX_REFRESH_THROTTLE_SECONDS = 15.0
@@ -866,55 +867,26 @@ def run_index_rebuild(
             "stats": pre_stats,
             "stranded_rows_reaped": reaped_uptd.get("total", 0),
             "stranded_rows_reaped_by_table": reaped_uptd,
+            "embedding_execution": {
+                "schema_version": 1, "state": "succeeded", "scope": "no_work",
+                "layers": {name: {"accepted_inputs": 0, "providers": {}}
+                           for name in (("docs", "code") if content == "all" else (content,))
+                           if name in {"docs", "code"}},
+                "result": {"up_to_date": True},
+            },
         }
 
     # Persist stats from the previous completed build before overwriting the log.
     state_path = _index_build_state_path(root, layer)
     log_path = _index_build_log_path(root, layer)
-    prev_log_text = ""
-    if log_path.exists():
-        try:
-            prev_log_text = log_path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            pass
-    if prev_log_text:
-        _m = re.search(
-            r"done\s*[—-]+\s*(\d+)\s+files? indexed,\s*(\d+)\s+doc chunks?,\s*(\d+)\s+code chunks?",
-            prev_log_text,
-        )
-        if _m:
-            _prev_state: dict[str, Any] = {}
-            try:
-                _prev_state = json.loads(_index_build_state_path(root, layer).read_text(encoding="utf-8"))
-            except Exception:
-                pass
-            _prev_started = _prev_state.get("started_at")
-            _finished_ts: Optional[float] = None
-            try:
-                _finished_ts = log_path.stat().st_mtime
-            except OSError:
-                pass
-            _elapsed = (
-                int(_finished_ts - float(_prev_started))
-                if _finished_ts is not None and isinstance(_prev_started, (int, float))
-                else None
-            )
-            _write_index_build_stats_file(root, layer, {
-                "elapsed_seconds": _elapsed,
-                "files_indexed": int(_m.group(1)),
-                "doc_chunks": int(_m.group(2)),
-                "code_chunks": int(_m.group(3)),
-                "built_at": (
-                    datetime.datetime.utcfromtimestamp(_finished_ts).isoformat() + "Z"
-                    if _finished_ts is not None else None
-                ),
-                "content": _prev_state.get("content", content),
-                "mode": "rebuild" if _prev_state.get("full") else "update",
-            })
+    _refresh_index_build_stats_from_finished_log(
+        root, layer, fallback_stats=_read_index_build_stats_file(root, layer),
+    )
 
     state_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = open(log_path, "w", encoding="utf-8")  # noqa: SIM115
+    build_id = uuid.uuid4().hex
     try:
         kwargs: dict[str, Any] = {
             "stdout": log_file,
@@ -925,6 +897,7 @@ def run_index_rebuild(
                     **os.environ,
                     "PROJECT_ROOT": str(root),
                     "WAVEFOUNDRY_INDEX_BUILD_STATE_PATH": str(state_path),
+                    "WAVEFOUNDRY_INDEX_BUILD_ID": build_id,
                     "WAVEFOUNDRY_TIMESTAMP_LOGS": "1",
                 },
             }
@@ -938,7 +911,7 @@ def run_index_rebuild(
     finally:
         log_file.close()
     state_path.write_text(
-        json.dumps({"pid": proc.pid, "started_at": time.time(), "content": content, "layer": layer, "full": full}),
+        json.dumps({"pid": proc.pid, "started_at": time.time(), "content": content, "layer": layer, "full": full, "build_id": build_id}),
         encoding="utf-8",
     )
 
@@ -2444,6 +2417,10 @@ def _index_build_status_response_inner(root: Path, layer: str = "project") -> di
                 usage="index_build_status()",
             )
         idle_data: dict[str, Any] = {"layer": layer_s, "state": "idle"}
+        _refresh_index_build_stats_from_finished_logs(root, layer_s)
+        previous_stats = _read_index_build_stats_file(root, layer_s)
+        if previous_stats is not None:
+            idle_data["previous_stats"] = previous_stats
         if stale_locks_cleaned:
             idle_data["stale_locks_cleaned"] = stale_locks_cleaned
         return server_impl._response("ok", idle_data, next_tools=["index_build"], usage="index_build()")
@@ -2480,6 +2457,11 @@ def _index_build_status_response_inner(root: Path, layer: str = "project") -> di
     log_done = bool(re.search(r"done\s*[—-]+\s*\d+\s+files? indexed", log_text)) or bool(
         re.search(r"index is up to date", log_text)
     )
+    execution = server_impl._parse_embedding_execution_from_log(
+        log_text, expected_build_id=state.get("build_id"), expected_content=state.get("content"),
+    )
+    if "build_index: embedding_execution " in log_text or ("build_id" in state and state.get("content") != "graph"):
+        log_done = execution["state"] in {"succeeded", "failed"}
 
     if layer_s == "project" and background_status == "running":
         pid_path = root / ".wavefoundry" / "index" / "background-build.pid"
@@ -2534,6 +2516,7 @@ def _index_build_status_response_inner(root: Path, layer: str = "project") -> di
             "started_at": started_at,
             "elapsed_seconds": elapsed,
             "progress": last_line,
+            "embedding_execution": execution,
         }
         _running_prev = _read_index_build_stats_file(root, layer_s)
         if _running_prev is not None:
@@ -2548,7 +2531,7 @@ def _index_build_status_response_inner(root: Path, layer: str = "project") -> di
         )
 
     # Process not running (or log confirms done) — build finished (or crashed). Parse summary from log.
-    _refresh_index_build_stats_from_finished_log(root, layer_s)
+    current_stats = _refresh_index_build_stats_from_finished_log(root, layer_s)
     _clear_index_build_state(root, layer_s)
     finished_at = None
     if log_path.exists():
@@ -2568,6 +2551,13 @@ def _index_build_status_response_inner(root: Path, layer: str = "project") -> di
 
     previous_stats = _read_index_build_stats_file(root, layer_s)
     summary: dict[str, Any] = {"layer": layer_s, "state": "finished", "started_at": started_at, "finished_at": finished_at, "elapsed_seconds": finished_elapsed}
+    summary["embedding_execution"] = execution
+    if current_stats is not None and execution["state"] == "succeeded":
+        files_indexed = current_stats.get("files_indexed")
+        doc_chunks = current_stats.get("doc_chunks")
+        code_chunks = current_stats.get("code_chunks")
+    elif execution["state"] != "unknown" or "build_id" in state:
+        files_indexed = doc_chunks = code_chunks = None
     if files_indexed is not None:
         summary.update({"files_indexed": files_indexed, "doc_chunks": doc_chunks, "code_chunks": code_chunks})
     else:

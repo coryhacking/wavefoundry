@@ -150,6 +150,13 @@ Unqualified models, disabled/unavailable service and INT8 workloads retain local
 provisioning; a mixed model list is evaluated per model. Later native warmup uses
 the same eligibility rule. Local dependencies remain supported.
 
+Setup's main path also skips the local embedding provider probe when every
+required embedding model is service-covered. With mixed models it probes a model
+that actually needs local execution. An automatic local ONNX CPU fallback does
+not disable service inference for covered work; explicit provider and framework
+policy still apply. Preparation messages describe selection, not proof that an
+indexing child executed inference.
+
 The provider owns model acquisition and file integrity. Wavefoundry validates its
 supported model/configuration mapping, preprocessing, dimensions, response values
 and persisted index compatibility. The service's reported profile identity is
@@ -193,6 +200,23 @@ ownership conservative; old completions cannot publish into the new epoch. A for
 does not adopt the parent's observation history. Status reads copy only bounded
 metadata under a short lock and do no model, inference or service work. See the
 `docs/specs/mcp-tool-surface.md`, "Cached inference status", for the complete contract.
+
+Indexing children report their own `embedding_execution` separately through build
+logs and `index_build_status`, using a build/pass identity and per-layer provider
+aggregates. `accepted_inputs` counts inputs whose complete embedding result passed
+the indexer's shape, dimension and finite-value validation; it excludes reused
+vectors. Tensorwell logical-request counts exclude transport retry attempts, and
+successful requests passed the client's response validation. An operation can have
+successful requests but no accepted inputs if a later batch fails. Local and opaque
+extension providers expose null request counts, rather than invented HTTP activity.
+
+These counts describe observed work, not unique chunks, daemon totals, physical
+device execution or exactly-once processing. Source-drift retry work remains in
+the invocation totals. `state: succeeded` requires the build's successful result;
+failed/incomplete attempts remain separate from the last successful execution
+summary. No-op builds report zero new work. Legacy or conflicting log evidence
+reports unknown. No status request sends inference or constructs models, and no
+per-chunk history is retained. Model/precision compatibility identity is unchanged.
 See [transport trust](threat-model.md#optional-tensorwell-client) and
 [verification](testing-architecture.md#tensorwell-qualification).
 

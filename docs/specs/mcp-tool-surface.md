@@ -1455,6 +1455,25 @@ object (`status`, `generation`, `scope`, `interrupted`) on every response, and r
 `state: "interrupted"` — never `idle` — when the store records a `building` epoch with
 no live builder (a crashed build; readers are failed closed until an ordinary
 `index_build` run heals the epoch, which an unchanged retry does automatically).
+- **Child embedding activity (wave 20st8):** a running/finished response's
+`embedding_execution` describes the current attempt's observed embedding work.
+Persisted `previous_stats.embedding_execution` retains successful-build provenance;
+`previous_stats.latest_embedding_attempt` separately discloses later failed,
+incomplete or unknown evidence. Idle responses expose these persisted statistics,
+and a no-child up-to-date build response reports zero work with
+`scope: no_work`. Child records use schema 1, a parent `build_id` where available,
+pass identities and docs/code `layers`. Each layer has `accepted_inputs` and a
+bounded `providers` map with `selection_reason`, `accepted_inputs`,
+`logical_requests_offered` and `logical_requests_succeeded`.
+Tensorwell logical requests exclude transport retries; successful requests passed
+client validation. Accepted inputs passed consuming shape/dimension/finite checks;
+reused vectors are excluded, but work repeated by a source-drift retry counts again.
+Opaque extension/local request counts are null. Legacy, stale, conflicting or
+missing records report unknown/incomplete rather than borrowing counters or a
+provider banner. These are attempt observations, not unique-chunk, exactly-once,
+physical-device or index-integrity evidence. The existing publication epoch remains
+authoritative. Reads add no service/model work or telemetry history, and never merge
+child counters into MCP-process observations.
 - `kind` is returned as an empty string `""` in the response (not `null`) when no filter
 is applied.
 - Returns path, section, score, excerpt, trust label, stable result ID, and the

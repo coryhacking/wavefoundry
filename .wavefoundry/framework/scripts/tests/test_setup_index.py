@@ -333,6 +333,12 @@ class SetupIndexTests(unittest.TestCase):
         _gpu.start()
         self.addCleanup(_gpu.stop)
         self._real_prewarm_gpu_accel = _gpu.temp_original
+        # Local setup orchestration controls must never discover a real service
+        # in the operator's home. Service-qualified main/child controls live in
+        # test_tensorwell_integration with a private, synthetic service fixture.
+        _resident = patch.object(self.mod, "_resident_setup_embedder", return_value=None)
+        _resident.start()
+        self.addCleanup(_resident.stop)
 
     def test_fastembed_cache_dir_defaults_under_wavefoundry_cache(self):
         default_cache = Path("/tmp/home/.wavefoundry/cache/fastembed")

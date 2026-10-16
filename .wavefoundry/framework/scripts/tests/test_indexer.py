@@ -9659,3 +9659,182 @@ class OperationalEvidencePolicyTests(_EpochBuildCase):
                 self.assertFalse(set(self.evidence) & self._paths("graph_nodes", "source_file"))
                 for layer in {"docs", "code"} - set(prior_layers):
                     self.assertEqual(self._paths("chunks_" + layer), set(), layer)
+
+
+class EmbeddingExecutionTests(unittest.TestCase):
+    """Build-owned observations, including the real concurrent incremental path."""
+
+    def setUp(self):
+        self.bi = load_build_index()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root, {"docs/guide.md": "# Guide\n\nOriginal documentation.\n",
+                              "src/example.py": "def sample():\n    return 1\n"})
+        self.calls = []
+        self.embedder = _make_embedder_mock(calls=self.calls)
+        self.actual_get_embedder = self.bi._get_embedder
+        self.enterContext(patch.object(self.bi, "_get_embedder", return_value=self.embedder))
+        self.enterContext(patch.object(self.bi, "_predicted_precision_class", return_value="full"))
+        self.enterContext(patch.object(self.bi, "_onnx_providers", return_value=["CPUExecutionProvider"]))
+        self.stderr = self.enterContext(redirect_stderr(io.StringIO()))
+        self.enterContext(redirect_stdout(io.StringIO()))
+
+    def records(self):
+        prefix = self.bi._EMBEDDING_EXECUTION_PREFIX
+        return [json.loads(line[len(prefix):]) for line in self.stderr.getvalue().splitlines()
+                if line.startswith(prefix)]
+
+    def test_full_and_threaded_incremental_shared_model_have_layer_owned_counts(self):
+        full = self.bi.build_index(self.root, full=True, content="all")
+        execution = full["embedding_execution"]
+        self.assertEqual(execution["state"], "succeeded")
+        for layer, total in (("docs", full["doc_chunks"]), ("code", full["code_chunks"])):
+            row = execution["layers"][layer]
+            self.assertGreater(total, 0)
+            self.assertEqual(row["accepted_inputs"], total)
+            self.assertEqual(row["providers"]["in_process"]["accepted_inputs"], total)
+            self.assertIsNone(row["providers"]["in_process"]["logical_requests_offered"])
+        self.assertEqual(sum(map(len, self.calls)), sum(v["accepted_inputs"] for v in execution["layers"].values()))
+        self.calls.clear()
+        (self.root / "docs/guide.md").write_text("# Guide\n\nEntirely changed document.\n")
+        (self.root / "src/example.py").write_text("def sample():\n    return 222\n")
+        update = self.bi.build_index(self.root, content="all")["embedding_execution"]
+        for layer in ("docs", "code"):
+            self.assertGreater(update["layers"][layer]["accepted_inputs"], 0, layer)
+        self.assertEqual(sum(map(len, self.calls)), sum(v["accepted_inputs"] for v in update["layers"].values()))
+        self.assertNotEqual(execution["pass_id"], update["pass_id"])
+
+    def test_noop_reports_zero_and_preserves_model_compatibility(self):
+        self.bi.build_index(self.root, full=True, content="all")
+        before = _read_meta_store(self.root / self.bi.INDEX_DIR_NAME)["model_versions"]
+        self.calls.clear()
+        with patch.object(self.bi, "_get_embedder", side_effect=AssertionError("no-op model construction")):
+            result = self.bi.build_index(self.root, content="all")
+        self.assertTrue(result["up_to_date"])
+        self.assertEqual(result["embedding_execution"]["state"], "succeeded")
+        self.assertEqual(self.calls, [])
+        for row in result["embedding_execution"]["layers"].values():
+            self.assertEqual(row, {"accepted_inputs": 0, "providers": {}})
+        self.assertEqual(_read_meta_store(self.root / self.bi.INDEX_DIR_NAME)["model_versions"], before)
+
+    def test_invalid_results_do_not_receive_accepted_input_credit(self):
+        import numpy as np
+        for bad in ([], [[1.]], [[1.], [2.]], [[float("nan")] * 384, [1.] * 384], [[float("inf")] * 384, [1.] * 384]):
+            with self.subTest(bad=bad), self.bi._observe_embedding_build("docs") as observation:
+                embedder = types.SimpleNamespace(embed=lambda *args, **kwargs: iter(bad))
+                observation.select("docs", embedder, self.bi.DOCS_MODEL)
+                with self.assertRaises(ValueError):
+                    self.bi._embed_texts(embedder, ["first", "second"], layer="docs")
+                self.assertEqual(observation.layers["docs"]["accepted_inputs"], 0)
+                observation.finish({"failed": True})
+        self.assertTrue(np.isfinite(self.bi._embed_texts(self.embedder, ["valid"])).all())
+
+    def test_failure_after_embeddings_records_consumption_without_publication_success(self):
+        with patch.object(self.bi, "_build_graph_artifacts", side_effect=RuntimeError("synthetic graph failure")):
+            with self.assertRaises(RuntimeError):
+                self.bi.build_index(self.root, full=True, content="docs")
+        final = self.records()[-1]
+        self.assertEqual(final["state"], "failed")
+        self.assertGreater(final["layers"]["docs"]["accepted_inputs"], 0)
+        self.assertNotIn("synthetic graph failure", json.dumps(final))
+        self.assertIsNone(self.bi._embedding_execution.get())
+
+    def test_extension_is_labelled_without_inventing_http_counts(self):
+        adapter = types.SimpleNamespace(is_service_provider=True, provider_label="enterprise_fixture",
+                                        embed=self.embedder.embed)
+        with self.bi._observe_embedding_build("docs") as observation:
+            observation.select("docs", adapter, self.bi.DOCS_MODEL)
+            self.bi._embed_texts(adapter, ["private fixture text"], layer="docs")
+            record = observation.finish({})
+        row = record["layers"]["docs"]["providers"]["enterprise_fixture"]
+        self.assertEqual(row["accepted_inputs"], 1)
+        self.assertIsNone(row["logical_requests_offered"])
+        self.assertIsNone(row["logical_requests_succeeded"])
+        self.assertNotIn("private fixture text", json.dumps(record))
+
+    @unittest.skipIf(os.name == "nt", "Private POSIX service fixture; native Tensorwell remains unsupported")
+    def test_real_service_adapter_build_counts_and_invalid_reply(self):
+        import tensorwell_client as tc
+        import inference_profile
+        import test_tensorwell_client as client_tests
+        fixture = client_tests.ClientTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.fake_ready()
+        with patch.object(inference_profile, "PROVIDER", "tensorwell"), \
+             patch.object(inference_profile, "ADAPTER_MODULE", ""), \
+             patch.object(self.bi, "_get_embedder", self.actual_get_embedder):
+            adapter = tc.select_embedder(self.bi.DOCS_MODEL)
+            list(adapter.embed(["unrelated before build"]))
+            before = len([p for p, _ in fixture.requests if p == "/v1/embeddings"])
+            result = self.bi.build_index(self.root, full=True, content="all")
+            execution = result["embedding_execution"]
+            build_log = self.stderr.getvalue()
+            total = 0
+            for layer, count in (("docs", result["doc_chunks"]), ("code", result["code_chunks"])):
+                row = execution["layers"][layer]["providers"]["tensorwell"]
+                self.assertEqual(row["accepted_inputs"], count)
+                self.assertGreater(row["logical_requests_offered"], 0)
+                self.assertEqual(row["logical_requests_offered"], row["logical_requests_succeeded"])
+                total += row["logical_requests_offered"]
+            self.assertEqual(total, len([p for p, _ in fixture.requests if p == "/v1/embeddings"]) - before)
+            bad_adapter = tc.select_embedder(self.bi.DOCS_MODEL)
+            fixture.reply = lambda path, body: {"instance_id": client_tests.INSTANCE,
+                "model": client_tests.descriptor("embedding"), "data": []} if path == "/v1/embeddings" else None
+            with self.bi._observe_embedding_build("docs") as observation:
+                observation.select("docs", bad_adapter, self.bi.DOCS_MODEL)
+                with self.assertRaises(tc.TensorwellUnavailable):
+                    self.bi._embed_texts(bad_adapter, ["invalid output"], layer="docs")
+                failed = observation.finish({"failed": True})
+            row = failed["layers"]["docs"]["providers"]["tensorwell"]
+            self.assertEqual((row["accepted_inputs"], row["logical_requests_offered"], row["logical_requests_succeeded"]), (0, 1, 0))
+            # Exercise the actual pure parser without the server test loader's
+            # process-wide module replacements disturbing indexer identity tests.
+            import ast
+            import re
+            from framework_files import source_path
+            source = source_path("server_impl.py").read_text(encoding="utf-8")
+            parser = next(node for node in ast.parse(source).body
+                          if isinstance(node, ast.FunctionDef) and node.name == "_parse_embedding_execution_from_log")
+            namespace = {"re": re, "json": json}
+            exec(compile(ast.Module(body=[parser], type_ignores=[]), "<actual-build-parser>", "exec"), namespace)
+            parsed = namespace["_parse_embedding_execution_from_log"](
+                build_log, expected_build_id=execution["build_id"], expected_content="all")
+            self.assertEqual(parsed["state"], "succeeded", parsed)
+            self.assertEqual(parsed["layers"], execution["layers"])
+
+    @unittest.skipIf(os.name == "nt", "Private POSIX service fixture; native Tensorwell remains unsupported")
+    def test_logical_requests_exclude_retries_and_other_threads(self):
+        import threading
+        import tensorwell_client as tc
+        import test_tensorwell_client as client_tests
+        fixture = client_tests.ClientTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.fake_ready()
+        adapter = tc.select_embedder(self.bi.DOCS_MODEL)
+        attempts = []
+        def transient(path, body):
+            if path == "/v1/embeddings":
+                attempts.append(body)
+                if len(attempts) == 1:
+                    raise OSError("synthetic transient")
+        fixture.reply = transient
+        with tc.observe_embedding_requests() as counts, patch.object(tc.time, "sleep"):
+            list(adapter.embed(["retry fixture"] * 65))
+            self.assertEqual(counts, {"offered": 3, "succeeded": 3})
+            self.assertEqual(len(attempts), 4)
+            failures = []
+            def unrelated():
+                try:
+                    list(adapter.embed(["unrelated thread"]))
+                except BaseException as exc:
+                    failures.append(exc)
+            worker = threading.Thread(target=unrelated)
+            worker.start()
+            worker.join(3)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(failures, [])
+            self.assertEqual(counts, {"offered": 3, "succeeded": 3})
+        self.assertIsNone(tc._embedding_request_observer.get())

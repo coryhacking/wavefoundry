@@ -9,6 +9,8 @@ schedule the single bounded controller attempt.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from contextlib import contextmanager
+from contextvars import ContextVar
 import hashlib
 import http.client
 import json
@@ -64,6 +66,22 @@ CACHE_SECONDS = 5.0
 BACKOFF_SECONDS = 5.0
 CLI_OUTPUT_BYTES = 64 << 10
 FLOAT32_MAX = float.fromhex("0x1.fffffep+127")
+
+_embedding_request_observer = ContextVar("embedding_request_observer", default=None)
+
+
+@contextmanager
+def observe_embedding_requests():
+    """Observe only logical embedding requests in this consuming call context.
+
+    Not daemon counters or a lifetime snapshot; retries stay inside _request.
+    """
+    counts = {"offered": 0, "succeeded": 0}
+    token = _embedding_request_observer.set(counts)
+    try:
+        yield counts
+    finally:
+        _embedding_request_observer.reset(token)
 
 
 class TensorwellUnavailable(RuntimeError):
@@ -369,9 +387,9 @@ def _policy_reason() -> str | None:
     requested = os.environ.get("WAVEFOUNDRY_EMBED_PROVIDER", "auto").strip().lower()
     if requested not in {"", "auto", "coreml"}:
         return "provider_policy"
-    selected = os.environ.get("WAVEFOUNDRY_EMBED_PROVIDER_SELECTED", "")
-    if requested in {"", "auto"} and selected and selected != "CoreMLExecutionProvider":
-        return "provider_policy"
+    # The automatic setup decision applies only to local ONNX execution.
+    # A CPU fallback for one uncovered model must not veto a qualified service
+    # for another model. Explicit operator policy above remains authoritative.
     return None
 
 
@@ -535,6 +553,9 @@ def _request(snapshot: _Snapshot, path: str, deadline: float, body: bytes | None
     if inference:
         with _lock:
             _counters["offered"] += 1
+        observer = _embedding_request_observer.get()
+        if path == "/v1/embeddings" and observer is not None:
+            observer["offered"] += 1
     for number in range(MAX_ATTEMPTS):
         try:
             if inference and service_seconds is not None:
@@ -985,6 +1006,9 @@ class _Adapter:
                     except TimeoutError:
                         raise TensorwellUnavailable("deadline_exceeded", phase="response_validation") from None
                     _counters["succeeded"] += 1
+                    observer = _embedding_request_observer.get()
+                    if self._task == "embedding" and observer is not None:
+                        observer["succeeded"] += 1
                     if self._pair.generation == _generation and _pair is not None and _pair.snapshot.instance == self._pair.snapshot.instance:
                         _status["reason"] = "qualified_pair"
                 if workload == "interactive":

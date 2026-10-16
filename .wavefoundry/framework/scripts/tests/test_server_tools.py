@@ -60,6 +60,289 @@ def _waves_dir(root: Path) -> Path:
     return Path(root).joinpath(*record_paths.WAVES_ROOT.split("/"))
 
 
+class IndexEmbeddingExecutionTests(unittest.TestCase):
+    """Child execution observations stay separate from provider readiness."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = _make_repo(Path(self.tmp.name))
+        self.state_path = self.srv._index_build_state_path(self.root, "project")
+        self.log_path = self.srv._index_build_log_path(self.root, "project")
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        self.build_id = "a" * 32
+
+    def record(self, *, state="running", content="docs", pass_id=None,
+               backend="tensorwell", inputs=0, requests=0):
+        names = ("docs", "code") if content == "all" else (content,)
+        providers = ({backend: {
+            "selection_reason": "qualified_pair" if backend == "tensorwell" else "service_unavailable",
+            "accepted_inputs": inputs,
+            "logical_requests_offered": requests if backend == "tensorwell" else None,
+            "logical_requests_succeeded": requests if backend == "tensorwell" else None,
+        }} if inputs or requests else {})
+        return {"schema_version": 1, "build_id": self.build_id,
+                "pass_id": pass_id or "b" * 32, "content": content, "state": state,
+                "layers": {name: {"accepted_inputs": inputs, "providers": providers} for name in names},
+                "result": {"files_indexed": 2, "doc_chunks": inputs, "code_chunks": 0} if state == "succeeded" else {}}
+
+    def lines(self, *records):
+        return "".join("build_index: embedding_execution " + json.dumps(record) + "\n" for record in records)
+
+    def parse(self, text, **kwargs):
+        return self.srv._parse_embedding_execution_from_log(text, **kwargs)
+
+    def write_state(self, *, content="docs"):
+        self.state_path.write_text(json.dumps({"pid": 99999999, "started_at": time.time() - 10,
+                                              "build_id": self.build_id, "content": content}), encoding="utf-8")
+
+    def test_service_success_zero_work_and_local_visibility(self):
+        for backend, count in (("tensorwell", 65), ("in_process", 17), ("enterprise_fixture", 9)):
+            with self.subTest(backend=backend):
+                text = self.lines(self.record(), self.record(state="succeeded", backend=backend, inputs=count, requests=3))
+                parsed = self.parse(text, expected_build_id=self.build_id, expected_content="docs")
+                self.assertEqual(parsed["state"], "succeeded")
+                observation = parsed["layers"]["docs"]["providers"][backend]
+                self.assertEqual(observation["accepted_inputs"], count)
+                self.assertEqual(observation["logical_requests_succeeded"], 3 if backend == "tensorwell" else None)
+        final = self.record(state="succeeded")
+        final["result"] = {"up_to_date": True}
+        parsed = self.parse(self.lines(self.record(), final))
+        self.assertEqual(parsed["layers"]["docs"], {"accepted_inputs": 0, "providers": {}})
+        self.assertEqual(parsed["result"], {"up_to_date": True})
+
+    def test_timestamped_records_and_legacy_unknown(self):
+        text = self.lines(self.record(), self.record(state="succeeded", inputs=3, requests=1))
+        text = "".join("2026-10-16T17:00:00+00:00 " + line + "\n" for line in text.splitlines())
+        self.assertEqual(self.parse(text)["state"], "succeeded")
+        legacy = "Embedding provider: selected=CoreMLExecutionProvider\nbuild_index: done — 2 files indexed, 3 doc chunks, 0 code chunks\n"
+        self.assertEqual(self.parse(legacy), {"schema_version": 1, "state": "unknown", "reason": "not_reported"})
+        self.assertEqual(self.parse("prose " + text)["state"], "unknown")
+
+    def test_owned_records_refuse_stale_duplicate_and_conflicting_passes(self):
+        start, end = self.record(), self.record(state="succeeded", inputs=3, requests=1)
+        for text, kwargs in (
+            (self.lines(start, end), {"expected_build_id": "c" * 32}),
+            (self.lines(start, end, end), {}),
+            (self.lines(end), {}),
+            (self.lines(start, end, self.record(pass_id="c" * 32)), {}),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.parse(text, **kwargs)["state"], "unknown")
+        # Job scope cannot reuse a successful docs child as a complete all build.
+        parsed = self.parse(self.lines(start, end), expected_build_id=self.build_id, expected_content="all")
+        self.assertEqual(parsed["state"], "incomplete")
+
+    def test_later_child_start_and_failure_do_not_inherit_earlier_done_marker(self):
+        docs_start = self.record()
+        docs_end = self.record(state="succeeded", inputs=3, requests=1)
+        code_start = self.record(content="code", pass_id="c" * 32)
+        text = self.lines(docs_start, docs_end) + "build_index: done — 2 files indexed, 3 doc chunks, 0 code chunks\n" + self.lines(code_start)
+        parsed = self.parse(text, expected_build_id=self.build_id, expected_content="all")
+        self.assertEqual(parsed["state"], "incomplete")
+        self.assertEqual(parsed["layers"]["code"]["accepted_inputs"], 0)
+        failed = self.record(content="code", pass_id="c" * 32, state="failed", inputs=4, requests=2)
+        self.assertEqual(self.parse(text + self.lines(failed))["state"], "failed")
+
+    def test_all_job_does_not_finish_between_successful_docs_and_code_start(self):
+        self.write_state(content="all")
+        self.log_path.write_text(self.lines(self.record(), self.record(state="succeeded", inputs=3, requests=1))
+                                 + "build_index: done — 2 files indexed, 3 doc chunks, 0 code chunks\n", encoding="utf-8")
+        with patch.object(self.srv, "_pid_is_running", return_value=True), \
+             patch("wf_server.index_handlers._pid_started_after", return_value=False):
+            result = self.srv.index_build_status_response(self.root)["data"]
+        self.assertEqual(result["state"], "running")
+        self.assertEqual(result["embedding_execution"]["state"], "incomplete")
+        self.assertTrue(self.state_path.exists())
+
+    def test_no_child_up_to_date_reports_zero_without_reusing_previous_activity(self):
+        previous = {"embedding_execution": {"state": "succeeded", "layers": {"docs": {"accepted_inputs": 90}}}}
+        self.srv._write_index_build_stats_file(self.root, "project", previous)
+        import wf_server.index_handlers as index_handlers
+        with patch.object(index_handlers, "_index_build_active", return_value=False), \
+             patch.object(index_handlers, "_index_is_up_to_date", return_value=True), \
+             patch.object(index_handlers, "_check_index_writer_current"), \
+             patch.object(index_handlers, "_read_index_rebuild_stats", return_value={}), \
+             patch("subprocess.Popen", side_effect=AssertionError("no-work spawned child")):
+            result = self.srv.run_index_rebuild(self.root, content="all")
+        execution = result["embedding_execution"]
+        self.assertEqual(execution["scope"], "no_work")
+        self.assertNotIn("pass_id", execution)
+        self.assertEqual(execution["layers"], {name: {"accepted_inputs": 0, "providers": {}} for name in ("docs", "code")})
+        self.assertEqual(self.srv._read_index_build_stats_file(self.root, "project"), previous)
+
+    def test_standalone_finished_background_log_is_available_without_health_probe(self):
+        background_log = self.srv._project_background_build_log_path(self.root)
+        background_log.write_text(self.lines(self.record(content="code"),
+                                              self.record(content="code", state="succeeded", inputs=12, requests=1)), encoding="utf-8")
+        result = self.srv.index_build_status_response(self.root)["data"]
+        self.assertEqual(result["state"], "idle")
+        execution = result["previous_stats"]["embedding_execution"]
+        self.assertEqual(execution["state"], "succeeded")
+        self.assertEqual(execution["scope"], "standalone")
+        self.assertEqual(execution["layers"]["code"]["accepted_inputs"], 12)
+
+    def test_standalone_background_log_does_not_inherit_previous_all_job(self):
+        previous = {"content": "all", "files_indexed": 99,
+                    "doc_chunks": 101, "code_chunks": 102,
+                    "elapsed_seconds": 77, "build_id": "d" * 32,
+                    "embedding_execution": {"schema_version": 1,
+                                            "state": "succeeded", "scope": "job",
+                                            "build_id": "d" * 32}}
+        background_log = self.srv._project_background_build_log_path(self.root)
+        final = self.record(content="code", state="succeeded", inputs=12, requests=1)
+        final["result"] = {"files_indexed": 2, "doc_chunks": 0, "code_chunks": 12}
+        background_log.write_text(self.lines(self.record(content="code"), final), encoding="utf-8")
+        # Repeated idle reads must retain the current pass, not repeatedly
+        # rewrite the prior all-job counts with an incomplete annotation.
+        for prior_build_id in ("d" * 32, self.build_id):
+            with self.subTest(prior_build_id=prior_build_id):
+                previous["embedding_execution"]["build_id"] = prior_build_id
+                self.srv._write_index_build_stats_file(self.root, "project", previous)
+                for _ in range(2):
+                    result = self.srv.index_build_status_response(self.root)["data"]
+                    self.assertEqual(result["state"], "idle")
+                    stats = result["previous_stats"]
+                    execution = stats["embedding_execution"]
+                    self.assertEqual(execution["state"], "succeeded")
+                    self.assertEqual(execution["scope"], "standalone")
+                    self.assertEqual(execution["build_id"], self.build_id)
+                    self.assertEqual(execution["layers"]["code"]["accepted_inputs"], 12)
+                    self.assertEqual(stats["latest_embedding_attempt"], execution)
+                    self.assertEqual((stats["files_indexed"], stats["doc_chunks"], stats["code_chunks"]), (2, 0, 12))
+                    self.assertEqual(stats["content"], "code")
+                    self.assertIsNone(stats["elapsed_seconds"])
+
+    def test_standalone_background_failure_preserves_success_without_job_binding(self):
+        old = {"schema_version": 1, "state": "succeeded", "scope": "job",
+               "build_id": "d" * 32}
+        previous = {"content": "all", "code_chunks": 102, "embedding_execution": old}
+        background_log = self.srv._project_background_build_log_path(self.root)
+        for state in ("failed", "running"):
+            with self.subTest(state=state):
+                self.srv._write_index_build_stats_file(self.root, "project", previous)
+                records = [self.record(content="code")]
+                if state == "failed":
+                    records.append(self.record(content="code", state="failed", inputs=12, requests=1))
+                background_log.write_text(self.lines(*records), encoding="utf-8")
+                stats = self.srv.index_build_status_response(self.root)["data"]["previous_stats"]
+                self.assertEqual(stats["embedding_execution"], old)
+                self.assertEqual(stats["code_chunks"], 102)
+                latest = stats["latest_embedding_attempt"]
+                self.assertEqual(latest["state"], "failed" if state == "failed" else "incomplete")
+                self.assertEqual(latest["build_id"], self.build_id)
+                self.assertEqual(latest["scope"], "standalone")
+
+    def test_mcp_log_retains_all_job_completeness_without_state_file(self):
+        previous_execution = {"schema_version": 1, "state": "succeeded",
+                              "scope": "job", "build_id": self.build_id}
+        previous = {"content": "all", "code_chunks": 102,
+                    "embedding_execution": previous_execution}
+        self.srv._write_index_build_stats_file(self.root, "project", previous)
+        self.log_path.write_text(self.lines(self.record(), self.record(state="succeeded", inputs=3, requests=1)), encoding="utf-8")
+        result = self.srv.index_build_status_response(self.root)["data"]["previous_stats"]
+        self.assertEqual(result["embedding_execution"], previous_execution)
+        self.assertEqual(result["code_chunks"], 102)
+        self.assertEqual(result["latest_embedding_attempt"]["state"], "incomplete")
+        self.assertEqual(result["latest_embedding_attempt"]["scope"], "job")
+
+    def test_malformed_bounded_records_fail_closed_without_echoing_fields(self):
+        mutations = [
+            lambda r: r.update(schema_version=True),
+            lambda r: r.update(build_id="bad"),
+            lambda r: r["layers"]["docs"].update(accepted_inputs=-1),
+            lambda r: r["layers"]["docs"].update(accepted_inputs=True),
+            lambda r: r["layers"]["docs"].update(accepted_inputs=2**60),
+            lambda r: r["layers"]["docs"]["providers"]["tensorwell"].update(logical_requests_succeeded=9),
+            lambda r: r["layers"]["docs"]["providers"]["tensorwell"].update(selection_reason="private /path"),
+            lambda r: r.update(secret="x" * 9000),
+        ]
+        for mutation in mutations:
+            record = self.record(state="succeeded", inputs=3, requests=1)
+            mutation(record)
+            with self.subTest(record=record):
+                self.assertEqual(self.parse(self.lines(self.record(), record))["state"], "unknown")
+        text = self.lines(self.record(), self.record(state="succeeded", inputs=3, requests=1))
+        text = text.replace('"schema_version": 1', '"schema_version": 1, "schema_version": 1')
+        self.assertEqual(self.parse(text)["state"], "unknown")
+        self.assertEqual(self.parse("build_index: embedding_execution " + "[" * 5000)["state"], "unknown")
+        self.assertEqual(self.parse(self.lines(*[self.record() for _ in range(9)]))["reason"], "record_limit")
+        end = self.record(state="succeeded", inputs=3, requests=1)
+        end["layers"]["docs"]["secret"] = "private text"
+        end["layers"]["docs"]["providers"]["tensorwell"]["secret"] = "private text"
+        self.assertNotIn("private text", json.dumps(self.parse(self.lines(self.record(), end))))
+
+    def test_failed_and_incomplete_attempt_preserve_previous_success(self):
+        old = {"schema_version": 1, "state": "succeeded", "build_id": "d" * 32}
+        previous = {"files_indexed": 8, "doc_chunks": 10, "embedding_execution": old}
+        for final_state in ("failed", "running"):
+            self.write_state()
+            self.srv._write_index_build_stats_file(self.root, "project", previous)
+            records = [self.record()]
+            if final_state == "failed":
+                records.append(self.record(state="failed", inputs=3, requests=1))
+            self.log_path.write_text(self.lines(*records), encoding="utf-8")
+            with patch.object(self.srv, "_index_build_active", return_value=False):
+                result = self.srv._refresh_index_build_stats_from_finished_log(self.root, "project")
+            self.assertEqual(result["embedding_execution"], old)
+            self.assertEqual(result["doc_chunks"], 10)
+            self.assertEqual(result["latest_embedding_attempt"]["state"], "failed" if final_state == "failed" else "incomplete")
+
+    def test_real_child_launch_binds_observations_to_status_without_models(self):
+        # Synthetic metadata only: exercises the real launch/log/status boundary,
+        # without asserting extraction or service correctness from fake counters.
+        scripts = self.root / "fixture-scripts"
+        scripts.mkdir()
+        start, end = self.record(), self.record(state="succeeded", inputs=65, requests=3)
+        (scripts / "indexer.py").write_text(
+            "import json, os, sys\n"
+            + "records = " + repr([start, end]) + "\n"
+            + "for record in records:\n"
+            + "    record['build_id'] = os.environ['WAVEFOUNDRY_INDEX_BUILD_ID']\n"
+            + "    print('build_index: embedding_execution ' + json.dumps(record), file=sys.stderr, flush=True)\n",
+            encoding="utf-8",
+        )
+        import wf_server.index_handlers as index_handlers
+        children = []
+        real_popen = subprocess.Popen
+
+        def spawn(*args, **kwargs):
+            child = real_popen(*args, **kwargs)
+            children.append(child)
+            return child
+
+        with patch.object(self.srv, "SCRIPTS_DIR", scripts), \
+             patch.object(self.srv, "_preferred_python", return_value=sys.executable), \
+             patch.object(index_handlers, "_index_build_active", return_value=False), \
+             patch.object(index_handlers, "_index_is_up_to_date", return_value=False), \
+             patch.object(index_handlers, "_check_index_writer_current"), \
+             patch.object(index_handlers, "_read_index_rebuild_stats", return_value={}), \
+             patch("subprocess.Popen", side_effect=spawn):
+            launched = self.srv.run_index_rebuild(self.root, content="docs", full=True)
+        self.assertTrue(launched["passed"])
+        self.addCleanup(lambda: [child.kill() for child in children if child.poll() is None])
+        self.assertEqual(children[0].wait(timeout=10), 0)
+        state = json.loads(self.state_path.read_text(encoding="utf-8"))
+        self.assertRegex(state["build_id"], r"^[0-9a-f]{32}$")
+        with patch("inference_provider.select_embedder", side_effect=AssertionError("status selected model")), \
+             patch("tensorwell_client._http", side_effect=AssertionError("status queried service")):
+            result = self.srv.index_build_status_response(self.root)["data"]
+        self.assertEqual(result["state"], "finished")
+        execution = result["embedding_execution"]
+        self.assertEqual(execution["state"], "succeeded")
+        self.assertEqual(execution["build_id"], state["build_id"])
+        self.assertEqual(execution["scope"], "job")
+        self.assertEqual(execution["layers"]["docs"]["providers"]["tensorwell"]["logical_requests_succeeded"], 3)
+        self.assertEqual(result["previous_stats"]["embedding_execution"], execution)
+        idle = self.srv.index_build_status_response(self.root)["data"]
+        self.assertEqual(idle["previous_stats"]["embedding_execution"], execution)
+
+
 class McpSubprocessHelperTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

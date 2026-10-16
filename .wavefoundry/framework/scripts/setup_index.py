@@ -1920,8 +1920,10 @@ def _measure_embedding_provider(provider: str, *, model_name: str | None = None)
     )
 
 
-def report_embedding_provider_decision() -> provider_policy.ProviderDecision:
-    decision = provider_policy.select_embedding_providers(provider_probe=_probe_embedding_provider)
+def report_embedding_provider_decision(*, model_name: str | None = None) -> provider_policy.ProviderDecision:
+    probe = (_probe_embedding_provider if model_name is None else
+             lambda provider: _probe_embedding_provider(provider, model_name=model_name))
+    decision = provider_policy.select_embedding_providers(provider_probe=probe)
     os.environ[provider_policy.SETUP_SELECTED_ENV] = decision.selected_provider
     print(provider_policy.format_provider_decision(decision), flush=True)
     if decision.remediation:
@@ -2852,9 +2854,17 @@ def main(argv: list[str] | None = None) -> int:
     except ModelPrewarmError as exc:
         print(str(exc), file=sys.stderr)
         return 2
-    report_embedding_provider_decision()
+    models = _indexer_models(include_code=_include_code, code_only=_code_only)
+    local_models = [model for model in models if _resident_setup_embedder(model) is None]
+    if local_models:
+        # Probe an embedding model that actually needs local execution. A
+        # service-covered docs model need not exist in the local cache at all.
+        report_embedding_provider_decision(model_name=local_models[0])
+    else:
+        print("Embedding preparation: qualified service covers the requested models; "
+              "local embedding provider probe skipped (selection only).", flush=True)
     with model_download_root(root):
-        gpu_fallbacks = _prewarm_gpu_accel(_indexer_models(include_code=_include_code, code_only=_code_only))
+        gpu_fallbacks = _prewarm_gpu_accel(models)
     if model_bundle_path is None and model_bundle.attest_online_cache():
         print("Verified downloaded model cache matches the declared model set.", flush=True)
     try:

@@ -8,6 +8,14 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Skip unused local embedding probes when qualified service inference covers setup's required models. Probe an uncovered model for mixed workloads without letting its automatic CPU fallback disable covered service inference. Explicit local policy and precision compatibility remain authoritative. Wave 20st8 / 20st9.
+
+### Added
+
+- Report child index-build embedding activity by attempt, layer and provider through existing build logs and status. Count accepted inputs and logical Tensorwell requests without borrowing MCP/daemon totals; preserve unknown/no-op/failure distinctions and earlier successful provenance. No batching or compatibility identity changes. Wave 20st8 / 20tt3.
+
 ## [1.32.0] - 2026-10-16
 
 ### Changed

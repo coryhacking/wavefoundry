@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-14
+Last verified: 2026-10-16
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -17,6 +17,21 @@ including for small incremental builds. It still follows the existing precision 
 The adapter validates a complete operation before yielding vectors, so failure cannot
 publish a partial service batch or mix it with a different local precision. Corpus
 selection, chunking, prepared updates and atomic index publication are unchanged.
+
+Each semantic build emits bounded `embedding_execution` start/terminal records
+on stderr. A parent MCP build identity associates children with the requested job;
+each indexer invocation has its own pass identity. The records aggregate accepted
+embedding inputs by docs/code layer and provider, with logical Tensorwell request
+counts scoped to the consuming calls. Existing incremental semantic workers receive
+the build observation context explicitly, so sharing a model does not share credit.
+
+The existing build-log/stat path carries these observations into `index_build_status`.
+It rejects stale, conflicting or incomplete attribution instead of inferring execution
+from an ONNX banner, log timestamp or daemon counters. Accepted inference and index
+publication are separate: failed attempts may consume requests, while earlier
+successful provenance is preserved. No-op activity is zero and legacy activity is
+unknown. This adds no model probe, corpus walk, vector identity change or telemetry
+history. See [embedding observations](embedding-model.md) for counting limits.
 
 ```
 Repository files

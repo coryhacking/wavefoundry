@@ -5653,6 +5653,140 @@ def _state_store_health_summary(root: Path) -> dict[str, Any]:
 
 
 
+def _parse_embedding_execution_from_log(
+    log_text: str, *, expected_build_id: Optional[str] = None,
+    expected_content: Optional[str] = None,
+) -> dict[str, Any]:
+    """Read bounded child observations, never infer execution from provider banners.
+
+    These are process observations, not index integrity or exactly-once evidence.
+    A job ID binds MCP children; standalone logs use their latest self-contained
+    build. Missing, conflicting or incomplete records cannot become success.
+    """
+    unknown = {"schema_version": 1, "state": "unknown", "reason": "not_reported"}
+    marker = "build_index: embedding_execution "
+    records: list[dict[str, Any]] = []
+
+    def count(value: Any) -> bool:
+        return type(value) is int and 0 <= value <= 2**53 - 1
+
+    def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError("duplicate key")
+            result[key] = value
+        return result
+
+    def invalid(reason: str) -> dict[str, Any]:
+        return {"schema_version": 1, "state": "unknown", "reason": reason}
+
+    for line in log_text.splitlines():
+        # Timestamped stdio prefixes exactly one ISO timestamp; arbitrary prose
+        # containing the marker must not masquerade as a child record.
+        if not line.startswith(marker):
+            match = re.match(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:\+00:00|Z) (build_index: embedding_execution .*)$", line)
+            if match is None:
+                continue
+            line = match.group(1)
+        if len(line) > 8192 or len(line.encode("utf-8")) > 8192 or len(records) >= 8:
+            return invalid("record_limit")
+        try:
+            record = json.loads(line[len(marker):], object_pairs_hook=pairs)
+            if not isinstance(record, dict) or type(record.get("schema_version")) is not int or record["schema_version"] != 1:
+                raise ValueError("schema")
+            for key in ("build_id", "pass_id"):
+                if not isinstance(record.get(key), str) or re.fullmatch(r"[0-9a-f]{32}", record[key]) is None:
+                    raise ValueError("identity")
+            content = record.get("content")
+            if content not in ("docs", "code", "all") or record.get("state") not in ("running", "succeeded", "failed"):
+                raise ValueError("state")
+            layers = record.get("layers")
+            expected_layers = {"docs", "code"} if content == "all" else {content}
+            if not isinstance(layers, dict) or set(layers) != expected_layers:
+                raise ValueError("layers")
+            for layer_name, layer_data in layers.items():
+                if not isinstance(layer_data, dict) or not count(layer_data.get("accepted_inputs")):
+                    raise ValueError("inputs")
+                providers = layer_data.get("providers")
+                if (not isinstance(providers, dict) or len(providers) > 2
+                        or any(re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", backend) is None for backend in providers)):
+                    raise ValueError("providers")
+                for observation in providers.values():
+                    if not isinstance(observation, dict) or not count(observation.get("accepted_inputs")):
+                        raise ValueError("provider inputs")
+                    reason = observation.get("selection_reason")
+                    if not isinstance(reason, str) or re.fullmatch(r"[a-z][a-z0-9_]{0,63}", reason) is None:
+                        raise ValueError("reason")
+                    offered = observation.get("logical_requests_offered")
+                    succeeded = observation.get("logical_requests_succeeded")
+                    if (offered is None) != (succeeded is None):
+                        raise ValueError("request visibility")
+                    if offered is not None and (not count(offered) or not count(succeeded) or succeeded > offered):
+                        raise ValueError("requests")
+                if sum(p["accepted_inputs"] for p in providers.values()) != layer_data["accepted_inputs"]:
+                    raise ValueError("input total")
+                layer_data["providers"] = {
+                    backend: {key: observation[key] for key in (
+                        "selection_reason", "accepted_inputs", "logical_requests_offered", "logical_requests_succeeded")}
+                    for backend, observation in providers.items()
+                }
+                layers[layer_name] = {"accepted_inputs": layer_data["accepted_inputs"], "providers": layer_data["providers"]}
+            result = record.get("result")
+            if not isinstance(result, dict) or not set(result) <= {"files_indexed", "doc_chunks", "code_chunks", "up_to_date"}:
+                raise ValueError("result")
+            for key, value in result.items():
+                if (key == "up_to_date" and type(value) is not bool) or (key != "up_to_date" and not count(value)):
+                    raise ValueError("result type")
+            # Reconstruct the public shape: unknown fields cannot leak text.
+            records.append({key: record[key] for key in ("schema_version", "build_id", "pass_id", "content", "state", "layers", "result")})
+        except (ValueError, TypeError, KeyError, RecursionError, MemoryError):
+            return invalid("invalid_record")
+    if not records:
+        return unknown
+    if expected_build_id is not None:
+        if not isinstance(expected_build_id, str) or re.fullmatch(r"[0-9a-f]{32}", expected_build_id) is None or any(r["build_id"] != expected_build_id for r in records):
+            return invalid("build_id_mismatch")
+        build_id = expected_build_id
+    else:
+        build_id = records[-1]["build_id"]
+        records = [r for r in records if r["build_id"] == build_id]
+    passes: dict[str, list[dict[str, Any]]] = {}
+    for record in records:
+        passes.setdefault(record["pass_id"], []).append(record)
+    if len(passes) > 2:
+        return invalid("record_limit")
+    layers: dict[str, Any] = {}
+    results: dict[str, Any] = {}
+    states: list[str] = []
+    for observations in passes.values():
+        first, last = observations[0], observations[-1]
+        if (first["state"] != "running" or len(observations) > 2
+                or (len(observations) == 2 and last["state"] == "running")
+                or first["content"] != last["content"]
+                or set(layers).intersection(last["layers"])):
+            return invalid("conflicting_records")
+        for layer_name, layer_data in last["layers"].items():
+            if layer_data["accepted_inputs"] < first["layers"][layer_name]["accepted_inputs"]:
+                return invalid("conflicting_records")
+            layers[layer_name] = layer_data
+        states.append(last["state"])
+        for key, value in last["result"].items():
+            if key == "up_to_date":
+                results[key] = results.get(key, True) and value
+            else:
+                results[key] = results.get(key, 0) + value
+                if not count(results[key]):
+                    return invalid("record_limit")
+    state = "failed" if "failed" in states else "incomplete" if "running" in states else "succeeded"
+    if state == "succeeded" and expected_content in ("docs", "code", "all"):
+        requested_layers = {"docs", "code"} if expected_content == "all" else {expected_content}
+        if set(layers) != requested_layers:
+            state = "incomplete"
+    return {"schema_version": 1, "build_id": build_id, "scope": "job" if expected_build_id else "standalone",
+            "pass_ids": list(passes), "state": state, "layers": layers, "result": results}
+
+
 def _parse_finished_build_stats_from_log(
     root: Path,
     layer: str,
@@ -5668,7 +5802,7 @@ def _parse_finished_build_stats_from_log(
         active = _index_build_active(root, layer)
     except Exception:
         active = False
-    if active or not log_path.exists():
+    if not log_path.exists():
         return None
 
     try:
@@ -5677,30 +5811,52 @@ def _parse_finished_build_stats_from_log(
         return None
     if not log_text:
         return None
-    if not (
-        re.search(r"done\s*[—-]+\s*\d+\s+files? indexed,\s*\d+\s+doc chunks?,\s*\d+\s+code chunks?", log_text)
-        or re.search(r"index is up to date", log_text)
-    ):
-        return None
-
-    files_indexed: Optional[int] = None
-    doc_chunks: Optional[int] = None
-    code_chunks: Optional[int] = None
-    m = re.search(r"done\s*[—-]+\s*(\d+)\s+files? indexed,\s*(\d+)\s+doc chunks?,\s*(\d+)\s+code chunks?", log_text)
-    if m:
-        files_indexed, doc_chunks, code_chunks = int(m.group(1)), int(m.group(2)), int(m.group(3))
-    if files_indexed is None:
-        return None
-
     prev_state: dict[str, Any] = {}
     if state_path is not None:
         try:
             if state_path.exists():
                 prev_state = json.loads(state_path.read_text(encoding="utf-8"))
+                if not isinstance(prev_state, dict):
+                    prev_state = {}
         except Exception:
             prev_state = {}
-    if not prev_state and isinstance(fallback_stats, dict):
+    # Only the MCP log belongs to the persisted job. A standalone setup
+    # background log must establish its own scope from its validated records.
+    if state_path is not None and not prev_state and isinstance(fallback_stats, dict):
         prev_state = dict(fallback_stats)
+
+    execution = _parse_embedding_execution_from_log(
+        log_text, expected_build_id=prev_state.get("build_id"), expected_content=prev_state.get("content"),
+    )
+    previous_execution = (fallback_stats or {}).get("latest_embedding_attempt", (fallback_stats or {}).get("embedding_execution"))
+    if (state_path is not None and isinstance(previous_execution, dict) and previous_execution.get("scope") == "job"
+            and previous_execution.get("build_id") == execution.get("build_id")):
+        # State is cleared after status consumes it; retain an already established
+        # matching job binding when the same log is read again.
+        execution["scope"] = "job"
+    if active and execution["state"] not in {"succeeded", "failed"}:
+        return None
+    structured = "build_index: embedding_execution " in log_text or ("build_id" in prev_state and prev_state.get("content") != "graph")
+    if structured and execution["state"] != "succeeded":
+        # A failed later pass must not borrow an earlier done marker or replace
+        # the last successful build's execution provenance.
+        stats = dict(fallback_stats or _read_index_build_stats_file(root, layer) or {})
+        stats["latest_embedding_attempt"] = execution
+        return stats, float(log_path.stat().st_mtime)
+
+    files_indexed: Optional[int] = None
+    doc_chunks: Optional[int] = None
+    code_chunks: Optional[int] = None
+    if structured:
+        result = execution["result"]
+        files_indexed = result.get("files_indexed", 0 if result.get("up_to_date") else None)
+        doc_chunks, code_chunks = result.get("doc_chunks"), result.get("code_chunks")
+    else:
+        m = re.search(r"done\s*[—-]+\s*(\d+)\s+files? indexed,\s*(\d+)\s+doc chunks?,\s*(\d+)\s+code chunks?", log_text)
+        if m:
+            files_indexed, doc_chunks, code_chunks = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if files_indexed is None:
+            return None
 
     started_at = prev_state.get("started_at")
     try:
@@ -5712,6 +5868,10 @@ def _parse_finished_build_stats_from_log(
         if finished_ts is not None and isinstance(started_at, (int, float))
         else prev_state.get("elapsed_seconds") if isinstance(prev_state.get("elapsed_seconds"), int) else None
     )
+    content = prev_state.get("content")
+    if structured and content is None:
+        observed_layers = set(execution["layers"])
+        content = "all" if observed_layers == {"docs", "code"} else next(iter(observed_layers))
     stats = {
         "elapsed_seconds": elapsed,
         "files_indexed": files_indexed,
@@ -5721,8 +5881,10 @@ def _parse_finished_build_stats_from_log(
             datetime.datetime.utcfromtimestamp(finished_ts).isoformat() + "Z"
             if finished_ts is not None else prev_state.get("built_at")
         ),
-        "content": prev_state.get("content"),
+        "content": content,
         "mode": "rebuild" if prev_state.get("full") else prev_state.get("mode", "update"),
+        "embedding_execution": execution,
+        "latest_embedding_attempt": execution,
     }
     return stats, float(finished_ts or 0.0)
 

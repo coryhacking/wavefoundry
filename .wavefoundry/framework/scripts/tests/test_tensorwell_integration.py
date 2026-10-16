@@ -816,6 +816,121 @@ class IntegrationTests(unittest.TestCase):
                 setup_index.prewarm_models(include_code=True)
                 self.assertEqual([call.args[0] for call in warm.call_args_list], expected)
 
+    def _setup_main(self, models, *, local_probe=False, child_available=True,
+                    parent_available=True, precision="full"):
+        """Run real setup dispatch and child-env construction, with no index/model I/O."""
+        import setup_index
+        import model_bundle
+        import accel_embedder
+        import inference_profile
+        import io
+        root = self.fixture.home / "setup-project"
+        root.mkdir(exist_ok=True)
+        output = io.StringIO()
+        popen = subprocess.Popen
+        # Only the indexer payload is substituted: the actual launch path builds
+        # the environment and streams/reaps a real Python child. The child's
+        # bounded qualification boundary is synthetic; selection/policy are real.
+        driver = """
+import json, sys
+from types import SimpleNamespace
+from unittest.mock import patch
+sys.path.insert(0, sys.argv[1])
+import tensorwell_client as tc, inference_provider, inference_profile
+available = sys.argv[2] == 'True'
+precision, inference_profile.PROVIDER = sys.argv[4:6]
+def qualified(**kwargs):
+    if not available or tc._policy_reason() is not None:
+        return None
+    return SimpleNamespace(embedding={})
+with patch.object(tc.platform, 'system', return_value='Darwin'), \\
+     patch.object(tc.platform, 'machine', return_value='arm64'), \\
+     patch.object(tc, '_qualified_pair', side_effect=qualified):
+    results = [inference_provider.select_embedder(model, precision) is not None for model in json.loads(sys.argv[3])]
+print('CHILD_SELECTION=' + json.dumps(results))
+"""
+        def launch(cmd, **kwargs):
+            self.assertEqual(Path(cmd[1]).name, "indexer.py")
+            proc = popen([sys.executable, "-B", "-c", driver, str(SCRIPTS_ROOT),
+                          str(child_available), json.dumps(models), precision,
+                          inference_profile.PROVIDER], **kwargs)
+            self.addCleanup(proc.stdout.close)
+            return proc
+        with contextlib.ExitStack() as stack:
+            for name in ("ensure_deps", "_reexec_with_venv_if_needed", "_optimize_after_build"):
+                stack.enter_context(patch.object(setup_index, name))
+            stack.enter_context(patch.object(model_bundle, "find_local_bundle", return_value=None))
+            stack.enter_context(patch.object(model_bundle, "local_model_set_status", return_value="missing"))
+            stack.enter_context(patch.object(model_bundle, "attest_online_cache", return_value=False))
+            stack.enter_context(patch("sqlite_runtime.preflight"))
+            stack.enter_context(patch.object(setup_index, "_indexer_models", return_value=models))
+            stack.enter_context(patch.object(setup_index, "_indexer_reranker_model", return_value=tc.RERANKER_MODEL))
+            stack.enter_context(patch.object(setup_index, "_load_indexer_module", return_value=self.indexer))
+            stack.enter_context(patch.object(self.indexer, "_predicted_precision_class", return_value=precision))
+            if not parent_available:
+                stack.enter_context(patch.object(tc, "_qualified_pair", return_value=None))
+            warm = stack.enter_context(patch.object(setup_index, "_prewarm_required_model"))
+            native = stack.enter_context(patch.object(accel_embedder, "make_embedder", return_value=None))
+            stack.enter_context(patch.object(accel_embedder, "make_reranker", return_value=None))
+            stack.enter_context(patch.object(setup_index.provider_policy, "available_onnx_providers",
+                                           return_value=["CoreMLExecutionProvider", "CPUExecutionProvider"]))
+            probe = stack.enter_context(patch.object(setup_index, "_probe_embedding_provider",
+                side_effect=(lambda provider, **kwargs: setup_index.provider_policy.ProviderProbeResult(
+                    provider, False, "synthetic probe refused")) if local_probe else AssertionError("unused local probe")))
+            stack.enter_context(patch.object(setup_index.subprocess, "Popen", side_effect=launch))
+            stack.enter_context(contextlib.redirect_stdout(output))
+            self.assertEqual(setup_index.main(["--root", str(root)]), 0)
+        self.assertFalse(list(root.rglob("*.sqlite")))
+        return output.getvalue(), warm, native, probe
+
+    def test_setup_main_service_only_skips_local_probe_and_child_keeps_service(self):
+        output, warm, native, probe = self._setup_main([tc.EMBEDDING_MODEL])
+        warm.assert_not_called()
+        native.assert_not_called()
+        probe.assert_not_called()
+        self.assertIn("CHILD_SELECTION=[true]", output)
+        self.assertNotIn("Embedding provider: selected=", output)
+        self.assertFalse(any(path == "/v1/embeddings" for path, _ in self.fixture.requests))
+
+    def test_setup_main_mixed_cpu_probe_does_not_veto_covered_child_model(self):
+        output, warm, native, probe = self._setup_main(
+            [tc.EMBEDDING_MODEL, "unsupported-fixture-model"], local_probe=True)
+        self.assertEqual([c.args[0] for c in warm.call_args_list], ["unsupported-fixture-model"])
+        self.assertEqual([c.args[0] for c in native.call_args_list], ["unsupported-fixture-model"])
+        self.assertEqual(probe.call_args.kwargs["model_name"], "unsupported-fixture-model")
+        self.assertIn("CHILD_SELECTION=[true, false]", output)
+        self.assertIn("selected=CPUExecutionProvider", output)
+
+    def test_setup_child_rechecks_service_availability(self):
+        output, warm, native, probe = self._setup_main([tc.EMBEDDING_MODEL], child_available=False)
+        self.assertIn("CHILD_SELECTION=[false]", output)
+        warm.assert_not_called()
+        probe.assert_not_called()
+
+    def test_setup_main_explicit_cpu_and_framework_local_keep_local_preparation(self):
+        import inference_profile
+        for env, mode in (({"WAVEFOUNDRY_EMBED_PROVIDER": "cpu"}, "tensorwell"),
+                          ({}, "local")):
+            with self.subTest(env=env, mode=mode), patch.dict(os.environ, env), \
+                 patch.object(inference_profile, "PROVIDER", mode):
+                output, warm, native, probe = self._setup_main([tc.EMBEDDING_MODEL], local_probe=True)
+                self.assertEqual([c.args[0] for c in warm.call_args_list], [tc.EMBEDDING_MODEL])
+                self.assertEqual([c.args[0] for c in native.call_args_list], [tc.EMBEDDING_MODEL])
+                self.assertIn("CHILD_SELECTION=[false]", output)
+
+    def test_setup_main_unavailable_disabled_and_int8_keep_local_preparation(self):
+        cases = (({}, {"parent_available": False}),
+                 ({"WAVEFOUNDRY_DISABLE_TENSORWELL": "1"}, {}),
+                 ({}, {"precision": "int8"}))
+        for env, kwargs in cases:
+            with self.subTest(env=env, kwargs=kwargs), patch.dict(os.environ, env), \
+                 patch.dict(os.environ, {"WAVEFOUNDRY_EMBED_PROVIDER_SELECTED": ""}):
+                output, warm, native, probe = self._setup_main(
+                    [tc.EMBEDDING_MODEL], local_probe=True, **kwargs)
+                self.assertEqual([c.args[0] for c in warm.call_args_list], [tc.EMBEDDING_MODEL])
+                self.assertEqual([c.args[0] for c in native.call_args_list], [tc.EMBEDDING_MODEL])
+                self.assertEqual(probe.call_args.kwargs["model_name"], tc.EMBEDDING_MODEL)
+
     def test_native_prewarm_preserves_int8_eligibility(self):
         import setup_index
         import accel_embedder

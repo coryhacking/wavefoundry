@@ -930,7 +930,7 @@ class ClientTests(unittest.TestCase):
 
     def test_policy_controls_no_discovery(self):
         cases = [{"WAVEFOUNDRY_DISABLE_TENSORWELL": "1"}, {"WAVEFOUNDRY_EMBED_PROVIDER": "cpu"},
-                 {"WAVEFOUNDRY_EMBED_PROVIDER": "cuda"}, {"WAVEFOUNDRY_EMBED_PROVIDER_SELECTED": "CPUExecutionProvider"}]
+                 {"WAVEFOUNDRY_EMBED_PROVIDER": "cuda"}]
         for env in cases:
             with patch.dict(os.environ, env), patch.object(tc, "_discovery") as discovery:
                 self.assertIsNone(tc.select_embedder(tc.EMBEDDING_MODEL))

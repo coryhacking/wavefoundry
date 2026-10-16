@@ -39,6 +39,20 @@ It is a bounded readiness check, not a complete integrity, freshness or search-q
 
 ## Optional Tensorwell inference
 
+Setup skips local embedding probes for service-covered models. Mixed workloads
+still prepare uncovered local models, and an automatic local CPU fallback does
+not disable covered service work. Explicit local/provider policy remains in force.
+
+To see what an index build actually used, inspect a running/finished
+`index_build_status` response's `embedding_execution`. Afterward, `previous_stats`
+retains successful `embedding_execution` and the `latest_embedding_attempt`,
+including later failed/incomplete work.
+Per-layer provider rows count accepted embedding inputs and, for Tensorwell,
+logical requests offered/succeeded; retries do not add logical requests. Local and
+opaque adapters have null request counts. No-op work is zero, legacy evidence is
+unknown, and failed attempts remain distinct from successful publication. These
+child-build observations are separate from MCP-process inference counters.
+
 An already-installed compatible Tensorwell service can share the pinned Arctic S
 embedding and MiniLM-L6 reranking models across local Wavefoundry processes. Initial
 support is the qualified macOS CoreML pair; unknown profile/runtime identities and

@@ -18,8 +18,10 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, nullcontext
+from contextvars import ContextVar, copy_context
 from pathlib import Path
 from typing import Optional
+import uuid
 
 # Change 1zyv1: bytecode goes only to the project cache (``bytecode_cache``),
 # never beside the sources; writes stay off until configure() enables the cache.
@@ -2077,7 +2079,8 @@ class _StreamingLayerWriter:
     def add(self, chunks: list[dict]) -> None:
         if not chunks:
             return
-        vectors = _embed_texts(self.embedder, [c['text'] for c in chunks], batch_size=self.batch_size)
+        vectors = _embed_texts(self.embedder, [c['text'] for c in chunks], batch_size=self.batch_size,
+                              layer=self.table_name)
         self.prepared.add(self.table_name, rows=_make_vector_rows(chunks, vectors))
         self.written += len(chunks)
         print(f"build_index: embedded {self.written} chunks ({self.label})", flush=True)
@@ -2896,7 +2899,7 @@ def _embed_chunks_for_incremental(label: str, chunks: list[dict], embedder) -> "
         inverse[old_pos] = new_pos
     sorted_texts = [chunks[i]["text"] for i in order]
     import numpy as _np
-    sorted_vecs = _embed_texts(embedder, sorted_texts)
+    sorted_vecs = _embed_texts(embedder, sorted_texts, layer="docs" if label in {"doc", "docs"} else "code")
     return sorted_vecs[inverse]
 
 
@@ -3497,6 +3500,93 @@ def _predicted_precision_class(model_name: str, providers: list[str]) -> str:
 
 _EMBEDDER_CACHE: dict[str, Any] = {}
 
+# One invocation, including its bounded source-drift retry. Context is copied
+# into the existing semantic workers; unrelated MCP calls cannot contribute.
+_embedding_execution = ContextVar("index_embedding_execution", default=None)
+_EMBEDDING_EXECUTION_PREFIX = "build_index: embedding_execution "
+
+
+class _EmbeddingExecution:
+    def __init__(self, content):
+        self.pass_id = uuid.uuid4().hex
+        inherited = os.environ.get("WAVEFOUNDRY_INDEX_BUILD_ID", "")
+        self.build_id = inherited if re.fullmatch(r"[0-9a-f]{32}", inherited) else self.pass_id
+        self.content = content
+        layers = ("docs", "code") if content == "all" else (content,) if content in {"docs", "code"} else ()
+        self.layers = {layer: {"accepted_inputs": 0, "providers": {}} for layer in layers}
+        self.reasons = {}
+        self.active = {}
+        self.finished = False
+
+    def select(self, layer, embedder, model):
+        if layer not in self.layers or embedder is None:
+            return
+        if getattr(embedder, "is_tensorwell", False) is True:
+            backend = "tensorwell"
+        elif getattr(embedder, "is_service_provider", False) is True:
+            label = getattr(embedder, "provider_label", None)
+            backend = label if isinstance(label, str) and re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", label) else "unknown"
+        else:
+            backend = "in_process"
+        self.active[layer] = backend
+        reason = self.reasons.get(model, "unobserved_selection")
+        providers = self.layers[layer]["providers"]
+        # At most two preparation attempts occur in one build. Keep only safe
+        # aggregate labels, never the model object, text or transport identity.
+        if backend not in providers and len(providers) >= 2:
+            raise RuntimeError("embedding execution provider bound exceeded")
+        row = providers.setdefault(backend, {
+            "selection_reason": reason, "accepted_inputs": 0,
+            "logical_requests_offered": 0 if backend == "tensorwell" else None,
+            "logical_requests_succeeded": 0 if backend == "tensorwell" else None,
+        })
+        if row["selection_reason"] != reason:
+            row["selection_reason"] = "mixed_selection"
+
+    def payload(self, state, result=None):
+        value = {"schema_version": 1, "build_id": self.build_id, "pass_id": self.pass_id,
+                 "content": self.content, "state": state, "layers": self.layers, "result": {}}
+        if result is not None:
+            value["result"] = {key: result[key] for key in ("files_indexed", "doc_chunks", "code_chunks", "up_to_date")
+                               if type(result.get(key)) is int and result[key] >= 0
+                               or key == "up_to_date" and type(result.get(key)) is bool}
+        return value
+
+    def emit(self, state, result=None):
+        value = self.payload(state, result)
+        print(_EMBEDDING_EXECUTION_PREFIX + json.dumps(value, separators=(",", ":")), file=sys.stderr, flush=True)
+        return value
+
+    def finish(self, result):
+        state = "failed" if result.get("failed") or result.get("failure") or result.get("error") else "succeeded"
+        value = self.emit(state, result)
+        self.finished = True
+        return value
+
+
+@contextmanager
+def _observe_embedding_build(content):
+    if content not in {"docs", "code", "all"}:
+        yield None
+        return
+    observation = _EmbeddingExecution(content)
+    token = _embedding_execution.set(observation)
+    try:
+        observation.emit("running")
+        yield observation
+    finally:
+        try:
+            if not observation.finished:
+                observation.emit("failed")
+        finally:
+            _embedding_execution.reset(token)
+
+
+def _record_embedding_selection(model_name, reason):
+    observation = _embedding_execution.get()
+    if observation is not None:
+        observation.reasons[model_name] = reason if isinstance(reason, str) and re.fullmatch(r"[a-z_]{1,40}", reason) else "unknown"
+
 
 def _resolve_build_embedders(
     *,
@@ -3515,15 +3605,18 @@ def _resolve_build_embedders(
         shared_count = None if full else max(docs_chunk_count, code_chunk_count)
         docs_embedder = _get_embedder(DOCS_MODEL, n_chunks=shared_count)
         code_embedder = docs_embedder
-        return docs_embedder, code_embedder
-    if docs_need:
+    elif docs_need:
         docs_embedder = _get_embedder(
             DOCS_MODEL, n_chunks=None if full else docs_chunk_count
         )
-    if code_need:
+    if code_need and code_embedder is None:
         code_embedder = _get_embedder(
             CODE_MODEL, n_chunks=None if full else code_chunk_count
         )
+    observation = _embedding_execution.get()
+    if observation is not None:
+        observation.select("docs", docs_embedder, DOCS_MODEL)
+        observation.select("code", code_embedder, CODE_MODEL)
     return docs_embedder, code_embedder
 
 # Wave 1p938: route an incremental embed run smaller than one full GPU batch to the full-precision
@@ -3559,9 +3652,14 @@ def _get_embedder_inner(model_name: str, n_chunks: Optional[int] = None):
     # Resident qualified inference precedes probes, caches and the small-run
     # optimization. Precision prediction is availability-only, as at publication.
     import inference_provider
-    resident = inference_provider.select_embedder(model_name)
-    if resident is not None and _predicted_precision_class(model_name, []) == "full":
-        return resident
+    diagnostic = {}
+    resident = inference_provider.select_embedder(model_name, diagnostic=diagnostic)
+    if resident is not None:
+        if _predicted_precision_class(model_name, []) == "full":
+            _record_embedding_selection(model_name, diagnostic.get("reason", "unknown"))
+            return resident
+        diagnostic["reason"] = "index_precision_mismatch"
+    _record_embedding_selection(model_name, diagnostic.get("reason", "unknown"))
     providers = _onnx_providers()
     has_gpu = accel_embedder is not None and (
         any(p in accel_embedder.GPU_PROVIDERS for p in providers) or accel_embedder._available_gpu_providers()
@@ -3656,7 +3754,7 @@ def _text_embedding_cached_first(text_embedding_cls, model_name: str, providers)
     )
 
 
-def _embed_texts(embedder, texts: list[str], batch_size: int = 256) -> "np.ndarray":
+def _embed_texts(embedder, texts: list[str], batch_size: int = 256, *, layer=None) -> "np.ndarray":
     """Embed a list of texts and return as a float32 numpy array (n, dim).
 
     Callers are responsible for pre-sorting inputs by text length for padding
@@ -3664,10 +3762,27 @@ def _embed_texts(embedder, texts: list[str], batch_size: int = 256) -> "np.ndarr
     rebuild path uses a sliding sort buffer; the incremental path sorts per-file.
     """
     import numpy as _np
-    return _np.array(
-        list(embedder.embed(texts, batch_size=batch_size)),
-        dtype=_np.float32,
-    )
+    observation = _embedding_execution.get()
+    row = None
+    if observation is not None and layer in observation.active:
+        row = observation.layers[layer]["providers"][observation.active[layer]]
+    measured = row is not None and observation.active[layer] == "tensorwell"
+    if measured:
+        import tensorwell_client
+    with tensorwell_client.observe_embedding_requests() if measured else nullcontext(None) as requests:
+        try:
+            vectors = _np.array(list(embedder.embed(texts, batch_size=batch_size)), dtype=_np.float32)
+            if row is not None and texts and (vectors.ndim != 2 or vectors.shape[0] != len(texts)
+                          or vectors.shape[1] != vector_store.DIMENSIONS or not _np.isfinite(vectors).all()):
+                raise ValueError("invalid embedding result")
+            if row is not None:
+                row["accepted_inputs"] += len(texts)
+                observation.layers[layer]["accepted_inputs"] += len(texts)
+            return vectors
+        finally:
+            if requests is not None:
+                row["logical_requests_offered"] += requests["offered"]
+                row["logical_requests_succeeded"] += requests["succeeded"]
 
 
 def _progress(verbose: bool, message: str) -> None:
@@ -4124,7 +4239,7 @@ def build_index(
         )
     # Acquire source exclusion before the first walk. Keep it through both
     # coherent attempts; each attempt owns fresh staging and graph preparation.
-    with _index_build_lock(index_dir), index_source_guard.index_source_guard(root):
+    with _index_build_lock(index_dir), index_source_guard.index_source_guard(root), _observe_embedding_build(content) as execution:
         for attempt in range(2):
             with vector_store.PreparedUpdates(index_dir) as prepared:
                 result = _build_index_locked(
@@ -4145,12 +4260,16 @@ def build_index(
                 )
             source_drift = result.pop("_source_drift", False)
             if not source_drift:
+                if execution is not None:
+                    result["embedding_execution"] = execution.finish(result)
                 return result
             disposition = "retrying once with fresh preparation" if attempt == 0 else "refused after two attempts"
             message = f"{result['failure']}; {disposition}; readers: {result['reader_state']}"
             print(f"build_index: {message}", file=sys.stderr, flush=True)
             if attempt == 1:
                 result["failure"] = message
+                if execution is not None:
+                    result["embedding_execution"] = execution.finish(result)
                 return result
 
 
@@ -5679,7 +5798,7 @@ def _build_index_locked(
                             _t0 = time.monotonic()
                             _prepare_incremental_vectors(_db_path, _stale, _doc_chunks, _docs_emb, [], None, True, False, _verbose, skip_exempt=_exempt, written_paths=_written, prepared=prepared)
                             _elapsed.append(time.monotonic() - _t0)
-                        futures.append(executor.submit(_write_docs_incr))
+                        futures.append(executor.submit(copy_context().run, _write_docs_incr))
                     if build_code:
                         def _write_code_incr(
                             _db_path=semantic_db_path,
@@ -5694,7 +5813,7 @@ def _build_index_locked(
                             _t0 = time.monotonic()
                             _prepare_incremental_vectors(_db_path, _stale, [], None, _code_chunks, _code_emb, False, True, _verbose, skip_exempt=_exempt, written_paths=_written, prepared=prepared)
                             _elapsed.append(time.monotonic() - _t0)
-                        futures.append(executor.submit(_write_code_incr))
+                        futures.append(executor.submit(copy_context().run, _write_code_incr))
                 # Full rebuild preparation runs on the main thread.
                 if full:
                     _run_streaming_full_rebuild(
