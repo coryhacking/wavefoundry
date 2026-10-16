@@ -1,7 +1,7 @@
 # Wave Record
 
 Owner: Engineering
-Status: paused
+Status: closed
 Last verified: 2026-10-15
 review-evidence-source: events.jsonl
 
@@ -34,10 +34,18 @@ Change Status: `implemented`
 - Requested review lanes: code-reviewer, qa-reviewer, architecture-reviewer, security-reviewer, docs-contract-reviewer, release-reviewer, performance-reviewer
 - Required review lanes: code-reviewer, qa-reviewer, architecture-reviewer, docs-contract-reviewer, release-reviewer, performance-reviewer, security-reviewer
 
+Completed At: 2026-10-15
+
 ## Wave Summary
 
-Delivered trusted PATH lookup without ancestor-cwd overreach, recorded temporary-parent ownership for verified-pack cleanup, conservative generated core-read hook classification, root-alias lock refusal and safe uncached diagnostics after failed cache rename. Existing staging hashes and renderer lexical no-link policy remain; no extra cleanup hash pass or permission registry was introduced. No acceptance criteria were deferred. Native/mount/reboot qualification and timing investigation remain separate follow-ups.
+Wave `20tpo` (Posix Review Follow Ups) delivered 4 changes: Trusted `uv` lookup refuses every PATH entry under the working directory, Pack ownership proofs survive reboots, sessions and link-less filesystems, Pre-edit hook gates read-only MCP tools that carry a path argument, and Layout-dependent POSIX follow-ups: link-to-root scan, overlayfs flush, symlinked surface directories. Notable adjustments during implementation: Pack ownership proofs survive reboots, sessions and link-less filesystems: Seven named in-memory guard mutants detected, each by assertion failure with zero test errors: durable-device equality, omitted parent authority, omitted fresh-device check, omitted final identity check, staging replacement adoption, widened legacy scope and unescaped diagnostics. Guard-pack publication/identity code and qrr embedded callback remain unchanged. Coordinator confirmed the guidance paragraph landed in native-windows-support.md, including unchanged normal staging validation/expected-hash checks; batch-wide full-suite/docs gate remains open.; Pre-edit hook gates read-only MCP tools that carry a path argument: Implemented exact validated core read permissions and source-contract freshness checks, excluding overrides/replacements/aliases/extensions. Source identity bindings detect stale loaded permission modules without importing server/models. Four generated-hook tests pass; three mutants detect a writer misclassified as read, removed override exclusion and removed stale-contract check. Canonical wf_sync_surfaces regenerated only the Claude pre-edit hook.
 
+**Changes delivered:**
+
+- **Trusted `uv` lookup refuses every PATH entry under the working directory** (`20qxn-bug uv-trust-refuses-cwd-ancestor-paths`) — 5 ACs completed. Key decisions: Refuse the working directory only when it is inside the root
+- **Pack ownership proofs survive reboots, sessions and link-less filesystems** (`20tpl-bug pack-ownership-proofs-posix-portability`) — 6 ACs completed. Key decisions: Narrow to verified-pack lifecycle; 20qrr owns guard packs; Recorded location is a locator, not deletion authority
+- **Pre-edit hook gates read-only MCP tools that carry a path argument** (`20tpm-bug pre-edit-hook-blocks-mcp-read-tools`) — 5 ACs completed. Key decisions: Reuse observational read permission, not a new no-write registry; Exempt only exact canonical core reads with no override
+- **Layout-dependent POSIX follow-ups: link-to-root scan, overlayfs flush, symlinked surface directories** (`20tpn-debt layout-dependent-posix-follow-ups`) — 4 ACs completed. Key decisions: Refuse root/ancestor aliases before descent; preserve coverage elsewhere; Disable cache on rename failure and report once
 ## Watchpoints
 
 - Watchpoint: Dependent portability work was implemented first and shared edits serialized. The core-read hook was generated through the canonical renderer, with write/override/stale-contract negative controls. Security review passed. Native qualification and the unsupported warm-up follow-up are not claimed; framework and seed gates are closed.
@@ -89,12 +97,12 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 
 | Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
-| plan | 143 | 2,359,624 |
+| plan | 146 | 2,363,929 |
 | implement | 24 | 48,810 |
-| review | 309 | 3,464,252 |
-| **Total** | **476** | **5,872,686** |
+| review | 315 | 3,505,415 |
+| **Total** | **485** | **5,918,154** |
 
-<!-- wave:context-efficiency-state {"generation":428,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":24,"content_source_credit":67317,"derived_artifact_credit":0,"direct_net":48810,"estimated_tokens_saved":48810,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":845,"response_debit":20674,"source_credit_count":11,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3012},"plan":{"calls":143,"content_source_credit":2842607,"derived_artifact_credit":8157,"direct_net":2359624,"estimated_tokens_saved":2359624,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":29863,"response_debit":471565,"source_credit_count":125,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":10288},"review":{"calls":309,"content_source_credit":4203109,"derived_artifact_credit":6505,"direct_net":3464252,"estimated_tokens_saved":3464252,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":38702,"response_debit":706660,"source_credit_count":163,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":476,"content_source_credit":7113033,"derived_artifact_credit":14662,"direct_net":5872686,"estimated_tokens_saved":5872686,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":69410,"response_debit":1198899,"source_credit_count":299,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":13300},"wave_id":"20tpo posix-review-follow-ups"} -->
+<!-- wave:context-efficiency-state {"generation":437,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":24,"content_source_credit":67317,"derived_artifact_credit":0,"direct_net":48810,"estimated_tokens_saved":48810,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":845,"response_debit":20674,"source_credit_count":11,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3012},"plan":{"calls":146,"content_source_credit":2854961,"derived_artifact_credit":8157,"direct_net":2363929,"estimated_tokens_saved":2363929,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":29868,"response_debit":479609,"source_credit_count":128,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":10288},"review":{"calls":315,"content_source_credit":4247091,"derived_artifact_credit":6505,"direct_net":3505415,"estimated_tokens_saved":3505415,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":38763,"response_debit":715054,"source_credit_count":176,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":5636}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":485,"content_source_credit":7169369,"derived_artifact_credit":14662,"direct_net":5918154,"estimated_tokens_saved":5918154,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":69476,"response_debit":1215337,"source_credit_count":315,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":18936},"wave_id":"20tpo posix-review-follow-ups"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided

@@ -89,6 +89,24 @@ class TrustedExecutableLookupTests(unittest.TestCase):
         self.assertIn('relative PATH entry', message)
         self.assertIn('hash-verified uv bootstrap', message)
 
+    def test_ordinary_path_misses_preserve_late_repository_refusal_and_selection(self):
+        empty = [self.base / ('ordinary-bin-' + str(index)) for index in range(5)]
+        for directory in empty:
+            directory.mkdir()
+        self.plant(self.root, self.uv.name)
+        entries = [str(directory) for directory in empty] + [str(self.root)]
+        skipped = []
+        with patch.dict(os.environ, {'PATH': os.pathsep.join(entries)}):
+            self.assertIsNone(setup._trusted_path_uv(self.root, skipped=skipped))
+        self.assertEqual(len(skipped), 1)
+        self.assertIn('target repository', skipped[0])
+        self.assertLess(len(skipped[0]), 200)
+        skipped = []
+        with patch.dict(os.environ, {'PATH': os.pathsep.join(entries + [str(self.bin)])}):
+            self.assertEqual(setup._trusted_path_uv(self.root, skipped=skipped), self.uv)
+        self.assertEqual(len(skipped), 1)
+        self.assertIn('target repository', skipped[0])
+
     def test_real_no_uv_refusal_includes_lookup_diagnostics_without_installer(self):
         error = io.StringIO()
         with contextlib.chdir(self.root), patch.dict(os.environ, {'PATH': '.'}), \

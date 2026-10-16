@@ -1,7 +1,7 @@
 # Wave Record
 
 Owner: Engineering
-Status: paused
+Status: closed
 Last verified: 2026-10-15
 review-evidence-source: events.jsonl
 
@@ -40,10 +40,20 @@ Change Status: `implemented`
 - Requested review lanes: code-reviewer, qa-reviewer, architecture-reviewer, security-reviewer, docs-contract-reviewer, release-reviewer, performance-reviewer
 - Required review lanes: code-reviewer, qa-reviewer, architecture-reviewer, docs-contract-reviewer, release-reviewer, performance-reviewer, security-reviewer
 
+Completed At: 2026-10-15
+
 ## Wave Summary
 
-Delivered terminal retain-and-complete retired-graph cleanup; checkpoint-bound historical-parent publication recovery; safe reranker exception fallback; shared declaration preflight and generation caching; single-discovery activation; and regression coverage preserving reachable extraction and explicit compatibility paths. No acceptance criteria were deferred. Existing publication authority was retained rather than replaced by new receipt authority.
+Wave `20ppj` (Rerun Reliability Review Follow Ups) delivered 6 changes: Retired graph cleanup: retain and complete instead of refusing forever, Memory reranker selection: except clause references an unbound import, post_index_update reports an old parent's recovered publication as failure, Extension declaration validation: report at declaration time, validate once, Single-OPEN guard re-walks the waves tree once per open wave, and Preserve recovery and compatibility paths after rerun reliability. Notable adjustments during implementation: Retired graph cleanup: retain and complete instead of refusing forever: Scope held to the reviewed receipt: the post-readiness addendum (zero-`st_ino` volumes as a fifth retained population; a `phase_cleanup` handler for refusals that escape `cleanup_legacy`) was withdrawn rather than re-readied. Zero-identity volumes already complete under requirement 2 because capture records no ownership and the plan reports retained; add that case as one regression under AC-1/AC-2 at implementation, no new code. The `phase_cleanup` handler addresses pre-existing tamper refusals (artifact identity, staging), not a regression of `43621e07`; plan it separately if a field report shows the traceback.; Memory reranker selection: except clause references an unbound import: Focused controls passed: root follow-ups, rerun, retained docs-gate retry, scope and container-status controls: 44 tests / 0 skips. In-memory mutants restored the unbound import, repeated discovery and missing extraction guard; each targeted test detected its defect. Final combined qualification remains pending.; Single-OPEN guard re-walks the waves tree once per open wave: Readback: pass one discovered wave-directory list into optional scope lookup; preserve canonical parent/repository guard answers. AC-1/2; server_impl, record_paths and discovery-count regression. Before: N extra discoveries; after: one per uncached/cached guard call.
 
+**Changes delivered:**
+
+- **Retired graph cleanup: retain and complete instead of refusing forever** (`20og5-bug storage-graph-cleanup-retained-never-completes`) — 5 ACs completed. Key decisions: Retain and complete: retained graph plans record a reason and let cleanup finish; Old receipts stay retained rather than lazily capturing ownership
+- **Memory reranker selection: except clause references an unbound import** (`20p5j-bug memory-reranker-except-unbound-import`) — 3 ACs completed. Key decisions: Bind the module before the `try`
+- **post_index_update reports an old parent's recovered publication as failure** (`20p5k-bug post-index-update-old-parent-false-failure`) — 4 ACs completed. Key decisions: Resolve an unobserved outcome through the current checkpoint-bound memory run and existing authorized publication reconciler
+- **Extension declaration validation: report at declaration time, validate once** (`20p5l-bug extension-declaration-validation-placement`) — 5 ACs completed. Key decisions: One change for both items; Cache the verdict keyed by `tc._generation`
+- **Single-OPEN guard re-walks the waves tree once per open wave** (`20pph-debt open-scope-repeated-wave-walk`) — 3 ACs completed. Key decisions: Pass the discovered list into the scope resolver
+- **Preserve recovery and compatibility paths after rerun reliability** (`20ppi-debt dead-paths-after-rerun-reliability`) — 4 ACs completed. Key decisions: One debt change for both leftovers; Readiness correction: retain the reachable extraction guard and explicit ignored keyword
 ## Watchpoints
 
 - Watchpoint: Graph ownership remains explicit: unowned or unsupported folders are retained with a terminal outcome. Actual historical-parent recovery and negative proof controls passed. Reachable extraction/signoff compatibility is retained. All required delivery reviewers approved; gates remain closed.
@@ -91,12 +101,12 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 
 | Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
-| plan | 157 | 2,234,231 |
+| plan | 164 | 2,253,512 |
 | implement | 65 | 1,676,163 |
-| review | 85 | 962,654 |
-| **Total** | **307** | **4,873,048** |
+| review | 88 | 961,506 |
+| **Total** | **317** | **4,891,181** |
 
-<!-- wave:context-efficiency-state {"generation":241,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":65,"content_source_credit":1740407,"derived_artifact_credit":0,"direct_net":1676163,"estimated_tokens_saved":1676163,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":2251,"response_debit":65441,"source_credit_count":35,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3448},"plan":{"calls":157,"content_source_credit":2648815,"derived_artifact_credit":16045,"direct_net":2234231,"estimated_tokens_saved":2234231,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":33769,"response_debit":401128,"source_credit_count":111,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":4268},"review":{"calls":85,"content_source_credit":1110801,"derived_artifact_credit":0,"direct_net":962654,"estimated_tokens_saved":962654,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":2660,"response_debit":145487,"source_credit_count":29,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":307,"content_source_credit":5500023,"derived_artifact_credit":16045,"direct_net":4873048,"estimated_tokens_saved":4873048,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":38680,"response_debit":612056,"source_credit_count":175,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":7716},"wave_id":"20ppj rerun-reliability-review-follow-ups"} -->
+<!-- wave:context-efficiency-state {"generation":245,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":65,"content_source_credit":1740407,"derived_artifact_credit":0,"direct_net":1676163,"estimated_tokens_saved":1676163,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":2251,"response_debit":65441,"source_credit_count":35,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3448},"plan":{"calls":164,"content_source_credit":2672564,"derived_artifact_credit":16045,"direct_net":2253512,"estimated_tokens_saved":2253512,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":33880,"response_debit":405485,"source_credit_count":112,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":4268},"review":{"calls":88,"content_source_credit":1110801,"derived_artifact_credit":0,"direct_net":961506,"estimated_tokens_saved":961506,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":2689,"response_debit":152242,"source_credit_count":29,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":5636}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":317,"content_source_credit":5523772,"derived_artifact_credit":16045,"direct_net":4891181,"estimated_tokens_saved":4891181,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":38820,"response_debit":623168,"source_credit_count":176,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":13352},"wave_id":"20ppj rerun-reliability-review-follow-ups"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided

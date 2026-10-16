@@ -93,6 +93,19 @@ from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
 
 
+def _is_link_metadata(info) -> bool:
+    """Early incoming hooks cannot depend on a newer installed sibling API."""
+    import stat
+
+    if stat.S_ISLNK(getattr(info, "st_mode", 0)):
+        return True
+    tag = getattr(info, "st_reparse_tag", None)
+    if type(tag) is int and 0 < tag <= 0xFFFFFFFF:
+        return bool(tag & 0x20000000)
+    return bool(getattr(info, "st_file_attributes", 0)
+                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
 
 @contextlib.contextmanager
 def _scripts_on_sys_path(scripts):
@@ -625,9 +638,8 @@ def _preserve_original_manifest(ctx) -> None:
             metadata = path.lstat()
         except FileNotFoundError:
             continue
-        if (stat.S_ISLNK(metadata.st_mode) or
-                getattr(metadata, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
-            raise ValueError("upgrade MANIFEST recovery paths may not use links or reparse points")
+        if _is_link_metadata(metadata):
+            raise ValueError("upgrade MANIFEST recovery paths may not use links or unclassified reparse points")
     installed = version.read_text(encoding="utf-8").strip() if version.exists() else ""
     # Match the coordinator's byte-preserving snapshot, including CRLF from
     # Windows checkouts; universal-newline reads would reject the same manifest.
@@ -703,7 +715,7 @@ def _guard_owned_path(root: Path, path: Path) -> Path:
             metadata = part.lstat()
         except FileNotFoundError:
             continue
-        if stat.S_ISLNK(metadata.st_mode) or getattr(metadata, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+        if _is_link_metadata(metadata):
             raise ValueError("index_guard_checkpoint_invalid: linked recovery/source path")
     return path
 
@@ -914,6 +926,50 @@ def validate_index_guard_durable_pack(root, lock, *, allow_terminal_absence=Fals
     return resolved
 
 
+class _GuardPackReadbackUnavailable(ValueError):
+    """Carry proven ownership to the caller's existing checkpoint publication."""
+
+    def __init__(self, fields):
+        super().__init__('index_guard_durable_pack_retained_validation_unavailable')
+        self.retained_fields = fields
+
+
+def _guard_delete_shared_fd(fd):
+    """Keep this same file held while Windows permits private-name deletion."""
+    if os.name != 'nt':
+        return fd
+    import ctypes
+    from ctypes import wintypes
+    import msvcrt
+
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    reopen = kernel.ReOpenFile
+    reopen.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD]
+    reopen.restype = wintypes.HANDLE
+    close = kernel.CloseHandle
+    close.argtypes = [wintypes.HANDLE]
+    close.restype = wintypes.BOOL
+    # Reopen by HANDLE, not pathname. WRITE access fits the original CRT
+    # handle's sharing; only the new sharing mode adds DELETE permission.
+    handle = reopen(msvcrt.get_osfhandle(fd), 0x40000000, 0x7, 0)
+    if handle == ctypes.c_void_p(-1).value:
+        raise OSError(ctypes.get_last_error(), 'index guard shared handle unavailable')
+    try:
+        shared = msvcrt.open_osfhandle(handle, os.O_WRONLY | os.O_BINARY | os.O_NOINHERIT)
+    except BaseException:
+        close(handle)  # CRT ownership transfers only after successful conversion.
+        raise
+    try:
+        os.set_inheritable(shared, False)
+        if _guard_file_identity(os.fstat(shared)) != _guard_file_identity(os.fstat(fd)):
+            raise ValueError('index_guard_durable_pack_invalid: shared handle identity changed')
+    except BaseException:
+        os.close(shared)
+        raise
+    os.close(fd)
+    return shared
+
+
 def _retain_index_guard_pack(ctx, lock, record):
     root = Path(ctx.root).resolve(strict=True)
     source = Path(lock['zip_path'])
@@ -930,7 +986,7 @@ def _retain_index_guard_pack(ctx, lock, record):
         raise ValueError('index_guard_durable_pack_occupied: unowned slot; preserve it and inspect the checkpoint')
     # The consumed verified source is distinct from the external selected pack.
     source_entry = source.lstat()
-    if not stat.S_ISREG(source_entry.st_mode) or source_entry.st_nlink != 1 or getattr(source_entry, 'st_file_attributes', 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+    if not stat.S_ISREG(source_entry.st_mode) or source_entry.st_nlink != 1 or _is_link_metadata(source_entry):
         raise ValueError('index_guard_package_changed: consumed source is linked or not regular')
     source_read = source.parent.resolve(strict=True) / source.name
     data, _, _ = _read_guard_pack(source_read.parent, source_read, helper)
@@ -940,36 +996,80 @@ def _retain_index_guard_pack(ctx, lock, record):
     helper.ensure_contained_dir(root, target.parent.relative_to(root).parts)
     directory = helper.open_contained_dir(root, target.parent.relative_to(root).parts)
     temporary = None
+    fd = None
+    published = False
+
+    def bind(entry):
+        record['durable_pack'] = {'version': 1, 'path': _INDEX_GUARD_PACK_REL, 'sha256': digest,
+            'root': str(root), 'root_identity': record['root_identity'], 'token': record['token'],
+            'target_version': record['target_version'], 'identity': _guard_file_identity(entry)}
+        record['pack_path'] = str(target)
+        return {'zip_path': str(target), 'original_staged_pack_path': str(source)}
+
     try:
         temporary, fd = helper._create_temporary(target.name, 0o600, dir_fd=directory, parent=target.parent)
-        try:
-            helper._write_all(fd, data)
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+        helper._write_all(fd, data)
+        os.fsync(fd)
+        fd = _guard_delete_shared_fd(fd)
+        written = os.fstat(fd)
         # Exclusive publication: neither POSIX replace nor a same-hash occupant
         # can confer ownership. Revalidate parent components immediately first.
         _guard_owned_path(root, target)
         if directory is not None:
             os.link(temporary, target.name, src_dir_fd=directory, dst_dir_fd=directory, follow_symlinks=False)
+            published = True
             os.unlink(temporary, dir_fd=directory)
         else:
             os.link(target.parent / temporary, target, follow_symlinks=False)
+            published = True
             os.unlink(target.parent / temporary)
         temporary = None
+        retained, opened, _ = _read_guard_pack(root, target, helper)
+        owned = os.fstat(fd)
+        if (_guard_file_identity(opened) != _guard_file_identity(owned)
+                or _guard_file_identity(owned)[:4] != _guard_file_identity(written)[:4]
+                or owned.st_nlink != 1):
+            raise ValueError('index_guard_durable_pack_invalid: publication identity changed')
+        if hashlib.sha256(retained).hexdigest() != digest:
+            raise ValueError('index_guard_durable_pack_invalid: publication changed')
+        return bind(owned)
+    except (OSError, NotImplementedError, ValueError) as exc:
+        if not published:
+            raise
+        # The held creation descriptor, never the target's name or hash,
+        # supplies rollback authority. The helper checks fresh ancestry/identity.
+        try:
+            owned = os.fstat(fd)
+        except OSError:
+            raise ValueError('index_guard_durable_pack_recovery_required: held ownership unavailable; preserve the checkpoint and original package for manual recovery') from None
+        try:
+            helper.unlink_contained(root, target,
+                                    expected_identity=(owned.st_dev, owned.st_ino))
+        except (OSError, NotImplementedError):
+            try:
+                _guard_owned_path(root, target)
+                entry = target.lstat()
+                current = os.fstat(fd)
+                if (temporary is not None or not isinstance(exc, (OSError, NotImplementedError))
+                        or not stat.S_ISREG(entry.st_mode) or _is_link_metadata(entry)
+                        or entry.st_nlink != 1 or current.st_nlink != 1
+                        or _guard_file_identity(entry) != _guard_file_identity(current)
+                        or _guard_file_identity(current)[:4] != _guard_file_identity(written)[:4]
+                        or any(type(value) is not int or value <= 0 for value in _guard_file_identity(current))):
+                    raise ValueError('retained ownership unavailable')
+            except (OSError, NotImplementedError, ValueError):
+                raise ValueError('index_guard_durable_pack_recovery_required: rollback/proof unavailable; preserve the checkpoint and original package for manual recovery') from None
+            # Validation did not succeed. Persist this existing-format ownership
+            # proof before pausing; normal retry must still check identity/hash.
+            raise _GuardPackReadbackUnavailable(bind(current)) from None
+        raise
     finally:
+        if fd is not None:
+            os.close(fd)
         if temporary is not None:
             helper._remove_temporary(temporary, dir_fd=directory, parent=target.parent)
         if directory is not None:
             os.close(directory)
-    retained, opened, _ = _read_guard_pack(root, target, helper)
-    if hashlib.sha256(retained).hexdigest() != digest:
-        raise ValueError('index_guard_durable_pack_invalid: publication changed')
-    record['durable_pack'] = {'version': 1, 'path': _INDEX_GUARD_PACK_REL, 'sha256': digest,
-        'root': str(root), 'root_identity': record['root_identity'], 'token': record['token'],
-        'target_version': record['target_version'], 'identity': _guard_file_identity(opened)}
-    record['pack_path'] = str(target)
-    return {'zip_path': str(target), 'original_staged_pack_path': str(source)}
 
 
 def _index_guard_resume_flag(ctx, lock, migration, *, pre_docs=False):
@@ -1126,6 +1226,9 @@ def enforce_index_guard_handoff(ctx, *, pre_docs=False):
         if resume_flag and lock.get("zip_path"):
             try:
                 retained_fields = _retain_index_guard_pack(ctx, lock, record)
+            except _GuardPackReadbackUnavailable as exc:
+                retained_fields = exc.retained_fields
+                reason = 'index_guard_durable_pack_retained_validation_unavailable'
             except FileExistsError:
                 raise  # Occupied/raced names never confer ownership.
             except (OSError, NotImplementedError):

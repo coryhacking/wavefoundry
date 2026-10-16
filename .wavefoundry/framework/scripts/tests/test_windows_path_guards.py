@@ -22,6 +22,7 @@ import review_evidence
 import runtime_lock
 import upgrade_bridge_bootstrap as bridge
 import upgrade_wavefoundry as upgrade
+import upgrade_extensions
 from wave_lint_lib import helpers
 from nt_metadata_support import MISSING_TAG, nt_stat
 
@@ -106,7 +107,7 @@ class WindowsPathGuardTests(unittest.TestCase):
         return False
 
     def test_every_copy_and_lock_predicate_has_exact_outcomes(self):
-        modules = (cf, runtime_lock, bridge, bytecode_cache, record_paths, review_evidence, lifecycle_lock)
+        modules = (cf, runtime_lock, bridge, bytecode_cache, record_paths, review_evidence, lifecycle_lock, upgrade_extensions)
         for tag, expected in CASES:
             info = nt_stat(os.lstat(self.file), tag)
             entry = SimpleNamespace(is_symlink=lambda: False, stat=lambda **_: info)

@@ -244,8 +244,13 @@ def _cleanup_verified_pack(path: Path | None, proof: dict | None) -> bool:
     directory = None
     try:
         if parent_proof is None:
-            if path.parent != Path(tempfile.gettempdir()).resolve(strict=True):
+            legacy_parent = path.parent.resolve(strict=True)
+            if legacy_parent != Path(tempfile.gettempdir()).resolve(strict=True):
                 return retained("legacy parent ownership cannot be proved across sessions")
+            # Old proofs may spell the temporary parent through an OS alias
+            # (/var on macOS). Walk its canonical directory, keeping the final
+            # entry unresolved and the original proof/path binding checked above.
+            path = legacy_parent / path.name
             parent_identity = None
         elif (not isinstance(parent_proof, dict) or parent_proof.get("kind") != "temporary"
                 or parent_proof.get("path") != str(path.parent)

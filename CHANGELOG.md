@@ -16,6 +16,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Repair legacy temporary-parent aliases, apply name-surrogate classification at archive/recovery boundaries, and preserve guard-pack ownership after a failed publication read-back. Keep actual uv trust refusals visible after ordinary PATH misses. Existing proof formats and no-clobber checks remain; native Windows sharing and OneDrive execution are unqualified. Wave 20tzs.
+
 - Retained retired-graph cleanup reaches a recorded terminal outcome, old-parent index recovery uses existing publication authority, and memory reranker exceptions preserve fallback behavior. Validate legacy hook declarations before rendering, cache provider declaration checks per generation, and reuse wave discovery during activation. Preserve extraction recovery and signoff compatibility. Wave 20ppj.
 
 - Unify Windows reparse classification, retain complete lock scans when directory identities are unavailable, and improve conditional path, permission, BOM and uv-shim diagnostics. Preserve ownership during archive cleanup and distinguish durable proof from fresh deletion identity. Synthetic platform controls do not establish native Windows qualification. Wave 20qrv.

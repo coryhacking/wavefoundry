@@ -6,14 +6,14 @@ Last verified: 2026-10-15
 
 ## Current Session
 
-**Active wave:** none. `20ppj`, `20qrv` and `20tpo` remain paused solely for the framework receipt gate.
-**Done:** all 14 admitted changes implemented; every required reviewer and council-delivery approved. Six review findings are terminal; all tasks/ACs reconciled, with the explicit unsupported warm-up deferral retained. Operator now authorized closure, commit and push; operator approvals are recorded. Closure summaries, watchpoints, retrospective, memory review and folder cleanup checks are complete. No new memory or evidence folders were created.
-**Final test state:** repaired-tree default suite ran 11,816 tests / 200 files / 12 skips in 841.468 seconds. Its only failure is `test_indexer.SQLiteDriftDetectionScaleTests.test_100k_rows_contention_safe_budget`: 1.063578 seconds against 1.000 seconds. All other checks pass; no timing change, waiver or unchanged retry. No current green full-suite receipt. Stable protected focused run previously passed 420 tests / 11 modules / zero skips, plus the exact identity target and independent negative controls.
-**Closure blocker:** `framework_test_receipt_not_proven` (stale); the close tool has no explicit timing-exception path. Operator is deciding between a reviewed timing-exception mechanism and deferring closure until quiet-machine qualification. Do not manufacture a green receipt or bypass the gate. Commit/push of the reviewed work is separately authorized and proceeding with waves paused.
-**Evidence:** durable results in each wave.md and immutable events.jsonl; full temporary log `/private/tmp/three-wave-close-qualified-default.log`. All 47 reviewed source/test/doc paths still match `3090aafeb2c958ac40e3f6997800ba241f9f5f50c32cdbcc847307618ed9524f`.
-**Deferred:** timing investigation; native Windows, WSL2/drvfs and reboot qualification; release provenance. Operator probes remain in `docs/references/native-windows-support.md`.
-**Gates/setup:** framework, seed and design edit gates closed. MCP reports loaded-code/setup inputs stale; no setup, index build or model operation was performed.
-**Prior completed work:** 20oqx, 20qvn, 20qvq and 20qvt closed/pushed in `43621e07`. No package requested in this operation.
+**Active wave:** *(none in this session)*
+**Last closed wave:** `20tzs` — repaired legacy temporary-parent cleanup, recovery-path reparse classification, guard-pack publication recovery and bounded uv refusal diagnostics.
+**Also closed:** `20ppj`, `20qrv` and `20tpo`; their delivered changes, intentional warm-up deferral, reviews and retrospective remain in each wave.md and immutable ledger. All four close mutations succeeded under the operator’s current close/commit/push instruction.
+**Qualification:** all 11,838 tests / 200 files / 12 existing skips passed. The second full run took 744.159s; it exited 1 only for four concurrent wave 20tpp record changes. The operator explicitly accepted that record-only exception. Current framework receipt matches `e5e529674529010c4f27c96b66f66e26f04f3337e4b3a88acb33d85626f2e13b` and preserves the authorization, original rejection and log SHA-256 `80d6f95c9fa2a7c6fe478732a50f127db9dc5b4680e1b59e2d2d5f3b6cf87234`. All 11 reviewed paths remain unchanged. No further test run, timing waiver or reconstructed exact profile report.
+**Records and cleanup:** all ACs/tasks reconciled, required reviews and operator approvals current, no pending selected memory candidates. Wave folders retain only their wave/change docs and authoritative ledger; no new evidence folders or memory files. Canonical support guidance retains the applicable recovery lessons and operator probes.
+**Concurrent work:** wave `20tpp tensorwell-workload-aware-client` belongs to another session and is excluded from this commit/push. Do not revert, close or absorb it.
+**Gates/setup:** framework, seed and design edit gates closed. Loaded setup assessment remains stale; no setup, index build or model operation was performed. No package requested.
+**Limits:** timing investigation and native Windows/OneDrive/WSL2/drvfs/reboot qualification remain deferred. Keep private identifying reports out of commits and external messages. Raw diagnostic logs remain temporary; durable outcomes are in wave.md.
 
 ## Open questions / Deferred decisions
 

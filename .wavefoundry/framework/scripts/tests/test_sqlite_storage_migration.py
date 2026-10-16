@@ -294,6 +294,13 @@ class ReceiptTests(unittest.TestCase):
          ('upgrade_extensions', '_read_guard_pack', '_guard_file_identity(entry) != _guard_file_identity(opened)'),
          ('upgrade_extensions', '_read_guard_pack', '_guard_file_identity(path.lstat()) != _guard_file_identity(opened)'),
          ('upgrade_extensions', '_retain_index_guard_pack', 'hashlib.sha256(retained).hexdigest() != digest'),
+         # 20tzs: fresh held-descriptor/publication comparisons, not portable
+         # historical storage identities. Device equality must remain exact.
+         ('upgrade_extensions', '_retain_index_guard_pack', '_guard_file_identity(entry) != _guard_file_identity(current)'),
+         ('upgrade_extensions', '_retain_index_guard_pack', '_guard_file_identity(owned)[:4] != _guard_file_identity(written)[:4]'),
+         ('upgrade_extensions', '_retain_index_guard_pack', '_guard_file_identity(current)[:4] != _guard_file_identity(written)[:4]'),
+         ('upgrade_extensions', '_retain_index_guard_pack', '_guard_file_identity(opened) != _guard_file_identity(owned)'),
+         ('upgrade_extensions', '_guard_delete_shared_fd', '_guard_file_identity(os.fstat(shared)) != _guard_file_identity(os.fstat(fd))'),
 
          # 20qrr: durable proof device drift is portable; fresh operation identity stays exact.
          ('upgrade_extensions', '_guard_durable_binding', "len(proof['identity']) != 5"),

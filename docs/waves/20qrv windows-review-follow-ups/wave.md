@@ -1,7 +1,7 @@
 # Wave Record
 
 Owner: Engineering
-Status: paused
+Status: closed
 Last verified: 2026-10-15
 review-evidence-source: events.jsonl
 
@@ -34,12 +34,18 @@ Change Status: `implemented`
 - Requested review lanes: code-reviewer, qa-reviewer, architecture-reviewer, security-reviewer, docs-contract-reviewer, release-reviewer, performance-reviewer
 - Required review lanes: code-reviewer, qa-reviewer, architecture-reviewer, docs-contract-reviewer, release-reviewer, performance-reviewer, security-reviewer
 
+Completed At: 2026-10-15
+
 ## Wave Summary
 
-Delivered retained/embedded archive ownership portability, name-surrogate reparse classification, complete zero-identity lock scanning, and bounded path/permission/BOM/shim diagnostics. Durable proof tolerates device drift while current-operation identity and hash checks remain strict. Native Windows, WSL2/drvfs and reboot qualification remain unverified; operator probes are in docs/references/native-windows-support.md.
+Wave `20qrv` (Windows Review Follow Ups) delivered 4 changes: Embedded archive and index-guard ownership on native Windows, One link classification: refuse name surrogates, pass other reparse points, catch junctions, Lifecycle lock link scan keys directories by a zero identity on Windows, and Windows path limits, BOM, read-only and shim diagnostics. Notable adjustments during implementation: Windows path limits, BOM, read-only and shim diagnostics: Implemented conditional long-path/invalid-name diagnostics, BOM parser, explicit non-executing shim guidance, pre-publication readonly refusal and new-fd mode proof. Five new diagnostics tests and 132 record/fail-closed controls passed. Setup module: 203 tests, two mocked-bootstrap fixture permission failures passed when rerun with access to their temporary tool-venv files. Four mutants detected removed mode proof, readonly refusal, long-path distinction and BOM parsing.
 
-Intentional deferral — `20qru-bug windows-path-and-diagnostic-fixes`: [~] AC-2: Warm-up skip/count remedy intentionally deferred during 2026-10-15 readiness: actual child returns success when compile_dir returns False, so the stated failure premise is unsupported. No timing or cache-warmup changes in this wave.
+**Changes delivered:**
 
+- **Embedded archive and index-guard ownership on native Windows** (`20qrr-bug embedded-archive-ownership-on-windows`) — 5 ACs completed. Key decisions: Preserve no-clobber creation; controlled refusal when unavailable; Separate durable identity comparison from freshly proved cleanup identity across all consumers
+- **One link classification: refuse name surrogates, pass other reparse points, catch junctions** (`20qrs-bug reparse-tag-and-junction-classification`) — 5 ACs completed. Key decisions: One predicate, copied verbatim across the import boundary, pinned by parity test; Fix both directions in one change
+- **Lifecycle lock link scan keys directories by a zero identity on Windows** (`20qrt-bug lifecycle-lock-scan-windows-identity`) — 4 ACs completed. Key decisions: Fresh no-follow stat with reclassification and tagged real-path fallback for zero identities
+- **Windows path limits, BOM, read-only and shim diagnostics** (`20qru-bug windows-path-and-diagnostic-fixes`) — 6 ACs completed. Key decisions: Group the bounded diagnostics; defer unsupported warm-up remedy; Preserve shim execution refusal and provide existing bootstrap guidance
 ## Watchpoints
 
 - Watchpoint: Synthetic metadata and real POSIX controls passed; they do not establish native Windows/WSL2/reboot behavior. Canonical native-support guidance retains the field probes and by-path race limits. Shared upgrade/contained-file edits were serialized, independent security review passed, and the unsupported warm-up remedy remains deferred.
@@ -96,10 +102,10 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 | --- | ---: | ---: |
 | plan | 184 | 3,502,557 |
 | implement | 37 | 222,601 |
-| review | 81 | 720,009 |
-| **Total** | **302** | **4,445,167** |
+| review | 84 | 719,620 |
+| **Total** | **305** | **4,444,778** |
 
-<!-- wave:context-efficiency-state {"generation":233,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":37,"content_source_credit":255049,"derived_artifact_credit":0,"direct_net":222601,"estimated_tokens_saved":222601,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":1147,"response_debit":34411,"source_credit_count":12,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3110},"plan":{"calls":184,"content_source_credit":4243697,"derived_artifact_credit":9067,"direct_net":3502557,"estimated_tokens_saved":3502557,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":59064,"response_debit":695411,"source_credit_count":170,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":4268},"review":{"calls":81,"content_source_credit":865018,"derived_artifact_credit":0,"direct_net":720009,"estimated_tokens_saved":720009,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":2418,"response_debit":142591,"source_credit_count":35,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":302,"content_source_credit":5363764,"derived_artifact_credit":9067,"direct_net":4445167,"estimated_tokens_saved":4445167,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":62629,"response_debit":872413,"source_credit_count":217,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":7378},"wave_id":"20qrv windows-review-follow-ups"} -->
+<!-- wave:context-efficiency-state {"generation":236,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":37,"content_source_credit":255049,"derived_artifact_credit":0,"direct_net":222601,"estimated_tokens_saved":222601,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":1147,"response_debit":34411,"source_credit_count":12,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3110},"plan":{"calls":184,"content_source_credit":4243697,"derived_artifact_credit":9067,"direct_net":3502557,"estimated_tokens_saved":3502557,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":59064,"response_debit":695411,"source_credit_count":170,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":4268},"review":{"calls":84,"content_source_credit":865018,"derived_artifact_credit":0,"direct_net":719620,"estimated_tokens_saved":719620,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":2447,"response_debit":148587,"source_credit_count":35,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":5636}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":305,"content_source_credit":5363764,"derived_artifact_credit":9067,"direct_net":4444778,"estimated_tokens_saved":4444778,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":62658,"response_debit":878409,"source_credit_count":217,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":13014},"wave_id":"20qrv windows-review-follow-ups"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided

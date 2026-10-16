@@ -101,7 +101,7 @@ def retain(root, source, expected_hash=None):
         try:
             source_entry = Path(source).lstat()
             if (not stat.S_ISREG(source_entry.st_mode)
-                    or getattr(source_entry, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+                    or contained_files._is_link_metadata(source_entry)):
                 raise OSError(errno.ELOOP, "selected combined archive is linked or not regular")
             source_fd = os.open(source, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
         except BaseException:
@@ -155,6 +155,7 @@ def _durable_identity_matches(stored, entry):
 
 def _retained_path(root, proof):
     from pathlib import Path
+    import contained_files
     root = Path(root).resolve(strict=True)
     if not isinstance(proof, dict):
         raise ValueError("retained combined archive proof is missing")
@@ -170,8 +171,7 @@ def _retained_path(root, proof):
         raise ValueError("retained combined archive ownership proof is unproven")
     for candidate in (directory.parent, directory, path):
         entry = candidate.lstat()
-        if (stat.S_ISLNK(entry.st_mode)
-                or getattr(entry, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT
+        if (contained_files._is_link_metadata(entry)
                 or not candidate.resolve(strict=True).is_relative_to(root)):
             raise ValueError("retained combined archive path is linked or outside the root")
         if candidate != path and not stat.S_ISDIR(entry.st_mode):

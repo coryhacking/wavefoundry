@@ -363,7 +363,8 @@ def _trusted_path_uv(root: Path | None, *, skipped: list[str] | None = None) -> 
             continue
         if os.path.isfile(candidate) and (os.name == "nt" or os.access(candidate, os.X_OK)):
             return Path(candidate)
-        record(entry, "no regular executable " + name)
+        if os.path.lexists(candidate):
+            record(entry, "no regular executable " + name)
     return None
 
 

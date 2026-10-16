@@ -59,6 +59,52 @@ class VerifiedPackOwnershipTests(unittest.TestCase):
         self.assertIn('legacy', output)
         self.assertTrue(self.cleanup(proof=old)[0])
 
+    def legacy_alias(self):
+        if os.name == 'nt':
+            self.skipTest('Native Windows directory-symlink privileges unqualified')
+        alias = self.root / 'temporary-parent-alias'
+        alias.symlink_to(self.staged.parent, target_is_directory=True)
+        path = alias / self.staged.name
+        proof = {'path': str(path), 'identity': list(self.proof['identity'])}
+        return path, proof
+
+    def test_legacy_parent_alias_walks_canonical_parent_without_resolving_file(self):
+        path, proof = self.legacy_alias()
+        self.assertNotEqual(path.parent, self.staged.parent)
+        self.assertEqual(path.parent.resolve(), self.staged.parent)
+        result, output = self.cleanup(path=path, proof=proof)
+        self.assertTrue(result)
+        self.assertFalse(self.staged.exists())
+        self.assertEqual(output, '')
+
+    def test_legacy_alias_preserves_original_path_binding_and_refuses_absence(self):
+        path, proof = self.legacy_alias()
+        self.assertFalse(self.cleanup(path=path, proof=self.proof)[0])
+        self.assertTrue(self.staged.exists())
+        self.staged.unlink()
+        result, output = self.cleanup(path=path, proof=proof)
+        self.assertFalse(result)
+        self.assertIn('legacy absence', output)
+
+    def test_legacy_alias_refuses_final_link_and_replacement(self):
+        path, proof = self.legacy_alias()
+        self.staged.unlink()
+        self.staged.symlink_to(self.source)
+        self.assertFalse(self.cleanup(path=path, proof=proof)[0])
+        self.assertTrue(self.staged.is_symlink())
+        self.assertEqual(self.source.read_bytes(), b'private verified payload')
+        self.staged.unlink()
+        self.staged.write_bytes(b'competing archive')
+        self.assertFalse(self.cleanup(path=path, proof=proof)[0])
+        self.assertEqual(self.staged.read_bytes(), b'competing archive')
+
+    def test_legacy_proof_refuses_unrelated_parent_with_matching_file_identity(self):
+        unrelated = self.root / 'wf-verified-pack-unowned.zip'
+        unrelated.write_bytes(b'private archive in an unrelated parent')
+        proof = {'path': str(unrelated), 'identity': runner._pack_entry_identity(unrelated)}
+        self.assertFalse(self.cleanup(path=unrelated, proof=proof)[0])
+        self.assertEqual(unrelated.read_bytes(), b'private archive in an unrelated parent')
+
     def test_mutated_file_fields_and_unusable_identity_retain(self):
         for slot in range(1, 5):
             proof=copy.deepcopy(self.proof);proof['identity'][slot] += 1
