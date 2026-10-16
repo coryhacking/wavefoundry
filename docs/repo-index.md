@@ -35,29 +35,29 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 20928 |
-| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1406 |
-| upgrade | `.wavefoundry/framework/scripts` | code | 509 |
-| dashboard_lib | `.wavefoundry/framework/scripts` | code | 490 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 20965 |
+| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1552 |
+| upgrade | `.wavefoundry/framework/scripts` | code | 487 |
 | graph | `.wavefoundry/framework/scripts` | code | 415 |
-| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 376 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 348 |
-| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 319 |
-| setup | `.wavefoundry/framework/scripts` | code | 283 |
-| framework index | `.wavefoundry/framework/scripts` | code | 248 |
+| setup | `.wavefoundry/framework/scripts` | code | 404 |
+| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 392 |
+| dashboard_lib | `.wavefoundry/framework/scripts` | code | 331 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 326 |
+| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 317 |
+| store | `.wavefoundry/framework/scripts` | code | 272 |
 | chunker | `.wavefoundry/framework/scripts` | code | 229 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 225 |
-| indexer | `.wavefoundry/framework/scripts` | code | 207 |
-| scripts/upgrade_bridge_bootstrap | `.wavefoundry/framework/scripts` | code | 181 |
-| run_tests | `.wavefoundry/framework/scripts` | code | 110 |
+| indexer | `.wavefoundry/framework/scripts` | code | 184 |
+| run_tests | `.wavefoundry/framework/scripts` | code | 108 |
 | retrieval_eval | `.wavefoundry/framework/scripts` | code | 105 |
-| tensorwell_client | `.wavefoundry/framework/scripts` | code | 57 |
+| tensorwell_client | `.wavefoundry/framework/scripts` | code | 96 |
+| memory_records | `.wavefoundry/framework/scripts` | code | 86 |
+| memory_eval | `.wavefoundry/framework/scripts` | code | 53 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 52 |
-| memory_records | `.wavefoundry/framework/scripts` | code | 52 |
 | oracle | `.wavefoundry/framework/scripts/tests/oracle` | code | 52 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 47 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
-| memory_eval | `.wavefoundry/framework/scripts` | code | 44 |
+| scripts/upgrade_bridge_bootstrap | `.wavefoundry/framework/scripts` | code | 30 |
 | configuration | `(root)` | config | 27 |
 <!-- wave:repo-index-modules end -->
 

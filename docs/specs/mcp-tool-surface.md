@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-15
+Last verified: 2026-10-16
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -53,6 +53,41 @@ the actual existing observation boundary. Cached qualification reuse keeps the
 original timestamp. `stale` becomes true after the client's five-second observation
 window, or when no observation exists; it does not imply that the service stopped.
 Local index precision exclusions leave this compatibility observation unchanged.
+
+The workload-aware client adds these cached `data.tensorwell` fields on all hosts:
+
+| Field | Meaning |
+| --- | --- |
+| `capabilities` | Negotiated schema, effective deadline/size limits, advertised session-hint support and `session_hint_in_use` booleans; null before compatible negotiation. No session value is exposed. |
+| `timing` | Last validated timing per role: matching workload and non-negative integer `queue_ms`, `execution_ms`, `total_ms`, each below 2^31; missing metadata remains unknown. |
+| `counters` | Process-local counts since start: `offered`, `succeeded`, `overloaded`, `deadline_exceeded`, `unavailable`, `transport_uncertain`, `rejected`, `cancelled`. Offered/succeeded count logical inference requests, excluding retries; terminal failure counts belong to failed adapter operations. A local interactive-slot refusal also counts as offered. These are observations, not receipts or daemon-wide totals. |
+| `last_readiness_at` | Last successful readiness time, independently of the last request outcome. |
+| `stats` | Last best-effort `/v1/stats` observation with `schema_version` 2 or 3, normalized to a `models` object keyed by the two pinned profile IDs and restricted to documented fields; null when absent or invalid. |
+| `stats_reason` | Cached statistics result; `absent` or `invalid` explains a null result without changing pair qualification. |
+
+The capabilities wire format uses `schema_version` 1/2, nested `limits`,
+`timeouts.max_ms`, `workloads.supported`, the fixed `timing` declaration and,
+for schema 2, the supported `client_session` object. The client normalizes these
+into its existing summary names (`schema`, `max_timeout_ms`, `max_input_bytes`,
+and `client_session_hint`); wire nesting does not alter the tool response shape.
+Inference timing is read from `metadata.workload` and `metadata.timing` and is
+normalized into the existing per-role fields above.
+
+Statistics expose only integer `configured_sessions`, `resident_sessions`,
+`ready_sessions`, `active_sessions`, `known_clients_active`, `known_clients_queued`,
+`unknown_active_requests`, `unknown_queued_requests`, `load_count` in [0, 2^53),
+and safe `optional_state`/`suppression_reason` labels. Load count is cumulative
+construction, not residency; active and queued clients are not summed. The read
+runs over the wire's `models` array, locating each row by `model.id` rather than
+its position. Wire `model.load_count` becomes the cached per-profile `load_count`.
+Missing/null optional labels are omitted. A root-level `suppression_reason` is
+global policy data and is dropped, never copied to profiles. Extra memory,
+counter and lifecycle fields are omitted. It
+runs after qualification at most once per cache window under its own one-second
+timeout. `wf_server_info` never fetches capabilities, readiness or statistics.
+Unsupported hosts retain `unsupported_host` with local-route empty observations.
+An unsupported or missing capabilities contract reports `capabilities_unsupported`
+with incompatible availability; no legacy inference request is sent.
 
 `data.inference` has these bounded, process-local fields:
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-15
+Last verified: 2026-10-16
 
 ## Trust Boundaries
 
@@ -30,6 +30,34 @@ unchanged. Requests and responses have byte/count/deadline limits; result identi
 indices, dimensions and numeric values finite in the caller's float32 domain are checked
 before use. A finite JSON number that would overflow float32 is refused. Credentials,
 input text and raw service errors are excluded from diagnostics.
+
+Capabilities require the same instance identity as other discovery responses and
+accept only supported schemas, bounded workload lists, integer deadlines and
+positive size limits clamped to local caps. Only the deployed nested capability
+shapes are accepted; fixed timing and schema-2 session advertisements are validated.
+The session header name remains a client constant, never a service-selected value.
+Optional session hints are random
+process-local UUIDs, preserved on reload and replaced after fork; they never enter
+status, object representations, observations, exceptions or logs. They grant no
+authority and are not rotated to gain service capacity.
+
+Error bodies share the success response's byte cap and strict JSON parser. Only
+documented fixed codes matching `[a-z_]{1,40}` become reasons; envelope messages
+are discarded and never retained or surfaced. A boolean retryable flag cannot
+expand the retry policy. Retry-After accepts only non-negative integer seconds,
+clamped by the wait floor, 60-second ceiling and remaining operation budget, with
+bounded jitter. Both admission waits and sequential retries consume that budget;
+no more than four attempts are allowed per request. No selected service failure
+authorizes local model construction or partial publication.
+
+Best-effort statistics accept only schema 2 or 3, the two pinned profile IDs and
+the documented field allow-list. Counts are integers below 2^53 and state labels
+are bounded safe tokens. Nested model load counts are normalized; missing/null optional
+labels are omitted. Root policy fields are never promoted into model rows;
+unknown fields and untrusted messages are never exposed.
+The one-second statistics read cannot change qualification. Cached reporting does
+not perform HTTP, expose credentials or session identity, or claim cross-process
+model ownership.
 
 This is a same-user trust relationship, not protection against a malicious process
 already able to replace that user's service, credentials or framework code. Qualified

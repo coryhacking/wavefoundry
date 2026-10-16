@@ -17,12 +17,14 @@ import os
 from pathlib import Path
 import platform
 import re
+import random
 import socket
 import stat
 import subprocess
 import threading
 import time
 import weakref
+import uuid
 
 EMBEDDING_MODEL = "Snowflake/snowflake-arctic-embed-s"
 RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -40,6 +42,23 @@ MAX_ITEMS = 128
 MAX_RESPONSE_BYTES = 2 << 20
 DISCOVERY_SECONDS = 2.0
 INFERENCE_SECONDS = 30.0
+BATCH_SECONDS = 300.0
+DELIVERY_MARGIN_SECONDS = 10.0
+BATCH_ITEMS = 32
+MAX_ATTEMPTS = 4
+OVERLOAD_FLOOR_SECONDS = 1.0
+OVERLOAD_CEILING_SECONDS = 60.0
+OVERLOAD_JITTER_SECONDS = 1.0
+DEADLINE_BACKOFF_SECONDS = 2.0
+UNAVAILABLE_BACKOFF_SECONDS = (1.0, 2.0)
+INTERACTIVE_LIMIT = 4
+STATS_SECONDS = 1.0
+_OUTCOMES = frozenset({"overloaded", "deadline_exceeded", "service_unavailable", "transport_uncertain",
+                       "invalid_request", "unauthorized", "model_not_found", "request_timeout",
+                       "payload_rejected", "unexpected_response"})
+_HTTP_REASONS = {429: "overloaded", 504: "deadline_exceeded", 503: "service_unavailable", 400: "invalid_request",
+                 401: "unauthorized", 404: "model_not_found", 408: "request_timeout", 413: "payload_rejected", 415: "payload_rejected"}
+_DESELECT = frozenset({"transport_uncertain", "service_unavailable", "unauthorized", "unexpected_response"})
 STARTUP_SECONDS = 30.0
 CACHE_SECONDS = 5.0
 BACKOFF_SECONDS = 5.0
@@ -50,8 +69,28 @@ FLOAT32_MAX = float.fromhex("0x1.fffffep+127")
 class TensorwellUnavailable(RuntimeError):
     """Safe failure: selected operations never silently retry another backend."""
 
-    def __init__(self):
-        super().__init__("Qualified Tensorwell inference is unavailable; retry the operation or use local inference.")
+    def __init__(self, reason="unexpected_response", *, status=None, code=None, phase="request"):
+        reason = reason if reason in _OUTCOMES else "unexpected_response"
+        self.reason = reason
+        self.diagnostic = {"reason": reason, "status": status, "code": code, "phase": phase}
+        super().__init__("Qualified Tensorwell inference is unavailable; retry the operation or use local inference. " + reason)
+
+
+class _HTTPFailure(ValueError):
+    def __init__(self, status, code=None, retryable=None, retry_after=None, *, reason=None):
+        self.status = status
+        self.code = code if isinstance(code, str) and re.fullmatch(r"[a-z_]{1,40}", code) and code in _OUTCOMES else None
+        self.reason = reason if reason in _OUTCOMES else self.code or _HTTP_REASONS.get(status, "unexpected_response")
+        self.retryable, self.retry_after = retryable, retry_after
+        super().__init__("Unavailable HTTP response: " + self.reason)
+
+
+class _CapabilitiesUnsupported(ValueError):
+    def __init__(self, *, status=None, code=None):
+        # Retain bounded protocol facts only; never the source exception.
+        self.status = status if type(status) is int and 100 <= status <= 599 else None
+        self.code = code if isinstance(code, str) and re.fullmatch(r"[a-z_]{1,40}", code) and code in _OUTCOMES else None
+        super().__init__("Unsupported Tensorwell capabilities")
 
 
 class _Race(Exception):
@@ -71,6 +110,7 @@ class _Pair:
     embedding: dict
     reranking: dict
     generation: int = 0
+    capabilities: dict = field(default_factory=dict)
 
 
 # In-place MCP reload refreshes code/pins while preserving process ownership.
@@ -79,6 +119,17 @@ if "_lock" not in globals():
     _lock = threading.RLock()
 if "_probe_lock" not in globals():
     _probe_lock = threading.Lock()
+if "_batch_lock" not in globals():
+    _batch_lock = threading.Lock()
+    _interactive_slots = threading.BoundedSemaphore(INTERACTIVE_LIMIT)
+    _attempt_context = threading.local()
+if "_counters" not in globals():
+    _counters = {name: 0 for name in ("offered", "succeeded", "overloaded", "deadline_exceeded", "unavailable",
+                                    "transport_uncertain", "rejected", "cancelled")}
+_last_readiness_at = None
+_stats = None
+_stats_reason = "absent"
+_stats_until = 0.0
 if "_startup_scheduled" not in globals():
     _startup_scheduled = False
 if "_startup_worker" not in globals():
@@ -91,6 +142,7 @@ else:
     _generation += 1
     _status.update(backend="local", reason="client_reloaded", profiles=[])
 _pair: _Pair | None = None
+_capability_cache: tuple[str, dict] | None = None
 _cache_until = 0.0
 _backoff_until = 0.0
 
@@ -100,6 +152,12 @@ _ROLES = ("query_embedding", "search_reranking", "memory_reranking")
 _OWNER_SLOTS = ("docs_embedding", "code_embedding", "search_reranking", "memory_reranking")
 if "_observation_started_at" not in globals():
     _observation_started_at = time.time()
+if "_session_hint" not in globals():
+    _session_hint = None
+    _session_pid = None
+_timing = {}
+_timing_sequence = {}
+
 if "_process_pid" not in globals():
     _process_pid = os.getpid()
 if "_owners" not in globals():
@@ -119,9 +177,13 @@ _availability = {"state": "not_checked" if _generation == 0 else "unknown",
 def _observation_process() -> None:
     """Invalidate inherited telemetry on fork without changing provider routing."""
     global _process_pid, _observation_started_at, _sequence, _roles, _owners
+    global _timing, _timing_sequence, _counters, _last_readiness_at, _stats, _stats_reason, _stats_until
     pid = os.getpid()
     if pid != _process_pid:
         _process_pid, _observation_started_at, _sequence = pid, time.time(), 0
+        _timing, _timing_sequence = {}, {}
+        _counters = dict.fromkeys(_counters, 0)
+        _last_readiness_at, _stats, _stats_reason, _stats_until = None, None, "absent", 0.0
         _roles = {role: {"selection": None, "last_attempt": None, "last_success": None} for role in _ROLES}
         _owners = {slot: {"ref": None, "complete": False, "model": None} for slot in _OWNER_SLOTS}
         _status.update(backend="local", reason="process_changed", profiles=[])
@@ -172,6 +234,7 @@ def attempt(role: str, model) -> tuple:
         _roles[role]["last_attempt"] = {**provenance, "epoch": _generation,
             "sequence": _sequence, "started_at": time.time(), "completed_at": None,
             "provider_outcome": "running", "caller_outcome": "pending", "reason": None}
+        _attempt_context.token = token
         return token
 
 
@@ -193,6 +256,8 @@ def finish_attempt(token: tuple, *, returned: bool, accepted: bool, reason: str 
         current = _roles[role]["last_attempt"]
         # Latest-started attempt wins, independently of completion ordering.
         if current is not None and current["sequence"] == sequence:
+            if current.get("reason") in _OUTCOMES and not accepted:
+                reason = current["reason"]
             current.update(completed_at=time.time(), provider_outcome="returned" if returned else "failed",
                            caller_outcome="accepted" if accepted else "degraded", reason=reason)
         # A success from an older overlapping operation is still useful if no
@@ -203,6 +268,8 @@ def finish_attempt(token: tuple, *, returned: bool, accepted: bool, reason: str 
             # The caller keeps a bounded detached start record in its token.
             _roles[role]["last_success"] = {**start, "epoch": epoch, "sequence": sequence,
                                            "completed_at": time.time()}
+        if getattr(_attempt_context, "token", None) == token:
+            del _attempt_context.token
 
 
 def observe_owner(slot: str, model, model_name: str) -> None:
@@ -260,7 +327,7 @@ def _reason(reason: str) -> None:
     with _lock:
         _status.update(backend="local", reason=reason, profiles=[])
         state = ("policy_disabled" if reason in {"disabled", "unsupported_host", "provider_policy"}
-                 else "incompatible" if reason == "incompatible_profiles" else "unavailable")
+                 else "incompatible" if reason in {"incompatible_profiles", "capabilities_unsupported"} else "unavailable")
         _observe_availability(state, reason)
 
 
@@ -274,7 +341,14 @@ def status_snapshot() -> dict:
         availability["detail"] = ("Both pinned models were compatible at the last readiness/descriptor check."
                                   if availability["reason"] == "qualified_pair" else
                                   "Last process-local observation; status does not check the service.")
-        return {**_status, "profiles": list(_status["profiles"]), "availability": availability}
+        return {**_status, "profiles": list(_status["profiles"]), "availability": availability,
+                "capabilities": dict(_pair.capabilities, session_hint_in_use=bool(
+                    _pair.capabilities.get("client_session_hint") and _session_pid == os.getpid() and _session_hint))
+                    if _pair is not None and _status["backend"] == "tensorwell" else None,
+                "timing": {role: dict(value) for role, value in _timing.items()},
+                "counters": dict(_counters), "last_readiness_at": _last_readiness_at,
+                "stats": json.loads(json.dumps(_stats)) if _stats is not None else None,
+                "stats_reason": _stats_reason}
 
 
 def status_bundle_snapshot() -> dict:
@@ -371,13 +445,14 @@ def _discovery(deadline: float) -> _Snapshot:
         os.close(directory)
 
 
-def _http(snapshot: _Snapshot, path: str, deadline: float, body: bytes | None = None) -> dict:
+def _http(snapshot: _Snapshot, path: str, deadline: float, body: bytes | None = None,
+          *, session_hint: bool = False) -> dict:
     """Direct literal-loopback HTTP; never consult proxies or follow redirects.
 
     A socket watchdog enforces the total deadline, including headers and a
     slowly dribbling response. Inactivity timeouts alone do not provide that.
     """
-    connection = http.client.HTTPConnection("127.0.0.1", snapshot.port, timeout=_remaining(deadline))
+    connection = http.client.HTTPConnection("127.0.0.1", snapshot.port, timeout=min(DISCOVERY_SECONDS, _remaining(deadline)) if body is not None else _remaining(deadline))
     owned_socket = []
     def expire():
         if owned_socket:
@@ -401,11 +476,12 @@ def _http(snapshot: _Snapshot, path: str, deadline: float, body: bytes | None = 
             if len(body) > MAX_BODY_BYTES:
                 raise ValueError("large request")
             headers["Content-Type"] = "application/json"
+            if session_hint:
+                headers["Client-Session-Id"] = _client_session_hint()
         connection.request("POST" if body is not None else "GET", path, body=body, headers=headers)
         response = connection.getresponse()
-        if response.status == 401:
-            raise _Race
-        if response.status != 200 or response.getheader("Content-Type", "").split(";")[0].strip().lower() != "application/json":
+        is_json = response.getheader("Content-Type", "").split(";")[0].strip().lower() == "application/json"
+        if not is_json and response.status == 200:
             raise ValueError("unavailable response")
         size = response.getheader("Content-Length")
         if size is not None and (not size.isdecimal() or int(size) > MAX_RESPONSE_BYTES):
@@ -420,6 +496,18 @@ def _http(snapshot: _Snapshot, path: str, deadline: float, body: bytes | None = 
             if len(chunks) > MAX_RESPONSE_BYTES:
                 raise ValueError("large response")
         _remaining(deadline)
+        if response.status != 200:
+            code = retryable = value = None
+            try:
+                value = _json(bytes(chunks)) if is_json else None
+                error = value.get("error") if isinstance(value, dict) else None
+                if isinstance(error, dict) and type(error.get("retryable")) is bool:
+                    code, retryable = error.get("code"), error["retryable"]
+            except (ValueError, UnicodeError):
+                pass
+            if isinstance(value, dict) and "instance_id" in value and value["instance_id"] != snapshot.instance:
+                raise _HTTPFailure(response.status, reason="unexpected_response")
+            raise _HTTPFailure(response.status, code, retryable, response.getheader("Retry-After"))
         value = _json(bytes(chunks))
         if not isinstance(value, dict) or value.get("instance_id") != snapshot.instance:
             raise ValueError("changed instance")
@@ -434,19 +522,168 @@ def _http(snapshot: _Snapshot, path: str, deadline: float, body: bytes | None = 
 
 
 def _request(snapshot: _Snapshot, path: str, deadline: float, body: bytes | None = None,
-             retry_budget: list[int] | None = None) -> dict:
-    try:
-        return _http(snapshot, path, deadline, body)
-    except (_Race, ConnectionError, OSError, http.client.HTTPException):
-        # At most one rediscovery, and never switch instance for this operation.
-        if retry_budget is not None:
-            if retry_budget[0] == 0:
-                raise ValueError("rediscovery exhausted") from None
-            retry_budget[0] -= 1
-        refreshed = _discovery(deadline)
-        if refreshed.instance != snapshot.instance:
-            raise ValueError("changed instance")
-        return _http(refreshed, path, deadline, body)
+             retry_budget: list[int] | None = None, *, session_hint: bool = False,
+             workload: str | None = None, operation_deadline: float | None = None,
+             service_seconds: float | None = None) -> dict:
+    # Discovery retains its one consistent rediscovery, inference has one
+    # non-overlapping retry loop bounded by the enclosing operation deadline.
+    inference = body is not None
+    operation_deadline = operation_deadline if operation_deadline is not None else deadline
+    retry_budget = retry_budget if retry_budget is not None else [1]
+    transport_retried = deadline_retried = False
+    unavailable_retries = 0
+    if inference:
+        with _lock:
+            _counters["offered"] += 1
+    for number in range(MAX_ATTEMPTS):
+        try:
+            if inference and service_seconds is not None:
+                deadline = min(operation_deadline, time.monotonic() + service_seconds + DELIVERY_MARGIN_SECONDS)
+            result = _http(snapshot, path, deadline, body, session_hint=session_hint)
+            _remaining(deadline)
+            return result
+        except (_Race, ConnectionError, OSError, http.client.HTTPException, _HTTPFailure) as failure:
+            reason = (failure.reason if isinstance(failure, _HTTPFailure) else
+                      "unauthorized" if isinstance(failure, _Race) else "transport_uncertain")
+            if number + 1 >= MAX_ATTEMPTS:
+                raise _request_failure(reason, failure) from None
+            if reason in {"transport_uncertain", "unauthorized"}:
+                if retry_budget[0] <= 0 or (reason == "transport_uncertain" and transport_retried):
+                    if not inference:
+                        raise ValueError("rediscovery exhausted") from None
+                    raise _request_failure(reason, failure) from None
+                retry_budget[0] -= 1
+                transport_retried |= reason == "transport_uncertain"
+                try:
+                    refreshed = _discovery(min(operation_deadline, time.monotonic() + DISCOVERY_SECONDS))
+                    if refreshed.instance != snapshot.instance:
+                        raise ValueError("changed instance")
+                    snapshot = refreshed
+                except Exception:
+                    if not inference:
+                        raise ValueError("changed instance") from None
+                    raise _request_failure(reason, failure) from None
+                continue
+            if not inference:
+                raise
+            if reason == "overloaded":
+                remaining = operation_deadline - time.monotonic()
+                if remaining < OVERLOAD_FLOOR_SECONDS:
+                    raise _request_failure(reason, failure) from None
+                raw = failure.retry_after if isinstance(failure, _HTTPFailure) else None
+                # Bound parsing work; huge decimals are simply above the ceiling.
+                seconds = (int(raw) if len(raw) < 10 else OVERLOAD_CEILING_SECONDS) if isinstance(raw, str) and raw.isascii() and raw.isdecimal() else OVERLOAD_FLOOR_SECONDS
+                delay = max(OVERLOAD_FLOOR_SECONDS, min(seconds, OVERLOAD_CEILING_SECONDS, remaining))
+                delay += random.random() * OVERLOAD_JITTER_SECONDS
+            elif reason == "deadline_exceeded" and workload == "batch" and not deadline_retried:
+                deadline_retried = True
+                delay = DEADLINE_BACKOFF_SECONDS
+            elif reason == "service_unavailable" and unavailable_retries < len(UNAVAILABLE_BACKOFF_SECONDS):
+                delay = UNAVAILABLE_BACKOFF_SECONDS[unavailable_retries]
+                unavailable_retries += 1
+            else:
+                raise _request_failure(reason, failure) from None
+            if not _retry_wait(delay, operation_deadline):
+                raise _request_failure(reason, failure) from None
+            if reason == "service_unavailable":
+                while True:
+                    try:
+                        health = _http(snapshot, "/health/ready", min(operation_deadline, time.monotonic() + DISCOVERY_SECONDS))
+                        if health.get("status") != "ready":
+                            raise ValueError("not ready")
+                        _readiness_observed()
+                        break
+                    except Exception:
+                        if unavailable_retries >= len(UNAVAILABLE_BACKOFF_SECONDS):
+                            raise _request_failure(reason, failure) from None
+                        delay = UNAVAILABLE_BACKOFF_SECONDS[unavailable_retries]
+                        unavailable_retries += 1
+                        if not _retry_wait(delay, operation_deadline):
+                            raise _request_failure(reason, failure) from None
+    raise TensorwellUnavailable("unexpected_response")
+
+
+def _request_failure(reason: str, failure) -> TensorwellUnavailable:
+    return TensorwellUnavailable(reason, status=getattr(failure, "status", None), code=getattr(failure, "code", None))
+
+
+def _retry_wait(seconds: float, deadline: float) -> bool:
+    if seconds < 0 or seconds >= deadline - time.monotonic():
+        return False
+    time.sleep(seconds)
+    return time.monotonic() < deadline
+
+
+def _readiness_observed() -> None:
+    global _last_readiness_at
+    with _lock:
+        _last_readiness_at = time.time()
+
+
+def _client_session_hint() -> str:
+    global _session_hint, _session_pid
+    with _lock:
+        pid = os.getpid()
+        if _session_hint is None or _session_pid != pid:
+            _session_hint, _session_pid = str(uuid.uuid4()), pid
+        return _session_hint
+
+
+def _capabilities(value) -> dict:
+    if not isinstance(value, dict) or type(value.get("schema_version")) is not int or value["schema_version"] not in {1, 2}:
+        raise _CapabilitiesUnsupported
+    schema = value["schema_version"]
+    for key in ("limits", "timeouts", "workloads", "timing"):
+        if not isinstance(value.get(key), dict):
+            raise _CapabilitiesUnsupported
+    result = {"schema": schema}
+    for key, container, wire_key, maximum in (
+            ("max_timeout_ms", "timeouts", "max_ms", int(BATCH_SECONDS * 1000)),
+            ("max_items", "limits", "max_items", MAX_ITEMS),
+            ("max_body_bytes", "limits", "max_body_bytes", MAX_BODY_BYTES),
+            ("max_input_bytes", "limits", "max_text_bytes", MAX_ITEM_BYTES)):
+        number = value[container].get(wire_key)
+        if type(number) is not int or number <= 0 or (key == "max_timeout_ms" and not 1000 <= number <= 300000):
+            raise _CapabilitiesUnsupported
+        result[key] = min(number, maximum)
+    workloads = value["workloads"].get("supported")
+    if (not isinstance(workloads, list) or len(workloads) > 8 or
+            any(not isinstance(item, str) for item in workloads) or not {"interactive", "batch"} <= set(workloads)):
+        raise _CapabilitiesUnsupported
+    timing = value["timing"]
+    if (timing.get("request_flag") != "include_timing" or timing.get("unit") != "milliseconds"
+            or timing.get("rounding") != "floor"):
+        raise _CapabilitiesUnsupported
+    if schema == 2:
+        session = value.get("client_session")
+        if (not isinstance(session, dict) or session.get("header") != "Client-Session-Id"
+                or session.get("format") != "uuid-shaped-ascii-8-4-4-4-12-hex"
+                or session.get("optional") is not True or session.get("authentication") is not False):
+            raise _CapabilitiesUnsupported
+    result["client_session_hint"] = schema == 2
+    return result
+
+
+def _response_timing(value, workload: str, role: str, token=None) -> None:
+    if "metadata" not in value:
+        return
+    metadata = value["metadata"]
+    if not isinstance(metadata, dict) or metadata.get("workload") != workload:
+        raise ValueError("invalid timing")
+    timing = metadata.get("timing")
+    if not isinstance(timing, dict):
+        raise ValueError("invalid timing")
+    result = {"workload": workload}
+    for key in ("queue_ms", "execution_ms", "total_ms"):
+        number = timing.get(key)
+        if type(number) is not int or not 0 <= number < (1 << 31):
+            raise ValueError("invalid timing")
+        result[key] = number
+    with _lock:
+        if token is None or (token[1] == _generation and token[2] >= _timing_sequence.get(role, -1)):
+            _timing[role] = result
+            if token is not None:
+                _timing_sequence[role] = token[2]
 
 
 def _descriptor(value, task: str) -> bool:
@@ -462,15 +699,21 @@ def _descriptor(value, task: str) -> bool:
                  if embedding else value.get("dimensions") is None))
 
 
-def _selection_result(value, reason: str, diagnostic: dict | None):
+def _selection_result(value, reason: str, diagnostic: dict | None, *, phase=None, status=None, code=None):
     # Owned by this invocation, never read back from process-global status.
     if diagnostic is not None:
         diagnostic["reason"] = reason
+        if phase in {"discovery", "capabilities", "readiness"}:
+            diagnostic["phase"] = phase
+            if type(status) is int and 100 <= status <= 599:
+                diagnostic["status"] = status
+            if isinstance(code, str) and re.fullmatch(r"[a-z_]{1,40}", code) and code in _OUTCOMES:
+                diagnostic["code"] = code
     return value
 
 
 def _qualified_pair(total_deadline: float | None = None, *, diagnostic: dict | None = None) -> _Pair | None:
-    global _pair, _cache_until, _backoff_until
+    global _pair, _cache_until, _backoff_until, _capability_cache
     policy = _policy_reason()
     if policy:
         _reason(policy)
@@ -489,6 +732,7 @@ def _qualified_pair(total_deadline: float | None = None, *, diagnostic: dict | N
             return _selection_result(None, "discovery_backoff", diagnostic)
         if _pair is not None and now < _cache_until:
             return _selection_result(_pair, "qualified_pair", diagnostic)
+        phase = "discovery"
         try:
             # Model-set mappings are code pins, not facts learned from HTTP.
             import model_bundle
@@ -496,6 +740,21 @@ def _qualified_pair(total_deadline: float | None = None, *, diagnostic: dict | N
                 raise ValueError("model set changed")
             snapshot = _discovery(deadline)
             retry_budget = [1]
+            phase = "capabilities"
+            if _capability_cache is not None and _capability_cache[0] == snapshot.instance:
+                capabilities = _capability_cache[1]
+            else:
+                try:
+                    capabilities = _capabilities(_request(snapshot, "/v1/capabilities", deadline, retry_budget=retry_budget))
+                    if generation == _generation:
+                        _capability_cache = (snapshot.instance, capabilities)
+                except Exception as failure:
+                    if generation == _generation:
+                        _capability_cache = None
+                    metadata = failure if isinstance(failure, (_HTTPFailure, _CapabilitiesUnsupported)) else None
+                    raise _CapabilitiesUnsupported(status=metadata.status if metadata is not None else None,
+                                                   code=metadata.code if metadata is not None else None) from None
+            phase = "readiness"
             health = _request(snapshot, "/health/ready", deadline, retry_budget=retry_budget)
             if health.get("status") != "ready":
                 raise ValueError("not ready")
@@ -510,37 +769,105 @@ def _qualified_pair(total_deadline: float | None = None, *, diagnostic: dict | N
                         _reason("incompatible_profiles")
                         _pair = None
                         _backoff_until = now + BACKOFF_SECONDS
-                        return _selection_result(None, "incompatible_profiles", diagnostic)
+                        return _selection_result(None, "incompatible_profiles", diagnostic, phase=phase)
                     return _selection_result(None, "client_reloaded", diagnostic)
             with _lock:
                 if generation != _generation:
                     return _selection_result(None, "client_reloaded", diagnostic)
-                _pair = _Pair(snapshot, embedding[0], reranking[0], generation)
+                _pair = _Pair(snapshot, embedding[0], reranking[0], generation, capabilities)
                 _cache_until = time.monotonic() + CACHE_SECONDS
                 _status.update(backend="tensorwell", reason="qualified_pair", profiles=[embedding[0]["id"], reranking[0]["id"]])
                 _observe_availability("ready_compatible", "qualified_pair")
-                return _selection_result(_pair, "qualified_pair", diagnostic)
-        except Exception:
+                _readiness_observed()
+                qualified = _pair
+            _refresh_stats(qualified)
+            return _selection_result(qualified, "qualified_pair", diagnostic)
+        except Exception as failure:
             with _lock:
                 if generation == _generation:
                     _pair = None
                     _backoff_until = time.monotonic() + BACKOFF_SECONDS
-                    _reason("discovery_unavailable")
-                    return _selection_result(None, "discovery_unavailable", diagnostic)
+                    reason = "capabilities_unsupported" if isinstance(failure, _CapabilitiesUnsupported) else "discovery_unavailable"
+                    _reason(reason)
+                    metadata = failure if isinstance(failure, (_HTTPFailure, _CapabilitiesUnsupported)) else None
+                    return _selection_result(None, reason, diagnostic, phase=phase,
+                                             status=metadata.status if metadata is not None else None,
+                                             code=metadata.code if metadata is not None else None)
                 return _selection_result(None, "client_reloaded", diagnostic)
     finally:
         _probe_lock.release()
 
 
-def _failed(generation: int | None = None) -> None:
+def _refresh_stats(pair: _Pair) -> None:
+    """Best-effort cache refresh outside status and interactive admission."""
+    global _stats, _stats_reason, _stats_until
+    if time.monotonic() < _stats_until:
+        return
+    result, reason = None, "invalid"
+    try:
+        value = _http(pair.snapshot, "/v1/stats", time.monotonic() + STATS_SECONDS)
+        if type(value.get("schema_version")) is not int or value["schema_version"] not in {2, 3}:
+            raise ValueError("invalid stats")
+        rows = value.get("models")
+        if not isinstance(rows, list):
+            raise ValueError("invalid stats")
+        profiles = {pair.embedding["id"], pair.reranking["id"]}
+        models = {}
+        for row in rows:
+            if not isinstance(row, dict) or not isinstance(row.get("model"), dict) or not isinstance(row["model"].get("id"), str):
+                raise ValueError("invalid stats")
+            profile = row["model"]["id"]
+            if profile not in profiles:
+                continue
+            if profile in models:
+                raise ValueError("duplicate stats model")
+            models[profile] = row
+        result = {"schema_version": value["schema_version"], "models": {}}
+        numeric = {"configured_sessions", "resident_sessions", "ready_sessions", "active_sessions",
+                   "known_clients_active", "known_clients_queued", "unknown_active_requests", "unknown_queued_requests", "load_count"}
+        labels = {"optional_state", "suppression_reason"}
+        for profile in (pair.embedding["id"], pair.reranking["id"]):
+            source = models.get(profile)
+            if not isinstance(source, dict):
+                raise ValueError("invalid stats")
+            safe = {}
+            for key in numeric | labels:
+                container = source["model"] if key == "load_count" else source
+                if key not in container:
+                    continue
+                value = container[key]
+                if key in labels and value is None:
+                    continue
+                if key in numeric:
+                    if type(value) is not int or not 0 <= value < (1 << 53):
+                        raise ValueError("invalid stats")
+                elif not isinstance(value, str) or re.fullmatch(r"[a-z0-9_-]{1,64}", value) is None:
+                    raise ValueError("invalid stats")
+                safe[key] = value
+            result["models"][profile] = safe
+        reason = None
+    except _HTTPFailure as failure:
+        reason = "absent" if failure.status == 404 else "invalid"
+        result = None
+    except Exception:
+        result = None
+    with _lock:
+        if pair.generation == _generation and _pair is not None and _pair.snapshot.instance == pair.snapshot.instance:
+            _stats, _stats_reason = result, reason
+            _stats_until = time.monotonic() + CACHE_SECONDS
+
+
+def _failed(generation: int | None = None, reason="unexpected_response", instance: str | None = None) -> None:
     global _pair, _cache_until, _backoff_until
     with _lock:
         if generation is not None and generation != _generation:
             return
+        if instance is not None and _pair is not None and _pair.snapshot.instance != instance:
+            return
         _pair = None
         _cache_until = 0
         _backoff_until = time.monotonic() + BACKOFF_SECONDS
-        _reason("inference_unavailable")
+        _reason(reason)
 
 
 def _text(value) -> None:
@@ -564,50 +891,81 @@ class _Adapter:
         if task == "reranking":
             self.batch_size = 40
 
-    def _operation(self, texts, role="document", query=None):
+    def _operation(self, texts, role="document", query=None, *, workload="batch"):
+        token = getattr(_attempt_context, "token", None)
+        observation_role = token[0] if token is not None and token[1] == _generation else "query_embedding" if role == "query" else "search_reranking" if query is not None else "docs_embedding"
+        slot = None
+        started = time.monotonic()
         try:
-            deadline = time.monotonic() + INFERENCE_SECONDS
             retry_budget = [1]
             if self._pair.generation != _generation:
                 raise ValueError("client reloaded")
             if _policy_reason() or (self._task == "reranking" and _truthy("WAVEFOUNDRY_DISABLE_RERANKER")):
                 raise ValueError("disabled")
             values = list(texts)
+            caps = self._pair.capabilities
+            service_seconds = min(BATCH_SECONDS, caps["max_timeout_ms"] / 1000) if workload == "batch" else min(INFERENCE_SECONDS, caps["max_timeout_ms"] / 1000)
+            timeout_ms = int(service_seconds * 1000)
+            item_limit = min(caps["max_items"], BATCH_ITEMS if workload == "batch" else MAX_ITEMS)
             for text in values:
                 _text(text)
+                if len(text.encode("utf-8")) > caps["max_input_bytes"]:
+                    raise ValueError("invalid input")
             encoded_sizes = [len(_encoded(text)) for text in values]
             if query is not None:
                 _text(query)
+                if len(query.encode("utf-8")) > caps["max_input_bytes"]:
+                    raise ValueError("invalid input")
             output = []
             offset = 0
+            batches = []
             # Send empty arrays explicitly, preserving the service contract.
             while offset < len(values) or (not values and offset == 0):
                 items = []
                 def payload(batch):
-                    base = {"model": self._model["id"], "timeout_ms": max(1, min(30000, int(_remaining(deadline) * 1000)))}
+                    base = {"model": self._model["id"], "timeout_ms": timeout_ms, "workload": workload, "include_timing": True}
                     if self._task == "embedding":
                         return {**base, "input": batch, "role": role}
                     return {**base, "query": query, "documents": batch}
-                # Exact UTF-8 JSON scalar sizes, commas and the empty-array
-                # envelope, with five reserved timeout digits. Serialize the
-                # complete body only once rather than every growing prefix.
-                used = len(_encoded(payload([]))) + 5
-                for index in range(offset, min(len(values), offset + MAX_ITEMS)):
+                # Size the final constant envelope exactly.
+                used = len(_encoded(payload([])))
+                for index in range(offset, min(len(values), offset + item_limit)):
                     extra = encoded_sizes[index] + (1 if items else 0)
-                    if used + extra > MAX_BODY_BYTES:
+                    if used + extra > caps["max_body_bytes"]:
                         break
                     items.append(values[index])
                     used += extra
                 if values and not items:
                     raise ValueError("large request")
                 body = _encoded(payload(items))
+                if len(body) > caps["max_body_bytes"]:
+                    raise ValueError("large request")
+                batches.append((body, len(items)))
+                offset += len(items)
+                if not values:
+                    break
+            operation_deadline = started + (len(batches) if workload == "batch" else 1) * (service_seconds + DELIVERY_MARGIN_SECONDS)
+            if workload == "batch":
+                if not _batch_lock.acquire(timeout=max(0, operation_deadline - time.monotonic())):
+                    raise TensorwellUnavailable("overloaded")
+                slot = _batch_lock
+            for body, count in batches:
+                deadline = min(operation_deadline, time.monotonic() + service_seconds + DELIVERY_MARGIN_SECONDS)
+                if workload == "interactive":
+                    if not _interactive_slots.acquire(timeout=max(0, deadline - time.monotonic())):
+                        with _lock:
+                            _counters["offered"] += 1
+                        raise TensorwellUnavailable("overloaded")
+                    slot = _interactive_slots
                 response = _request(self._pair.snapshot,
                                     "/v1/embeddings" if self._task == "embedding" else "/v1/rerank",
-                                    deadline, body, retry_budget)
+                                    deadline, body, retry_budget, session_hint=caps["client_session_hint"], workload=workload,
+                                    operation_deadline=operation_deadline, service_seconds=service_seconds)
+                _remaining(operation_deadline)
                 if not _descriptor(response.get("model"), self._task):
                     raise ValueError("changed model")
                 data = response.get("data")
-                if not isinstance(data, list) or len(data) != len(items):
+                if not isinstance(data, list) or len(data) != count:
                     raise ValueError("invalid count")
                 for i, row in enumerate(data):
                     if not isinstance(row, dict) or type(row.get("index")) is not int or row["index"] != i:
@@ -619,25 +977,58 @@ class _Adapter:
                                    or abs(n) > FLOAT32_MAX for n in numbers)):
                         raise ValueError("invalid output")
                     output.append(value)
-                offset += len(items)
-                if not values:
-                    break
+                _response_timing(response, workload, observation_role, token)
+                with _lock:
+                    # Validation and lock admission consume the same operation budget.
+                    try:
+                        _remaining(operation_deadline)
+                    except TimeoutError:
+                        raise TensorwellUnavailable("deadline_exceeded", phase="response_validation") from None
+                    _counters["succeeded"] += 1
+                    if self._pair.generation == _generation and _pair is not None and _pair.snapshot.instance == self._pair.snapshot.instance:
+                        _status["reason"] = "qualified_pair"
+                if workload == "interactive":
+                    slot.release()
+                    slot = None
             if self._pair.generation != _generation:
                 raise ValueError("client reloaded")
             return output
-        except Exception:
-            _failed(self._pair.generation)
-            raise TensorwellUnavailable() from None
+        except BaseException as failure:
+            cancelled = not isinstance(failure, Exception)
+            error = failure if isinstance(failure, TensorwellUnavailable) else TensorwellUnavailable(
+                "invalid_request" if isinstance(failure, ValueError) and str(failure) in {"invalid input", "large request"} else
+                "transport_uncertain" if isinstance(failure, (TimeoutError, OSError)) else "unexpected_response",
+                phase="response_validation" if isinstance(failure, ValueError) else "request")
+            reason = error.reason
+            with _lock:
+                if self._pair.generation == _generation:
+                    if _pair is None or _pair.snapshot.instance == self._pair.snapshot.instance:
+                        if reason in _DESELECT:
+                            _failed(self._pair.generation, reason, self._pair.snapshot.instance)
+                        else:
+                            _status["reason"] = reason
+                    counter = "cancelled" if cancelled else reason if reason in {"overloaded", "deadline_exceeded", "transport_uncertain"} else "unavailable" if reason in {"service_unavailable", "unauthorized", "unexpected_response"} else "rejected"
+                    _counters[counter] += 1
+                    if token is not None:
+                        current = _roles[token[0]]["last_attempt"]
+                        if token[1] == _generation and current is not None and current["sequence"] == token[2]:
+                            current["reason"] = reason
+            if cancelled:
+                raise
+            raise error from None
+        finally:
+            if slot is not None:
+                slot.release()
 
     def embed(self, texts, batch_size=256, **kwargs):
         # Eager completion prevents yielding unpublished partial service output.
         return iter(self._operation(texts))
 
     def embed_query(self, text: str):
-        return self._operation([text], role="query")[0]
+        return self._operation([text], role="query", workload="interactive")[0]
 
     def rerank(self, query: str, texts):
-        return self._operation(texts, query=query)
+        return self._operation(texts, query=query, workload="interactive")
 
 
 def select_embedder(model_name: str, precision_class: str = "full", *, diagnostic: dict | None = None):

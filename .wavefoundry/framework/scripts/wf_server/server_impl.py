@@ -22429,6 +22429,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
         Use immediately after connect when you need to confirm which checkout this server is attached to.
         Compatibility, per-role execution/acceptance and local ownership are separate observations.
+        data.tensorwell includes negotiated capabilities, per-role timing, process-local counters,
+        last_readiness_at, stats and stats_reason; statistics are cached best-effort observations.
         Status does not check the service, load models or run inference; other processes are not observed.
         """
         bad = _ensure_no_extra_args("wf_server_info", kwargs)

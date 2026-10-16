@@ -63,6 +63,40 @@ discards unpublished output; retry after the service recovers or use the local r
 No backend switch alone requires rebuilding a compatible index. Normal `wf setup`
 validation, explicit provisioning and local fallback dependencies are retained.
 
+The service must expose authenticated `/v1/capabilities` with `schema_version` 1 or 2,
+nested `limits`/`timeouts` and `workloads.supported` containing interactive and batch.
+The client validates the advertised timing format and normalizes these wire fields
+into its existing internal capability summary. A pre-capabilities service uses the local route
+with `capabilities_unsupported`. Selection remains macOS arm64 only. Indexing uses
+32-item batch requests with a negotiated service deadline up to 300 seconds each;
+queries and reranking use interactive requests with a service deadline up to 30 seconds.
+Each request has a 10-second delivery margin. A batch operation's total ceiling is
+its request count times that allowance; interactive operations have a 40-second
+ceiling. Neither workload changes the pinned model or index precision.
+
+When advertised by the supported schema-2 `client_session` declaration, a random session hint identifies this Wavefoundry
+process across its requests and reloads. Forked children get a new hint. The hint
+is never published in diagnostics. One batch request and up to four interactive
+requests may run concurrently; interactive work does not queue behind the batch lock.
+Overload waits respect bounded integer `Retry-After` values and use at most three
+retries. Batch deadline failures can retry once; interactive deadline failures do
+not. Readiness, credentials and uncertain delivery have narrowly bounded recovery,
+with no more than four attempts per request and no attempt beyond the operation
+deadline. A failed selected call never constructs a local fallback model.
+
+`wf_server_info().data.tensorwell` includes negotiated `capabilities`, per-role
+`timing`, process-local `counters`, `last_readiness_at`, and cached `stats` with
+`stats_reason`. Statistics are best-effort and do not decide model compatibility;
+`load_count` counts constructions, not resident models. Status reads perform no
+HTTP and expose neither text, credentials, session hints nor service error messages.
+Statistics schemas 2 and 3 use `schema_version` and a `models` array on the wire;
+the client locates rows by `model.id` and reports the pinned profiles by ID.
+Wire `model.load_count` becomes the existing per-profile count; null optional labels
+are omitted and global policy fields are dropped. Inference timing comes from
+`metadata.workload` and `metadata.timing`, preserving the normalized cached shape.
+Acceptance separates real synthetic inference against the selected local service
+from isolated failure/recovery controls; both results and limits are recorded before closure.
+
 ## Python runtime advisory and transition
 
 On native Windows, diagnose the required `python3` command before first setup and when an already-seeded checkout is opened on a new workstation: `powershell -NoProfile -File ".\.wavefoundry\framework\scripts\diagnose_python.ps1"` from the repository root. The read-only script requires neither Python nor MCP. A discovered `python.exe` is evidence for diagnosis, never an alternate MCP command. Use the approved executable or a permitted user PATH repair; when policy blocks both, keep setup unready and use the IT handoff in `.wavefoundry/framework/seeds/011-install-wavefoundry-phase-1.prompt.md` **Python prerequisite**. Do not bypass execution policy, reseed, or rebuild index data for this local command gap. After repair, verify fresh-host `python3 --version` and `python3 .wavefoundry/framework/scripts/server.py --dry-run`, then restart/reconnect the host. Native-Windows qualification for this change is pending real host execution. On first installation, a successful supported `python3` check permits setup to provision the tool environment before the server dry-run; do not require MCP bootstrap before its dependencies exist. Existing provisioned checkouts need no forced setup or rebuild merely for command repair.

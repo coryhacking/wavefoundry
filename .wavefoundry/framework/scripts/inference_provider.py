@@ -129,7 +129,7 @@ class _Adapter:
         self._generation = tc._generation
         self._module_name = inference_profile.ADAPTER_MODULE
 
-    def _operation(self, texts, *, role="document", query=None):
+    def _operation(self, texts, *, workload, query=None):
         try:
             if (self._generation != tc._generation or inference_profile.PROVIDER != "extension"
                     or self._module_name != inference_profile.ADAPTER_MODULE
@@ -140,6 +140,9 @@ class _Adapter:
                 tc._text(text)
             if query is not None:
                 tc._text(query)
+            # Workload belongs to the facade, not the distribution callback
+            # contract. Extensions keep their existing role/deadline keywords.
+            role = "document" if workload == "batch" else "query"
             deadline = time.monotonic() + tc.INFERENCE_SECONDS
             response = (self._provider["embed"](values, role=role, deadline=deadline)
                         if self._task == "embedding" else
@@ -163,13 +166,13 @@ class _Adapter:
             raise ProviderUnavailable() from None
 
     def embed(self, texts, batch_size=256, **kwargs):
-        return iter(self._operation(texts))
+        return iter(self._operation(texts, workload="batch"))
 
     def embed_query(self, text):
-        return self._operation([text], role="query")[0]
+        return self._operation([text], workload="interactive")[0]
 
     def rerank(self, query, texts):
-        return self._operation(texts, query=query)
+        return self._operation(texts, workload="interactive", query=query)
 
 
 def extension_precision(model_name):

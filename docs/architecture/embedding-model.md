@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-15
+Last verified: 2026-10-16
 
 ## What This Document Covers
 
@@ -81,6 +81,58 @@ text. One operation pins its service instance and profile identity and validates
 results, including finite float32 representability, before returning them. A failed
 selected operation does not mix partial service output with local output; existing
 unavailability/publication handling applies.
+
+Discovery requires authenticated capabilities `schema_version` 1 or 2 on the same pinned
+instance as readiness and model descriptors. Missing or unsupported capabilities
+select the local route with `capabilities_unsupported`. Numeric limits are validated
+and clamped to local bounds; capability negotiation is cached for the instance's
+lifetime. The wire reader normalizes nested `limits`, `timeouts.max_ms` and
+`workloads.supported` into the existing internal capability names, and validates
+the fixed timing/session advertisements. Both adapters derive workload from their entry point: `embed()` is batch,
+`embed_query()` and `rerank()` are interactive. Distribution callbacks retain the
+existing `role`/`deadline` contract and receive no new `workload` keyword.
+
+Tensorwell batch requests contain at most 32 items and use a negotiated service
+deadline up to 300 seconds per request. Interactive service deadlines have a
+30-second ceiling, respecting a smaller advertised maximum.
+Connect establishment is bounded by the 2-second discovery budget; the request
+watchdog adds a 10-second delivery margin. A batch operation is bounded by the
+request count times its per-request allowance, and interactive work by 40 seconds.
+Bodies are sized with the final workload, timeout and timing fields before sending.
+Optional timing reports read `metadata.workload` and `metadata.timing`, validating
+the matching workload and bounded integer queue, execution and total milliseconds
+before storing the existing flat per-role observation. Schema 2's supported
+`client_session` object advertises a random per-process
+session hint that survives reload and changes after fork; it is not a credential.
+
+The fixed failure vocabulary is `overloaded`, `deadline_exceeded`,
+`service_unavailable`, `transport_uncertain`, `invalid_request`, `unauthorized`,
+`model_not_found`, `request_timeout`, `payload_rejected` and `unexpected_response`.
+Only transport uncertainty, service unavailability, exhausted credential recovery
+and unexpected responses deselect the pair. Contract errors and overload leave it
+qualified. All retry waits share the operation deadline and a four-attempt request
+cap: overload allows three retries with bounded integer Retry-After and jitter;
+batch deadline failure allows one retry after two seconds; interactive deadline
+failure allows none. A 503 rechecks readiness after one then two seconds, at most
+twice. Uncertain transport permits one rediscovery and retries only an unchanged
+instance with unpublished output; 401 has one consistent rediscovery. Other
+contract failures and unexpected statuses are not retried. One batch request and
+four interactive requests have separate process-local admission limits; the slot
+wait counts against the deadline. No hedged request or local-model retry is added.
+
+Cached status separates the last readiness success from inference outcomes and
+includes bounded per-role timing, outcome counters and optional capacity statistics.
+The stats fetch runs after qualification at most once per cache window with its
+own one-second timeout; failure does not unqualify the pair. Status itself performs
+no HTTP. Wire statistics use `schema_version` 2 or 3 and a `models` array; rows
+are selected by `model.id`, independent of array order, then normalized to the
+two profile IDs for cached reporting. `model.load_count` is promoted to the existing
+per-profile count; it is cumulative constructions, not residency. Missing/null
+optional labels are omitted. Root policy fields are dropped rather than copied
+into profile rows. Active and queued known-client counts remain separate.
+Candidate acceptance separates real synthetic inference from isolated fault/recovery
+controls in wave 20tpp; fixture checks do not establish native
+Windows, Linux or WSL2 support.
 
 Only actual MCP serving schedules one background startup attempt. A qualified installed
 controller may start the configured service, with a 30-second total budget including

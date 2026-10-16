@@ -37,6 +37,24 @@ def descriptor(task):
             "requested_provider": "CoreMLExecutionProvider", "registered_provider": "CoreMLExecutionProvider"}
 
 
+def capabilities(**updates):
+    # Producer: service.rs capabilities and workers.rs adaptive declaration.
+    value = {"schema_version": 2,
+             "limits": {"max_items": 128, "max_body_bytes": 1048576, "max_text_bytes": 65536, "max_connections": 32},
+             "timeouts": {"default_ms": 30000, "max_ms": 300000, "native_quantum_watchdog_ms": 330000,
+                          "scope": "handler_entry_through_completion"},
+             "workloads": {"supported": ["interactive", "batch"], "default": "interactive"},
+             "timing": {"request_flag": "include_timing", "unit": "milliseconds", "rounding": "floor"},
+             "scheduling": {"policy": "dedicated_adaptive", "max_pending": 8, "quantum": "profile_native_batch"},
+             "profiles": [{"id": "arctic-fp16-coreml", "native_batch_items": 1024}],
+             "adaptive": {"sample_ms": 250}}
+    value.update(updates)
+    if value["schema_version"] == 2 and "client_session" not in updates:
+        value["client_session"] = {"header": "Client-Session-Id", "format": "uuid-shaped-ascii-8-4-4-4-12-hex",
+                                   "optional": True, "authentication": False, "unknown": "excluded-from-diversity"}
+    return value
+
+
 @unittest.skipIf(os.name == "nt", "Private POSIX discovery fixtures; native Windows service use remains unsupported")
 class ClientTests(unittest.TestCase):
     def setUp(self):
@@ -51,7 +69,7 @@ class ClientTests(unittest.TestCase):
         self.enterContext(patch.dict(os.environ, {"WAVEFOUNDRY_DISABLE_TENSORWELL": "0",
                 "WAVEFOUNDRY_EMBED_PROVIDER": "auto", "WAVEFOUNDRY_EMBED_PROVIDER_SELECTED": "",
                 "WAVEFOUNDRY_DISABLE_RERANKER": "0"}))
-        for key, value in (("_pair", None), ("_cache_until", 0), ("_backoff_until", 0), ("_startup_scheduled", False), ("_startup_worker", None)):
+        for key, value in (("_capability_cache", None), ("_pair", None), ("_cache_until", 0), ("_backoff_until", 0), ("_startup_scheduled", False), ("_startup_worker", None)):
             self.enterContext(patch.object(tc, key, value))
         self.enterContext(patch.object(tc, "_status", {"backend": "local", "reason": "not_checked", "startup": "not_scheduled", "profiles": []}))
         self.enterContext(patch.object(tc, "_roles", {role: {"selection": None, "last_attempt": None, "last_success": None}
@@ -62,8 +80,15 @@ class ClientTests(unittest.TestCase):
                                                            "observed_at": None, "observed_monotonic": None}))
         self.enterContext(patch.object(tc, "_process_pid", os.getpid()))
         self.enterContext(patch.object(tc, "_sequence", 0))
+        for key, value in (("_stats_until", 0), ("_stats", None), ("_stats_reason", "absent"), ("_timing", {}),
+                           ("_timing_sequence", {}), ("_last_readiness_at", None),
+                           ("_counters", dict.fromkeys(tc._counters, 0))):
+            self.enterContext(patch.object(tc, key, value))
+        if hasattr(tc._attempt_context, "token"):
+            del tc._attempt_context.token
         self.models = [descriptor("embedding"), descriptor("reranking")]
         self.requests = []
+        self.session_headers = []
         self.reply = None
         self.server = None
 
@@ -78,22 +103,29 @@ class ClientTests(unittest.TestCase):
         path.write_bytes(value)
         path.chmod(0o600)
 
-    def answer(self, snapshot, path, deadline, body=None):
+    def answer(self, snapshot, path, deadline, body=None, **kwargs):
         value = json.loads(body) if body is not None else None
         self.requests.append((path, value))
         if self.reply is not None:
             result = self.reply(path, value)
             if result is not None:
                 return result
+        if path == "/v1/capabilities":
+            return {"instance_id": INSTANCE, **capabilities()}
+        if path == "/v1/stats":
+            return {"instance_id": INSTANCE, "schema_version": 2, "models": [{"model": {"id": model["id"], "load_count": 1}, "optional_state": None} for model in reversed(self.models)]}
         if path == "/health/ready":
             return {"instance_id": INSTANCE, "status": "ready"}
         if path == "/v1/models":
             return {"instance_id": INSTANCE, "data": self.models}
         embedding = path == "/v1/embeddings"
         items = value["input" if embedding else "documents"]
-        return {"instance_id": INSTANCE, "model": descriptor("embedding" if embedding else "reranking"),
-                "data": [{"index": i, "embedding": [1.0] + [0.0] * 383} if embedding
-                         else {"index": i, "score": float(i) - 2.5} for i, text in enumerate(items)]}
+        response = {"instance_id": INSTANCE, "model": descriptor("embedding" if embedding else "reranking"),
+                    "data": [{"index": i, "embedding": [1.0] + [0.0] * 383} if embedding
+                             else {"index": i, "score": float(i) - 2.5} for i, text in enumerate(items)]}
+        if value.get("include_timing") is True:
+            response["metadata"] = {"workload": value["workload"], "timing": {"queue_ms": 1, "execution_ms": 2, "total_ms": 3}}
+        return response
 
     def fake_ready(self):
         snapshot = self.endpoint()
@@ -112,14 +144,21 @@ class ClientTests(unittest.TestCase):
             def respond(self):
                 size = int(self.headers.get("Content-Length", "0"))
                 body = self.rfile.read(size) if size else None
+                owner.session_headers.append((self.path, self.headers.get_all("Client-Session-Id")))
                 owner.assertEqual(self.headers["Authorization"], "Bearer " + TOKEN)
                 owner.assertEqual(self.headers["Host"], f"127.0.0.1:{owner.server.server_port}")
                 if custom:
                     custom(self)
                     return
-                value = owner.answer(None, self.path, time.monotonic() + 1, body)
+                try:
+                    value = owner.answer(None, self.path, time.monotonic() + 1, body)
+                    status = 200
+                except tc._HTTPFailure as failure:
+                    value = {"instance_id": INSTANCE, "error": {"code": failure.reason,
+                             "retryable": False, "message": "fixture private message"}}
+                    status = failure.status
                 encoded = json.dumps(value).encode()
-                self.send_response(200)
+                self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(encoded)))
                 self.end_headers()
@@ -134,6 +173,721 @@ class ClientTests(unittest.TestCase):
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
         return self.endpoint(self.server.server_port)
+
+    def test_producer_capability_nested_consumed_fields_and_session_rejections(self):
+        documents = []
+        for container in ("limits", "timeouts", "workloads", "timing"):
+            missing = capabilities()
+            del missing[container]
+            documents.append(missing)
+            for bad in (None, [], "object", True):
+                documents.append(capabilities(**{container: bad}))
+        for container, key in (("limits", "max_items"), ("limits", "max_body_bytes"),
+                               ("limits", "max_text_bytes"), ("timeouts", "max_ms"),
+                               ("workloads", "supported"), ("timing", "request_flag"),
+                               ("timing", "unit"), ("timing", "rounding")):
+            document = capabilities()
+            del document[container][key]
+            documents.append(document)
+        for key in ("max_items", "max_body_bytes", "max_text_bytes"):
+            for bad in (True, 0, -1, 1.0, "128"):
+                document = capabilities()
+                document["limits"][key] = bad
+                documents.append(document)
+        for bad in (True, 0, 999, 300001, 10 ** 12, 1000.0):
+            documents.append(capabilities(timeouts={"max_ms": bad}))
+        for supported in (None, "interactive", ["interactive"], ["batch"], ["interactive", "batch", True],
+                          ["interactive", "batch"] + ["extra"] * 7):
+            documents.append(capabilities(workloads={"supported": supported}))
+        for key, wrong in (("request_flag", "timing"), ("unit", "seconds"), ("rounding", "ceil")):
+            document = capabilities()
+            document["timing"][key] = wrong
+            documents.append(document)
+        absent = capabilities()
+        del absent["client_session"]
+        documents.append(absent)
+        for bad in (None, [], "Client-Session-Id", True):
+            documents.append(capabilities(client_session=bad))
+        for key, wrong_values in (("header", ("Authorization", "client-session-id", "X-Custom")),
+                                  ("format", ("uuid", None)), ("optional", (False, 1, "true", None)),
+                                  ("authentication", (True, 0, "false", None))):
+            missing = capabilities()
+            del missing["client_session"][key]
+            documents.append(missing)
+            for wrong in wrong_values:
+                document = capabilities()
+                document["client_session"][key] = wrong
+                documents.append(document)
+        documents += [{"schema": 2, "max_timeout_ms": 300000, "max_items": 128, "max_body_bytes": 1048576,
+                       "max_input_bytes": 65536, "workloads": ["interactive", "batch"], "client_session_hint": True},
+                      capabilities(schema_version=True), capabilities(schema_version=3)]
+        for document in documents:
+            with self.subTest(capability=document):
+                with self.assertRaises(tc._CapabilitiesUnsupported): tc._capabilities(document)
+        # A schema-one service cannot opt this client into a session extension.
+        self.assertFalse(tc._capabilities(capabilities(schema_version=1, client_session={"header": "Authorization"}))["client_session_hint"])
+
+    def test_producer_schema_session_headers_stable_across_retry_and_roles(self):
+        self.serve()
+        for schema in (1, 2):
+            with self.subTest(schema=schema):
+                tc._pair, tc._cache_until, tc._backoff_until, tc._capability_cache, tc._stats_until = None, 0, 0, None, 0
+                posts = [0]
+                def reply(path, body):
+                    if path == "/v1/capabilities":
+                        return {"instance_id": INSTANCE, **capabilities(schema_version=schema)}
+                    if body is not None:
+                        posts[0] += 1
+                        if posts[0] == 1:
+                            raise tc._HTTPFailure(401)
+                self.reply = reply
+                start = len(self.session_headers)
+                embedder = tc.select_embedder(tc.EMBEDDING_MODEL)
+                self.assertIsNotNone(embedder)
+                embedder.embed_query("generic query")
+                tc.select_reranker(tc.RERANKER_MODEL).rerank("generic query", ["generic passage"])
+                hints = [hints for path, hints in self.session_headers[start:] if path in {"/v1/embeddings", "/v1/rerank"}]
+                self.assertEqual(len(hints), 3)
+                if schema == 1:
+                    self.assertEqual(hints, [None] * 3)
+                else:
+                    self.assertTrue(all(hint is not None and len(hint) == 1 for hint in hints))
+                    self.assertEqual(hints[0], hints[1])
+                    self.assertEqual(hints[0], hints[2])
+                    self.assertRegex(hints[0][0], r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+                    self.assertNotIn(hints[0][0], repr(tc.status_bundle_snapshot()))
+                self.assertEqual(tc._pair.capabilities["client_session_hint"], schema == 2)
+
+    def test_producer_nested_capabilities_normalize_schema_one_and_two(self):
+        for schema in (1, 2):
+            with self.subTest(schema=schema):
+                document = capabilities(schema_version=schema)
+                document["limits"].update(max_items=1024, max_body_bytes=2 << 20, max_text_bytes=128 << 10)
+                try:
+                    normalized = tc._capabilities(document)
+                except tc._CapabilitiesUnsupported:
+                    self.fail("Producer-shaped nested capabilities were rejected")
+                self.assertEqual(normalized, {"schema": schema, "max_timeout_ms": 300000, "max_items": 128,
+                    "max_body_bytes": 1048576, "max_input_bytes": 65536, "client_session_hint": schema == 2})
+                document["timeouts"]["max_ms"] = 1000
+                self.assertEqual(tc._capabilities(document)["max_timeout_ms"], 1000)
+
+    def test_producer_nested_timing_normalizes_without_flat_wire_alias(self):
+        valid = {"metadata": {"workload": "interactive", "timing": {"queue_ms": 1, "execution_ms": 2, "total_ms": 3}}}
+        try:
+            tc._response_timing(valid, "interactive", "query_embedding")
+        except ValueError:
+            self.fail("Producer-shaped nested timing was rejected")
+        expected = {"workload": "interactive", "queue_ms": 1, "execution_ms": 2, "total_ms": 3}
+        self.assertEqual(tc.status_snapshot()["timing"]["query_embedding"], expected)
+        malformed = [{"metadata": None}, {"metadata": []}, {"metadata": {"workload": "interactive"}},
+                     {"metadata": {"workload": "interactive", "timing": []}},
+                     {"metadata": {"workload": "interactive", "queue_ms": 1, "execution_ms": 2, "total_ms": 3}}]
+        for field in ("queue_ms", "execution_ms", "total_ms"):
+            for bad in (True, "1", -1, float("nan"), 1 << 31):
+                value = copy.deepcopy(valid)
+                value["metadata"]["timing"][field] = bad
+                malformed.append(value)
+            value = copy.deepcopy(valid)
+            del value["metadata"]["timing"][field]
+            malformed.append(value)
+        value = copy.deepcopy(valid)
+        value["metadata"]["workload"] = "batch"
+        malformed.append(value)
+        for value in malformed:
+            with self.subTest(metadata=value):
+                with self.assertRaises(ValueError): tc._response_timing(value, "interactive", "query_embedding")
+                self.assertEqual(tc.status_snapshot()["timing"]["query_embedding"], expected)
+
+    def test_producer_stats_nested_counts_and_nullable_labels(self):
+        self.fake_ready()
+        pair = tc._Pair(self.endpoint(), *self.models, generation=tc._generation)
+        tc._pair = pair
+        tc._status["backend"] = "tensorwell"
+        rows = [{"model": {"id": "minilm-fp16-coreml", "load_count": 7}, "optional_state": None,
+                 "suppression_reason": None, "resident_sessions": 1},
+                {"model": {"id": "arctic-fp16-coreml", "load_count": 13, "secret": TOKEN},
+                 "optional_state": "resident", "known_clients_active": 2, "known_clients_queued": 3}]
+        document = {"instance_id": INSTANCE, "schema_version": 3, "models": rows, "suppression_reason": "global_only"}
+        self.reply = lambda path, body: document if path == "/v1/stats" else None
+        tc._refresh_stats(pair)
+        result = tc.status_snapshot()["stats"]
+        self.assertIsNotNone(result, "Null optional row labels must not invalidate valid statistics")
+        self.assertEqual(result["models"], {"minilm-fp16-coreml": {"load_count": 7, "resident_sessions": 1},
+            "arctic-fp16-coreml": {"load_count": 13, "optional_state": "resident", "known_clients_active": 2, "known_clients_queued": 3}})
+        self.assertNotIn("global_only", repr(result))
+        self.assertNotIn(TOKEN, repr(result))
+        for row in rows:
+            row.pop("optional_state", None)
+            row.pop("suppression_reason", None)
+            row["load_count"] = 999  # Provisional row-level count is unknown wire data.
+        tc._stats_until = 0
+        tc._refresh_stats(pair)
+        self.assertEqual(tc.status_snapshot()["stats"]["models"]["arctic-fp16-coreml"]["load_count"], 13)
+        for field in ("load_count", "optional_state", "suppression_reason"):
+            for bad in ((True, -1, 1 << 53, "1", None) if field == "load_count" else (True, 1, "A", "x" * 65)):
+                with self.subTest(field=field, bad=bad):
+                    target = rows[0]["model"] if field == "load_count" else rows[0]
+                    original = copy.deepcopy(target)
+                    target[field] = bad
+                    tc._stats_until = 0
+                    tc._refresh_stats(pair)
+                    self.assertIsNone(tc.status_snapshot()["stats"])
+                    self.assertIs(tc._pair, pair)
+                    target.clear()
+                    target.update(original)
+
+    def test_public_operations_reject_validation_that_finishes_after_deadline(self):
+        self.fake_ready()
+        for entrypoint in ("embed", "embed_query", "rerank"):
+            for seam in ("_descriptor", "_response_timing"):
+                for completed_at in (100.5, 101.0, 102.0):
+                    with self.subTest(entrypoint=entrypoint, seam=seam, completed_at=completed_at):
+                        tc._pair, tc._cache_until, tc._backoff_until = None, 0, 0
+                        model = (tc.select_reranker(tc.RERANKER_MODEL) if entrypoint == "rerank"
+                                 else tc.select_embedder(tc.EMBEDDING_MODEL))
+                        original = getattr(tc, seam)
+                        clock = [100.0]
+                        published = []
+                        def validation(*args, **kwargs):
+                            result = original(*args, **kwargs)
+                            clock[0] = completed_at
+                            return result
+                        def invoke():
+                            if entrypoint == "embed":
+                                published.extend(model.embed(["raw document"]))
+                            elif entrypoint == "embed_query":
+                                published.append(model.embed_query("raw query"))
+                            else:
+                                published.extend(model.rerank("raw query", ["raw document"]))
+                        with patch.object(tc.time, "monotonic", side_effect=lambda: clock[0]), \
+                             patch.object(tc, "BATCH_SECONDS", 1.0), patch.object(tc, "INFERENCE_SECONDS", 1.0), \
+                             patch.object(tc, "DELIVERY_MARGIN_SECONDS", 0.0), \
+                             patch.object(tc, "_counters", dict.fromkeys(tc._counters, 0)), \
+                             patch.object(tc, seam, side_effect=validation):
+                            if completed_at >= 101.0:
+                                with self.assertRaises(tc.TensorwellUnavailable) as failure:
+                                    invoke()
+                                self.assertEqual(failure.exception.reason, "deadline_exceeded")
+                                self.assertEqual(failure.exception.diagnostic["phase"], "response_validation")
+                                self.assertIs(tc._pair, model._pair)
+                                self.assertEqual(tc._counters["deadline_exceeded"], 1)
+                                self.assertEqual(published, [])
+                                self.assertEqual(tc._counters["succeeded"], 0)
+                            else:
+                                invoke()
+                                self.assertEqual(len(published), 1)
+                                self.assertEqual(tc._counters["succeeded"], 1)
+                            self.assertEqual(tc._counters["offered"], 1)
+                        # Every deadline failure must relinquish admission.
+                        self.assertTrue(tc._batch_lock.acquire(blocking=False))
+                        tc._batch_lock.release()
+                        acquired = []
+                        try:
+                            for _ in range(tc.INTERACTIVE_LIMIT):
+                                available = tc._interactive_slots.acquire(blocking=False)
+                                if available:
+                                    acquired.append(True)
+                                self.assertTrue(available)
+                        finally:
+                            for _ in acquired:
+                                tc._interactive_slots.release()
+
+    def test_safe_selection_diagnostics_capability_readiness_and_discovery_phases(self):
+        self.fake_ready()
+        hint = tc._client_session_hint()
+        for failed_path, status, code, expected in (
+                ("/v1/capabilities", 404, None, {"reason": "capabilities_unsupported", "phase": "capabilities", "status": 404}),
+                ("/v1/capabilities", 400, "invalid_request", {"reason": "capabilities_unsupported", "phase": "capabilities", "status": 400, "code": "invalid_request"}),
+                ("/health/ready", 503, "service_unavailable", {"reason": "discovery_unavailable", "phase": "readiness", "status": 503, "code": "service_unavailable"})):
+            with self.subTest(path=failed_path, status=status):
+                tc._pair, tc._cache_until, tc._backoff_until, tc._capability_cache = None, 0, 0, None
+                def failure(path, body):
+                    if path == failed_path:
+                        raise tc._HTTPFailure(status, code=code)
+                self.reply = failure
+                diagnostic = {}
+                self.assertIsNone(tc.select_embedder(tc.EMBEDDING_MODEL, diagnostic=diagnostic))
+                self.assertEqual(diagnostic, expected)
+                self.assertNotIn(TOKEN, repr(diagnostic))
+                self.assertNotIn(hint, repr(diagnostic))
+        tc._pair, tc._cache_until, tc._backoff_until, tc._capability_cache = None, 0, 0, None
+        diagnostic = {}
+        with patch.object(tc, "_discovery", side_effect=ValueError("raw private path " + TOKEN + hint)):
+            self.assertIsNone(tc.select_embedder(tc.EMBEDDING_MODEL, diagnostic=diagnostic))
+        self.assertEqual(diagnostic, {"reason": "discovery_unavailable", "phase": "discovery"})
+        self.assertNotIn(TOKEN, repr(diagnostic))
+        self.assertNotIn(hint, repr(diagnostic))
+        safe = tc._CapabilitiesUnsupported(status="503", code=TOKEN)
+        self.assertEqual(vars(safe), {"status": None, "code": None})
+        self.assertNotIn(TOKEN, str(safe))
+        self.assertNotIn(hint, str(safe))
+
+    def test_real_stats_schema_versions_array_identity_and_duplicates(self):
+        self.serve()
+        rows = [{"model": {"id": model["id"]}, "resident_sessions": i + 1} for i, model in enumerate(reversed(self.models))]
+        document = {"instance_id": INSTANCE, "schema_version": 2, "models": rows + [{"model": {"id": "unknown"}, "load_count": -1}]}
+        self.reply = lambda path, body: document if path == "/v1/stats" else None
+        model = tc.select_embedder(tc.EMBEDDING_MODEL)
+        self.assertIsNotNone(model)
+        for schema in (2, 3):
+            document["schema_version"] = schema
+            tc._stats_until = 0
+            tc._refresh_stats(model._pair)
+            result = tc.status_snapshot()["stats"]
+            self.assertEqual(result["schema_version"], schema)
+            self.assertEqual(result["models"], {"arctic-fp16-coreml": {"resident_sessions": 2},
+                                                 "minilm-fp16-coreml": {"resident_sessions": 1}})
+        document["models"].append(copy.deepcopy(rows[0]))
+        tc._stats_until = 0
+        tc._refresh_stats(model._pair)
+        self.assertIsNone(tc.status_snapshot()["stats"])
+        self.assertEqual(tc.status_snapshot()["stats_reason"], "invalid")
+        self.assertIsNotNone(tc._pair)
+
+    def test_capabilities_http_absent_and_malformed_document(self):
+        self.serve()
+        for outcome in (tc._HTTPFailure(404), ["malformed"]):
+            tc._pair, tc._cache_until, tc._backoff_until, tc._capability_cache = None, 0, 0, None
+            def capability_reply(path, body):
+                if path == "/v1/capabilities":
+                    if isinstance(outcome, Exception): raise outcome
+                    return outcome
+            self.reply = capability_reply
+            self.assertIsNone(tc.select_embedder(tc.EMBEDDING_MODEL))
+            self.assertEqual(tc.status_snapshot()["reason"], "capabilities_unsupported")
+            self.assertFalse(any(body is not None for path, body in self.requests))
+
+    def test_old_instance_failure_cannot_deselect_new_qualified_instance(self):
+        self.fake_ready()
+        old = tc.select_embedder(tc.EMBEDDING_MODEL)
+        entered, release = threading.Event(), threading.Event()
+        errors = []
+        newer = tc._Snapshot(old._pair.snapshot.port, "c" * 64, TOKEN)
+        def response(snapshot, path, deadline, body=None, **kwargs):
+            if body is not None and snapshot.instance == INSTANCE:
+                entered.set()
+                release.wait(2)
+                raise tc._HTTPFailure(418)
+            value = self.answer(snapshot, path, deadline, body)
+            value["instance_id"] = snapshot.instance
+            return value
+        def invoke():
+            try: old.embed_query("old pending input")
+            except BaseException as failure: errors.append(failure)
+        with patch.object(tc, "_http", side_effect=response):
+            worker = threading.Thread(target=invoke)
+            worker.start()
+            self.assertTrue(entered.wait(1))
+            tc._cache_until = 0
+            with patch.object(tc, "_discovery", return_value=newer):
+                current = tc.select_embedder(tc.EMBEDDING_MODEL)
+            self.assertIsNotNone(current)
+            self.assertEqual(current._pair.snapshot.instance, newer.instance)
+            release.set()
+            worker.join(2)
+            self.assertFalse(worker.is_alive())
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].reason, "unexpected_response")
+        self.assertIs(tc._pair, current._pair)
+        self.assertEqual(tc.status_snapshot()["reason"], "qualified_pair")
+        self.assertIs(tc.select_embedder(tc.EMBEDDING_MODEL)._pair, current._pair)
+
+    def test_error_response_contradictory_instance_never_retries(self):
+        calls = []
+        def handler(request):
+            calls.append(request.path)
+            payload = json.dumps({"instance_id": "c" * 64, "error": {"code": "overloaded", "retryable": True}}).encode()
+            request.send_response(429)
+            request.send_header("Content-Type", "application/json")
+            request.send_header("Content-Length", str(len(payload)))
+            request.end_headers()
+            request.wfile.write(payload)
+        snapshot = self.serve(handler)
+        with self.assertRaises(tc.TensorwellUnavailable) as failure:
+            tc._request(snapshot, "/x", time.monotonic() + 1, b"{}", workload="interactive")
+        self.assertEqual(failure.exception.reason, "unexpected_response")
+        self.assertEqual(calls, ["/x"])
+
+    def test_interactive_smaller_negotiated_deadline_and_safe_role_timing_order(self):
+        self.fake_ready()
+        self.reply = lambda path, body: {"instance_id": INSTANCE, **capabilities(timeouts={"max_ms": 1000})} if path == "/v1/capabilities" else None
+        model = tc.select_embedder(tc.EMBEDDING_MODEL)
+        model.embed_query("raw")
+        self.assertEqual([body for path, body in self.requests if body is not None][-1]["timeout_ms"], 1000)
+        before = tc.attempt("memory_reranking", model)
+        after = tc.attempt("memory_reranking", model)
+        metadata = {"metadata": {"workload": "interactive", "timing": {"queue_ms": 1, "execution_ms": 2, "total_ms": 3}}}
+        tc._response_timing(metadata, "interactive", "memory_reranking", after)
+        metadata["metadata"]["timing"]["total_ms"] = 99
+        tc._response_timing(metadata, "interactive", "memory_reranking", before)
+        self.assertEqual(tc.status_snapshot()["timing"]["memory_reranking"]["total_ms"], 3)
+        tc.finish_attempt(after, returned=True, accepted=True)
+
+    def test_inference_connect_timeout_and_dribbling_response_watchdog(self):
+        snapshot = self.serve()
+        constructor = tc.http.client.HTTPConnection
+        observed = []
+        def connection(*args, **kwargs):
+            observed.append(kwargs["timeout"])
+            return constructor(*args, **kwargs)
+        with patch.object(tc.http.client, "HTTPConnection", side_effect=connection), patch.object(tc, "DISCOVERY_SECONDS", 0.25):
+            body = tc._encoded({"input": ["raw"]})
+            tc._http(snapshot, "/v1/embeddings", time.monotonic() + 2, body)
+        self.assertEqual(observed, [0.25])
+        self.server.shutdown()
+        def drip(handler):
+            data = b'{"instance_id":"' + INSTANCE.encode() + b'","data":[]}'
+            handler.send_response(200)
+            handler.send_header("Content-Type", "application/json")
+            handler.send_header("Content-Length", str(len(data)))
+            handler.end_headers()
+            try:
+                for byte in data:
+                    handler.wfile.write(bytes([byte]))
+                    handler.wfile.flush()
+                    time.sleep(0.02)
+            except OSError:
+                pass
+        snapshot = self.serve(drip)
+        start = time.monotonic()
+        with self.assertRaises(Exception):
+            tc._http(snapshot, "/v1/embeddings", start + 0.08, b"{}")
+        self.assertLess(time.monotonic() - start, 0.4)
+
+    def test_real_error_body_parser_and_size_cap(self):
+        state = {"body": b'{"error":{"code":"overloaded","code":"payload_rejected","retryable":true}}', "size": None}
+        def handler(request):
+            request.send_response(429)
+            request.send_header("Content-Type", "application/json")
+            request.send_header("Content-Length", str(state["size"] or len(state["body"])))
+            request.end_headers()
+            try: request.wfile.write(state["body"])
+            except OSError: pass
+        snapshot = self.serve(handler)
+        with self.assertRaises(tc._HTTPFailure) as failed:
+            tc._http(snapshot, "/x", time.monotonic() + 1, b"{}")
+        self.assertEqual(failed.exception.reason, "overloaded")
+        self.assertIsNone(failed.exception.code)
+        state["size"] = tc.MAX_RESPONSE_BYTES + 1
+        with self.assertRaisesRegex(ValueError, "large response"):
+            tc._http(snapshot, "/x", time.monotonic() + 1, b"{}")
+
+    def test_http_error_envelope_allowlist_and_message_discard(self):
+        state = {"status": 429, "body": {"error": {"code": "payload_rejected", "retryable": True, "message": "SECRET INPUT " + TOKEN}}}
+        def handler(request):
+            payload = json.dumps(state["body"]).encode()
+            request.send_response(state["status"])
+            request.send_header("Content-Type", "application/json")
+            request.send_header("Content-Length", str(len(payload)))
+            request.send_header("Retry-After", "2")
+            request.end_headers()
+            request.wfile.write(payload)
+        snapshot = self.serve(handler)
+        for code, expected in (("payload_rejected", "payload_rejected"), ("not_documented", "overloaded"),
+                               ("A" * 100000, "overloaded"), ("overloaded", "overloaded")):
+            state["body"]["error"]["code"] = code
+            with self.assertRaises(tc._HTTPFailure) as failure:
+                tc._http(snapshot, "/x", time.monotonic() + 1, b"{}")
+            self.assertEqual(failure.exception.reason, expected)
+            self.assertNotIn("SECRET", repr(vars(failure.exception)))
+            self.assertNotIn(TOKEN, repr(vars(failure.exception)))
+        state["body"]["error"]["retryable"] = "true"
+        with self.assertRaises(tc._HTTPFailure) as failure:
+            tc._http(snapshot, "/x", time.monotonic() + 1, b"{}")
+        self.assertIsNone(failure.exception.code)
+
+    def test_failure_vocabulary_counters_retained_pair_and_attempt_reason(self):
+        self.fake_ready()
+        self.enterContext(patch.object(tc, "OVERLOAD_FLOOR_SECONDS", 0.001))
+        self.enterContext(patch.object(tc, "OVERLOAD_JITTER_SECONDS", 0))
+        self.enterContext(patch.object(tc, "UNAVAILABLE_BACKOFF_SECONDS", (0.001, 0.002)))
+        for status, expected in ((429, "overloaded"), (504, "deadline_exceeded"), (503, "service_unavailable"),
+                                 (400, "invalid_request"), (401, "unauthorized"), (404, "model_not_found"),
+                                 (408, "request_timeout"), (413, "payload_rejected"), (415, "payload_rejected"), (418, "unexpected_response")):
+            with self.subTest(status=status):
+                tc._pair, tc._cache_until, tc._backoff_until = None, 0, 0
+                self.reply = None
+                model = tc.select_embedder(tc.EMBEDDING_MODEL)
+                token = tc.attempt("query_embedding", model)
+                request_count = len([body for path, body in self.requests if body is not None])
+                def failure(path, body):
+                    if body is not None:
+                        raise tc._HTTPFailure(status)
+                self.reply = failure
+                with self.assertRaises(tc.TensorwellUnavailable) as failed:
+                    model.embed_query("PRIVATE INPUT")
+                self.assertEqual(failed.exception.reason, expected)
+                self.assertEqual(failed.exception.diagnostic["reason"], expected)
+                self.assertEqual(failed.exception.diagnostic["status"], status)
+                self.assertEqual(tc.status_snapshot()["reason"], expected)
+                tc.finish_attempt(token, returned=False, accepted=False, reason="service_failed_generic")
+                self.assertEqual(tc.inference_status_snapshot()["roles"]["query_embedding"]["last_attempt"]["reason"], expected)
+                self.assertEqual(tc._pair is None, expected in tc._DESELECT)
+                if expected in {"invalid_request", "model_not_found", "request_timeout", "payload_rejected", "unexpected_response", "deadline_exceeded"}:
+                    self.assertEqual(len([body for path, body in self.requests if body is not None]) - request_count, 1)
+                self.assertNotIn("PRIVATE", repr(tc.status_bundle_snapshot()))
+        self.assertEqual(tc.status_snapshot()["counters"], {"offered": 10, "succeeded": 0, "overloaded": 1,
+            "deadline_exceeded": 1, "unavailable": 3, "transport_uncertain": 0, "rejected": 5, "cancelled": 0})
+
+    def test_retry_table_attempt_caps_and_deadlines(self):
+        snapshot = self.endpoint()
+        self.enterContext(patch.object(tc, "OVERLOAD_FLOOR_SECONDS", 0.01))
+        self.enterContext(patch.object(tc, "OVERLOAD_CEILING_SECONDS", 0.03))
+        self.enterContext(patch.object(tc, "OVERLOAD_JITTER_SECONDS", 0))
+        self.enterContext(patch.object(tc, "DEADLINE_BACKOFF_SECONDS", 0.01))
+        self.enterContext(patch.object(tc, "UNAVAILABLE_BACKOFF_SECONDS", (0.01, 0.02)))
+        for status, workload, attempts in ((429, "batch", 4), (504, "interactive", 1), (504, "batch", 2),
+                                           (503, "batch", 3), (400, "batch", 1), (404, "batch", 1),
+                                           (408, "batch", 1), (413, "batch", 1), (415, "batch", 1)):
+            with self.subTest(status=status, workload=workload):
+                calls, sleeps = [], []
+                def response(snapshot, path, deadline, body=None, **kwargs):
+                    calls.append(path)
+                    if body is None:
+                        return {"status": "ready"}
+                    raise tc._HTTPFailure(status, retry_after="2")
+                with patch.object(tc, "_http", side_effect=response), patch.object(tc.time, "sleep", side_effect=sleeps.append):
+                    with self.assertRaises(tc.TensorwellUnavailable):
+                        tc._request(snapshot, "/x", time.monotonic() + 1, b"{}", workload=workload)
+                self.assertEqual(calls.count("/x"), attempts)
+                if status == 429:
+                    self.assertEqual(sleeps, [0.03] * 3)
+                if status == 503:
+                    self.assertEqual(calls.count("/health/ready"), 2)
+        for retry_after in ("Wed, 21 Oct 2015 07:28:00 GMT", "-1", "garbage", None):
+            sleeps = []
+            with patch.object(tc, "_http", side_effect=tc._HTTPFailure(429, retry_after=retry_after)), patch.object(tc.time, "sleep", side_effect=sleeps.append):
+                with self.assertRaises(tc.TensorwellUnavailable):
+                    tc._request(snapshot, "/x", time.monotonic() + 1, b"{}", workload="batch")
+            self.assertEqual(sleeps, [0.01] * 3)
+        with patch.object(tc, "_http", side_effect=tc._HTTPFailure(429)) as http, patch.object(tc.time, "sleep") as sleep:
+            with self.assertRaises(tc.TensorwellUnavailable) as failed:
+                tc._request(snapshot, "/x", time.monotonic() + 0.001, b"{}", workload="batch")
+            self.assertEqual(failed.exception.reason, "overloaded")
+            self.assertEqual(http.call_count, 1)
+            sleep.assert_not_called()
+        with patch.object(tc, "_http", side_effect=[tc._HTTPFailure(429), tc._HTTPFailure(503), {"status": "ready"}, tc._HTTPFailure(429), tc._HTTPFailure(503)]) as http, patch.object(tc.time, "sleep"):
+            with self.assertRaises(tc.TensorwellUnavailable):
+                tc._request(snapshot, "/x", time.monotonic() + 1, b"{}", workload="batch")
+            self.assertEqual(http.call_count, 5)  # four inference attempts plus readiness
+
+    def test_transport_same_instance_only_one_rediscovery_and_cancelled(self):
+        self.fake_ready()
+        model = tc.select_embedder(tc.EMBEDDING_MODEL)
+        snapshot = model._pair.snapshot
+        good = self.answer(None, "/v1/embeddings", 0, tc._encoded({"input": ["x"]}))
+        for changed, expected_calls in ((False, 2), (True, 1)):
+            rotated = tc._Snapshot(snapshot.port, "c" * 64 if changed else INSTANCE, TOKEN)
+            with patch.object(tc, "_http", side_effect=[ConnectionResetError(), good]) as http, patch.object(tc, "_discovery", return_value=rotated) as discovery:
+                if changed:
+                    with self.assertRaises(tc.TensorwellUnavailable) as error: model.embed_query("x")
+                    self.assertEqual(error.exception.reason, "transport_uncertain")
+                else:
+                    self.assertEqual(model.embed_query("x")[0], 1)
+                self.assertEqual(http.call_count, expected_calls)
+                self.assertEqual(discovery.call_count, 1)
+        with patch.object(tc, "_http", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt): model.embed_query("x")
+        self.assertEqual(tc.status_snapshot()["counters"]["cancelled"], 1)
+        self.assertTrue(tc._interactive_slots.acquire(blocking=False))
+        tc._interactive_slots.release()
+
+    def test_stats_safe_cached_and_failure_never_deselects(self):
+        self.fake_ready()
+        model = tc.select_embedder(tc.EMBEDDING_MODEL)
+        first = tc.status_snapshot()
+        self.assertIsNotNone(first["last_readiness_at"])
+        self.assertEqual(first["stats"]["models"]["arctic-fp16-coreml"], {"load_count": 1})
+        before = len(self.requests)
+        with patch.object(tc, "_http", side_effect=AssertionError("status does I/O")):
+            tc.status_snapshot(); tc.status_bundle_snapshot()
+        self.assertEqual(len(self.requests), before)
+        for outcome, reason in ((tc._HTTPFailure(404), "absent"), (OSError(), "invalid"),
+                                ({"schema_version": 2, "models": {}}, "invalid"),
+                                ({"schema_version": True, "models": []}, "invalid")):
+            tc._stats_until = 0
+            with patch.object(tc, "_http", side_effect=outcome if isinstance(outcome, Exception) else None,
+                              return_value=outcome if isinstance(outcome, dict) else None):
+                tc._refresh_stats(model._pair)
+            self.assertIs(tc._pair, model._pair)
+            self.assertIsNone(tc.status_snapshot()["stats"])
+            self.assertEqual(tc.status_snapshot()["stats_reason"], reason)
+        safe = {"schema_version": 3, "models": [{"model": {"id": m["id"], "load_count": 4}, "known_clients_active": 2,
+                    "known_clients_queued": 3, "optional_state": "resident", "secret": TOKEN} for m in reversed(self.models)] +
+                    [{"model": {"id": "unrelated-profile"}, "load_count": -999, "secret": TOKEN}], "secret": TOKEN}
+        tc._stats_until = 0
+        with patch.object(tc, "_http", return_value=safe) as http:
+            tc._refresh_stats(model._pair); tc._refresh_stats(model._pair)
+            self.assertEqual(http.call_count, 1)
+        snapshot = tc.status_snapshot()
+        self.assertNotIn(TOKEN, repr(snapshot))
+        snapshot["stats"]["models"]["arctic-fp16-coreml"]["load_count"] = 999
+        self.assertEqual(tc.status_snapshot()["stats"]["models"]["arctic-fp16-coreml"]["load_count"], 4)
+        duplicate = copy.deepcopy(safe)
+        duplicate["models"].append(copy.deepcopy(duplicate["models"][0]))
+        tc._stats_until = 0
+        with patch.object(tc, "_http", return_value=duplicate): tc._refresh_stats(model._pair)
+        self.assertIsNone(tc.status_snapshot()["stats"])
+        for field, value in (("load_count", True), ("load_count", 1 << 53), ("load_count", -1),
+                             ("optional_state", "A"), ("suppression_reason", "x" * 65)):
+            target = safe["models"][1]["model"] if field == "load_count" else safe["models"][1]
+            target[field] = value
+            tc._stats_until = 0
+            with patch.object(tc, "_http", return_value=safe): tc._refresh_stats(model._pair)
+            self.assertIsNone(tc.status_snapshot()["stats"])
+            target.pop(field)
+
+    def test_concurrency_limits_batch_separate_interactive_and_slot_deadline(self):
+        self.fake_ready()
+        model = tc.select_embedder(tc.EMBEDDING_MODEL)
+        release, batch_entered, interactive_entered = threading.Event(), threading.Event(), threading.Event()
+        counts = {"batch": 0, "interactive": 0}
+        maxima = dict(counts)
+        guard = threading.Lock()
+        errors = []
+        def response(snapshot, path, deadline, body=None, **kwargs):
+            value = json.loads(body)
+            workload = value["workload"]
+            with guard:
+                counts[workload] += 1
+                maxima[workload] = max(maxima[workload], counts[workload])
+                if workload == "batch": batch_entered.set()
+                if counts["interactive"] == 4: interactive_entered.set()
+            release.wait(2)
+            with guard: counts[workload] -= 1
+            return self.answer(snapshot, path, deadline, body)
+        def invoke(batch=False):
+            try:
+                if batch: list(model.embed(["x"]))
+                else: model.embed_query("x")
+            except BaseException as error: errors.append(error)
+        with patch.object(tc, "_http", side_effect=response), patch.object(tc, "INFERENCE_SECONDS", 0.10), patch.object(tc, "DELIVERY_MARGIN_SECONDS", 0.05):
+            threads = [threading.Thread(target=invoke, args=(True,)) for _ in range(2)]
+            for worker in threads: worker.start()
+            self.assertTrue(batch_entered.wait(1))
+            interactive = [threading.Thread(target=invoke) for _ in range(5)]
+            for worker in interactive: worker.start()
+            self.assertTrue(interactive_entered.wait(1), "interactive capacity must not wait for batch")
+            time.sleep(0.18)
+            self.assertTrue(any(isinstance(error, tc.TensorwellUnavailable) and error.reason == "overloaded" for error in errors))
+            self.assertEqual(maxima, {"batch": 1, "interactive": 4})
+            self.assertEqual(len([body for path, body in self.requests if body is not None]), 0)
+            release.set()
+            for worker in threads + interactive: worker.join(2)
+            self.assertTrue(all(not worker.is_alive() for worker in threads + interactive))
+        self.assertEqual(maxima, {"batch": 1, "interactive": 4})
+
+    def test_per_request_watchdog_connect_timeout_and_session_reload(self):
+        self.fake_ready()
+        model = tc.select_embedder(tc.EMBEDDING_MODEL)
+        deadlines = []
+        original = tc._http
+        def timed(snapshot, path, deadline, body=None, **kwargs):
+            deadlines.append(deadline - time.monotonic())
+            time.sleep(0.025)
+            return original(snapshot, path, deadline, body, **kwargs)
+        with patch.object(tc, "BATCH_SECONDS", 0.04), patch.object(tc, "DELIVERY_MARGIN_SECONDS", 0.01), patch.object(tc, "_http", side_effect=timed):
+            self.assertEqual(len(list(model.embed(["x"] * 65))), 65)
+        self.assertEqual(len(deadlines), 3)
+        self.assertTrue(all(0.045 < value <= 0.05 for value in deadlines))
+        hint = tc._client_session_hint()
+        with tc.process_hold_guard(): importlib.reload(tc)
+        self.assertEqual(hint, tc._client_session_hint())
+
+    def test_capability_contract_cache_clamps_and_rejects(self):
+        self.fake_ready()
+        for schema in (1, 2):
+            tc._capability_cache = None
+            tc._pair, tc._cache_until, tc._backoff_until = None, 0, 0
+            document = capabilities(schema_version=schema, limits={"max_items": 10000, "max_body_bytes": 2 << 20, "max_text_bytes": 65536})
+            self.reply = lambda path, body: {"instance_id": INSTANCE, **document} if path == "/v1/capabilities" else None
+            adapter = tc.select_embedder(tc.EMBEDDING_MODEL)
+            self.assertIsNotNone(adapter)
+            self.assertEqual(adapter._pair.capabilities["max_items"], 128)
+            self.assertEqual(adapter._pair.capabilities["max_body_bytes"], 1 << 20)
+            before = len([p for p, _ in self.requests if p == "/v1/capabilities"])
+            tc._cache_until = 0
+            self.assertIsNotNone(tc.select_embedder(tc.EMBEDDING_MODEL))
+            self.assertEqual(len([p for p, _ in self.requests if p == "/v1/capabilities"]), before)
+            tc._failed(tc._generation, "service_unavailable", INSTANCE)
+            tc._backoff_until = 0
+            self.assertIsNotNone(tc.select_embedder(tc.EMBEDDING_MODEL))
+            self.assertEqual(len([p for p, _ in self.requests if p == "/v1/capabilities"]), before)
+        missing = capabilities()
+        del missing["limits"]["max_body_bytes"]
+        for document in (capabilities(schema_version=3), capabilities(timeouts={"max_ms": 0}),
+                         capabilities(timeouts={"max_ms": 1e12}), capabilities(timeouts={"max_ms": 1000.0}),
+                         capabilities(limits={"max_items": 0, "max_body_bytes": 1048576, "max_text_bytes": 65536}),
+                         capabilities(limits={"max_items": True, "max_body_bytes": 1048576, "max_text_bytes": 65536}),
+                         capabilities(workloads={"supported": ["batch"]}), capabilities(client_session="yes"), missing):
+            with self.subTest(document=document):
+                tc._capability_cache = None
+                tc._pair, tc._cache_until, tc._backoff_until = None, 0, 0
+                self.reply = lambda path, body: {"instance_id": INSTANCE, **document} if path == "/v1/capabilities" else None
+                self.assertIsNone(tc.select_embedder(tc.EMBEDDING_MODEL))
+                self.assertEqual(tc.status_snapshot()["reason"], "capabilities_unsupported")
+                self.assertEqual(tc.status_snapshot()["availability"]["state"], "incompatible")
+        self.assertFalse(any(path.startswith("/v1/embeddings") for path, _ in self.requests))
+
+    def test_workload_deadlines_exact_body_and_request_count(self):
+        self.fake_ready()
+        model = tc.select_embedder(tc.EMBEDDING_MODEL)
+        list(model.embed(["raw"] * 65))
+        model.embed_query("raw query")
+        tc.select_reranker(tc.RERANKER_MODEL).rerank("raw", ["doc"] * 40)
+        bodies = [body for _, body in self.requests if body is not None]
+        self.assertEqual([len(body.get("input", body.get("documents"))) for body in bodies], [32, 32, 1, 1, 40])
+        self.assertEqual([body["timeout_ms"] for body in bodies], [300000] * 3 + [30000] * 2)
+        self.assertTrue(all("workload" in body for body in bodies))
+        self.assertEqual([body["workload"] for body in bodies], ["batch"] * 3 + ["interactive"] * 2)
+        self.assertTrue(all(body["include_timing"] is True for body in bodies))
+        exact = len(tc._encoded({"model": "arctic-fp16-coreml", "timeout_ms": 300000,
+                                "workload": "batch", "include_timing": True, "input": ["é"], "role": "document"}))
+        model._pair.capabilities["max_body_bytes"] = exact + 1
+        self.assertEqual(len(list(model.embed(["é"]))), 1)
+        body = [body for _, body in self.requests if body is not None][-1]
+        self.assertEqual(len(tc._encoded(body)), exact)
+
+    def test_session_header_stable_optional_fork_and_safe_repr(self):
+        captured = []
+        def handler(request):
+            captured.append(request.headers.get_all("Client-Session-Id"))
+            body = request.rfile.read(0)
+            payload = json.dumps({"instance_id": INSTANCE}).encode()
+            request.send_response(200)
+            request.send_header("Content-Type", "application/json")
+            request.send_header("Content-Length", str(len(payload)))
+            request.end_headers()
+            request.wfile.write(payload)
+        snapshot = self.serve(handler)
+        for hint in (True, True, False):
+            tc._http(snapshot, "/x", time.monotonic() + 1, b"{}", session_hint=hint)
+        self.assertEqual(captured[0], captured[1])
+        self.assertEqual(len(captured[0]), 1)
+        self.assertRegex(captured[0][0], r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+        self.assertIsNone(captured[2])
+        original = captured[0][0]
+        self.assertNotIn(original, repr(tc._Pair(snapshot, *self.models)))
+        self.assertNotIn(original, repr(tc.status_bundle_snapshot()))
+        with patch.object(tc.os, "getpid", return_value=os.getpid() + 100):
+            self.assertNotEqual(original, tc._client_session_hint())
+
+    def test_timing_metadata_validation(self):
+        self.fake_ready()
+        model = tc.select_embedder(tc.EMBEDDING_MODEL)
+        good = self.answer(None, "/v1/embeddings", 0, tc._encoded({"input": ["x"]}))
+        good["metadata"] = {"workload": "interactive", "timing": {"queue_ms": 1, "execution_ms": 2, "total_ms": 3}}
+        self.reply = lambda path, body: good
+        model.embed_query("x")
+        self.assertEqual(tc.status_snapshot()["timing"]["query_embedding"],
+                         {"workload": "interactive", **good["metadata"]["timing"]})
+        for field, value in (("workload", "batch"), ("queue_ms", "1"), ("execution_ms", -1), ("total_ms", float("nan"))):
+            with self.subTest(field=field):
+                mutated = copy.deepcopy(good)
+                (mutated["metadata"] if field == "workload" else mutated["metadata"]["timing"])[field] = value
+                self.reply = lambda path, body: mutated
+                with self.assertRaises(tc.TensorwellUnavailable): model.embed_query("x")
 
     def test_qualified_pair_roles_order_empty_unicode(self):
         self.fake_ready()
@@ -338,7 +1092,7 @@ class ClientTests(unittest.TestCase):
         embedder = tc.select_embedder(tc.EMBEDDING_MODEL)
         self.assertEqual(len(list(embedder.embed(["text"] * 129))), 129)
         bodies = [body for path, body in self.requests if path == "/v1/embeddings"]
-        self.assertEqual([len(body["input"]) for body in bodies], [128, 1])
+        self.assertEqual([len(body["input"]) for body in bodies], [32, 32, 32, 32, 1])
         calls = 0
         def fail_second(path, body):
             nonlocal calls
@@ -349,7 +1103,7 @@ class ClientTests(unittest.TestCase):
         with self.assertRaises(tc.TensorwellUnavailable) as failure:
             embedder.embed(["text"] * 129)
         self.assertNotIn(TOKEN, str(failure.exception))
-        self.assertEqual(tc.status_snapshot()["reason"], "inference_unavailable")
+        self.assertEqual(tc.status_snapshot()["reason"], "unexpected_response")
         self.assertIsNone(tc.select_embedder(tc.EMBEDDING_MODEL))
 
     def test_invalid_response_count_index_dimension_finite_and_identity(self):
@@ -522,8 +1276,8 @@ class ClientTests(unittest.TestCase):
         initial = tc._generation
         sentinel = object()
         original_request = tc._request
-        def reload_during_models(snapshot, path, deadline, body=None, retry_budget=None):
-            value = original_request(snapshot, path, deadline, body, retry_budget)
+        def reload_during_models(snapshot, path, deadline, body=None, retry_budget=None, **kwargs):
+            value = original_request(snapshot, path, deadline, body, retry_budget, **kwargs)
             if path == "/v1/models":
                 tc._generation += 1
                 tc._pair, tc._cache_until, tc._backoff_until = sentinel, 123, 0
@@ -541,8 +1295,8 @@ class ClientTests(unittest.TestCase):
         with patch.object(tc, "_generation", tc._generation + 1):
             with self.assertRaises(tc.TensorwellUnavailable): adapter.embed(["stale selected operation"])
             self.assertEqual(len(self.requests), before, "stale adapters must fail before HTTP")
-        def reload_during_inference(snapshot, path, deadline, body=None, retry_budget=None):
-            value = original_request(snapshot, path, deadline, body, retry_budget)
+        def reload_during_inference(snapshot, path, deadline, body=None, retry_budget=None, **kwargs):
+            value = original_request(snapshot, path, deadline, body, retry_budget, **kwargs)
             tc._generation += 1
             tc._pair, tc._cache_until, tc._backoff_until = sentinel, 123, 0
             return value

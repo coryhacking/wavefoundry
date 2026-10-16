@@ -135,6 +135,23 @@ class ProviderTests(unittest.TestCase):
             with patch.object(self.indexer, '_load_meta', return_value=prior):
                 self.assertEqual(self.indexer._implicit_precision_changes(directory)[0]['requested'], 'full')
 
+    def test_facade_derives_workload_without_changing_extension_callbacks(self):
+        model = self.ip.select_embedder(self.indexer.DOCS_MODEL)
+        with patch.object(model, '_operation', wraps=model._operation) as operation:
+            self.assertEqual(len(list(model.embed(['document']))), 1)
+            self.assertEqual(operation.call_args.kwargs['workload'], 'batch')
+            self.assertEqual(len(model.embed_query('query')), 384)
+            self.assertEqual(operation.call_args.kwargs['workload'], 'interactive')
+        reranker = self.ip.select_reranker(self.indexer.RERANKER_MODEL)
+        with patch.object(reranker, '_operation', wraps=reranker._operation) as operation:
+            self.assertEqual(reranker.rerank('query', ['document']), [-4.01])
+            self.assertEqual(operation.call_args.kwargs['workload'], 'interactive')
+        # These real callbacks have no workload parameter and retain the fixture's
+        # 30-second deadline assertion. Forwarding a new keyword fails the call.
+        self.assertEqual(sys.modules['synthetic_api'].calls,
+                         [('document', ['document']), ('query', ['query']),
+                          ('rerank', ['document'])])
+
     def test_memory_public_cutoff_preserves_raw_logit_scale(self):
         from test_memory_records import _MemoryCase
         case = _MemoryCase(); case.setUp(); self.addCleanup(case.doCleanups)

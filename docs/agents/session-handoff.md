@@ -2,22 +2,25 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-15
+Last verified: 2026-10-16
 
 ## Current Session
 
-**Active wave:** *(none in this session)*
-**Last closed wave:** `20tzs` — repaired legacy temporary-parent cleanup, recovery-path reparse classification, guard-pack publication recovery and bounded uv refusal diagnostics.
-**Also closed:** `20ppj`, `20qrv` and `20tpo`; their delivered changes, intentional warm-up deferral, reviews and retrospective remain in each wave.md and immutable ledger. All four close mutations succeeded under the operator’s current close/commit/push instruction.
-**Qualification:** all 11,838 tests / 200 files / 12 existing skips passed. The second full run took 744.159s; it exited 1 only for four concurrent wave 20tpp record changes. The operator explicitly accepted that record-only exception. Current framework receipt matches `e5e529674529010c4f27c96b66f66e26f04f3337e4b3a88acb33d85626f2e13b` and preserves the authorization, original rejection and log SHA-256 `80d6f95c9fa2a7c6fe478732a50f127db9dc5b4680e1b59e2d2d5f3b6cf87234`. All 11 reviewed paths remain unchanged. No further test run, timing waiver or reconstructed exact profile report.
-**Records and cleanup:** all ACs/tasks reconciled, required reviews and operator approvals current, no pending selected memory candidates. Wave folders retain only their wave/change docs and authoritative ledger; no new evidence folders or memory files. Canonical support guidance retains the applicable recovery lessons and operator probes.
-**Concurrent work:** wave `20tpp tensorwell-workload-aware-client` belongs to another session and is excluded from this commit/push. Do not revert, close or absorb it.
-**Gates/setup:** framework, seed and design edit gates closed. Loaded setup assessment remains stale; no setup, index build or model operation was performed. No package requested.
-**Limits:** timing investigation and native Windows/OneDrive/WSL2/drvfs/reboot qualification remain deferred. Keep private identifying reports out of commits and external messages. Raw diagnostic logs remain temporary; durable outcomes are in wave.md.
+**Paused wave:** `20tpp tensorwell-workload-aware-client`, implemented, live-tested and independently reviewed; ready for operator closure. All admitted ACs and tasks are checked. Prior waves 20ppj/20qrv/20tpo/20tzs were closed and pushed as 2452c73f.
 
-## Open questions / Deferred decisions
+**Done:** Actual nested schema_version 1/2 capabilities and fixed schema-2 client_session declaration normalize into existing internal fields. Response metadata.timing is validated and normalized. Stats reads model.load_count, omits null optional labels and drops global policy fields. Model pins, deadlines/retries/concurrency, fixed headers, session privacy, final-validation deadline guard and extension callbacks are preserved. Producer-shaped regressions failed before repair, then passed; nine selected guard mutants are detected. All seven lanes and targeted council delivery approval are current; no new actionable finding. Reviewer sharing is disclosed in wave.md: code/QA shared one independent worker, four other lanes shared fresh chair, security and red-team isolated; actual model identities unobserved.
 
-Timing investigation and release provenance remain deferred. Enterprise adapters have synthetic contract qualification, not native service deployment qualification. No new timing waiver or threshold change.
+**Next:** Close only on explicit operator instruction, then commit/push/build only when requested. Current receipt is reusable if framework inputs remain unchanged; recording ledger/Progress Log outcomes alone does not justify another suite or full review. The MCP implementation reload succeeded and matched disk, but its separate setup assessment reported loaded_code_stale/setup_inputs_changed and recommends a host restart. Do not claim setup/index readiness from this implementation result or automatically run setup/rebuild; after the host restart, reassess through the canonical read-only check.
+
+**Files touched:** tensorwell_client.py and existing client/integration tests; framework README; embedding/threat architecture sections and MCP tool-surface spec; existing 20tpq/20tpr plans, wave.md, typed ledger and this handoff. Existing facade/provider callbacks, model/VERSION/packaging inputs and handler digest fixture were preserved by this reconciliation. No repository evidence folder or isolated checkout was created.
+
+**Test state:** Canonical default passed 11,867 tests / 200 files / 12 existing skips in 756.863s. Green receipt inputs_hash 818020c3e26c974fbc93ff4c28c1b33645c808481522ac76ae98b8ad61f0479d matches current framework source. All twelve reviewed hashes remain at aggregate c5ed1347ca471a9076e8055bc7482c6e8baec6d13507aac7a3bd14e1cf77fde8. Focused client52/52, consumer/provider37/37, final extended integration26/26 all passed with zero skips. Independent QA detects no-op recovery at the changed-payload publication assertion after exactly three build calls. Full docs validation passed. Final log/packet: /private/tmp/20tpp-api-canonical-suite.log and /private/tmp/20tpp-api-final-qualification.json.
+
+**Live acceptance:** Eight successful inference HTTP requests through the updated client: 258 synthetic embedding inputs and 40 rerank candidates. Prefix-once control matches exactly, session hint stays stable/private, nested timing/stats normalize correctly, and the probe process loads no local Python model. Both pinned profiles were compatible and reported ready resident sessions. One 128-item comparison favored four32-item calls over one128-item call; it is observational, not a general throughput result. Controller metadata0.2.0/protocol2 is recorded separately from the HTTP instance; it does not attest the daemon build. Detailed results and limits live in wave.md. Controlled failures/cancellation and checkpoint retry ran in scratch fixtures, not on the shared daemon or project index.
+
+**Open questions / Deferred decisions:** Timing investigation and release provenance remain deferred. No native Windows/Linux/WSL2, physical-GPU or remote-cancellation guarantee was established. Live probe local-model state covers only that process; current MCP ownership status after reload is unknown, not evidence of eviction elsewhere. No service lifecycle, download, project index build, close, commit, push or package was performed.
+
+**Blocker:** No implementation/review blocker remains. Operator closure is pending; host setup reassessment is a separate environment follow-up. Wave is paused and edit gates closed.
 
 ## Prior session and release context
 

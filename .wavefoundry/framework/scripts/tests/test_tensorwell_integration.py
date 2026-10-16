@@ -285,6 +285,40 @@ class IntegrationTests(unittest.TestCase):
             self.assertIsNone(entry["last_success"])
         self.assertNotIn("secret-failure-text", json.dumps(snapshot))
 
+    def test_classified_failures_survive_real_consumer_recovery_and_attempt_records(self):
+        for status, reason in ((429, 'overloaded'), (504, 'deadline_exceeded'),
+                               (400, 'invalid_request')):
+            with self.subTest(status=status):
+                obj = self.memory_index()
+                embedding = tc.select_embedder(self.indexer.DOCS_MODEL)
+                reranking = tc.select_reranker(self.indexer.RERANKER_MODEL)
+                def fail(snapshot, path, deadline, body=None, **kwargs):
+                    if body is not None:
+                        raise tc._HTTPFailure(status)
+                    return self.fixture.answer(snapshot, path, deadline, body, **kwargs)
+                with patch.object(obj, '_get_embedder', return_value=embedding), \
+                     patch.object(obj, '_get_reranker', return_value=reranking), \
+                     patch.object(obj, '_get_memory_reranker', return_value=reranking), \
+                     patch.object(tc, '_http', side_effect=fail), \
+                     patch.object(tc, 'OVERLOAD_FLOOR_SECONDS', .001), \
+                     patch.object(tc, 'OVERLOAD_CEILING_SECONDS', .001), \
+                     patch.object(tc, 'OVERLOAD_JITTER_SECONDS', 0):
+                    with self.assertRaises(self.srv.SemanticModelUnavailableOfflineError):
+                        obj._embed_query('private-query', self.indexer.DOCS_MODEL)
+                    self.assertFalse(obj._agent_rerank('private-query', [{'text': 'private-document'}]))
+                    result = self.srv.memory_search_response(obj.root, query='semantic-only', index=obj)
+                    self.assertEqual(result['data']['retrieval']['method'], 'lexical_policy')
+                bundle = tc.status_bundle_snapshot()
+                for role in tc._ROLES:
+                    attempt = bundle['inference']['roles'][role]['last_attempt']
+                    self.assertEqual(attempt['reason'], reason)
+                    self.assertEqual(attempt['provider_outcome'], 'failed')
+                self.assertEqual(bundle['tensorwell']['reason'], reason)
+                # Busy, deadline and bad-request outcomes do not invalidate the pair.
+                self.assertIsNotNone(tc.select_embedder(self.indexer.DOCS_MODEL))
+                self.assertNotIn('private-query', json.dumps(bundle))
+                self.assertNotIn('private-document', json.dumps(bundle))
+
     def test_registered_status_during_inference_is_detached_and_does_no_work(self):
         runner = support.load_thin_runner()
         mcp = runner.build_server(self.fixture.home)
@@ -590,6 +624,92 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual(request["role"], "document")
         self.assertEqual(request["input"], ["small raw document"])
 
+    def test_real_consumers_derive_workload_without_call_site_changes(self):
+        obj = self.memory_index(count=4)
+        obj._embed_query('raw query', self.indexer.DOCS_MODEL)
+        self.assertEqual(self.fixture.requests[-1][1]['workload'], 'interactive')
+        self.assertEqual(self.fixture.requests[-1][1]['timeout_ms'], 30000)
+        self.assertTrue(self.fixture.requests[-1][1]['include_timing'])
+        adapter = tc.select_embedder(self.indexer.DOCS_MODEL)
+        before = len(self.fixture.requests)
+        self.indexer._embed_texts(adapter, ['document'] * 65)
+        batches = [body for path, body in self.fixture.requests[before:]
+                   if path == '/v1/embeddings']
+        self.assertEqual([len(body['input']) for body in batches], [32, 32, 1])
+        self.assertTrue(all(body['workload'] == 'batch' and body['timeout_ms'] == 300000
+                            and body['include_timing'] for body in batches))
+        self.assertTrue(obj._agent_rerank('q', [{'text': str(i)} for i in range(40)]))
+        self.assertEqual(len(self.fixture.requests[-1][1]['documents']), 40)
+        self.assertEqual(self.fixture.requests[-1][1]['workload'], 'interactive')
+        obj._rerank('q', [{'text': 'a'}, {'text': 'b'}], 1)
+        self.assertEqual(self.fixture.requests[-1][1]['workload'], 'interactive')
+        result = self.srv.memory_search_response(obj.root, query='semantic-only', index=obj)
+        self.assertEqual(result['data']['retrieval']['qualification'], 'model_relevance')
+        self.assertEqual(self.fixture.requests[-1][1]['workload'], 'interactive')
+        self.assertEqual(self.fixture.requests[-1][1]['timeout_ms'], 30000)
+
+    def test_registered_capacity_and_timing_snapshot_is_allowlisted_and_no_http(self):
+        profile_ids = ('arctic-fp16-coreml', 'minilm-fp16-coreml')
+        count_names = ('configured_sessions', 'resident_sessions', 'ready_sessions',
+                       'active_sessions', 'known_clients_active', 'known_clients_queued',
+                       'unknown_active_requests', 'unknown_queued_requests', 'load_count')
+        def reply(path, body):
+            if path == '/v1/stats':
+                return {'instance_id': fixtures.INSTANCE, 'schema_version': 3,
+                        'status': 'ready', 'policy': 'dedicated-adaptive',
+                        'suppression_reason': 'hidden-root-policy',
+                        'models': [{'model': {'id': name, 'load_count': 1},
+                                    **dict.fromkeys(count_names[:-1], 1),
+                                    'optional_state': 'absent' if name == profile_ids[0] else None,
+                                    'suppression_reason': None,
+                                    'untrusted_extra': 'hidden service detail'}
+                                   for name in reversed(profile_ids)]}
+            if path not in ('/v1/embeddings', '/v1/rerank'):
+                return None
+            embedding = path == '/v1/embeddings'
+            values = body['input' if embedding else 'documents']
+            return {'instance_id': fixtures.INSTANCE,
+                    'model': fixtures.descriptor('embedding' if embedding else 'reranking'),
+                    'metadata': {'workload': body['workload'],
+                                 'timing': {'queue_ms': 1, 'execution_ms': 2, 'total_ms': 3}},
+                    'data': [{'index': i, 'embedding': [1.] + [0.] * 383} if embedding
+                             else {'index': i, 'score': 0.} for i, _ in enumerate(values)]}
+        self.fixture.reply = reply
+        obj = self.memory_index(count=4)
+        obj._embed_query('private-query', self.indexer.DOCS_MODEL)
+        obj._agent_rerank('private-query', [{'text': 'private-document'}])
+        self.srv.memory_search_response(obj.root, query='semantic-only', index=obj)
+        # The fixture replaces _http before header construction; exercise the
+        # private allocation boundary explicitly. Real header delivery is covered
+        # by the client socket fixture, not claimed by this cached-status test.
+        tc._client_session_hint()
+        runner = support.load_thin_runner()
+        mcp = runner.build_server(self.fixture.home)
+        with patch.object(tc, '_http', side_effect=AssertionError('status must not contact service')):
+            async def status():
+                content, result = await mcp.call_tool('wf_server_info', {})
+                return result or json.loads(next(item.text for item in content if item.type == 'text'))
+            result = asyncio.run(status())
+        tw = result['data']['tensorwell']
+        self.assertEqual(tw['capabilities']['schema'], 2)
+        self.assertTrue(tw['capabilities']['client_session_hint'])
+        self.assertTrue(tw['capabilities']['session_hint_in_use'])
+        self.assertIsInstance(tw['last_readiness_at'], (int, float))
+        self.assertGreaterEqual(tw['counters']['succeeded'], 3)
+        self.assertEqual(set(tw['stats']['models']), set(profile_ids))
+        self.assertEqual(tw['stats']['schema_version'], 3)
+        for name, value in tw['stats']['models'].items():
+            expected = set(count_names) | ({'optional_state'} if name == profile_ids[0] else set())
+            self.assertEqual(set(value), expected)
+            self.assertEqual(value['load_count'], 1)
+        for role in tc._ROLES:
+            self.assertEqual(tw['timing'][role], {'workload': 'interactive', 'queue_ms': 1,
+                                                'execution_ms': 2, 'total_ms': 3})
+        encoded = json.dumps({'tensorwell': tw, 'inference': result['data']['inference']})
+        for private in ('private-query', 'private-document', fixtures.TOKEN,
+                        'hidden service detail', 'hidden-root-policy', str(self.fixture.state)):
+            self.assertNotIn(private, encoded)
+
     def test_registered_query_raw_prefix_precision_and_rerank(self):
         obj = self.bare_index()
         obj._embedders[self.indexer.DOCS_MODEL] = object()
@@ -754,6 +874,22 @@ class IntegrationTests(unittest.TestCase):
         after_meta = index_state_store.export_meta_snapshot(index_dir)
         self.assertEqual(after_meta["file_meta"], before_meta["file_meta"])
         self.assertEqual(after_meta["model_versions"], before_meta["model_versions"])
+
+        # Recovery must publish the changed source after the failed pass, rather
+        # than treating preservation of the old epoch as completed indexing.
+        self.fixture.reply = None
+        with patch.object(tc, "_backoff_until", 0), \
+             patch.object(self.indexer, "_predicted_precision_class", return_value="full"), \
+             patch.object(self.indexer, "_onnx_providers", return_value=["CoreMLExecutionProvider"]), \
+             patch.object(self.indexer, "_text_embedding_cached_first", side_effect=AssertionError("local retry")), \
+             patch.object(self.indexer.accel_embedder, "make_embedder", side_effect=AssertionError("native retry")):
+            recovered = self.indexer.build_index(root, content="docs", verbose=False)
+        self.assertFalse(recovered.get("failed"), recovered)
+        self.assertNotEqual(sqlite_vector_store.payload_rows(index_dir, "docs"), before_rows)
+        self.assertNotEqual(vector_bytes(), before_vectors)
+        recovered_meta = index_state_store.export_meta_snapshot(index_dir)
+        self.assertNotEqual(recovered_meta["file_meta"], before_meta["file_meta"])
+        self.assertEqual(recovered_meta["model_versions"], before_meta["model_versions"])
 
     def test_actual_fastmcp_lifespan_build_reload_and_status(self):
         runner = support.load_thin_runner()

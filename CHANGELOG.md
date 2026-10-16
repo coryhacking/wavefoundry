@@ -8,6 +8,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Negotiate Tensorwell capabilities and send explicit batch/interactive workloads, per-request deadlines, optional process session hints and timing. Bound retries and concurrency, preserve distinct safe failure reasons, and report cached capacity and outcome counters without loading local models after selected-service failure. Legacy pre-capabilities services use the local route; deployed-candidate acceptance remains pending. Wave 20tpp.
+
 ### Added
 
 - Distributions can keep automatic Tensorwell, select local-only inference, or declare a trusted enterprise inference adapter. Setup, indexing, query and memory consumers share compatibility checks, safe failures and provider reporting; explicit adapters never fall back to another provider. Synthetic fixtures cover deadlines, raw reranking scores and source-aware reload. Wave 20qvt.
