@@ -87,25 +87,30 @@ def inspect(archive, expected_version=None):
 def retain(root, source, expected_hash=None):
     """Freeze an explicitly selected archive and return its narrow ownership proof."""
     import os
+    import errno
     import tempfile
     from pathlib import Path
     root = Path(root).resolve(strict=True)
-    directory = root / ".wavefoundry" / "upgrade-assets"
-    if directory.is_symlink() or directory.parent.is_symlink():
-        raise ValueError("embedded model archive retention refuses linked directories")
-    directory.mkdir(parents=True, exist_ok=True)
+    import contained_files
+    directory = contained_files.ensure_contained_dir(root, (".wavefoundry", "upgrade-assets"))
     fd, name = tempfile.mkstemp(prefix="embedded-", suffix=".zip", dir=directory)
     target = Path(name)
+    owned = os.fstat(fd)
     digest = hashlib.sha256()
     try:
         try:
+            source_entry = Path(source).lstat()
+            if (not stat.S_ISREG(source_entry.st_mode)
+                    or getattr(source_entry, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+                raise OSError(errno.ELOOP, "selected combined archive is linked or not regular")
             source_fd = os.open(source, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
         except BaseException:
             os.close(fd)
             raise
         with os.fdopen(source_fd, "rb") as incoming, os.fdopen(fd, "wb") as outgoing:
             before = os.fstat(incoming.fileno())
-            if not stat.S_ISREG(before.st_mode) or before.st_size > MAX_TOTAL_BYTES:
+            if (not stat.S_ISREG(before.st_mode) or before.st_size > MAX_TOTAL_BYTES
+                    or _identity(before) != _identity(source_entry)):
                 raise ValueError("selected combined archive is not a bounded regular file")
             total = 0
             while block := incoming.read(1024 * 1024):
@@ -119,71 +124,128 @@ def retain(root, source, expected_hash=None):
                 raise ValueError("selected combined archive changed during read")
             outgoing.flush()
             os.fsync(outgoing.fileno())
+            retained = os.fstat(outgoing.fileno())
         if expected_hash is not None and digest.hexdigest() != expected_hash:
             raise ValueError("selected combined archive hash mismatch")
-        entry = target.stat()
-        return {"path": str(target), "sha256": digest.hexdigest(),
-                "identity": [entry.st_dev, entry.st_ino, entry.st_size, entry.st_mtime_ns]}
+        proof = {"path": str(target), "sha256": digest.hexdigest(), "identity": _identity(retained)}
+        _, _, entry = _retained_path(root, proof)
+        if _identity(entry) != _identity(retained):
+            raise ValueError("retained combined archive changed before ownership publication")
+        return proof
     except BaseException:
-        target.unlink(missing_ok=True)
+        try:
+            contained_files.unlink_contained(root, target, expected_identity=(owned.st_dev, owned.st_ino))
+        except (OSError, ValueError, NotImplementedError):
+            pass  # Unproven cleanup retains the entry; never unlink by name alone.
         raise
 
 
-def cleanup(root, proof, *, preserve=None):
-    """Remove only the unchanged retained archive described by this invocation."""
-    import os
-    from pathlib import Path
-    if not isinstance(proof, dict) or proof == preserve:
-        return False
-    path = Path(proof.get("path", ""))
-    directory = Path(root).resolve() / ".wavefoundry" / "upgrade-assets"
-    if path.parent != directory or not path.name.startswith("embedded-") or directory.is_symlink() or directory.parent.is_symlink():
-        return False
-    try:
-        entry = path.lstat()
-        identity = [entry.st_dev, entry.st_ino, entry.st_size, entry.st_mtime_ns]
-        if not stat.S_ISREG(entry.st_mode) or entry.st_nlink != 1 or identity != proof.get("identity"):
-            return False
-        validate_retained(root, proof)
-        descriptor = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-        try:
-            checked = os.stat(path.name, dir_fd=descriptor, follow_symlinks=False)
-            if [checked.st_dev, checked.st_ino, checked.st_size, checked.st_mtime_ns] != identity:
-                return False
-            os.unlink(path.name, dir_fd=descriptor)
-        finally:
-            os.close(descriptor)
-        return True
-    except FileNotFoundError:
-        return True
-    except (OSError, ValueError):
-        return False
+def _identity(entry):
+    # Fresh identities retain device equality for read and deletion races.
+    return [entry.st_dev, entry.st_ino, entry.st_size, entry.st_mtime_ns]
 
 
-def validate_retained(root, proof):
-    """Check the retained source binding before a resumed model handoff."""
-    import os
+def _durable_identity_matches(stored, entry):
+    current = _identity(entry)
+    return (isinstance(stored, list) and len(stored) == 4
+            and all(type(value) is int and value > 0 for value in stored)
+            and all(type(value) is int and value > 0 for value in current)
+            and stored[1:] == current[1:])
+
+
+def _retained_path(root, proof):
     from pathlib import Path
+    root = Path(root).resolve(strict=True)
     if not isinstance(proof, dict):
         raise ValueError("retained combined archive proof is missing")
     path = Path(proof.get("path", ""))
-    directory = Path(root).resolve() / ".wavefoundry/upgrade-assets"
-    if (path.parent != directory or not path.name.startswith("embedded-")
-            or directory.is_symlink() or directory.parent.is_symlink()):
+    directory = root / ".wavefoundry/upgrade-assets"
+    if path.parent != directory or not path.name.startswith("embedded-"):
         raise ValueError("retained combined archive path is invalid")
-    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    identity = proof.get("identity")
+    if (not isinstance(identity, list) or len(identity) != 4
+            or any(type(value) is not int or value <= 0 for value in identity)
+            or not isinstance(proof.get("sha256"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", proof["sha256"]) is None):
+        raise ValueError("retained combined archive ownership proof is unproven")
+    for candidate in (directory.parent, directory, path):
+        entry = candidate.lstat()
+        if (stat.S_ISLNK(entry.st_mode)
+                or getattr(entry, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT
+                or not candidate.resolve(strict=True).is_relative_to(root)):
+            raise ValueError("retained combined archive path is linked or outside the root")
+        if candidate != path and not stat.S_ISDIR(entry.st_mode):
+            raise ValueError("retained combined archive parent is not a directory")
+    if (not stat.S_ISREG(entry.st_mode) or entry.st_nlink != 1
+            or entry.st_size > MAX_TOTAL_BYTES
+            or not _durable_identity_matches(proof.get("identity"), entry)):
+        raise ValueError("retained combined archive identity changed or is unproven")
+    return root, path, entry
+
+
+def cleanup(root, proof, *, preserve=None, on_retain=None):
+    """Remove a freshly proved archive; report a reason when ownership is retained.
+
+    The shared helper keeps descriptor anchoring where available. Its bounded
+    path fallback has a residual same-user race between the final check/unlink.
+    """
+    def retained(reason):
+        if on_retain is not None:
+            on_retain(reason)
+        return False
+    if not isinstance(proof, dict) or proof == preserve:
+        return retained("archive proof is missing or explicitly preserved")
+    try:
+        import contained_files
+        root, path, entry = _retained_path(root, proof)
+        identity = _identity(entry)
+        validate_retained(root, proof)
+        _, _, checked = _retained_path(root, proof)
+        if _identity(checked) != identity:
+            return retained("archive identity changed before cleanup")
+        # Never derive the fresh deletion device from persisted proof fields.
+        contained_files.unlink_contained(root, path, expected_identity=tuple(identity[:2]))
+        return True
+    except FileNotFoundError:
+        # Absence only counts after checking the proof's owned coordinates.
+        from pathlib import Path
+        path = Path(proof.get("path", ""))
+        directory = Path(root).resolve() / ".wavefoundry/upgrade-assets"
+        if path.parent == directory and path.name.startswith("embedded-"):
+            return True
+        return retained("archive path ownership is unproven")
+    except (OSError, ValueError, NotImplementedError, TypeError) as exc:
+        detail = str(exc) if isinstance(exc, ValueError) else type(exc).__name__ + " (errno " + str(getattr(exc, "errno", None)) + ")"
+        return retained("archive ownership or removal refused: " + detail)
+
+
+def validate_retained(root, proof):
+    """Check durable ownership, hash, and fresh same-open identity on resume."""
+    import os
+    import contained_files
+    root, path, entry = _retained_path(root, proof)
+    directory = contained_files.open_contained_dir(root, path.parent.relative_to(root).parts, refuse_reparse=True)
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        fd = (os.open(path.name, flags, dir_fd=directory) if directory is not None else os.open(path, flags))
+    finally:
+        if directory is not None:
+            os.close(directory)
     with os.fdopen(fd, "rb") as source:
         before = os.fstat(source.fileno())
-        identity = [before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns]
+        identity = _identity(before)
         if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
-                or before.st_size > MAX_TOTAL_BYTES or identity != proof.get("identity")):
+                or identity != _identity(entry) or not _durable_identity_matches(proof.get("identity"), before)):
             raise ValueError("retained combined archive identity changed")
         digest = hashlib.sha256()
         while block := source.read(1024 * 1024):
             digest.update(block)
         after = os.fstat(source.fileno())
-        if identity != [after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns] or digest.hexdigest() != proof.get("sha256"):
+        if after.st_nlink != 1 or identity != _identity(after) or digest.hexdigest() != proof.get("sha256"):
             raise ValueError("retained combined archive bytes changed")
+    _, _, final = _retained_path(root, proof)
+    if _identity(final) != identity:
+        raise ValueError("retained combined archive changed after read")
     return path
 
 

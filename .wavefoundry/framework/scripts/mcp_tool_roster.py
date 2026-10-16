@@ -47,6 +47,22 @@ from __future__ import annotations
 
 import mcp_tool_extensions
 
+
+def _permission_source_digest():
+    """Bind permission data to its loaded source; unknown identities fail closed."""
+    import hashlib
+    import os
+    try:
+        fd = os.open(__file__, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(fd, "rb") as source:
+            data = source.read(262145)
+        return hashlib.sha256(data).hexdigest() if len(data) <= 262144 else None
+    except OSError:
+        return None
+
+
+PERMISSION_SOURCE_DIGEST = _permission_source_digest()
+
 TIER_READ = "read"
 TIER_WRITE = "write"
 

@@ -39,6 +39,22 @@ from typing import Collection, Mapping
 # server's ``MCP_TOOL_PREFIXES`` is this tuple.
 CORE_TOOL_PREFIXES: tuple[str, ...] = ("wf_", "memory_", "index_", "docs_", "code_", "seed_")
 
+
+def _permission_source_digest():
+    """Bind permission data to its loaded source; unknown identities fail closed."""
+    import hashlib
+    import os
+    try:
+        fd = os.open(__file__, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(fd, "rb") as source:
+            data = source.read(262145)
+        return hashlib.sha256(data).hexdigest() if len(data) <= 262144 else None
+    except OSError:
+        return None
+
+
+PERMISSION_SOURCE_DIGEST = _permission_source_digest()
+
 TIER_READ = "read"
 TIER_WRITE = "write"
 
@@ -278,6 +294,7 @@ def declared() -> bool:
     return bool(
         EXTENSION_MODULES or EXTENSION_HELPER_MODULES or EXTENSION_TOOL_PREFIXES or EXTENSION_TOOL_TIERS
         or EXTENSION_OVERRIDES or EXTENSION_UPGRADE_PREVIEW_TOOLS or not isinstance(EXTENSION_UPGRADE_PREVIEW_TOOLS, tuple) or EXTENSION_LIFECYCLE_RESPONSE_CALLBACKS
+        or EXTENSION_LEGACY_CLAUDE_HOOK_COMMANDS or not isinstance(EXTENSION_LEGACY_CLAUDE_HOOK_COMMANDS, tuple)
         or EXTENSION_TOOL_ALIASES or EXTENSION_TOOL_PARAMETERS or EXTENSION_HIDDEN_TOOLS
         or EXTENSION_REPLACEMENTS or EXTENSION_LIFECYCLE_TOOLS or EXTENSION_ARTIFACT_PATH_FIELDS
     )
@@ -399,6 +416,7 @@ def declaration_problems(
     problems.extend(_alias_hide_replacement_problems(core, runner, seen_modules, owners, core_tiers or {}))
     problems.extend(_lock_and_credit_problems(core, runner))
     problems.extend(_lifecycle_response_callback_problems(core))
+    problems.extend(_legacy_claude_hook_problems())
     return problems
 
 
@@ -1039,19 +1057,28 @@ def journal_declaration_problems(templates: object = None, hook: object = None,
     return problems
 
 
-def legacy_claude_hook_commands(repo_root: str) -> set[tuple[str, str]]:
-    """Validate renderer-only declarations and expand the one literal placeholder."""
+def _legacy_claude_hook_problems() -> list[str]:
     entries = EXTENSION_LEGACY_CLAUDE_HOOK_COMMANDS
     if not isinstance(entries, tuple):
-        raise ExtensionDeclarationError("EXTENSION_LEGACY_CLAUDE_HOOK_COMMANDS must be a tuple")
-    result = set()
+        return ["EXTENSION_LEGACY_CLAUDE_HOOK_COMMANDS must be a tuple"]
+    problems = []
     for entry in entries:
         if not isinstance(entry, Mapping) or set(entry) != {"event", "command"}:
-            raise ExtensionDeclarationError("legacy hook entries require exactly event and command")
+            problems.append("legacy hook entries require exactly event and command")
+            continue
         event, command = entry["event"], entry["command"]
         if not isinstance(event, str) or not event.strip() or not isinstance(command, str) or not command.strip():
-            raise ExtensionDeclarationError("legacy hook event and command must be nonempty strings")
+            problems.append("legacy hook event and command must be nonempty strings")
+            continue
         if command.count("{{repo_root}}") > 1 or "{{" in command.replace("{{repo_root}}", "") or "}}" in command.replace("{{repo_root}}", ""):
-            raise ExtensionDeclarationError("legacy hook commands support only one {{repo_root}} placeholder")
-        result.add((event, command.replace("{{repo_root}}", repo_root)))
-    return result
+            problems.append("legacy hook commands support only one {{repo_root}} placeholder")
+    return problems
+
+
+def legacy_claude_hook_commands(repo_root: str) -> set[tuple[str, str]]:
+    """Expand the literal placeholder after shared declaration preflight."""
+    problems = _legacy_claude_hook_problems()
+    if problems:
+        raise ExtensionDeclarationError("; ".join(problems))
+    return {(entry["event"], entry["command"].replace("{{repo_root}}", repo_root))
+            for entry in EXTENSION_LEGACY_CLAUDE_HOOK_COMMANDS}

@@ -6,12 +6,14 @@ Last verified: 2026-10-15
 
 ## Current Session
 
-**Active wave:** *(none)*
-**Session state:** idle; all four waves closed on operator instruction.
-**Last closed wave:** `20qvt` — framework provider selection and enterprise adapters; Tensorwell remains automatic by default.
-**Also closed:** `20oqx` upgrade rerun reliability, `20qvn` distribution lifecycle compatibility and attribution, and `20qvq` provider compatibility boundary.
-**Qualification:** 11,731 tests across 189 files, 12 skips, 796.576 seconds; current green receipt verified by every close. All required delivery approvals current; QVN-D1 and QVN-D2 terminal. Both edit gates closed.
-**Publication:** operator authorized commit and push of this reviewed batch. No package or release requested. Private intake remains outside tracked records.
+**Active wave:** none. `20ppj`, `20qrv` and `20tpo` remain paused solely for the framework receipt gate.
+**Done:** all 14 admitted changes implemented; every required reviewer and council-delivery approved. Six review findings are terminal; all tasks/ACs reconciled, with the explicit unsupported warm-up deferral retained. Operator now authorized closure, commit and push; operator approvals are recorded. Closure summaries, watchpoints, retrospective, memory review and folder cleanup checks are complete. No new memory or evidence folders were created.
+**Final test state:** repaired-tree default suite ran 11,816 tests / 200 files / 12 skips in 841.468 seconds. Its only failure is `test_indexer.SQLiteDriftDetectionScaleTests.test_100k_rows_contention_safe_budget`: 1.063578 seconds against 1.000 seconds. All other checks pass; no timing change, waiver or unchanged retry. No current green full-suite receipt. Stable protected focused run previously passed 420 tests / 11 modules / zero skips, plus the exact identity target and independent negative controls.
+**Closure blocker:** `framework_test_receipt_not_proven` (stale); the close tool has no explicit timing-exception path. Operator is deciding between a reviewed timing-exception mechanism and deferring closure until quiet-machine qualification. Do not manufacture a green receipt or bypass the gate. Commit/push of the reviewed work is separately authorized and proceeding with waves paused.
+**Evidence:** durable results in each wave.md and immutable events.jsonl; full temporary log `/private/tmp/three-wave-close-qualified-default.log`. All 47 reviewed source/test/doc paths still match `3090aafeb2c958ac40e3f6997800ba241f9f5f50c32cdbcc847307618ed9524f`.
+**Deferred:** timing investigation; native Windows, WSL2/drvfs and reboot qualification; release provenance. Operator probes remain in `docs/references/native-windows-support.md`.
+**Gates/setup:** framework, seed and design edit gates closed. MCP reports loaded-code/setup inputs stale; no setup, index build or model operation was performed.
+**Prior completed work:** 20oqx, 20qvn, 20qvq and 20qvt closed/pushed in `43621e07`. No package requested in this operation.
 
 ## Open questions / Deferred decisions
 
@@ -81,7 +83,7 @@ The historical default-policy eligibility re-add/reap loop is repaired by closed
 
 Automatic reuse of a full-class embedding model on CPU remains outside this wave; the shipped guard preserves the index and reports compatible-provider or explicit-rebuild remedies. Waveforge owns its merge-time chunker version/invalidation verification and terminology-key remap; no downstream integration ran here.
 
-## Current multi-wave implementation
+## Prior multi-wave implementation context
 
 20qvt's focused tests passed (provider 9, Tensorwell 23, extensions 229, reload 15, setup readiness 49 plus integration 20, package seams 31); eight named guard mutants were detected. It is paused with its delivery task open. The profile/facade reload check detects stale source before reload and verifies current identity and fresh routing afterward. No actual model or enterprise service was used.
 

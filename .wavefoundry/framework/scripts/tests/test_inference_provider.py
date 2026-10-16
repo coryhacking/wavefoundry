@@ -212,8 +212,28 @@ class ProviderTests(unittest.TestCase):
             factory.assert_called_once()
         with patch.object(self.tc, '_generation', self.tc._generation + 1), self.assertRaises(self.ip.ProviderUnavailable):
             first.embed_query('raw')
-        with patch.object(self.ext, 'EXTENSION_HELPER_MODULES', ()), self.assertRaises(self.ip.ProviderUnavailable):
+        with patch.object(self.tc, '_generation', self.tc._generation + 1), patch.object(self.ext, 'EXTENSION_HELPER_MODULES', ()), self.assertRaises(self.ip.ProviderUnavailable):
             self.ip.select_embedder(self.indexer.DOCS_MODEL)
+
+    def test_declaration_validation_once_per_generation_across_batches(self):
+        with patch.object(self.tc, '_generation', self.tc._generation + 1), patch.object(self.ext, '_module_name_problems', wraps=self.ext._module_name_problems) as validate:
+            embedder = self.ip.select_embedder(self.indexer.DOCS_MODEL)
+            reranker = self.ip.select_reranker(self.indexer.RERANKER_MODEL)
+            initial = validate.call_count
+            self.assertGreater(initial, 0)
+            for _ in range(20):
+                embedder.embed_query('q')
+                reranker.rerank('q', ['a', 'b'])
+                self.ip.select_embedder(self.indexer.DOCS_MODEL)
+                self.ip.mode()
+            self.assertEqual(validate.call_count, initial)
+            with patch.object(self.tc, '_generation', self.tc._generation + 1):
+                self.ip.mode()
+                self.assertEqual(validate.call_count, 2 * initial)
+                with self.assertRaises(self.ip.ProviderUnavailable):
+                    embedder.embed_query('stale')
+                with self.assertRaises(self.ip.ProviderUnavailable):
+                    reranker.rerank('q', ['stale'])
 
     def test_declaration_is_strict_and_local_never_starts_daemon(self):
         for name in ('../synthetic_api', 'synthetic_api.sub', 'os', 'inference_provider', ''):

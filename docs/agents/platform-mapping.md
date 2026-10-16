@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-13
+Last verified: 2026-10-15
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
@@ -105,6 +105,13 @@ or missing commands remain edits. Copilot's unknown post calls start no speculat
 lint/index work, so a successful unfamiliar edit needs existing integrity-boundary
 validation and refresh. Recognized edits retain feedback, including refresh when
 lint fails.
+
+Claude also recognizes exact canonical core MCP tools in the existing observational
+read permission tier. Overrides, replacements, aliases, extension tools and foreign
+names retain explicit-path gating. Generated exemptions require current bounded
+source-contract checks; stale or malformed roster/declaration data grants none.
+This permission classification allows normal telemetry and does not use MCP
+`readOnlyHint`. Rendering and hook classification start no server or models.
 
 Claude's pre-edit registration omits its matcher so unfamiliar tool names reach
 the classifier; its post-edit registration remains selective with

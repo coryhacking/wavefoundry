@@ -2100,11 +2100,11 @@ class WaveIndex:
         fallback stays CPU-only: make_reranker permits GPU discovery and would
         change its qualified singleton scoring. Do not cache service adapters.
         """
+        import inference_provider
         try:
             if os.environ.get("WAVEFOUNDRY_DISABLE_RERANKER", "").strip().lower() in {"1", "true", "yes", "on"}:
                 return self._inference_selection("memory_reranking", None, "reranker_disabled")
             import tensorwell_client
-            import inference_provider
             model = self._indexer_constant("RERANKER_MODEL")
             diagnostic = {}
             resident = inference_provider.select_reranker(model, diagnostic=diagnostic)
@@ -4382,8 +4382,13 @@ def _find_other_active_wave(
     when no other wave is active (the target may itself be active and still
     allow self-prepare).
     """
-    waves = cache.list_waves_cached() if cache else list_waves(root)
-    target_scope = record_paths.open_container_scope(root, target_wave_path)
+    if cache:
+        waves = cache.list_waves_cached()
+        wave_dirs = cache.wave_dirs_cached()
+    else:
+        wave_dirs = record_paths.discover_wave_dirs(root)
+        waves = list_waves(root, wave_dirs=wave_dirs)
+    target_scope = record_paths.open_container_scope(root, target_wave_path, wave_dirs=wave_dirs)
     target_resolved = target_wave_path.resolve()
     for wave in waves:
         if wave["status"] not in OPEN_CONTAINER_STATUSES:
@@ -4393,7 +4398,7 @@ def _find_other_active_wave(
             wave_md_path = root / wave_md_path
         if wave_md_path.resolve() == target_resolved:
             continue
-        if record_paths.open_container_scope(root, wave_md_path) != target_scope:
+        if record_paths.open_container_scope(root, wave_md_path, wave_dirs=wave_dirs) != target_scope:
             continue
         return wave
     return None

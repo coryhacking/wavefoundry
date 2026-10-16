@@ -227,14 +227,21 @@ _LINK_SCAN_ENTRY_LIMIT = 50_000
 # the lock open files throughout it (the generated index included).
 _LINK_SCAN_SKIP_PARTS = ((".git",), (".wavefoundry", "venv"))
 # Windows reparse tag of a junction (a directory mount point).
-_IO_REPARSE_TAG_MOUNT_POINT = 0xA0000003
+def _is_link_metadata(info) -> bool:
+    """Refuse links/name surrogates and unclassified Windows reparse metadata."""
+    import stat
+
+    if stat.S_ISLNK(getattr(info, "st_mode", 0)):
+        return True
+    tag = getattr(info, "st_reparse_tag", None)
+    if type(tag) is int and 0 < tag <= 0xFFFFFFFF:
+        return bool(tag & 0x20000000)
+    return bool(getattr(info, "st_file_attributes", 0)
+                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
 
 
 def _is_link_entry(entry: os.DirEntry) -> bool:
-    """A symlink, or on Windows a junction. ``DirEntry.is_junction`` exists only
-    from Python 3.12, so the junction test reads the reparse tag of the entry's
-    own (cached) ``lstat``; other reparse points (OneDrive placeholders,
-    deduplicated files) are not links."""
+    """Classify cached no-follow metadata with the shared name-surrogate rule."""
     if entry.is_symlink():
         return True
     if os.name != "nt":
@@ -243,7 +250,7 @@ def _is_link_entry(entry: os.DirEntry) -> bool:
         info = entry.stat(follow_symlinks=False)
     except OSError:
         return False
-    return getattr(info, "st_reparse_tag", 0) == _IO_REPARSE_TAG_MOUNT_POINT
+    return _is_link_metadata(info)
 
 
 def _link_scan_tops(root: Path) -> list[tuple[Path, bool, bool]]:
@@ -293,7 +300,8 @@ def _refuse_lock_links(root: Path, lock: RuntimeFileLock) -> None:
     meets and defers the in-repository directory links; nothing it lists is
     counted. Phase 2 follows the deferred links (flat-layout wave discovery
     opens wave folders through them) and counts what it lists against the
-    bound. Each directory is listed once, keyed by its ``(st_dev, st_ino)``, so
+    bound. Each directory is listed once, keyed by usable device/inode identity
+    or a tagged canonical path when identity is unavailable, so
     a link into a tree the real walk already listed (a pnpm ``node_modules``
     layout) costs nothing, and a cycle ends whatever spelling a link uses.
     """
@@ -308,11 +316,20 @@ def _refuse_lock_links(root: Path, lock: RuntimeFileLock) -> None:
             cause="hard_link",
         )
     root_real = os.path.realpath(root)
+    scan_tops = _link_scan_tops(root)
+    # Only the bounded list of scan tops is resolved here, never a subtree.
+    # An ancestor alias must refuse before visited-key deduplication can hide
+    # a lock alias reached through the checkout's otherwise unscanned parts.
+    scan_ancestors = {os.path.normcase(root_real)}
+    for top, recursive, _ in scan_tops:
+        if recursive:
+            scan_ancestors.update(os.path.normcase(os.fspath(parent))
+                                  for parent in Path(os.path.realpath(top)).parents)
     try:
         root_stat = os.stat(root_real)
     except OSError:
         root_stat = None
-    visited: set[tuple[int, int]] = set()
+    visited: set[tuple] = set()
     # (lexical path, resolved path, inside a record root, recursive, counted);
     # a real child's resolved path is its parent's plus its name.
     stack: list[tuple[str, str, bool, bool, bool]] = []
@@ -324,20 +341,24 @@ def _refuse_lock_links(root: Path, lock: RuntimeFileLock) -> None:
     def inside(target: str) -> tuple[str, ...] | None:
         return relative_parts(root_real, target, root_stat=root_stat)
 
-    def refuse(link_path: str, why: str, cause: str) -> LifecycleLockLinkRefused:
+    def refuse(link_path: str, why: str, cause: str, *, bounded: bool = False) -> LifecycleLockLinkRefused:
         try:
             link_rel = Path(link_path).relative_to(root).as_posix()
         except ValueError:
             link_rel = Path(link_path).name
+        label = ascii(link_rel)[:160] if bounded else link_rel
         return LifecycleLockLinkRefused(
-            f"lifecycle mutation lock {rel} refused: {link_rel} {why}",
+            f"lifecycle mutation lock {rel} refused: {label} {why}",
             lock_rel=rel,
             link_rel=link_rel,
             cause=cause,
         )
 
     def push(lexical: str, real: str, info: os.stat_result, record_root: bool, counted: bool) -> None:
-        key = (info.st_dev, info.st_ino)
+        device, inode = info.st_dev, info.st_ino
+        key = (("inode", device, inode)
+               if type(device) is int and device >= 0 and type(inode) is int and inode > 0
+               else ("path", os.path.normcase(os.path.realpath(real))))
         if key in visited:
             return
         parts = inside(real)
@@ -356,7 +377,12 @@ def _refuse_lock_links(root: Path, lock: RuntimeFileLock) -> None:
             try:
                 with os.scandir(directory) as listing:
                     entries = list(listing)
-            except OSError:
+            except (FileNotFoundError, NotADirectoryError):
+                continue
+            except OSError as exc:
+                if os.name == "nt":
+                    raise refuse(directory, "cannot be inspected (" + _cause_label(exc) + ")",
+                                 "link_scan_unreadable") from None
                 continue
             if counted:
                 listed_through_links += len(entries)
@@ -370,11 +396,34 @@ def _refuse_lock_links(root: Path, lock: RuntimeFileLock) -> None:
                         cause="link_scan_limit",
                     )
             for entry in entries:
-                if _is_link_entry(entry):
+                try:
+                    # POSIX d_type checks keep ordinary files off the stat path.
+                    if (os.name != "nt" and not entry.is_symlink()
+                            and (not recursive or not entry.is_dir(follow_symlinks=False))):
+                        continue
+                    info = entry.stat(follow_symlinks=False)
+                    if os.name == "nt" and stat.S_ISDIR(info.st_mode):
+                        # DirEntry caches zero Windows identities. Re-read the
+                        # lexical entry without following a replacement link,
+                        # then classify this fresh metadata before traversal.
+                        info = os.stat(entry.path, follow_symlinks=False)
+                except (FileNotFoundError, NotADirectoryError):
+                    continue
+                except OSError as exc:
+                    if os.name == "nt":
+                        raise refuse(entry.path, "cannot be inspected (" + _cause_label(exc) + ")",
+                                     "link_scan_unreadable") from None
+                    continue
+                if _is_link_metadata(info):
                     target = os.path.realpath(entry.path)
                     try:
                         target_stat = os.stat(target)
-                    except OSError:
+                    except (FileNotFoundError, NotADirectoryError):
+                        target_stat = None
+                    except OSError as exc:
+                        if os.name == "nt":
+                            raise refuse(entry.path, "cannot be inspected (" + _cause_label(exc) + ")",
+                                         "link_scan_unreadable") from None
                         target_stat = None
                     if is_runtime_lock_path(root_real, target, root_stat=root_stat) or (
                         held is not None
@@ -390,6 +439,14 @@ def _refuse_lock_links(root: Path, lock: RuntimeFileLock) -> None:
                         )
                     if not recursive or target_stat is None or not stat.S_ISDIR(target_stat.st_mode):
                         continue
+                    if os.path.normcase(target) in scan_ancestors:
+                        raise refuse(
+                            entry.path,
+                            "targets the repository root or an ancestor of an active scan top "
+                            "through a directory link; replace the directory link with a real "
+                            "directory or a link to a bounded subtree, then retry",
+                            "scan_ancestor_link", bounded=True,
+                        )
                     if inside(target) is None:
                         if in_record_root:
                             raise refuse(
@@ -405,11 +462,7 @@ def _refuse_lock_links(root: Path, lock: RuntimeFileLock) -> None:
                     else:
                         deferred.append((entry.path, target, target_stat, in_record_root))
                 elif recursive:
-                    try:
-                        if not entry.is_dir(follow_symlinks=False):
-                            continue
-                        info = entry.stat(follow_symlinks=False)
-                    except OSError:
+                    if not stat.S_ISDIR(info.st_mode):
                         continue
                     push(
                         entry.path, os.path.join(directory_real, entry.name), info,
@@ -417,11 +470,16 @@ def _refuse_lock_links(root: Path, lock: RuntimeFileLock) -> None:
                     )
 
     # Phase 1: the real directories under every top; no directory link followed.
-    for top, recursive, record_root in _link_scan_tops(root):
+    for top, recursive, record_root in scan_tops:
         top_real = os.path.realpath(top)
         try:
             top_stat = os.stat(top_real)
-        except OSError:
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        except OSError as exc:
+            if os.name == "nt":
+                raise refuse(os.fspath(top), "cannot be inspected (" + _cause_label(exc) + ")",
+                             "link_scan_unreadable") from None
             continue
         if not stat.S_ISDIR(top_stat.st_mode):
             continue

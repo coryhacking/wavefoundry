@@ -20,6 +20,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 import child_tee
 import contained_files as cf
+from nt_metadata_support import nt_stat
 
 
 class StreamingOpenTests(unittest.TestCase):
@@ -74,6 +75,7 @@ class StreamingOpenTests(unittest.TestCase):
     def test_path_branch_reparse_before_and_after_open(self):
         self.path.parent.mkdir(parents=True)
         self.path.write_text("untouched")
+        native_stat = os.stat
         for late in (False, True):
             opened = False
             def seam(stage):
@@ -82,7 +84,7 @@ class StreamingOpenTests(unittest.TestCase):
                     opened = True
             with self.subTest(late=late), patch.object(cf, "_dir_fd_supported", return_value=False), \
                     patch.object(cf, "_checkpoint", side_effect=seam), \
-                    patch.object(cf, "_is_windows_link", side_effect=lambda p: p == str(self.path) and (opened or not late)):
+                    patch.object(cf.os, "stat", side_effect=lambda path, *a, **kw: nt_stat(native_stat(path, *a, **kw), 0xA000000C) if path == str(self.path) and (opened or not late) else native_stat(path, *a, **kw)):
                 with self.assertRaises(cf.ContainedFileRefused):
                     cf.open_contained_append(self.root, self.path, truncate=True)
             self.assertEqual(self.path.read_text(), "untouched")

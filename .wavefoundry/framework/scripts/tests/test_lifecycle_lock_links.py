@@ -191,7 +191,7 @@ class AcceptedLinkTests(_LinkCase):
 
     def test_a_directory_cycle_ends(self) -> None:
         _symlink("..", self.wave / "up", directory=True)
-        _symlink(self.root / "docs", self.plans / "loop", directory=True)
+        _symlink(self.wave, self.plans / "loop", directory=True)
         # Each resolved directory is listed once; a walk that re-entered the
         # cycle would only stop at the OS link-depth limit, far past this bound.
         with patch.object(lifecycle_lock, "_LINK_SCAN_ENTRY_LIMIT", 40):
@@ -220,7 +220,7 @@ class BoundTests(_LinkCase):
             (bulk / f"f{index}.txt").write_text("", encoding="utf-8")
         with patch.object(lifecycle_lock, "_LINK_SCAN_ENTRY_LIMIT", 60):
             self.assertEqual(self.acquire(), ["ran"])  # src is not scanned
-            _symlink(self.root, self.waves / "1top", directory=True)
+            _symlink(self.root / "src", self.waves / "1top", directory=True)
             exc = self.refused()
         self.assertEqual(exc.cause, "link_scan_limit")
         self.assert_lock_free_for_another_process()
@@ -231,7 +231,10 @@ class BoundTests(_LinkCase):
             folder.mkdir(parents=True)
             for index in range(80):
                 (folder / f"f{index}").write_text("", encoding="utf-8")
-        _symlink(self.root, self.waves / "1top", directory=True)
+        for name, target in (("git", self.root / ".git"),
+                             ("venv", self.root / ".wavefoundry/venv"),
+                             ("index", self.root / ".wavefoundry/index")):
+            _symlink(target, self.waves / name, directory=True)
         with patch.object(lifecycle_lock, "_LINK_SCAN_ENTRY_LIMIT", 60):
             self.assertEqual(self.acquire(), ["ran"])
 
@@ -402,7 +405,7 @@ class ScanShapeTests(_LinkCase):
             self.assertEqual(self.acquire(), ["ran"])
 
     def test_the_bound_remedy_names_directory_links(self) -> None:
-        _symlink(self.root, self.waves / "1top", directory=True)
+        _symlink(self.root / "src", self.waves / "1top", directory=True)
         bulk = self.root / "src"
         bulk.mkdir()
         for index in range(80):
@@ -529,7 +532,7 @@ class ServerRefusalTests(_LinkCase):
         self._assert_path_free(result)
 
     def test_bound_refusal_names_directory_links(self) -> None:
-        _symlink(self.root, self.waves / "1top", directory=True)
+        _symlink(self.root / "src", self.waves / "1top", directory=True)
         (self.root / "src").mkdir()
         for index in range(80):
             (self.root / f"src/f{index}.txt").write_text("", encoding="utf-8")

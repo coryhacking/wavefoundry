@@ -32,29 +32,33 @@ inherited prefix may already have supplied interpreter startup imports: unset
 
 The cache is flushed whenever ``.wavefoundry/framework/VERSION`` changes (a stamp
 file inside the cache records the bytes it was built for). A cache directory that
-is a symlink, or on Windows a junction or other reparse point, is refused before
+is a symlink, a Windows name surrogate, or has unclassified reparse metadata, is refused before
 anything reads or writes through it. Every failure leaves caching off and is never
 raised to the caller.
 """
 from __future__ import annotations
 
+import errno
 import os
 import secrets
 import shutil
 import stat
 import sys
+import threading
 from pathlib import Path
 
 PREFIX_ENV = "PYTHONPYCACHEPREFIX"
 DISABLE_ENV = "WAVEFOUNDRY_DISABLE_BYTECODE_CACHE"
 STAMP_NAME = "framework-version.stamp"
 _STALE_PREFIX = "pycache.stale-"
-_REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
 
 # The result of the first configure() in this process: (active prefix or None,
 # whether writes were enabled), re-applied by every later call.
 _UNSET = object()
 _configured: object = _UNSET
+# Warning suppression only: this does not serialize cache flushes or writers.
+_flush_warning_lock = threading.Lock()
+_flush_warning_reported = False
 
 
 def layout_paths(scripts_dir: "Path | None" = None) -> "tuple[Path, Path, Path] | None":
@@ -72,18 +76,29 @@ def layout_paths(scripts_dir: "Path | None" = None) -> "tuple[Path, Path, Path] 
     return cache_root, cache_root / "pycache", framework / "VERSION"
 
 
+def _is_link_metadata(info) -> bool:
+    """Refuse links/name surrogates and unclassified Windows reparse metadata."""
+    import stat
+
+    if stat.S_ISLNK(getattr(info, "st_mode", 0)):
+        return True
+    tag = getattr(info, "st_reparse_tag", None)
+    if type(tag) is int and 0 < tag <= 0xFFFFFFFF:
+        return bool(tag & 0x20000000)
+    return bool(getattr(info, "st_file_attributes", 0)
+                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
 def is_linked(path: "Path | str") -> bool:
-    """True when ``path`` exists and is a symlink, or on Windows a junction or other
-    reparse point. ``os.lstat`` never follows the final component; the attribute check
-    covers junctions (``Path.is_junction`` needs Python 3.12; the floor is 3.11).
+    """True when ``path`` exists and is a symlink, or on Windows a name-surrogate
+    reparse point or unclassified reparse metadata. ``os.lstat`` never follows
+    the final component; the tag rule covers junctions on Python 3.11 too.
     A missing path is not linked. Other ``OSError`` propagates to the caller."""
     try:
         st = os.lstat(path)
     except FileNotFoundError:
         return False
-    if stat.S_ISLNK(st.st_mode):
-        return True
-    return bool(getattr(st, "st_file_attributes", 0) & _REPARSE_POINT)
+    return _is_link_metadata(st)
 
 
 def _same_or_inside(candidate: str, base: Path) -> bool:
@@ -119,6 +134,24 @@ def _remove_tree_no_follow(path: Path) -> None:
     shutil.rmtree(path, ignore_errors=True)
 
 
+def _warn_flush_failure(exc: OSError) -> None:
+    """One bounded path-free diagnostic; caching remains optional."""
+    global _flush_warning_reported
+    with _flush_warning_lock:
+        if _flush_warning_reported:
+            return
+        _flush_warning_reported = True
+    cause = ascii(type(exc).__name__[:16])
+    code = errno.errorcode.get(exc.errno, "unknown errno")
+    try:
+        print("Wavefoundry bytecode cache disabled: stale cache rename failed ("
+              + cause + ", " + code + "). Continuing without project cache reads or writes; "
+              "correct the filesystem or access problem and retry in a fresh process.",
+              file=sys.stderr)
+    except Exception:
+        pass  # A diagnostic stream failure must not adopt the stale cache.
+
+
 def _flush_if_stale(cache_root: Path, pycache: Path, version_file: Path) -> bool:
     """Flush the cache when its stamp differs from ``VERSION``; True when the cache is
     usable afterwards. Raises ``OSError`` on an unreadable ``VERSION`` or a failed write."""
@@ -134,8 +167,9 @@ def _flush_if_stale(cache_root: Path, pycache: Path, version_file: Path) -> bool
         stale = cache_root / f"{_STALE_PREFIX}{os.getpid()}-{secrets.token_hex(4)}"
         try:
             os.rename(pycache, stale)
-        except OSError:
-            return False  # open handles (Windows) or a concurrent flusher: next process retries
+        except OSError as exc:
+            _warn_flush_failure(exc)
+            return False  # Never remove in place, restamp or adopt the old generation.
         _remove_tree_no_follow(stale)
     # Leftovers from an interrupted flush are removed too (contained in the cache root).
     try:

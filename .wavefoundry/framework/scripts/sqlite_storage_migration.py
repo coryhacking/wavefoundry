@@ -2378,27 +2378,35 @@ def _graph_identity(metadata, *, directory=False) -> list[int]:
 
 
 def _capture_retired_graph(index_dir: Path) -> dict:
-    plan = _inventory_retired_graph_directory(index_dir)
-    graph = index_dir / GRAPH_OUTPUT_DIRNAME
-    if plan["state"] == "absent":
+    try:
+        plan = _inventory_retired_graph_directory(index_dir)
+        graph = index_dir / GRAPH_OUTPUT_DIRNAME
+        if plan["state"] == "absent":
+            return {"state": "absent"}
+        metadata = graph.lstat()
+        if _is_link_or_reparse(metadata) or not stat.S_ISDIR(metadata.st_mode):
+            return {"state": RETAINED_UNOWNED_CONTENTS}
+        files = {}
+        for child in graph.iterdir():
+            item = child.lstat()
+            if (_is_owned_graph_entry(child.name) and stat.S_ISREG(item.st_mode)
+                    and not _is_link_or_reparse(item)):
+                files[child.name] = _graph_identity(item)
+        return {"state": "captured", "directory": _graph_identity(metadata, directory=True),
+                "files": files}
+    except FileNotFoundError:
+        # Inventory and ownership capture are separate reads. Disappearance
+        # between them grants no ownership and must not prevent the receipt.
         return {"state": "absent"}
-    metadata = graph.lstat()
-    if _is_link_or_reparse(metadata) or not stat.S_ISDIR(metadata.st_mode):
-        return {"state": RETAINED_UNOWNED_CONTENTS}
-    files = {}
-    for child in graph.iterdir():
-        item = child.lstat()
-        if (_is_owned_graph_entry(child.name) and stat.S_ISREG(item.st_mode)
-                and not _is_link_or_reparse(item)):
-            files[child.name] = _graph_identity(item)
-    return {"state": "captured", "directory": _graph_identity(metadata, directory=True),
-            "files": files}
 
 
 def _plan_captured_graph(index_dir: Path, receipt: dict) -> dict:
     plan = _inventory_retired_graph_directory(index_dir)
     if plan["state"] != "removable":
         return plan
+    if "retired_graph_ownership" not in receipt:
+        return {**plan, "state": RETAINED_UNOWNED_CONTENTS, "bytes": 0,
+                "reason": "receipt predates ownership capture; retired graph directory retained"}
     evidence = receipt.get("retired_graph_ownership", {})
     graph = index_dir / GRAPH_OUTPUT_DIRNAME
     files = evidence.get("files", {})
@@ -2410,6 +2418,15 @@ def _plan_captured_graph(index_dir: Path, receipt: dict) -> dict:
                    for name in plan["entries"])):
         return {**plan, "state": RETAINED_UNOWNED_CONTENTS, "bytes": 0,
                 "reason": "retired graph ownership is missing or changed; original receipt retained"}
+    missing = []
+    if os.unlink not in os.supports_dir_fd:
+        missing.append("os.unlink dir_fd support")
+    if not hasattr(os, "O_NOFOLLOW"):
+        missing.append("os.O_NOFOLLOW")
+    if missing:
+        return {**plan, "state": RETAINED_UNOWNED_CONTENTS, "bytes": 0,
+                "reason": "retired graph cleanup requires " + " and ".join(missing)
+                          + "; directory retained"}
     return {**plan, "ownership": evidence}
 
 
@@ -2417,8 +2434,6 @@ def _apply_retired_graph_directory(root: Path, index_dir: Path, plan: dict) -> i
     """Delete captured regular entries through an identity-checked directory fd."""
     if plan["state"] != "removable":
         return 0
-    if os.unlink not in os.supports_dir_fd or not hasattr(os, "O_NOFOLLOW"):
-        raise MigrationRequired("storage_graph_cleanup_descriptor_unavailable: directory retained")
     evidence = plan["ownership"]
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     parent = os.open(_safe(index_dir), flags)
@@ -2553,12 +2568,6 @@ def cleanup_legacy(root: Path) -> dict:
         source_plan = _plan_retire_source_database(index_dir, receipt)
     staging_plan = _plan_staging(index_dir, receipt)
     graph_plan = _plan_captured_graph(index_dir, receipt)
-    if graph_plan["state"] == RETAINED_UNOWNED_CONTENTS:
-        receipt.update(state="cleanup_pending", graph_directory_cleanup={
-            key: graph_plan[key] for key in ("state", "path", "entries", "reason") if key in graph_plan})
-        _write(index_dir, receipt)
-        raise MigrationRequired("storage_graph_cleanup_retained: " + graph_plan.get(
-            "reason", "retired graph ownership is unproven; original receipt retained"))
 
     # --- APPLY. Validation is finished; from here the work is irreversible. -
     receipt["state"] = "cleanup_pending"

@@ -1079,13 +1079,10 @@ def _refused_declared_skill_paths(
 
 
 def _is_link_or_reparse(path: Path, info: os.stat_result) -> bool:
-    """Whether ``path`` is a symlink, a Windows junction or other reparse
+    """Whether ``path`` is a symlink, a Windows name surrogate or unclassified reparse
     point, or resolves anywhere but its own lexical path."""
 
-    if stat.S_ISLNK(info.st_mode):
-        return True
-    reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
-    if reparse and getattr(info, "st_file_attributes", 0) & reparse:
+    if contained_files._is_link_metadata(info):
         return True
     try:
         return path.resolve(strict=False) != path

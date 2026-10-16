@@ -63,7 +63,7 @@ def read_project_include_prefixes(root: Path) -> dict[str, tuple[str, ...]]:
     cfg = Path(root) / "docs" / "workflow-config.json"
     try:
         raw = read_contained_bytes(root, cfg, max_bytes=DEFAULT_MAX_BYTES)
-        data = json.loads(raw.decode("utf-8"))
+        data = json.loads(raw.decode("utf-8-sig"))
     except (OSError, ValueError):
         return _empty()
     if not isinstance(data, dict):

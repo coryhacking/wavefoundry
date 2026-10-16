@@ -88,6 +88,139 @@ class ReceiptTests(unittest.TestCase):
         self.assertEqual(migration._plan_captured_graph(self.index, receipt)["state"],
                          migration.RETAINED_UNOWNED_CONTENTS)
 
+    def _graph_cleanup_receipt(self):
+        graph = self.index / migration.GRAPH_OUTPUT_DIRNAME
+        graph.mkdir(exist_ok=True)
+        (graph / "project-graph.json").write_bytes(b"original graph")
+        receipt = self.prepare()
+        receipt["state"] = "verified"
+        migration._write(self.index, receipt)
+        return graph, receipt
+
+    def _cleanup_graph_fixture(self, receipt):
+        # Verification/publication has separate native integration coverage.
+        # Keep actual receipt I/O, graph planning, artifact deletion and APPLY.
+        with patch.object(migration, "verify_migration", return_value=receipt), \
+                patch.object(migration, "_hosts_gone"), \
+                patch.object(migration, "_published_identity"), \
+                patch.object(migration, "detect", return_value={"fence_required": False}):
+            return migration.cleanup_legacy(self.root)
+
+    def test_graph_descriptor_capability_is_classified_before_any_cleanup(self):
+        graph, receipt = self._graph_cleanup_receipt()
+        original = migration._plan_captured_graph
+        events = []
+        def classified(*args):
+            plan = original(*args)
+            self.assertEqual(plan["state"], migration.RETAINED_UNOWNED_CONTENTS)
+            self.assertIn("dir_fd", plan["reason"])
+            events.append("classified")
+            return plan
+        def deleted(component):
+            self.assertEqual(events[0], "classified")
+            events.append(component)
+            return 0
+        # Probe every cleanup component, including kind source and staging,
+        # while exercising the real graph planner and terminal receipt write.
+        with patch.object(os, "supports_dir_fd", set()), \
+                patch.object(migration, "_plan_captured_graph", side_effect=classified), \
+                patch.object(migration, "is_kind_receipt", return_value=True), \
+                patch.object(migration, "_plan_legacy_artifacts", return_value=[{
+                    "name": "docs.lance", "kind": "directory", "path": str(self.index / "docs.lance"),
+                    "bytes": 0}]), \
+                patch.object(migration, "_plan_retire_source_database", return_value={}), \
+                patch.object(migration, "_plan_staging", return_value={}), \
+                patch("upgrade_wavefoundry._remove_retired_component",
+                      side_effect=lambda *a, **k: (deleted("artifact"), "removed")[1]), \
+                patch.object(migration, "_apply_retire_source_database",
+                             side_effect=lambda *_: deleted("source")), \
+                patch.object(migration, "_apply_kind_staging",
+                             side_effect=lambda *_: deleted("staging")):
+            final = self._cleanup_graph_fixture(receipt)
+        self.assertEqual(events, ["classified", "artifact", "source", "staging"])
+        self.assertEqual(final["state"], "complete")
+        self.assertEqual(final["graph_directory_cleanup"]["state"], migration.RETAINED_UNOWNED_CONTENTS)
+        self.assertEqual(final["graph_directory_cleanup"]["path"], str(graph))
+        self.assertEqual(final["graph_directory_cleanup"]["entries"], ["project-graph.json"])
+        self.assertTrue(graph.exists())
+
+    def test_graph_without_nofollow_completes_with_retained_reason(self):
+        graph, receipt = self._graph_cleanup_receipt()
+        with patch.object(os, "O_NOFOLLOW", create=True):
+            del os.O_NOFOLLOW
+            final = self._cleanup_graph_fixture(receipt)
+        self.assertEqual(final["state"], "complete")
+        self.assertIn("O_NOFOLLOW", final["graph_directory_cleanup"]["reason"])
+        self.assertTrue(graph.exists())
+        self.assertFalse((self.index / "docs.lance").exists())
+
+    def test_old_graph_receipts_complete_without_adopting_ownership(self):
+        graph, original = self._graph_cleanup_receipt()
+        for state in ("verified", "cleanup_pending"):
+            with self.subTest(state=state):
+                receipt = dict(original, state=state)
+                receipt.pop("retired_graph_ownership")
+                migration._write(self.index, receipt)
+                with patch.object(migration, "_capture_retired_graph",
+                                  side_effect=AssertionError("old receipt adopted graph")):
+                    final = self._cleanup_graph_fixture(receipt)
+                    again = migration.cleanup_legacy(self.root)
+                self.assertEqual(final["state"], "complete")
+                self.assertEqual(final, again)
+                self.assertNotIn("retired_graph_ownership", final)
+                self.assertIn("predates ownership capture", final["graph_directory_cleanup"]["reason"])
+                self.assertTrue((graph / "project-graph.json").exists())
+
+    def test_changed_and_zero_graph_identities_retain_and_complete(self):
+        graph, original = self._graph_cleanup_receipt()
+        evidence = original["retired_graph_ownership"]
+        for population in ("changed", "zero-directory", "zero-file"):
+            with self.subTest(population=population):
+                captured = json.loads(json.dumps(evidence))
+                if population == "changed":
+                    captured["directory"][1] += 1
+                elif population == "zero-directory":
+                    captured["directory"] = []
+                else:
+                    captured["files"]["project-graph.json"] = []
+                receipt = dict(original, retired_graph_ownership=captured)
+                migration._write(self.index, receipt)
+                final = self._cleanup_graph_fixture(receipt)
+                self.assertEqual(final["state"], "complete")
+                self.assertEqual(final["retired_graph_ownership"], captured)
+                self.assertEqual(final["graph_directory_cleanup"]["state"], migration.RETAINED_UNOWNED_CONTENTS)
+                self.assertIn("ownership is missing or changed", final["graph_directory_cleanup"]["reason"])
+                self.assertTrue((graph / "project-graph.json").exists())
+
+    def test_graph_disappearance_during_capture_still_writes_receipt(self):
+        graph = self.index / migration.GRAPH_OUTPUT_DIRNAME
+        graph.mkdir()
+        child = graph / "project-graph.json"
+        child.write_bytes(b"old graph")
+        real_lstat, real_iterdir = Path.lstat, Path.iterdir
+        for site in ("directory-lstat", "iterdir", "child-lstat"):
+            with self.subTest(site=site):
+                calls = 0
+                def vanished_lstat(path, *args, **kwargs):
+                    nonlocal calls
+                    if path == graph:
+                        calls += 1
+                        if site == "directory-lstat" and calls == 2:
+                            raise FileNotFoundError(str(path))
+                    if site == "child-lstat" and path == child:
+                        raise FileNotFoundError(str(path))
+                    return real_lstat(path, *args, **kwargs)
+                def vanished_iterdir(path):
+                    if site == "iterdir" and path == graph:
+                        raise FileNotFoundError(str(path))
+                    return real_iterdir(path)
+                (self.index / migration.RECEIPT).unlink(missing_ok=True)
+                with patch.object(Path, "lstat", vanished_lstat), \
+                        patch.object(Path, "iterdir", vanished_iterdir):
+                    receipt = self.prepare()
+                self.assertEqual(receipt["retired_graph_ownership"], {"state": "absent"})
+                self.assertEqual(migration.read_receipt(self.index), receipt)
+
     def test_direct_identity_equalities_are_only_reviewed_boundaries(self):
         # Bounded syntax guard, not arbitrary dataflow proof. Exact normalized
         # comparisons are excluded: same-run snapshots, content/configuration
@@ -160,13 +293,14 @@ class ReceiptTests(unittest.TestCase):
          # not storage snapshot comparisons; keep each reviewed expression exact.
          ('upgrade_extensions', '_read_guard_pack', '_guard_file_identity(entry) != _guard_file_identity(opened)'),
          ('upgrade_extensions', '_read_guard_pack', '_guard_file_identity(path.lstat()) != _guard_file_identity(opened)'),
-         ('upgrade_extensions', 'validate_index_guard_durable_pack', "proof.get('root_identity') != {'device': identity.st_dev, 'inode': identity.st_ino}"),
-         ('upgrade_extensions', 'validate_index_guard_durable_pack', "proof.get('root_identity') != record.get('root_identity')"),
-         ('upgrade_extensions', 'validate_index_guard_durable_pack', "len(proof['identity']) != 5"),
-         ('upgrade_extensions', 'validate_index_guard_durable_pack', "_guard_file_identity(entry) != proof['identity']"),
-         ('upgrade_extensions', 'validate_index_guard_durable_pack', "_guard_file_identity(opened) != proof['identity']"),
          ('upgrade_extensions', '_retain_index_guard_pack', 'hashlib.sha256(retained).hexdigest() != digest'),
-         ('upgrade_extensions', 'finalize_index_guard_terminal_cleanup', "tmp_proof.get('identity') == _guard_file_identity(remaining)")}
+
+         # 20qrr: durable proof device drift is portable; fresh operation identity stays exact.
+         ('upgrade_extensions', '_guard_durable_binding', "len(proof['identity']) != 5"),
+         ('upgrade_extensions', '_guard_durable_file_matches', 'len(stored) == 5'),
+         ('upgrade_extensions', '_guard_durable_file_matches', 'stored[1:] == current[1:]'),
+         ('upgrade_extensions', '_guard_root_identity_matches', "stored['inode'] == entry.st_ino"),
+        }
         # Retired graph deletion deliberately requires exact device/inode and
         # file metadata ownership, unlike portable live database continuity.
         allowed.update({
@@ -2665,13 +2799,14 @@ class SchemaEightKindTests(unittest.TestCase):
             "framework-graph-state.json", "framework-graph-clusters.json")
         self._run()
         self._verify_in_child()
-        if os.unlink not in os.supports_dir_fd or not hasattr(os, "O_NOFOLLOW"):
-            with self.assertRaisesRegex(migration.MigrationRequired, "descriptor_unavailable"):
-                migration.cleanup_legacy(self.root)
-            self.assertTrue(folder.exists())
-            return
         final = migration.cleanup_legacy(self.root)
         self.assertEqual(final["state"], "complete")
+        if os.unlink not in os.supports_dir_fd or not hasattr(os, "O_NOFOLLOW"):
+            self.assertTrue(folder.exists())
+            self.assertEqual(final["graph_directory_cleanup"]["state"],
+                             migration.RETAINED_UNOWNED_CONTENTS)
+            self.assertIn("requires", final["graph_directory_cleanup"]["reason"])
+            return
         self.assertFalse(folder.exists(), "a normal framework-owned folder is removed completely")
         self.assertEqual(final["graph_directory_cleanup"]["state"], "removed")
 
@@ -2684,27 +2819,20 @@ class SchemaEightKindTests(unittest.TestCase):
         with patch("upgrade_wavefoundry._remove_retired_component",
                    side_effect=AssertionError(
                        "the whole-tree primitive was used as the classifier")):
-            with self.assertRaisesRegex(migration.MigrationRequired, "storage_graph_cleanup_retained"):
-                migration.cleanup_legacy(self.root)
-        final = migration.read_receipt(self.index)
-        self.assertEqual(final["state"], "cleanup_pending")
+            final = migration.cleanup_legacy(self.root)
+        self.assertEqual(final["state"], "complete")
         self.assertEqual(final["graph_directory_cleanup"]["state"],
                          migration.RETAINED_UNOWNED_CONTENTS)
         self.assertEqual(final["graph_directory_cleanup"]["entries"], ["operator-notes.txt"])
         self.assertTrue((folder / "operator-notes.txt").is_file())
         self.assertTrue((folder / "project-graph.json").is_file(),
                         "an unowned entry preserves the WHOLE folder, not only itself")
-        # Plan refusal precedes all deletion. Removing only the unowned entry
-        # permits retry against the original captured identities.
-        self.assertTrue(self.legacy.exists())
+        self.assertIn("unknown names", final["graph_directory_cleanup"]["reason"])
+        self.assertFalse(self.legacy.exists())
+        # Completion stays terminal: later edits never grant ownership anew.
         (folder / "operator-notes.txt").unlink()
-        if os.unlink not in os.supports_dir_fd or not hasattr(os, "O_NOFOLLOW"):
-            with self.assertRaisesRegex(migration.MigrationRequired, "descriptor_unavailable"):
-                migration.cleanup_legacy(self.root)
-            self.assertTrue(folder.exists())
-            return
-        self.assertEqual(migration.cleanup_legacy(self.root)["state"], "complete")
-        self.assertFalse(folder.exists())
+        self.assertEqual(migration.cleanup_legacy(self.root), final)
+        self.assertTrue(folder.exists())
 
     def test_a_nonempty_write_ahead_log_preserves_the_retired_source(self):
         self._seed("7")

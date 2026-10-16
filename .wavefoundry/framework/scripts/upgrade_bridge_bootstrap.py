@@ -72,8 +72,21 @@ def _lock_owner_hint(path: Path) -> str:
     )
 
 
+def _is_link_metadata(info) -> bool:
+    """Refuse links/name surrogates and unclassified Windows reparse metadata."""
+    import stat
+
+    if stat.S_ISLNK(getattr(info, "st_mode", 0)):
+        return True
+    tag = getattr(info, "st_reparse_tag", None)
+    if type(tag) is int and 0 < tag <= 0xFFFFFFFF:
+        return bool(tag & 0x20000000)
+    return bool(getattr(info, "st_file_attributes", 0)
+                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
 def _is_windows_link(path: str) -> bool:
-    """True only for a name-surrogate reparse point (symlink or junction).
+    """True for a link/name surrogate or unclassified Windows reparse metadata.
 
     OneDrive placeholders and deduplicated files are reparse points too, but
     not name surrogates, and must keep working.
@@ -84,11 +97,7 @@ def _is_windows_link(path: str) -> bool:
         info = os.lstat(path)
     except FileNotFoundError:
         return False
-    link_tags = {
-        getattr(stat, "IO_REPARSE_TAG_SYMLINK", 0xA000000C),
-        getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003),
-    }
-    return stat.S_ISLNK(info.st_mode) or getattr(info, "st_reparse_tag", 0) in link_tags
+    return _is_link_metadata(info)
 
 
 def _link_refusal(component: str) -> OSError:

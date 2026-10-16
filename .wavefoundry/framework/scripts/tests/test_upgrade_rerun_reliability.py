@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -49,6 +50,52 @@ class RerunTests(unittest.TestCase):
             before, after, archive = upgrade.phase_preflight(self.root, True)
         self.assertEqual((before, after, archive), ('1.31.0+earlier', '1.31.0+fixture', None))
         plan.assert_called_once()
+
+    def test_revision_fallback_and_stale_manifest_precedence(self):
+        manifest = self.root / 'docs/prompts/prompt-surface-manifest.json'
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text('{}')
+        self.assertEqual(upgrade._read_installed_revision(self.root), '1.31.0+fixture')
+        with patch.object(upgrade, '_find_zip', return_value=None), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as stopped:
+                upgrade.phase_preflight(self.root, True)
+        self.assertEqual(stopped.exception.code, 3)
+        manifest.write_text(json.dumps({'framework_revision': '1.31.0+earlier'}))
+        with patch.object(upgrade, '_find_zip', return_value=None), patch.object(upgrade, '_print_change_plan'):
+            self.assertEqual(upgrade.phase_preflight(self.root, True)[:2],
+                             ('1.31.0+earlier', '1.31.0+fixture'))
+
+    def test_at_target_tree_survives_main_extraction_branch(self):
+        import zipfile
+        archive = self.root / 'fixture.zip'
+        sentinel = self.root / '.wavefoundry/framework/keep.py'
+        sentinel.write_bytes(b'project-preserved-byte-sentinel')
+        with zipfile.ZipFile(archive, 'w') as pack:
+            pack.writestr('.wavefoundry/framework/keep.py', 'destructive replacement')
+        before = sentinel.read_bytes()
+        # Exercise the actual main extraction branch after its preflight result;
+        # stop at the next phase rather than start an index or model operation.
+        with contextlib.ExitStack() as stack:
+            for name, value in {
+                'phase_preflight': ('1.31.0+earlier', '1.31.0+fixture', archive),
+                '_stage_pack_for_consumption': archive,
+                '_load_extension_module': None,
+                '_run_hook': None,
+                '_snapshot_pre_extract_chunker_versions': {},
+                '_snapshot_pre_extract_versions': {},
+                '_detect_version_transitions': [],
+                '_warn_if_no_version_baseline': False,
+            }.items():
+                stack.enter_context(patch.object(upgrade, name, return_value=value))
+            extract = stack.enter_context(patch.object(upgrade, '_extract_feature_members',
+                                                       side_effect=AssertionError('destructive extraction')))
+            stack.enter_context(patch.object(upgrade, 'phase_surface_rendering', side_effect=RuntimeError('fixture stop after extract')))
+            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+            stack.enter_context(contextlib.redirect_stderr(io.StringIO()))
+            with self.assertRaisesRegex(RuntimeError, 'fixture stop after extract'):
+                upgrade.main(['--root', str(self.root), '--yes'])
+        extract.assert_not_called()
+        self.assertEqual(sentinel.read_bytes(), before)
 
     def test_validated_retained_continuation_is_not_repeated_adoption(self):
         # main derives this flag only after its retained-state decision; the
@@ -213,12 +260,12 @@ class GraphOwnershipTests(unittest.TestCase):
 
     def test_capture_removes_only_unchanged_owned_entries(self):
         plan = migration._plan_captured_graph(self.index, self.receipt)
-        self.assertEqual(plan['state'], 'removable')
         if os.unlink not in os.supports_dir_fd or not hasattr(os, 'O_NOFOLLOW'):
-            with self.assertRaisesRegex(migration.MigrationRequired, 'descriptor_unavailable'):
-                migration._apply_retired_graph_directory(self.root, self.index, plan)
+            self.assertEqual(plan['state'], migration.RETAINED_UNOWNED_CONTENTS)
+            self.assertEqual(migration._apply_retired_graph_directory(self.root, self.index, plan), 0)
             self.assertTrue(self.graph.exists())
             return
+        self.assertEqual(plan['state'], 'removable')
         self.assertEqual(migration._apply_retired_graph_directory(self.root, self.index, plan), 9)
         self.assertFalse(self.graph.exists())
 

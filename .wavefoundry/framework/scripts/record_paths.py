@@ -141,6 +141,20 @@ class RecordRootUnreadable(_RECORD_LAYOUT_INVALID_BASE):
         self.diagnostic = line
 
 
+def _path_error_hint(exc: OSError, path: Path) -> str:
+    """Conditional hints only; neither path length nor errno proves OS policy."""
+    if (getattr(exc, "winerror", None) == 3 and len(str(path)) > 260
+            and not str(path).startswith("\\\\?\\")):
+        return "possible long-path limit; check host support or use a shorter checkout path"
+    if exc.errno == errno.EINVAL:
+        return "possible reserved/invalid name; inspect path spelling"
+    return ""
+
+
+def _path_is_absent(exc: OSError, path: Path) -> bool:
+    return isinstance(exc, (FileNotFoundError, NotADirectoryError)) and not _path_error_hint(exc, path)
+
+
 def record_root_is_dir(path: Path, rel: str) -> bool:
     """Decide a record root's state with ``os.stat`` (following links, as
     ``Path.is_dir`` did): ``True`` for a directory, ``False`` when it is absent
@@ -151,11 +165,26 @@ def record_root_is_dir(path: Path, rel: str) -> bool:
     ``review_evidence._authority_member_lstat``)."""
     try:
         st = os.stat(path)
-    except (FileNotFoundError, NotADirectoryError):
-        return False
     except OSError as exc:
-        raise RecordRootUnreadable(RECORD_ROOT_UNREADABLE_CODE, rel, _cause_label(exc)) from None
+        if _path_is_absent(exc, path):
+            return False
+        cause = _cause_label(exc)
+        hint = _path_error_hint(exc, path)
+        raise RecordRootUnreadable(RECORD_ROOT_UNREADABLE_CODE, rel, cause + ("; " + hint if hint else "")) from None
     return stat.S_ISDIR(st.st_mode)
+
+
+def _is_link_metadata(info) -> bool:
+    """Refuse links/name surrogates and unclassified Windows reparse metadata."""
+    import stat
+
+    if stat.S_ISLNK(getattr(info, "st_mode", 0)):
+        return True
+    tag = getattr(info, "st_reparse_tag", None)
+    if type(tag) is int and 0 < tag <= 0xFFFFFFFF:
+        return bool(tag & 0x20000000)
+    return bool(getattr(info, "st_file_attributes", 0)
+                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
 
 
 def _refusal_exempt(path: Path) -> bool:
@@ -165,7 +194,7 @@ def _refusal_exempt(path: Path) -> bool:
     if Path(path).name.startswith("."):
         return True
     try:
-        return stat.S_ISLNK(os.lstat(path).st_mode)
+        return _is_link_metadata(os.lstat(path))
     except OSError:
         return False
 
@@ -247,7 +276,7 @@ def _has_symlink_component(root: Path, parts: list[str]) -> bool:
     for part in parts:
         path = path / part
         try:
-            if os.path.islink(path):
+            if _is_link_metadata(os.lstat(path)):
                 return True
         except OSError:
             return False
@@ -523,11 +552,12 @@ def load_record_roots(root: Path) -> RecordRoots:
     )
 
 
-def open_container_scope(root: Path, wave_path: Path) -> Path:
+def open_container_scope(root: Path, wave_path: Path, *, wave_dirs: list[Path] | None = None) -> Path:
     """Return the validated activation domain; never partition publication locks.
 
     Parent scope uses the immediate parent of the canonical wave directory.
     Only discovered records qualify, excluding aliases, escapes and archives.
+    Internal callers may pass directories discovered in the same operation.
     """
     roots = load_record_roots(root)
     if OPEN_CONTAINER_SCOPE == "repository":
@@ -535,8 +565,8 @@ def open_container_scope(root: Path, wave_path: Path) -> Path:
     path = Path(wave_path)
     if not path.is_absolute():
         path = Path(root) / path
-    directories = discover_wave_dirs(root)
-    if path.name != vocabulary_profile.RECORD_FILENAME or path.parent not in directories or path.is_symlink():
+    directories = discover_wave_dirs(root) if wave_dirs is None else wave_dirs
+    if path.name != vocabulary_profile.RECORD_FILENAME or path.parent not in directories or _is_link_metadata(os.lstat(path)):
         raise RecordLayoutInvalid([f"{DIAGNOSTIC_CODE}: activation target must be a canonical discovered wave record"])
     return path.parent.parent
 
@@ -581,13 +611,17 @@ class _Walk:
             return directory.name
         return f"{self.top_rel}/{tail}"
 
-    def refusal(self, directory: Path, exc: OSError) -> RecordRootUnreadable:
+    def refusal(self, directory: Path, exc: OSError, *, failed_path: Path | None = None) -> RecordRootUnreadable:
         """The refusal naming ``directory``: the root code for the walked root
         itself, the folder code (with the move-it-out recovery) below it."""
+        cause = _cause_label(exc)
+        hint = _path_error_hint(exc, failed_path if failed_path is not None else directory)
+        if hint:
+            cause += "; " + hint
         if directory == self.top:
-            return RecordRootUnreadable(RECORD_ROOT_UNREADABLE_CODE, self.top_rel, _cause_label(exc))
+            return RecordRootUnreadable(RECORD_ROOT_UNREADABLE_CODE, self.top_rel, cause)
         return RecordRootUnreadable(
-            RECORD_FOLDER_UNREADABLE_CODE, self.rel(directory), _cause_label(exc), root_rel=self.top_rel
+            RECORD_FOLDER_UNREADABLE_CODE, self.rel(directory), cause, root_rel=self.top_rel
         )
 
 
@@ -622,13 +656,13 @@ def _list_subdirs(directory: Path, *, guarded: bool = True, walk: "_Walk | None"
             continue
         try:
             entry_stat = os.lstat(path)
-        except (FileNotFoundError, NotADirectoryError):
-            continue  # vanished after the listing
         except OSError as exc:
+            if _path_is_absent(exc, path):
+                continue  # vanished after the listing
             if walk is not None and not dotted:
-                raise walk.refusal(directory, exc) from None
+                raise walk.refusal(directory, exc, failed_path=path) from None
             continue
-        if stat.S_ISLNK(entry_stat.st_mode):
+        if _is_link_metadata(entry_stat):
             if guarded:
                 continue
             try:
@@ -662,10 +696,11 @@ def _probe_record_file(directory: Path, record_filename: "str | None", walk: _Wa
     refuses naming the candidate folder."""
     try:
         st = os.stat(directory / (record_filename or vocabulary_profile.RECORD_FILENAME))
-    except (FileNotFoundError, NotADirectoryError):
-        return False
     except OSError as exc:
-        raise walk.refusal(directory, exc) from None
+        member = directory / (record_filename or vocabulary_profile.RECORD_FILENAME)
+        if _path_is_absent(exc, member):
+            return False
+        raise walk.refusal(directory, exc, failed_path=member) from None
     return stat.S_ISREG(st.st_mode)
 
 

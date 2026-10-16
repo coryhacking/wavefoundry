@@ -238,7 +238,7 @@ def doc_entry_is_regular(root: Path, path: Path) -> bool:
             if parent_fd is not None:
                 os.close(parent_fd)
         if (not stat.S_ISREG(entry.st_mode)
-                or getattr(entry, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 1024)):
+                or contained_files._is_link_metadata(entry)):
             doc_refusal(root, path, RECORD_CAUSE_LINK)
             return False
         return True

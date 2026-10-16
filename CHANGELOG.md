@@ -14,6 +14,14 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Optional `--with-embedded-models` packaging produces a directly upgradeable combined ZIP alongside the lean framework and standalone model assets. Reuse verified model caches or provision from the embedded companion, with retained-source recovery and an executable entry for older installations. Wave 20omx / 20nt1.
 
+### Fixed
+
+- Retained retired-graph cleanup reaches a recorded terminal outcome, old-parent index recovery uses existing publication authority, and memory reranker exceptions preserve fallback behavior. Validate legacy hook declarations before rendering, cache provider declaration checks per generation, and reuse wave discovery during activation. Preserve extraction recovery and signoff compatibility. Wave 20ppj.
+
+- Unify Windows reparse classification, retain complete lock scans when directory identities are unavailable, and improve conditional path, permission, BOM and uv-shim diagnostics. Preserve ownership during archive cleanup and distinguish durable proof from fresh deletion identity. Synthetic platform controls do not establish native Windows qualification. Wave 20qrv.
+
+- Trusted executable lookup tolerates ancestor/unrelated working directories while refusing repository-controlled candidates. Verified temporary packs clean up from proven original parents across sessions. Generated pre-edit hooks recognize current canonical core read permissions; root aliases refuse before broad scans, cache-flush failures report safe uncached operation, and renderer link policy is documented. Wave 20tpo.
+
 ## [1.31.0] - 2026-10-14
 
 ### Security

@@ -471,6 +471,31 @@ def report_unknown_tool(name: str, has_paths: bool = False) -> None:
 
 EDIT_TOOL_NAMES = ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')
 NON_EDIT_TOOL_NAMES = ('Read', 'Bash')
+CORE_READ_TOOLS = ('mcp__wavefoundry__code_ask', 'mcp__wavefoundry__code_callgraph', 'mcp__wavefoundry__code_callhierarchy', 'mcp__wavefoundry__code_commit_provenance', 'mcp__wavefoundry__code_constants', 'mcp__wavefoundry__code_definition', 'mcp__wavefoundry__code_dependencies', 'mcp__wavefoundry__code_graph_community', 'mcp__wavefoundry__code_graph_path', 'mcp__wavefoundry__code_hover', 'mcp__wavefoundry__code_impact', 'mcp__wavefoundry__code_keyword', 'mcp__wavefoundry__code_lexical', 'mcp__wavefoundry__code_list_files', 'mcp__wavefoundry__code_outline', 'mcp__wavefoundry__code_pattern', 'mcp__wavefoundry__code_read', 'mcp__wavefoundry__code_references', 'mcp__wavefoundry__code_risk_score', 'mcp__wavefoundry__code_search', 'mcp__wavefoundry__docs_search', 'mcp__wavefoundry__index_build_status', 'mcp__wavefoundry__index_health', 'mcp__wavefoundry__memory_brief', 'mcp__wavefoundry__memory_search', 'mcp__wavefoundry__seed_get', 'mcp__wavefoundry__wf_audit', 'mcp__wavefoundry__wf_audit_install', 'mcp__wavefoundry__wf_current_wave', 'mcp__wavefoundry__wf_gate_status', 'mcp__wavefoundry__wf_get_change', 'mcp__wavefoundry__wf_get_handoff', 'mcp__wavefoundry__wf_get_prompt', 'mcp__wavefoundry__wf_gpu_doctor', 'mcp__wavefoundry__wf_graph_report', 'mcp__wavefoundry__wf_help', 'mcp__wavefoundry__wf_list_plans', 'mcp__wavefoundry__wf_list_waves', 'mcp__wavefoundry__wf_map', 'mcp__wavefoundry__wf_server_info', 'mcp__wavefoundry__wf_techdocs_audit', 'mcp__wavefoundry__wf_upgrade_status', 'mcp__wavefoundry__wf_validate_docs')
+CORE_READ_CONTRACT = {'mcp_tool_roster.py': 'cbe940e4cd6fef030665f2c179442a95fe089150e734f1f9ade5dd6eee212ef3', 'mcp_tool_extensions.py': 'db582b5dbf2ceb798fab24b7e75c6317f844d419529e2a155efacd3169871e60'}
+
+
+def current_core_read(tool_name: str) -> bool:
+    if tool_name not in CORE_READ_TOOLS or len(CORE_READ_CONTRACT) != 2:
+        return False
+    import hashlib
+    import stat
+    scripts = REPO_ROOT / ".wavefoundry" / "framework" / "scripts"
+    try:
+        for name, expected in CORE_READ_CONTRACT.items():
+            # Read bounded ordinary source only. A FIFO/link or stale generated
+            # contract grants no exemption; no server or model import occurs.
+            fd = os.open(scripts / name, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0))
+            with os.fdopen(fd, "rb") as source:
+                entry = os.fstat(source.fileno())
+                if not stat.S_ISREG(entry.st_mode) or entry.st_size > 262144:
+                    return False
+                data = source.read(262145)
+            if len(data) > 262144 or hashlib.sha256(data).hexdigest() != expected:
+                return False
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 def main() -> int:
@@ -479,7 +504,7 @@ def main() -> int:
     if payload is None:
         return block_uninspectable(problem, keys)
     tool_name = payload.get("tool_name")
-    if isinstance(tool_name, str) and tool_name in NON_EDIT_TOOL_NAMES:
+    if isinstance(tool_name, str) and (tool_name in NON_EDIT_TOOL_NAMES or current_core_read(tool_name)):
         return 0
     if isinstance(tool_name, str) and tool_name and tool_name not in EDIT_TOOL_NAMES:
         # Only supported explicit fields; do not guess patch, shell or arbitrary MCP schemas.

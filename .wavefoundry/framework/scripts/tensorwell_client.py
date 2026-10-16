@@ -659,8 +659,8 @@ def select_reranker(model_name: str, *, diagnostic: dict | None = None):
 
 
 def _controller(root: Path) -> Path | None:
-    """Controlled PATH lookup: exclude CWD/repository, including resolved links."""
-    excluded = (root.resolve(), Path.cwd().resolve())
+    """Controlled PATH lookup: exclude the target repository, including resolved links."""
+    excluded = (root.resolve(),)
     for entry in os.environ.get("PATH", "").split(os.pathsep):
         if not entry or not Path(entry).is_absolute():
             continue

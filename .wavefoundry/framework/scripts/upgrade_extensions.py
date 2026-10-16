@@ -759,7 +759,7 @@ def _validate_index_guard_handoff(root, lock, record, package=..., target=None):
         raise ValueError("index_guard_package_changed: checkpoint belongs to a current-tree upgrade")
     storage_identity = _storage_identity_helper(package, expected)
     if (not storage_identity.same_path(record.get("root"), root)
-            or not storage_identity.compare_identity(record.get("root_identity"), {"device": identity.st_dev, "inode": identity.st_ino})["matches"]):
+            or not _guard_root_identity_matches(record.get("root_identity"), identity)):
         raise ValueError("index_guard_checkpoint_invalid: preserve checkpoint and original package")
     if expected is not None:
         locator = record.get("pack_path")
@@ -831,6 +831,21 @@ def _guard_file_identity(entry):
     return [entry.st_dev, entry.st_ino, entry.st_size, entry.st_mtime_ns, entry.st_ctime_ns]
 
 
+def _guard_root_identity_matches(stored, entry):
+    return (isinstance(stored, dict)
+            and all(type(stored.get(key)) is int and stored[key] > 0 for key in ('device', 'inode'))
+            and entry.st_dev > 0 and entry.st_ino > 0
+            and stored['inode'] == entry.st_ino)
+
+
+def _guard_durable_file_matches(stored, entry):
+    current = _guard_file_identity(entry)
+    return (isinstance(stored, list) and len(stored) == 5
+            and all(type(value) is int and value > 0 for value in stored)
+            and all(type(value) is int and value > 0 for value in current)
+            and stored[1:] == current[1:])
+
+
 def _guard_contained_helper(package=None):
     if Path(__file__).is_absolute():
         import contained_files
@@ -851,8 +866,8 @@ def _read_guard_pack(root, path, helper):
     return data, opened, resolved
 
 
-def validate_index_guard_durable_pack(root, lock, *, allow_terminal_absence=False, helper=None):
-    """Validate strict root/token/target/locator/identity/hash before archive code."""
+def _guard_durable_binding(root, lock):
+    """Validate durable coordinates even after a terminal owned unlink."""
     root = Path(root).resolve(strict=True)
     record = lock.get(_INDEX_GUARD_HANDOFF)
     proof = record.get('durable_pack') if isinstance(record, dict) else None
@@ -863,8 +878,8 @@ def validate_index_guard_durable_pack(root, lock, *, allow_terminal_absence=Fals
     if (type(proof.get('version')) is not int or proof['version'] != 1
             or proof.get('path') != _INDEX_GUARD_PACK_REL
             or proof.get('root') != str(root) or record.get('root') != str(root)
-            or proof.get('root_identity') != {'device': identity.st_dev, 'inode': identity.st_ino}
-            or proof.get('root_identity') != record.get('root_identity')
+            or not _guard_root_identity_matches(proof.get('root_identity'), identity)
+            or not _guard_root_identity_matches(record.get('root_identity'), identity)
             or not isinstance(proof.get('token'), str) or not proof['token']
             or proof['token'] != record.get('token')
             or not isinstance(proof.get('target_version'), str) or not proof['target_version']
@@ -874,8 +889,14 @@ def validate_index_guard_durable_pack(root, lock, *, allow_terminal_absence=Fals
             or proof['sha256'] != record.get('pack_sha256')
             or lock.get('zip_path') != str(path) or record.get('pack_path') != str(path)
             or not isinstance(proof.get('identity'), list) or len(proof['identity']) != 5
-            or any(type(value) is not int for value in proof['identity'])):
+            or any(type(value) is not int or value <= 0 for value in proof['identity'])):
         raise ValueError('index_guard_durable_pack_invalid: ownership binding mismatch')
+    return root, proof, path
+
+
+def validate_index_guard_durable_pack(root, lock, *, allow_terminal_absence=False, helper=None):
+    """Validate strict root/token/target/locator/identity/hash before archive code."""
+    root, proof, path = _guard_durable_binding(root, lock)
     _guard_owned_path(root, path)
     try:
         entry = path.lstat()
@@ -884,11 +905,11 @@ def validate_index_guard_durable_pack(root, lock, *, allow_terminal_absence=Fals
             validate_index_guard_terminal_cleanup(root, lock)
             return None
         raise ValueError('index_guard_durable_pack_invalid: owned archive is missing') from None
-    if _guard_file_identity(entry) != proof['identity']:
+    if not _guard_durable_file_matches(proof['identity'], entry):
         raise ValueError('index_guard_durable_pack_invalid: replaced file identity')
     helper = helper or _guard_contained_helper()
     data, opened, resolved = _read_guard_pack(root, path, helper)
-    if _guard_file_identity(opened) != proof['identity'] or hashlib.sha256(data).hexdigest() != proof['sha256']:
+    if not _guard_durable_file_matches(proof['identity'], opened) or hashlib.sha256(data).hexdigest() != proof['sha256']:
         raise ValueError('index_guard_durable_pack_invalid: changed archive bytes')
     return resolved
 
@@ -994,6 +1015,7 @@ def _index_guard_resume_flag(ctx, lock, migration, *, pre_docs=False):
 
 
 def validate_index_guard_terminal_cleanup(root, lock):
+    root, proof, path = _guard_durable_binding(root, lock)
     record = lock.get(_INDEX_GUARD_HANDOFF)
     terminal = record.get('terminal_cleanup') if isinstance(record, dict) else None
     if (not isinstance(terminal, dict) or type(terminal.get('version')) is not int or terminal['version'] != 1
@@ -1007,6 +1029,12 @@ def validate_index_guard_terminal_cleanup(root, lock):
             or lock.get('memory_backfill_state') not in {None, 'indexed'}
             or record.get('hosts_stopped_confirmed') is not True):
         raise ValueError('index_guard_terminal_cleanup_invalid: fatal obligations are not proven complete')
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        pass  # Exact terminal checkpoint permits this deliberate absence.
+    else:
+        validate_index_guard_durable_pack(root, lock)
     return terminal
 
 
@@ -1017,7 +1045,10 @@ def finalize_index_guard_terminal_cleanup(root, lock, cleanup_tmp):
     helper = _guard_contained_helper()
     if path is not None:
         proof = lock[_INDEX_GUARD_HANDOFF]['durable_pack']
-        helper.unlink_contained(root, path, expected_identity=tuple(proof['identity'][:2]))
+        data, opened, resolved = _read_guard_pack(root, path, helper)
+        if not _guard_durable_file_matches(proof['identity'], opened) or hashlib.sha256(data).hexdigest() != proof['sha256']:
+            raise ValueError('index_guard_terminal_cleanup_invalid: archive changed before unlink')
+        helper.unlink_contained(root, resolved, expected_identity=(opened.st_dev, opened.st_ino))
     staged = lock.get('original_staged_pack_path')
     tmp_proof = lock.get('verified_pack_identity')
     if staged and isinstance(tmp_proof, dict):
@@ -1026,7 +1057,7 @@ def finalize_index_guard_terminal_cleanup(root, lock, cleanup_tmp):
             remaining = Path(staged).lstat()
         except FileNotFoundError:
             remaining = None
-        if remaining is not None and tmp_proof.get('path') == str(staged) and tmp_proof.get('identity') == _guard_file_identity(remaining):
+        if remaining is not None and tmp_proof.get('path') == str(staged) and _guard_durable_file_matches(tmp_proof.get('identity'), remaining):
             raise ValueError('index_guard_terminal_cleanup_failed: separately owned TMP archive retained; retry --cleanup')
     import upgrade_lib
     current = upgrade_lib.read_upgrade_lock(root)
@@ -1093,7 +1124,13 @@ def enforce_index_guard_handoff(ctx, *, pre_docs=False):
         resume_flag = None if rebuild else _index_guard_resume_flag(ctx, lock, migration, pre_docs=pre_docs)
         retained_fields = {}
         if resume_flag and lock.get("zip_path"):
-            retained_fields = _retain_index_guard_pack(ctx, lock, record)
+            try:
+                retained_fields = _retain_index_guard_pack(ctx, lock, record)
+            except FileExistsError:
+                raise  # Occupied/raced names never confer ownership.
+            except (OSError, NotImplementedError):
+                reason = "index_guard_durable_pack_publication_unavailable"
+                resume_flag = None
             lock.update(retained_fields)
         command = (migration.restart_command(root, None, resume_flag=resume_flag)
                    if resume_flag else migration.restart_command(root, record.get("pack_path"), rebuild))
@@ -3178,7 +3215,29 @@ def pre_index_update(ctx):
 def post_index_update(ctx):
     """Seal an old runner's zero-candidate/no-source historical run."""
 
-    if getattr(ctx, "index_published", None) is not True:
+    outcome = getattr(ctx, "index_published", None)
+    if outcome is None:
+        # An old parent's early recovery bypasses phase_index_update, so the
+        # observer has no result. Only its retained, root-bound run's existing
+        # publication authority can prove this otherwise unobserved outcome.
+        try:
+            with _scripts_on_sys_path(_journal_scripts_dir(ctx.root)):
+                import publication_control
+                checkpoint = publication_control.read_upgrade_checkpoint(ctx.root)
+                target = getattr(ctx, "to_version", None)
+                if (not isinstance(checkpoint, dict) or not checkpoint.get("started_at")
+                        or checkpoint.get("to_version") != target
+                        or not publication_control.preview_checkpoint_compatible(ctx.root, target)):
+                    raise ValueError("unproven retained checkpoint")
+                run_id = checkpoint.get("memory_backfill_run_id")
+                if not isinstance(run_id, str) or not run_id.strip():
+                    raise ValueError("unproven retained memory run")
+                backfill = _installed_memory_backfill(ctx.root)
+                summary = backfill.reconcile_index_publication(ctx.root, run_id)
+                outcome = summary["state"] == "indexed"
+        except Exception:
+            outcome = False
+    if outcome is not True:
         _update_upgrade_state(ctx.root, index_publication_failed=True)
         print("Index publication failed; historical memory was not marked indexed. "
               "Use the retained index repair/continuation before cleanup.", flush=True)

@@ -975,20 +975,40 @@ def is_canonical_wave_events_path(rel_path: str, root: Path | None = None) -> bo
     return False
 
 
+def _is_link_metadata(info) -> bool:
+    """Refuse links/name surrogates and unclassified Windows reparse metadata."""
+    import stat
+
+    if stat.S_ISLNK(getattr(info, "st_mode", 0)):
+        return True
+    tag = getattr(info, "st_reparse_tag", None)
+    if type(tag) is int and 0 < tag <= 0xFFFFFFFF:
+        return bool(tag & 0x20000000)
+    return bool(getattr(info, "st_file_attributes", 0)
+                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
 def _authority_member_lstat(member: Path) -> os.stat_result | None:
     """``lstat`` one review authority member; ``None`` only when it is absent.
 
     Python 3.14 ``pathlib`` predicates return ``False`` on any ``OSError``, so
     they cannot tell an absent member from one the guard could not inspect.
-    Only not-found (``FileNotFoundError``; Windows maps WinError 2 and 3 to it)
-    and ``NotADirectoryError`` read as absent; ``ELOOP``, access denial and
+    Ordinary not-found and ``NotADirectoryError`` read as absent. Windows
+    long-path WinError 3 is ambiguous and remains unreadable with a conditional
+    hint; ``ELOOP``, access denial and
     every other ``OSError`` propagate to the "not safely resolvable" branch.
     """
 
     try:
         return os.lstat(member)
-    except (FileNotFoundError, NotADirectoryError):
-        return None
+    except OSError as exc:
+        if (getattr(exc, "winerror", None) == 3 and len(str(member)) > 260
+                and not str(member).startswith("\\\\?\\")):
+            raise OSError(exc.errno, "possible long-path limit; check host support or use a shorter checkout path") from None
+        if isinstance(exc, (FileNotFoundError, NotADirectoryError)):
+            return None
+        if exc.errno == errno.EINVAL:
+            raise OSError(exc.errno, "possible reserved/invalid name; inspect path spelling") from None
+        raise
 
 
 def _review_authority_path_error(wave_path: Path) -> str | None:
@@ -1004,7 +1024,7 @@ def _review_authority_path_error(wave_path: Path) -> str | None:
         # raising on ``OSError`` in Python 3.14 (wave 1zqe4): any failure,
         # not-found included, is "not safely resolvable".
         wave_dir_stat = os.lstat(wave_dir)
-        if stat.S_ISLNK(wave_dir_stat.st_mode):
+        if _is_link_metadata(wave_dir_stat):
             return "wave directory may not be a symlink"
         if not stat.S_ISDIR(wave_dir_stat.st_mode):
             return (
@@ -1013,12 +1033,12 @@ def _review_authority_path_error(wave_path: Path) -> str | None:
             )
         wave_real = wave_dir.resolve(strict=True)
         wave_md_stat = _authority_member_lstat(wave_md)
-        if wave_md_stat is not None and stat.S_ISLNK(wave_md_stat.st_mode):
+        if wave_md_stat is not None and _is_link_metadata(wave_md_stat):
             return f"{_vocab.RECORD_FILENAME} may not be a symlink"
         if wave_md_stat is not None and not wave_md.resolve(strict=True).is_relative_to(wave_real):
             return f"{_vocab.RECORD_FILENAME} escapes its wave directory"
         ledger_stat = _authority_member_lstat(ledger)
-        if ledger_stat is not None and stat.S_ISLNK(ledger_stat.st_mode):
+        if ledger_stat is not None and _is_link_metadata(ledger_stat):
             return "events.jsonl may not be a symlink"
         if ledger_stat is not None and not ledger.resolve(strict=True).is_relative_to(wave_real):
             return "events.jsonl escapes its wave directory"

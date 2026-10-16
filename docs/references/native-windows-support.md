@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: supported
-Last verified: 2026-10-10
+Last verified: 2026-10-15
 
 ## SQLite conversion qualification (1xjmm)
 
@@ -142,3 +142,41 @@ Preserve project prose and aliases; locate the legacy prompt using the path repo
 Use the checkpoint's emitted continuation command after stopping its recorded hosts. Proven post-docs handoffs use `--resume-after-memory` or `--update-index` with `--confirm-hosts-stopped`; unproven, pre-docs and storage/rebuild states keep the full upgrade command. Pack-backed continuations own one verified file at `.wavefoundry/cache/upgrade/index-guard-feature.zip`, independently of temporary staging and the external original. Do not replace that file with a matching archive: its root, token, target, file identity and hash must match the checkpoint. Links, junctions/reparse points, nonregular files, multilinks and permission failures refuse; Windows reparse/permission coverage is injected simulation, not native Windows qualification.
 
 Paused or failed publication, validation or cleanup retains recovery authority. After fatal storage/dashboard obligations succeed, cleanup records terminal completion before deleting the owned archive. If archive or checkpoint deletion fails, retry `--cleanup`; the validated terminal checkpoint permits this retry even after the archive was deliberately removed, without loading it or running rendering/indexing again. Ordinary resume still requires the owned archive. Fresh-process lost-TMP tests demonstrate restart recovery with bounded fake index children, not a measured reboot. The final identity-check/unlink sequence is not atomic against concurrent replacement.
+
+
+## Reparse classification and lifecycle scan qualification
+
+The contained-file, lint, renderer, bytecode-cache, review-authority, record-path, retired-sidecar and lifecycle-lock boundaries use one classification rule: POSIX symlinks and Windows tags carrying the name-surrogate bit (`0x20000000`) are links, including unknown surrogate tags. A reparse attribute with missing, invalid or unusable tag metadata refuses at these boundaries. An explicit valid non-surrogate tag, such as the simulated OneDrive or dedup tag, passes link classification while regular-file, containment, identity and size guards still apply. This classifies metadata; it does not establish cloud-file hydration or qualify native OneDrive or dedup behavior.
+
+The lifecycle scan refreshes Windows directory metadata with a no-follow stat and reclassifies it before traversal. Its visited keys use usable device/inode identity or a tagged normalized canonical path when identity is unavailable, across scan roots, real children and admitted linked targets. Real record trees remain outside the entry budget; only subtrees reached through directory links consume it. The Windows-shaped tests cover zero identities, replacement links, disappearance, access errors, repeated targets and cycles. The `msvcrt` lock mechanism is unchanged.
+
+Native Windows and drvfs execution of these changes remain unverified. Link classification can only use metadata the host exposes: a mount that hides name-surrogate/link metadata cannot be promised equivalent detection. Useful inode and `st_nlink` values on drvfs are also unqualified; no blanket claim applies to every drvfs mount. Keep WSL2 checkouts on the Linux filesystem as documented above.
+
+## Conditional path and permission diagnostics
+
+A long path with WinError 3 can mean that the host lacks working long-path support. Wavefoundry reports that as unreadable with a conditional hint; it does not diagnose or change the registry. Ordinary missing parents and WinError 2 keep their absent result. Invalid-name errors suggest checking spelling and reserved names. UTF-8 BOM workflow configuration is accepted by the shared include-prefix reader; malformed configuration still yields no prefixes.
+
+A known Windows READONLY target is refused before publication, separately from a file that stays in use. Preserve the original and adjust its permissions explicitly if appropriate. A named descriptor-chmod failure is tolerated only when the actual new file descriptor already has the intended final permissions; an umask mismatch preserves the original. Command shims `uv.cmd` and `uv.bat` are reported and never executed; use `uv.exe` or the existing pinned, hash-verified bootstrap.
+
+Qualification here used synthetic Windows metadata/errors and real POSIX descriptor controls, not a native Windows or drvfs run. Before claiming native qualification, probe long versus short missing paths, a BOM config, READONLY versus sharing violations, a shim-only PATH, and descriptor modes on the intended filesystem. The earlier warm-up return-value claim was disproved and remains deferred pending an actual Windows reproduction; no warm-up or timing policy changed.
+
+## Retained archive cleanup and native probes
+
+Combined upgrade archives are retained under `.wavefoundry/upgrade-assets/embedded-*.zip`; phase cleanup removes them only after current ownership and hash checks. Native Windows uses the bounded path fallback when descriptor-relative deletion is unavailable. It rechecks ancestors and final identity but retains a residual same-user pathname race. Index-guard continuation packs use `.wavefoundry/cache/upgrade/index-guard-feature.zip` and require atomic no-clobber hard-link publication; unavailable capability produces controlled restart/refusal guidance.
+
+Native Windows and WSL2 execution remain unverified. The operator qualification probes are:
+
+- **Native archive cleanup:** complete a combined-pack upgrade on NTFS. Verify successful cleanup is silent and sharing or permission refusal reports retention.
+- **Interrupted retain/resume:** interrupt after guard-pack publication, restart the host and verify exact retained-package resume without replacing an occupied destination.
+- **Reboot continuity:** retain both archive types, reboot, resume and complete terminal cleanup. Device drift in historical proof must not weaken current identity or hash checks.
+
+
+## Repository layout and surface directories
+
+Lifecycle holds refuse directory links targeting the repository root or an ancestor of an active scan top before descending through them. For example, `docs/site -> ..` is unsupported: replace it with a real directory or point it at a bounded content subtree, then retry. Ordinary safe links keep their existing scan coverage and phase-2 entry budget. Cache directories remain scanned for aliases of runtime locks; a layout repair never grants permission to hide those aliases.
+
+Surface rendering keeps its lexical no-link parent policy on every applicable platform. A linked `.claude`, `.codex` or other output parent refuses even when its target stays inside the repository, because the lexical chain must not redirect a surface write. Preserve existing settings, replace the linked parent with a real directory at the expected location and restore the intended contents there before retrying rendering. This policy is narrower than ordinary contained reads; no renderer containment relaxation is included.
+
+A failed stale-bytecode-cache rename, including an injected `EXDEV`, leaves the process without project-cache reads or writes and reports once with a bounded escaped diagnostic. The old generation stays in place without a current-generation stamp; it is never removed in place as a fallback. Correct the filesystem/access problem and retry in a fresh process. Explicitly disabled and read-only modes remain silent and do not flush. These are injected-fault and local-symlink results; native overlayfs, reboot, Windows and timing qualification remain unverified.
+
+Verified temporary packs carry a recorded temporary-parent proof so cleanup can use their original owned location after TMPDIR changes. Older path/identity-only proofs remain supported for present files under the current temp parent; unprovable legacy parents or absence retain/refuse with bounded basename-only recovery guidance. Cleanup revalidates parent/file identities without an additional archive hash pass. The normal staging validation and expected-hash check remain unchanged.

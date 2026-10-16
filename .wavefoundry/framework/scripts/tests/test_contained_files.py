@@ -428,7 +428,12 @@ class OpenContainedDirTests(_Roots):
             self.assertIsNone(cf.open_contained_dir(self.root, "a/missing/deeper"))
             (self.root / "file").write_bytes(b"x")
             self.refused(lambda: cf.open_contained_dir(self.root, "file"), cf.CAUSE_NOT_DIRECTORY)
-            with mock.patch.object(cf, "_is_windows_link", side_effect=lambda p: p.endswith("b")):
+            from nt_metadata_support import nt_stat
+            real_lstat = os.lstat
+            def junction(path, *args, **kwargs):
+                info = real_lstat(path, *args, **kwargs)
+                return nt_stat(info, 0xA0000003) if Path(path).name == "b" else info
+            with mock.patch.object(os, "lstat", side_effect=junction):
                 self.refused(lambda: cf.open_contained_dir(self.root, "a/b"), cf.CAUSE_LINK_COMPONENT)
             if POSIX:
                 os.symlink(self.outside, self.root / "out")
@@ -564,7 +569,7 @@ class MemberDocDelegationTests(_Roots):
             for name, value in vars(cf).items()
             if name.startswith("CAUSE_")
             # write-only and walk-only causes cannot reach a read refusal unmapped
-            and name not in {"CAUSE_IN_USE", "CAUSE_NO_TEMPORARY"}
+            and name not in {"CAUSE_IN_USE", "CAUSE_READ_ONLY", "CAUSE_NO_TEMPORARY"}
         }
         self.assertLessEqual(literal | primitive, set(self.PINNED), (literal | primitive) - set(self.PINNED))
 

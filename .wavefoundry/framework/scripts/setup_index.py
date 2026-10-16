@@ -330,31 +330,45 @@ def _path_inside(path: str, folder: str) -> bool:
         return False
 
 
-def _trusted_path_uv(root: Path | None) -> Path | None:
+def _trusted_path_uv(root: Path | None, *, skipped: list[str] | None = None) -> Path | None:
     """Find ``uv`` on PATH without trusting anywhere the repository controls (wave 1zv87, 1zv84).
 
     ``shutil.which`` is not used: on Windows it adds the current folder even with ``path=``, and an
     empty or ``.`` entry resolves there on POSIX, so a ``uv`` planted in the repository could run.
-    Empty, ``.`` and other relative entries are skipped, as are entries inside the current folder
-    or the target root, and a candidate that resolves (through a symlink) into either is refused.
+    Empty, ``.`` and other relative entries are skipped. With a known target, entries
+    and resolved candidates inside that root are refused; an ancestor or unrelated
+    working directory adds no exclusion. Without a target, CWD remains conservative.
     Windows accepts only ``uv.exe``, never a ``.cmd``/``.bat`` shim.
     """
-    refused = [os.getcwd()]
-    if root is not None:
-        refused.append(os.path.abspath(str(root)))
+    refused = [os.path.abspath(str(root))] if root is not None else [os.getcwd()]
+    boundary = "target repository" if root is not None else "working directory (target unknown)"
+    def record(entry: str, reason: str) -> None:
+        if skipped is not None and len(skipped) < 5:
+            label = ascii(entry)
+            if len(label) > 128:
+                label = label[:48] + "..." + label[-77:]
+            skipped.append(label + ": " + reason)
     name = "uv.exe" if os.name == "nt" else "uv"
     for entry in os.environ.get("PATH", "").split(os.pathsep):
         entry = entry.strip().strip('"')
         if not entry or entry == "." or not os.path.isabs(entry):
+            record(entry, "empty PATH entry" if not entry else "relative PATH entry")
             continue
         if any(_path_inside(entry, folder) for folder in refused):
+            record(entry, "entry resolves inside " + boundary)
             continue
         candidate = os.path.join(entry, name)
         if any(_path_inside(candidate, folder) for folder in refused):
+            record(entry, "candidate resolves inside " + boundary)
             continue
         if os.path.isfile(candidate) and (os.name == "nt" or os.access(candidate, os.X_OK)):
             return Path(candidate)
+        record(entry, "no regular executable " + name)
     return None
+
+
+def _uv_skipped_notice(skipped: list[str] | None) -> str:
+    return "Skipped PATH entries: " + "; ".join(skipped[:5]) + ". " if skipped else ""
 
 
 def _uv_bin(venv_python: Path, root: Path | None = None) -> Path | None:
@@ -681,7 +695,9 @@ def install_requirement_specs(
         uv_path = _uv_bin(venv_python, root)
         if uv_path is None:
             outcome["status"] = "no_uv"
-            outcome["message"] = (
+            skipped = []
+            _trusted_path_uv(root, skipped=skipped)
+            outcome["message"] = _uv_skipped_notice(skipped) + (
                 "uv is not available, and startup installs only through uv with its package-age "
                 "guard; run `wf setup`"
             )
@@ -771,12 +787,23 @@ def install_requirement_specs(
             pass
 
 
-def _uv_required_message(*, windows: bool | None = None) -> str:
+def _uv_required_message(*, windows: bool | None = None, skipped: list[str] | None = None) -> str:
     """The refusal ``_install_deps`` prints when no uv can be found or installed (wave 1zls6)."""
     if windows is None:
         windows = os.name == "nt"
     rerun = "`.\\.wavefoundry\\bin\\wf.cmd setup`" if windows else "`wf setup`"
-    return (
+    shim_names = set()
+    if windows:
+        for entry in os.environ.get("PATH", "").split(os.pathsep):
+            entry = entry.strip().strip('"')
+            if not entry or not os.path.isabs(entry):
+                continue
+            for name in ("uv.cmd", "uv.bat"):
+                if os.path.isfile(os.path.join(entry, name)):
+                    shim_names.add(name)
+    shim_notice = ("Found PATH command shim(s) " + ", ".join(sorted(shim_names))
+                   + "; these are refused, not executed. Use uv.exe or the pinned bootstrap below. ") if shim_names else ""
+    return _uv_skipped_notice(skipped) + shim_notice + (
         "Dependencies are installed only through uv, which applies the 21-day package-age guard, and uv "
         "could not be found or installed, so nothing was installed. To recover, either rerun "
         f"{rerun} once network, proxy or TLS access to the package index works, which retries the "
@@ -812,7 +839,9 @@ def _install_deps(missing: list[str], venv_python: Path, root: Path | None = Non
         # Wave 1zls6: fail closed. A plain-pip install would drop the package-age guard on exactly the
         # machines where something already failed. The callers hold the install lock, which their
         # context manager releases on the way out.
-        print(_uv_required_message(), file=sys.stderr)
+        skipped = []
+        _trusted_path_uv(root, skipped=skipped)
+        print(_uv_required_message(skipped=skipped), file=sys.stderr)
         raise SystemExit(2)
 
     cutoff = _exclude_newer_cutoff(days=21)

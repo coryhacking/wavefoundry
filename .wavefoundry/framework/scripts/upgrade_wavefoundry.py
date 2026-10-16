@@ -206,35 +206,104 @@ def _preferred_python() -> str:
 _VERIFIED_PACK_IDENTITIES: dict[str, dict] = {}
 
 
-def _pack_entry_identity(path: Path) -> list[int] | None:
+def _pack_entry_identity(path: Path, *, entry=None) -> list[int] | None:
+    import contained_files
     try:
-        entry = path.lstat()
+        entry = path.lstat() if entry is None else entry
     except OSError:
         return None
-    if not stat.S_ISREG(entry.st_mode) or entry.st_nlink != 1:
+    identity = [entry.st_dev, entry.st_ino, entry.st_size, entry.st_mtime_ns, entry.st_ctime_ns]
+    if (not stat.S_ISREG(entry.st_mode) or entry.st_nlink != 1
+            or contained_files._is_link_metadata(entry)
+            or any(type(value) is not int or value <= 0 for value in identity)):
         return None
-    return [entry.st_dev, entry.st_ino, entry.st_size, entry.st_mtime_ns, entry.st_ctime_ns]
+    return identity
 
 
-def _cleanup_verified_pack(path: Path | None, proof: dict | None) -> None:
-    """Remove only the unchanged regular private copy verified by staging."""
-    if path is None or path.parent != Path(tempfile.gettempdir()) or not path.name.startswith("wf-verified-pack-"):
-        return
-    identity_proof = proof.get("identity") if isinstance(proof, dict) else None
-    if (not isinstance(identity_proof, list) or len(identity_proof) != 5
-            or not all(type(value) is int for value in identity_proof)
-            or proof.get("path") != str(path)
-            or identity_proof != _pack_entry_identity(path)):
-        _log("  Private pack retained — verified ownership/identity is not proven.")
-        return
+def _cleanup_verified_pack(path: Path | None, proof: dict | None) -> bool:
+    """Use recorded temporary-parent authority and freshly anchored file identity."""
+    if path is None:
+        return True
+    path = Path(path)
+    parent_proof = proof.get("parent") if isinstance(proof, dict) else None
+    kind = "temporary" if isinstance(parent_proof, dict) and parent_proof.get("kind") == "temporary" else "legacy/unproven"
+
+    def retained(reason):
+        # Basenames only, escaped and bounded: recovery logs disclose no roots.
+        label = json.dumps(path.name[:120], ensure_ascii=True)
+        parent_label = json.dumps(path.parent.name[:80], ensure_ascii=True)
+        _log(f"  Verified private pack retained ({kind} parent {parent_label}, archive {label}): {reason}. Preserve the recorded proof and retry cleanup after resolving it.")
+        return False
+
+    stored = proof.get("identity") if isinstance(proof, dict) else None
+    if (not path.is_absolute() or ".." in path.parts or not path.name.startswith("wf-verified-pack-")
+            or not isinstance(stored, list) or len(stored) != 5
+            or any(type(value) is not int or value <= 0 for value in stored)
+            or proof.get("path") != str(path)):
+        return retained("ownership proof is unproven")
+    directory = None
     try:
+        if parent_proof is None:
+            if path.parent != Path(tempfile.gettempdir()).resolve(strict=True):
+                return retained("legacy parent ownership cannot be proved across sessions")
+            parent_identity = None
+        elif (not isinstance(parent_proof, dict) or parent_proof.get("kind") != "temporary"
+                or parent_proof.get("path") != str(path.parent)
+                or not isinstance(parent_proof.get("identity"), list)
+                or len(parent_proof["identity"]) != 2
+                or any(type(value) is not int or value <= 0 for value in parent_proof["identity"])):
+            return retained("recorded temporary parent proof is invalid")
+        else:
+            parent_identity = parent_proof["identity"]
         import contained_files
-        judged, identity = contained_files.judge_contained_file(path.parent, path)
-        if list(identity) != proof["identity"][:2]:
-            return
-        contained_files.unlink_contained(path.parent, judged, expected_identity=identity)
-    except OSError:
-        _log("  Verified private pack cleanup could not complete; retained.")
+        anchor = Path(path.anchor)
+        parent_parts = path.parent.relative_to(anchor).parts
+        directory = contained_files.open_contained_dir(anchor, parent_parts, refuse_reparse=True)
+        parent = os.fstat(directory) if directory is not None else path.parent.lstat()
+        if (not stat.S_ISDIR(parent.st_mode) or parent.st_dev <= 0 or parent.st_ino <= 0
+                or contained_files._is_link_metadata(parent)
+                or parent_identity is not None and parent_identity[1] != parent.st_ino):
+            return retained("recorded temporary parent identity changed or is unproven")
+        try:
+            entry = (os.stat(path.name, dir_fd=directory, follow_symlinks=False)
+                     if directory is not None else path.lstat())
+        except FileNotFoundError:
+            return True if parent_identity is not None else retained("legacy absence has no recorded parent authority")
+        current = _pack_entry_identity(path, entry=entry)
+        if current is None or stored[1:] != current[1:]:
+            return retained("verified file identity changed or is unproven")
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        file_fd = (os.open(path.name, flags, dir_fd=directory) if directory is not None else os.open(path, flags))
+        try:
+            if _pack_entry_identity(path, entry=os.fstat(file_fd)) != current:
+                return retained("fresh opened file identity changed")
+        finally:
+            os.close(file_fd)
+        # Re-walk the pathname before using the pinned parent for deletion.
+        # Device equality remains mandatory for these fresh same-process checks.
+        checked_dir = contained_files.open_contained_dir(anchor, parent_parts, refuse_reparse=True)
+        try:
+            checked_parent = os.fstat(checked_dir) if checked_dir is not None else path.parent.lstat()
+            if (checked_parent.st_dev, checked_parent.st_ino) != (parent.st_dev, parent.st_ino):
+                return retained("fresh temporary parent identity changed")
+        finally:
+            if checked_dir is not None:
+                os.close(checked_dir)
+        checked = (os.stat(path.name, dir_fd=directory, follow_symlinks=False)
+                   if directory is not None else path.lstat())
+        if _pack_entry_identity(path, entry=checked) != current:
+            return retained("fresh file identity changed before unlink")
+        if directory is not None:
+            os.unlink(path.name, dir_fd=directory)
+        else:
+            # Existing bounded fallback rechecks ancestry and current identity.
+            contained_files.unlink_contained(anchor, path, expected_identity=tuple(current[:2]))
+        return True
+    except (OSError, ValueError, NotImplementedError, TypeError) as exc:
+        return retained("ownership or removal refused: " + type(exc).__name__)
+    finally:
+        if directory is not None:
+            os.close(directory)
 
 
 def _stage_pack_for_consumption(
@@ -244,27 +313,54 @@ def _stage_pack_for_consumption(
 
     fd, raw_path = tempfile.mkstemp(prefix="wf-verified-pack-", suffix=".zip")
     staged = Path(raw_path)
+    initial = os.fstat(fd)
     digest = hashlib.sha256()
     try:
-        with path.open("rb") as source, os.fdopen(fd, "wb") as target:
+        staged = staged.parent.resolve(strict=True) / staged.name
+        import contained_files
+        anchor = Path(staged.anchor)
+        parent_fd = contained_files.open_contained_dir(anchor, staged.parent.relative_to(anchor).parts, refuse_reparse=True)
+        try:
+            parent = os.fstat(parent_fd) if parent_fd is not None else staged.parent.lstat()
+            if parent.st_dev <= 0 or parent.st_ino <= 0:
+                raise ValueError("verified private pack parent identity is unproven")
+            parent_proof = {"kind": "temporary", "path": str(staged.parent), "identity": [parent.st_dev, parent.st_ino]}
+        finally:
+            if parent_fd is not None:
+                os.close(parent_fd)
+        target_stream = os.fdopen(fd, "wb")
+        fd = None
+        with target_stream as target, path.open("rb") as source:
             for block in iter(lambda: source.read(1024 * 1024), b""):
                 digest.update(block)
                 target.write(block)
             target.flush()
             os.fsync(target.fileno())
+            copied_identity = _pack_entry_identity(staged, entry=os.fstat(target.fileno()))
         actual = digest.hexdigest()
         if expected_sha256 is not None and actual != expected_sha256:
             raise ValueError("selected feature archive hash does not match bridge selection")
         import upgrade_protocol
 
+        if copied_identity is None or _pack_entry_identity(staged) != copied_identity:
+            raise ValueError("verified private pack changed before validation")
         upgrade_protocol.validate_feature_pack(staged)
         identity = _pack_entry_identity(staged)
-        if identity is None:
+        if identity is None or identity != copied_identity:
             raise ValueError("verified private pack identity could not be established")
-        _VERIFIED_PACK_IDENTITIES[str(staged)] = {"path": str(staged), "identity": identity}
+        checked_parent = staged.parent.lstat()
+        if (checked_parent.st_dev, checked_parent.st_ino) != (parent.st_dev, parent.st_ino):
+            raise ValueError("verified private pack parent changed during validation")
+        _VERIFIED_PACK_IDENTITIES[str(staged)] = {"path": str(staged), "identity": identity, "parent": parent_proof}
         return staged
     except BaseException:
-        staged.unlink(missing_ok=True)
+        if fd is not None:
+            os.close(fd)
+        try:
+            import contained_files
+            contained_files.unlink_contained(Path(staged.anchor), staged, expected_identity=(initial.st_dev, initial.st_ino))
+        except (OSError, ValueError, NotImplementedError):
+            pass  # Preserve a replaced or otherwise unproven entry.
         raise
 
 
@@ -2356,6 +2452,18 @@ def _retired_sidecar_path_error(root: Path, candidate: Path) -> str | None:
     the recovery without an absolute path.
     """
 
+    def _is_link_metadata(info) -> bool:
+        """Refuse links/name surrogates and unclassified Windows reparse metadata."""
+        import stat
+
+        if stat.S_ISLNK(getattr(info, "st_mode", 0)):
+            return True
+        tag = getattr(info, "st_reparse_tag", None)
+        if type(tag) is int and 0 < tag <= 0xFFFFFFFF:
+            return bool(tag & 0x20000000)
+        return bool(getattr(info, "st_file_attributes", 0)
+                    & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
     import record_paths  # record roots (wave 1y0gz); lazy like the other sibling imports
 
     try:
@@ -2371,14 +2479,14 @@ def _retired_sidecar_path_error(root: Path, candidate: Path) -> str | None:
         waves_stat = _retired_sidecar_member_lstat(waves_dir)
         if waves_stat is None:
             return None
-        if stat.S_ISLNK(waves_stat.st_mode):
+        if _is_link_metadata(waves_stat):
             return f"{waves_rel} may not be a symlink"
         waves_real = waves_dir.resolve(strict=True)
         if not waves_real.is_relative_to(root_real):
             return f"{waves_rel} escapes the repository root"
         member = f"{waves_rel}/{candidate.name}"
         candidate_stat = _retired_sidecar_member_lstat(candidate)
-        if candidate_stat is not None and stat.S_ISLNK(candidate_stat.st_mode):
+        if candidate_stat is not None and _is_link_metadata(candidate_stat):
             return f"{candidate.name} may not be a symlink"
         if candidate_stat is not None and not candidate.resolve(
             strict=True
@@ -3713,8 +3821,10 @@ def phase_cleanup(
         raise SystemExit(1)
     import embedded_model_bundle
     embedded_proof = lock_state.get("embedded_source_proof")
-    if embedded_proof and not embedded_model_bundle.cleanup(root, embedded_proof):
-        _log("  Owned embedded archive retained — cleanup could not prove ownership or remove it.")
+    retained_reasons = []
+    if embedded_proof and not embedded_model_bundle.cleanup(root, embedded_proof, on_retain=retained_reasons.append):
+        reason = retained_reasons[-1] if retained_reasons else "cleanup could not prove ownership or remove it"
+        _log(f"  Owned embedded archive retained — {reason}.")
     _log("  Upgrade lock removed — dashboard will trigger post-upgrade reindex.")
 
     _warn_if_background_code_incomplete(root)

@@ -65,6 +65,7 @@ CAUSE_SIZE = "exceeds the size cap"
 CAUSE_LINK_COMPONENT = "a directory component is a link"
 CAUSE_NOT_DIRECTORY = "a directory component is not a directory"
 CAUSE_IN_USE = "the file stayed in use by another process"
+CAUSE_READ_ONLY = "the target is read-only; preserve it and adjust permissions explicitly"
 CAUSE_NO_TEMPORARY = "no temporary name was free"
 
 # Windows only: ``os.replace`` retries after a sharing violation (antivirus
@@ -103,8 +104,21 @@ def runtime_lock_identities(root: Path) -> set[tuple[int, int]]:
     return identities
 
 
+def _is_link_metadata(info) -> bool:
+    """Refuse links/name surrogates and unclassified Windows reparse metadata."""
+    import stat
+
+    if stat.S_ISLNK(getattr(info, "st_mode", 0)):
+        return True
+    tag = getattr(info, "st_reparse_tag", None)
+    if type(tag) is int and 0 < tag <= 0xFFFFFFFF:
+        return bool(tag & 0x20000000)
+    return bool(getattr(info, "st_file_attributes", 0)
+                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
 def _is_windows_link(path: str) -> bool:
-    """True only on a positive finding of a name-surrogate reparse point.
+    """True for a link/name surrogate or unclassified Windows reparse metadata.
 
     A copy of ``runtime_lock._is_windows_link`` (this module imports nothing
     from the framework; a parity test keeps the two aligned). Symlinks and
@@ -117,11 +131,7 @@ def _is_windows_link(path: str) -> bool:
         info = os.lstat(path)
     except FileNotFoundError:
         return False
-    link_tags = {
-        getattr(stat, "IO_REPARSE_TAG_SYMLINK", 0xA000000C),
-        getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003),
-    }
-    return stat.S_ISLNK(info.st_mode) or getattr(info, "st_reparse_tag", 0) in link_tags
+    return _is_link_metadata(info)
 
 
 # Whether the descriptor-anchored branch can run: ``open``, ``stat``, ``mkdir``,
@@ -228,7 +238,7 @@ def _dir_parts(rel) -> tuple[str, ...]:
 
 
 def _is_link_entry(path: Path, entry: os.stat_result) -> bool:
-    return stat.S_ISLNK(entry.st_mode) or _is_windows_link(str(path))
+    return _is_link_metadata(entry)
 
 
 def _is_runtime_lock(resolved_root: Path, resolved: Path, entry: "os.stat_result | None") -> bool:
@@ -277,14 +287,14 @@ def open_contained_dir(root, rel, *, refuse_reparse: bool = False) -> "int | Non
                         entry = os.stat(name, dir_fd=fd, follow_symlinks=False)
                     except OSError:
                         entry = None
-                    if entry is not None and stat.S_ISLNK(entry.st_mode):
+                    if entry is not None and _is_link_metadata(entry):
                         raise ContainedFileRefused(CAUSE_LINK_COMPONENT) from None
                     if entry is not None and not stat.S_ISDIR(entry.st_mode):
                         raise ContainedFileRefused(CAUSE_NOT_DIRECTORY) from None
                     raise _path_free(exc) from None
                 if refuse_reparse:
                     try:
-                        if getattr(os.fstat(child), "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 1024):
+                        if _is_link_metadata(os.fstat(child)):
                             raise ContainedFileRefused(CAUSE_LINK_COMPONENT)
                     except BaseException:
                         os.close(child)
@@ -304,8 +314,7 @@ def open_contained_dir(root, rel, *, refuse_reparse: bool = False) -> "int | Non
             return None
         except OSError:
             raise ContainedFileRefused(CAUSE_UNRESOLVED) from None
-        if (_is_link_entry(current, entry)
-                or (refuse_reparse and getattr(entry, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 1024))):
+        if _is_link_entry(current, entry):
             raise ContainedFileRefused(CAUSE_LINK_COMPONENT)
         if not stat.S_ISDIR(entry.st_mode):
             raise ContainedFileRefused(CAUSE_NOT_DIRECTORY)
@@ -405,7 +414,7 @@ def _judge_existing(resolved_root: Path, parts: tuple[str, ...], *, follow_links
             entry = (os.stat(parts[-1], dir_fd=parent_fd, follow_symlinks=False)
                      if parent_fd is not None else os.lstat(lexical))
             if (not stat.S_ISREG(entry.st_mode)
-                    or getattr(entry, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 1024)):
+                    or _is_link_metadata(entry)):
                 raise ContainedFileRefused(CAUSE_NOT_REGULAR)
             if _is_runtime_lock(resolved_root, lexical, entry):
                 raise ContainedFileRefused(CAUSE_RUNTIME_LOCK)
@@ -739,11 +748,37 @@ def _remove_temporary(temporary: str, *, dir_fd: "int | None", parent: Path) -> 
         pass
 
 
+def _set_temporary_mode(fd: int, wanted: int) -> None:
+    """An unsupported chmod is harmless only if this new fd already has its mode."""
+    try:
+        os.fchmod(fd, wanted)
+    except OSError as exc:
+        if ((isinstance(exc, PermissionError) or exc.errno in {errno.EPERM, errno.EACCES, errno.ENOTSUP})
+                and stat.S_IMODE(os.fstat(fd).st_mode) == wanted):
+            return
+        raise
+
+
+def _refuse_readonly_target(target: Path, entry=None) -> None:
+    if not _windows():
+        return
+    if entry is None:
+        try:
+            entry = os.lstat(target)
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            raise _path_free(exc) from None
+    if getattr(entry, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_READONLY", 1):
+        raise ContainedFileRefused(CAUSE_READ_ONLY)
+
+
 def _replace_by_path(source: Path, target: Path) -> None:
     """``os.replace`` by path (the Windows branch), retrying a sharing violation
     on Windows a bounded few times before a path-free refusal."""
     delays = _REPLACE_RETRY_DELAYS if _windows() else ()
     for attempt in range(len(delays) + 1):
+        _refuse_readonly_target(target)
         try:
             os.replace(source, target)
             return
@@ -880,6 +915,7 @@ def write_contained_bytes(root, path, data: bytes, *, mode: "int | None" = None,
                 return False
         finally:
             os.close(fd)
+    _refuse_readonly_target(target, entry)
     parent_rel = parent.relative_to(resolved_root).parts
     create_mode = 0o666 if wanted is None else (wanted & 0o777)
     if _dir_fd_supported():
@@ -890,9 +926,9 @@ def write_contained_bytes(root, path, data: bytes, *, mode: "int | None" = None,
                 try:
                     _write_all(fd, data)
                     if wanted is not None:
-                        os.fchmod(fd, wanted)
+                        _set_temporary_mode(fd, wanted)
                     elif extra:
-                        os.fchmod(fd, stat.S_IMODE(os.fstat(fd).st_mode) | extra)
+                        _set_temporary_mode(fd, stat.S_IMODE(os.fstat(fd).st_mode) | extra)
                 finally:
                     os.close(fd)
                 _checkpoint("publish")
@@ -914,9 +950,9 @@ def write_contained_bytes(root, path, data: bytes, *, mode: "int | None" = None,
             _write_all(fd, data)
             if can_chmod:
                 if wanted is not None:
-                    os.fchmod(fd, wanted)
+                    _set_temporary_mode(fd, wanted)
                 elif extra:
-                    os.fchmod(fd, stat.S_IMODE(os.fstat(fd).st_mode) | extra)
+                    _set_temporary_mode(fd, stat.S_IMODE(os.fstat(fd).st_mode) | extra)
         finally:
             os.close(fd)
         _checkpoint("publish")

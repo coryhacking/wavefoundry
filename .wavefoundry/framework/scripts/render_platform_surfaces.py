@@ -1012,11 +1012,62 @@ def report_unknown_tool(name: str, has_paths: bool = False) -> None:
 CLAUDE_NON_EDIT_TOOL_NAMES = ("Read", "Bash")
 
 
+def _claude_core_read_contract() -> tuple[tuple[str, ...], dict[str, str]]:
+    """Derive observational core permission names, never extension authority."""
+    import hashlib
+    try:
+        import mcp_tool_roster as roster
+        import mcp_tool_extensions as extensions
+        tiers = roster.all_tool_tiers()  # Validate declarations before any exemption.
+        replaced = set(extensions.override_targets()) | set(extensions.replacement_targets())
+        names = tuple(sorted(roster.MCP_RULE_PREFIX + name for name, tier in roster.TOOL_TIERS.items()
+                             if tier == roster.TIER_READ and tiers.get(name) == roster.TIER_READ
+                             and name not in replaced))
+        contracts = {}
+        for module in (roster, extensions):
+            source = Path(module.__file__)
+            data = contained_files.read_contained_bytes(Path(__file__).resolve().parent, source,
+                                                        max_bytes=262144, follow_links=False)
+            digest = hashlib.sha256(data).hexdigest()
+            if digest != getattr(module, "PERMISSION_SOURCE_DIGEST", None):
+                return (), {}  # Cached permission modules changed since loading.
+            contracts[source.name] = digest
+        return names, contracts
+    except Exception:
+        return (), {}  # Missing or malformed declarations grant no exemption.
+
+
 def claude_pre_edit_source() -> str:
+    core_reads, read_contract = _claude_core_read_contract()
     body = _STRICT_PAYLOAD_SOURCE + _TOOL_COMPATIBILITY_SOURCE + '''
 
 EDIT_TOOL_NAMES = {edit_tools!r}
 NON_EDIT_TOOL_NAMES = {non_edit_tools!r}
+CORE_READ_TOOLS = {core_read_tools!r}
+CORE_READ_CONTRACT = {core_read_contract!r}
+
+
+def current_core_read(tool_name: str) -> bool:
+    if tool_name not in CORE_READ_TOOLS or len(CORE_READ_CONTRACT) != 2:
+        return False
+    import hashlib
+    import stat
+    scripts = REPO_ROOT / ".wavefoundry" / "framework" / "scripts"
+    try:
+        for name, expected in CORE_READ_CONTRACT.items():
+            # Read bounded ordinary source only. A FIFO/link or stale generated
+            # contract grants no exemption; no server or model import occurs.
+            fd = os.open(scripts / name, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0))
+            with os.fdopen(fd, "rb") as source:
+                entry = os.fstat(source.fileno())
+                if not stat.S_ISREG(entry.st_mode) or entry.st_size > 262144:
+                    return False
+                data = source.read(262145)
+            if len(data) > 262144 or hashlib.sha256(data).hexdigest() != expected:
+                return False
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 def main() -> int:
@@ -1025,7 +1076,7 @@ def main() -> int:
     if payload is None:
         return block_uninspectable(problem, keys)
     tool_name = payload.get("tool_name")
-    if isinstance(tool_name, str) and tool_name in NON_EDIT_TOOL_NAMES:
+    if isinstance(tool_name, str) and (tool_name in NON_EDIT_TOOL_NAMES or current_core_read(tool_name)):
         return 0
     if isinstance(tool_name, str) and tool_name and tool_name not in EDIT_TOOL_NAMES:
         # Only supported explicit fields; do not guess patch, shell or arbitrary MCP schemas.
@@ -1043,7 +1094,8 @@ def main() -> int:
         return block_uninspectable("no file path was found", keys)
     return gate_file_path(file_path)
 '''.replace("{edit_tools!r}", repr(CLAUDE_EDIT_TOOL_NAMES)).replace(
-    "{non_edit_tools!r}", repr(CLAUDE_NON_EDIT_TOOL_NAMES))
+    "{non_edit_tools!r}", repr(CLAUDE_NON_EDIT_TOOL_NAMES)).replace(
+    "{core_read_tools!r}", repr(core_reads)).replace("{core_read_contract!r}", repr(read_contract))
     return compose_script(body + _GATE_FILE_PATH_SOURCE)
 
 
@@ -3005,6 +3057,14 @@ def main(argv: list[str] | None = None) -> int:
         pass
     args = parse_args(argv or [])
     repo_root = Path(args.repo_root).resolve() if args.repo_root else discover_repo_root()
+    # Reject declarations through the shared roster before any render writer.
+    import mcp_tool_extensions
+    import mcp_tool_roster
+    try:
+        mcp_tool_roster.all_tool_tiers()
+    except mcp_tool_extensions.ExtensionDeclarationError as exc:
+        print(f"render_platform_surfaces: ERROR — {exc}", file=sys.stderr)
+        return 1
     # Wave 1p88t: self-heal `python3` resolution on every render so the committed configs we are
     # about to write stay spawnable. strict=False — warn (non-fatal) if `python3` still won't resolve,
     # never hard-fail a render. Imported lazily so a missing helper can't break rendering.

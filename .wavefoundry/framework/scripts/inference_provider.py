@@ -19,6 +19,8 @@ import tensorwell_client as tc
 _cached_provider = None
 _cached_key = None
 _cache_until = 0.0
+_declaration_generation = None
+_declaration_helpers = frozenset()
 
 
 class ProviderUnavailable(RuntimeError):
@@ -27,6 +29,7 @@ class ProviderUnavailable(RuntimeError):
 
 
 def mode():
+    global _declaration_generation, _declaration_helpers
     value = inference_profile.PROVIDER
     module = inference_profile.ADAPTER_MODULE
     if value not in ("tensorwell", "local", "extension") or not isinstance(module, str):
@@ -34,11 +37,14 @@ def mode():
     if value != "extension" and module:
         raise ProviderUnavailable()
     if value == "extension":
-        import mcp_tool_extensions as extensions
-        if (not isinstance(extensions.EXTENSION_MODULES, tuple)
-                or extensions._module_name_problems("module", extensions.EXTENSION_MODULES, set())
-                or extensions._helper_module_problems(set(extensions.EXTENSION_MODULES))
-                or module not in extensions.EXTENSION_HELPER_MODULES):
+        if _declaration_generation != tc._generation:
+            import mcp_tool_extensions as extensions
+            valid = (isinstance(extensions.EXTENSION_MODULES, tuple)
+                     and not extensions._module_name_problems("module", extensions.EXTENSION_MODULES, set())
+                     and not extensions._helper_module_problems(set(extensions.EXTENSION_MODULES)))
+            _declaration_helpers = frozenset(extensions.EXTENSION_HELPER_MODULES) if valid else frozenset()
+            _declaration_generation = tc._generation
+        if module not in _declaration_helpers:
             raise ProviderUnavailable()
     return value
 
@@ -125,7 +131,7 @@ class _Adapter:
 
     def _operation(self, texts, *, role="document", query=None):
         try:
-            if (self._generation != tc._generation or mode() != "extension"
+            if (self._generation != tc._generation or inference_profile.PROVIDER != "extension"
                     or self._module_name != inference_profile.ADAPTER_MODULE
                     or (self._task == "reranking" and tc._truthy("WAVEFOUNDRY_DISABLE_RERANKER"))):
                 raise ValueError

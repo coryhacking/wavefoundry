@@ -5680,5 +5680,18 @@ class ReviewEvidenceCRLFHeadingTests(unittest.TestCase):
                 self.assertEqual(rendered.replace("\r\n", "\n"), subject.render_review_status_projection(lf, (), keys))
 
 
+class SignoffCompatibilityTests(unittest.TestCase):
+    def test_explicit_ignored_keyword_does_not_change_authority(self):
+        for value in (None, False, True):
+            for text, expected in [('- qa-reviewer: approved', True),
+                                   ('- qa-reviewer: pending', False),
+                                   ('qa-reviewer not approved yet', False)]:
+                with self.subTest(value=value, text=text):
+                    self.assertEqual(subject.lane_has_signoff_in_evidence(
+                        text, 'qa-reviewer', authorization=value), expected)
+        with self.assertRaises(TypeError):
+            subject.lane_has_signoff_in_evidence('', 'qa-reviewer', invented=True)
+
+
 if __name__ == "__main__":
     unittest.main()
