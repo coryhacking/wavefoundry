@@ -1058,6 +1058,40 @@ def _review_authority_path_error(wave_path: Path) -> str | None:
     return None
 
 
+_CLOSED_RECORD_STATUS_RE = re.compile(r"^Status:\s+(\S+)", re.MULTILINE)
+_LEGACY_INLINE_MARKER_RE = re.compile(r"(?mi)^review-evidence-protocol\s*:")
+
+
+def closed_legacy_inline_record(text: str, wave_md: Path) -> bool:
+    """True for a closed record that still carries the retired inline marker.
+
+    Change 20wqa: such a record is history and is left alone, so docs-lint
+    and the wave resource do not ask it to migrate. The marker check matches
+    docs-lint and the gate classifier; the status is the first ``Status:``
+    line read with the server's own pattern, case-sensitive, on
+    CRLF-normalised text (raw CRLF would hide a source header). A record with
+    a source header, or with any sibling ledger entry (a retired inline record
+    has none), is never matched, so a declared record whose header was swapped
+    for the marker is still validated.
+    """
+    try:
+        os.lstat(Path(wave_md).parent / EVENTS_FILENAME)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        return False
+    else:
+        return False
+    text = text.replace("\r\n", "\n")
+    if _LEGACY_INLINE_MARKER_RE.search(text) is None:
+        return False
+    source, source_errors = parse_review_evidence_source(text)
+    if source is not None or source_errors:
+        return False
+    status = _CLOSED_RECORD_STATUS_RE.search(text)
+    return status is not None and status.group(1) in {"closed", "completed"}
+
+
 def parse_review_evidence_source(text: str) -> tuple[str | None, tuple[str, ...]]:
     """Read the exact unversioned source declaration from the wave header."""
 
@@ -5014,6 +5048,7 @@ __all__ = [
     "lane_has_signoff_in_evidence",
     "normalize_review_event_request",
     "parse_review_event_bytes",
+    "closed_legacy_inline_record",
     "parse_review_evidence_source",
     "prepare_review_evidence",
     "project_state_publication_lock",

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-16
+Last verified: 2026-10-17
 
 How Wavefoundry ships a release. Single-maintainer project; the release happens from the maintainer's machine via `build_pack.py --release`.
 
@@ -20,12 +20,13 @@ What it does in order:
    - `vX.Y.Z` tag must not exist locally or on `origin`
    - `gh auth status` must succeed
    - `CHANGELOG.md` must contain a `## [X.Y.Z]` section
+   - `.wavefoundry/cache/qualification/{default,second,declared}.json` must qualify the current framework tree (last preflight check; a failing current `second` or `declared` report needs `--accept-qualification-exception PROFILE=REASON`, recorded in the notes)
 2. **Build** the source distribution and matching model companion — runs the docs gate, stamps `.wavefoundry/framework/VERSION`, writes `INSTALL.md`, produces `~/.wavefoundry/dist/wavefoundry-X.Y.Z.<build-suffix>.zip`, and builds the declared model companion (`wavefoundry-models-<MODEL_SET_VERSION>.zip`, set 3 from the release after 1.17.0) from the warmed local cache (a pre-existing companion zip is never reused); the cache must match the canonical model-set manifest byte for byte, with `refs/main` files compared in their normalized 40-byte form. The feature pack ships framework **source only**; the separate companion carries pinned offline model artifacts, not a semantic index.
 3. **Commit the stamp**: the VERSION/manifest/README-badge changes the build made are committed automatically (`git add -A && git commit`) so the tag points at the stamped tree.
 4. **Tag** the stamp commit locally with `vX.Y.Z`. Annotation message is derived from the most recent wave-close commit subject (e.g., `Close wave 1p347 and ship 1.4.0 → 1.4.1`), or `Release vX.Y.Z` as a fallback.
 5. **Push main**: `HEAD` is pushed to `origin/main` (the stamp commit lands on the default branch).
 6. **Push the tag** to `origin`.
-7. **Publish** a GitHub Release via `gh release create vX.Y.Z`. Title is the bare version. Notes are assembled by prepending `.wavefoundry/framework/install/install-block.md` to the matching `CHANGELOG.md` section. Both the exact feature archive and matching model companion are uploaded; the release receipt names both assets.
+7. **Publish** a GitHub Release via `gh release create vX.Y.Z`. Title is the bare version. Notes are assembled by prepending `.wavefoundry/framework/install/install-block.md` to the matching `CHANGELOG.md` section and appending the `### Qualification` section. The exact feature archive, the matching model companion (and the combined archive when built) and a `SHA256SUMS` file listing their digests are uploaded; the release receipt names the assets. `SHA256SUMS` lets a consumer check a download against the same release; it is not a signature.
 
 ## The non-release option (testing, local-only)
 
@@ -43,7 +44,7 @@ To walk the entire `--release` flow without git or remote release mutations (no 
 python3 .wavefoundry/framework/scripts/build_pack.py --version <X.Y.Z> --release-dry-run --with-models
 ```
 
-This validates pre-flight checks, builds and verifies both assets, and prints the `git`/`gh` commands that *would* execute. Release and release-dry-run reject missing `--with-models` before build work.
+This validates pre-flight checks, including the qualification gate, builds and verifies the assets, prints the full `### Qualification` notes section and the `SHA256SUMS` lines, and prints the `git`/`gh` commands that *would* execute. Release and release-dry-run reject missing `--with-models` before build work.
 
 ## Recovery — when a step fails partway
 

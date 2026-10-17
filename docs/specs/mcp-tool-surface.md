@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-16
+Last verified: 2026-10-17
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -251,7 +251,7 @@ merge time; the shipped declarations are empty and change nothing.
 | `EXTENSION_MODULES` | Flat module names, in registration order. Each is a single `.py` file directly in the framework scripts directory that defines `register(mcp, get_handler)`. |
 | `EXTENSION_HELPER_MODULES` | Flat helper module names that extension modules import, in load order (wave `1zls8`). Each is a single `.py` file directly in the framework scripts directory, loaded, hashed and reloaded like an extension module; its `register`, if any, is never called (see **Helper modules**). |
 | `EXTENSION_TOOL_PREFIXES` | Prefixes every new extension tool name must start with. A core prefix such as `wf_` is allowed; a distribution-specific prefix is recommended (see **New tools**). |
-| `EXTENSION_TOOL_TIERS` | Permission tier (`read` or `write`) for every new extension tool. |
+| `EXTENSION_TOOL_TIERS` | Permission tier (`read` or `write`) for every new extension tool. Declaring `read` also adds the tool to Claude's permissions allow-list and to the Claude pre-edit hook's read exemption (change `20wqb`). |
 | `EXTENSION_OVERRIDES` | Core tools each module replaces, keyed by module name. |
 | `EXTENSION_TOOL_ALIASES` | Additional served names, `{alias: canonical_name}` (wave `1z8oz`). |
 | `EXTENSION_TOOL_PARAMETERS` | Parameter mappings for declared aliases, `{alias: {"rename": {alias_param: canonical_param}, "fixed": {canonical_param: value}, "description": text, "response_keys": {path: new_key}}}` (wave `1zim3`); `description` is optional (wave `1zime`), and so is `response_keys`, which renames keys of the canonical response `data` (wave `1zls8`). |

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-15
+Last verified: 2026-10-17
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
@@ -106,10 +106,17 @@ lint/index work, so a successful unfamiliar edit needs existing integrity-bounda
 validation and refresh. Recognized edits retain feedback, including refresh when
 lint fails.
 
-Claude also recognizes exact canonical core MCP tools in the existing observational
-read permission tier. Overrides, replacements, aliases, extension tools and foreign
-names retain explicit-path gating. Generated exemptions require current bounded
-source-contract checks; stale or malformed roster/declaration data grants none.
+Claude also exempts every Wavefoundry MCP tool whose effective permission tier is
+read: core read tools and, when a distribution declares them, overrides of core read
+tools, aliases of read tools, read-tier replacements and their core aliases, and
+extension tools declared `read` (change 20wqb). Write-tier names, hidden names and
+foreign names retain explicit-path gating. A declared read tier is the distribution's
+own assertion, bound to the digests of the roster and the extensions declaration.
+The digest covers only the bytes of `mcp_tool_extensions.py`, so a distribution must
+write its declaration values as literal assignments in that file: a value imported
+from another module can change without invalidating the contract. Generated
+exemptions require current bounded source-contract checks; stale or malformed
+roster/declaration data in those two files grants none.
 This permission classification allows normal telemetry and does not use MCP
 `readOnlyHint`. Rendering and hook classification start no server or models.
 

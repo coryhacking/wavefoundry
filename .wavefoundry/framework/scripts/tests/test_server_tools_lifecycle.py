@@ -3416,6 +3416,11 @@ class RetainedUpgradePreviewTests(unittest.TestCase):
         cls.srv = load_server()
 
     def setUp(self):
+        # The registered tools must be the core ones whatever the checkout
+        # declares: a distribution overriding wf_close_wave would otherwise be
+        # judged by the shipped-default assertions below.
+        from declaration_support import apply_base_declaration
+        apply_base_declaration(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = _make_repo(Path(self.tmp.name))

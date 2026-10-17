@@ -19,6 +19,7 @@ sys.path.insert(0, str(SCRIPTS_DIR / "tests"))
 from record_layout_support import waves_dir  # noqa: E402
 
 FAKE_PREFIX = "2tm5"
+_QUALIFICATION_SECTION = "### Qualification\n\n- stub\n"
 FAKE_VERSION = "1.0.0"
 
 
@@ -1448,6 +1449,15 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
         vfile.write_text(stamp + "\n", encoding="utf-8")
         return root
 
+    def _asset(self, name, body=b"asset"):
+        """A real release asset file: SHA256SUMS hashes every asset it uploads."""
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / name
+        path.write_bytes(body)
+        return path
+
     class _Recorder:
         """Records argv of each subprocess.run and returns success for all."""
         def __init__(self):
@@ -1495,7 +1505,7 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
         rec = self._Recorder()
         with patch("build_pack.subprocess.run", rec):
             build_pack._run_release_orchestration(
-                root, "1.6.0", Path("/tmp/wavefoundry-1.6.0.ptest.zip"),
+                root, "1.6.0", self._asset("wavefoundry-1.6.0.ptest.zip"),
                 "notes", dry_run=True,
             )
         self.assertEqual(self._verbs(rec.calls), [],
@@ -1547,7 +1557,7 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
         rec = self._Recorder()
         with patch("build_pack.subprocess.run", rec):
             build_pack._run_release_orchestration(
-                root, "1.6.0", Path("/tmp/wavefoundry-1.6.0.ptest.zip"),
+                root, "1.6.0", self._asset("wavefoundry-1.6.0.ptest.zip"),
                 "notes", dry_run=False,
             )
         verbs = self._verbs(rec.calls)
@@ -1559,7 +1569,7 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
     def test_release_uploads_single_wavefoundry_package(self):
         root = self._repo_with_version()
         rec = self._Recorder()
-        package = Path("/tmp/wavefoundry-1.6.0.ptest.zip")
+        package = self._asset("wavefoundry-1.6.0.ptest.zip")
         with patch("build_pack.subprocess.run", rec):
             build_pack._run_release_orchestration(
                 root,
@@ -1628,6 +1638,10 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
             ), patch.object(
                 build_pack, "check_docs_gate"
             ), patch.object(
+                build_pack, "_check_release_qualification", return_value=_QUALIFICATION_SECTION
+            ) as qualification_gate, patch.object(
+                build_pack, "_current_framework_inputs_hash", return_value="a" * 64
+            ), patch.object(
                 build_pack, "_warn_on_same_semver_collision"
             ), patch.object(
                 build_pack, "build_zip", return_value=feature
@@ -1643,6 +1657,7 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
                 build_pack.main()
                 self.assertEqual(embedded_build.call_count, int(embedded))
 
+            qualification_gate.assert_called_once()
             bridge_build.assert_called_once()
             bundle_build.assert_called_once_with(
                 feature,
@@ -1657,7 +1672,7 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
                 root,
                 "1.16.0",
                 feature,
-                "assembled notes",
+                "assembled notes\n\n" + _QUALIFICATION_SECTION,
                 dry_run=True,
                 extra_assets=[model, combined] if embedded else [model],
             )
@@ -1665,6 +1680,8 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
             self.assertEqual(orchestration.call_args.kwargs["extra_assets"], [model, combined] if embedded else [model])
 
     def test_release_main_rejects_extra_current_build_public_package(self):
+        import contextlib
+        import io
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -1691,7 +1708,19 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
                 "--output",
                 str(output),
                 "--release-dry-run",
+                "--with-models",
             ]
+            stderr = io.StringIO()
+            self.enterContext(contextlib.redirect_stderr(stderr))
+            model = output / "wavefoundry-models-3.zip"
+
+            def emit_model(*_args, **_kwargs):
+                model.write_bytes(b"models")
+                return model
+
+            model_build = self.enterContext(
+                patch("model_bundle.build_bundle", side_effect=emit_model)
+            )
             with patch.object(sys, "argv", argv), patch.object(
                 build_pack, "_reexec_with_venv_if_needed"
             ), patch.object(
@@ -1713,6 +1742,10 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
             ), patch.object(
                 build_pack, "check_docs_gate"
             ), patch.object(
+                build_pack, "_check_release_qualification", return_value=_QUALIFICATION_SECTION
+            ) as qualification_gate, patch.object(
+                build_pack, "_current_framework_inputs_hash", return_value="a" * 64
+            ), patch.object(
                 build_pack, "_warn_on_same_semver_collision"
             ), patch.object(
                 build_pack, "build_zip", return_value=feature
@@ -1727,7 +1760,17 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
                     build_pack.main()
 
             self.assertEqual(raised.exception.code, 1)
+            model_build.assert_called_once_with(output)
+            qualification_gate.assert_called_once()
             orchestration.assert_not_called()
+            self.assertIn("unexpected current-build package(s)", stderr.getvalue())
+            self.assertIn("wavefoundry-upgrade-extra.pyz", stderr.getvalue())
+            self.assertIn("wavefoundry-upgrade-1.6.0.ptest.json", stderr.getvalue())
+            refusals = [
+                line for line in stderr.getvalue().splitlines() if line.startswith("error:")
+            ]
+            self.assertEqual(len(refusals), 1, stderr.getvalue())
+            self.assertNotIn(model.name, refusals[0])
 
     def test_public_artifact_census_includes_bridge_composition_json(self):
         import tempfile
@@ -1751,6 +1794,8 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
                 )
 
     def test_release_main_rejects_preexisting_special_upgrade_artifact(self):
+        import contextlib
+        import io
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -1766,7 +1811,11 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
                 "--output",
                 str(output),
                 "--release-dry-run",
+                "--with-models",
             ]
+            stderr = io.StringIO()
+            self.enterContext(contextlib.redirect_stderr(stderr))
+            model_build = self.enterContext(patch("model_bundle.build_bundle"))
             with patch.object(sys, "argv", argv), patch.object(
                 build_pack, "_reexec_with_venv_if_needed"
             ), patch.object(
@@ -1788,6 +1837,10 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
             ), patch.object(
                 build_pack, "check_docs_gate"
             ), patch.object(
+                build_pack, "_check_release_qualification", return_value=_QUALIFICATION_SECTION
+            ) as qualification_gate, patch.object(
+                build_pack, "_current_framework_inputs_hash", return_value="a" * 64
+            ), patch.object(
                 build_pack, "_warn_on_same_semver_collision"
             ), patch.object(
                 build_pack, "build_zip", return_value=feature
@@ -1797,6 +1850,12 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
 
             self.assertEqual(raised.exception.code, 1)
             build.assert_not_called()
+            model_build.assert_not_called()
+            qualification_gate.assert_called_once()
+            self.assertIn(
+                "stale public bridge/composition artifact(s)", stderr.getvalue()
+            )
+            self.assertIn("wavefoundry-upgrade-1.15.0.stale.pyz", stderr.getvalue())
             self.assertEqual(stale.read_bytes(), b"stale")
 
     def test_release_main_rejects_feature_only_release_before_build(self):
@@ -1817,7 +1876,7 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
         rec = self._Recorder()
         with patch("build_pack.subprocess.run", rec):
             build_pack._run_release_orchestration(
-                root, "1.6.0", Path("/tmp/x.zip"), "notes", dry_run=False,
+                root, "1.6.0", self._asset("x.zip"), "notes", dry_run=False,
             )
         commit_call = next(c for c in rec.calls if c[:2] == ["git", "commit"])
         self.assertIn("Bump VERSION to 1.6.0+ptest after release", commit_call)
@@ -1829,7 +1888,7 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
         buf = io.StringIO()
         with patch("build_pack.subprocess.run", rec), contextlib.redirect_stderr(buf):
             build_pack._run_release_orchestration(
-                root, "1.6.0", Path("/tmp/x.zip"), "notes", dry_run=True,
+                root, "1.6.0", self._asset("x.zip"), "notes", dry_run=True,
             )
         # No git/gh side-effects beyond the tag-message git-log lookup.
         side_effects = [c for c in rec.calls if c[:2] in (["git", "commit"], ["git", "tag"], ["gh", "release"])]
@@ -2119,3 +2178,558 @@ class VendoredScriptCheckTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# Release qualification gate, build provenance and SHA256SUMS (wave 20wq7)
+# ---------------------------------------------------------------------------
+
+import copy  # noqa: E402
+import hashlib  # noqa: E402
+import shutil  # noqa: E402
+import subprocess  # noqa: E402
+import tempfile  # noqa: E402
+
+import qualification_report  # noqa: E402
+from record_layout_support import load_profile  # noqa: E402
+
+
+class ReleaseQualificationGateTests(unittest.TestCase):
+    HASH = "a" * 64
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name).resolve()
+        shutil.copytree(SCRIPTS_DIR / "tests/fixtures/profiles",
+                        self.root / build_pack.FRAMEWORK_REL / "scripts/tests/fixtures/profiles")
+        (self.root / ".wavefoundry/cache/qualification").mkdir(parents=True)
+        for profile in ("default", "second", "declared"):
+            self.write(profile, self.report(profile))
+
+    def report(self, profile, skips=None):
+        """A realistic report, as ExactReaderTests builds it."""
+        skips = skips or []
+        report = {"owner": qualification_report.OWNER, "schema_version": 1, "run_id": "f" * 32,
+                  "complete": True, "availability": "executed", "returncode": 0,
+                  "identity": {"source_hash": self.HASH, "profile": profile},
+                  "scope": {"kind": "full", "discovered_workers": ["test_one.py"]},
+                  "expected_workers": ["test_one.py"], "observed_workers": ["test_one.py"],
+                  "workers": [{"name": "test_one.py", "returncode": 0, "tests": 2, "skipped": len(skips),
+                               "terminal": True, "complete": True, "issues": [], "skips": skips}]}
+        if profile != "default":
+            definition = load_profile(profile)
+            report["applied_profile"] = copy.deepcopy(definition["modules"])
+            report["identity"].update(profile_input_hash=qualification_report.digest(definition),
+                                      applied_profile_hash=qualification_report.digest(report["applied_profile"]))
+            # As in a real profile run: the executed hash covers the rewritten copy.
+            report["executed_identity"] = {"profile": profile, "source_hash": "d" * 64}
+        return report
+
+    def failing(self, profile):
+        report = self.report(profile)
+        report["returncode"] = 1
+        report["workers"][0]["returncode"] = 1
+        return report
+
+    def write(self, profile, report):
+        qualification_report.write_report(self.root, f".wavefoundry/cache/qualification/{profile}.json", report)
+
+    def gate(self, exceptions=None):
+        return build_pack._check_release_qualification(self.root, exceptions or {}, inputs_hash=self.HASH)
+
+    def assertRefused(self, pattern, exceptions=None):
+        with self.assertRaisesRegex(RuntimeError, pattern):
+            self.gate(exceptions)
+
+    def test_all_three_current_reports_pass_and_are_listed(self):
+        section = self.gate()
+        self.assertTrue(section.startswith("### Qualification\n"))
+        for profile in ("default", "second", "declared"):
+            self.assertIn(f"- {profile}: passed, 2 tests in 1 worker files, 0 skips (source aaaaaaaaaaaa)", section)
+
+    def test_default_report_refusals_name_the_profile_and_reason(self):
+        cases = {
+            "missing": (None, r"for default is missing.*--qualification-report"),
+            "red": ({"returncode": 1}, r"default qualification does not pass \(qualification did not pass\)"),
+            "non-full scope": ({"scope": {"kind": "compatibility", "discovered_workers": ["test_one.py"]}},
+                               r"default qualification report is not a full run"),
+            "other profile": ({"identity": {"source_hash": self.HASH, "profile": "second"}},
+                              r"does not name profile default"),
+            "stale": ({"identity": {"source_hash": "b" * 64, "profile": "default"}},
+                      r"qualification report for default is stale"),
+        }
+        path = self.root / ".wavefoundry/cache/qualification/default.json"
+        for label, (change, pattern) in cases.items():
+            with self.subTest(label=label):
+                if change is None:
+                    path.unlink()
+                else:
+                    self.write("default", {**self.report("default"), **change})
+                # Even an exception for every other profile never excuses the default.
+                self.assertRefused(pattern, {"second": "timing", "declared": "timing"})
+                self.write("default", self.report("default"))
+
+    def test_failing_profile_refuses_without_an_exception(self):
+        for profile in ("second", "declared"):
+            with self.subTest(profile=profile):
+                self.write(profile, self.failing(profile))
+                self.assertRefused(rf"{profile} qualification refused: qualification did not pass.*"
+                                   rf"--accept-qualification-exception {profile}=REASON")
+                self.write(profile, self.report(profile))
+
+    def test_exception_admits_a_failing_current_report_and_names_it(self):
+        failing = self.failing("second")
+        self.assertNotEqual(failing["executed_identity"]["source_hash"], self.HASH)
+        self.write("second", failing)
+        section = self.gate({"second": "renamed-profile timing p95 above budget"})
+        self.assertIn("- second: accepted exception: renamed-profile timing p95 above budget "
+                      "(refusal: qualification did not pass; failing workers: test_one.py; "
+                      "2 tests in 1 worker files, 0 skips, source aaaaaaaaaaaa)", section)
+        self.assertIn("- declared: passed", section)
+
+    def test_exception_admits_a_skip_difference_on_a_valid_report(self):
+        extra = {"id": "test_one.C.test_x", "reason": "unexpected", "default_profile_only": None}
+        self.write("declared", self.report("declared", [extra]))
+        self.assertRefused(r"declared qualification refused: declared profile has unexpected skips")
+        self.assertIn("- declared: accepted exception: known skip", self.gate({"declared": "known skip"}))
+
+    def test_exception_never_admits_missing_stale_or_structurally_invalid_reports(self):
+        exceptions = {"second": "timing"}
+        (self.root / ".wavefoundry/cache/qualification/second.json").unlink()
+        self.assertRefused(r"for second is missing", exceptions)
+        stale = self.failing("second"); stale["identity"]["source_hash"] = "b" * 64
+        self.write("second", stale)
+        self.assertRefused(r"for second is stale", exceptions)
+        wrong = self.failing("second"); wrong["identity"]["profile"] = "declared"
+        self.write("second", wrong)
+        self.assertRefused(r"does not name profile second", exceptions)
+        incomplete = self.failing("second"); incomplete["complete"] = False
+        self.write("second", incomplete)
+        self.assertRefused(r"second qualification cannot take an exception: qualification incomplete", exceptions)
+        provenance = self.failing("second"); provenance["identity"]["applied_profile_hash"] = "e" * 64
+        self.write("second", provenance)
+        self.assertRefused(r"second qualification cannot take an exception: mismatched applied-profile", exceptions)
+        no_executed = self.failing("second"); no_executed.pop("executed_identity")
+        self.write("second", no_executed)
+        self.assertRefused(r"second qualification cannot take an exception: missing or malformed actual-profile",
+                           exceptions)
+        scope = self.failing("second"); scope["scope"] = {"kind": "full", "discovered_workers": ["test_two.py"]}
+        self.write("second", scope)
+        self.assertRefused(r"second qualification cannot take an exception: qualification scope mismatch", exceptions)
+
+    def test_exception_never_admits_a_failure_with_no_failing_worker(self):
+        # A runner or repository guard failure: top-level returncode 1, every worker green.
+        guard = self.report("second")
+        guard["returncode"] = 1
+        self.write("second", guard)
+        self.assertRefused(r"second qualification cannot take an exception: the run failed with no failing "
+                           r"worker \(a runner or repository guard failure\)", {"second": "timing"})
+
+    def test_guard_failure_with_a_skip_difference_still_refuses(self):
+        skip = {"id": "test_one.C.test_skip", "reason": "reason", "default_profile_only": None}
+        cases = {
+            "missing skip or changed reason": ("second", [skip], []),
+            "unexpected second-profile skip": ("second", [], [{**skip, "reason": "unmarked"}]),
+            "declared profile has unexpected skips": ("declared", [], [skip]),
+        }
+        for message, (profile, default_skips, profile_skips) in cases.items():
+            with self.subTest(message=message):
+                self.write("default", self.report("default", default_skips))
+                for other in ("second", "declared"):
+                    self.write(other, self.report(other, default_skips))
+                guard = self.report(profile, profile_skips)
+                guard["returncode"] = 1  # every worker green
+                self.write(profile, guard)
+                self.assertRefused(rf"{profile} qualification cannot take an exception: the run failed with no "
+                                   rf"failing worker", {profile: "known"})
+
+    def test_each_listed_skip_refusal_is_admitted_and_recorded(self):
+        skip = {"id": "test_one.C.test_skip", "reason": "reason", "default_profile_only": None}
+        cases = {
+            "missing skip or changed reason": ("second", [skip], []),
+            "unexpected second-profile skip": ("second", [], [{**skip, "reason": "unmarked"}]),
+            "declared profile has unexpected skips": ("declared", [], [skip]),
+        }
+        self.assertEqual(set(cases), set(build_pack._EXCEPTABLE_SKIP_REFUSALS))
+        for message, (profile, default_skips, profile_skips) in cases.items():
+            with self.subTest(message=message):
+                self.write("default", self.report("default", default_skips))
+                for other in ("second", "declared"):
+                    self.write(other, self.report(other, default_skips))
+                self.write(profile, self.report(profile, profile_skips))
+                self.assertRefused(rf"{profile} qualification refused: {message}")
+                self.assertIn(f"- {profile}: accepted exception: known (refusal: {message}; failing workers: none",
+                              self.gate({profile: "known"}))
+                failing = self.report(profile, profile_skips)
+                failing["returncode"] = 1
+                failing["workers"][0]["returncode"] = 1
+                self.write(profile, failing)
+                self.assertIn(f"refusal: qualification did not pass; skip difference: {message}; "
+                              "failing workers: test_one.py", self.gate({profile: "known"}))
+
+    def test_default_scope_must_cover_its_own_workers(self):
+        bad = self.report("default")
+        bad["scope"] = {"kind": "full", "discovered_workers": ["test_one.py", "test_two.py"]}
+        self.write("default", bad)
+        self.assertRefused(r"default qualification report is not a full run")
+
+    def test_comparator_errors_other_than_value_error_refuse_without_text(self):
+        self.write("second", self.failing("second"))
+        with patch.object(qualification_report, "compare", side_effect=KeyError("secret/path")):
+            with self.assertRaises(RuntimeError) as raised:
+                self.gate({"second": "timing"})
+        self.assertIn("could not be compared (KeyError)", str(raised.exception))
+        self.assertNotIn("secret/path", str(raised.exception))
+
+    def test_runner_outside_the_repository_refuses(self):
+        outside = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, outside, True)
+        (outside / "run_tests.py").write_text("", encoding="utf-8")
+        scripts = self.root / ".wavefoundry/framework/scripts"
+        try:
+            (scripts / "run_tests.py").symlink_to(outside / "run_tests.py")
+        except OSError:
+            self.skipTest("symlinks unavailable")
+        with self.assertRaisesRegex(RuntimeError, "resolves outside this repository"):
+            build_pack._current_framework_inputs_hash(self.root)
+
+    def test_exception_for_a_passing_profile_is_refused_as_stale(self):
+        self.assertRefused(r"qualification exception for declared is stale: its report passes", {"declared": "x"})
+
+    def test_exception_values_are_parsed_strictly(self):
+        parse = build_pack._parse_qualification_exceptions
+        self.assertEqual(parse(["second=" + "r" * 500]), {"second": "r" * 500})
+        self.assertEqual(parse(["declared=a=b"]), {"declared": "a=b"})
+        bad = {
+            "default": ["default=timing"], "unknown": ["third=timing"], "no reason marker": ["second"],
+            "duplicate": ["second=a", "second=b"], "empty": ["second="], "blank": ["second=   "],
+            "501 characters": ["second=" + "r" * 501], "multi-line": ["second=a\nb"],
+            "line separator": ["second=a b"], "control": ["second=a\x07b"], "C1 control": ["second=a\x85b"],
+            "format character": ["second=a\u202eb"],
+        }
+        for label, values in bad.items():
+            with self.subTest(label=label), self.assertRaises(RuntimeError):
+                parse(values)
+
+    def test_inputs_hash_refuses_when_the_runner_is_absent_or_unloadable(self):
+        with self.assertRaisesRegex(RuntimeError, "is absent"):
+            build_pack._current_framework_inputs_hash(self.root)
+        runner = self.root / ".wavefoundry/framework/scripts/run_tests.py"
+        runner.write_text("raise SystemExit(2)\n", encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "could not be loaded"):
+            build_pack._current_framework_inputs_hash(self.root)
+        import lifecycle_gate_support
+        fake = MagicMock(); fake._hash_inputs.return_value = "short"
+        with patch.object(lifecycle_gate_support, "_load_framework_test_runner", return_value=fake) as loader:
+            with self.assertRaisesRegex(RuntimeError, "malformed"):
+                build_pack._current_framework_inputs_hash(self.root)
+        loader.assert_called_once_with(runner)
+        fake._hash_inputs.return_value = self.HASH
+        with patch.object(lifecycle_gate_support, "_load_framework_test_runner", return_value=fake) as loader:
+            self.assertEqual(build_pack._current_framework_inputs_hash(self.root), self.HASH)
+        loader.assert_called_once_with(runner)
+
+    def test_real_inputs_hash_matches_the_runner_hash(self):
+        import lifecycle_gate_support
+        runner = SCRIPTS_DIR / "run_tests.py"
+        module = lifecycle_gate_support._load_framework_test_runner(runner)
+        self.assertIsNotNone(module)
+        self.assertEqual(build_pack._current_framework_inputs_hash(SCRIPTS_DIR.parents[2]), module._hash_inputs())
+
+    def _main(self, argv_tail, **patches):
+        import contextlib
+        import io
+        version = self.root / build_pack.FRAMEWORK_REL / "VERSION"
+        version.write_bytes(b"9.9.8+pold\n")
+        (self.root / "CHANGELOG.md").write_text("# Changelog\n\n## [9.9.9] - 2026-10-17\n\n- change\n",
+                                                encoding="utf-8")
+        argv = ["build_pack.py", "--version", "9.9.9", "--output", str(self.root), "--with-models", *argv_tail]
+        stderr = io.StringIO()
+        code = 0
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch.object(sys, "argv", argv))
+            for name in ("_reexec_with_venv_if_needed", "_check_git_working_tree_clean", "_check_on_main_branch",
+                         "_check_tag_does_not_exist", "_check_gh_authenticated", "_warn_on_same_semver_collision"):
+                stack.enter_context(patch.object(build_pack, name))
+            stack.enter_context(patch.object(build_pack, "find_repo_root", return_value=self.root))
+            stack.enter_context(patch.object(build_pack, "_current_build_suffix", return_value="ptest"))
+            gate = stack.enter_context(patch.object(build_pack, "check_docs_gate"))
+            build = stack.enter_context(patch.object(build_pack, "build_zip"))
+            for name, value in patches.items():
+                stack.enter_context(patch.object(build_pack, name, **value))
+            stack.enter_context(contextlib.redirect_stderr(stderr))
+            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+            try:
+                build_pack.main()
+            except SystemExit as exc:
+                code = exc.code
+        return code, stderr.getvalue(), build, gate, version.read_bytes()
+
+    def test_release_dry_run_refuses_before_build_when_a_report_is_missing(self):
+        (self.root / ".wavefoundry/cache/qualification/declared.json").unlink()
+        code, err, build, gate, version = self._main(
+            ["--release-dry-run"], _current_framework_inputs_hash={"return_value": self.HASH})
+        self.assertEqual(code, 1)
+        self.assertIn("release preflight failed: qualification report for declared is missing", err)
+        build.assert_not_called()
+        gate.assert_not_called()
+        self.assertEqual(version, b"9.9.8+pold\n")
+
+    def test_tree_change_between_preflight_and_build_refuses(self):
+        code, err, build, gate, _ = self._main(
+            ["--release-dry-run"], _current_framework_inputs_hash={"side_effect": [self.HASH, "b" * 64]})
+        self.assertEqual(code, 1)
+        self.assertIn("changed after release qualification was checked", err)
+        gate.assert_called_once()
+        build.assert_not_called()
+
+    def test_dry_run_prints_the_section_and_passes_no_release_tag(self):
+        build = MagicMock(side_effect=RuntimeError("stop after build_zip is called"))
+        code, err, _build, _gate, _ = self._main(
+            ["--release-dry-run"], _current_framework_inputs_hash={"return_value": self.HASH},
+            build_zip={"new": build})
+        self.assertEqual(code, 1)
+        self.assertIn("[--release-dry-run] release notes qualification section:", err)
+        self.assertIn("- declared: passed, 2 tests in 1 worker files", err)
+        self.assertIsNone(build.call_args.kwargs["release_tag"])
+        code, _err, _build, _gate, _ = self._main(
+            ["--release"], _current_framework_inputs_hash={"return_value": self.HASH},
+            build_zip={"new": build})
+        self.assertEqual(build.call_args.kwargs["release_tag"], "v9.9.9")
+
+    def test_exception_flag_is_refused_outside_release_modes(self):
+        code, err, build, _gate, _ = self._main(["--accept-qualification-exception", "second=x"])
+        self.assertEqual(code, 1)
+        self.assertIn("applies only with --release or --release-dry-run", err)
+        build.assert_not_called()
+
+
+class BuildProvenanceTests(unittest.TestCase):
+    GIT = ["git", "-c", "user.name=t", "-c", "user.email=t@localhost", "-c", "commit.gpgsign=false"]
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.base = Path(tmp.name).resolve()
+        self.out = self.base / "out"
+        self.out.mkdir()
+        self.env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        self.env["GIT_CONFIG_NOSYSTEM"] = "1"
+
+    def git(self, cwd, *args, check=True):
+        return subprocess.run([*self.GIT, *args], cwd=str(cwd), check=check, capture_output=True,
+                              text=True, env=self.env)
+
+    def framework(self, repo):
+        fw = repo / ".wavefoundry" / "framework"
+        fw.mkdir(parents=True, exist_ok=True)
+        (fw / "seed.md").write_text("seed\n", encoding="utf-8")
+        return fw
+
+    def checkout(self, name="repo"):
+        repo = self.base / name
+        fw = self.framework(repo)
+        self.git(repo, "init", "-q")
+        self.git(repo, "add", "-A")
+        self.git(repo, "commit", "-q", "--no-verify", "-m", "one")
+        return repo, fw
+
+    def build(self, fw, **kwargs):
+        path = build_pack.build_zip(self.out, "1.0.0", "2tm5", framework_dir=fw, write_version=False,
+                                    update_manifest=False, inject_install_templates=False, **kwargs)
+        with zipfile.ZipFile(path) as zf:
+            record = json.loads(zf.read(".wavefoundry/framework/BUILD-PROVENANCE.json"))
+            manifest = zf.read(".wavefoundry/framework/MANIFEST").decode("utf-8").splitlines()
+        path.unlink()
+        return record, manifest
+
+    def test_record_has_exactly_six_fields_and_is_in_the_manifest(self):
+        repo, fw = self.checkout()
+        record, manifest = self.build(fw)
+        head = self.git(repo, "rev-parse", "HEAD").stdout.strip()
+        self.assertEqual(record, {"schema_version": 1, "release_version": "1.0.0+2tm5", "build_id": "2tm5",
+                                  "source_commit": head, "source_tree_clean": True, "release_tag": None})
+        self.assertIn("BUILD-PROVENANCE.json", manifest)
+        self.assertFalse((fw / "BUILD-PROVENANCE.json").exists())
+
+    def test_dirty_tree_release_tag_and_two_commits(self):
+        repo, fw = self.checkout()
+        first, _ = self.build(fw)
+        (repo / "untracked.txt").write_text("x\n", encoding="utf-8")
+        dirty, _ = self.build(fw, release_tag="v1.0.0")
+        self.assertIs(dirty["source_tree_clean"], False)
+        self.assertEqual(dirty["release_tag"], "v1.0.0")
+        self.git(repo, "add", "-A")
+        self.git(repo, "commit", "-q", "--no-verify", "-m", "two")
+        second, _ = self.build(fw)
+        self.assertRegex(second["source_commit"], r"^[0-9a-f]{40}$")
+        self.assertNotEqual(first["source_commit"], second["source_commit"])
+        self.assertIsNone(second["release_tag"])
+
+    def test_outside_a_checkout_or_nested_in_another_both_source_fields_are_null(self):
+        loose = self.base / "loose"
+        fw = self.framework(loose)
+        self.assertNotEqual(self.git(loose, "rev-parse", "--show-toplevel", check=False).returncode, 0)
+        record, _ = self.build(fw)
+        self.assertIsNone(record["source_commit"])
+        self.assertIsNone(record["source_tree_clean"])
+        outer, _ = self.checkout("outer")
+        nested = outer / "vendor" / "inner"
+        fw = self.framework(nested)
+        self.assertEqual(Path(self.git(nested, "rev-parse", "--show-toplevel").stdout.strip()).resolve(), outer)
+        record, _ = self.build(fw)
+        self.assertIsNone(record["source_commit"])
+        self.assertIsNone(record["source_tree_clean"])
+
+    def test_inherited_git_dir_cannot_supply_the_commit(self):
+        outer, _ = self.checkout("outer")
+        loose = self.base / "loose"
+        fw = self.framework(loose)
+        with patch.dict(os.environ, {"GIT_DIR": str(outer / ".git"), "GIT_WORK_TREE": str(loose)}):
+            record, _ = self.build(fw)
+        self.assertIsNone(record["source_commit"])
+
+    def test_failed_build_leaves_no_generated_file(self):
+        _repo, fw = self.checkout()
+        generated = [fw / "MANIFEST", fw / build_pack.PROTOCOL_METADATA_FILENAME, fw / "BUILD-PROVENANCE.json"]
+
+        def fail(*_args, **_kwargs):
+            for path in generated:
+                self.assertTrue(path.exists(), path)
+            raise RuntimeError("forced zip failure")
+
+        with patch.object(build_pack.zipfile, "ZipFile", side_effect=fail):
+            with self.assertRaisesRegex(RuntimeError, "forced zip failure"):
+                build_pack.build_zip(self.out, "1.0.0", "2tm5", framework_dir=fw, write_version=False,
+                                     update_manifest=False, inject_install_templates=False)
+        for path in generated:
+            self.assertFalse(path.exists(), path)
+
+
+class ReleaseChecksumTests(unittest.TestCase):
+    class _Recorder:
+        def __init__(self, gh_returncode=0):
+            self.calls = []
+            self.sums = None
+            self.sums_path = None
+            self.notes_path = None
+            self.gh_returncode = gh_returncode
+
+        def __call__(self, argv, **kwargs):
+            self.calls.append(list(argv))
+
+            class _CP:
+                def __init__(self, rc, out="", err=""):
+                    self.returncode, self.stdout, self.stderr = rc, out, err
+
+            if argv[:3] == ["gh", "release", "create"]:
+                self.sums_path = Path(next(a for a in argv if a.endswith("SHA256SUMS")))
+                self.sums = self.sums_path.read_bytes()
+                self.notes_path = Path(argv[argv.index("--notes-file") + 1])
+                return _CP(self.gh_returncode, err="upload failed" if self.gh_returncode else "")
+            if argv[:3] == ["git", "diff", "--cached"]:
+                return _CP(1)
+            if argv[:2] == ["git", "log"]:
+                return _CP(0, "Close wave x\n")
+            return _CP(0, "ok")
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.base = Path(tmp.name).resolve()
+        self.root = self.base / "repo"
+        version = self.root / build_pack.FRAMEWORK_REL / "VERSION"
+        version.parent.mkdir(parents=True)
+        version.write_text("1.6.0+ptest\n", encoding="utf-8")
+        self.feature = self.asset("wavefoundry-1.6.0.ptest.zip", b"feature")
+        self.models = self.asset("wavefoundry-models-3.zip", b"models")
+        self.combined = self.asset("wavefoundry-1.6.0.ptest.with-models.zip", b"combined")
+
+    def asset(self, name, body):
+        path = self.base / name
+        path.write_bytes(body)
+        return path
+
+    def expected_lines(self):
+        files = [self.feature, self.models, self.combined]
+        return [f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}" for p in sorted(files, key=lambda p: p.name)]
+
+    def run_release(self, rec, **kwargs):
+        with patch("build_pack.subprocess.run", rec):
+            build_pack._run_release_orchestration(self.root, "1.6.0", self.feature, "notes body",
+                                                  extra_assets=[self.models, self.combined], **kwargs)
+
+    def test_sums_list_every_other_asset_sorted_with_lf_and_folder_is_removed(self):
+        rec = self._Recorder()
+        self.run_release(rec, dry_run=False)
+        self.assertEqual(rec.sums_path.name, "SHA256SUMS")
+        self.assertNotIn(b"\r", rec.sums)
+        self.assertTrue(rec.sums.endswith(b"\n"))
+        lines = rec.sums.decode("ascii").splitlines()
+        self.assertEqual(lines, self.expected_lines())
+        self.assertNotEqual(sorted([self.feature, self.models, self.combined], key=lambda p: p.name),
+                            [self.feature, self.models, self.combined])
+        self.assertFalse(any("SHA256SUMS" in line for line in lines))
+        self.assertFalse(rec.sums_path.parent.exists())
+        self.assertFalse(rec.sums_path.parent.is_relative_to(self.root))
+        gh = next(c for c in rec.calls if c[:3] == ["gh", "release", "create"])
+        self.assertEqual(gh[-4:], [str(self.feature), str(self.models), str(self.combined), str(rec.sums_path)])
+
+    def test_failed_upload_keeps_notes_and_sums_and_names_them(self):
+        rec = self._Recorder(gh_returncode=1)
+        with self.assertRaises(RuntimeError) as raised:
+            self.run_release(rec, dry_run=False)
+        self.addCleanup(shutil.rmtree, rec.sums_path.parent, True)
+        message = str(raised.exception)
+        self.assertIn(str(rec.sums_path.parent), message)
+        self.assertIn(f"--notes-file {rec.notes_path}", message)
+        self.assertIn(str(rec.sums_path), message)
+        self.assertEqual(rec.notes_path.read_text(encoding="utf-8"), "notes body")
+        self.assertEqual(rec.sums_path.read_bytes(), rec.sums)
+
+    def test_non_plain_asset_name_refuses_before_any_release_step(self):
+        bad = self.asset("bad name.zip", b"x")
+        rec = self._Recorder()
+        with patch("build_pack.subprocess.run", rec), self.assertRaisesRegex(RuntimeError, "not a plain file name"):
+            build_pack._run_release_orchestration(self.root, "1.6.0", bad, "notes", dry_run=False)
+        self.assertFalse([c for c in rec.calls if c[:2] in (["git", "commit"], ["git", "tag"], ["git", "add"])
+                          or c[:1] == ["gh"]])
+
+    def test_reserved_or_duplicate_asset_names_refuse(self):
+        reserved = self.asset("SHA256SUMS", b"x")
+        other = self.base / "elsewhere"
+        other.mkdir()
+        duplicate = other / self.models.name
+        duplicate.write_bytes(b"copy")
+        for assets, pattern in (([self.feature, reserved], "not a plain file name"),
+                                ([self.feature, self.models, duplicate], "share the name")):
+            with self.subTest(pattern=pattern), self.assertRaisesRegex(RuntimeError, pattern):
+                build_pack._release_checksum_lines(assets)
+
+    def test_missing_gh_keeps_the_folder_and_prints_recovery(self):
+        rec = self._Recorder()
+
+        def run(argv, **kwargs):
+            if argv[:1] == ["gh"]:
+                rec.sums_path = Path(next(a for a in argv if a.endswith("SHA256SUMS")))
+                raise FileNotFoundError("gh")
+            return rec(argv, **kwargs)
+
+        with patch("build_pack.subprocess.run", run), self.assertRaises(RuntimeError) as raised:
+            build_pack._run_release_orchestration(self.root, "1.6.0", self.feature, "notes", dry_run=False)
+        self.addCleanup(shutil.rmtree, rec.sums_path.parent, True)
+        self.assertIn("could not run gh", str(raised.exception))
+        self.assertIn(str(rec.sums_path), str(raised.exception))
+        self.assertTrue(rec.sums_path.exists())
+
+    def test_dry_run_prints_the_same_lines(self):
+        import contextlib
+        import io
+        buf = io.StringIO()
+        rec = self._Recorder()
+        with contextlib.redirect_stderr(buf):
+            self.run_release(rec, dry_run=True)
+        for line in self.expected_lines():
+            self.assertIn(line, buf.getvalue())
+        self.assertFalse([c for c in rec.calls if c[:1] == ["gh"]])

@@ -10,6 +10,7 @@ from typing import Iterable
 from review_evidence import (
     REVIEW_STATUS_MARKER_BEGIN,
     canonicalize_finding_synthesis_markers,
+    closed_legacy_inline_record,
     is_id_shaped_wave_dir_name,
     parse_review_evidence_source,
     render_review_evidence_projection,
@@ -1843,7 +1844,9 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
             )
             source, _source_errors = parse_review_evidence_source(text)
             inline_marker = re.search(r"(?mi)^review-evidence-protocol\s*:", text) is not None
-            if source is not None or _source_errors or inline_marker:
+            # Change 20wqa: a closed record with only the retired inline
+            # marker is history; it is not asked to migrate.
+            if (source is not None or _source_errors or inline_marker) and not closed_legacy_inline_record(text, path):
                 # Wave 200xy (200v1): the record text already read through the
                 # member-doc rule is passed in, so the record is not reopened.
                 review_evidence = validate_external_review_evidence(path, wave_text=text)

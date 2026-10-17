@@ -1013,16 +1013,19 @@ CLAUDE_NON_EDIT_TOOL_NAMES = ("Read", "Bash")
 
 
 def _claude_core_read_contract() -> tuple[tuple[str, ...], dict[str, str]]:
-    """Derive observational core permission names, never extension authority."""
+    """Derive the read-tier names the pre-edit hook exempts, with their source contract.
+
+    Change 20wqb: every name whose effective tier is read, including a
+    distribution's declared aliases, overrides, replacements and extension
+    tools, bound to the digests of the roster and the extensions declaration.
+    """
     import hashlib
     try:
         import mcp_tool_roster as roster
         import mcp_tool_extensions as extensions
         tiers = roster.all_tool_tiers()  # Validate declarations before any exemption.
-        replaced = set(extensions.override_targets()) | set(extensions.replacement_targets())
-        names = tuple(sorted(roster.MCP_RULE_PREFIX + name for name, tier in roster.TOOL_TIERS.items()
-                             if tier == roster.TIER_READ and tiers.get(name) == roster.TIER_READ
-                             and name not in replaced))
+        names = tuple(sorted(roster.MCP_RULE_PREFIX + name for name, tier in tiers.items()
+                             if tier == roster.TIER_READ))
         contracts = {}
         for module in (roster, extensions):
             source = Path(module.__file__)

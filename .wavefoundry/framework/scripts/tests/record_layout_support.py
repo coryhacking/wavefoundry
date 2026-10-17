@@ -310,6 +310,41 @@ def load_profile(name: str, profiles_dir: "Path | None" = None) -> dict:
     return data
 
 
+_DISTRIBUTION_ASSET_RE = re.compile(r"tests/fixtures/profiles/[A-Za-z0-9._-]+\.json")
+
+
+def _distribution_profile_assets(scripts: Path, inventory_assets: set) -> set:
+    """Profile assets a distribution declares for the compatibility scope.
+
+    The optional, distribution-owned list lives beside the upstream inventory
+    so a distribution never edits an upstream file.  Absent means none.  Any
+    malformed, oversized, unsafe or digest-mismatched entry, or one repeating an
+    inventory asset, raises
+    ValueError, which the caller turns into a full profile run.
+    """
+    path = scripts / "tests/fixtures/profiles/qualification/distribution-assets.json"
+    if not path.exists():
+        return set()
+    raw = path.read_bytes()
+    if len(raw) > 1024 * 1024:
+        raise ValueError("distribution asset list exceeds bound")
+    data = json.loads(raw)
+    if (not isinstance(data, dict) or set(data) != {"schema_version", "assets"}
+            or type(data["schema_version"]) is not int or data["schema_version"] != 1
+            or not isinstance(data["assets"], dict)):
+        raise ValueError("malformed distribution asset list")
+    declared = set()
+    for relative, expected in data["assets"].items():
+        if (not isinstance(relative, str) or not _DISTRIBUTION_ASSET_RE.fullmatch(relative)
+                or relative.rsplit("/", 1)[1] in ("second.json", "declared.json", ".json")
+                or relative in inventory_assets
+                or not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected)
+                or hashlib.sha256((scripts / relative).read_bytes()).hexdigest() != expected):
+            raise ValueError("invalid distribution profile asset")
+        declared.add(relative)
+    return declared
+
+
 def qualification_scope(name: str, scripts_dir: Path | None = None) -> dict:
     """Reviewed file-level compatibility scope, or the entire discovered suite.
 
@@ -345,9 +380,15 @@ def qualification_scope(name: str, scripts_dir: Path | None = None) -> dict:
             raise ValueError("missing coverage contracts")
         profile_paths = {p.relative_to(scripts).as_posix()
                          for p in (scripts / "tests/fixtures/profiles").glob("*.json")}
-        if profile_paths != set(inventory["profile_assets"]):
+        inventory_assets = set(inventory["profile_assets"])
+        distribution_assets = _distribution_profile_assets(scripts, inventory_assets)
+        if profile_paths != inventory_assets | distribution_assets:
             raise ValueError("unknown profile extension")
-        if not profile_paths <= contracts.keys():
+        # Only upstream inventory assets are coverage contracts.  A declared
+        # distribution asset can still be the active base layer, so it is an
+        # input to profile runs; its bytes are bound by each report's source
+        # hash, which covers the whole framework tree including tests/fixtures.
+        if not inventory_assets <= contracts.keys():
             raise ValueError("unbound profile asset")
         for worker, claim in independent.items():
             if (not isinstance(claim, dict) or not isinstance(claim.get("rationale"), str)

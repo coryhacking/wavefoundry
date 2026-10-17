@@ -637,6 +637,7 @@ from review_evidence import (
     review_status_rows,
     review_status_signoff_keys,
     validate_external_review_evidence,
+    closed_legacy_inline_record,
     validate_review_evidence_records,
 )
 
@@ -26393,6 +26394,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             return _contained_refused_markdown(exc)
         if not _wave_uses_external_review_evidence(get_handler().root, path):
             return raw
+        if closed_legacy_inline_record(raw, path):
+            return raw  # Change 20wqa: closed history is served as written.
         validation = validate_external_review_evidence(path)
         if validation.authority_errors:
             details = [*validation.authority_errors]

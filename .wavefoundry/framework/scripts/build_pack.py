@@ -502,6 +502,250 @@ def _check_tag_does_not_exist(repo_root: Path, tag: str) -> None:
         )
 
 
+BUILD_PROVENANCE_FILENAME = "BUILD-PROVENANCE.json"
+_QUALIFICATION_DIR_REL = ".wavefoundry/cache/qualification"
+_QUALIFICATION_COMMANDS = {
+    "default": "python3 -B .wavefoundry/framework/scripts/run_tests.py --no-cache --qualification-report "
+               ".wavefoundry/cache/qualification/default.json",
+    "second": "python3 -B .wavefoundry/framework/scripts/run_tests.py --qualify-profile second "
+              "--qualification-report .wavefoundry/cache/qualification/second.json",
+    "declared": "python3 -B .wavefoundry/framework/scripts/run_tests.py --qualify-profile declared "
+                "--qualification-report .wavefoundry/cache/qualification/declared.json",
+}
+# Comparator refusals an operator exception may admit once the report's
+# return codes are set aside: a skip difference on an otherwise valid report.
+_EXCEPTABLE_SKIP_REFUSALS = (
+    "missing skip or changed reason",
+    "declared profile has unexpected skips",
+    "unexpected second-profile skip",
+)
+_HEX64_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def _read_source_provenance(repo_root: Path) -> tuple[Optional[str], Optional[bool]]:
+    """Return ``(HEAD, tree_clean)`` for the checkout the pack is built from.
+
+    Both are ``None`` unless Git runs and this folder is the top of its own
+    checkout: inherited ``GIT_*`` variables are dropped and the reported top
+    level must be ``repo_root``, so a parent repository or a foreign
+    ``GIT_DIR`` never supplies the commit.  Output other than 40 lowercase
+    hex characters (for example a SHA-256 repository) also gives ``None``.
+    Git's stderr is never recorded.
+    """
+    env = {key: value for key, value in os.environ.items() if not key.upper().startswith("GIT_")}
+
+    def git(*args: str) -> "subprocess.CompletedProcess[str]":
+        return subprocess.run(["git", *args], cwd=str(repo_root), check=False, capture_output=True,
+                              text=True, encoding="utf-8", errors="replace", env=env)
+
+    try:
+        top = git("rev-parse", "--show-toplevel")
+        if top.returncode != 0 or not top.stdout.strip():
+            return None, None
+        if Path(top.stdout.strip()).resolve() != Path(repo_root).resolve():
+            return None, None
+        head = git("rev-parse", "HEAD")
+        commit = head.stdout.strip()
+        if head.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", commit):
+            return None, None
+        status = git("--no-optional-locks", "status", "--porcelain")
+        if status.returncode != 0:
+            return None, None
+        return commit, status.stdout.strip() == ""
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None, None
+
+
+def build_provenance(*, release_version: str, build_id: str, source_commit: Optional[str],
+                     source_tree_clean: Optional[bool], release_tag: Optional[str]) -> dict:
+    """The exact six-field ``BUILD-PROVENANCE.json`` record."""
+    return {
+        "schema_version": 1,
+        "release_version": release_version,
+        "build_id": build_id,
+        "source_commit": source_commit,
+        "source_tree_clean": source_tree_clean,
+        "release_tag": release_tag,
+    }
+
+
+def _parse_qualification_exceptions(values: Optional[list]) -> dict[str, str]:
+    """Parse repeated ``PROFILE=REASON`` values into ``{profile: reason}``."""
+    import unicodedata
+
+    parsed: dict[str, str] = {}
+    for raw in values or []:
+        profile, sep, reason = str(raw).partition("=")
+        profile = profile.strip()
+        if not sep:
+            raise RuntimeError("--accept-qualification-exception takes PROFILE=REASON")
+        if profile not in ("second", "declared"):
+            raise RuntimeError(
+                f"--accept-qualification-exception profile must be second or declared, got {profile!r}; "
+                "the default profile never takes an exception"
+            )
+        if profile in parsed:
+            raise RuntimeError(f"--accept-qualification-exception names {profile} more than once")
+        if (not 1 <= len(reason) <= 500 or not reason.strip()
+                or reason.splitlines() != [reason]
+                or any(unicodedata.category(ch) in ("Cc", "Cf") for ch in reason)):
+            raise RuntimeError(
+                f"--accept-qualification-exception reason for {profile} must be one line of 1 to 500 "
+                "characters with no control or format characters"
+            )
+        parsed[profile] = reason
+    return parsed
+
+
+def _current_framework_inputs_hash(repo_root: Path) -> str:
+    """The framework inputs hash the test runner writes into every report.
+
+    Borrowed from this checkout's own ``run_tests.py`` through the close
+    gate's loader, which undoes the runner's import-time side effects.  Unlike
+    the close gate, an absent or unloadable runner refuses: a release must be
+    qualified from the source host.
+    """
+    import lifecycle_gate_support
+
+    runner = Path(repo_root) / lifecycle_gate_support._FRAMEWORK_TEST_RUNNER_REL
+    if not runner.is_file():
+        raise RuntimeError(f"`{lifecycle_gate_support._FRAMEWORK_TEST_RUNNER_REL}` is absent, so release "
+                           "qualification cannot be proven")
+    try:
+        contained = runner.resolve().is_relative_to(Path(repo_root).resolve())
+    except OSError as exc:
+        raise RuntimeError(f"the test runner could not be resolved: {exc}") from None
+    if not contained:
+        raise RuntimeError("the test runner resolves outside this repository; qualification not proven")
+    module = lifecycle_gate_support._load_framework_test_runner(runner)
+    if module is None or not hasattr(module, "_hash_inputs"):
+        raise RuntimeError("the test runner could not be loaded, so release qualification cannot be proven")
+    try:
+        value = module._hash_inputs()
+    except (Exception, SystemExit) as exc:  # noqa: BLE001 - any failure is "not proven"
+        raise RuntimeError(f"the framework inputs hash could not be computed ({type(exc).__name__})") from None
+    if not isinstance(value, str) or not _HEX64_RE.fullmatch(value):
+        raise RuntimeError("the framework inputs hash is malformed; qualification not proven")
+    return value
+
+
+def _report_counts(report: dict) -> tuple[int, int, int]:
+    workers = report.get("workers") or []
+    return (sum(int(w.get("tests", 0)) for w in workers), len(workers),
+            sum(int(w.get("skipped", 0)) for w in workers))
+
+
+def _check_release_qualification(repo_root: Path, exceptions: Mapping[str, str],
+                                 *, inputs_hash: Optional[str] = None) -> str:
+    """Refuse a release whose default, second and declared reports do not qualify this tree.
+
+    Returns the ``### Qualification`` release-notes section.  Reports are read
+    only through ``qualification_report.read_report``.  A ``second`` or
+    ``declared`` report under an operator exception is admitted only when it
+    is present, owned, names its profile, carries the current source hash and
+    would pass ``compare`` (or differ only in skips) once its return codes are
+    set aside; anything else refuses, exception or not.  The gate prevents
+    accidents; it is not an attestation, since any process running as the
+    maintainer can write these reports.
+    """
+    import copy
+
+    import qualification_report
+
+    current = inputs_hash if inputs_hash is not None else _current_framework_inputs_hash(repo_root)
+
+    def regen(profile: str) -> str:
+        return f"regenerate with: {_QUALIFICATION_COMMANDS[profile]}"
+
+    def load(profile: str) -> dict:
+        rel = f"{_QUALIFICATION_DIR_REL}/{profile}.json"
+        try:
+            report = qualification_report.read_report(repo_root, rel)
+        except FileNotFoundError:
+            raise RuntimeError(f"qualification report for {profile} is missing ({rel}); {regen(profile)}") from None
+        except (OSError, ValueError, TypeError) as exc:
+            raise RuntimeError(f"qualification report for {profile} is unreadable or refused "
+                               f"({type(exc).__name__}: {str(exc)[:200]}); {regen(profile)}") from None
+        identity = report.get("identity")
+        if not isinstance(identity, dict) or identity.get("profile") != profile:
+            raise RuntimeError(f"qualification report {rel} does not name profile {profile}; {regen(profile)}")
+        if identity.get("source_hash") != current:
+            raise RuntimeError(f"qualification report for {profile} is stale: it was written for a different "
+                               f"framework tree; {regen(profile)}")
+        return report
+
+    default = load("default")
+    try:
+        qualification_report.validate(default)
+    except (ValueError, KeyError, TypeError) as exc:
+        raise RuntimeError(f"default qualification does not pass ({str(exc)[:200]}); {regen('default')}") from None
+    scope = default.get("scope")
+    if (not isinstance(scope, dict) or scope.get("kind") != "full"
+            or scope.get("discovered_workers") != default.get("expected_workers")):
+        raise RuntimeError(f"default qualification report is not a full run; {regen('default')}")
+    tests, files, skips = _report_counts(default)
+    lines = ["### Qualification", "",
+             f"- default: passed, {tests} tests in {files} worker files, {skips} skips "
+             f"(source {current[:12]})"]
+    for profile in ("second", "declared"):
+        candidate = load(profile)
+        try:
+            qualification_report.compare(default, candidate, profile, root=repo_root)
+        except ValueError as exc:
+            refusal = str(exc)[:256]
+            if profile not in exceptions:
+                raise RuntimeError(
+                    f"{profile} qualification refused: {refusal}; {regen(profile)}, or record a named "
+                    f"exception with --accept-qualification-exception {profile}=REASON"
+                ) from None
+            projection = copy.deepcopy(candidate)
+            projection["returncode"] = 0
+            for row in projection.get("workers") or []:
+                if isinstance(row, dict):
+                    row["returncode"] = 0
+            skip_difference = None
+            try:
+                qualification_report.compare(default, projection, profile, root=repo_root)
+            except ValueError as structural:
+                if str(structural) not in _EXCEPTABLE_SKIP_REFUSALS:
+                    raise RuntimeError(
+                        f"{profile} qualification cannot take an exception: {str(structural)[:256]}; "
+                        f"{regen(profile)}"
+                    ) from None
+                skip_difference = str(structural)
+            except Exception as structural:  # noqa: BLE001 - never embedded, never excused
+                raise RuntimeError(f"{profile} qualification could not be compared "
+                                   f"({type(structural).__name__}); {regen(profile)}") from None
+            failing = sorted(str(row.get("name")) for row in candidate.get("workers") or []
+                             if isinstance(row, dict) and row.get("returncode") != 0)
+            if not failing and (skip_difference is None or candidate.get("returncode") != 0):
+                # A nonzero run with every worker green is a runner or repository
+                # guard failure, never a failing test, and a skip difference cannot
+                # explain it: not excusable.
+                raise RuntimeError(
+                    f"{profile} qualification cannot take an exception: the run failed with no failing "
+                    f"worker (a runner or repository guard failure); {regen(profile)}"
+                )
+            tests, files, skips = _report_counts(candidate)
+            excused = f"; skip difference: {skip_difference}" if skip_difference and skip_difference != refusal else ""
+            lines.append(
+                f"- {profile}: accepted exception: {exceptions[profile]} (refusal: {refusal}{excused}; "
+                f"failing workers: {', '.join(failing) or 'none'}; {tests} tests in {files} worker files, "
+                f"{skips} skips, source {current[:12]})"
+            )
+            continue
+        except Exception as exc:  # noqa: BLE001 - never embedded, never excused
+            raise RuntimeError(f"{profile} qualification could not be compared ({type(exc).__name__}); "
+                               f"{regen(profile)}") from None
+        if profile in exceptions:
+            raise RuntimeError(f"qualification exception for {profile} is stale: its report passes; "
+                               "drop --accept-qualification-exception for it")
+        tests, files, skips = _report_counts(candidate)
+        lines.append(f"- {profile}: passed, {tests} tests in {files} worker files, {skips} skips "
+                     f"(source {current[:12]})")
+    return "\n".join(lines) + "\n"
+
+
 def _check_gh_authenticated() -> None:
     """Refuse if `gh auth status` fails — the upload would fail anyway."""
     import subprocess
@@ -573,6 +817,30 @@ def _stamp_readme_version_badge(repo_root: Path, version: str) -> bool:
     return True
 
 
+_RELEASE_ASSET_NAME_RE = re.compile(r"[A-Za-z0-9._+-]+")
+
+
+def _release_checksum_lines(assets: list) -> list[str]:
+    """``<sha256>  <basename>`` lines for every release asset, sorted by name.
+
+    GitHub names an uploaded asset after its file, so each basename must be
+    unique and plain; anything else refuses before any release step runs.
+    """
+    names: dict[str, Path] = {}
+    for asset in assets:
+        path = Path(asset)
+        name = path.name
+        if not _RELEASE_ASSET_NAME_RE.fullmatch(name) or name == "SHA256SUMS":
+            raise RuntimeError(f"release asset name {name!r} is not a plain file name")
+        if name in names:
+            raise RuntimeError(f"two release assets share the name {name!r}")
+        names[name] = path
+    try:
+        return [f"{_file_sha256(names[name])}  {name}" for name in sorted(names)]
+    except OSError as exc:
+        raise RuntimeError(f"a release asset could not be read for SHA256SUMS: {exc}") from None
+
+
 def _run_release_orchestration(
     repo_root: Path,
     version: str,
@@ -605,8 +873,13 @@ def _run_release_orchestration(
     stamp = (repo_root / FRAMEWORK_REL / "VERSION").read_text(encoding="utf-8").strip()
     stamp_message = f"Bump VERSION to {stamp} after release"
     assets = [zip_path, *(extra_assets or [])]
+    # Wave 20wq7: digests first, so an unreadable asset leaves the tree untouched.
+    checksum_lines = _release_checksum_lines(assets)
 
     if dry_run:
+        print("[--release-dry-run] would upload SHA256SUMS:", file=sys.stderr)
+        for line in checksum_lines:
+            print(f"  {line}", file=sys.stderr)
         print(f"[--release-dry-run] would run: stamp README version badge -> {version}", file=sys.stderr)
         print(f"[--release-dry-run] would run: git add -A && git commit -m {stamp_message!r}", file=sys.stderr)
         print(f"[--release-dry-run] would run: git tag -a {tag} -m {tag_message!r}", file=sys.stderr)
@@ -615,7 +888,7 @@ def _run_release_orchestration(
         print(
             f"[--release-dry-run] would run: gh release create {tag} "
             f"--title {version!r} --notes-file <tmp> "
-            + " ".join(str(asset) for asset in assets),
+            + " ".join(str(asset) for asset in assets) + " <tmp>/SHA256SUMS",
             file=sys.stderr,
         )
         print(
@@ -722,39 +995,43 @@ def _run_release_orchestration(
 
     # Step 5: publish the one Wavefoundry package. It is both the normal
     # extractable feature pack and the executable protocol-bridge carrier.
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".md", delete=False, encoding="utf-8"
-    ) as notes_file:
-        notes_file.write(release_notes_body)
-        notes_path = notes_file.name
+    # The notes and SHA256SUMS live in a fresh folder outside the repository
+    # (step 1 ran `git add -A`) and outside the output folder (its public
+    # package census); it is kept when the upload fails so recovery can use it.
+    staging = Path(tempfile.mkdtemp(prefix="wavefoundry-release-"))
+    notes_path = staging / "release-notes.md"
+    notes_path.write_bytes(release_notes_body.encode("utf-8"))
+    sums_path = staging / "SHA256SUMS"
+    sums_path.write_bytes(("\n".join(checksum_lines) + "\n").encode("ascii"))
+    upload = [*assets, sums_path]
+    release_argv = [
+        "gh", "release", "create", tag,
+        "--title", version,
+        "--notes-file", str(notes_path),
+        *[str(asset) for asset in upload],
+    ]
     try:
         release_result = subprocess.run(
-            [
-                "gh", "release", "create", tag,
-                "--title", version,
-                "--notes-file", notes_path,
-                *[str(asset) for asset in assets],
-            ],
+            release_argv,
             cwd=str(repo_root),
             check=False,
             capture_output=True,
             text=True,
             encoding="utf-8",
         )
-    finally:
-        try:
-            os.unlink(notes_path)
-        except OSError:
-            pass
+    except OSError as exc:
+        release_result = subprocess.CompletedProcess(release_argv, 127, "", f"could not run gh: {exc}")
+    if release_result.returncode == 0:
+        shutil.rmtree(staging, ignore_errors=True)
 
     if release_result.returncode != 0:
         raise RuntimeError(
             f"step 5/5 (gh release create) failed: {release_result.stderr.strip()}\n"
-            f"  recovery: tag `{tag}` is already on origin. Re-run only the "
-            f"release-create step:\n"
+            f"  recovery: tag `{tag}` is already on origin. The release notes and "
+            f"SHA256SUMS are kept in {staging}. Re-run only the release-create step:\n"
             f"    gh release create {tag} --title {version} "
-            f"--notes-file <CHANGELOG-{version}-section> "
-            + " ".join(str(asset) for asset in assets)
+            f"--notes-file {notes_path} "
+            + " ".join(str(asset) for asset in upload)
             + "\n"
             f"  Or, if the wrong tag was pushed, delete it "
             f"(`git push origin :refs/tags/{tag}` and `git tag -d {tag}`) "
@@ -795,6 +1072,7 @@ def build_zip(
     update_manifest: bool = True,
     inject_install_templates: bool = True,
     verbose: bool = False,
+    release_tag: Optional[str] = None,
 ) -> Path:
     # Wave 1p4ww: the framework index is no longer built or shipped — framework
     # seeds/README fold into each project's docs index at setup/upgrade time.
@@ -807,12 +1085,53 @@ def build_zip(
 
     _check_vendored_scripts(fw)
 
+    # Read before VERSION is stamped, so the clean flag describes the source.
+    source_commit, source_tree_clean = _read_source_provenance(repo_root)
+
+    protocol_metadata_path = fw / PROTOCOL_METADATA_FILENAME
+    provenance_path = fw / BUILD_PROVENANCE_FILENAME
+    try:
+        return _build_zip_body(
+            fw, repo_root, zip_path, version, build_prefix,
+            write_version=write_version, update_manifest=update_manifest,
+            inject_install_templates=inject_install_templates,
+            protocol_metadata_path=protocol_metadata_path, provenance_path=provenance_path,
+            provenance=build_provenance(
+                release_version=f"{version}+{build_prefix}", build_id=build_prefix,
+                source_commit=source_commit, source_tree_clean=source_tree_clean,
+                release_tag=release_tag,
+            ),
+        )
+    finally:
+        # Generated packaging files never linger in the source tree, whether the
+        # build succeeded or failed: they would change the framework inputs hash.
+        for generated in (fw / "MANIFEST", protocol_metadata_path, provenance_path):
+            try:
+                generated.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def _build_zip_body(
+    fw: Path,
+    repo_root: Path,
+    zip_path: Path,
+    version: str,
+    build_prefix: str,
+    *,
+    write_version: bool,
+    update_manifest: bool,
+    inject_install_templates: bool,
+    protocol_metadata_path: Path,
+    provenance_path: Path,
+    provenance: dict,
+) -> Path:
     if write_version:
         write_pack_version(fw, version, build_prefix)
     if update_manifest:
         update_manifest_revision(repo_root, f"{version}+{build_prefix}")
 
-    protocol_metadata_path = fw / PROTOCOL_METADATA_FILENAME
+    provenance_path.write_bytes((json.dumps(provenance, indent=2, sort_keys=True) + "\n").encode("utf-8"))
     protocol_metadata_path.write_text(
         json.dumps(
             build_protocol_metadata(
@@ -910,17 +1229,9 @@ def build_zip(
         if install_wavefoundry_md is not None:
             zf.writestr("install-wavefoundry.md", install_wavefoundry_md)
 
-    # MANIFEST is a packaging artifact — delete it from the source tree after
-    # it has been written into the zip so it does not linger as a dirty file.
-    try:
-        manifest_path.unlink(missing_ok=True)
-    except OSError:
-        pass
-    try:
-        protocol_metadata_path.unlink(missing_ok=True)
-    except OSError:
-        pass
-
+    # MANIFEST, the protocol metadata and the build provenance are packaging
+    # artifacts; build_zip removes all three from the source tree in its
+    # finally, after they have been written into the zip.
     return zip_path
 
 
@@ -1276,6 +1587,18 @@ def main():
     )
     parser.add_argument("--with-embedded-models", action="store_true",
                         help="Also build a directly upgradeable ZIP containing the model companion.")
+    parser.add_argument(
+        "--accept-qualification-exception",
+        action="append",
+        metavar="PROFILE=REASON",
+        default=[],
+        help=(
+            "Release modes only: publish despite a failing, current second or declared "
+            "qualification report, recording REASON (one line, at most 500 characters) in "
+            "the release notes. Repeat once per profile. Never applies to default, or to a "
+            "missing, stale or malformed report."
+        ),
+    )
     args = parser.parse_args()
     args.with_models = args.with_models or args.with_embedded_models
 
@@ -1339,6 +1662,11 @@ def main():
     # cheaply without wasting time on a packaging pass that's about to be
     # discarded.
     release_notes_body = ""
+    qualified_hash: Optional[str] = None
+    if args.accept_qualification_exception and not (args.release or args.release_dry_run):
+        print("error: --accept-qualification-exception applies only with --release or --release-dry-run",
+              file=sys.stderr)
+        sys.exit(1)
     if args.release or args.release_dry_run:
         try:
             _check_git_working_tree_clean(repo_root)
@@ -1360,6 +1688,20 @@ def main():
                     "constants:\n  " + "\n  ".join(claim_failures)
                 )
             release_notes_body = _assemble_release_notes(repo_root, changelog_body)
+            # Wave 20wq7: the qualification gate runs last in preflight, before
+            # the docs gate and any build or stamp.
+            qualification_exceptions = _parse_qualification_exceptions(
+                args.accept_qualification_exception
+            )
+            qualified_hash = _current_framework_inputs_hash(repo_root)
+            qualification_section = _check_release_qualification(
+                repo_root, qualification_exceptions, inputs_hash=qualified_hash
+            )
+            if qualification_section:
+                release_notes_body = release_notes_body.rstrip() + "\n\n" + qualification_section
+            if args.release_dry_run:
+                print("[--release-dry-run] release notes qualification section:", file=sys.stderr)
+                print(qualification_section, file=sys.stderr)
         except RuntimeError as exc:
             print(f"error: release preflight failed: {exc}", file=sys.stderr)
             sys.exit(1)
@@ -1415,6 +1757,20 @@ def main():
 
     model_zip: Path | None = None
     combined_zip: Path | None = None
+    if qualified_hash is not None:
+        # The docs gate ran after preflight; the pack must be the qualified tree.
+        try:
+            rebuilt_hash = _current_framework_inputs_hash(repo_root)
+        except RuntimeError as exc:
+            print(f"error: release preflight failed: {exc}", file=sys.stderr)
+            sys.exit(1)
+        if rebuilt_hash != qualified_hash:
+            print(
+                "error: the framework tree changed after release qualification was checked "
+                "(the docs gate or another process edited it); requalify and rerun",
+                file=sys.stderr,
+            )
+            sys.exit(1)
     try:
         zip_path = build_zip(
             output_dir,
@@ -1424,6 +1780,7 @@ def main():
             # 1p4ww: the framework index is no longer shipped — framework seeds/README
             # fold into each project's own docs index. The pack ships framework SOURCE only.
             verbose=args.verbose,
+            release_tag=f"v{args.version}" if args.release else None,
         )
         bridge_artifacts = (
             build_protocol_bridge_artifacts(

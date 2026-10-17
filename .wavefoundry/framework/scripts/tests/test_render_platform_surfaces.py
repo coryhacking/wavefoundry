@@ -3873,19 +3873,31 @@ def _assignment_value(lines, prefix):
 
 
 def _expected_core_read_names(committed_hook: bytes, declaration: dict) -> tuple:
-    """Names the fresh hook must grant under ``declaration``: the committed default
-    hook's names (proven byte-exact by the default run) minus the declaration's
-    hidden names, override targets and replaced core names. Shares no code with the
-    renderer's own derivation."""
+    """Names the fresh hook must grant under ``declaration``, derived without
+    the renderer's code (change 20wqb: every effective read-tier name). Start
+    from the committed default hook's names (proven byte-exact by the default
+    run), drop replacements raised to ``write``, add read ``alias_for_core``
+    names, declared ``read`` extension tools and aliases of read names (judged
+    before hiding), then drop hidden names and sort."""
     import mcp_tool_roster as roster
+    prefix = roster.MCP_RULE_PREFIX
     names, _matches = _assignment_value(committed_hook.splitlines(keepends=True), _CORE_READ_TOOLS_LINE)
-    removed = set(declaration.get("EXTENSION_HIDDEN_TOOLS") or ())
-    for targets in (declaration.get("EXTENSION_OVERRIDES") or {}).values():
-        removed.update(targets)
+    committed = {name[len(prefix):] for name in names}
+    read = set(committed)
     for entries in (declaration.get("EXTENSION_REPLACEMENTS") or {}).values():
-        removed.update(entries if isinstance(entries, dict) else ())
-    removed = {roster.MCP_RULE_PREFIX + name for name in removed}
-    return tuple(name for name in names if name not in removed)
+        for core, spec in (entries.items() if isinstance(entries, dict) else ()):
+            if not isinstance(spec, dict):
+                continue
+            if spec.get("tier") == "write":
+                read.discard(core)
+            if core in committed and spec.get("alias_for_core"):
+                read.add(spec["alias_for_core"])
+    read.update(name for name, tier in (declaration.get("EXTENSION_TOOL_TIERS") or {}).items() if tier == "read")
+    for alias, canonical in (declaration.get("EXTENSION_TOOL_ALIASES") or {}).items():
+        if canonical in read:
+            read.add(alias)
+    read -= set(declaration.get("EXTENSION_HIDDEN_TOOLS") or ())
+    return tuple(sorted(prefix + name for name in read))
 
 
 def _declaration_aware_pre_edit_parity(committed: bytes, fresh: bytes, *, expected_names, roster_digest, extensions_digest) -> list:
@@ -3971,11 +3983,22 @@ class DeclarationAwareHookParityTests(unittest.TestCase):
             self.assertIn("fresh CORE_READ_TOOLS does not equal the expected names",
                           self._check(self._hook("()", extensions="e2"), expected=()))
 
-    def test_expected_names_drop_hidden_overridden_and_replaced_names(self):
+    def test_expected_names_follow_effective_read_tiers(self):
+        # Change 20wqb: overrides and read replacements stay exempt, a read
+        # replacement's alias_for_core and an alias of a hidden read name are
+        # added, the hidden name and a replacement raised to write are dropped.
         committed = self._hook("('mcp__wavefoundry__code_read', 'mcp__wavefoundry__wf_gpu_doctor', 'mcp__wavefoundry__wf_help')")
         declaration = {"EXTENSION_HIDDEN_TOOLS": ["wf_gpu_doctor"], "EXTENSION_OVERRIDES": {"m": ["code_read"]},
-                       "EXTENSION_REPLACEMENTS": {"m": {"wf_help": {"alias_for_core": "x"}}}}
-        self.assertEqual(_expected_core_read_names(committed, declaration), ())
+                       "EXTENSION_REPLACEMENTS": {"m": {"wf_help": {"alias_for_core": "x"}}},
+                       "EXTENSION_TOOL_TIERS": {"dist_read": "read", "dist_write": "write"},
+                       "EXTENSION_TOOL_ALIASES": {"wf_alias_gpu_doctor": "wf_gpu_doctor", "y": "dist_write"}}
+        self.assertEqual(_expected_core_read_names(committed, declaration),
+                         ("mcp__wavefoundry__code_read", "mcp__wavefoundry__dist_read",
+                          "mcp__wavefoundry__wf_alias_gpu_doctor", "mcp__wavefoundry__wf_help",
+                          "mcp__wavefoundry__x"))
+        raised = {"EXTENSION_REPLACEMENTS": {"m": {"wf_help": {"alias_for_core": "x", "tier": "write"}}}}
+        self.assertEqual(_expected_core_read_names(committed, raised),
+                         ("mcp__wavefoundry__code_read", "mcp__wavefoundry__wf_gpu_doctor", "mcp__wavefoundry__x"))
         self.assertEqual(_expected_core_read_names(committed, {}),
                          ("mcp__wavefoundry__code_read", "mcp__wavefoundry__wf_gpu_doctor", "mcp__wavefoundry__wf_help"))
 

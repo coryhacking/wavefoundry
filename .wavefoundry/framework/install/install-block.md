@@ -1,5 +1,7 @@
 ## Install
 
+**Verify first.** Before dropping any downloaded asset in place, compare its SHA-256 with its single line in this release's `SHA256SUMS` asset: `shasum -a 256 <zip>` on macOS, `sha256sum <zip>` on Linux and WSL2, or `(Get-FileHash -LiteralPath <zip> -Algorithm SHA256).Hash -eq '<hex>'` in Windows PowerShell (`-eq` ignores case). Stop if the digest differs or the asset has no line or more than one. Releases published before `SHA256SUMS` was added have none; for those, compare against the SHA-256 digest GitHub shows beside the asset on the release page, and stop if none is shown. This checks the downloaded bytes against a digest published in the same GitHub release: it catches corruption, truncation and a copy altered after it left the release, but not a replacement by someone able to edit the release, who could edit `SHA256SUMS` too. It is not a signature; release signing is not yet provided.
+
 Drop the attached `.zip` at your repo root **without extracting it** — the agent unpacks it as the first step, extracting only `.wavefoundry/*` and `install-wavefoundry.md` (`unzip -o <zip> '.wavefoundry/*' 'install-wavefoundry.md' -d .`; the zip also carries its own installer runner members at the zip root, which must not land in your repo). Then type this shortcut phrase as a chat message to your AI agent (Claude Code, Cursor, Codex, Junie, GitHub Copilot, Windsurf, Air, or Warp):
 
 ```
@@ -12,7 +14,7 @@ Choose the lean ZIP for the smallest download, or the optional `.with-models.zip
 
 ## Upgrade
 
-Already running Wavefoundry on protocol 2? Drop the attached `.zip` at your repo root **without extracting it** and type this shortcut phrase to your agent:
+Already running Wavefoundry on protocol 2? Verify the `.zip` against `SHA256SUMS` as above, then drop it at your repo root **without extracting it** and type this shortcut phrase to your agent:
 
 ```
 Upgrade Wavefoundry

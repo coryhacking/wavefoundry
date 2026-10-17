@@ -57,32 +57,54 @@ class CoreReadHookTests(unittest.TestCase):
                      'mcp__wavefoundry__code_read_alias', 'mcp__wavefoundry__extension_read'):
             self.assertEqual(self.invoke(hook, name), 2)
 
-    def test_overridden_core_and_aliases_are_not_exempt(self):
-        with base_declaration(EXTENSION_MODULES=('distribution_hooks',),
-                              EXTENSION_OVERRIDES={'distribution_hooks': ('code_read',)},
-                              EXTENSION_TOOL_ALIASES={'code_read_alias': 'code_outline'}):
-            roster.all_tool_tiers()  # Real declaration validation, not a stub.
-            hook = self.hook()
-        self.assertEqual(len(hook['CORE_READ_CONTRACT']), 2)
-        self.assertEqual(self.invoke(hook, 'mcp__wavefoundry__code_read'), 2)
-        self.assertEqual(self.invoke(hook, 'mcp__wavefoundry__code_read_alias'), 2)
-        self.assertEqual(self.invoke(hook, 'mcp__wavefoundry__code_outline'), 0)
+    # Change 20wqb: one real, validated declaration covering every kind of
+    # declared name the exemption must judge by its effective tier.
+    DISTRIBUTION = dict(
+        EXTENSION_MODULES=('distribution_hooks',),
+        EXTENSION_TOOL_PREFIXES=('dist_',),
+        EXTENSION_TOOL_TIERS={'dist_read': 'read', 'dist_write': 'write'},
+        EXTENSION_OVERRIDES={'distribution_hooks': ('code_read',)},
+        EXTENSION_TOOL_ALIASES={'code_outline_alias': 'code_outline', 'dist_prepare_alias': 'wf_prepare_wave',
+                                'dist_open_gate_alias': 'wf_open_gate', 'wf_alias_gpu_doctor': 'wf_gpu_doctor'},
+        EXTENSION_HIDDEN_TOOLS=('wf_gpu_doctor',),
+        EXTENSION_REPLACEMENTS={'distribution_hooks': {
+            'code_search': {'alias_for_core': 'dist_core_code_search'},
+            'code_keyword': {'alias_for_core': 'dist_core_code_keyword', 'tier': 'write'},
+        }},
+    )
 
-    def test_hidden_core_name_and_its_alias_are_not_exempt(self):
-        # Change 20rvq: explicit hidden-name coverage. The fixture must be a valid
-        # declaration and the same hook must still grant a plain core read, so the
-        # refusals below cannot come from a fail-closed contract.
-        with base_declaration(EXTENSION_TOOL_ALIASES={'wf_alias_gpu_doctor': 'wf_gpu_doctor'},
-                              EXTENSION_HIDDEN_TOOLS=('wf_gpu_doctor',)):
-            tiers = roster.all_tool_tiers()
+    def test_declared_read_tier_names_are_exempt_and_write_tier_names_are_not(self):
+        with base_declaration(**self.DISTRIBUTION):
+            tiers = roster.all_tool_tiers()  # Real declaration validation, not a stub.
             hook = self.hook()
-        self.assertEqual(roster.TOOL_TIERS['wf_gpu_doctor'], roster.TIER_READ)
-        self.assertNotIn('wf_gpu_doctor', tiers)
         self.assertEqual(len(hook['CORE_READ_CONTRACT']), 2)
-        self.assertNotIn('mcp__wavefoundry__wf_gpu_doctor', hook['CORE_READ_TOOLS'])
-        self.assertEqual(self.invoke(hook, 'mcp__wavefoundry__wf_gpu_doctor'), 2)
-        self.assertEqual(self.invoke(hook, 'mcp__wavefoundry__wf_alias_gpu_doctor'), 2)
-        self.assertEqual(self.invoke(hook, 'mcp__wavefoundry__code_read'), 0)
+        exempt = ('code_read', 'code_outline_alias', 'wf_alias_gpu_doctor', 'code_search',
+                  'dist_core_code_search', 'dist_core_code_keyword', 'dist_read', 'code_outline')
+        gated = ('dist_write', 'dist_prepare_alias', 'dist_open_gate_alias', 'code_keyword',
+                 'wf_gpu_doctor', 'wf_open_gate', 'wf_prepare_wave')
+        for name in exempt:
+            with self.subTest(exempt=name):
+                self.assertEqual(tiers[name], roster.TIER_READ)
+                self.assertEqual(self.invoke(hook, roster.MCP_RULE_PREFIX + name), 0)
+        for name in gated:
+            with self.subTest(gated=name):
+                self.assertEqual(self.invoke(hook, roster.MCP_RULE_PREFIX + name), 2)
+        self.assertNotIn('wf_gpu_doctor', tiers)
+
+    def test_invalid_declaration_grants_no_exemption_at_all(self):
+        # A replacement may never lower write to read: the whole declaration is
+        # refused, and the contract grants nothing, core reads included.
+        with base_declaration(EXTENSION_MODULES=('distribution_hooks',), EXTENSION_TOOL_PREFIXES=('dist_',),
+                              EXTENSION_REPLACEMENTS={'distribution_hooks': {
+                                  'wf_prepare_wave': {'alias_for_core': 'dist_core_prepare', 'tier': 'read'}}}):
+            with self.assertRaises(extensions.ExtensionDeclarationError) as refused:
+                roster.all_tool_tiers()
+            self.assertEqual(str(refused.exception).count(';'), 0, str(refused.exception))
+            self.assertIn('wf_prepare_wave', str(refused.exception))
+            hook = self.hook()
+        self.assertEqual(hook['CORE_READ_TOOLS'], ())
+        self.assertEqual(self.invoke(hook, 'mcp__wavefoundry__code_read'), 2)
+        self.assertEqual(self.invoke(hook, 'mcp__wavefoundry__wf_prepare_wave'), 2)
 
     def test_stale_missing_nonregular_and_malformed_contracts_fail_closed(self):
         hook = self.hook()

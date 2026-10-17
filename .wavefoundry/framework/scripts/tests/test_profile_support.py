@@ -988,6 +988,73 @@ class CompatibilityCoverageTests(unittest.TestCase):
                 path.unlink()
         self.assertEqual(record_layout_support.qualification_scope("unknown", self.scripts)["kind"], "full")
 
+    def _write_distribution_list(self, assets):
+        listing = self.scripts / "tests/fixtures/profiles/qualification/distribution-assets.json"
+        listing.write_text(json.dumps({"schema_version": 1, "assets": assets}))
+        self.addCleanup(listing.unlink, missing_ok=True)
+        return listing
+
+    def _add_distribution_asset(self, name="distribution.json", body=b'{"description": "dist"}'):
+        asset = self.scripts / "tests/fixtures/profiles" / name
+        asset.parent.mkdir(parents=True, exist_ok=True)
+        asset.write_bytes(body)
+        self.addCleanup(asset.unlink, missing_ok=True)
+        return f"tests/fixtures/profiles/{name}", hashlib.sha256(body).hexdigest()
+
+    def test_declared_distribution_asset_keeps_compatibility_scope_unchanged(self):
+        baseline = {p: record_layout_support.qualification_scope(p, self.scripts) for p in ("second", "declared")}
+        self.assertEqual({s["kind"] for s in baseline.values()}, {"compatibility"})
+        relative, digest = self._add_distribution_asset()
+        # Unlisted, the extra asset forces a full run.
+        self.assertEqual(record_layout_support.qualification_scope("second", self.scripts)["kind"], "full")
+        self._write_distribution_list({relative: digest})
+        for profile in ("second", "declared"):
+            with self.subTest(profile=profile):
+                self.assertEqual(record_layout_support.qualification_scope(profile, self.scripts), baseline[profile])
+        # With the list present, a further unlisted asset still forces a full run.
+        self._add_distribution_asset("another.json")
+        self.assertEqual(record_layout_support.qualification_scope("second", self.scripts)["kind"], "full")
+
+    def test_invalid_distribution_asset_lists_force_full_profile(self):
+        relative, digest = self._add_distribution_asset()
+        # An inventory asset the name rule does not already catch.
+        inventory_asset = "tests/fixtures/profiles/prompt-names.json"
+        self.assertIn(inventory_asset, self.inventory["profile_assets"])
+        listing = self.scripts / "tests/fixtures/profiles/qualification/distribution-assets.json"
+        self.addCleanup(listing.unlink, missing_ok=True)
+        second = self.scripts / "tests/fixtures/profiles/second.json"
+        bad_lists = {
+            "wrong digest": {"schema_version": 1, "assets": {relative: "0" * 64}},
+            "non-hex digest": {"schema_version": 1, "assets": {relative: "Z" * 64}},
+            "missing on disk": {"schema_version": 1, "assets": {relative: digest,
+                                                                "tests/fixtures/profiles/absent.json": digest}},
+            "repeats inventory asset": {"schema_version": 1, "assets": {
+                relative: digest, inventory_asset: hashlib.sha256((self.scripts / inventory_asset).read_bytes()).hexdigest()}},
+            "named second.json": {"schema_version": 1, "assets": {
+                relative: digest, "tests/fixtures/profiles/second.json": hashlib.sha256(second.read_bytes()).hexdigest()}},
+            "nested path": {"schema_version": 1, "assets": {relative: digest, "tests/fixtures/profiles/sub/x.json": digest}},
+            "dotdot path": {"schema_version": 1, "assets": {relative: digest, "tests/fixtures/profiles/../x.json": digest}},
+            "backslash path": {"schema_version": 1, "assets": {relative: digest, "tests\\fixtures\\profiles\\x.json": digest}},
+            "outside profiles": {"schema_version": 1, "assets": {relative: digest, "tests/fixtures/x.json": digest}},
+            "non-json path": {"schema_version": 1, "assets": {relative: digest, "tests/fixtures/profiles/x.txt": digest}},
+            "unexpected key": {"schema_version": 1, "assets": {relative: digest}, "extra": True},
+            "wrong schema": {"schema_version": 2, "assets": {relative: digest}},
+            "assets not a mapping": {"schema_version": 1, "assets": [relative]},
+        }
+        for label, data in bad_lists.items():
+            with self.subTest(label=label):
+                listing.write_text(json.dumps(data))
+                self.assertEqual(record_layout_support.qualification_scope("second", self.scripts)["kind"], "full")
+        valid = json.dumps({"schema_version": 1, "assets": {relative: digest}}).encode()
+        # Oversized but otherwise valid: only the size bound can refuse it.
+        for label, raw in (("malformed json", b"{"), ("oversized", valid + b" " * (1024 * 1024))):
+            with self.subTest(label=label):
+                listing.write_bytes(raw)
+                self.assertEqual(record_layout_support.qualification_scope("second", self.scripts)["kind"], "full")
+        # Positive control on the same fixture: the valid list restores compatibility.
+        listing.write_text(json.dumps({"schema_version": 1, "assets": {relative: digest}}))
+        self.assertEqual(record_layout_support.qualification_scope("second", self.scripts)["kind"], "compatibility")
+
     def test_invalid_missing_duplicate_and_unbound_claims_force_full_profile(self):
         original = json.loads(json.dumps(self.inventory))
         controls = []

@@ -30,6 +30,7 @@ from record_layout_support import (
 )
 from wave_lint_lib.wave_validators import check_orphan_wave_ledgers
 from review_evidence import (
+    closed_legacy_inline_record,
     read_review_event_ledger,
     render_review_status_projection,
     REVIEW_STATUS_MARKER_BEGIN,
@@ -7261,3 +7262,165 @@ class DocsLintExclusionTests(_DocsLintFixture, unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("unpublished secrets finding", result.stderr)
         self.assertNotIn("docs/product/guide.md: missing", result.stderr)
+
+
+class ClosedInlineRecordLintTests(_DocsLintFixture, unittest.TestCase):
+    """Change 20wqa: a closed record that still carries the retired inline
+    review marker is history; docs-lint does not ask it to migrate. Every
+    clause of ``closed_legacy_inline_record`` has a case here."""
+
+    def _record(self, status_block: str, *, inline: bool = True, keep_ledger: bool = False,
+                crlf: bool = False, edit=None) -> Path:
+        root = self.copy_fixture()
+        self.addCleanup(shutil.rmtree, root, True)
+        wave_md = root / self.WAVE_DOC_PATH
+        text = wave_md.read_text(encoding="utf-8")
+        if inline:
+            text = text.replace(
+                # declaration-check: replace declaration with retired inline protocol for rejection.
+                "review-evidence-source: events.jsonl",
+                "review-evidence-protocol: 1",
+            )
+        text = text.replace("Status: active\n", status_block, 1)
+        if edit is not None:
+            text = edit(text)
+        if crlf:
+            text = text.replace("\n", "\r\n")
+        wave_md.write_bytes(text.encode("utf-8"))
+        if not keep_ledger:
+            (wave_md.parent / "events.jsonl").unlink()
+        return root
+
+    def _predicate(self, root: Path, *, raw: bool = False) -> bool:
+        wave_md = root / self.WAVE_DOC_PATH
+        text = wave_md.read_text(encoding="utf-8", newline="" if raw else None)
+        return closed_legacy_inline_record(text, wave_md)
+
+    def _stale(self, text: str) -> str:
+        return text.replace("| — | — | — | — | — |", "| STALE-1 | do_now | yes | open | — |", 1)
+
+    def test_closed_and_completed_inline_records_are_not_asked_to_migrate(self) -> None:
+        for status in ("closed", "completed"):
+            with self.subTest(status=status):
+                root = self._record(f"Status: {status}\n")
+                self.assertTrue(self._predicate(root))
+                result = self.run_docs_lint(root)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("review evidence:", result.stderr)
+
+    def test_upper_case_marker_matches_like_the_classifier(self) -> None:
+        root = self._record(
+            "Status: closed\n",
+            edit=lambda text: text.replace("review-evidence-protocol: 1", "REVIEW-EVIDENCE-PROTOCOL: 1"),
+        )
+        self.assertTrue(self._predicate(root))
+        result = self.run_docs_lint(root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_closed_inline_record_with_crlf_is_left_alone(self) -> None:
+        root = self._record("Status: closed\n", crlf=True)
+        self.assertIn("\r\n", (root / self.WAVE_DOC_PATH).read_text(encoding="utf-8", newline=""))
+        self.assertTrue(self._predicate(root, raw=True))
+        result = self.run_docs_lint(root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_crlf_does_not_hide_a_source_header(self) -> None:
+        # On raw CRLF text a valid source header does not parse; the predicate
+        # normalises first, so the header still disqualifies the record.
+        root = self._record(
+            "Status: closed\n",
+            crlf=True,
+            edit=lambda text: text.replace(
+                # declaration-check: a valid declaration beside the inline marker disqualifies the record.
+                "review-evidence-protocol: 1", "review-evidence-protocol: 1\nreview-evidence-source: events.jsonl"),
+        )
+        self.assertFalse(self._predicate(root, raw=True))
+
+    def test_open_or_differently_spelled_status_still_asks_to_migrate(self) -> None:
+        for block in (
+            "Status: implementing\n",
+            "Status: Closed\n",
+            "Status:closed\n",
+            "Status: closed-ish\n",
+            "Status: implementing\nStatus: closed\n",
+            "Prior Status: closed\nStatus: implementing\n",
+            "",
+        ):
+            with self.subTest(status=block):
+                root = self._record(block)
+                self.assertFalse(self._predicate(root))
+                result = self.run_docs_lint(root)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("migrate manually", result.stderr)
+
+    def test_closed_inline_record_with_malformed_source_keeps_its_error(self) -> None:
+        cases = (
+            ("review-evidence-source: other.jsonl", "review evidence source must be exactly"),
+            # A duplicated declaration parses as no source with an error, the
+            # case only the predicate's source-error clause rejects.
+            (
+                # declaration-check: a duplicated declaration is the malformed header under test.
+                "review-evidence-source: events.jsonl\nreview-evidence-source: events.jsonl",
+                "review evidence source declaration must appear exactly once",
+            ),
+        )
+        for header, message in cases:
+            with self.subTest(header=header):
+                root = self._record(
+                    "Status: closed\n",
+                    edit=lambda text, header=header: text.replace(
+                        "review-evidence-protocol: 1", "review-evidence-protocol: 1\n" + header),
+                )
+                self.assertFalse(self._predicate(root))
+                result = self.run_docs_lint(root)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(message, result.stderr)
+
+    def test_closed_record_with_marker_and_valid_source_is_still_validated(self) -> None:
+        root = self._record(
+            "Status: closed\n",
+            inline=False,
+            keep_ledger=True,
+            edit=lambda text: self._stale(text.replace(
+                # declaration-check: keep the valid declaration and add the inline marker beside it.
+                "review-evidence-source: events.jsonl",
+                # declaration-check: the declaration plus marker must still be validated.
+                "review-evidence-source: events.jsonl\nreview-evidence-protocol: 1")),
+        )
+        self.assertFalse(self._predicate(root))
+        result = self.run_docs_lint(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("must not retain review-evidence-protocol", result.stderr)
+
+    def test_closed_inline_record_with_a_real_ledger_is_still_validated(self) -> None:
+        # DEL-1: swapping a closed declared record's header for the inline
+        # marker must not switch off validation while any ledger is present,
+        # empty (the fixture's) or not.
+        stale = self._record("Status: closed\n", keep_ledger=True, edit=self._stale)
+        malformed = self._record("Status: closed\n", keep_ledger=True)
+        (malformed / self.WAVE_DOC_PATH).parent.joinpath("events.jsonl").write_bytes(b"{bad-json}\n")
+        for root in (stale, malformed):
+            with self.subTest(root=root.name):
+                self.assertFalse(self._predicate(root))
+                result = self.run_docs_lint(root)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("review evidence:", result.stderr)
+
+    def test_closed_inline_record_still_reports_other_defects(self) -> None:
+        root = self._record(
+            "Status: closed\n",
+            edit=lambda text: text.replace(
+                "## Objective\n\nValidate docs-lint fixture behavior for wave-owned change doc validation.\n\n",
+                "",
+            ),
+        )
+        result = self.run_docs_lint(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Objective", result.stderr)
+        self.assertNotIn("review evidence:", result.stderr)
+
+    def test_closed_declared_record_with_stale_finding_synthesis_still_fails(self) -> None:
+        root = self._record("Status: closed\n", inline=False, keep_ledger=True, edit=self._stale)
+        result = self.run_docs_lint(root)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("review evidence projection is stale", result.stderr)

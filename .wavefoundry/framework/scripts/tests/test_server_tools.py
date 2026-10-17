@@ -4965,6 +4965,32 @@ class McpResourceReadTests(unittest.TestCase):
         self.assertIn("invalid JSON", invalid)
         self.assertNotIn("999 records", invalid)
 
+    def test_wave_resource_serves_closed_inline_record_as_written(self):
+        # Change 20wqa: a closed record with only the retired inline marker is
+        # history, served as written; an open one still names the migration.
+        wave_result = self.srv.wf_create_wave_response(
+            self.root, "resource-inline-history", mode="create"
+        )
+        wave_id = wave_result["data"]["wave_id"]
+        wave_md = _waves_dir(self.root) / wave_id / _RECORD
+        text = wave_md.read_text(encoding="utf-8").replace(
+            # declaration-check: replace declaration with retired inline protocol for rejection.
+            "review-evidence-source: events.jsonl",
+            "review-evidence-protocol: 1",
+        )
+        (wave_md.parent / "events.jsonl").unlink()
+
+        wave_md.write_text(text.replace("Status: planned", "Status: implementing"), encoding="utf-8")
+        open_text = self._read_resource(f"wavefoundry://wave/{wave_id}")
+        self.assertIn("Wave Review Evidence Unavailable", open_text)
+        self.assertIn("migrate manually", open_text)
+
+        closed = text.replace("Status: planned", "Status: closed")
+        wave_md.write_text(closed, encoding="utf-8")
+        closed_text = self._read_resource(f"wavefoundry://wave/{wave_id}")
+        self.assertNotIn("Wave Review Evidence Unavailable", closed_text)
+        self.assertEqual(closed_text, closed)
+
     def test_current_wave_resource_derives_valid_authority_when_projection_is_missing(self):
         wave_result = self.srv.wf_create_wave_response(
             self.root, "resource-missing-projection", mode="create"

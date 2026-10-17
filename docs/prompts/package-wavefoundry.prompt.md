@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-15
+Last verified: 2026-10-17
 
 Shortcut: **`Package Wavefoundry`** | Legacy: **`Package wave framework`** / **`Package wave context`**
 
@@ -72,7 +72,7 @@ python3 -B .wavefoundry/framework/scripts/qualification_report.py --compare .wav
 python3 -B .wavefoundry/framework/scripts/qualification_report.py --compare .wavefoundry/cache/qualification/default.json .wavefoundry/cache/qualification/declared.json --profile declared
 ```
 
-   Reports are optional release evidence: one bounded report per requested run, with worker return codes, exact executed skip IDs/reasons and completeness; no transcripts or copied source. Paths must be under the repository's `.wavefoundry/cache/qualification/`, outside framework hashing and the packed payload. Linked, special, protected and unowned existing targets are refused; owned reports are replaced atomically. Complete successful default runs automatically retain one bounded `last-default.json` in this ignored cache. A current green cache hit can reuse that report at the requested output path only when its source identity and discovered worker inventory match exactly; otherwise it reports unavailable executed detail. It never launches workers on a cache hit or reconstructs detail from aggregate counts. Focused, profile, schedule-control and unsuccessful runs preserve the last-successful default detail; optional retention failures are reported separately from the canonical receipt. If exact detail is required, explicitly authorize and run `--no-cache --qualification-report ...` for the default suite. Profile reports export the actual applied profile and original source identities before cleanup and never write the source framework receipt. Missing, duplicate, malformed, contradictory or reason-changed evidence fails comparison. Consumer upgrades never invoke this facility.
+   `--release` and `--release-dry-run` require these three reports: as the last preflight step, before the docs gate or any build, they refuse unless `default.json` passes, is a full run and carries the current framework inputs hash, and `second.json` and `declared.json` each pass `qualification_report.py --compare` against it. The hash is checked again just before the build. A failing but current, complete and well-formed `second` or `declared` report can ship only with `--accept-qualification-exception PROFILE=REASON` (one line, at most 500 characters, once per profile; never for `default`, and never for a missing, stale or malformed report). The release notes gain a `### Qualification` section listing each profile's result and any accepted exception with its reason. The gate prevents accidents and is not an attestation: any process running as you can write these reports. Reports are otherwise release evidence only: one bounded report per requested run, with worker return codes, exact executed skip IDs/reasons and completeness; no transcripts or copied source. Paths must be under the repository's `.wavefoundry/cache/qualification/`, outside framework hashing and the packed payload. Linked, special, protected and unowned existing targets are refused; owned reports are replaced atomically. Complete successful default runs automatically retain one bounded `last-default.json` in this ignored cache. A current green cache hit can reuse that report at the requested output path only when its source identity and discovered worker inventory match exactly; otherwise it reports unavailable executed detail. It never launches workers on a cache hit or reconstructs detail from aggregate counts. Focused, profile, schedule-control and unsuccessful runs preserve the last-successful default detail; optional retention failures are reported separately from the canonical receipt. If exact detail is required, explicitly authorize and run `--no-cache --qualification-report ...` for the default suite. Profile reports export the actual applied profile and original source identities before cleanup and never write the source framework receipt. Missing, duplicate, malformed, contradictory or reason-changed evidence fails comparison. Consumer upgrades never invoke this facility.
 
 6. **Update root `CHANGELOG.md`** — the canonical release history. The wavefoundry repo's root `CHANGELOG.md` is the single source of truth; `build_pack.py` copies it into the pack zip at `.wavefoundry/CHANGELOG.md` so consumer projects receive an in-tree changelog on every upgrade (offline-readable, MCP-indexable, no GitHub fetch required). The wavefoundry repo does NOT carry `.wavefoundry/CHANGELOG.md` — root is the only place release history is maintained.
 
@@ -104,6 +104,9 @@ wavefoundry-MAJOR.MINOR.PATCH.<build>.zip
 wavefoundry-models-MODEL.SET.zip
 ```
 
+- Every pack carries `.wavefoundry/framework/BUILD-PROVENANCE.json` with exactly `schema_version`, `release_version`, `build_id`, `source_commit` (the 40-hex `HEAD` it was built from, or `null` outside its own checkout), `source_tree_clean` (gardener output makes it false) and `release_tag` (`vX.Y.Z` under `--release` only). In a release, `source_commit` is the parent of the stamp commit the tag points at. The file is removed from the source tree after every build.
+- `--release` also uploads `SHA256SUMS`, one `<sha256>  <filename>` line per asset, written outside the repository and the output folder; `--release-dry-run` prints those lines. A failed upload keeps the notes and `SHA256SUMS` and names both in the recovery command. The checksums let a consumer check a download against the same release; they are not a signature.
+
 - `MAJOR.MINOR.PATCH` is the required semver release version passed via `--version`.
 - `<build>` is a standalone 4-character base36 pure-time build suffix (5-minute buckets on a pinned build epoch), computed automatically by `build_pack.py` — independent of the lifecycle-ID policy.
 - `VERSION` is stamped to `MAJOR.MINOR.PATCH+<build>` before zip creation, and manifest `framework_revision` must match unless `--skip-manifest-check` is used.
@@ -117,6 +120,7 @@ wavefoundry-models-MODEL.SET.zip
 - `--output <dir>`: write zip to an existing directory instead of `~/.wavefoundry/dist/`.
 - `--skip-manifest-check`: skip the `framework_revision` consistency check.
 - `--skip-docs-gate`: skip the docs-gardener / docs-lint pre-flight gate.
+- `--accept-qualification-exception PROFILE=REASON`: release modes only; publish despite a failing, current `second` or `declared` report and record REASON in the release notes.
 - `--verbose` / `-v`: print index build progress.
 - `--with-models`: build the declared offline model-set asset from the warmed
   local model cache. It never downloads missing model files during packaging.
