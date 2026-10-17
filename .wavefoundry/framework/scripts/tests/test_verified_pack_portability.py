@@ -20,10 +20,27 @@ import contained_files
 class VerifiedPackOwnershipTests(unittest.TestCase):
     def setUp(self):
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
+        # Change 20rvq: stage under an owned private parent for the whole test,
+        # cleanup included. The legacy alias below then points at this parent,
+        # never at the shared system temp root, which is an ancestor of a
+        # profile run's protected checkout and so refused by the worker guard.
+        # Legacy proofs still pass only through the gettempdir() equality.
+        # The parent is reached through a link so the temp root stays non-canonical,
+        # as the system temp root is on macOS, and the gettempdir-side resolve in
+        # _cleanup_verified_pack keeps its coverage (DEL-1). Windows has no
+        # symlink privilege here; its legacy-alias tests already skip.
+        self.owned_parent = self.root / 'owned-pack-parent'
+        self.owned_parent.mkdir()
+        temp_root = self.owned_parent
+        if os.name != 'nt':
+            temp_root = self.root / 'owned-pack-parent-link'
+            temp_root.symlink_to(self.owned_parent, target_is_directory=True)
+        self.enterContext(patch.object(tempfile, 'tempdir', str(temp_root)))
         self.source = self.root / 'selected.zip'
         self.source.write_bytes(b'private verified payload')
         with patch.object(upgrade_protocol, 'validate_feature_pack', return_value={}):
             self.staged = runner._stage_pack_for_consumption(self.source)
+        self.assertEqual(self.staged.parent, self.owned_parent)
         self.proof = copy.deepcopy(runner._VERIFIED_PACK_IDENTITIES[str(self.staged)])
         self.addCleanup(self.staged.unlink, missing_ok=True)
 

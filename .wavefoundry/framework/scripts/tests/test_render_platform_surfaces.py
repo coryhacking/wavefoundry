@@ -3812,6 +3812,19 @@ class HookVenvMismatchTests(unittest.TestCase):
 
     def test_committed_rendered_hooks_match_the_renderer(self):
         # AC-13: every committed hook is byte-identical to a fresh render of all hosts.
+        # Change 20rvq: under a changed distribution declaration (a profile run whose
+        # loaded declaration differs from the shipped one) the pre-edit hook's two
+        # declaration-dependent assignments are verified against the effective roster
+        # and the actual source bytes instead; every other byte and every other hook
+        # stays byte-exact. The branch is chosen by the loaded declaration, never by an
+        # observed difference, so the shipped default and a vocabulary-only profile keep
+        # raw equality (and with it the committed extensions-digest check).
+        from declaration_support import _normalized, declaration_profile_mismatch
+        from record_layout_support import SHIPPED_DECLARATION, expected_profile
+        expected = expected_profile()
+        declaration_aware = _normalized(expected.declaration()) != _normalized(SHIPPED_DECLARATION)
+        if declaration_aware:
+            self.assertIsNone(declaration_profile_mismatch(expected))
         repo = PROJECT_ROOT.parent
         render_root = self.base / "render"
         for directory in (".claude/hooks", ".cursor/hooks", ".github/hooks", ".windsurf/hooks"):
@@ -3824,8 +3837,147 @@ class HookVenvMismatchTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         for rel in [*_BOOTSTRAP_HOOKS, ".claude/hooks/wf-session-start.py"]:
             with self.subTest(rel):
-                self.assertEqual((repo / rel).read_bytes(), (render_root / rel).read_bytes(),
-                                 f"{rel} differs from the renderer; regenerate with wf_sync_surfaces")
+                committed = (repo / rel).read_bytes()
+                fresh = (render_root / rel).read_bytes()
+                if declaration_aware and rel == ".claude/hooks/pre-edit.py":
+                    problems = _declaration_aware_pre_edit_parity(
+                        committed, fresh, expected_names=_expected_core_read_names(committed, expected.declaration()),
+                        roster_digest=_source_digest(repo, "mcp_tool_roster.py"),
+                        extensions_digest=_source_digest(repo, "mcp_tool_extensions.py"))
+                    self.assertEqual(problems, [], f"{rel} differs from the renderer beyond the declaration data")
+                    hidden = expected.declaration().get("EXTENSION_HIDDEN_TOOLS") or ()
+                    if "wf_gpu_doctor" in hidden:  # The declared profile's literal anchor.
+                        fresh_names, _matches = _assignment_value(fresh.splitlines(keepends=True), _CORE_READ_TOOLS_LINE)
+                        self.assertNotIn("mcp__wavefoundry__wf_gpu_doctor", fresh_names)
+                    continue
+                self.assertEqual(committed, fresh, f"{rel} differs from the renderer; regenerate with wf_sync_surfaces")
+
+
+_CORE_READ_TOOLS_LINE = b"CORE_READ_TOOLS = "
+_CORE_READ_CONTRACT_LINE = b"CORE_READ_CONTRACT = "
+
+
+def _source_digest(repo: Path, name: str) -> str:
+    import hashlib
+    return hashlib.sha256((repo / ".wavefoundry/framework/scripts" / name).read_bytes()).hexdigest()
+
+
+def _assignment_value(lines, prefix):
+    """The parsed right-hand side of the single line starting with ``prefix``,
+    and its index; ``None`` unless exactly one such line exists."""
+    import ast
+    matches = [index for index, line in enumerate(lines) if line.startswith(prefix)]
+    if len(matches) != 1:
+        return None, matches
+    return ast.literal_eval(lines[matches[0]][len(prefix):].decode("utf-8").strip()), matches
+
+
+def _expected_core_read_names(committed_hook: bytes, declaration: dict) -> tuple:
+    """Names the fresh hook must grant under ``declaration``: the committed default
+    hook's names (proven byte-exact by the default run) minus the declaration's
+    hidden names, override targets and replaced core names. Shares no code with the
+    renderer's own derivation."""
+    import mcp_tool_roster as roster
+    names, _matches = _assignment_value(committed_hook.splitlines(keepends=True), _CORE_READ_TOOLS_LINE)
+    removed = set(declaration.get("EXTENSION_HIDDEN_TOOLS") or ())
+    for targets in (declaration.get("EXTENSION_OVERRIDES") or {}).values():
+        removed.update(targets)
+    for entries in (declaration.get("EXTENSION_REPLACEMENTS") or {}).values():
+        removed.update(entries if isinstance(entries, dict) else ())
+    removed = {roster.MCP_RULE_PREFIX + name for name in removed}
+    return tuple(name for name in names if name not in removed)
+
+
+def _declaration_aware_pre_edit_parity(committed: bytes, fresh: bytes, *, expected_names, roster_digest, extensions_digest) -> list:
+    """Problems with ``fresh`` as a render of the committed pre-edit hook under a
+    changed declaration; empty when parity holds. Only the ``CORE_READ_TOOLS`` line
+    and the ``mcp_tool_extensions.py`` digest value may differ, each pinned to an
+    independent oracle; the roster digest stays byte-exact."""
+    problems = []
+    committed_lines = committed.splitlines(keepends=True)
+    fresh_lines = fresh.splitlines(keepends=True)
+    if len(committed_lines) != len(fresh_lines):
+        return ["line count differs"]
+    allowed = set()
+    values = {}
+    positions = {}
+    for label, prefix in (("tools", _CORE_READ_TOOLS_LINE), ("contract", _CORE_READ_CONTRACT_LINE)):
+        for side, lines in (("committed", committed_lines), ("fresh", fresh_lines)):
+            value, matches = _assignment_value(lines, prefix)
+            if len(matches) != 1:
+                problems.append(f"{side} hook has {len(matches)} {label} assignment lines")
+                continue
+            values[(side, label)] = value
+            positions[(side, label)] = matches[0]
+        if positions.get(("committed", label)) != positions.get(("fresh", label)):
+            problems.append(f"{label} assignment line moved")
+        allowed.add(positions.get(("committed", label)))
+    if problems:
+        return problems
+    differing = [index for index, (left, right) in enumerate(zip(committed_lines, fresh_lines)) if left != right]
+    unexpected = [index for index in differing if index not in allowed]
+    if unexpected:
+        problems.append(f"bytes differ outside the declaration data at line(s) {unexpected}")
+    if tuple(values[("fresh", "tools")]) != tuple(expected_names) or not expected_names:
+        problems.append("fresh CORE_READ_TOOLS does not equal the expected names")
+    contract = values[("fresh", "contract")]
+    if not isinstance(contract, dict) or len(contract) != 2 or set(contract) != {"mcp_tool_roster.py", "mcp_tool_extensions.py"}:
+        problems.append("fresh CORE_READ_CONTRACT does not hold exactly the two permission sources")
+        return problems
+    if contract["mcp_tool_roster.py"] != roster_digest or contract["mcp_tool_roster.py"] != values[("committed", "contract")].get("mcp_tool_roster.py"):
+        problems.append("roster digest is not byte-exact")
+    if contract["mcp_tool_extensions.py"] != extensions_digest:
+        problems.append("extensions digest does not match the actual source bytes")
+    return problems
+
+
+class DeclarationAwareHookParityTests(unittest.TestCase):
+    """Change 20rvq AC-4: the declaration-aware comparison refuses every known-bad
+    shape, in every profile, so the relaxed branch cannot hide a hook regression."""
+
+    def _hook(self, names="('a', 'b')", roster="r1", extensions="e1", *, tail=b"print('tail')\n"):
+        return (b"#!/usr/bin/env python3\n" + b"CORE_READ_TOOLS = " + names.encode() + b"\n"
+                + b"CORE_READ_CONTRACT = {'mcp_tool_roster.py': " + repr(roster).encode()
+                + b", 'mcp_tool_extensions.py': " + repr(extensions).encode() + b"}\n" + tail)
+
+    def _check(self, fresh, committed=None, expected=("a",)):
+        return _declaration_aware_pre_edit_parity(committed or self._hook(), fresh, expected_names=expected,
+                                                   roster_digest="r1", extensions_digest="e2")
+
+    def test_only_the_names_line_and_extensions_digest_may_differ(self):
+        self.assertEqual(self._check(self._hook("('a',)", extensions="e2")), [])
+
+    def test_known_bad_shapes_are_refused(self):
+        # Each case is refused for its own named reason, at an equal line count where
+        # the shape allows it, so a case cannot pass through a different check.
+        contract = b"CORE_READ_CONTRACT = {'mcp_tool_roster.py': 'r1', 'mcp_tool_extensions.py': 'e2'}\n"
+        cases = {
+            "name added": (self._hook("('a', 'c')", extensions="e2"), "expected names"),
+            "name removed": (self._hook("()", extensions="e2"), "expected names"),
+            "roster digest changed": (self._hook("('a',)", roster="r2", extensions="e2"), "roster digest"),
+            "unrelated byte": (self._hook("('a',)", extensions="e2", tail=b"print('tail!')\n"), "outside the declaration data"),
+            "duplicated assignment": (self._hook("('a',)", extensions="e2", tail=b"CORE_READ_TOOLS = ('a',)\n"), "assignment lines"),
+            "moved assignment": (b"#!/usr/bin/env python3\nprint('tail')\nCORE_READ_TOOLS = ('a',)\n" + contract, "line moved"),
+            "swapped assignments": (b"#!/usr/bin/env python3\n" + contract + b"CORE_READ_TOOLS = ('a',)\nprint('tail')\n", "line moved"),
+            "stale extensions digest": (self._hook("('a',)", extensions="e1"), "extensions digest"),
+            "line count differs": (self._hook("('a',)", extensions="e2") + b"x = 1\n", "line count"),
+            "fail-closed empty render": (b"#!/usr/bin/env python3\nCORE_READ_TOOLS = ()\nCORE_READ_CONTRACT = {}\nprint('tail')\n", "expected names"),
+        }
+        for label, (fresh, reason) in cases.items():
+            with self.subTest(label):
+                problems = self._check(fresh)
+                self.assertTrue(any(reason in problem for problem in problems), problems)
+        with self.subTest("empty expectation"):
+            self.assertIn("fresh CORE_READ_TOOLS does not equal the expected names",
+                          self._check(self._hook("()", extensions="e2"), expected=()))
+
+    def test_expected_names_drop_hidden_overridden_and_replaced_names(self):
+        committed = self._hook("('mcp__wavefoundry__code_read', 'mcp__wavefoundry__wf_gpu_doctor', 'mcp__wavefoundry__wf_help')")
+        declaration = {"EXTENSION_HIDDEN_TOOLS": ["wf_gpu_doctor"], "EXTENSION_OVERRIDES": {"m": ["code_read"]},
+                       "EXTENSION_REPLACEMENTS": {"m": {"wf_help": {"alias_for_core": "x"}}}}
+        self.assertEqual(_expected_core_read_names(committed, declaration), ())
+        self.assertEqual(_expected_core_read_names(committed, {}),
+                         ("mcp__wavefoundry__code_read", "mcp__wavefoundry__wf_gpu_doctor", "mcp__wavefoundry__wf_help"))
 
 
 class IdentityBoundPlatformRemovalTests(unittest.TestCase):

@@ -16,6 +16,7 @@ sys.path.insert(0, str(SCRIPTS))
 import render_platform_surfaces as renderer
 import mcp_tool_extensions as extensions
 import mcp_tool_roster as roster
+from declaration_support import apply_base_declaration, base_declaration
 
 
 class CoreReadHookTests(unittest.TestCase):
@@ -25,7 +26,12 @@ class CoreReadHookTests(unittest.TestCase):
         self.scripts = self.root / '.wavefoundry/framework/scripts'
         self.scripts.mkdir(parents=True)
         for name in ('mcp_tool_roster.py', 'mcp_tool_extensions.py'):
+            # Byte copies: CORE_READ_CONTRACT digests the on-disk bytes, so the
+            # declaration is owned in memory below, never appended to the copy.
             shutil.copyfile(SCRIPTS / name, self.scripts / name)
+        # Change 20rvq: own the declaration explicitly (the shipped empty one plus
+        # each test's own) instead of inheriting an ambient distribution profile.
+        apply_base_declaration(self)
 
     def hook(self):
         namespace = {'__name__': 'hook_fixture', '__file__': str(self.root / '.claude/hooks/pre-edit.py')}
@@ -52,17 +58,35 @@ class CoreReadHookTests(unittest.TestCase):
             self.assertEqual(self.invoke(hook, name), 2)
 
     def test_overridden_core_and_aliases_are_not_exempt(self):
-        with patch.object(extensions, 'EXTENSION_MODULES', ('distribution_hooks',)), \
-                patch.object(extensions, 'EXTENSION_OVERRIDES', {'distribution_hooks': ('code_read',)}), \
-                patch.object(extensions, 'EXTENSION_TOOL_ALIASES', {'code_read_alias': 'code_outline'}):
+        with base_declaration(EXTENSION_MODULES=('distribution_hooks',),
+                              EXTENSION_OVERRIDES={'distribution_hooks': ('code_read',)},
+                              EXTENSION_TOOL_ALIASES={'code_read_alias': 'code_outline'}):
             roster.all_tool_tiers()  # Real declaration validation, not a stub.
             hook = self.hook()
+        self.assertEqual(len(hook['CORE_READ_CONTRACT']), 2)
         self.assertEqual(self.invoke(hook, 'mcp__wavefoundry__code_read'), 2)
         self.assertEqual(self.invoke(hook, 'mcp__wavefoundry__code_read_alias'), 2)
         self.assertEqual(self.invoke(hook, 'mcp__wavefoundry__code_outline'), 0)
 
+    def test_hidden_core_name_and_its_alias_are_not_exempt(self):
+        # Change 20rvq: explicit hidden-name coverage. The fixture must be a valid
+        # declaration and the same hook must still grant a plain core read, so the
+        # refusals below cannot come from a fail-closed contract.
+        with base_declaration(EXTENSION_TOOL_ALIASES={'wf_alias_gpu_doctor': 'wf_gpu_doctor'},
+                              EXTENSION_HIDDEN_TOOLS=('wf_gpu_doctor',)):
+            tiers = roster.all_tool_tiers()
+            hook = self.hook()
+        self.assertEqual(roster.TOOL_TIERS['wf_gpu_doctor'], roster.TIER_READ)
+        self.assertNotIn('wf_gpu_doctor', tiers)
+        self.assertEqual(len(hook['CORE_READ_CONTRACT']), 2)
+        self.assertNotIn('mcp__wavefoundry__wf_gpu_doctor', hook['CORE_READ_TOOLS'])
+        self.assertEqual(self.invoke(hook, 'mcp__wavefoundry__wf_gpu_doctor'), 2)
+        self.assertEqual(self.invoke(hook, 'mcp__wavefoundry__wf_alias_gpu_doctor'), 2)
+        self.assertEqual(self.invoke(hook, 'mcp__wavefoundry__code_read'), 0)
+
     def test_stale_missing_nonregular_and_malformed_contracts_fail_closed(self):
         hook = self.hook()
+        self.assertEqual(self.invoke(hook, 'mcp__wavefoundry__code_read'), 0)  # Positive control first.
         target = self.scripts / 'mcp_tool_roster.py'
         target.write_bytes(target.read_bytes() + b'\n# changed\n')
         self.assertEqual(self.invoke(hook, 'mcp__wavefoundry__code_read'), 2)
