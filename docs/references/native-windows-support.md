@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: supported
-Last verified: 2026-10-15
+Last verified: 2026-10-16
 
 ## SQLite conversion qualification (1xjmm)
 
@@ -139,7 +139,7 @@ Preserve project prose and aliases; locate the legacy prompt using the path repo
 
 ## Retained index-guard continuation
 
-Use the checkpoint's emitted continuation command after stopping its recorded hosts. Proven post-docs handoffs use `--resume-after-memory` or `--update-index` with `--confirm-hosts-stopped`; unproven, pre-docs and storage/rebuild states keep the full upgrade command. Pack-backed continuations own one verified file at `.wavefoundry/cache/upgrade/index-guard-feature.zip`, independently of temporary staging and the external original. Do not replace that file with a matching archive: its root, token, target, file identity and hash must match the checkpoint. Links, name-surrogate or unclassified reparse metadata, nonregular files, multilinks and permission failures refuse. Valid non-surrogate tags pass link classification; the other guards still apply. Windows reparse/permission coverage is injected simulation, not native Windows qualification.
+Use the checkpoint's emitted continuation command after stopping its recorded hosts. Proven post-docs handoffs use `--update-index` with `--confirm-hosts-stopped`; unproven, pre-docs and storage/rebuild states keep the full upgrade command. Pack-backed continuations own one verified file at `.wavefoundry/cache/upgrade/index-guard-feature.zip`, independently of temporary staging and the external original. Do not replace that file with a matching archive: its root, token, target, file identity and hash must match the checkpoint. Links, name-surrogate or unclassified reparse metadata, nonregular files, multilinks and permission failures refuse. Valid non-surrogate tags pass link classification; the other guards still apply. Windows reparse/permission coverage is injected simulation, not native Windows qualification.
 
 Paused or failed publication, validation or cleanup retains recovery authority. After fatal storage/dashboard obligations succeed, cleanup records terminal completion before deleting the owned archive. If archive or checkpoint deletion fails, retry `--cleanup`; the validated terminal checkpoint permits this retry even after the archive was deliberately removed, without loading it or running rendering/indexing again. Ordinary resume still requires the owned archive. Fresh-process lost-TMP tests demonstrate restart recovery with bounded fake index children, not a measured reboot. The final identity-check/unlink sequence is not atomic against concurrent replacement.
 

@@ -323,7 +323,7 @@ class IndexUpgradeGuardTests(unittest.TestCase):
 
     def test_each_actual_phase_refuses_before_child_or_store_access(self):
         self.capture()
-        for phase in (lambda: runner.phase_index_update(self.root), lambda: runner.phase_index_rebuild(self.root), lambda: runner.phase_index_update_parent_owned(self.root, 'memory-fixture')):
+        for phase in (lambda: runner.phase_index_update(self.root), lambda: runner.phase_index_rebuild(self.root)):
             with self.subTest(phase=phase):
                 with patch.object(migration, 'detect', side_effect=AssertionError('storage reached before guard')), patch.object(runner.subprocess_util, 'isolated_run', side_effect=AssertionError('child reached before guard')):
                     self.refuse(phase)
@@ -604,7 +604,7 @@ class DurableIndexGuardContinuationTests(unittest.TestCase):
             'proof':dict(record['durable_pack']), 'storage_cleanup_complete':True,
             'dashboard_restart_complete':True,'fatal_cleanup_complete':True}
         upgrade_lib.update_upgrade_lock(self.root, index_guard_handoff=record,
-            failed_phase=None, index_publication_failed=False, memory_backfill_state='indexed', dashboard_restart_pending=False)
+            failed_phase=None, index_publication_failed=False, index_rebuilt_at='observed', dashboard_restart_pending=False)
         return upgrade_lib.read_upgrade_lock(self.root)
 
     def _quiet_cleanup(self):
@@ -653,21 +653,19 @@ class DurableIndexGuardContinuationTests(unittest.TestCase):
             self.assertIn('--pack',self.handoff()['command_argv'])
         self.assertFalse((self.root / hooks._INDEX_GUARD_PACK_REL).exists())
 
-    def test_memory_rows_accept_actual_gate_and_exclude_post_extract_legacy(self):
-        import memory_backfill
+    def test_legacy_post_docs_phases_continue_without_reading_memory_state(self):
         self.prepare()
-        for phase in hooks._INDEX_GUARD_MEMORY_PHASES | {None,'preflight'}:
-            with self.subTest(phase=phase), patch.object(memory_backfill,'run_summary',return_value={'state':'ready_for_index'}):
-                upgrade_lib.update_upgrade_lock(self.root, current_phase=phase, memory_backfill_run_id='real-gate-fixture', runner_protocol=None)
+        for phase in {'awaiting_memory_validation', 'awaiting_memory_publication', 'memory_resume_preflight', 'index_complete'}:
+            with self.subTest(phase=phase):
+                upgrade_lib.update_upgrade_lock(self.root, current_phase=phase, runner_protocol=None)
                 action = self.handoff()
-                self.assertIn('--resume-after-memory',action['command_argv'])
-                self.assertNotIn('--pack',action['command_argv'])
+                self.assertIn('--update-index', action['command_argv'])
+                self.assertNotIn('--pack', action['command_argv'])
         lock = upgrade_lib.read_upgrade_lock(self.root)
-        with patch.object(memory_backfill,'run_summary',return_value={'state':'ready_for_index'}):
-            self.assertIsNone(hooks._index_guard_resume_flag(self.ctx,lock,migration,pre_docs=True))
-        upgrade_lib.update_upgrade_lock(self.root,current_phase='index_update')
-        with patch.object(memory_backfill,'run_summary',return_value={'state':'ready_for_index'}):
-            self.assertIn('--pack',self.handoff()['command_argv'])
+        self.assertIsNone(hooks._index_guard_resume_flag(self.ctx, lock, migration, pre_docs=True))
+        for phase in (None, 'preflight'):
+            upgrade_lib.update_upgrade_lock(self.root, current_phase=phase)
+            self.assertIn('--pack', self.handoff()['command_argv'])
 
     def test_foreign_same_hash_slot_and_publish_before_binding_are_never_adopted(self):
         self.prepare()
@@ -826,7 +824,7 @@ if __name__ == "__main__":
     def test_terminal_cleanup_removes_only_owned_slot_and_verified_tmp_not_original(self):
         self.prepare(staged=True); staged=self.ctx.zip_path; original=self.package.read_bytes(); self.handoff(); self.confirm()
         record=self.record(); record['hosts_stopped_confirmed']=True
-        upgrade_lib.update_upgrade_lock(self.root,index_guard_handoff=record,memory_backfill_state='indexed')
+        upgrade_lib.update_upgrade_lock(self.root,index_guard_handoff=record,index_rebuilt_at='observed')
         self._quiet_cleanup()
         self.assertFalse((self.root / hooks._INDEX_GUARD_PACK_REL).exists()); self.assertFalse(staged.exists())
         self.assertFalse(upgrade_lib.upgrade_lock_path(self.root).exists()); self.assertEqual(self.package.read_bytes(),original)
@@ -835,7 +833,7 @@ if __name__ == "__main__":
         import contained_files
         self.prepare(); self.handoff(); self.confirm()
         record=self.record(); record['hosts_stopped_confirmed']=True
-        upgrade_lib.update_upgrade_lock(self.root,index_guard_handoff=record,memory_backfill_state='indexed')
+        upgrade_lib.update_upgrade_lock(self.root,index_guard_handoff=record,index_rebuilt_at='observed')
         with patch.object(contained_files,'unlink_contained',side_effect=PermissionError('simulated archive denial')), \
              contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit): self._quiet_cleanup()
         self.assertIn('terminal_cleanup',self.record()); self.assertTrue((self.root/hooks._INDEX_GUARD_PACK_REL).exists())
@@ -911,8 +909,8 @@ if __name__ == "__main__":
             with self.assertRaises(SystemExit) as pause:
                 runner.main(['--root',str(self.root),'--resume-after-memory','--yes','--confirm-hosts-stopped'])
         self.assertEqual(pause.exception.code,3)
-        self.assertIn('--resume-after-memory',self.record()['action']['command_argv'])
-        self.assertEqual(upgrade_lib.read_upgrade_lock(self.root)['current_phase'],'memory_resume_preflight')
+        self.assertIn('--update-index',self.record()['action']['command_argv'])
+        self.assertEqual(upgrade_lib.read_upgrade_lock(self.root)['current_phase'],'awaiting_memory_validation')
         probe=subprocess.run([sys.executable,'-B','-c',
             'import sys; from pathlib import Path; sys.path.insert(0,sys.argv[1]); import lifecycle_lock; tx=lifecycle_lock.lifecycle_publication_transaction(Path(sys.argv[2])); tx.__enter__(); tx.__exit__(None,None,None)',
             str(Path(runner.__file__).parent),str(self.root)],capture_output=True,text=True,timeout=15)

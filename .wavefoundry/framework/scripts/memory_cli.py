@@ -26,7 +26,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", default=None, help="Repository root (default: discovered from the script's install location, not cwd)")
     parser.add_argument("--mode", default="create", choices=("dry_run", "create"))
     parser.add_argument("--limit", type=int, default=20)
-    parser.add_argument("--entry-path", default="manual")
+    parser.add_argument("--entry-path", default="manual", help="Deprecated compatibility argument; backfill is on demand.")
     parser.add_argument("--memory-id", default="")
     parser.add_argument(
         "--verdict", choices=("promote", "retain", "reject", "rewrite"), default=""

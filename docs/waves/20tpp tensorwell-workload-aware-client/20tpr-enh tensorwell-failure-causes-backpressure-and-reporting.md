@@ -1,9 +1,9 @@
 # Preserve Tensorwell failure causes, bound retries and concurrency, and report capacity
 
 Change ID: `20tpr-enh tensorwell-failure-causes-backpressure-and-reporting`
-Change Status: `implementing`
+Change Status: `implemented`
 Owner: Engineering
-Status: implementing
+Status: implemented
 Last verified: 2026-10-16
 Wave: `20tpp tensorwell-workload-aware-client`
 

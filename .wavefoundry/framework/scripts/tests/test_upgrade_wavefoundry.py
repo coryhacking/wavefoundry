@@ -1957,7 +1957,7 @@ class ResumeAfterGateTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def _resume(self):
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        with patch.object(self.mod, "phase_index_update", return_value=True), patch.object(self.mod, "_load_extension_module", return_value=None), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             return self.mod.main(["--resume-after-gate", "--root", str(self.root)])
 
     def _failed_gate_lock(self):
@@ -1991,8 +1991,8 @@ class ResumeAfterGateTests(unittest.TestCase):
         self.assertTrue(all(path.resolve() == self.root.resolve() for _, path in called))
         lock = self.lib.read_upgrade_lock(self.root)
         self.assertIsNone(lock.get("failed_phase"))
-        self.assertEqual(lock.get("current_phase"), "awaiting_memory_validation")
-        self.assertTrue(str(lock.get("memory_backfill_run_id") or "").strip())
+        self.assertEqual(lock.get("current_phase"), "index_complete")
+        self.assertNotIn("memory_backfill_run_id", lock)
 
     # Wave 1zeyo (1zeyn): a crash after the docs gate passed.
 
@@ -2014,38 +2014,18 @@ class ResumeAfterGateTests(unittest.TestCase):
         self.assertEqual(self._resume_passing_gate(), 0)
         lock = self.lib.read_upgrade_lock(self.root)
         self.assertIsNone(lock.get("failed_phase"))
-        self.assertTrue(str(lock.get("memory_backfill_run_id") or "").strip())
+        self.assertNotIn("memory_backfill_run_id", lock)
 
-    def test_a_failed_checkpoint_after_the_gate_stays_resumable(self):
-        # The marker is kept until the memory checkpoint is recorded: a
-        # bootstrap, reconciliation or unknown-state failure leaves a lock
-        # that the next --resume-after-gate accepts once the fault is gone.
-        import memory_backfill
-
-        def _raise(*_args, **_kwargs):
-            raise RuntimeError("injected")
-
-        faults = {
-            "sync_inventory": patch.object(memory_backfill, "sync_inventory", _raise),
-            "reconcile_raises": patch.object(memory_backfill, "reconcile_index_publication", _raise),
-            "reconcile_unknown_state": patch.object(
-                memory_backfill, "reconcile_index_publication", lambda *_a, **_k: {"state": "bogus"}
-            ),
-        }
-        for start in ("docs_gate", self.mod.POST_DOCS_GATE_PHASE):
-            for label, fault in faults.items():
-                with self.subTest(start=start, fault=label):
-                    self._post_gate_lock(start)
-                    with fault, contextlib.suppress(RuntimeError):
-                        self.assertNotEqual(self._resume_passing_gate(), 0)
-                    lock = self.lib.read_upgrade_lock(self.root)
-                    self.assertEqual(lock.get("failed_phase"), self.mod.POST_DOCS_GATE_PHASE)
-                    self.assertTrue(self.mod._is_post_docs_gate_failure(lock))
-                    self.assertEqual(self._resume_passing_gate(), 0)
-                    lock = self.lib.read_upgrade_lock(self.root)
-                    self.assertIsNone(lock.get("failed_phase"))
-                    self.assertTrue(str(lock.get("memory_backfill_run_id") or "").strip())
-                    self.lib.remove_upgrade_lock(self.root)
+    def test_a_failed_post_docs_hook_stays_resumable(self):
+        self._post_gate_lock(self.mod.POST_DOCS_GATE_PHASE)
+        def fail_hook(name, *args):
+            if name == "post_docs_gate":
+                raise RuntimeError("injected hook packaging failure")
+        with patch.object(self.mod, "_run_hook", side_effect=fail_hook):
+            with self.assertRaises(RuntimeError):
+                self._resume_passing_gate()
+        self.assertTrue(self.mod._is_post_docs_gate_failure(self.lib.read_upgrade_lock(self.root)))
+        self.assertEqual(self._resume_passing_gate(), 0)
 
     def test_a_sidecar_cleanup_failure_after_the_gate_keeps_its_own_label(self):
         # Its recovery (stop attached hosts, re-run the full upgrade) differs,
@@ -2071,7 +2051,7 @@ class ResumeAfterGateTests(unittest.TestCase):
                 lock = self.lib.read_upgrade_lock(self.root)
                 self.assertIsNone(lock.get("failed_phase"))
                 if with_run:
-                    self.assertEqual(lock.get("memory_backfill_run_id"), run_id)
+                    self.assertNotIn("memory_backfill_run_id", lock)
                 self.lib.remove_upgrade_lock(self.root)
 
     def test_a_real_memory_pause_is_not_treated_as_a_crash(self):
@@ -2321,12 +2301,12 @@ class UpgradeManifestRecoveryTests(unittest.TestCase):
             root = Path(directory) / "target"; pack = self._fixture(root)
             mod = load_upgrade_module()
             result, _count = self._attempt(root, pack, "bootstrap", mod)
-            self.assertIsInstance(result, RuntimeError)
+            self.assertEqual(result, 0)
             import upgrade_lib
 
             lock = upgrade_lib.read_upgrade_lock(root) or {}
-            self.assertEqual(lock.get("failed_phase"), mod.POST_DOCS_GATE_PHASE)
-            self.assertEqual(lock.get("current_phase"), "docs_gate_complete")
+            self.assertIsNone(lock.get("failed_phase"))
+            self.assertEqual(lock.get("historical_memory_report", {}).get("status"), "unavailable")
 
     def test_full_retry_after_surface_failure_skips_extract_and_prunes_original(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -2440,7 +2420,7 @@ class UpgradeManifestRecoveryTests(unittest.TestCase):
             with patch.object(sqlite_storage_migration, "restore_checkpoint", side_effect=AssertionError("checkpoint restoration reached")), \
                     contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
                 self.assertEqual(mod.main(["--root", str(root), "--pack", str(pack), "--yes", "--confirm-hosts-stopped"]), 5)
-            self.assertIn("--resume-after-memory", output.getvalue())
+            self.assertIn("update_index", output.getvalue())
             self.assertEqual(upgrade_lib.upgrade_lock_path(root).read_bytes(), before)
             upgrade_lib.update_upgrade_lock(root, current_phase="index_complete", failed_phase=None,
                                            action_required=None, pruned_count=0)
@@ -5417,8 +5397,7 @@ class Phase4PublisherGrantTests(unittest.TestCase):
         with patch.object(self.mod, "SCRIPTS_DIR", self.root), \
              patch("child_tee.run", return_value=mock_proc), \
              patch("subprocess.Popen"):
-            with self.assertRaisesRegex(RuntimeError, "retryable"):
-                self.mod.phase_index_update(self.root)
+            self.assertFalse(self.mod.phase_index_update(self.root))
 
     def test_failed_publication_reaches_primary_sentinel(self):
         # End-to-end to the PRIMARY emit site: failing child exit -> observed
@@ -5607,9 +5586,8 @@ class PreIndexUpdateBridgeTests(unittest.TestCase):
         ), patch.object(
             ext, "_installed_memory_backfill", return_value=fake_backfill
         ):
-            with self.assertRaises(SystemExit) as raised:
-                ext.pre_index_update(self._ctx())
-        self.assertEqual(raised.exception.code, 4)
+            ext.pre_index_update(self._ctx())
+        fake_backfill.reconcile_index_publication.assert_not_called()
 
 
 class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
@@ -9457,6 +9435,7 @@ class PrimaryPhaseSummaryTests(unittest.TestCase):
 
 _DELEGATE_CHILD_MODULES = (
     "upgrade_wavefoundry.py",
+    "memory_backfill.py",  # 20t73: advisory rows in the delegated summary
     "upgrade_lib.py",
     "venv_bootstrap.py",
     "subprocess_util.py",
@@ -9551,6 +9530,9 @@ class DelegatedSummaryPg1aReproductionTests(unittest.TestCase):
             lib = _load_upgrade_lib()
             lib.write_upgrade_lock(root, from_version="1.14.0", to_version="1.15.0")
             lib.update_upgrade_lock(root, index_rebuilt_at="2026-10-09T00:00:00Z")
+            report = {"closed_waves_without_memory": 2, "candidates_awaiting_validation": 3,
+                      "next_step": "Run Review memories: memory_backfill(mode='create') then memory_validate."}
+            lib.update_upgrade_lock(root, historical_memory_report=report)
             stub = _mismatched_reconcile_scan_stub([self.FINDING])
             buf = io.StringIO()
             with patch.dict(sys.modules, {"reconcile_scan": stub}), \
@@ -9565,6 +9547,7 @@ class DelegatedSummaryPg1aReproductionTests(unittest.TestCase):
             summaries = self._parse_sentinel(buf.getvalue())
             self.assertEqual(len(summaries), 1, "exactly one sentinel per run")
             summary = summaries[0]
+            self.assertEqual(summary["historical_memory"], report)
             self.assertEqual(len(summary["reconciliation"]), 1,
                              "the delegated producer must carry the finding")
             self.assertEqual(
@@ -11378,1381 +11361,10 @@ class MaterializeLifecyclePolicyTests(unittest.TestCase):
         )
 
 
-class HistoricalMemoryUpgradeGateTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.mod = load_upgrade_module()
 
-    def setUp(self):
-        _confirmed_index_guard_fixture(self)
-        self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
-        (self.root / ".wavefoundry" / "index").mkdir(parents=True)
-        (self.root / _live_waves_rel()).mkdir(parents=True)
-        sys.path.insert(0, str(SCRIPTS_ROOT))
-        import memory_backfill
-        import upgrade_lib
 
-        self.backfill = memory_backfill
-        self.upgrade_lib = upgrade_lib
-        self.run_id = memory_backfill.ensure_run(self.root, "upgrade")
-        memory_backfill.sync_inventory(self.root, self.run_id)
-        upgrade_lib.write_upgrade_lock(self.root, "1.0.0", "1.1.0")
-        upgrade_lib.update_upgrade_lock(
-            self.root,
-            memory_backfill_run_id=self.run_id,
-            memory_backfill_state="ready_for_index",
-        )
 
-    def tearDown(self):
-        self.tmp.cleanup()
 
-    def _ready_candidate_run(self):
-        import index_state_store
-        import memory_records
-        import server_impl
-
-        self.root.joinpath("foo.py").write_text("LOCAL = True\n", encoding="utf-8")
-        wave = self.root / _live_waves_rel() / "1abc closed"
-        wave.mkdir()
-        change_id = "1abd-enh durable-choice"
-        wave.joinpath(_record_name()).write_text(
-            f"# Wave\n\nStatus: closed\n\n{_member_id_label()}: `{change_id}`\n",
-            encoding="utf-8",
-        )
-        wave.joinpath(f"{change_id}.md").write_text(
-            "# Change\n\n## Decision Log\n\n"
-            "| Date | Decision | Reason | Alternatives |\n"
-            "| --- | --- | --- | --- |\n"
-            "| 2026-01-01 | Keep `foo.py` local | Avoid remote authority | none |\n",
-            encoding="utf-8",
-        )
-        server_impl.memory_backfill_response(
-            self.root, mode="create", entry_path="upgrade"
-        )
-        candidate = memory_records.load_memory_records(self.root)[0]
-        server_impl.memory_validate_response(
-            self.root,
-            candidate["memory_id"],
-            "promote",
-            "Reuse the local decision.",
-            "The target remains current.",
-            True,
-            True,
-            "none",
-        )
-        return wave, index_state_store
-
-    def test_resume_publishes_before_marking_indexed_and_is_idempotent(self):
-        observed: list[str] = []
-        original_mark = self.backfill.mark_indexed
-
-        def phase(_root):
-            observed.append(self.backfill.run_summary(self.root, self.run_id)["state"])
-            return True  # 1u44n: the stubbed phase reports an observed successful publication
-
-        def mark(root, run_id):
-            observed.append("mark")
-            return original_mark(root, run_id)
-
-        with patch.object(self.mod, "phase_index_update", side_effect=phase), \
-             patch.object(self.backfill, "mark_indexed", side_effect=mark):
-            first = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
-            )
-        self.assertEqual(first, 0)
-        self.assertEqual(observed, ["ready_for_index", "mark"])
-        self.assertEqual(
-            self.backfill.run_summary(self.root, self.run_id)["state"], "indexed"
-        )
-
-        with patch.object(self.mod, "phase_index_update") as phase_again:
-            second = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
-            )
-        self.assertEqual(second, 0)
-        phase_again.assert_not_called()
-
-    def test_resume_handles_a_migration_reader_failure_as_a_dependency_failure(self):
-        # Wave 1zep5: the reader's SystemExit used to escape this path's
-        # `except Exception`, skipping its failure handling.
-        import setup_index
-        import sqlite_storage_migration as migration
-
-        with patch.object(self.mod, "_enforce_index_guard_before_children"), \
-             patch.object(self.mod, "_provision_upgrade_dependencies", return_value=True), \
-             patch.object(migration, "read_receipt", return_value=None), \
-             patch.object(migration, "detect", return_value={"migration_required": True, "legacy": ["docs.lance"]}), \
-             patch.object(migration, "migrate_legacy") as convert, \
-             patch.object(setup_index, "ensure_deps"), \
-             patch.object(setup_index, "ensure_migration_deps", side_effect=SystemExit(2)), \
-             contextlib.redirect_stderr(io.StringIO()) as err:
-            result = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
-            )
-        self.assertEqual(result, 1)
-        convert.assert_not_called()
-        lock = self.upgrade_lib.read_upgrade_lock(self.root)
-        self.assertEqual(lock.get("failed_phase"), "index_update")
-        self.assertIs(lock.get("dependency_provisioning_failed"), True)
-        self.assertIn("Dependency provisioning FAILED", err.getvalue())
-        self.assertIn("storage migration retains its receipt", lock.get("memory_backfill_last_failure", ""))
-
-    def test_default_path_failure_keeps_the_dependency_flag_beside_the_failed_phase(self):
-        # 1zep5 (AC-1, default path by composition): the helper records the flag,
-        # then main's BaseException handler finalizes the failed phase; the second
-        # write must not clobber the first.
-        failing = MagicMock(side_effect=SystemExit(2))
-        with contextlib.redirect_stderr(io.StringIO()):
-            self.assertFalse(self.mod._run_dependency_install(self.root, failing))
-        self.mod._finalize_failed_upgrade(self.root, True, "index_update")
-        lock = self.upgrade_lib.read_upgrade_lock(self.root)
-        self.assertEqual(lock.get("failed_phase"), "index_update")
-        self.assertIs(lock.get("dependency_provisioning_failed"), True)
-
-    def test_resume_accepts_publication_checkpoint_and_clears_compatibility_lease(self):
-        self.upgrade_lib.update_upgrade_lock(
-            self.root,
-            current_phase="awaiting_memory_publication",
-            action_required={
-                "kind": "historical_memory",
-                "state": "awaiting_memory_publication",
-                "resume_phase": "resume_after_memory",
-                "run_id": self.run_id,
-                "token": "test-token",
-            },
-            failed_phase="awaiting_memory_validation",
-            failed_at=None,
-        )
-        with patch.object(self.mod, "phase_index_update", return_value=True) as phase:
-            result = self.mod.main(["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"])
-
-        self.assertEqual(result, 0)
-        phase.assert_called_once_with(self.root.resolve())
-        checkpoint = self.upgrade_lib.read_upgrade_lock(self.root)
-        self.assertEqual(checkpoint.get("current_phase"), "index_complete")
-        self.assertIsNone(checkpoint.get("action_required"))
-        self.assertIsNone(checkpoint.get("failed_phase"))
-        self.assertIsNone(checkpoint.get("failed_at"))
-
-    def test_docs_gate_resume_establishes_memory_checkpoint_and_composes(self):
-        """External pfq6 reproduction: the successful docs recovery used to
-        retain ``review_sidecar_cleanup_complete``, making the immediately
-        documented memory recovery unreachable.
-        """
-
-        self.upgrade_lib.update_upgrade_lock(
-            self.root,
-            current_phase="review_sidecar_cleanup_complete",
-            failed_phase="docs_gate",
-            failed_at="t",
-        )
-        with patch.object(self.mod, "phase_docs_gate"):
-            resumed_gate = self.mod.main(
-                ["--root", str(self.root), "--resume-after-gate"]
-            )
-        self.assertEqual(resumed_gate, 0)
-        checkpoint = self.upgrade_lib.read_upgrade_lock(self.root)
-        self.assertIsNone(checkpoint.get("failed_phase"))
-        self.assertEqual(
-            checkpoint.get("current_phase"), "awaiting_memory_validation"
-        )
-        self.assertEqual(checkpoint.get("memory_backfill_run_id"), self.run_id)
-
-        with patch.object(self.mod, "phase_index_update") as phase:
-            resumed_memory = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
-            )
-        self.assertEqual(resumed_memory, 0)
-        phase.assert_called_once_with(self.root.resolve())
-
-    def _insert_memory_source(self, memory_id: str) -> None:
-        conn = self.backfill._connect(self.root)
-        try:
-            with conn:
-                conn.execute(
-                    "INSERT INTO memory_backfill_sources"
-                    "(run_id,wave_id,source_event,memory_id) VALUES(?,?,?,?)",
-                    (
-                        self.run_id,
-                        "1aaa closed",
-                        "decision-log:historical",
-                        memory_id,
-                    ),
-                )
-        finally:
-            conn.close()
-
-    def test_resume_after_memory_repairs_same_version_stale_memory_id(self):
-        """The public recovery command must not depend on the <1.15 migration gate."""
-
-        import memory_records
-
-        legacy_id = "mem-" + ("a" * 59) + "-"
-        slug = memory_records.slugify(legacy_id[4:])
-        lifecycle_id = f"1abc1-mem {slug}"
-        content = memory_records.render_memory_record(
-            memory_id=lifecycle_id,
-            kind="decision",
-            summary="A rewritten historical candidate already resolved.",
-            evidence=["`1aaaa-bug historical-source` — observed"],
-            targets=["foo.py"],
-            status="superseded",
-            source_event="decision-log:historical",
-            validation="rewrite",
-            date="2026-01-10",
-        )
-        content = content.replace(
-            "Status: superseded\n",
-            "Status: superseded\nSuperseded by: `1abc9-mem successor`\n",
-        )
-        memory_records.write_memory_record(self.root, content, lifecycle_id)
-        self._insert_memory_source(legacy_id)
-        self.upgrade_lib.update_upgrade_lock(
-            self.root,
-            current_phase="awaiting_memory_validation",
-            memory_backfill_state="awaiting_validation",
-        )
-
-        with patch.object(self.mod, "phase_index_update") as phase:
-            result = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
-            )
-
-        self.assertEqual(result, 0)
-        phase.assert_called_once_with(self.root.resolve())
-        conn = self.backfill._connect(self.root)
-        try:
-            row = conn.execute(
-                "SELECT memory_id FROM memory_backfill_sources WHERE run_id=?",
-                (self.run_id,),
-            ).fetchone()
-        finally:
-            conn.close()
-        self.assertEqual(str(row["memory_id"]), lifecycle_id)
-
-    def test_pending_resume_restores_memory_recovery_publication_phase(self):
-        """Action-required may not strand the tools needed to clear the action."""
-
-        import publication_control
-
-        self._insert_memory_source("mem-genuinely-missing")
-        self.upgrade_lib.update_upgrade_lock(
-            self.root,
-            current_phase="awaiting_memory_validation",
-            memory_backfill_state="awaiting_validation",
-        )
-        stderr = io.StringIO()
-        with patch.object(self.mod, "phase_index_update") as phase, \
-             contextlib.redirect_stderr(stderr):
-            result = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
-            )
-
-        self.assertEqual(result, self.backfill.ACTION_REQUIRED_EXIT)
-        phase.assert_not_called()
-        checkpoint = self.upgrade_lib.read_upgrade_lock(self.root)
-        self.assertEqual(
-            checkpoint.get("current_phase"), "awaiting_memory_validation"
-        )
-        self.assertIsNone(
-            publication_control.publication_block_reason(
-                self.root, "memory_backfill"
-            )
-        )
-        self.assertIsNone(
-            publication_control.publication_block_reason(
-                self.root, "memory_validate"
-            )
-        )
-        self.assertIn("awaiting validation", stderr.getvalue())
-
-    def test_ambiguous_memory_id_resume_fails_loud_and_restores_phase(self):
-        import memory_records
-        import publication_control
-
-        legacy_id = "mem-ambiguous-record"
-        slug = memory_records.slugify(legacy_id[4:])
-        for prefix in ("1abc1", "1abc2"):
-            memory_id = f"{prefix}-mem {slug}"
-            content = memory_records.render_memory_record(
-                memory_id=memory_id,
-                kind="decision",
-                summary="An ambiguous migrated historical record.",
-                evidence=["`1aaaa-bug historical-source` — observed"],
-                targets=["foo.py"],
-                source_event="decision-log:historical",
-                validation="rewrite",
-                date="2026-01-10",
-            )
-            memory_records.write_memory_record(self.root, content, memory_id)
-        self._insert_memory_source(legacy_id)
-        self.upgrade_lib.update_upgrade_lock(
-            self.root,
-            current_phase="awaiting_memory_validation",
-            memory_backfill_state="awaiting_validation",
-        )
-        stderr = io.StringIO()
-
-        with patch.object(self.mod, "phase_index_update") as phase, \
-             contextlib.redirect_stderr(stderr):
-            result = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
-            )
-
-        self.assertEqual(result, self.backfill.ACTION_REQUIRED_EXIT)
-        phase.assert_not_called()
-        self.assertIn("ambiguous migrated memory id", stderr.getvalue())
-        checkpoint = self.upgrade_lib.read_upgrade_lock(self.root)
-        self.assertEqual(
-            checkpoint.get("current_phase"), "awaiting_memory_validation"
-        )
-        self.assertIsNone(
-            publication_control.publication_block_reason(
-                self.root, "memory_backfill"
-            )
-        )
-        conn = self.backfill._connect(self.root)
-        try:
-            row = conn.execute(
-                "SELECT memory_id FROM memory_backfill_sources WHERE run_id=?",
-                (self.run_id,),
-            ).fetchone()
-        finally:
-            conn.close()
-        self.assertEqual(str(row["memory_id"]), legacy_id)
-
-    def test_resume_after_memory_restages_receipt_to_trailing_graph_attempt(self):
-        """External pfqq reproduction: the content child writes a staging
-        receipt, then graph maintenance starts a later attempt at the same
-        generation.  The graph child must become the exact authorized receipt
-        attempt before the parent CAS; generation-only aliasing is not enough.
-        """
-
-        _wave, index_state_store = self._ready_candidate_run()
-        attempts: list[tuple[str, str]] = []
-
-        def child_run(argv, *, cwd, check, env=None, **_kwargs):
-            scope = "graph" if "--graph-only" in argv else "all"
-            with patch.dict(os.environ, env or {}, clear=True):
-                attempt = index_state_store.begin_build_epoch(
-                    self.root / ".wavefoundry" / "index", scope
-                )
-                attempts.append((scope, attempt))
-                self.assertTrue(
-                    index_state_store.finalize_build_epoch(
-                        self.root / ".wavefoundry" / "index", attempt
-                    )
-                )
-            return subprocess.CompletedProcess(argv, 0)
-
-        with patch("child_tee.run", side_effect=child_run):
-            result = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
-            )
-
-        self.assertEqual(result, 0)
-        self.assertEqual([scope for scope, _attempt in attempts], ["all", "graph"])
-        state = index_state_store.read_build_state(
-            self.root / ".wavefoundry" / "index"
-        )
-        self.assertEqual(state["status"], "complete")
-        self.assertEqual(state["generation"], 1)
-        self.assertEqual(state["attempt_id"], attempts[-1][1])
-        self.assertEqual(
-            self.backfill.run_summary(self.root, self.run_id)["state"], "indexed"
-        )
-        self.assertFalse(
-            (
-                self.root
-                / ".wavefoundry"
-                / "index"
-                / "upgrade-index-staging-receipt.json"
-            ).exists()
-        )
-
-    def test_indexed_memory_resume_retries_storage_verification_without_republishing(self):
-        _wave, state = self._ready_candidate_run()
-        calls = []
-
-        def phase(_root):
-            calls.append("children")
-            index_dir = self.root / ".wavefoundry/index"
-            attempt = state.begin_build_epoch(index_dir, "all")
-            self.assertTrue(state.finalize_build_epoch(index_dir, attempt))
-            return True
-
-        with patch.object(self.mod, "phase_index_update", side_effect=phase), \
-             patch.object(self.mod, "_verify_storage_publication", side_effect=[
-                 RuntimeError("fresh verifier interrupted"), None]) as verify:
-            first = self.mod.main(["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"])
-            self.assertEqual(first, 1)
-            self.assertEqual(self.backfill.run_summary(self.root, self.run_id)["state"], "indexed")
-            self.assertIsNotNone(self.upgrade_lib.read_upgrade_lock(self.root))
-            second = self.mod.main(["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"])
-        self.assertEqual(second, 0)
-        self.assertEqual(calls, ["children"])
-        self.assertEqual(verify.call_count, 2)
-
-    def test_resume_recovers_published_epoch_without_second_index_pass(self):
-        _wave, index_state_store = self._ready_candidate_run()
-        phase_calls = 0
-
-        def phase(_root):
-            nonlocal phase_calls
-            phase_calls += 1
-            index_dir = self.root / ".wavefoundry" / "index"
-            attempt = index_state_store.begin_build_epoch(index_dir, "all")
-            self.assertTrue(
-                index_state_store.finalize_build_epoch(index_dir, attempt)
-            )
-
-        with patch.object(self.mod, "phase_index_update", side_effect=phase), \
-             patch.object(
-                 self.backfill,
-                 "complete_index_publication",
-                 side_effect=RuntimeError("checkpoint unavailable"),
-             ):
-            first = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
-            )
-        self.assertEqual(first, 1)
-        self.assertEqual(phase_calls, 1)
-        with patch.object(self.mod, "phase_index_update", side_effect=phase):
-            second = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
-            )
-        self.assertEqual(second, 0)
-        self.assertEqual(phase_calls, 1)
-        self.assertEqual(
-            self.backfill.run_summary(self.root, self.run_id)["state"],
-            "indexed",
-        )
-
-    def test_resume_requeues_history_changed_at_index_finalize(self):
-        wave, index_state_store = self._ready_candidate_run()
-
-        def phase(_root):
-            index_dir = self.root / ".wavefoundry" / "index"
-            attempt = index_state_store.begin_build_epoch(index_dir, "all")
-            wave.joinpath(_record_name()).write_text(
-                wave.joinpath(_record_name()).read_text(encoding="utf-8")
-                + "\nchanged during publication\n",
-                encoding="utf-8",
-            )
-            self.assertFalse(
-                index_state_store.finalize_build_epoch(index_dir, attempt)
-            )
-
-        with patch.object(self.mod, "phase_index_update", side_effect=phase):
-            result = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
-            )
-        self.assertEqual(result, self.backfill.ACTION_REQUIRED_EXIT)
-        self.assertEqual(
-            self.backfill.run_summary(self.root, self.run_id)["state"],
-            "awaiting_validation",
-        )
-
-    def test_update_index_cannot_bypass_ready_memory_gate(self):
-        with patch.object(self.mod, "phase_index_update") as phase, \
-             contextlib.redirect_stderr(io.StringIO()):
-            result = self.mod.main(["--root", str(self.root), "--update-index"])
-        self.assertEqual(result, self.backfill.ACTION_REQUIRED_EXIT)
-        phase.assert_not_called()
-
-    def test_standalone_gate_zero_pending_refusal_states_ordered_recovery(self):
-        """1u44n (AC-2, third refusal surface): the zero-pending field
-        scenario no longer emits the false "validation is pending" statement;
-        it states the ordered resume/cleanup/index_build recovery and names
-        index_health. The refusal itself is unchanged."""
-        stderr = io.StringIO()
-        with patch.object(self.mod, "phase_index_update") as phase, \
-             contextlib.redirect_stderr(stderr):
-            result = self.mod.main(["--root", str(self.root), "--update-index"])
-        self.assertEqual(result, self.backfill.ACTION_REQUIRED_EXIT)
-        phase.assert_not_called()
-        text = stderr.getvalue()
-        self.assertNotIn("validation is pending", text)
-        self.assertIn("0 pending", text)
-        resume = text.index("--resume-after-memory")
-        cleanup = text.index("then --cleanup")
-        build = text.index("then index_build")
-        self.assertLess(resume, cleanup)
-        self.assertLess(cleanup, build)
-        self.assertIn("index_health", text)
-
-    def test_standalone_gate_pending_refusal_keeps_validation_routing(self):
-        """1u44n: with genuinely pending memory work the gate keeps routing to
-        backfill + validation (the ordered recovery would skip validation)."""
-        pending_summary = {
-            "state": "awaiting_validation",
-            "remaining_waves": 2,
-            "candidates_pending": 1,
-            "failures": 0,
-            "last_failure": None,
-        }
-        stderr = io.StringIO()
-        with patch.object(
-            self.backfill, "sync_inventory", return_value=pending_summary
-        ), patch.object(self.mod, "phase_index_update") as phase, \
-             contextlib.redirect_stderr(stderr):
-            result = self.mod.main(["--root", str(self.root), "--update-index"])
-        self.assertEqual(result, self.backfill.ACTION_REQUIRED_EXIT)
-        phase.assert_not_called()
-        text = stderr.getvalue()
-        self.assertIn("validation is pending", text)
-        self.assertNotIn("index_health", text)
-
-    def test_resume_after_memory_cannot_bypass_failed_review_or_docs_gate(self):
-        """The memory resume must not publish while the earlier typed gate is failed."""
-
-        self.upgrade_lib.update_upgrade_lock(
-            self.root, failed_phase="docs_gate", failed_at="t"
-        )
-        stderr = io.StringIO()
-        with patch.object(self.mod, "phase_index_update") as phase, \
-             contextlib.redirect_stderr(stderr):
-            result = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
-            )
-        self.assertEqual(result, 1)
-        phase.assert_not_called()
-        self.assertIn("--resume-after-gate", stderr.getvalue())
-        self.assertEqual(
-            self.backfill.run_summary(self.root, self.run_id)["state"],
-            "ready_for_index",
-        )
-
-    def test_resume_success_clears_only_its_own_failure_marker(self):
-        """1t49m field report: a failed resume left a marker that no later
-        success cleared, so cleanup refused until a full re-run."""
-
-        with patch.object(
-            self.mod, "phase_index_update", side_effect=RuntimeError("disk full")
-        ), contextlib.redirect_stderr(io.StringIO()):
-            first = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
-            )
-        self.assertEqual(first, 1)
-        lock = self.upgrade_lib.read_upgrade_lock(self.root)
-        self.assertEqual(lock["failed_phase"], "index_update")
-
-        with patch.object(self.mod, "phase_index_update"):
-            second = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
-            )
-        self.assertEqual(second, 0)
-        lock = self.upgrade_lib.read_upgrade_lock(self.root)
-        self.assertIsNone(lock["failed_phase"])
-        self.assertIsNone(lock["failed_at"])
-
-    def test_resume_success_preserves_marker_naming_a_different_phase(self):
-        """A later success must not launder an earlier unrecovered failure."""
-
-        self.upgrade_lib.update_upgrade_lock(
-            self.root, failed_phase="dashboard_restart", failed_at="t"
-        )
-        with patch.object(self.mod, "phase_index_update"):
-            result = self.mod.main(
-                ["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]
-            )
-        self.assertEqual(result, 0)
-        lock = self.upgrade_lib.read_upgrade_lock(self.root)
-        self.assertEqual(lock["failed_phase"], "dashboard_restart")
-        self.assertEqual(lock["failed_at"], "t")
-
-    def test_resume_already_complete_clears_retained_index_marker(self):
-        """The idempotent re-run recovers a stale marker for the phase that
-        reconciliation just proved complete, without a second index pass."""
-
-        with patch.object(self.mod, "phase_index_update"):
-            self.assertEqual(
-                self.mod.main(["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]),
-                0,
-            )
-        self.upgrade_lib.update_upgrade_lock(
-            self.root, failed_phase="index_update", failed_at="t"
-        )
-        with patch.object(self.mod, "phase_index_update") as phase_again:
-            self.assertEqual(
-                self.mod.main(["--root", str(self.root), "--resume-after-memory", "--confirm-hosts-stopped"]),
-                0,
-            )
-        phase_again.assert_not_called()
-        lock = self.upgrade_lib.read_upgrade_lock(self.root)
-        self.assertIsNone(lock["failed_phase"])
-        self.assertIsNone(lock["failed_at"])
-
-    def test_publication_verbs_cannot_bypass_failed_review_or_docs_gate(self):
-        """Both incremental and full publication stop before the new-code backstop."""
-
-        for option, phase_name in (
-            ("--update-index", "phase_index_update"),
-            ("--rebuild-index", "phase_index_rebuild"),
-        ):
-            with self.subTest(option=option):
-                self.upgrade_lib.update_upgrade_lock(
-                    self.root,
-                    failed_phase="review_sidecar_cleanup",
-                    failed_at="t",
-                )
-                stderr = io.StringIO()
-                with patch.object(self.mod, phase_name) as phase, \
-                     contextlib.redirect_stderr(stderr):
-                    result = self.mod.main(["--root", str(self.root), option])
-                self.assertEqual(result, 1)
-                phase.assert_not_called()
-                self.assertIn("re-run", stderr.getvalue())
-
-    def test_backstop_scopes_restart_from_lock_carried_from_version(self):
-        """Wave 1to78 AC-3 (call path 3): the deferred backstop cannot
-        recompute from_version from disk post-extract; the upgrade lock state
-        written at preflight is its carrier. A converged tree with a known
-        post-1.15 lock from_version records restart_required false; a lock
-        without a usable from_version is fail-safe true."""
-
-        for lock_from, expected in (("1.15.0", False), (None, True)):
-            with self.subTest(lock_from=lock_from):
-                self.upgrade_lib.remove_upgrade_lock(self.root)
-                self.upgrade_lib.write_upgrade_lock(
-                    self.root, lock_from, "1.15.1"
-                )
-                self.upgrade_lib.update_upgrade_lock(
-                    self.root,
-                    memory_backfill_run_id=self.run_id,
-                    memory_backfill_state="ready_for_index",
-                )
-                with patch.object(self.mod, "phase_index_update"):
-                    self.mod.main(["--root", str(self.root), "--update-index"])
-                lock = self.upgrade_lib.read_upgrade_lock(self.root) or {}
-                self.assertIn("review_sidecar_cleanup", lock)
-                self.assertEqual(
-                    lock["review_sidecar_cleanup"]["restart_required"], expected
-                )
-                self.assertEqual(
-                    lock["review_sidecar_cleanup"]["removed_sidecars"], 0
-                )
-
-    def test_new_code_sidecar_refusal_is_not_misreported_as_memory_action(self):
-        """A cleanup backstop refusal is rc1 recovery, never rc4 memory work."""
-
-        legacy_root = Path(self.tmp.name) / "sidecar-refusal-target"
-        (legacy_root / ".wavefoundry").mkdir(parents=True)
-        self.upgrade_lib.write_upgrade_lock(legacy_root, "1.0.0", "1.1.0")
-        stderr = io.StringIO()
-        with patch.object(
-            self.mod,
-            "phase_review_evidence_sidecar_cleanup",
-            side_effect=SystemExit("publication lock is held by a running process"),
-        ), patch.object(self.mod, "phase_index_update") as phase, \
-             contextlib.redirect_stderr(stderr):
-            result = self.mod.main(
-                ["--root", str(legacy_root), "--update-index"]
-            )
-        self.assertEqual(result, 1)
-        phase.assert_not_called()
-        self.assertIn("refused", stderr.getvalue())
-        lock = self.upgrade_lib.read_upgrade_lock(legacy_root) or {}
-        self.assertEqual(
-            lock.get("failed_phase"), "review_sidecar_cleanup"
-        )
-
-    # Wave 1zrak (1zraj AC-9): Python 3.14 ``pathlib`` predicates read an
-    # uninspectable path as absent, so the retired-sidecar guard must refuse
-    # through ``os.lstat`` instead, and the refusal must stay path-free on
-    # the new-code backstop caller (``--update-index``) that runs the fixed
-    # check on the first upgrade to the fixed version.
-
-    def _sidecar_backstop_target(self, name: str) -> tuple[Path, Path, Path]:
-        target = Path(self.tmp.name) / name
-        (target / ".wavefoundry").mkdir(parents=True)
-        waves = target / _live_waves_rel()
-        waves.mkdir(parents=True)
-        sidecar = waves / "review-evidence-adoptions.json"
-        sidecar.write_bytes(b"retired sidecar")
-        self.upgrade_lib.write_upgrade_lock(target, "1.0.0", "1.1.0")
-        return target, waves, sidecar
-
-    def _run_sidecar_backstop(self, target: Path) -> tuple[int, MagicMock, str]:
-        stderr = io.StringIO()
-        with patch.object(self.mod, "phase_index_update") as phase, \
-             contextlib.redirect_stderr(stderr):
-            result = self.mod.main(["--root", str(target), "--update-index"])
-        return result, phase, stderr.getvalue()
-
-    def _assert_path_free_sidecar_refusal(
-        self, target: Path, result: int, phase: MagicMock, err: str, member: str
-    ) -> None:
-        self.assertEqual(result, 1, err)
-        phase.assert_not_called()
-        refusal = [
-            line for line in err.splitlines()
-            if "sidecar cleanup is refused" in line
-        ]
-        self.assertEqual(len(refusal), 1, err)
-        self.assertIn("not safely resolvable", refusal[0])
-        self.assertIn(f"{member}: Permission denied", refusal[0])
-        self.assertIn("Restore access to", refusal[0])
-        self.assertIn("re-run the upgrade", refusal[0])
-        for spelling in {str(target), os.path.realpath(target)}:
-            self.assertNotIn(spelling, err)
-        lock = self.upgrade_lib.read_upgrade_lock(target) or {}
-        self.assertEqual(lock.get("failed_phase"), "review_sidecar_cleanup")
-
-    def _skip_unless_mode_zero_denies(self) -> None:
-        if os.name == "nt":
-            self.skipTest("chmod 0 does not deny directory traversal on Windows; the patched os.lstat pin covers it")
-        if hasattr(os, "geteuid") and os.geteuid() == 0:
-            self.skipTest("root ignores mode 0")
-
-    def test_backstop_refuses_untraversable_waves_parent_path_free(self):
-        self._skip_unless_mode_zero_denies()
-        target, waves, sidecar = self._sidecar_backstop_target("sidecar-mode0-parent")
-        if waves.parent == target:
-            self.skipTest("waves root has no in-repository parent to lock")
-        os.chmod(waves.parent, 0)
-        try:
-            result, phase, err = self._run_sidecar_backstop(target)
-        finally:
-            os.chmod(waves.parent, 0o755)
-        self._assert_path_free_sidecar_refusal(
-            target, result, phase, err, _live_waves_rel()
-        )
-        self.assertEqual(sidecar.read_bytes(), b"retired sidecar")
-
-    def test_backstop_refuses_untraversable_waves_root_candidate_path_free(self):
-        self._skip_unless_mode_zero_denies()
-        target, waves, sidecar = self._sidecar_backstop_target("sidecar-mode0-waves")
-        os.chmod(waves, 0)
-        try:
-            result, phase, err = self._run_sidecar_backstop(target)
-        finally:
-            os.chmod(waves, 0o755)
-        self._assert_path_free_sidecar_refusal(
-            target, result, phase, err,
-            f"{_live_waves_rel()}/review-evidence-adoptions.json",
-        )
-        self.assertEqual(sidecar.read_bytes(), b"retired sidecar")
-
-    def test_backstop_refuses_denied_lstat_on_every_platform(self):
-        """Platform-independent: ``os.lstat`` denial on the waves root or a
-        candidate refuses, path-free, on Windows too (no mode-0 fixture)."""
-
-        real_lstat = os.lstat
-        for label in ("waves", "candidate"):
-            with self.subTest(member=label):
-                target, waves, sidecar = self._sidecar_backstop_target(
-                    f"sidecar-denied-{label}"
-                )
-                denied = waves if label == "waves" else sidecar
-                member = (
-                    _live_waves_rel() if label == "waves"
-                    else f"{_live_waves_rel()}/review-evidence-adoptions.json"
-                )
-
-                # ``main`` resolves ``--root`` (``/var`` is ``/private/var``
-                # on macOS), so match either spelling. Both are computed
-                # before the patch: ``realpath`` itself calls ``os.lstat``.
-                spellings = {os.path.abspath(denied), os.path.realpath(denied)}
-
-                def _lstat(path, *args, _denied=frozenset(spellings), **kwargs):
-                    if os.path.abspath(os.fspath(path)) in _denied:
-                        raise PermissionError(
-                            errno.EACCES, "Permission denied", os.fspath(path)
-                        )
-                    return real_lstat(path, *args, **kwargs)
-
-                with patch("os.lstat", _lstat):
-                    result, phase, err = self._run_sidecar_backstop(target)
-                self._assert_path_free_sidecar_refusal(
-                    target, result, phase, err, member
-                )
-                self.assertEqual(sidecar.read_bytes(), b"retired sidecar")
-
-    def test_cleanup_cannot_remove_lock_after_memory_indexed_but_docs_failed(self):
-        """An indexed memory run does not authorize cleanup around a failed docs gate."""
-
-        self.backfill.mark_indexed(self.root, self.run_id)
-        self.upgrade_lib.update_upgrade_lock(
-            self.root,
-            memory_backfill_state="indexed",
-            failed_phase="docs_gate",
-            failed_at="t",
-        )
-        stderr = io.StringIO()
-        with patch.object(self.mod, "phase_cleanup") as cleanup, \
-             contextlib.redirect_stderr(stderr):
-            result = self.mod.main(["--root", str(self.root), "--cleanup"])
-        self.assertEqual(result, 1)
-        cleanup.assert_not_called()
-        self.assertIn("--resume-after-gate", stderr.getvalue())
-        lock = self.upgrade_lib.read_upgrade_lock(self.root)
-        self.assertEqual(lock.get("failed_phase"), "docs_gate")
-
-    def test_old_shaped_lock_bootstraps_new_migrations_before_update_index(self):
-        legacy_root = Path(self.tmp.name) / "legacy-target"
-        (legacy_root / ".wavefoundry").mkdir(parents=True)
-        wave = legacy_root / _live_waves_rel() / "1old closed"
-        wave.mkdir(parents=True)
-        wave.joinpath(_record_name()).write_text(
-            "# Wave\n\nStatus: closed\n", encoding="utf-8"
-        )
-        self.upgrade_lib.write_upgrade_lock(legacy_root, "1.0.0", "1.1.0")
-        before = self.upgrade_lib.read_upgrade_lock(legacy_root)
-        self.assertNotIn("memory_backfill_run_id", before or {})
-        self.assertFalse(
-            (legacy_root / ".wavefoundry" / "index" / "memory-state.sqlite").exists()
-        )
-
-        with patch.object(self.mod, "phase_index_update") as phase:
-            result = self.mod.main(
-                ["--root", str(legacy_root), "--update-index"]
-            )
-
-        self.assertEqual(result, self.backfill.ACTION_REQUIRED_EXIT)
-        phase.assert_not_called()
-        lock = self.upgrade_lib.read_upgrade_lock(legacy_root) or {}
-        self.assertTrue(lock.get("memory_backfill_run_id"))
-        self.assertEqual(lock.get("memory_backfill_state"), "awaiting_validation")
-        self.assertIn("review_sidecar_cleanup", lock)
-        self.assertTrue(
-            (legacy_root / ".wavefoundry" / "index" / "memory-state.sqlite").is_file()
-        )
-
-        with patch.object(self.mod, "phase_cleanup") as cleanup:
-            cleanup_result = self.mod.main(
-                ["--root", str(legacy_root), "--cleanup"]
-            )
-        self.assertEqual(cleanup_result, self.backfill.ACTION_REQUIRED_EXIT)
-        cleanup.assert_not_called()
-
-    def test_default_upgrade_marks_indexed_after_phase_four(self):
-        source = UPGRADE_PATH.read_text(encoding="utf-8")
-        default_gate = source.index(
-            'memory_run_id = memory_backfill.ensure_run(root, "upgrade")'
-        )
-        phase = source.index("phase_index_update(root)", default_gate)
-        mark = source.index(
-            "memory_backfill.complete_index_publication(root, memory_run_id)",
-            default_gate,
-        )
-        self.assertLess(phase, mark)
-
-    def test_default_upgrade_clears_docs_failure_and_runs_canonical_bounded_batch(self):
-        source = UPGRADE_PATH.read_text(encoding="utf-8")
-        docs_pass = source.index("phase_docs_gate(root)")
-        clear = source.index("failed_phase=None", docs_pass)
-        post_hook = source.index('_run_hook("post_docs_gate"', docs_pass)
-        batch = source.index("server_impl._memory_backfill_batch_locked(", post_hook)
-        action_return = source.index(
-            "return memory_backfill.ACTION_REQUIRED_EXIT",
-            batch,
-        )
-        self.assertLess(docs_pass, clear)
-        self.assertLess(clear, post_hook)
-        self.assertLess(post_hook, batch)
-        self.assertLess(batch, action_return)
-
-
-class ArchivedLegacyMemoryCheckpointCompatibilityTests(unittest.TestCase):
-    """Exercise the incoming hook under the exact pghn/pgi7 parent runners.
-
-    The parent owns the broad ``except SystemExit`` handler while the new
-    extension is loaded from the incoming pack.  Keeping these as archive
-    fixtures prevents a current-runner mock from silently widening the bridge.
-    """
-
-    ARCHIVE_DIR = Path(os.environ.get(
-        "WAVEFOUNDRY_LEGACY_COMPAT_ARCHIVE_DIR",
-        "/Users/coryhacking/.wavefoundry/dist",
-    ))
-    LEGACY_BUILDS = ("pghn", "pgi7")
-    EXTENSION_MEMBER = ".wavefoundry/framework/scripts/upgrade_extensions.py"
-    RUNNER_MEMBER = ".wavefoundry/framework/scripts/upgrade_wavefoundry.py"
-    SERVER_MEMBER = ".wavefoundry/framework/scripts/server_impl.py"
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name).resolve()
-        (self.root / ".wavefoundry").mkdir()
-        if str(SCRIPTS_ROOT) not in sys.path:
-            sys.path.insert(0, str(SCRIPTS_ROOT))
-        import upgrade_lib
-
-        self.upgrade_lib = upgrade_lib
-
-    def _archive(self, build: str) -> Path | None:
-        path = self.ARCHIVE_DIR / f"wavefoundry-1.15.0.{build}.zip"
-        return path if path.is_file() else None
-
-    def _legacy_parent_seam_fixture(self, build: str):
-        """Repository-controlled minimal pghn/pgi7 finalizer ABI fixture.
-
-        Release verification prefers the actual archived packs when available.
-        The committed seam keeps the exact old-parent contract executable in
-        ordinary test runs without embedding multi-megabyte historical packs.
-        """
-        name = f"legacy_parent_seam_{build}_{id(self)}"
-        parent = types.ModuleType(name)
-        parent.__file__ = f"fixture://wavefoundry-1.15.0+{build}/upgrade_wavefoundry.py"
-
-        class UpgradeContext:
-            def __init__(self, root, from_version, to_version, zip_path, yes):
-                self.root = root
-                self.from_version = from_version
-                self.to_version = to_version
-                self.zip_path = zip_path
-                self.yes = yes
-
-        def _load_extension_module(zip_path):
-            if zip_path is None:
-                return None
-            with zipfile.ZipFile(zip_path) as zf:
-                source = zf.read(self.EXTENSION_MEMBER).decode("utf-8")
-            module = types.ModuleType("upgrade_extensions")
-            module.__file__ = self.EXTENSION_MEMBER
-            exec(compile(source, module.__file__, "exec"), module.__dict__)
-            return module
-
-        def _finalize_failed_upgrade(root, tree_mutated, current_phase):
-            import upgrade_lib
-
-            if tree_mutated:
-                upgrade_lib.update_upgrade_lock(
-                    root,
-                    failed_phase=current_phase,
-                    failed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                )
-                print(
-                    f"ERROR: Upgrade failed during phase '{current_phase}'.",
-                    file=sys.stderr,
-                )
-            else:
-                upgrade_lib.remove_upgrade_lock(root)
-
-        def _run_hook(name, ctx, ext_mod):
-            hook = getattr(ext_mod, name, None)
-            if callable(hook):
-                try:
-                    hook(ctx)
-                except SystemExit:
-                    raise
-                except Exception as exc:
-                    print(f"ERROR: Extension hook '{name}' raised: {exc}", file=sys.stderr)
-                    raise SystemExit(3)
-
-        UpgradeContext.__module__ = name
-        parent.UpgradeContext = UpgradeContext
-        parent._load_extension_module = _load_extension_module
-        parent._finalize_failed_upgrade = _finalize_failed_upgrade
-        parent._run_hook = _run_hook
-        sys.modules[name] = parent
-        self.addCleanup(lambda: sys.modules.pop(name, None))
-        return parent
-
-    def _load_archived_parent(self, build: str):
-        archive = self._archive(build)
-        if archive is None:
-            return self._legacy_parent_seam_fixture(build)
-        with zipfile.ZipFile(archive) as zf:
-            source = zf.read(self.RUNNER_MEMBER).decode("utf-8")
-        name = f"archived_upgrade_wavefoundry_{build}_{id(self)}"
-        parent = types.ModuleType(name)
-        parent.__file__ = f"{archive}!{self.RUNNER_MEMBER}"
-        sys.modules[name] = parent
-        self.addCleanup(lambda: sys.modules.pop(name, None))
-        exec(compile(source, parent.__file__, "exec"), parent.__dict__)
-        return parent
-
-    def _load_archived_server(self, build: str):
-        archive = self._archive(build)
-        if archive is None:
-            server = types.ModuleType(f"legacy_server_seam_{build}_{id(self)}")
-            server._mcp_subprocess_run = lambda *_args, **_kwargs: None
-            server._load_upgrade_lib = lambda: None
-            server._load_script = lambda _name: None
-
-            def wf_upgrade_response(root, phase="preflight_to_docs_gate", mode="apply"):
-                child = server._mcp_subprocess_run([])
-                lock = server._load_upgrade_lib().read_upgrade_lock(root) or {}
-                run_id = str(lock.get("memory_backfill_run_id") or "")
-                backfill = server._load_script("memory_backfill")
-                return {
-                    "status": "ok" if child.returncode == 4 else "error",
-                    "data": {
-                        "state": "awaiting_memory_validation",
-                        "output": child.stdout,
-                        "memory_backfill": {
-                            **backfill.run_summary(root, run_id),
-                            **backfill.validation_worklist(root, run_id),
-                        },
-                    },
-                    "next_tools": ["wf_reload_mcp", "memory_backfill", "memory_validate"],
-                }
-
-            server.wf_upgrade_response = wf_upgrade_response
-            return server
-        with zipfile.ZipFile(archive) as zf:
-            source = zf.read(self.SERVER_MEMBER).decode("utf-8")
-        name = f"archived_server_impl_{build}_{id(self)}"
-        server = types.ModuleType(name)
-        # Keep relative runtime lookups pointed at the checked-out scripts;
-        # the fixture replaces the child process, not the old server's code.
-        server.__file__ = str(SCRIPTS_ROOT / "server_impl.py")
-        sys.modules[name] = server
-        self.addCleanup(lambda: sys.modules.pop(name, None))
-        exec(compile(source, f"{archive}!{self.SERVER_MEMBER}", "exec"), server.__dict__)
-        return server
-
-    def _incoming_pack(self) -> Path:
-        path = self.root / "incoming-memory-checkpoint.zip"
-        with zipfile.ZipFile(path, "w") as zf:
-            zf.write(SCRIPTS_ROOT / "upgrade_extensions.py", self.EXTENSION_MEMBER)
-        return path
-
-    def _context(self, parent, build: str, pack: Path):
-        return parent.UpgradeContext(
-            self.root, f"1.15.0+{build}", "1.15.0+incoming", pack, True
-        )
-
-    def _pause_then_finalize(
-        self, extension, parent, ctx, *, state="awaiting_memory_publication", phase="index_update"
-    ):
-        stderr = io.StringIO()
-        with contextlib.redirect_stderr(stderr):
-            try:
-                extension._pause_for_memory_action(
-                    ctx,
-                    state=state,
-                    run_id="archive-run",
-                    message="fixture pause",
-                )
-            except SystemExit as exc:
-                self.assertEqual(exc.code, 4)
-                parent._finalize_failed_upgrade(self.root, True, phase)
-        return stderr.getvalue()
-
-    def test_archived_pghn_and_pgi7_parents_preserve_action_required_checkpoint(self):
-        """The exact legacy finalizers do not stamp the normal pause as failure."""
-        for build in self.LEGACY_BUILDS:
-            with self.subTest(build=build):
-                self.upgrade_lib.write_upgrade_lock(
-                    self.root, f"1.15.0+{build}", "1.15.0+incoming"
-                )
-                parent = self._load_archived_parent(build)
-                original = parent._finalize_failed_upgrade
-                extension = parent._load_extension_module(self._incoming_pack())
-                self.assertIsNotNone(extension)
-                stderr = self._pause_then_finalize(
-                    extension, parent, self._context(parent, build, self._incoming_pack())
-                )
-                lock = self.upgrade_lib.read_upgrade_lock(self.root) or {}
-                self.assertEqual(lock.get("current_phase"), "awaiting_memory_publication")
-                self.assertEqual(lock.get("failed_phase"), "awaiting_memory_validation")
-                self.assertIsNone(lock.get("failed_at"))
-                self.assertEqual(lock.get("action_required", {}).get("run_id"), "archive-run")
-                self.assertEqual(
-                    lock.get("action_required", {}).get("state"),
-                    "awaiting_memory_publication",
-                )
-                self.assertEqual(parent._finalize_failed_upgrade, original)
-                self.assertNotIn("Upgrade failed during phase", stderr)
-                self.upgrade_lib.remove_upgrade_lock(self.root)
-
-    def test_archived_parent_fails_closed_for_mismatched_pause_context(self):
-        """The one-shot exception cannot suppress an unrelated SystemExit."""
-        for build in self.LEGACY_BUILDS:
-            with self.subTest(build=build, case="wrong-phase"):
-                self.upgrade_lib.write_upgrade_lock(
-                    self.root, f"1.15.0+{build}", "1.15.0+incoming"
-                )
-                parent = self._load_archived_parent(build)
-                original = parent._finalize_failed_upgrade
-                pack = self._incoming_pack()
-                extension = parent._load_extension_module(pack)
-                self._pause_then_finalize(
-                    extension, parent, self._context(parent, build, pack), phase="docs_gate"
-                )
-                lock = self.upgrade_lib.read_upgrade_lock(self.root) or {}
-                self.assertEqual(lock.get("failed_phase"), "docs_gate")
-                self.assertIsNotNone(lock.get("failed_at"))
-                self.assertEqual(parent._finalize_failed_upgrade, original)
-                self.upgrade_lib.remove_upgrade_lock(self.root)
-
-            with self.subTest(build=build, case="wrong-token"):
-                self.upgrade_lib.write_upgrade_lock(
-                    self.root, f"1.15.0+{build}", "1.15.0+incoming"
-                )
-                parent = self._load_archived_parent(build)
-                original = parent._finalize_failed_upgrade
-                pack = self._incoming_pack()
-                extension = parent._load_extension_module(pack)
-                ctx = self._context(parent, build, pack)
-                try:
-                    extension._pause_for_memory_action(
-                        ctx,
-                        state="awaiting_memory_validation",
-                        run_id="archive-run",
-                        message="fixture pause",
-                    )
-                except SystemExit as exc:
-                    self.assertEqual(exc.code, 4)
-                    lock = self.upgrade_lib.read_upgrade_lock(self.root) or {}
-                    lock["action_required"]["token"] = "wrong-token"
-                    self.upgrade_lib.update_upgrade_lock(
-                        self.root, action_required=lock["action_required"]
-                    )
-                    parent._finalize_failed_upgrade(self.root, True, "index_update")
-                lock = self.upgrade_lib.read_upgrade_lock(self.root) or {}
-                self.assertEqual(lock.get("failed_phase"), "index_update")
-                self.assertIsNotNone(lock.get("failed_at"))
-                self.assertEqual(parent._finalize_failed_upgrade, original)
-                self.upgrade_lib.remove_upgrade_lock(self.root)
-
-            with self.subTest(build=build, case="wrong-root"):
-                self.upgrade_lib.write_upgrade_lock(
-                    self.root, f"1.15.0+{build}", "1.15.0+incoming"
-                )
-                other_root = self.root / f"other-{build}"
-                (other_root / ".wavefoundry").mkdir(parents=True)
-                self.upgrade_lib.write_upgrade_lock(
-                    other_root, f"1.15.0+{build}", "1.15.0+incoming"
-                )
-                parent = self._load_archived_parent(build)
-                original = parent._finalize_failed_upgrade
-                pack = self._incoming_pack()
-                extension = parent._load_extension_module(pack)
-                ctx = self._context(parent, build, pack)
-                try:
-                    extension._pause_for_memory_action(
-                        ctx,
-                        state="awaiting_memory_validation",
-                        run_id="archive-run",
-                        message="fixture pause",
-                    )
-                except SystemExit as exc:
-                    self.assertEqual(exc.code, 4)
-                    parent._finalize_failed_upgrade(other_root, True, "index_update")
-                other_lock = self.upgrade_lib.read_upgrade_lock(other_root) or {}
-                self.assertEqual(other_lock.get("failed_phase"), "index_update")
-                self.assertIsNotNone(other_lock.get("failed_at"))
-                self.assertEqual(parent._finalize_failed_upgrade, original)
-                self.upgrade_lib.remove_upgrade_lock(self.root)
-                self.upgrade_lib.remove_upgrade_lock(other_root)
-
-            with self.subTest(build=build, case="wrong-exit"):
-                self.upgrade_lib.write_upgrade_lock(
-                    self.root, f"1.15.0+{build}", "1.15.0+incoming"
-                )
-                parent = self._load_archived_parent(build)
-                original = parent._finalize_failed_upgrade
-                pack = self._incoming_pack()
-                extension = parent._load_extension_module(pack)
-                ctx = self._context(parent, build, pack)
-                extension._arm_memory_action_required(
-                    ctx, state="awaiting_memory_validation", run_id="archive-run"
-                )
-                try:
-                    raise SystemExit(3)
-                except SystemExit:
-                    parent._finalize_failed_upgrade(self.root, True, "index_update")
-                lock = self.upgrade_lib.read_upgrade_lock(self.root) or {}
-                self.assertEqual(lock.get("failed_phase"), "index_update")
-                self.assertIsNotNone(lock.get("failed_at"))
-                self.assertEqual(parent._finalize_failed_upgrade, original)
-                self.upgrade_lib.remove_upgrade_lock(self.root)
-
-            with self.subTest(build=build, case="unknown-build"):
-                self.upgrade_lib.write_upgrade_lock(
-                    self.root, "1.15.0+pgi6", "1.15.0+incoming"
-                )
-                parent = self._load_archived_parent(build)
-                original = parent._finalize_failed_upgrade
-                pack = self._incoming_pack()
-                extension = parent._load_extension_module(pack)
-                ctx = parent.UpgradeContext(
-                    self.root, "1.15.0+pgi6", "1.15.0+incoming", pack, True
-                )
-                self._pause_then_finalize(extension, parent, ctx)
-                lock = self.upgrade_lib.read_upgrade_lock(self.root) or {}
-                self.assertEqual(lock.get("failed_phase"), "index_update")
-                self.assertIsNotNone(lock.get("failed_at"))
-                self.assertEqual(parent._finalize_failed_upgrade, original)
-                self.upgrade_lib.remove_upgrade_lock(self.root)
-
-            with self.subTest(build=build, case="missing-marker"):
-                self.upgrade_lib.write_upgrade_lock(
-                    self.root, f"1.15.0+{build}", "1.15.0+incoming"
-                )
-                parent = self._load_archived_parent(build)
-                original = parent._finalize_failed_upgrade
-                pack = self._incoming_pack()
-                extension = parent._load_extension_module(pack)
-                ctx = self._context(parent, build, pack)
-                try:
-                    extension._pause_for_memory_action(
-                        ctx, state="awaiting_memory_publication",
-                        run_id="archive-run", message="fixture pause",
-                    )
-                except SystemExit as exc:
-                    self.assertEqual(exc.code, 4)
-                    self.upgrade_lib.update_upgrade_lock(self.root, action_required=None)
-                    parent._finalize_failed_upgrade(self.root, True, "index_update")
-                lock = self.upgrade_lib.read_upgrade_lock(self.root) or {}
-                self.assertEqual(lock.get("failed_phase"), "index_update")
-                self.assertIsNotNone(lock.get("failed_at"))
-                self.assertEqual(parent._finalize_failed_upgrade, original)
-                self.upgrade_lib.remove_upgrade_lock(self.root)
-
-            with self.subTest(build=build, case="hook-error"):
-                self.upgrade_lib.write_upgrade_lock(
-                    self.root, f"1.15.0+{build}", "1.15.0+incoming"
-                )
-                parent = self._load_archived_parent(build)
-                original = parent._finalize_failed_upgrade
-                pack = self._incoming_pack()
-                extension = parent._load_extension_module(pack)
-                with patch.object(extension, "pre_index_update", side_effect=RuntimeError("boom")):
-                    try:
-                        parent._run_hook(
-                            "pre_index_update", self._context(parent, build, pack), extension
-                        )
-                    except SystemExit as exc:
-                        self.assertEqual(exc.code, 3)
-                        parent._finalize_failed_upgrade(self.root, True, "index_update")
-                lock = self.upgrade_lib.read_upgrade_lock(self.root) or {}
-                self.assertEqual(lock.get("failed_phase"), "index_update")
-                self.assertIsNotNone(lock.get("failed_at"))
-                self.assertEqual(parent._finalize_failed_upgrade, original)
-                self.upgrade_lib.remove_upgrade_lock(self.root)
-
-    def test_archived_servers_execute_validation_transition_envelope(self):
-        """Before reload the exact pghn/pgi7 servers return validation success."""
-        for build in self.LEGACY_BUILDS:
-            with self.subTest(build=build):
-                server = self._load_archived_server(build)
-                lock = {"memory_backfill_run_id": "archive-run"}
-                backfill = MagicMock()
-                backfill.run_summary.return_value = {
-                    "run_id": "archive-run", "state": "ready_for_index",
-                }
-                backfill.validation_worklist.return_value = {
-                    "validation_worklist": [], "validation_worklist_count": 0,
-                }
-                child = MagicMock(
-                    returncode=4,
-                    stdout="Historical memory is ready for receipt-owned publication.\n",
-                    stderr="",
-                )
-                legacy_lib = types.SimpleNamespace(read_upgrade_lock=lambda _root: lock)
-                with patch.object(server, "_mcp_subprocess_run", return_value=child), \
-                     patch.object(server, "_load_upgrade_lib", return_value=legacy_lib), \
-                     patch.object(server, "_load_script", return_value=backfill):
-                    result = server.wf_upgrade_response(self.root)
-                self.assertEqual(result["status"], "ok")
-                self.assertEqual(result["data"]["state"], "awaiting_memory_validation")
-                self.assertIn("memory_validate", result["next_tools"])
-                self.assertIn("receipt-owned publication", result["data"]["output"])
-
-
-class CurrentLineageMemoryCheckpointPauseTests(unittest.TestCase):
-    """Wave 1uf67: main's own ``except SystemExit`` handling must not report the
-    designed memory-checkpoint pause as an upgrade failure or stamp a failure
-    marker over the checkpoint's lock state.
-
-    The archived pghn/pgi7 bridge class above covers only legacy parents; this
-    class drives the CURRENT runner's full-upgrade path to the
-    ``pre_index_update`` pause (typed ``action_required`` block, exit 4).
-    """
-
-    def _drive_main_to_index_update_exit(self, pause):
-        mod = load_upgrade_module()
-        import upgrade_extensions
-        import upgrade_lib
-        import venv_bootstrap
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir).resolve()
-            (root / ".wavefoundry").mkdir()
-            _stage_review_protocol_seeds(root)
-            (root / _live_waves_rel()).mkdir(parents=True)
-            (root / "docs" / "workflow-config.json").write_text(
-                "{}\n", encoding="utf-8"
-            )
-
-            def hook(name, ctx, ext_mod):
-                if name == "pre_index_update":
-                    pause(root)
-
-            stdout, stderr = io.StringIO(), io.StringIO()
-            with patch.object(mod, "phase_preflight", return_value=(None, None, None)), \
-                 patch.object(mod, "_load_extension_module", return_value=None), \
-                 patch.object(mod, "_run_hook", side_effect=hook), \
-                 patch.object(upgrade_extensions, "pre_extract"), \
-                 patch.object(mod, "_snapshot_pre_extract_chunker_versions", return_value={}), \
-                 patch.object(mod, "_snapshot_pre_extract_versions", return_value={}), \
-                 patch.object(mod, "phase_surface_rendering"), \
-                 patch.object(mod, "_stamp_manifest_revision", return_value=False), \
-                 patch.object(mod, "phase_pruning", return_value=0), \
-                 patch.object(mod, "materialize_secrets_policy", return_value="ok"), \
-                 patch.object(mod, "materialize_lifecycle_policy", return_value="ok"), \
-                 patch.object(mod, "phase_docs_gate"), \
-                 patch.object(mod, "phase_index_update", return_value=True), \
-                 patch.object(mod, "_emit_primary_summary_via_delegate_or_fallback"), \
-                 patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
-                 patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}, clear=False), \
-                 contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-                with self.assertRaises(SystemExit) as raised:
-                    mod.main(["--root", str(root), "--yes"])
-                lock = upgrade_lib.read_upgrade_lock(root) or {}
-        return raised.exception, stdout.getvalue() + stderr.getvalue(), lock
-
-    def test_typed_checkpoint_pause_is_not_finalized_as_failure(self):
-        """Red-first for 1uf67: no failure prose AND no failure lock stamp."""
-        import memory_backfill
-        import upgrade_lib
-
-        def pause(root):
-            upgrade_lib.update_upgrade_lock(
-                root,
-                current_phase="awaiting_memory_publication",
-                action_required={
-                    "kind": "historical_memory",
-                    "state": "awaiting_memory_publication",
-                    "resume_phase": "resume_after_memory",
-                    "run_id": "field-run",
-                    "token": "field-token",
-                },
-                failed_phase=None,
-                failed_at=None,
-            )
-            raise SystemExit(memory_backfill.ACTION_REQUIRED_EXIT)
-
-        exc, output, lock = self._drive_main_to_index_update_exit(pause)
-        self.assertEqual(exc.code, memory_backfill.ACTION_REQUIRED_EXIT)
-        self.assertNotIn("Upgrade failed", output)
-        self.assertIn("resume_after_memory", output)
-        self.assertEqual(
-            (lock.get("action_required") or {}).get("run_id"), "field-run"
-        )
-        self.assertIsNone(lock.get("failed_phase"))
-        self.assertIsNone(lock.get("failed_at"))
-
-    def test_untyped_exit_four_still_finalizes_as_failure(self):
-        """Over-suppression guard: exit 4 WITHOUT a typed action_required block
-        is a genuine failure and keeps the retained-lock failure report."""
-        import memory_backfill
-
-        def pause(root):
-            raise SystemExit(memory_backfill.ACTION_REQUIRED_EXIT)
-
-        exc, output, lock = self._drive_main_to_index_update_exit(pause)
-        self.assertEqual(exc.code, memory_backfill.ACTION_REQUIRED_EXIT)
-        self.assertIn("Upgrade failed during phase 'index_update'", output)
-        self.assertEqual(lock.get("failed_phase"), "index_update")
-        self.assertIsNotNone(lock.get("failed_at"))
 
 
 class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
@@ -13008,42 +11620,7 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
         lock = upgrade_lib.read_upgrade_lock(self.root) or {}
         self.assertEqual(lock["docs_scalar_claims_pre_extract"], {"docs embedding model": "docs-v1"})
 
-    def test_post_docs_gate_pauses_pre_upgrade_runner_before_index(self):
-        wave = self.root / _live_waves_rel() / "1old closed"
-        wave.mkdir()
-        wave.joinpath(_record_name()).write_text(
-            "# Wave\n\nStatus: closed\n", encoding="utf-8"
-        )
-        with patch.object(
-            self.ext, "_installed_memory_backfill", return_value=self.backfill
-        ), self.assertRaises(SystemExit) as raised:
-            self.ext.post_docs_gate(self.ctx)
-        self.assertEqual(raised.exception.code, self.backfill.ACTION_REQUIRED_EXIT)
-        lock = json.loads(
-            (self.root / ".wavefoundry" / "upgrade-in-progress.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        self.assertEqual(lock["memory_backfill_state"], "awaiting_validation")
-        self.assertEqual(lock["memory_backfill_pending"], 1)
 
-    def test_post_docs_gate_leaves_protocol_two_runner_to_process_bounded_batch(self):
-        wave = self.root / _live_waves_rel() / "1old closed"
-        wave.mkdir()
-        wave.joinpath(_record_name()).write_text(
-            "# Wave\n\nStatus: closed\n", encoding="utf-8"
-        )
-        self.ctx.runner_protocol = 2
-        with patch.object(
-            self.ext, "_installed_memory_backfill", return_value=self.backfill
-        ):
-            self.assertIsNone(self.ext.post_docs_gate(self.ctx))
-        lock = json.loads(
-            (self.root / ".wavefoundry" / "upgrade-in-progress.json").read_text(
-                encoding="utf-8"
-            )
-        )
-        self.assertEqual(lock["memory_backfill_state"], "awaiting_validation")
 
     def test_pre_docs_gate_loads_new_module_and_runs_sidecar_cleanup_for_old_runner(self):
         """An old loaded runner reaches the new cutover only through this hook."""
@@ -13203,8 +11780,8 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
         lock = json.loads(
             (self.root / ".wavefoundry" / "upgrade-in-progress.json").read_text(encoding="utf-8")
         )
-        self.assertTrue(lock.get("memory_backfill_run_id"))
-        self.assertIn("memory_backfill_state", lock)
+        self.assertNotIn("memory_backfill_run_id", lock)
+        self.assertIn("historical_memory_report", lock)
 
     def test_the_old_runners_own_post_hook_import_runs_consistent_code(self):
         # Mirrors the v1.27.0 runner after the hook returns: it imports
@@ -13248,8 +11825,7 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
         lock = json.loads(
             (self.root / ".wavefoundry" / "upgrade-in-progress.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(lock["memory_backfill_state"], "awaiting_validation")
-        self.assertEqual(lock["memory_backfill_pending"], 1)
+        self.assertEqual(lock["historical_memory_report"]["closed_waves_without_memory"], 1)
 
     def test_review_module_reloads_refresh_a_v1_27_record_paths_first(self):
         self._preload_v1_27_record_paths()
@@ -13357,81 +11933,7 @@ class HistoricalMemoryUpgradeExtensionBootstrapTests(unittest.TestCase):
             )
         migrate.assert_not_called()
 
-    def test_post_index_hook_seals_ready_run_for_pre_upgrade_runner(self):
-        with patch.object(
-            self.ext, "_installed_memory_backfill", return_value=self.backfill
-        ):
-            self.ext.post_docs_gate(self.ctx)
-            lock = json.loads(
-                (self.root / ".wavefoundry" / "upgrade-in-progress.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            run_id = lock["memory_backfill_run_id"]
-            self.ctx.index_published = True
-            self.ext.post_index_update(self.ctx)
-        self.assertEqual(
-            self.backfill.run_summary(self.root, run_id)["state"], "indexed"
-        )
 
-    def test_old_runner_hook_hands_candidate_publication_to_installed_runner(self):
-        import memory_records
-        import server_impl
-
-        self.root.joinpath("foo.py").write_text("LOCAL = True\n", encoding="utf-8")
-        wave = self.root / _live_waves_rel() / "1old closed"
-        wave.mkdir()
-        change_id = "1old1-enh local-choice"
-        wave.joinpath(_record_name()).write_text(
-            f"# Wave\n\nStatus: closed\n\n{_member_id_label()}: `{change_id}`\n",
-            encoding="utf-8",
-        )
-        wave.joinpath(f"{change_id}.md").write_text(
-            "# Change\n\n## Decision Log\n\n"
-            "| Date | Decision | Reason | Alternatives |\n"
-            "| --- | --- | --- | --- |\n"
-            "| 2026-01-01 | Keep `foo.py` local | Avoid remote authority | none |\n",
-            encoding="utf-8",
-        )
-        with patch.object(
-            self.ext, "_installed_memory_backfill", return_value=self.backfill
-        ), self.assertRaises(SystemExit):
-            self.ext.post_docs_gate(self.ctx)
-        server_impl.memory_backfill_response(
-            self.root, mode="create", entry_path="upgrade"
-        )
-        candidate = memory_records.load_memory_records(self.root)[0]
-        validated = server_impl.memory_validate_response(
-            self.root,
-            candidate["memory_id"],
-            "promote",
-            "Reuse the local decision.",
-            "The target remains current.",
-            True,
-            True,
-            "none",
-        )
-        self.assertEqual(validated["status"], "ok")
-
-        with patch.object(
-            self.ext, "_installed_memory_backfill", return_value=self.backfill
-        ), self.assertRaises(SystemExit) as raised:
-            self.ext.pre_index_update(self.ctx)
-        self.assertEqual(raised.exception.code, self.backfill.ACTION_REQUIRED_EXIT)
-        with patch.object(
-            self.ext, "_installed_memory_backfill", return_value=self.backfill
-        ):
-            run_id = json.loads(
-                (
-                    self.root / ".wavefoundry" / "upgrade-in-progress.json"
-                ).read_text(encoding="utf-8")
-            )["memory_backfill_run_id"]
-
-        self.assertEqual(
-            self.backfill.run_summary(self.root, run_id)["state"],
-            "ready_for_index",
-        )
-        self.assertNotIn(self.backfill.INDEX_PUBLICATION_RUN_ENV, os.environ)
 
 
 class _JournalMigrationFixture:
@@ -14643,6 +13145,8 @@ class UpgradeExtensionSearchPathTests(_JournalDeclarationFixture, unittest.TestC
     def test_post_docs_gate(self):
         backfill = types.SimpleNamespace(
             ensure_run=lambda root, kind: "run-1",
+            begin_lifecycle_inventory=lambda root: None,
+            historical_memory_report=lambda root: {"closed_waves_without_memory": 0, "candidates_awaiting_validation": 0},
             sync_inventory=lambda root, run_id: {
                 "state": "indexed", "remaining_waves": 0, "candidates_pending": 0,
                 "failures": 0, "last_failure": None,
@@ -16639,7 +15143,9 @@ class ScaffoldRepairIsClassATests(unittest.TestCase):
             # repair exists to unblock, so ordering is the whole contract.
             seen.append(self._declared())
 
-        with patch.object(upgrade_wavefoundry, "phase_docs_gate", _recording_gate):
+        with patch.object(upgrade_wavefoundry, "phase_docs_gate", _recording_gate), \
+                patch.object(upgrade_wavefoundry, "_load_extension_module", return_value=None), \
+                patch.object(upgrade_wavefoundry, "phase_index_update", return_value=True):
             rc = upgrade_wavefoundry.main(
                 ["--resume-after-gate", "--root", str(self.root)]
             )

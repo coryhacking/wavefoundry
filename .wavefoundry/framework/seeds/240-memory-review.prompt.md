@@ -26,7 +26,7 @@ asks for a read-only review, use the separate read-only procedure and make no mu
 
 ## Capture during ordinary wave close
 
-Review `memory_propose(wave_id, mode="dry_run")` before creating a file. Select only sources that change a future action and supplement canonical guidance with a real contained current target; call create with explicit `source_events`. Omitted selection creates nothing; empty selection is a no-op. Put an honest no-new-memory retrospective in wave.md. All actual wave-linked pending candidates still need validation, independently of current drafting eligibility. Ordinary close and upgrade do not invoke this broad maintenance workflow; the existing bounded historical-memory checkpoint is unchanged.
+Review `memory_propose(wave_id, mode="dry_run")` before creating a file. Select only sources that change a future action and supplement canonical guidance with a real contained current target; call create with explicit `source_events`. Omitted selection creates nothing; empty selection is a no-op. Put an honest no-new-memory retrospective in wave.md. All actual wave-linked pending candidates still need validation, independently of current drafting eligibility. Ordinary close and upgrade do not invoke this broad maintenance workflow; historical curation is on demand and never blocks indexing.
 
 ## Apply procedure
 

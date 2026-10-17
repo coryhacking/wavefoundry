@@ -35,7 +35,6 @@ class PublicationWriter:
     tool_name: str
     producer: str
     contention_policy: str
-    memory_recovery: bool = False
     surface: str = "tool"
 
 
@@ -70,8 +69,8 @@ PUBLICATION_WRITER_REGISTRY = (
     PublicationWriter("memory_reconcile", "memory", "fail_fast"),
     PublicationWriter("memory_consolidate", "memory", "fail_fast"),
     PublicationWriter("memory_purge", "memory", "fail_fast"),
-    PublicationWriter("memory_backfill", "memory_recovery", "checkpoint_only", True),
-    PublicationWriter("memory_validate", "memory_recovery", "checkpoint_only", True),
+    PublicationWriter("memory_backfill", "memory", "checkpoint_only"),
+    PublicationWriter("memory_validate", "memory", "checkpoint_only"),
     PublicationWriter("wf_scan_secrets", "security_findings", "fail_fast"),
     PublicationWriter("wf_garden_docs", "docs_garden", "fail_fast"),
     PublicationWriter("wf_sync_surfaces", "surface_renderer", "fail_fast"),
@@ -164,8 +163,6 @@ def preview_checkpoint_compatible(root: Path, installed_version: str) -> bool:
 def publication_checkpoint_reason(
     root: Path,
     producer: str,
-    *,
-    memory_recovery: bool = False,
 ) -> str | None:
     """Guard a concrete writer boundary, including non-MCP/background writers."""
 
@@ -180,8 +177,6 @@ def publication_checkpoint_reason(
         or checkpoint.get("phase")
         or "corrupt_checkpoint"
     )
-    if phase == "awaiting_memory_validation" and memory_recovery:
-        return None
     return (
         f"upgrade_in_progress: publication by {producer} is blocked while "
         f"Upgrade is at {phase}; " + _checkpoint_recovery_tail(checkpoint, root)
@@ -189,64 +184,32 @@ def publication_checkpoint_reason(
 
 
 def _checkpoint_recovery_tail(checkpoint: dict[str, Any], root: Path | None = None) -> str:
-    """Compose the refusal recovery guidance ONCE for every consumer (1u44n).
-
-    Both refusal surfaces (the MCP ``index_build`` diagnostic strip and the
-    in-upgrade child's ``begin_build_epoch`` raise) read this one string, so
-    they cannot diverge. Branch on the checkpoint's ``memory_backfill_pending``:
-    zero pending means historical memory is already complete and the ordered
-    recovery is safe to state; a non-zero, absent, or unreadable value is
-    treated as a genuine pause (fail safe), because emitting the zero-pending
-    sequence there would tell the operator to skip validation.
-    """
+    """Use the established checkpoint continuation without memory authority."""
     if checkpoint.get("entry_path") == "setup":
         action = checkpoint.get("action_required") or {}
         continuation = action.get("command") if isinstance(action, dict) else None
         return ("resume the recorded wf setup continuation: " + continuation if continuation
                 else "rerun ordinary wf setup to finish installed-checkout reconciliation; retain the checkpoint and index")
-    guidance = ""
-    if root is not None:
-        from sqlite_storage_migration import resume_guidance
-
-        command = resume_guidance(root, checkpoint)
-        if command:
-            guidance = ". " + command["guidance"]
-    pending: int | None
-    try:
-        pending = int(checkpoint.get("memory_backfill_pending"))
-    except (TypeError, ValueError):
-        pending = None
-    if pending == 0:
-        return (
-            "historical memory is complete (0 pending); recover in order: "
-            "wf_upgrade(phase='resume_after_memory') first (it exits zero "
-            "while the upgrade is still non-terminal), then "
-            "wf_upgrade(phase='cleanup'), then index_build; confirm with "
-            "index_health"
-            + guidance
-        )
-    return (
-        "retry or resume Upgrade to a terminal state; if the upgrade is "
-        "paused for historical memory, run memory_backfill and "
-        "memory_validate, then wf_upgrade(phase='resume_after_memory')"
-        + guidance
-    )
+    from sqlite_storage_migration import legacy_memory_pause, resume_guidance
+    action = checkpoint.get("action_required")
+    foreign = (isinstance(action, dict) and action.get("kind") in {"storage_migration", "index_guard_handoff"}
+               or checkpoint.get("current_phase") == "storage_restart_required"
+               or isinstance(checkpoint.get("index_guard_handoff"), dict) and not checkpoint["index_guard_handoff"].get("hosts_stopped_confirmed"))
+    if foreign:
+        recorded = action if isinstance(action, dict) else checkpoint.get("restart_action")
+        command = recorded.get("command") if isinstance(recorded, dict) else None
+        return "follow the retained storage/index-guard continuation after stopping its recorded hosts" + (": " + command if isinstance(command, str) else "")
+    if legacy_memory_pause(checkpoint) or checkpoint.get("failed_phase") == "index_update":
+        return "continue with wf_upgrade(phase='update_index'), then wf_upgrade(phase='cleanup'); confirm with index_health"
+    guidance = resume_guidance(root, checkpoint) if root is not None else None
+    return "retry or resume Upgrade to a terminal state" + (". " + guidance["guidance"] if guidance else "")
 
 
 def publication_block_reason(root: Path, tool_name: str) -> str | None:
-    """Return an actionable fail-fast reason while Upgrade is non-terminal."""
-
-    writer = _BY_TOOL.get(tool_name)
-    if writer is None:
+    """All registered writers fail closed under a retained upgrade checkpoint."""
+    if _BY_TOOL.get(tool_name) is None:
         return None
-    return publication_checkpoint_reason(
-        root,
-        tool_name,
-        memory_recovery=(
-            writer.memory_recovery
-            and tool_name in {"memory_backfill", "memory_validate"}
-        ),
-    )
+    return publication_checkpoint_reason(root, tool_name)
 
 
 def native_publication_block_reason(root: Path, producer: str) -> str | None:

@@ -87,6 +87,7 @@ def _project_retired_model_cleanup_fields(value: object) -> dict[str, Any]:
 
 
 UPGRADE_SUMMARY_TERMINAL_KEYS = {
+    "historical_memory",
     "review_sidecar_cleanup",
     "from_version",
     "to_version",
@@ -1161,21 +1162,8 @@ def _upgrade_next_step(phase: str, root: Path | None = None) -> tuple[str, list[
             "code. Review the summary's reconciliation findings and resolve stale references.",
             ["wf_reload_mcp", "wf_upgrade_status"],
         )
-    if phase == "resume_after_gate":
-        guidance = (" " + __import__("sqlite_storage_migration").resume_guidance(root, resume_flag="--resume-after-memory")["guidance"] if root is not None else "")
-        return (
-            "Docs gate recovery also established or refreshed the historical-memory "
-            "checkpoint. Inspect the returned memory worklist; validate any pending "
-            "candidates, then call wf_upgrade(phase='resume_after_memory')." + guidance,
-            ["memory_backfill", "memory_validate", "wf_upgrade_status"],
-        )
-    if phase == "resume_after_memory":
-        return (
-            "When the response reports indexed, call wf_upgrade(phase='cleanup'). "
-            "If it remains awaiting validation, continue bounded backfill and "
-            "memory_validate calls first.",
-            ["memory_backfill", "memory_validate", "wf_upgrade_status"],
-        )
+    if phase in {"resume_after_gate", "resume_after_memory"}:
+        return ("Index publication complete. Call wf_upgrade(phase='cleanup').", ["wf_upgrade_status", "wf_upgrade"])
     return ("Check wf_upgrade_status for the current lock state.", ["wf_upgrade_status"])
 
 
@@ -1214,12 +1202,9 @@ def wf_upgrade_response(
           failed_phase is "docs_gate" or "post_docs_gate" (including the
           pre-1.28 label for a crash after the gate passed); preserves
           the actual failing phase on retry and, after the gate passes,
-          establishes or refreshes the historical-memory checkpoint. It may
-          return action-required memory work; continue with "resume_after_memory".
-      "resume_after_memory" — recompute the authoritative historical-memory
-          pending set and publish Phase 4 only after it reaches zero. This and
-          every index/cleanup phase refuse while review projection or docs lint
-          has a retained failed phase; recover through "resume_after_gate".
+          continues through ordinary index publication.
+      "resume_after_memory" — deprecated alias of "update_index" while older
+          runner protocols remain supported; it performs no memory work.
     """
     from wf_server import server_impl
     if type(confirm_hosts_stopped) is not bool:
@@ -1496,74 +1481,15 @@ def wf_upgrade_response(
             return _bounded_upgrade_response_envelope(response)
 
     if result.returncode == 4:
-        memory_gate: dict[str, Any] = {}
-        action_required: dict[str, Any] = {}
-        try:
-            _ulib = _load_upgrade_lib()
-            lock = _ulib.read_upgrade_lock(root) if _ulib is not None else None
-            run_id = (
-                str(lock.get("memory_backfill_run_id") or "").strip()
-                if isinstance(lock, dict)
-                else ""
-            )
-            if run_id:
-                backfill = server_impl._load_script("memory_backfill")
-                memory_gate = {
-                    **backfill.run_summary(root, run_id),
-                    **backfill.validation_worklist(root, run_id),
-                }
-            if isinstance(lock, dict) and isinstance(lock.get("action_required"), dict):
-                action_required = dict(lock["action_required"])
-        except (OSError, RuntimeError, ValueError) as exc:
-            memory_gate = {"status_error": str(exc)}
-        action_valid = (
-            action_required.get("kind") == "historical_memory"
-            and action_required.get("resume_phase") == "resume_after_memory"
-            and bool(action_required.get("token"))
-            and bool(action_required.get("run_id"))
-            and action_required.get("run_id") == run_id
-            and action_required.get("state") in {
-                "awaiting_memory_validation", "awaiting_memory_publication"
-            }
-        )
-        if not action_valid:
-            # A code-4 child exit without the durable, self-identifying memory
-            # checkpoint is not a normal pause.  Fall through to generic error
-            # handling so malformed bridges and real Phase-4 failures stay
-            # visible rather than being relabelled as validation work.
-            result.returncode = 1
-        if result.returncode != 4:
-            pass
-        else:
-            publication_ready = action_required.get("state") == "awaiting_memory_publication"
-            state = "awaiting_memory_publication" if publication_ready else "awaiting_memory_validation"
-            next_tools = (
-            ["wf_reload_mcp", "wf_upgrade_status", "wf_upgrade"]
-            if publication_ready
-            else ["wf_reload_mcp", "memory_backfill", "memory_validate"]
-            )
-            action = server_impl._response(
-            "ok",
-            {
-                **data,
-                "state": state,
-                "memory_backfill": memory_gate,
-                "action_required": action_required,
-                "failed_phase": None,
-            },
-            diagnostics=[],
-            next_tools=next_tools,
-            )
-            action["next_step"] = (
-            "Reload the newly installed MCP implementation, then call "
-            "wf_upgrade(phase='resume_after_memory') to publish the prepared historical memory."
-            if publication_ready else
-            "Reload the newly installed MCP implementation, run bounded historical "
-            "memory backfill and focused validation, then call "
-            "wf_upgrade(phase='resume_after_memory')."
-            )
-            action["next_step"] += " " + __import__("sqlite_storage_migration").resume_guidance(root, resume_flag="--resume-after-memory")["guidance"]
-            return _bounded_upgrade_response_envelope(action)
+        # Supported legacy runner compatibility; no new runner emits this pause.
+        _ulib = _load_upgrade_lib()
+        lock = _ulib.read_upgrade_lock(root) if _ulib is not None else None
+        migration = server_impl._load_script("sqlite_storage_migration")
+        if isinstance(lock, dict) and migration.legacy_memory_pause(lock):
+            response = server_impl._response("action_required", {**data, "state": "index_pending"},
+                                             next_tools=["wf_upgrade"], usage="wf_upgrade(phase='update_index')")
+            response["next_step"] = "Continue with wf_upgrade(phase='update_index'), then wf_upgrade(phase='cleanup')."
+            return _bounded_upgrade_response_envelope(response)
     if result.returncode != 0:
         bridge_handoff = _parse_bridge_release_required(output)
         if bridge_handoff is not None:
@@ -1610,7 +1536,7 @@ def wf_upgrade_response(
             _next_step = (
                 "Resolve the reported error, then call "
                 "wf_upgrade(phase='resume_after_gate'). It re-runs the docs gate and "
-                "establishes the historical-memory checkpoint without re-extracting."
+                "continues ordinary index publication without re-extracting."
             )
         err = server_impl._response(
             "error",
@@ -1803,17 +1729,4 @@ def wf_upgrade_status_response(root: Path) -> dict[str, Any]:
         unreadable = unreadable_cause(root) if unreadable_cause and not lock else None
         if unreadable is not None:
             data["lock_unreadable"] = _ulib.upgrade_lock_unreadable_message(unreadable)
-        run_id = str(lock.get("memory_backfill_run_id") or "").strip()
-        if run_id:
-            try:
-                backfill = server_impl._load_script("memory_backfill")
-                data["memory_backfill"] = {
-                    **backfill.run_summary(root, run_id),
-                    **backfill.validation_worklist(root, run_id),
-                }
-            except (OSError, RuntimeError, ValueError) as exc:
-                data["memory_backfill"] = {
-                    "run_id": run_id,
-                    "status_error": str(exc),
-                }
     return server_impl._response("ok", data, usage="wf_upgrade_status()")

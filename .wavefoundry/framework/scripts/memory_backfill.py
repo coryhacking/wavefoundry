@@ -39,13 +39,16 @@ ACTION_REQUIRED_EXIT = 4
 RUN_STATES = (
     "inventory_pending",
     "awaiting_validation",
-    "ready_for_index",
-    "publishing_index",
     "indexed",
 )
 _CLOSED_STATES = {"closed", "complete", "completed"}
 ENTRY_PATHS = frozenset({"manual", "setup", "upgrade"})
-INDEX_PUBLICATION_RUN_ENV = "WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID"
+# Legacy runner compatibility lasts until its supported protocol is retired.
+_LIFECYCLE_UNAVAILABLE = "lifecycle-inventory-unavailable"
+_lifecycle_runs: dict[tuple[str, str], str] = globals().get("_lifecycle_runs", {})
+_lifecycle_sync: dict[tuple[str, str], dict[str, Any]] = {}
+_RETIRED_STATES = frozenset({"ready_for_index", "publishing_index"})
+REVIEW_MEMORIES = "Run Review memories: memory_backfill(mode='create') then memory_validate."
 
 
 def _now() -> str:
@@ -78,58 +81,62 @@ def _connect(root: Path) -> sqlite3.Connection:
     ):
         raise OSError("memory-state.sqlite escapes its canonical index directory")
     conn = sqlite3.connect(str(path), timeout=10.0, isolation_level=None)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA busy_timeout=10000")
-    conn.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS memory_backfill_runs (
-          run_id TEXT PRIMARY KEY,
-          entry_path TEXT NOT NULL,
-          state TEXT NOT NULL,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          last_failure TEXT NOT NULL DEFAULT '',
-          publication_attempt_id TEXT NOT NULL DEFAULT '',
-          publication_generation INTEGER NOT NULL DEFAULT 0,
-          publication_inventory_digest TEXT NOT NULL DEFAULT ''
-        );
-        CREATE INDEX IF NOT EXISTS memory_backfill_runs_entry
-          ON memory_backfill_runs(entry_path, updated_at);
-        CREATE UNIQUE INDEX IF NOT EXISTS memory_backfill_one_active_run
-          ON memory_backfill_runs(entry_path) WHERE state!='indexed';
-        CREATE TABLE IF NOT EXISTS memory_backfill_waves (
-          run_id TEXT NOT NULL,
-          wave_id TEXT NOT NULL,
-          source_fingerprint TEXT NOT NULL,
-          state TEXT NOT NULL,
-          claim_token TEXT NOT NULL DEFAULT '',
-          candidate_count INTEGER NOT NULL DEFAULT 0,
-          outcome TEXT NOT NULL DEFAULT '',
-          last_failure TEXT NOT NULL DEFAULT '',
-          updated_at TEXT NOT NULL,
-          PRIMARY KEY (run_id, wave_id)
-        );
-        CREATE TABLE IF NOT EXISTS memory_backfill_sources (
-          run_id TEXT NOT NULL,
-          wave_id TEXT NOT NULL,
-          source_event TEXT NOT NULL,
-          memory_id TEXT NOT NULL DEFAULT '',
-          PRIMARY KEY (run_id, source_event)
-        );
-        """
-    )
-    run_columns = {
-        str(row[1]) for row in conn.execute("PRAGMA table_info(memory_backfill_runs)")
-    }
-    for name, declaration in (
-        ("publication_attempt_id", "TEXT NOT NULL DEFAULT ''"),
-        ("publication_generation", "INTEGER NOT NULL DEFAULT 0"),
-        ("publication_inventory_digest", "TEXT NOT NULL DEFAULT ''"),
-    ):
-        if name not in run_columns:
-            conn.execute(
-                f"ALTER TABLE memory_backfill_runs ADD COLUMN {name} {declaration}"
-            )
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout=10000")
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS memory_backfill_runs (
+              run_id TEXT PRIMARY KEY,
+              entry_path TEXT NOT NULL,
+              state TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              last_failure TEXT NOT NULL DEFAULT '',
+              publication_attempt_id TEXT NOT NULL DEFAULT '',
+              publication_generation INTEGER NOT NULL DEFAULT 0,
+              publication_inventory_digest TEXT NOT NULL DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS memory_backfill_runs_entry
+              ON memory_backfill_runs(entry_path, updated_at);
+            CREATE UNIQUE INDEX IF NOT EXISTS memory_backfill_one_active_run
+              ON memory_backfill_runs(entry_path) WHERE state!='indexed';
+            CREATE TABLE IF NOT EXISTS memory_backfill_waves (
+              run_id TEXT NOT NULL,
+              wave_id TEXT NOT NULL,
+              source_fingerprint TEXT NOT NULL,
+              state TEXT NOT NULL,
+              claim_token TEXT NOT NULL DEFAULT '',
+              candidate_count INTEGER NOT NULL DEFAULT 0,
+              outcome TEXT NOT NULL DEFAULT '',
+              last_failure TEXT NOT NULL DEFAULT '',
+              updated_at TEXT NOT NULL,
+              PRIMARY KEY (run_id, wave_id)
+            );
+            CREATE TABLE IF NOT EXISTS memory_backfill_sources (
+              run_id TEXT NOT NULL,
+              wave_id TEXT NOT NULL,
+              source_event TEXT NOT NULL,
+              memory_id TEXT NOT NULL DEFAULT '',
+              PRIMARY KEY (run_id, source_event)
+            );
+            """
+        )
+        run_columns = {
+            str(row[1]) for row in conn.execute("PRAGMA table_info(memory_backfill_runs)")
+        }
+        for name, declaration in (
+            ("publication_attempt_id", "TEXT NOT NULL DEFAULT ''"),
+            ("publication_generation", "INTEGER NOT NULL DEFAULT 0"),
+            ("publication_inventory_digest", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            if name not in run_columns:
+                conn.execute(
+                    f"ALTER TABLE memory_backfill_runs ADD COLUMN {name} {declaration}"
+                )
+    except Exception:
+        conn.close()
+        raise
     return conn
 
 
@@ -406,7 +413,181 @@ def source_fingerprint(
     return digest.hexdigest()
 
 
+
+def _source_rows(conn) -> list[sqlite3.Row]:
+    rows = conn.execute(
+        "SELECT s.wave_id,s.source_event,s.memory_id FROM memory_backfill_sources s "
+        "JOIN memory_backfill_runs r ON r.run_id=s.run_id "
+        "ORDER BY r.created_at DESC,r.run_id DESC,s.source_event"
+    ).fetchall()
+    newest = {}
+    for row in rows:
+        newest.setdefault(str(row["source_event"]), row)
+    return sorted(newest.values(), key=lambda row: (row["wave_id"], row["source_event"]))
+
+
+def _wave_rows(conn, run_id: str | None = None) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT w.*,r.created_at FROM memory_backfill_waves w "
+        "JOIN memory_backfill_runs r ON r.run_id=w.run_id "
+        "ORDER BY w.updated_at DESC,r.created_at DESC,r.run_id DESC"
+    ).fetchall()
+    covered = {(str(row["wave_id"]), str(row["source_fingerprint"]))
+               for row in rows if row["state"] in {"complete", "no_source"}}
+    newest = {}
+    for row in rows:
+        if run_id is None or row["run_id"] == run_id:
+            newest.setdefault(str(row["wave_id"]), dict(row))
+    for row in newest.values():
+        if (row["wave_id"], row["source_fingerprint"]) in covered:
+            row["state"] = "complete"
+    return list(newest.values())
+
+
+def _lifecycle_entry(root: Path, run_id: str) -> str | None:
+    key = (str(root.resolve()), run_id)
+    if run_id == _LIFECYCLE_UNAVAILABLE:
+        return _lifecycle_runs.get(key, "upgrade")
+    if key in _lifecycle_runs:
+        return _lifecycle_runs[key]
+    conn = _connect(root)
+    try:
+        row = conn.execute("SELECT entry_path FROM memory_backfill_runs WHERE run_id=?", (run_id,)).fetchone()
+        entry = str(row[0]) if row else None
+        if entry in {"setup", "upgrade"}:
+            _lifecycle_runs[key] = entry
+            return entry
+        return None
+    finally:
+        conn.close()
+
+
+def _advisory_failure(root: Path, run_id: str, exc: Exception) -> dict[str, Any]:
+    reason = type(exc).__name__
+    print("Historical memory report unavailable: " + reason, file=sys.stderr)
+    return {"run_id": run_id, "entry_path": _lifecycle_runs.get((str(root.resolve()), run_id), "upgrade"),
+            "state": "indexed", "eligible_waves": 0, "remaining_waves": 0,
+            "waves_complete": 0, "waves_no_source": 0, "waves_unsupported": 0,
+            "failures": 0, "candidates_drafted": 0, "candidates_pending": 0,
+            "promoted": 0, "retained": 0, "rejected": 0, "rewritten": 0,
+            "last_failure": reason, "report_status": "unavailable"}
+
+
+def begin_lifecycle_inventory(root: Path) -> None:
+    """Start one invocation; the old incoming-hook/main pair share its result."""
+    root_key = str(root.resolve())
+    for key in list(_lifecycle_sync):
+        if key[0] == root_key:
+            _lifecycle_sync.pop(key)
+
+
+def project_historical_memory_report(value: object) -> dict[str, Any]:
+    """Publish only the fixed advisory shape, never arbitrary checkpoint data."""
+    if isinstance(value, dict):
+        counts = ("closed_waves_without_memory", "candidates_awaiting_validation")
+        if all(type(value.get(key)) is int and value[key] >= 0 for key in counts):
+            return {**{key: value[key] for key in counts}, "next_step": REVIEW_MEMORIES}
+        if value.get("status") == "unavailable":
+            reason = value.get("reason")
+            if isinstance(reason, str) and reason.isidentifier() and len(reason) <= 80:
+                return {"status": "unavailable", "reason": reason, "next_step": REVIEW_MEMORIES}
+    return {"status": "unavailable", "reason": "invalid_report", "next_step": REVIEW_MEMORIES}
+
+
 def ensure_run(root: Path, entry_path: str = "manual") -> str:
+    """Keep lifecycle callers advisory; manual backfill owns real work."""
+    entry = str(entry_path or "manual").strip() or "manual"
+    if entry not in {"setup", "upgrade"}:
+        return _ensure_run(root, entry)
+    try:
+        run_id = _ensure_run(root, entry)
+    except Exception as exc:
+        run_id = _LIFECYCLE_UNAVAILABLE
+        _lifecycle_runs[(str(root.resolve()), run_id)] = entry
+        _lifecycle_sync[(str(root.resolve()), run_id)] = _advisory_failure(root, run_id, exc)
+    _lifecycle_runs[(str(root.resolve()), run_id)] = entry
+    return run_id
+
+
+def sync_inventory(root: Path, run_id: str, *, inventory=None, shadowed=None) -> dict[str, Any]:
+    """Sync once for a lifecycle invocation; manual calls remain retry boundaries."""
+    key = (str(root.resolve()), run_id)
+    lifecycle = _lifecycle_entry(root, run_id)
+    if lifecycle and key in _lifecycle_sync:
+        return dict(_lifecycle_sync[key])
+    try:
+        result = _sync_inventory(root, run_id, inventory=inventory, shadowed=shadowed)
+    except Exception as exc:
+        if not lifecycle:
+            raise
+        result = _advisory_failure(root, run_id, exc)
+    if lifecycle:
+        _lifecycle_sync[key] = dict(result)
+    return result
+
+
+def run_summary(root: Path, run_id: str) -> dict[str, Any]:
+    lifecycle = _lifecycle_entry(root, run_id)
+    key = (str(root.resolve()), run_id)
+    if lifecycle and _lifecycle_sync.get(key, {}).get("report_status") == "unavailable":
+        return dict(_lifecycle_sync[key])
+    try:
+        return _run_summary(root, run_id)
+    except Exception as exc:
+        if not lifecycle:
+            raise
+        return _advisory_failure(root, run_id, exc)
+
+
+def validation_worklist(root: Path, run_id: str, *, limit: int = MAX_CANDIDATES_PER_CALL) -> dict[str, Any]:
+    lifecycle = _lifecycle_entry(root, run_id)
+    try:
+        return _validation_worklist(root, run_id, limit=limit)
+    except Exception as exc:
+        if not lifecycle:
+            raise
+        return {**_advisory_failure(root, run_id, exc), "validation_worklist": [],
+                "validation_worklist_count": 0, "validation_worklist_remaining": 0}
+
+
+def historical_memory_report(root: Path, *, entry_path: str | None = None) -> dict[str, Any]:
+    """Read advisory rows; only an explicit lifecycle entry performs inventory."""
+    try:
+        if entry_path is not None:
+            run_id = ensure_run(root, entry_path)
+            summary = sync_inventory(root, run_id)
+        else:
+            entries = [(key, value) for key, value in _lifecycle_sync.items() if key[0] == str(root.resolve())]
+            if entries:
+                summary = entries[-1][1]
+            else:
+                conn = _connect(root)
+                try:
+                    summary = _cross_run_summary(root, conn)
+                finally:
+                    conn.close()
+        if summary.get("report_status") == "unavailable":
+            return {"status": "unavailable", "reason": summary["last_failure"], "next_step": REVIEW_MEMORIES}
+        return {"closed_waves_without_memory": int(summary["remaining_waves"]) + int(summary.get("failures", 0)),
+                "candidates_awaiting_validation": int(summary["candidates_pending"]),
+                "next_step": REVIEW_MEMORIES}
+    except Exception as exc:
+        return {"status": "unavailable", "reason": type(exc).__name__, "next_step": REVIEW_MEMORIES}
+
+
+def _cross_run_summary(root: Path, conn) -> dict[str, Any]:
+    waves = _wave_rows(conn)
+    grouped = {}
+    for row in waves:
+        grouped[row["state"]] = grouped.get(row["state"], 0) + 1
+    return {"eligible_waves": len(waves),
+            "remaining_waves": sum(grouped.get(state, 0) for state in ("pending", "claimed")),
+            "waves_complete": grouped.get("complete", 0), "waves_no_source": grouped.get("no_source", 0),
+            "waves_unsupported": grouped.get("unsupported", 0), "failures": grouped.get("failed", 0),
+            **_memory_outcomes(root, "")}
+
+
+def _ensure_run(root: Path, entry_path: str = "manual") -> str:
     """Return the durable run for ``entry_path`` or create its first one."""
 
     entry = str(entry_path or "manual").strip() or "manual"
@@ -466,17 +647,6 @@ def latest_run_id(root: Path, entry_path: str) -> str | None:
         conn.close()
 
 
-def _inventory_digest(inventory: Iterable[dict[str, Any]]) -> str:
-    digest = hashlib.sha256()
-    for item in inventory:
-        for value in (
-            str(item["wave_id"]),
-            str(item["status"]),
-            str(item["fingerprint"]),
-        ):
-            digest.update(value.encode("utf-8", errors="surrogateescape"))
-            digest.update(b"\0")
-    return digest.hexdigest()
 
 
 def _reconcile_migrated_memory_source_ids(
@@ -513,7 +683,7 @@ def _reconcile_migrated_memory_source_ids(
     return repaired
 
 
-def sync_inventory(
+def _sync_inventory(
     root: Path,
     run_id: str,
     *,
@@ -585,11 +755,10 @@ def sync_inventory(
                     "updated_at=? WHERE run_id=? AND wave_id=?",
                     (now, run_id, wave_id),
                 )
-        if inventory_changed and str(run["state"]) in {"indexed", "publishing_index"}:
+        if inventory_changed and str(run["state"]) == "indexed":
             conn.execute(
                 "UPDATE memory_backfill_runs SET state='awaiting_validation',"
-                "publication_attempt_id='',publication_generation=0,"
-                "publication_inventory_digest='',updated_at=? WHERE run_id=?",
+                "updated_at=? WHERE run_id=?",
                 (now, run_id),
             )
         conn.execute(
@@ -618,6 +787,10 @@ def claim_next(root: Path, run_id: str) -> dict[str, str] | None:
         row = conn.execute(
             "SELECT wave_id,source_fingerprint FROM memory_backfill_waves "
             "WHERE run_id=? AND state IN ('pending','claimed') "
+            "AND NOT EXISTS (SELECT 1 FROM memory_backfill_waves covered "
+            "WHERE covered.wave_id=memory_backfill_waves.wave_id "
+            "AND covered.source_fingerprint=memory_backfill_waves.source_fingerprint "
+            "AND covered.state IN ('complete','no_source')) "
             "ORDER BY wave_id LIMIT 1",
             (run_id,),
         ).fetchone()
@@ -747,9 +920,7 @@ def _memory_outcomes(root: Path, run_id: str) -> dict[str, int]:
     }
     conn = _connect(root)
     try:
-        sources = conn.execute(
-            "SELECT memory_id FROM memory_backfill_sources WHERE run_id=?", (run_id,)
-        ).fetchall()
+        sources = _source_rows(conn)
     finally:
         conn.close()
     result = {
@@ -776,7 +947,7 @@ def _memory_outcomes(root: Path, run_id: str) -> dict[str, int]:
     return result
 
 
-def validation_worklist(
+def _validation_worklist(
     root: Path,
     run_id: str,
     *,
@@ -796,11 +967,7 @@ def validation_worklist(
         records = {}
     conn = _connect(root)
     try:
-        sources = conn.execute(
-            "SELECT wave_id,source_event,memory_id FROM memory_backfill_sources "
-            "WHERE run_id=? ORDER BY wave_id,source_event",
-            (run_id,),
-        ).fetchall()
+        sources = _source_rows(conn)
     finally:
         conn.close()
     pending: list[dict[str, str]] = []
@@ -831,317 +998,71 @@ def validation_worklist(
     }
 
 
-def run_summary(root: Path, run_id: str) -> dict[str, Any]:
+def _run_summary(root: Path, run_id: str) -> dict[str, Any]:
     conn = _connect(root)
     try:
-        run = conn.execute(
-            "SELECT * FROM memory_backfill_runs WHERE run_id=?", (run_id,)
-        ).fetchone()
+        run = conn.execute("SELECT * FROM memory_backfill_runs WHERE run_id=?", (run_id,)).fetchone()
         if run is None:
-            raise ValueError(f"unknown memory backfill run {run_id}")
-        grouped = {
-            str(row["state"]): int(row["n"])
-            for row in conn.execute(
-                "SELECT state,COUNT(*) AS n FROM memory_backfill_waves "
-                "WHERE run_id=? GROUP BY state",
-                (run_id,),
-            )
-        }
-        candidates = int(
-            conn.execute(
-                "SELECT COALESCE(SUM(candidate_count),0) FROM memory_backfill_waves "
-                "WHERE run_id=?",
-                (run_id,),
-            ).fetchone()[0]
-        )
+            raise ValueError("unknown memory backfill run")
+        lifecycle = str(run["entry_path"]) in {"setup", "upgrade"}
+        rows = _wave_rows(conn, None if lifecycle else run_id)
+        grouped = {}
+        for row in rows:
+            grouped[row["state"]] = grouped.get(row["state"], 0) + 1
+        outcomes = _memory_outcomes(root, run_id)
+        remaining = grouped.get("pending", 0) + grouped.get("claimed", 0)
+        failures = grouped.get("failed", 0)
+        state = str(run["state"])
+        if lifecycle or state in _RETIRED_STATES:
+            state = "indexed"
+        elif remaining + outcomes["candidates_pending"] + failures == 0:
+            state = "indexed"
+            if str(run["state"]) != "indexed":
+                conn.execute("UPDATE memory_backfill_runs SET state='indexed',updated_at=? WHERE run_id=?", (_now(), run_id))
+        elif state == "inventory_pending":
+            state = "awaiting_validation"
+        return {"run_id": run_id, "entry_path": str(run["entry_path"]), "state": state,
+                "eligible_waves": len(rows), "remaining_waves": remaining,
+                "waves_complete": grouped.get("complete", 0), "waves_no_source": grouped.get("no_source", 0),
+                "waves_unsupported": grouped.get("unsupported", 0), "failures": failures,
+                "candidates_drafted": 0 if lifecycle else len(_source_rows(conn)),
+                **outcomes, "last_failure": str(run["last_failure"])}
     finally:
         conn.close()
-    outcomes = _memory_outcomes(root, run_id)
-    remaining_waves = grouped.get("pending", 0) + grouped.get("claimed", 0)
-    failures = grouped.get("failed", 0)
-    pending = remaining_waves + outcomes["candidates_pending"] + failures
-    state = str(run["state"])
-    if state not in {"indexed", "publishing_index"}:
-        state = "ready_for_index" if pending == 0 else "awaiting_validation"
-        conn = _connect(root)
-        try:
-            conn.execute(
-                "UPDATE memory_backfill_runs SET state=?,updated_at=? WHERE run_id=?",
-                (state, _now(), run_id),
-            )
-        finally:
-            conn.close()
-    return {
-        "run_id": run_id,
-        "entry_path": str(run["entry_path"]),
-        "state": state,
-        "eligible_waves": sum(grouped.values()),
-        "remaining_waves": remaining_waves,
-        "waves_complete": grouped.get("complete", 0),
-        "waves_no_source": grouped.get("no_source", 0),
-        "waves_unsupported": grouped.get("unsupported", 0),
-        "failures": failures,
-        "candidates_drafted": candidates,
-        **outcomes,
-        "last_failure": str(run["last_failure"]),
-    }
 
 
 @contextmanager
 def index_publication_scope(run_id: str):
-    """Bind one lifecycle-owned backfill run to the indexer's final CAS."""
-
-    previous = os.environ.get(INDEX_PUBLICATION_RUN_ENV)
-    os.environ[INDEX_PUBLICATION_RUN_ENV] = str(run_id)
-    try:
-        yield
-    finally:
-        if previous is None:
-            os.environ.pop(INDEX_PUBLICATION_RUN_ENV, None)
-        else:
-            os.environ[INDEX_PUBLICATION_RUN_ENV] = previous
+    """Deprecated old-runner compatibility; does not authorize publication."""
+    yield
 
 
-def authorize_index_finalize(
-    root: Path,
-    run_id: str,
-    attempt_id: str,
-    expected_generation: int,
-) -> bool:
-    """Freeze the current zero-pending census immediately before epoch publish."""
-
-    inventory = inventory_closed_waves(root)
-    summary = sync_inventory(root, run_id, inventory=inventory)
-    if summary["state"] != "ready_for_index":
-        return False
-    digest = _inventory_digest(inventory)
-    conn = _connect(root)
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute(
-            "SELECT state FROM memory_backfill_runs WHERE run_id=?", (run_id,)
-        ).fetchone()
-        if row is None or str(row["state"]) != "ready_for_index":
-            conn.execute("ROLLBACK")
-            return False
-        conn.execute(
-            "UPDATE memory_backfill_runs SET state='publishing_index',"
-            "publication_attempt_id=?,publication_generation=?,"
-            "publication_inventory_digest=?,last_failure='',updated_at=? "
-            "WHERE run_id=?",
-            (
-                str(attempt_id),
-                int(expected_generation),
-                digest,
-                _now(),
-                run_id,
-            ),
-        )
-        conn.execute("COMMIT")
-        return True
-    except Exception:
-        if conn.in_transaction:
-            conn.execute("ROLLBACK")
-        raise
-    finally:
-        conn.close()
 
 
 def run_state(root: Path, run_id: str) -> str | None:
-    """Light state read for the finalize gate; ``None`` for an unknown run."""
-
-    conn = _connect(root)
-    try:
-        row = conn.execute(
-            "SELECT state FROM memory_backfill_runs WHERE run_id=?", (run_id,)
-        ).fetchone()
-        return str(row["state"]) if row else None
-    finally:
-        conn.close()
+    """Compatibility state read, with retired labels interpreted as terminal."""
+    return run_summary(root, run_id)["state"]
 
 
-def record_publication_success(root: Path, run_id: str, attempt_id: str) -> bool:
-    """Mark the run indexed at CAS time, for the AUTHORIZED attempt only.
-
-    The last-build row is legitimately overwritten by trailing passes
-    (graph-only, FTS derived rebuild, optimize), so success is recorded at
-    the one moment it is known with certainty — immediately after the epoch
-    compare-and-set — instead of being re-derived later from that row.
-    """
-
-    conn = _connect(root)
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        cur = conn.execute(
-            "UPDATE memory_backfill_runs SET state='indexed',last_failure='',"
-            "updated_at=? WHERE run_id=? AND state='publishing_index' "
-            "AND publication_attempt_id=?",
-            (_now(), run_id, str(attempt_id)),
-        )
-        conn.execute("COMMIT")
-        return cur.rowcount == 1
-    except Exception:
-        if conn.in_transaction:
-            conn.execute("ROLLBACK")
-        raise
-    finally:
-        conn.close()
 
 
-def restage_index_finalize(
-    root: Path,
-    run_id: str,
-    attempt_id: str,
-    expected_generation: int,
-) -> bool:
-    """Transfer one frozen publication to a later staged child attempt.
-
-    Phase 4 is multi-pass: the content child freezes the zero-pending census,
-    then graph maintenance may start a new build attempt before the parent
-    owns the final CAS.  The generation and inventory authority must remain
-    identical, but the exact staged attempt must move to the final child so
-    the parent can retain attempt-ID protection instead of accepting by
-    generation alone.
-    """
-
-    inventory = inventory_closed_waves(root)
-    summary = sync_inventory(root, run_id, inventory=inventory)
-    if (
-        summary["state"] != "publishing_index"
-        or summary["remaining_waves"]
-        or summary["candidates_pending"]
-        or summary["failures"]
-    ):
-        return False
-    digest = _inventory_digest(inventory)
-    conn = _connect(root)
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        cur = conn.execute(
-            "UPDATE memory_backfill_runs SET publication_attempt_id=?,updated_at=? "
-            "WHERE run_id=? AND state='publishing_index' "
-            "AND publication_generation=? AND publication_inventory_digest=?",
-            (
-                str(attempt_id),
-                _now(),
-                run_id,
-                int(expected_generation),
-                digest,
-            ),
-        )
-        conn.execute("COMMIT")
-        return cur.rowcount == 1
-    except Exception:
-        if conn.in_transaction:
-            conn.execute("ROLLBACK")
-        raise
-    finally:
-        conn.close()
 
 
 def reconcile_index_publication(root: Path, run_id: str) -> dict[str, Any]:
-    """Recover a publication/checkpoint split without repeating the index pass."""
-
-    summary = sync_inventory(root, run_id)
-    if summary["state"] != "publishing_index":
-        return summary
-    conn = _connect(root)
-    try:
-        row = conn.execute(
-            "SELECT publication_attempt_id,publication_generation,"
-            "publication_inventory_digest FROM memory_backfill_runs WHERE run_id=?",
-            (run_id,),
-        ).fetchone()
-    finally:
-        conn.close()
-    if row is None:
-        raise ValueError(f"unknown memory backfill run {run_id}")
-
-    inventory = inventory_closed_waves(root)
-    if _inventory_digest(inventory) != str(row["publication_inventory_digest"]):
-        return sync_inventory(root, run_id, inventory=inventory)
-
-    import index_state_store
-
-    state = index_state_store.read_build_state(root / ".wavefoundry" / "index")
-    published = bool(
-        state
-        and state.get("status") == "complete"
-        and str(state.get("attempt_id") or "")
-        == str(row["publication_attempt_id"])
-        and int(state.get("generation") or 0)
-        == int(row["publication_generation"])
-    )
-    conn = _connect(root)
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        if published:
-            conn.execute(
-                "UPDATE memory_backfill_runs SET state='indexed',last_failure='',"
-                "updated_at=? WHERE run_id=? AND state='publishing_index'",
-                (_now(), run_id),
-            )
-        else:
-            conn.execute(
-                "UPDATE memory_backfill_runs SET state='ready_for_index',"
-                "publication_attempt_id='',publication_generation=0,"
-                "publication_inventory_digest='',updated_at=? "
-                "WHERE run_id=? AND state='publishing_index'",
-                (_now(), run_id),
-            )
-        conn.execute("COMMIT")
-    except Exception:
-        if conn.in_transaction:
-            conn.execute("ROLLBACK")
-        raise
-    finally:
-        conn.close()
-    result = run_summary(root, run_id)
-    result["publication_recovered"] = published
-    return result
+    """Deprecated old-runner compatibility; return advisory state only."""
+    return run_summary(root, run_id)
 
 
-def complete_index_publication(root: Path, run_id: str) -> None:
-    summary = reconcile_index_publication(root, run_id)
-    if summary["state"] != "indexed":
-        raise RuntimeError(
-            "index publication did not produce a recoverable completed epoch"
-        )
+def complete_index_publication(*args, **kwargs):
+    """Deprecated old-runner compatibility; no publication authority."""
+    return None
 
 
-def mark_indexed(root: Path, run_id: str) -> None:
-    """Legacy direct checkpoint helper; lifecycle publication uses the epoch receipt."""
-
-    summary = run_summary(root, run_id)
-    if summary["state"] != "ready_for_index":
-        raise RuntimeError("memory backfill remains awaiting validation")
-    conn = _connect(root)
-    try:
-        conn.execute(
-            "UPDATE memory_backfill_runs SET state='indexed',updated_at=? WHERE run_id=?",
-            (_now(), run_id),
-        )
-    finally:
-        conn.close()
+def mark_indexed(*args, **kwargs):
+    """Deprecated old-runner compatibility; no publication authority."""
+    return None
 
 
-def paused_run_for_source(root: Path, source_event: str) -> str | None:
-    """Return the awaiting lifecycle run owning ``source_event``, if any."""
-
-    if not source_event:
-        return None
-    conn = _connect(root)
-    try:
-        row = conn.execute(
-            "SELECT s.run_id FROM memory_backfill_sources s "
-            "JOIN memory_backfill_runs r ON r.run_id=s.run_id "
-            "WHERE s.source_event=? AND r.state='awaiting_validation' "
-            "ORDER BY r.created_at DESC LIMIT 1",
-            (source_event,),
-        ).fetchone()
-        return str(row["run_id"]) if row else None
-    finally:
-        conn.close()
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -835,8 +835,7 @@ def _capture_index_guard_handoff(ctx):
 
 # One checkpoint-owned continuation archive; never an archive discovery/cache API.
 _INDEX_GUARD_PACK_REL = '.wavefoundry/cache/upgrade/index-guard-feature.zip'
-_INDEX_GUARD_MEMORY_PHASES = frozenset({'awaiting_memory_validation', 'awaiting_memory_publication', 'memory_resume_preflight', 'index_complete'})
-_INDEX_GUARD_UPDATE_PHASES = frozenset({'docs_gate_complete', 'index_complete'})
+_INDEX_GUARD_UPDATE_PHASES = frozenset({'docs_gate_complete', 'index_complete', 'awaiting_memory_validation', 'awaiting_memory_publication', 'memory_resume_preflight'})
 
 
 def _guard_file_identity(entry):
@@ -1092,24 +1091,7 @@ def _index_guard_resume_flag(ctx, lock, migration, *, pre_docs=False):
     phase = lock.get('current_phase')
     if lock.get('failed_phase') not in {None, 'awaiting_memory_validation', 'index_update'}:
         return None
-    run_id = lock.get('memory_backfill_run_id')
-    if run_id:
-        try:
-            with _scripts_on_sys_path(Path(ctx.root) / '.wavefoundry/framework/scripts'):
-                import memory_backfill
-                summary = memory_backfill.run_summary(Path(ctx.root), run_id)
-        except Exception:
-            return None
-        if not isinstance(summary, dict) or summary.get('state') not in {'awaiting_validation', 'ready_for_index', 'indexed'}:
-            return None
-        legacy = phase in {None, 'preflight'} and lock.get('runner_protocol') is None
-        if phase in _INDEX_GUARD_MEMORY_PHASES or legacy:
-            return '--resume-after-memory'
-        if summary.get('state') != 'indexed':
-            return None
-    elif lock.get('memory_backfill_state') not in {None, 'indexed'}:
-        return None
-    if phase in _INDEX_GUARD_UPDATE_PHASES:
+    if migration.legacy_memory_pause(lock) or phase in _INDEX_GUARD_UPDATE_PHASES or lock.get('failed_phase') == 'index_update':
         return '--update-index'
     return None
 
@@ -1126,7 +1108,7 @@ def validate_index_guard_terminal_cleanup(root, lock):
                    ('storage_cleanup_complete', 'dashboard_restart_complete', 'fatal_cleanup_complete'))
             or lock.get('failed_phase') or lock.get('index_publication_failed')
             or lock.get('dashboard_restart_pending')
-            or lock.get('memory_backfill_state') not in {None, 'indexed'}
+            or not lock.get('index_rebuilt_at')
             or record.get('hosts_stopped_confirmed') is not True):
         raise ValueError('index_guard_terminal_cleanup_invalid: fatal obligations are not proven complete')
     try:
@@ -1444,8 +1426,8 @@ _MEMORY_BOOTSTRAP_MODULES = (
 # Framework modules the bootstrap reaches that are never reloaded, and why.
 _MEMORY_BOOTSTRAP_EXCLUDED = {
     "index_state_store": (
-        "holds build-state locks and context variables; the bootstrap calls only "
-        "read_build_state, whose definition is unchanged since v1.27.0"
+        "stateful connection and build authority; memory_records references its "
+        "optional exploration-cost read only, never memory publication finalization"
     ),
     "lifecycle_id": (
         "activates the tool venv when imported; memory_records calls only "
@@ -3102,7 +3084,7 @@ def pre_docs_gate(ctx):
 
 
 def post_docs_gate(ctx):
-    """Bootstrap the memory pause under both old and new upgrade runners.
+    """Refresh advisory inventory under both old and new upgrade runners.
 
     Wave 200ey (200ev): the extracted scripts directory is held on
     ``sys.path`` across the coordinator's load and calls, then removed."""
@@ -3112,38 +3094,12 @@ def post_docs_gate(ctx):
 
 
 def _post_docs_gate_on_path(ctx):
-    """The body of :func:`post_docs_gate`."""
-
+    """Refresh the extracted coordinator and synchronize advisory inventory once."""
     backfill = _installed_memory_backfill(ctx.root)
+    backfill.begin_lifecycle_inventory(ctx.root)
     run_id = backfill.ensure_run(ctx.root, "upgrade")
-    summary = backfill.sync_inventory(ctx.root, run_id)
-    _update_upgrade_state(
-        ctx.root,
-        memory_backfill_run_id=run_id,
-        memory_backfill_state=summary["state"],
-        memory_backfill_pending=(
-            summary["remaining_waves"]
-            + summary["candidates_pending"]
-            + summary["failures"]
-        ),
-        memory_backfill_last_failure=summary["last_failure"],
-    )
-    # Protocol-2 runners own the canonical bounded extraction attempt after
-    # this hook returns.  A protocol-1 runner cannot safely continue through
-    # the new memory state machine, so it retains the compatibility pause.
-    if int(getattr(ctx, "runner_protocol", 1) or 1) >= 2:
-        return
-    if summary["state"] == "awaiting_validation":
-        _pause_for_memory_action(
-            ctx,
-            state="awaiting_memory_validation",
-            run_id=run_id,
-            message=(
-                "Historical memory requires bounded extraction and agent validation "
-                "before index publication. Reload MCP, run memory_backfill and "
-                "memory_validate, then call wf_upgrade(phase='resume_after_memory')."
-            ),
-        )
+    backfill.sync_inventory(ctx.root, run_id)
+    _update_upgrade_state(ctx.root, historical_memory_report=backfill.historical_memory_report(ctx.root))
 
 
 def _bridge_index_publisher_grant(root, lock) -> None:
@@ -3174,73 +3130,10 @@ def _bridge_index_publisher_grant(root, lock) -> None:
         os.environ["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"] = token
 
 
-def _arm_memory_action_required(ctx, *, state: str, run_id: str) -> None:
-    """Persist an intentional memory pause and bridge only legacy finalizers.
-
-    The incoming extension is the sole new code running in pghn/pgi7 while
-    they own the outer ``SystemExit`` handler.  Their dashboards also retain a
-    dead-PID lock only when ``failed_phase`` is truthy, so that field is a
-    short-lived compatibility lease, not a public failure claim.
-    """
-    from sqlite_storage_migration import resume_guidance
-
-    token = uuid.uuid4().hex
-    _update_upgrade_state(
-        ctx.root,
-        current_phase=state,
-        action_required={
-            "kind": "historical_memory",
-            "state": state,
-            "resume_phase": "resume_after_memory",
-            **resume_guidance(ctx.root, resume_flag="--resume-after-memory"),
-            "run_id": run_id,
-            "token": token,
-        },
-        failed_phase="awaiting_memory_validation",
-        failed_at=None,
-    )
-    parent = sys.modules.get(type(ctx).__module__)
-    legacy_build = str(getattr(ctx, "from_version", "") or "")
-    if legacy_build not in {"1.15.0+pghn", "1.15.0+pgi7"}:
-        return
-    if parent is None or getattr(parent, "_wf_memory_action_bridge", False):
-        return
-    original = getattr(parent, "_finalize_failed_upgrade", None)
-    if not callable(original):
-        return
-
-    def _legacy_finalizer(root, tree_mutated, current_phase):
-        # Restore before inspecting state: any mismatch must use the original
-        # finalizer and no later failure may inherit this one-shot exception.
-        parent._finalize_failed_upgrade = original
-        parent._wf_memory_action_bridge = False
-        exc = sys.exc_info()[1]
-        lock = _read_json_object(root / ".wavefoundry" / "upgrade-in-progress.json")
-        action = lock.get("action_required") if isinstance(lock, dict) else None
-        if (
-            tree_mutated
-            and current_phase in {"index_update", "awaiting_memory_validation"}
-            and isinstance(exc, SystemExit)
-            and exc.code == 4
-            and root == ctx.root
-            and isinstance(action, dict)
-            and action.get("kind") == "historical_memory"
-            and action.get("token") == token
-            and action.get("run_id") == run_id
-        ):
-            return
-        return original(root, tree_mutated, current_phase)
-
-    parent._finalize_failed_upgrade = _legacy_finalizer
-    parent._wf_memory_action_bridge = True
 
 
-def _pause_for_memory_action(ctx, *, state: str, run_id: str, message: str) -> None:
-    _arm_memory_action_required(ctx, state=state, run_id=run_id)
-    from sqlite_storage_migration import resume_guidance
 
-    print(message + "\n" + resume_guidance(ctx.root, resume_flag="--resume-after-memory")["guidance"], flush=True)
-    raise SystemExit(4)
+
 
 
 def _observe_parent_index_outcome(ctx):
@@ -3264,110 +3157,22 @@ def _observe_parent_index_outcome(ctx):
 
 
 def pre_index_update(ctx):
-    """Keep candidate publication on the newly installed runner."""
-
+    """Preserve index-guard and value-bound publisher-grant handoffs."""
     enforce_index_guard_handoff(ctx)
-    lock = _read_json_object(
-        ctx.root / ".wavefoundry" / "upgrade-in-progress.json"
-    )
-    # 1u44n: authorize the Phase 4 children BEFORE the no-memory early return
-    # below — the non-memory case is exactly the one that needs the bridge
-    # most. Fail-safety lives HERE, inside the hook body: the dispatcher
-    # re-raises SystemExit and converts any other hook exception into a fatal
-    # exit 3 that RETAINS the lock, so an unexpected bridge bug must be
-    # absorbed rather than convert every zip-borne upgrade into a
-    # retained-lock failure. An ungranted child degrades to the pre-existing
-    # refusal, never worse.
+    lock = _read_json_object(ctx.root / ".wavefoundry" / "upgrade-in-progress.json")
     try:
         _bridge_index_publisher_grant(ctx.root, lock)
     except Exception:
-        pass
-    run_id = str(lock.get("memory_backfill_run_id") or "").strip()
-    if not run_id:
-        _observe_parent_index_outcome(ctx)
-        return
-    # Wave 200ey (200ev): held on sys.path across the coordinator's calls.
-    with _scripts_on_sys_path(_journal_scripts_dir(ctx.root)):
-        backfill = _installed_memory_backfill(ctx.root)
-        summary = backfill.reconcile_index_publication(ctx.root, run_id)
-    if summary["state"] == "awaiting_validation":
-        _pause_for_memory_action(
-            ctx, state="awaiting_memory_validation", run_id=run_id,
-            message="Historical memory requires validation. Reload the installed MCP/runtime, run memory_validate, then call wf_upgrade(phase='resume_after_memory').",
-        )
-    if (
-        summary["state"] == "ready_for_index"
-        and int(summary.get("candidates_drafted") or 0) > 0
-    ):
-        _pause_for_memory_action(
-            ctx, state="awaiting_memory_publication", run_id=run_id,
-            message="Historical memory is ready for receipt-owned publication. Reload the installed MCP/runtime and call wf_upgrade(phase='resume_after_memory').",
-        )
-    _update_upgrade_state(
-        ctx.root,
-        memory_backfill_state=summary["state"],
-        memory_backfill_pending=(
-            summary["remaining_waves"]
-            + summary["candidates_pending"]
-            + summary["failures"]
-        ),
-    )
+        pass  # An ungranted child retains its ordinary checkpoint refusal.
     _observe_parent_index_outcome(ctx)
 
 
 def post_index_update(ctx):
-    """Seal an old runner's zero-candidate/no-source historical run."""
-
-    outcome = getattr(ctx, "index_published", None)
-    if outcome is None:
-        # An old parent's early recovery bypasses phase_index_update, so the
-        # observer has no result. Only its retained, root-bound run's existing
-        # publication authority can prove this otherwise unobserved outcome.
-        try:
-            with _scripts_on_sys_path(_journal_scripts_dir(ctx.root)):
-                import publication_control
-                checkpoint = publication_control.read_upgrade_checkpoint(ctx.root)
-                target = getattr(ctx, "to_version", None)
-                if (not isinstance(checkpoint, dict) or not checkpoint.get("started_at")
-                        or checkpoint.get("to_version") != target
-                        or not publication_control.preview_checkpoint_compatible(ctx.root, target)):
-                    raise ValueError("unproven retained checkpoint")
-                run_id = checkpoint.get("memory_backfill_run_id")
-                if not isinstance(run_id, str) or not run_id.strip():
-                    raise ValueError("unproven retained memory run")
-                backfill = _installed_memory_backfill(ctx.root)
-                summary = backfill.reconcile_index_publication(ctx.root, run_id)
-                outcome = summary["state"] == "indexed"
-        except Exception:
-            outcome = False
-    if outcome is not True:
+    """Use the observed index result, never advisory memory inventory."""
+    if getattr(ctx, "index_published", None) is not True:
         _update_upgrade_state(ctx.root, index_publication_failed=True)
-        print("Index publication failed; historical memory was not marked indexed. "
-              "Use the retained index repair/continuation before cleanup.", flush=True)
+        print("Index publication failed; use the retained index continuation before cleanup.", flush=True)
         raise SystemExit(1)
-    lock = _read_json_object(
-        ctx.root / ".wavefoundry" / "upgrade-in-progress.json"
-    )
-    run_id = str(lock.get("memory_backfill_run_id") or "").strip()
-    if not run_id:
-        return
-    # Wave 200ey (200ev): held on sys.path across the coordinator's calls.
-    with _scripts_on_sys_path(_journal_scripts_dir(ctx.root)):
-        backfill = _installed_memory_backfill(ctx.root)
-        summary = backfill.reconcile_index_publication(ctx.root, run_id)
-        if (
-            summary["state"] == "ready_for_index"
-            and int(summary.get("candidates_drafted") or 0) == 0
-        ):
-            backfill.mark_indexed(ctx.root, run_id)
-            summary = backfill.run_summary(ctx.root, run_id)
-    if summary["state"] != "indexed":
-        raise RuntimeError(
-            "candidate-bearing historical-memory publication requires the "
-            "newly installed resume_after_memory runner. "
-            + __import__("sqlite_storage_migration").resume_guidance(ctx.root, resume_flag="--resume-after-memory")["guidance"]
-        )
-    _update_upgrade_state(ctx.root, memory_backfill_state="indexed")
 
 # ---------------------------------------------------------------------------
 # 1.4.x → 1.5.0 migration (wave 1p35d / 1p3ay)

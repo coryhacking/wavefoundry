@@ -24,9 +24,7 @@ If the installed source changes during recovery, restore the recorded framework
 before retrying; never edit receipts or delete the only index copy. Unknown or
 newer storage and ambiguous ownership remain preserved with a refusal.
 
-Setup may report core search ready while historical memory validation is pending.
-Complete the run-scoped memory work and rerun setup to finish adoption; core
-publication never marks unvalidated memories as validated.
+Setup and upgrade synchronize one advisory inventory pass and report distinct closed waves without memory plus candidates awaiting validation. Reporting reads those rows without a second inventory walk; it has no fixed time or byte bound. Inventory or memory-state errors report unavailable by exception type and never pause installation or index publication. Run **Review memories** (`memory_backfill(mode="create")`, then `memory_validate`) when you choose to curate history; ordinary incremental indexing refreshes candidates and judgments.
 
 **Check first when unsure:** `wf setup --check` (optionally `--root PATH --json`)
 reports `ready` (exit 0), `action_required` (exit 1), or `indeterminate` (exit 2).

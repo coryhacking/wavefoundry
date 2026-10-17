@@ -5720,28 +5720,13 @@ class WaveUpgradeStatusTests(unittest.TestCase):
             ["coreml:default:retired-failed|remove_failed"],
         )
 
-    def test_lock_exposes_structured_memory_gate_and_exact_worklist(self):
+    def test_legacy_memory_status_does_not_read_or_offer_worklists(self):
         self._write_lock(memory_run_id="run-1")
-        backfill = MagicMock()
-        backfill.run_summary.return_value = {
-            "run_id": "run-1",
-            "state": "awaiting_validation",
-            "candidates_pending": 2,
-            "promoted": 1,
-            "last_failure": "one source unreadable",
-        }
-        backfill.validation_worklist.return_value = {
-            "validation_worklist": [{"memory_id": "1abc-memory"}],
-            "validation_worklist_count": 2,
-            "validation_worklist_remaining": 1,
-        }
-        with patch.object(self.srv, "_load_script", return_value=backfill):
+        with patch.object(self.srv, "_load_script") as load:
             result = self.srv.wf_upgrade_status_response(self.root)
-        gate = result["data"]["memory_backfill"]
-        self.assertEqual(gate["run_id"], "run-1")
-        self.assertEqual(gate["candidates_pending"], 2)
-        self.assertEqual(gate["last_failure"], "one source unreadable")
-        self.assertEqual(gate["validation_worklist"][0]["memory_id"], "1abc-memory")
+        self.assertEqual(result["status"], "ok", result)
+        self.assertNotIn("memory_backfill", result["data"])
+        load.assert_not_called()
 
     def test_publication_action_status_hides_legacy_failure_lease(self):
         self._write_lock(memory_run_id="run-publication")
@@ -6102,6 +6087,15 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
             bounded["retired_model_cleanup_failed"],
             ["coreml:default:retired-failed|remove_failed"],
         )
+
+    def test_advisory_memory_report_survives_registered_upgrade_summary(self):
+        report = {"closed_waves_without_memory": 2, "candidates_awaiting_validation": 3,
+                  "next_step": "Run Review memories: memory_backfill(mode='create') then memory_validate."}
+        stdout = self.srv._upgrade_summary_sentinel() + json.dumps({"historical_memory": report}) + "\n"
+        with patch("subprocess.run", return_value=MagicMock(returncode=0, stdout=stdout, stderr="")):
+            result = self.srv.wf_upgrade_response(self.root)
+        self.assertEqual(result["status"], "ok", result)
+        self.assertEqual(result["data"]["summary"]["historical_memory"], report)
 
     def test_write_tier_permissions_delta_survives_bounding_with_counts(self):
         """Wave 1u2b0 repair (F1): the operator's permissions consent point must survive the
@@ -6580,7 +6574,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         self.assertGreater(diagnostic["message_total_chars"], 100_000)
         self.assertLess(len(diagnostic["message"]), 3_000)
 
-    def test_action_required_exit_exposes_structured_memory_gate(self):
+    def test_legacy_exit_four_requires_index_continuation_without_memory_worklist(self):
         mock_proc = MagicMock(returncode=4, stdout="paused\n", stderr="")
         backfill = MagicMock()
         backfill.run_summary.return_value = {
@@ -6610,11 +6604,13 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
              patch('wf_server.upgrade_handlers._load_upgrade_lib', return_value=upgrade_lib), \
              patch.object(self.srv, "_load_script", return_value=backfill):
             result = self.srv.wf_upgrade_response(self.root)
-        self.assertEqual(result["data"]["state"], "awaiting_memory_validation")
-        gate = result["data"]["memory_backfill"]
-        self.assertEqual(gate["run_id"], "run-2")
-        self.assertEqual(gate["candidates_pending"], 1)
-        self.assertEqual(gate["validation_worklist"][0]["memory_id"], "1abd-memory")
+        self.assertEqual(result["status"], "action_required", result)
+        self.assertEqual(result["data"]["state"], "index_pending")
+        self.assertNotIn("memory_backfill", result["data"])
+        self.assertIn("update_index", result["next_step"])
+        self.assertIn("cleanup", result["next_step"])
+        backfill.run_summary.assert_not_called()
+        backfill.validation_worklist.assert_not_called()
 
     def test_publication_ready_exit_exposes_post_reload_recovery_contract(self):
         mock_proc = MagicMock(returncode=4, stdout="publication checkpoint\n", stderr="")
@@ -6645,16 +6641,13 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
              patch('wf_server.upgrade_handlers._load_upgrade_lib', return_value=upgrade_lib), \
              patch.object(self.srv, "_load_script", return_value=backfill):
             result = self.srv.wf_upgrade_response(self.root)
-        self.assertEqual(result["status"], "ok")
-        self.assertEqual(result["data"]["state"], "awaiting_memory_publication")
-        self.assertEqual(result["data"]["failed_phase"], None)
-        self.assertEqual(result["data"]["action_required"], action_required)
-        self.assertEqual(
-            result["next_tools"], ["wf_reload_mcp", "wf_upgrade_status", "wf_upgrade"]
-        )
-        self.assertIn("resume_after_memory", result["next_step"])
-        self.assertIn("publish", result["next_step"])
-        self.assertIn("publication checkpoint", result["data"]["output"])
+        self.assertEqual(result["status"], "action_required", result)
+        self.assertEqual(result["data"]["state"], "index_pending")
+        self.assertNotIn("action_required", result["data"])
+        self.assertIn("update_index", result["next_step"])
+        self.assertIn("cleanup", result["next_step"])
+        self.assertNotIn("restart", result["next_step"].lower())
+        backfill.run_summary.assert_not_called()
 
     def test_action_required_exit_without_action_record_is_error(self):
         mock_proc = MagicMock(returncode=4, stdout="failed\n", stderr="")
@@ -6714,8 +6707,8 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         called_cmd = mock_run.call_args[0][0]
         self.assertIn("--resume-after-gate", called_cmd)
         self.assertNotEqual(result.get("status"), "error")
-        self.assertIn("resume_after_memory", result["next_step"])
-        self.assertNotIn("phase='update_index'", result["next_step"])
+        self.assertIn("phase='cleanup'", result["next_step"])
+        self.assertNotIn("resume_after_memory", result["next_step"])
 
     def test_resume_after_gate_nonzero_exit_is_error(self):  # wave 1p44r AC-5 (delivery review)
         # A repeated docs-gate failure (exit 1) on resume must map to status=error
@@ -7191,34 +7184,30 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         self.assertNotIn("pre-flight", upgrade_failed["message"])
         self.assertIn("resume_after_gate", result.get("next_step", ""))
 
-    def test_a_recovered_gate_that_pauses_for_memory_reports_the_pause(self):
-        """1zeyo: resume_after_gate that ends at memory validation exits 4; the
-        lock it writes must carry the typed pause so the handler reports it as
-        the pause, not as a failed recovery."""
+    def test_recovered_gate_continues_index_and_reports_cleanup(self):
         import upgrade_lib
         import upgrade_wavefoundry
-
         wave = _waves_dir(self.root) / "1old closed"
         wave.mkdir(parents=True)
         wave.joinpath(_RECORD).write_text(f"{_TITLE}\n\nStatus: closed\n", encoding="utf-8")
         upgrade_lib.write_upgrade_lock(self.root, "1.27.0", "1.28.0")
-        upgrade_lib.update_upgrade_lock(
-            self.root, current_phase="docs_gate_complete", failed_phase="post_docs_gate", failed_at="t"
-        )
+        upgrade_lib.update_upgrade_lock(self.root, current_phase="docs_gate_complete", failed_phase="post_docs_gate", failed_at="t")
         self.addCleanup(upgrade_lib.remove_upgrade_lock, self.root)
-        with patch.object(upgrade_wavefoundry, "phase_docs_gate", lambda _root: None), \
+        with patch.object(upgrade_wavefoundry, "phase_docs_gate"), \
+             patch.object(upgrade_wavefoundry, "_load_extension_module", return_value=None), \
+             patch.object(upgrade_wavefoundry, "phase_index_update", return_value=True) as index, \
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             rc = upgrade_wavefoundry.main(["--resume-after-gate", "--root", str(self.root)])
-        self.assertEqual(rc, 4)
-        mock_proc = MagicMock()
-        mock_proc.returncode = 4
-        mock_proc.stdout = ""
-        mock_proc.stderr = ""
-        with patch("subprocess.run", return_value=mock_proc):
+        self.assertEqual(rc, 0)
+        index.assert_called_once_with(self.root.resolve())
+        lock = upgrade_lib.read_upgrade_lock(self.root)
+        self.assertEqual(lock["current_phase"], "index_complete")
+        self.assertFalse(any(key.startswith("memory_backfill_") for key in lock))
+        with patch("subprocess.run", return_value=MagicMock(returncode=rc, stdout="", stderr="")):
             result = self.srv.wf_upgrade_response(self.root, phase="resume_after_gate")
-        self.assertEqual(result["status"], "ok", result.get("diagnostics"))
-        self.assertEqual(result["data"]["state"], "awaiting_memory_validation")
-        self.assertIn("resume_after_memory", result.get("next_step", ""))
+        self.assertEqual(result["status"], "ok", result)
+        self.assertIn("cleanup", result["next_step"])
+        self.assertNotIn("resume_after_memory", result["next_step"])
 
     def test_the_primary_next_step_goes_to_cleanup_without_a_second_index_update(self):
         """1zf1u: the primary run already updates the index; the next step must
@@ -8854,6 +8843,7 @@ class UpgradePublicationWrapperContractTests(unittest.TestCase):
                 json.dumps(
                     {
                         "current_phase": "awaiting_memory_validation",
+                        "failed_phase": "awaiting_memory_validation",
                         "memory_backfill_pending": 0,
                     }
                 ),
@@ -8875,7 +8865,7 @@ class UpgradePublicationWrapperContractTests(unittest.TestCase):
             self.assertEqual(
                 diag["message"], reason.removeprefix("upgrade_in_progress: ")
             )
-            self.assertIn("resume_after_memory", diag["message"])
+            self.assertIn("update_index", diag["message"])
             self.assertIn("index_health", diag["message"])
 
     def test_upgrade_guard_is_outermost_and_never_waits_on_lifecycle_lock(self):

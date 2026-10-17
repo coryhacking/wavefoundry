@@ -65,7 +65,7 @@ Required closure tasks:
 
 Finish material documentation, source and surface-rendering edits before the canonical source suite. Validated routine ledger/projection updates and normalized progress/status/completion may continue under seed 209's Continuation And Qualification Discipline; they alone require neither another suite nor another reviewer cycle. Use Progress Log during a run and update the standalone session handoff outside it. A current green receipt with matching inputs is reusable; changed, red or unproven inputs require fresh qualification. Consume successful `wf_review_event(mode='create')` continuation actions without repeating list/full-review calls. When current authority already proves closure readiness, perform one operator-authorized close mutation; a dry-run remains useful for unresolved checks, not a compulsory extra gate. Full docs validation and required reviewer authority remain fresh.
 
-Consumer upgrades retain render → docs gate → existing bounded historical-memory checkpoint → incremental index ordering. They gain no source/profile suite, routine evidence generation or broad memory-maintenance pass.
+Consumer upgrades retain render → docs gate → incremental index ordering. They gain no source/profile suite, routine evidence generation or broad memory-maintenance pass.
 
 ## Wave-folder cleanup
 

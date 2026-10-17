@@ -1020,6 +1020,28 @@ class BuildEpochTests(_TempRepoCase):
         self.index_dir = self.root / ".wavefoundry" / "index"
         self.index_dir.mkdir(parents=True, exist_ok=True)
 
+    def test_retired_environment_cannot_bypass_begin_or_finalize_authorization(self):
+        for variable in ("WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID", "WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT"):
+            with self.subTest(variable=variable):
+                try:
+                    before = self.iss.read_build_state(self.index_dir)
+                    generation = int(before["generation"]) if before else 0
+                    attempt = self.iss.begin_build_epoch(self.index_dir, "docs")
+                    self._write_checkpoint({"current_phase": "index_update", "pid": -1})
+                    with mock.patch.dict(os.environ, {variable: "untrusted-nonempty"}, clear=False):
+                        os.environ.pop("WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN", None)
+                        with self.assertRaisesRegex(RuntimeError, "upgrade_in_progress"):
+                            self.iss.begin_build_epoch(self.index_dir, "code")
+                        with self.assertRaisesRegex(RuntimeError, "upgrade_in_progress"):
+                            self.iss.finalize_build_epoch(self.index_dir, attempt)
+                    self.assertEqual(self.iss.read_build_state(self.index_dir)["status"], "building")
+                    self.assertEqual(self.iss.read_build_state(self.index_dir)["generation"], generation)
+                    (self.root / ".wavefoundry/upgrade-in-progress.json").unlink()
+                    self.assertTrue(self.iss.finalize_build_epoch(self.index_dir, attempt))
+                finally:
+                    (self.root / ".wavefoundry/upgrade-in-progress.json").unlink(missing_ok=True)
+        self.assertFalse(hasattr(self.iss, "finalize_staged_build_epoch"))
+
     def test_absent_store_fails_closed(self):
         self.assertIsNone(self.iss.read_build_state(self.index_dir))
         self.assertIsNone(self.iss.build_epoch_token(self.index_dir))
@@ -1190,47 +1212,6 @@ class BuildEpochTests(_TempRepoCase):
                     ):
                         self.iss.begin_build_epoch(self.index_dir, "docs")
 
-    def test_parent_staged_receipt_keeps_strict_shape_attempt_and_generation(self):
-        import memory_backfill
-
-        attempt = self.iss.begin_build_epoch(self.index_dir, "all")
-        receipt = {
-            "index_dir": str(self.index_dir.resolve()),
-            "attempt_id": attempt,
-            "expected_generation": 1,
-            "memory_backfill_run_id": "run-1",
-        }
-        for mutation in (
-            {**receipt, "unexpected": True},
-            {**receipt, "attempt_id": "other-attempt"},
-            {**receipt, "expected_generation": 2},
-            {**receipt, "memory_backfill_run_id": "other-run"},
-        ):
-            with self.subTest(mutation=mutation):
-                self.assertFalse(
-                    self.iss.finalize_staged_build_epoch(
-                        self.index_dir, mutation, "run-1"
-                    )
-                )
-                self.assertEqual(
-                    self.iss.read_build_state(self.index_dir)["status"],
-                    "building",
-                )
-
-        with mock.patch.object(
-            memory_backfill, "record_publication_success", return_value=True
-        ) as record:
-            self.assertTrue(
-                self.iss.finalize_staged_build_epoch(
-                    self.index_dir, receipt, "run-1"
-                )
-            )
-        record.assert_called_once_with(self.root, "run-1", attempt)
-        self.assertFalse(
-            self.iss.finalize_staged_build_epoch(
-                self.index_dir, receipt, "run-1"
-            )
-        )
 
     def test_token_changes_across_generations(self):
         a1 = self.iss.begin_build_epoch(self.index_dir, "all")
@@ -1601,18 +1582,12 @@ class LexicalStatisticsTests(_TempRepoCase):
         self.iss.begin_build_epoch(self.index_dir, "all")
         self.assert_no_counts(self.iss.lexical_statistics(self.index_dir), "updating")
 
-    def finish(self, attempt, staged):
-        if not staged:
-            return self.iss.finalize_build_epoch(self.index_dir, attempt)
-        receipt = {"index_dir": str(self.index_dir.resolve()), "attempt_id": attempt,
-                   "expected_generation": self.iss.read_build_state(self.index_dir)["generation"] + 1,
-                   "memory_backfill_run_id": "test-run"}
-        with mock.patch("memory_backfill.record_publication_success"):
-            return self.iss.finalize_staged_build_epoch(self.index_dir, receipt, "test-run")
+    def finish(self, attempt, staged=False):
+        return self.iss.finalize_build_epoch(self.index_dir, attempt)
 
     def test_both_finalizers_reuse_unchanged_cache_and_reject_cas_miss(self):
         self.populate()
-        for staged in (False, True):
+        for staged in (False,):
             attempt = self.iss.begin_build_epoch(self.index_dir, "graph")
             with mock.patch.object(self.iss, "_aggregate_lexical_statistics", side_effect=AssertionError("unexpected vocabulary scan")):
                 self.assertFalse(self.finish("wrong-attempt", staged))
@@ -1623,7 +1598,7 @@ class LexicalStatisticsTests(_TempRepoCase):
 
     def test_both_finalizers_isolate_statistics_error_without_reset(self):
         self.populate()
-        for staged in (False, True):
+        for staged in (False,):
             attempt = self.iss.begin_build_epoch(self.index_dir, "docs")
             self.iss.apply_chunk_deltas(self.index_dir, "docs", add_rows=[self.row("new", "zeta")])
             with mock.patch.object(self.iss, "_aggregate_lexical_statistics", side_effect=self.iss.sqlite_runtime.apsw.BusyError("database is locked")), \

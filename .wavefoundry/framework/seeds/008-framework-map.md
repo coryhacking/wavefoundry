@@ -89,7 +89,7 @@ The framework expects repo-local work to close the loop through:
 - docs gate verification
 - review lanes and repo-local reviewer routing
 - wave reconciliation and carry-forward handling
-- memory validation and promotion
+- on-demand memory validation and promotion
 - upgrade/reindex passes when the framework evolves
 
 ## Prompt file naming convention

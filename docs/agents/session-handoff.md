@@ -7,16 +7,30 @@ Last verified: 2026-10-16
 ## Current Session
 
 **Active wave:** *(none)*
+**Paused wave:** `20t73 upgrade-memory-gate-removal` (2026-10-16), change `20smo-enh remove-upgrade-historical-memory-gate` implemented. Receipt `review-policy-fd9c7809fd9b92ec3e77`.
+
+**Done:** Removed upgrade/setup historical-memory pauses, receipt publication authority and candidate-refresh deferral. On-demand memory tools and the supported older-runner compatibility layer remain; legacy memory pauses recover through ordinary `update_index` then `cleanup`. All seven ACs and implementation tasks are complete. Both guidance repair cycles are terminal with fresh independent affected-lane verification; cycle 2 generated the convergence checkpoint. All six delivery lanes and council approved. Shared reviewer remits and probe limits are recorded in wave.md; no new evidence folder or memory record was needed. Pause freed the OPEN slot and both edit gates are closed.
+
+**Next:** On explicit operator closure, mint the close-time compatibility-removal tech-debt change with Requirement 4's supported-runner or proven-handoff precondition, record operator approval and close. Commit/push/build only when requested. Reuse the green receipt while framework inputs remain unchanged; ledger/progress recording alone requires no repeated suite or full review.
+
+**Files touched:** Runner/setup, memory backfill/handlers, ordinary publication/store, incoming upgrade/recovery, paired tests and archived v1.31.0 runner fixture; eight seeds, canonical rendered-policy producer, hand-authored prompts, architecture/spec/README and two existing memory guidance records. Detailed evidence is in the admitted change, wave.md and immutable ledger. Preserve unrelated20st7 and localpack VERSION/manifest stamps.
+
+**Test state:** Final canonical default passed 11,853 tests / 200 files / 12 existing skips in 655.087s, exit 0; green receipt inputs_hash `ca8454af981b232d8cc6b5b5ced16d60f6ecbcdf3a8e16b89aad527d6ba7aa51`. All65reviewed source hashes match `f3c0d32c7a45bff0b6de5b88a6f65804372a2502191dcbd53decab210dfc777a`. Clean focused repair run passed40tests/2files/0skips; actual old-producer, deleted-clause, flag-stripping and ordinary-authority controls failed intended assertions. Initial full-run three assertions and the focused guard-rejected attempt remain historical failures, superseded by settled-source green runs. Final full docs validation passed after pause and the handoff update. Logs/probes in `/private/tmp` supplement durable registered tests and the wave summary.
+
+**Open questions / Deferred decisions:** No implementation blocker. Operator closure and its follow-up creation remain pending. Timing investigation and official1.32.0 qualification in20st7 remain separate. No native Windows, real model, complete downstream installation or release-profile qualification is claimed. Loaded MCP setup assessment may remain stale after source edits; no setup/index/reload operation was performed. No close, commit, push, new package or release was authorized by this implementation request.
+
+
+## Prior closed-wave context
 
 **Last closed wave:** `20st8 index-build-provider-provenance` (2026-10-16). Setup skips unused local embedding probes for service-covered work; child build status reports its own provider/input/request activity, including correct standalone-background provenance.
 
 **Done:** Both admitted changes and all ACs/tasks are complete. Six delivery lanes and operator approved; four findings are independently reverified and terminal. Canonical close succeeded with a proven current framework receipt. Edit gates are closed. Routine review/probe evidence was kept outside the repository; final outcomes live in wave.md and its typed ledger. No new memory record was warranted.
 
-**Test state:** Final canonical qualification passed 11,892 tests across 200 files, with 12 existing skips, in 730.325s. Receipt inputs_hash e15f413d49512c757729966b83227cd84b8c9075976c900addb3e77a84d81f59 is current. Full docs validation passed; no test/guard waiver. Log: /private/tmp/20st8-close-canonical-suite.log.
+**Test state at20st8 close:** 11,892 tests across200files,12existing skips,730.325s; its receipt was proven at close and predates20t73. Full docs validation passed, with no test/guard waiver. Durable details are in that closed wave.
 
-**Next:** Commit and push the operator-authorized 20st8 changes. Preserve other waves and the local-pack VERSION/manifest stamps. Reuse current qualification for unchanged bookkeeping; no new package or official release is requested.
+**Delivered:**20st8 was committed and pushed as7221d9a1. No new package or official release is requested by the20t73 implementation task.
 
-**Open questions / Deferred decisions:** Timing investigation remains deferred. Official 1.32.0 compatibility qualification remains independently blocked in 20st7; 20t73 is separate planning work. The existing local 1.32.0+px1p pack predates these changes. 20tpp awaits its own explicit closure request. No new native/device or cross-platform qualification is claimed.
+**Open questions / Deferred decisions:** Timing investigation remains deferred. Official1.32.0 compatibility qualification remains independently blocked in20st7. The existing local1.32.0+px1p pack predates20st8/20t73. Wave20tpp awaits its own explicit closure request. No new native/device or cross-platform qualification is claimed.
 
 **Local field-test build (2026-10-16):** Operator requested a quick local build before the compatibility-fixture repairs. Built `~/.wavefoundry/dist/wavefoundry-1.32.0.px1p.zip`, VERSION `1.32.0+px1p`, 10,712,319 bytes, SHA-256 `756bc68333569285704c04d8330dcec445fda1a2f53bb017ea6b91930f193d7d`. CRC, safe/unique archive paths, all 253 packed framework source files, changelog, generated protocol metadata, manifest/version parity and nested feature/bridge hashes passed. Existing canonical default receipt remains current (11,867 tests); no suite was repeated. The failed/incomplete second and declared reports remain unchanged, and official 1.32.0 publication stays blocked. This local field-test request does not approve the pending fixture edits or waive official release qualification. Lean package only; no model asset rebuilt, download, project deployment, GitHub release, tag, commit, push or wave closure. VERSION/manifest build stamps are uncommitted. Details: /private/tmp/local-1.32.0-build.log and /private/tmp/local-1.32.0-px1p-verification.json.
 

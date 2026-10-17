@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-15
+Last verified: 2026-10-16
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -41,7 +41,7 @@ before retrying; never edit receipts or delete the only index copy. Unknown or
 newer storage and ambiguous ownership remain preserved with a refusal.
 
 Setup may report core search ready while historical memory validation is pending.
-Complete the run-scoped memory work and rerun setup to finish adoption; core
+Memory curation is optional and does not require rerunning setup; core
 publication never marks unvalidated memories as validated. Reconcile this section
 into customized project setup/upgrade prompts during the ordinary upgrade editing
 pass, preserving local additions and renderer-owned regions.
@@ -181,7 +181,7 @@ flag:
    incoming modules into an older framework. If no verified repair is available,
    stop and provide the collected evidence for maintainer help.
 4. Retain the exact selected archive and retry the original ordinary upgrade
-   CLI command in a fresh process. Follow its normal host, lock, docs, memory,
+   CLI command in a fresh process. Follow its normal host, lock, docs,
    index and cleanup gates; fully restart attached hosts when instructed.
    A successful file copy, version label or reload alone does not prove the
    upgrade or startup-code replacement is complete.
@@ -227,12 +227,7 @@ no backward rollback to the previous runner, and the retained rollback copy is
 never read back into service. Never delete the receipt or the retained source
 to force progress.
 
-When historical memory backfill overlaps this conversion, the unpublished
-graph candidate completes independently of the live memory run. Only ordinary
-live index publication may advance that run. Continue through the standard
-upgrade flow and its retained CLI command after any required host-stop
-checkpoint. Never copy the memory database into staging, edit recovery
-receipts, or substitute a different package while a receipt is pending.
+Storage conversion and index publication do not depend on memory curation. Preserve their retained receipts and ordinary owning continuation; never copy the memory database into staging or edit receipts to force progress.
 
 **Audit the documented state-store schema version.** The ordinary upgrade
 snapshots supported docs-constants claims before extraction and reconciles exact,
@@ -257,8 +252,8 @@ starting adoption; it is not a synonym for rebuilding the current index.
 
 The primary phase can exit zero while cleanup remains pending; zero means that
 phase succeeded, not that the complete upgrade is terminal. Failed index
-publication exits nonzero and does not mark historical memory indexed. Preserve
-any reported memory/host checkpoint and follow its continuation before cleanup.
+publication exits nonzero and cannot claim successful index publication. Preserve
+the retained upgrade checkpoint and follow its owning continuation before cleanup.
 Unchanged renderer-owned documents keep their existing dates; the docs gardener
 still stamps genuinely changed documents. Do not exclude dates from historical
 memory fingerprints to hide real changes.
@@ -281,7 +276,7 @@ read, explicitly add `--rebuild-storage` to the retained ordinary CLI continuati
 with the original `--pack` and `--confirm-hosts-stopped`. Before the first restart
 pause, MCP can select `wf_upgrade(rebuild_storage=true)`; after that pause use the
 external CLI, without reconnecting MCP. Do not combine the selection flag with a
-standalone index/cleanup/memory phase. The receipt retains this choice for later
+standalone index/cleanup phase. The receipt retains this choice for later
 phases and retries, so it need not be repeated.
 
 Rebuild uses the current filesystem, walker and chunker instead of transferring
@@ -328,7 +323,7 @@ Use the normal MCP-first `wf_upgrade()` flow, including index update and cleanup
 
 The first upgrade into 1.22.0 runs with the installed older runner, so it does not gain the new original-manifest snapshot protection merely by extracting the new files. If that first attempt is interrupted after replacing the MANIFEST, a retry may lack the original authority needed to remove retired framework files. This first-hop risk is accepted in favor of retaining the standard upgrade path. Subsequent upgrades launched with the fixed installed runner preserve the original manifest for retry-safe pruning.
 
-When `.wavefoundry/upgrade-manifest-old.json` exists, preserve it and retry the same target pack. Do not delete it or switch targets to bypass a pending-recovery refusal; only observed successful pruning retires it. A snapshot cannot reconstruct authority already lost by an earlier unfixed attempt; do not guess retired paths in that case. Existing preflight, permission, host-quiescence, reconciliation, memory, index, cleanup, and protocol-1 bridge requirements remain unchanged.
+When `.wavefoundry/upgrade-manifest-old.json` exists, preserve it and retry the same target pack. Do not delete it or switch targets to bypass a pending-recovery refusal; only observed successful pruning retires it. A snapshot cannot reconstruct authority already lost by an earlier unfixed attempt; do not guess retired paths in that case. Existing preflight, permission, host-quiescence, reconciliation, index, cleanup, and protocol-1 bridge requirements remain unchanged.
 
 ## How Framework Updates Work
 
@@ -348,7 +343,7 @@ The expected operator flow is:
    - The upgrade reloads the server code in-process — call `wf_reload_mcp()` (or run `wf_upgrade` cleanup, which reloads automatically). Tool additions/removals and description changes dispatch `notifications/tools/list_changed`, but the reload response proves only server-side registration/dispatch, not client adoption. A model invocation already in flight may retain its start-of-turn tool schema: check from a fresh turn first, reconnect MCP if still stale, and use a full host restart only as the final fallback.
    - A reload re-executes only the implementation module (`wf_server/server_impl.py`) and re-registers the tools; modules the server already imported (`chunker`, `setup_readiness`, the `index_*`, `sqlite_*` and `graph_*` modules and others) keep the version the host started with, so after an upgrade the process can run a mix of old and new code. When the upgrade changed any of them, setup readiness in the reload result reports `loaded_code_stale`: restart the host (quit and relaunch) to load them. `runner_stale: false` does not rule that out, because it covers only `server.py` and `venv_bootstrap.py`.
    - **Exception — upgrades that RENAME MCP tools require a full restart of every attached host (or fresh sessions), not a hot reload.** The 1.14.0 release renames the whole tool surface (`wave_*` to `wf_*`/`memory_*`/`index_*`), including the reload tool itself: upgrading sessions still hold the OLD in-memory tool names, and the hot-reload path cannot re-register the renamed reload survivor from inside an old process. After upgrading across such a boundary, fully quit and restart every attached agent host (or start fresh conversations); until then old sessions' tools are stale and renamed-tool calls fail. The reconciliation scan lists the old-to-new tool renames alongside the retired-wrapper findings. Stale `mcp__wavefoundry__<old-name>` allow rules split by ownership: rules the permissions renderer recorded emitting into the committed `.claude/settings.json` (its `wavefoundryManagedAllow` provenance) **self-heal on the upgrade render** and surface only informationally in the `renderer_provenance_flags` channel; everything else (`.claude/settings.local.json`, non-provenance `settings.json` rules, per-host equivalents) still surfaces in the operator flags channel, and the operator must update those rules or every renamed tool call will prompt.
-   - **Exception: a cutover-active 1.15 events-only review-evidence upgrade run requires a full restart of every attached MCP/agent host, including the invoking one, not a hot reload.** The restart requirement is scoped: `restart_required` is true only on cutover-active runs (the run removed a retired review-evidence sidecar or the stale v1.13 root lock, or the installed version predates 1.15; an unknown installed version is treated fail-safe as pre-1.15). On a cutover-active run the upgrade suppresses its own automatic in-process reload at both automatic-reload phases, removes `wf_reload_mcp` from the suggested next tools, and instructs the full host restart in the response; do not reload in-process on such a run. The suppression executes in the invoking host's already-loaded server code, so it is guaranteed only when that host already runs 1.15-or-later code; an upgrade invoked from a pre-1.15 host may still fire its old unconditional in-process reload, which loads the new module but does not substitute for the full restart; the full-restart instruction, delivered in the upgrade summary, stands either way. Ordinary post-1.15 upgrades, and reruns on an already-converged repository, keep the normal in-process reload flow above and report no cutover restart requirement. One narrow exception: when the upgrade pauses action-required at the historical-memory gate, that response still names `wf_reload_mcp`, because the reload is required to continue the upgrade itself; the final cleanup response still carries the full-restart instruction.
+   - **Exception: a cutover-active 1.15 events-only review-evidence upgrade run requires a full restart of every attached MCP/agent host, including the invoking one, not a hot reload.** The restart requirement is scoped: `restart_required` is true only on cutover-active runs (the run removed a retired review-evidence sidecar or the stale v1.13 root lock, or the installed version predates 1.15; an unknown installed version is treated fail-safe as pre-1.15). On a cutover-active run the upgrade suppresses its own automatic in-process reload at both automatic-reload phases, removes `wf_reload_mcp` from the suggested next tools, and instructs the full host restart in the response; do not reload in-process on such a run. The suppression executes in the invoking host's already-loaded server code, so it is guaranteed only when that host already runs 1.15-or-later code; an upgrade invoked from a pre-1.15 host may still fire its old unconditional in-process reload, which loads the new module but does not substitute for the full restart; the full-restart instruction, delivered in the upgrade summary, stands either way. Ordinary post-1.15 upgrades, and reruns on an already-converged repository, keep the normal in-process reload flow above and report no cutover restart requirement.
    - If you use Codex, the MCP server reloads from the committed `.codex/config.toml` automatically — no re-registration needed after upgrade.
 4. The index update runs **automatically** at the end of the upgrade.
    - The upgrade's final phase updates **both** the semantic indexes and the graph, each version-aware: an incremental update normally, auto-escalating to a full rebuild when its version advanced — semantic on a `CHUNKER_VERSION`/model bump (re-embed, minutes), graph on a `GRAPH_BUILDER_VERSION` bump (graph-only re-extract, ~10–30 s). You do **not** run a separate index command for a normal upgrade.
@@ -382,13 +377,13 @@ What this prompt is not:
 
 **Upgrade REPORTING no longer waits a cycle (and what still does).** The same old-code window used to apply to the upgrade's own reporting: the primary-phase summary sentinel was built by the pre-extraction orchestrator, so any change to what the upgrade reports shipped one upgrade late and produced false "the fix does not work" field reports. That window is now closed structurally: the parent delegates the primary-phase summary (and the reconciliation scan it embeds) to a subprocess running the freshly extracted tree's `upgrade_wavefoundry.py --emit-summary`, behind a pinned entry-point contract carrying a `summary_schema_version` token (a tripwire against silent drift: deliberate versioned evolution is supported by bumping the token, and old runners then degrade with a marker for one transition run); any delegation failure degrades to the parent's own in-process summary marked with `summary_source_degraded`, never a silent substitution. Three class boundaries matter when reading upgrade output: (a) sentinel-carried summary fields take effect on the upgrade that installs them; (b) behavior-class fixes (what the upgrade DOES mid-run) still need a pack hook bridge, like the permissions backstops above, to act on their installing upgrade; and (c) server-resident response fields (`runner_stale`, diagnostics composition, response bounding) are computed by the running MCP server and still require a full host restart on every release. One residual fires exactly once per target: the upgrade that first installs the delegation is still driven by a pre-delegation parent, so that single transition run reports an old-schema summary. Do not report that one transition run's old-schema summary as the backstop failing to work; every later upgrade reports on fresh code.
 
-**Dependencies and setup readiness after an upgrade.** The upgrade installs the declared dependencies as its own step before Phase 4 indexing. If that install fails (offline, proxy or TLS interception, application control), the index update does not run: the summary's `index_update` reads `not run: dependency provisioning failed; run wf setup` (the recommended command is `wf setup`), `dependency_provisioning_failed` is `true`, and `wf_upgrade` returns a `dependency_provisioning_failed` diagnostic instead of an index publication failure. The cleanup summary carries `setup_status` (`ready`, `action_required`, `indeterminate` or `not_assessed`), `setup_reasons` and `setup_command`; when cleanup does not record a new setup baseline (the prior one describes another environment, or the index or dependency step failed), these report the assessment against the baseline left in place, which is what later readiness checks report, so the summary never says `ready` while they say otherwise. When setup is not ready after cleanup, `next_step` recommends `setup_command` ahead of `wf_reload_mcp` (report it to the operator and ask before running it). Transition runs: the setup fields come from the new-code `--cleanup` process, so they appear on the upgrade that installs them. The separate dependency step changes what Phase 4 does, and on the default path of both `wf upgrade` and `wf_upgrade()` Phase 4 runs in the pre-extraction orchestrator, so it takes effect from the next upgrade (it applies at once when Phase 4 runs as a new-code process: `--update-index`, `--rebuild-index`, `--resume-after-memory`); that transition run still installs through the Phase 4 child's own dependency check, and if that install fails the upgrade completes but reports an index publication failure recommending `index_build`. On that run, follow the cleanup summary's `setup_command` (`wf setup`) instead: `index_build` cannot install a missing package. The new `next_step` is computed by the running server, so it appears after `wf_reload_mcp` or a restart onto the new code. Do not report either transition run as the fix failing.
+**Dependencies and setup readiness after an upgrade.** The upgrade installs the declared dependencies as its own step before Phase 4 indexing. If that install fails (offline, proxy or TLS interception, application control), the index update does not run: the summary's `index_update` reads `not run: dependency provisioning failed; run wf setup` (the recommended command is `wf setup`), `dependency_provisioning_failed` is `true`, and `wf_upgrade` returns a `dependency_provisioning_failed` diagnostic instead of an index publication failure. The cleanup summary carries `setup_status` (`ready`, `action_required`, `indeterminate` or `not_assessed`), `setup_reasons` and `setup_command`; when cleanup does not record a new setup baseline (the prior one describes another environment, or the index or dependency step failed), these report the assessment against the baseline left in place, which is what later readiness checks report, so the summary never says `ready` while they say otherwise. When setup is not ready after cleanup, `next_step` recommends `setup_command` ahead of `wf_reload_mcp` (report it to the operator and ask before running it). Transition runs: the setup fields come from the new-code `--cleanup` process, so they appear on the upgrade that installs them. The separate dependency step changes what Phase 4 does, and on the default path of both `wf upgrade` and `wf_upgrade()` Phase 4 runs in the pre-extraction orchestrator, so it takes effect from the next upgrade (it applies at once when Phase 4 runs as a new-code process: `--update-index`, `--rebuild-index`); that transition run still installs through the Phase 4 child's own dependency check, and if that install fails the upgrade completes but reports an index publication failure recommending `index_build`. On that run, follow the cleanup summary's `setup_command` (`wf setup`) instead: `index_build` cannot install a missing package. The new `next_step` is computed by the running server, so it appears after `wf_reload_mcp` or a restart onto the new code. Do not report either transition run as the fix failing.
 
 **Reading token presence (do this before reporting a missing token).** `summary_schema_version` is NOT delegation-exclusive: the cleanup phase's emit site carries it too, on both the success and the failure branch. Present, it says only that post-extraction framework code rendered THIS summary; it never says which emitter produced it, and it never claims the upgrade succeeded (`failed_phase` is the success discriminator). Absent, it has three distinct causes and a field report must name which one applies instead of reporting a bare "absent":
 
 1. **The in-process degradation fallback produced the summary.** Always accompanied by `summary_source_degraded`, which names the delegation failure class.
 2. **The runner predates this contract.** Distinguished by `to_version`.
-3. **No summary was emitted at all.** A memory-checkpoint pause and `--resume-after-memory` emit no sentinel in their own process; each reaches a tokened summary at its subsequent recovery `--cleanup`.
+3. **No summary was emitted at all.** An interrupted phase can emit no sentinel; inspect the retained failure and follow its matching recovery before cleanup.
 
 "A sentinel was emitted without the token" and "no sentinel was emitted" are different observations with different causes. Report them as different observations; collapsing both into one "absent" reading is the reporting half of the defect this contract exists to remove.
 
@@ -607,71 +602,13 @@ when combined with `--dry-run`. Public MCP remains apply-only; its internal
 preview handler has the same pending/refusal meaning. Ordinary previews still
 disclose any migration preview logs they write.
 
-## Historical-Memory Gate
+## Historical memory on demand
 
-Established projects first run one canonical bounded historical extraction
-batch after the docs gate. When its run-wide total contains no candidates,
-failures, or remaining waves, upgrade advances to Phase 4 automatically; an
-empty candidate page before extraction is not treated as proof of no work.
-A real candidate, failure, or remaining bounded batch pauses before Phase 4
-with lifecycle state `awaiting_memory_validation` (CLI exit 4: action required,
-not failure or completion). Reload the newly installed MCP, repeatedly call
-`memory_backfill(mode="create", entry_path="upgrade")`, validate every
-exact `data.validation_worklist[].memory_id`, then call backfill again until
-the run is clear and call
-`wf_upgrade(phase="resume_after_memory")`. The resume recomputes the
-authoritative `memory-state.sqlite` pending set and alone publishes the index.
-Resume-after-memory, index, and cleanup verbs all refuse while the
-retired-sidecar cleanup or docs lint has a retained failed phase; recover a
-docs-gate failure through `resume_after_gate`, and recover a
-`review_sidecar_cleanup` refusal by stopping every attached host and
-re-running the full upgrade. After lint passes, `resume_after_gate` establishes
-or refreshes the memory checkpoint and may return its action-required worklist;
-continue through `resume_after_memory`, not `update_index`. Index and cleanup also refuse while memory
-work remains. A crash after the docs gate passed and before the memory checkpoint is recorded (for example in the `post_docs_gate` hook) leaves `failed_phase=post_docs_gate`; an upgrade driven by a pre-1.28 runner labels the same crash `awaiting_memory_validation` with `current_phase: docs_gate_complete` and no action-required block. Recover either through `resume_after_gate`, which re-runs the docs gate and establishes the memory checkpoint without re-extracting; index and cleanup refuse such a lock until then. Fresh/no-history projects continue directly. Upgrade/status responses expose the run id, outcome/pending
-counts, last failure, and next bounded worklist; do not scrape output or use a
-global candidate search. The no-MCP `wf memory-validate` fallback has full
-rewrite-field parity.
+Setup and upgrade synchronize one advisory inventory pass and report distinct closed waves without memory plus candidates awaiting validation. Reporting reads those rows without a second inventory walk; it has no fixed time or byte bound. Inventory or memory-state errors report unavailable by exception type and never pause installation or index publication. Run **Review memories** (`memory_backfill(mode="create")`, then `memory_validate`) when you choose to curate history; ordinary incremental indexing refreshes candidates and judgments.
 
-When candidates are already validated and ready for receipt-owned publication,
-the action-required checkpoint is `awaiting_memory_publication`: reload or
-reconnect, then call `wf_upgrade(phase="resume_after_memory")`; do not repeat
-backfill. This is not an `index_update` failure. The first response from an
-older MCP server can retain its validation-oriented structured label until the
-reload, but its exit 4 and captured publication guidance remain action-required.
+Legacy recovery: supported older runners, including skipped-release upgrades, pass through their memory step when installing this or later packs; `--resume-after-memory` and `resume_after_memory` remain deprecated aliases of `update_index` until runner protocol 2 leaves `SUPPORTED_RUNNER_PROTOCOLS` or a proven new-runner handoff replaces that seam; retained memory pauses finish with `update_index` then `cleanup`.
 
-When the upgrade was started by a pre-gate MCP process, the newly extracted
-pre-docs extension executes the one-way retired-sidecar cleanup before lint;
-upgrade does not enumerate, reproject, or rewrite historical waves, and every
-existing `wave.md` and `events.jsonl` is left byte-for-byte untouched. A
-refused cleanup (a shipped publication-lock path is held) leaves
-`failed_phase=review_sidecar_cleanup`: stop the dashboard and every attached
-MCP/agent host, then re-run the full upgrade. A lint repair leaves
-`failed_phase=docs_gate`; after the repair, `wf upgrade --resume-after-gate`
-or `wf_upgrade(phase="resume_after_gate")` reruns only the docs gate against
-the already-extracted tree, then establishes or refreshes the memory
-checkpoint. If it returns memory action-required, inspect the worklist and
-continue through `resume_after_memory`. A cutover-active run (the run removed a retired
-sidecar or the stale root lock, or the installed version predates 1.15, with
-unknown treated fail-safe as pre-1.15) requires a full restart of every
-attached host, including the invoking one, before lifecycle mutation resumes;
-on such a run the upgrade suppresses its automatic in-process reload and
-removes `wf_reload_mcp` from the suggested next tools, because an in-process
-reload alone is not sufficient. The suppression executes in the invoking
-host's already-loaded server code, so it is guaranteed only when that host
-already runs 1.15-or-later code; an upgrade invoked from a pre-1.15 host may
-still fire its old unconditional in-process reload, which loads the new
-module but does not substitute for the full restart; the full-restart
-instruction, delivered in the upgrade summary, stands either way. Non-cutover
-runs keep the normal reload flow
-and report no cutover restart requirement. A later
-historical-memory exit 4 is action-required, not an index failure:
-reload/restart MCP, inspect the structured run worklist, then resume through
-`resume_after_memory`. New-code resume-after-memory, update, rebuild, and
-cleanup all refuse a retained sidecar-cleanup/docs failure until the matching
-recovery succeeds. Update, rebuild, and cleanup also run the publication
-backstop, so an old-shaped retained lock cannot publish or clean up around
-the cutover.
+Docs-gate failures recover through `resume_after_gate`, which reruns lint and ordinary index publication without re-extracting. A post-docs hook crash uses that same recovery. Retired-sidecar cleanup, storage migration and index-guard handoffs retain their independent host-stop and recovery requirements.
 
 <!-- wavefoundry:review-policy-upgrade:begin -->
 ## Versioned review-policy and bridge recovery
@@ -697,8 +634,8 @@ Every upgrade also reconciles shortcut discovery merge-safely: ensure the canoni
 human-readable surfaces). Preserve project-authored additions and prose outside the
 framework-owned regions; never replace an entire discovery surface to add this entry. While
 `.wavefoundry/upgrade-in-progress.json` exists, lifecycle, review-evidence,
-context-efficiency, memory, docs, and index publication is blocked except the named
-memory-recovery phase.
+context-efficiency, memory, docs, and index publication is blocked until the owning
+upgrade continuation completes; memory curation has no checkpoint exemption.
 
 Feature packs carry integer `upgrade_protocol_version` and
 `minimum_runner_protocol`. `upgrade_protocol_invalid` means the pack is missing,

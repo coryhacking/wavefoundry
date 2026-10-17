@@ -71,7 +71,7 @@ The source runner checks both ledger endpoints and their append relationship, ve
 
 When the operator authorizes closure and current review authority proves readiness, perform one canonical close mutation. Use dry-run to resolve uncertain checks, not as a compulsory extra gate. The close mutation still evaluates its hard gates, and a failed gate must be resolved before retrying; no result cache or prose summary replaces those checks.
 
-Consuming-repository upgrades gain no framework-source suite/profile qualification, extra evidence pass or broad memory maintenance from this discipline. Preserve their existing bounded historical-memory checkpoint and render → docs gate → incremental index ordering. Reuse a report only while its inputs are unchanged.
+Consuming-repository upgrades gain no framework-source suite/profile qualification, extra evidence pass or broad memory maintenance from this discipline. Preserve render → docs gate → incremental index ordering; memory curation is on demand. Reuse a report only while its inputs are unchanged.
 
 ## Finding Record Schema
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: archived
-Last verified: 2026-07-31
+Last verified: 2026-10-16
 
 Memory ID: `1u0dl-mem upgrade-runner-fragility-clusters-at-phase-transition-state-`
 Superseded by: `1u8q3-mem upgrade-runner-phase-playbook`
@@ -25,7 +25,7 @@ Archive reason: Superseded by a verified consolidated file playbook after retent
 Archive path: `docs/agents/memory/archive/1u0dl-mem upgrade-runner-fragility-clusters-at-phase-transition-state-.md`
 ## Summary
 
-upgrade_wavefoundry.py took 6 independent repairs in wave 1tz6l, and all six sit on phase-transition state: failed_phase attribution across the docs-gate/memory boundary, resume checkpoints (resume-after-gate must establish the memory checkpoint; resume-after-memory must accept retained phases), receipt/attempt-id handoff into Phase 4, dashboard lock authority at quiescence, retired-carrier preflight refusal completeness, and extraction filtering. Edits near any phase seam should rerun the seam cluster together: HistoricalMemoryUpgradeGateTests, ResumeAfterGateTests, DetectDashboardLivenessTests, ReviewPolicyReconcilerTests, ExtractFeatureMembersTests.
+Legacy recovery: this archived 1tz6l evidence describes retired phases and tests, not current instructions: upgrade_wavefoundry.py took 6 independent repairs involving failed_phase attribution across the docs-gate/memory boundary, resume checkpoints (resume-after-gate establishing the memory checkpoint; resume-after-memory accepting retained phases), receipt/attempt-id handoff into Phase 4, dashboard lock authority at quiescence, retired-carrier preflight refusal completeness, and extraction filtering; the original seam cluster was HistoricalMemoryUpgradeGateTests, ResumeAfterGateTests, DetectDashboardLivenessTests, ReviewPolicyReconcilerTests, ExtractFeatureMembersTests.
 
 ## Evidence
 

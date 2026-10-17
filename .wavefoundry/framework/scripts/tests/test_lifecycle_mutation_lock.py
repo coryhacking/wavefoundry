@@ -1526,8 +1526,8 @@ class MemoryToolPublicationRefusalTests(unittest.TestCase):
         for name in ("memory_consolidate", "memory_purge"):
             writer = publication_control._BY_TOOL[name]
             self.assertEqual(
-                (writer.producer, writer.contention_policy, writer.surface, writer.memory_recovery),
-                ("memory", "fail_fast", "tool", False),
+                (writer.producer, writer.contention_policy, writer.surface),
+                ("memory", "fail_fast", "tool"),
             )
 
     def test_another_process_holding_the_locks_gets_the_path_free_busy_refusal(self):

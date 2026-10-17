@@ -1149,12 +1149,12 @@ class NativeMigrationTests(unittest.TestCase):
     def _native_memory_scope(self):
         import memory_backfill
         run_id = memory_backfill.ensure_run(self.root, "upgrade")
-        self.assertEqual(memory_backfill.sync_inventory(self.root, run_id)["state"], "ready_for_index")
+        self.assertEqual(memory_backfill.sync_inventory(self.root, run_id)["state"], "indexed")
         return run_id, memory_backfill.index_publication_scope(run_id)
 
     @patch.dict(os.environ, {migration.CONFIRM_ENV: "1"})
     @patch.object(migration, "discover_hosts", new=lambda root: ([], ["fixture confirmed hosts"]))
-    def test_parent_owned_native_epoch_is_published_before_fresh_storage_verifier(self):
+    def test_advisory_memory_keeps_ordinary_native_publication_and_verification(self):
         import upgrade_wavefoundry as upgrade
         import memory_backfill
         self.convert()
@@ -1162,8 +1162,8 @@ class NativeMigrationTests(unittest.TestCase):
         observed = []
         with scope, patch.object(upgrade, "_run_upgrade_child", side_effect=self._native_phase_children(observed)), \
              contextlib.redirect_stdout(io.StringIO()):
-            upgrade.phase_index_update_parent_owned(self.root, run_id)
-        self.assertEqual(observed, [("all", "building"), ("graph", "building"), ("verify", "complete")])
+            self.assertTrue(upgrade.phase_index_update(self.root))
+        self.assertEqual(observed, [("all", "complete"), ("graph", "complete"), ("verify", "complete")])
         self.assertEqual(memory_backfill.run_summary(self.root, run_id)["state"], "indexed")
         self.assertEqual(migration.read_receipt(self.index)["state"], "verified")
         self.assertEqual(migration.cleanup_legacy(self.root)["state"], "complete")
@@ -1182,7 +1182,7 @@ class NativeMigrationTests(unittest.TestCase):
 
     @patch.dict(os.environ, {migration.CONFIRM_ENV: "1"})
     @patch.object(migration, "discover_hosts", new=lambda root: ([], ["fixture confirmed hosts"]))
-    def test_recovered_native_staging_receipt_requires_child_outcomes_and_fresh_verification(self):
+    def test_retired_staging_variable_does_not_delay_native_publication(self):
         import upgrade_wavefoundry as upgrade
         import index_state_store as state
         self.convert()
@@ -1193,11 +1193,9 @@ class NativeMigrationTests(unittest.TestCase):
              contextlib.redirect_stdout(io.StringIO()):
             with patch.dict(os.environ, {"WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT": str(receipt_path)}):
                 self.assertTrue(upgrade.phase_index_update(self.root))
-            self.assertEqual(state.read_build_state(self.index)["status"], "building")
-            with self.assertRaisesRegex(migration.MigrationRequired, "cleanup_unverified"):
-                migration.cleanup_legacy(self.root)
-            upgrade.phase_index_update_parent_owned(self.root, run_id)
-        self.assertEqual(observed, [("all", "building"), ("graph", "building"), ("verify", "complete")])
+            self.assertEqual(state.read_build_state(self.index)["status"], "complete")
+            self.assertTrue(upgrade.phase_index_update(self.root))
+        self.assertEqual(observed, [("all", "complete"), ("graph", "complete"), ("verify", "complete")] * 2)
         self.assertFalse(receipt_path.exists())
         self.assertEqual(migration.read_receipt(self.index)["state"], "verified")
 
@@ -1216,14 +1214,13 @@ class NativeMigrationTests(unittest.TestCase):
             # Simulate interruption before the coordinator could persist both
             # observed exits. The existing staged attempt is not that proof.
             migration.begin_upgrade_publication(self.root)
-            upgrade.phase_index_update_parent_owned(self.root, run_id)
-        self.assertEqual(observed, [("all", "building"), ("graph", "building"),
-                                    ("all", "building"), ("graph", "building"), ("verify", "complete")])
+            self.assertTrue(upgrade.phase_index_update(self.root))
+        self.assertEqual(observed, [("all", "complete"), ("graph", "complete"), ("verify", "complete")] * 2)
         self.assertEqual(migration.read_receipt(self.index)["state"], "verified")
 
     @patch.dict(os.environ, {migration.CONFIRM_ENV: "1"})
     @patch.object(migration, "discover_hosts", new=lambda root: ([], ["fixture confirmed hosts"]))
-    def test_standard_memory_reconciliation_restages_before_parent_cas(self):
+    def test_advisory_reconciliation_cannot_change_native_epoch_authority(self):
         import upgrade_wavefoundry as upgrade
         import memory_backfill
         import index_state_store as state
@@ -1239,11 +1236,10 @@ class NativeMigrationTests(unittest.TestCase):
             # its memory authorization is retired even though the child file
             # remains. Re-authorize by rerunning the ordinary child pipeline.
             reconciled = memory_backfill.reconcile_index_publication(self.root, run_id)
-            self.assertEqual(reconciled["state"], "ready_for_index")
-            self.assertEqual(state.read_build_state(self.index)["status"], "building")
-            upgrade.phase_index_update_parent_owned(self.root, run_id)
-        self.assertEqual(observed, [("all", "building"), ("graph", "building"),
-                                    ("all", "building"), ("graph", "building"), ("verify", "complete")])
+            self.assertEqual(reconciled["state"], "indexed")
+            self.assertEqual(state.read_build_state(self.index)["status"], "complete")
+            self.assertTrue(upgrade.phase_index_update(self.root))
+        self.assertEqual(observed, [("all", "complete"), ("graph", "complete"), ("verify", "complete")] * 2)
         self.assertEqual(memory_backfill.run_summary(self.root, run_id)["state"], "indexed")
         self.assertEqual(migration.cleanup_legacy(self.root)["state"], "complete")
 
@@ -1918,13 +1914,13 @@ class SchemaEightKindTests(unittest.TestCase):
         import index_state_store as state
         self._seed("7")
         run_id = memory_backfill.ensure_run(self.root, "upgrade")
-        self.assertEqual(memory_backfill.sync_inventory(self.root, run_id)["state"], "ready_for_index")
+        self.assertEqual(memory_backfill.sync_inventory(self.root, run_id)["state"], "indexed")
         parent = self.index / "upgrade-index-staging-receipt.json"
         with memory_backfill.index_publication_scope(run_id), patch.dict(os.environ, {
                 "WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT": str(parent)}):
             receipt = self._run()
         self.assertEqual(receipt["state"], "published")
-        self.assertEqual(memory_backfill.run_state(self.root, run_id), "ready_for_index")
+        self.assertEqual(memory_backfill.run_state(self.root, run_id), "indexed")
         self.assertFalse(parent.exists())
         staging = migration._staging_index_dir(self.index / receipt["work_dir"])
         self.assertFalse((staging / "memory-state.sqlite").exists())
@@ -1952,7 +1948,7 @@ class SchemaEightKindTests(unittest.TestCase):
         def fail_after_build(*args, **kwargs):
             result = original(*args, **kwargs)
             self.assertFalse(result.get("failed"), result)
-            self.assertEqual(memory_backfill.run_state(self.root, run_id), "ready_for_index")
+            self.assertEqual(memory_backfill.run_state(self.root, run_id), "indexed")
             self.assertFalse(parent.exists())
             raise RuntimeError("injected after candidate completion")
         observed = []
@@ -1961,15 +1957,15 @@ class SchemaEightKindTests(unittest.TestCase):
                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             with patch.object(indexer, "_build_index_locked", side_effect=fail_after_build):
                 with self.assertRaisesRegex(RuntimeError, "injected after candidate"):
-                    upgrade.phase_index_update_parent_owned(self.root, run_id)
+                    self.assertTrue(upgrade.phase_index_update(self.root))
             receipt = migration.read_receipt(self.index)
             self.assertEqual(receipt["state"], "staged")
             self.assertTrue(self.legacy.exists())
             self.assertFalse(self.current.exists())
             staging = migration._staging_index_dir(self.index / receipt["work_dir"])
             self.assertFalse((staging / "memory-state.sqlite").exists())
-            upgrade.phase_index_update_parent_owned(self.root, run_id)
-        self.assertEqual(observed, [("all", "building"), ("graph", "building"), ("verify", "complete")])
+            self.assertTrue(upgrade.phase_index_update(self.root))
+        self.assertEqual(observed, [("all", "complete"), ("graph", "complete"), ("verify", "complete")])
         self.assertEqual(memory_backfill.run_state(self.root, run_id), "indexed")
         self.assertEqual(vectors.payload_rows(self.index, "docs", include_vector=True), rows)
         self.assertEqual(migration.read_receipt(self.index)["state"], "verified")
@@ -2000,10 +1996,12 @@ class SchemaEightKindTests(unittest.TestCase):
                 pass
             attempt = state.begin_build_epoch(other, "graph")
             parent = other / "parent.json"
+            foreign_checkpoint = other.parent.parent / ".wavefoundry/upgrade-in-progress.json"
+            foreign_checkpoint.write_text(json.dumps({"current_phase": "index_update", "pid": -1}))
             with patch.dict(os.environ, {
                     "WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID": "unknown-run",
                     "WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT": str(parent)}):
-                with self.assertRaisesRegex(ValueError, "unknown memory backfill run"):
+                with self.assertRaisesRegex(RuntimeError, "upgrade_in_progress"):
                     state.finalize_build_epoch(other, attempt)
             self.assertEqual(state.read_build_state(other)["status"], "building")
             self.assertFalse(parent.exists())
@@ -2023,10 +2021,11 @@ class SchemaEightKindTests(unittest.TestCase):
                 "| --- | --- | --- | --- |\n"
                 "| 2026-01-01 | Keep local | Offline use | Remote |\n", encoding="utf-8")
             pending = memory_backfill.ensure_run(other.parent.parent, "upgrade")
-            self.assertEqual(memory_backfill.sync_inventory(other.parent.parent, pending)["state"], "awaiting_validation")
+            self.assertEqual(memory_backfill.sync_inventory(other.parent.parent, pending)["state"], "indexed")
             with memory_backfill.index_publication_scope(pending), patch.dict(os.environ, {
                     "WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT": str(parent)}):
-                self.assertFalse(state.finalize_build_epoch(other, attempt))
+                with self.assertRaisesRegex(RuntimeError, "upgrade_in_progress"):
+                    state.finalize_build_epoch(other, attempt)
             self.assertEqual(state.read_build_state(other)["status"], "building")
             self.assertFalse(parent.exists())
             moved = staging.with_name("replaced-index")

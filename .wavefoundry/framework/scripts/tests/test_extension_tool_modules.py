@@ -2611,15 +2611,15 @@ class ReplacementServingTests(unittest.TestCase):
         self.assertNotIn("guard", self.out["markers"]["fork_help_core"])
         self.assertEqual(self.out["read_core_unguarded"][0], "ok")
 
-    def test_memory_validate_core_keeps_its_recovery_exemption(self):
+    def test_memory_validate_core_refuses_every_retained_checkpoint(self):
         self.assertIn("upgrade_in_progress", self.out["memory_core_extracting"])
-        self.assertNotIn("upgrade_in_progress", self.out["memory_core_recovery"])
+        self.assertIn("upgrade_in_progress", self.out["memory_core_recovery"])
 
     def test_replacing_handler_of_a_registered_publisher_keeps_its_guard(self):
         # memory_validate is a registered publisher: its replacing handler keeps
-        # the block guard with the memory_recovery exemption, not the checkpoint.
+        # the same fail-closed checkpoint guard.
         self.assertIn("upgrade_in_progress", self.out["memory_replacing_extracting"])
-        self.assertEqual(self.out["memory_replacing_recovery"], ["ok"])
+        self.assertEqual(self.out["memory_replacing_recovery"], ["error", "upgrade_in_progress"])
 
     def test_reload_rebuilds_replacements(self):
         self.assertEqual(self.out["reload_status"], "ok")

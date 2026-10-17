@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-15
+Last verified: 2026-10-16
 
 ## Configuration
 
@@ -256,7 +256,7 @@ binding. See [the decision](decisions/1yja8-adr%20persisted-storage-continuity.m
 
 ## Selective wave memory capture
 
-`memory_supply` proposes only current contained regular source anchors. `memory_propose` remains read-only by default; create requires explicit reviewed source-event selection. The server derives bodies and identities, rejects unknown/ineligible selections before writes, and preserves source dispositions across retries. Omitted selection creates nothing, and an empty list is a no-op. Close checks all actual wave-linked pending candidates independently of current proposal eligibility, so a disappeared target cannot conceal unfinished validation. A no-new-memory retrospective lives in wave.md and cannot approve an existing candidate. Ordinary upgrades retain their existing bounded historical-memory checkpoint without broad recuration or a new backfill.
+`memory_supply` proposes only current contained regular source anchors. `memory_propose` remains read-only by default; create requires explicit reviewed source-event selection. The server derives bodies and identities, rejects unknown/ineligible selections before writes, and preserves source dispositions across retries. Omitted selection creates nothing, and an empty list is a no-op. Close checks all actual wave-linked pending candidates independently of current proposal eligibility, so a disappeared target cannot conceal unfinished validation. A no-new-memory retrospective lives in wave.md and cannot approve an existing candidate. Ordinary upgrades retain one advisory inventory pass without curation or a publication gate.
 
 ## Advisory lint proof
 

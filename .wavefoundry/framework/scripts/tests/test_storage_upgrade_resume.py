@@ -225,7 +225,7 @@ class StorageUpgradeProcessResumeTests(unittest.TestCase):
         resumed = self.attempt(receipt['restart_action']['command_argv'])
         self.assertEqual(resumed.returncode, 77, resumed.stdout + resumed.stderr)
 
-    def test_original_pack_and_confirmation_do_not_bypass_later_memory_pause(self):
+    def test_retired_memory_fields_preserve_read_only_storage_refusal(self):
         receipt = self.pause()
         upgrade_lib.update_upgrade_lock(self.root, current_phase='awaiting_memory_validation',
             failed_phase='awaiting_memory_validation', memory_backfill_run_id='retained-memory',
@@ -239,9 +239,10 @@ class StorageUpgradeProcessResumeTests(unittest.TestCase):
                 protected = [upgrade_lib.upgrade_lock_path(self.root), self.index / migration.RECEIPT,
                              self.pack, self.source, self.bootstrap, self.root / '.wavefoundry/logs/upgrade.log']
                 before = {path: path.read_bytes() for path in protected}
-                attempted = self.attempt(receipt['restart_action']['command_argv'])
+                attempted = self.attempt([sys.executable, str(self.runner), '--root', str(self.root), '--yes'])
                 self.assertEqual(attempted.returncode, 5, attempted.stdout + attempted.stderr)
-                self.assertIn('--resume-after-memory', attempted.stdout)
+                self.assertIn('--pack', attempted.stdout + attempted.stderr)
+                self.assertIn('--confirm-hosts-stopped', attempted.stdout + attempted.stderr)
                 self.assertEqual({path: path.read_bytes() for path in protected}, before)
                 self.assertFalse((self.root / 'conversion-boundary.json').exists())
 
@@ -443,7 +444,7 @@ class StorageRebuildPublicationTests(unittest.TestCase):
         # qualified runtime and deterministic child embedder are already present.
         import setup_index
         import index_state_store
-        with contextlib.ExitStack() as controls, memory_backfill.index_publication_scope(run_id), \
+        with contextlib.ExitStack() as controls, \
              patch.dict(os.environ, {migration.CONFIRM_ENV: "1"}), \
              patch.object(migration, "discover_hosts", return_value=([], ["fixture confirmed hosts"])), \
              patch("child_tee.run", side_effect=run), \
@@ -451,9 +452,9 @@ class StorageRebuildPublicationTests(unittest.TestCase):
              patch.object(setup_index, "prewarm_models"), \
              contextlib.redirect_stdout(io.StringIO()):
             if failure == "before_finalize":
-                controls.enter_context(patch.object(index_state_store, "finalize_staged_build_epoch",
+                controls.enter_context(patch.object(upgrade, "_verify_storage_publication",
                     side_effect=RuntimeError("injected interruption before parent publication")))
-            upgrade.phase_index_update_parent_owned(self.root, run_id)
+            self.assertTrue(upgrade.phase_index_update(self.root))
         return observed
 
     def test_duplicate_transfer_refuses_then_explicit_rebuild_publishes_current_sources(self):
@@ -559,7 +560,7 @@ class StorageRebuildPublicationTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "injected interruption"):
             self.run_parent("before_finalize")
         staging = self.index / "upgrade-index-staging-receipt.json"
-        self.assertTrue(staging.exists())
+        self.assertFalse(staging.exists())
         import sqlite_runtime
         with contextlib.closing(sqlite_runtime.connect(self.live)) as conn:
             value = conn.execute("SELECT value FROM meta WHERE key='storage_rebuild_proof'").fetchone()
@@ -658,7 +659,7 @@ class SchemaEightMemoryCLIResumeTests(unittest.TestCase):
             "Reuse the local decision.", "The historical decision still matches src/m.py.", True, True, "none")
         self.assertEqual(validated["status"], "ok", validated)
         summary = memory_backfill.sync_inventory(root, run_id)
-        self.assertEqual(summary["state"], "ready_for_index", summary)
+        self.assertEqual(summary["state"], "indexed", summary)
         self.assertGreater(summary["candidates_drafted"], 0)
         with patch.dict(os.environ, {migration.CONFIRM_ENV: "1"}):
             migration.prepare_upgrade(fixture.ctx)

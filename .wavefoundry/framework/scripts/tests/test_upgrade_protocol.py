@@ -601,16 +601,14 @@ class UpgradeProtocolTests(unittest.TestCase):
         self.assertIn("wf_upgrade(phase='cleanup')", instruction)
         self.assertIn("wf_audit", instruction)
 
-    def test_memory_pause_recovery_requires_every_attached_host_restart(self):
+    def test_legacy_memory_pause_continues_index_then_cleanup_without_restart(self):
         recovery = upgrade_bundle._recovery(
             Path("/repo"), {"next_argv": []}, "awaiting_memory_validation"
         )
-        self.assertEqual(recovery["kind"], "restart_then_resume_memory")
-        self.assertIn(
-            "Restart every attached agent/MCP host",
-            recovery["instruction"],
-        )
-        self.assertIn("resume_after_memory", recovery["instruction"])
+        self.assertEqual(recovery["kind"], "continue_index_then_cleanup")
+        self.assertNotIn("Restart every attached agent/MCP host", recovery["instruction"])
+        self.assertIn("update_index", recovery["instruction"])
+        self.assertIn("cleanup", recovery["instruction"])
 
     def test_retained_checkpoint_recovery_assigns_agent_shell_and_multihost_restart(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -727,7 +725,7 @@ class UpgradeProtocolTests(unittest.TestCase):
             run_call.assert_called_once()
             self.assertEqual(run_call.call_args.args[0], bridge["next_argv"])
             self.assertEqual(payload["feature_state"], "awaiting_memory_validation")
-            self.assertEqual(payload["recovery"]["kind"], "restart_then_resume_memory")
+            self.assertEqual(payload["recovery"]["kind"], "continue_index_then_cleanup")
             self.assertTrue(payload["restart_required"])
 
     def test_real_bundle_crosses_bridge_and_invokes_installed_feature_runner(self):

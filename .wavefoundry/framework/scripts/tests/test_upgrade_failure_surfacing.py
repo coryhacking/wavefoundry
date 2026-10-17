@@ -88,14 +88,14 @@ class PendingUpgradeTests(unittest.TestCase):
             with self.subTest(args=args):
                 code, output = self.invoke(*args)
                 self.assertEqual(code, 5, output)
-                self.assertIn('--resume-after-memory', output)
+                self.assertIn('update_index', output)
                 self.assertIn('retained-run', output)
                 self.assertIn('1.0.0+retained', output)
 
     def test_contract_state_matrix_reports_existing_phase(self):
         for current, failed, flag in (
-                ('awaiting_memory_publication', None, '--resume-after-memory'),
-                ('memory_resume_preflight', 'index_update', '--resume-after-memory'),
+                ('awaiting_memory_publication', None, '--update-index'),
+                ('memory_resume_preflight', 'index_update', '--update-index'),
                 ('docs_gate', 'docs_gate', '--resume-after-gate'),
                 ('docs_gate_complete', 'post_docs_gate', '--resume-after-gate'),
                 ('docs_gate_complete', 'awaiting_memory_validation', '--resume-after-gate'),
@@ -151,7 +151,7 @@ class PendingUpgradeTests(unittest.TestCase):
                 self.assertEqual(response['data']['code'], 'upgrade_pending')
                 self.assertEqual(response['data']['state'], 'awaiting_memory_validation')
                 self.assertEqual(response['data']['action_required']['run_id'], 'retained-run')
-                self.assertIn('--resume-after-memory', response['next_step'])
+                self.assertIn('update_index', response['next_step'])
         self.assertEqual(self.checkpoint.read_bytes(), before)
         self.assertEqual(self.log.read_bytes(), b'RETAINED LOG')
         reload.assert_not_called()
@@ -203,7 +203,7 @@ class PendingUpgradeTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()) as out:
                 code = upgrade.main(['--root', str(self.root), '--dry-run', '--cleanup'])
         self.assertEqual(code, 5, out.getvalue())
-        self.assertIn('--resume-after-memory', out.getvalue())
+        self.assertIn('update_index', out.getvalue())
 
     def durable(self):
         import upgrade_extensions as extensions
@@ -213,7 +213,7 @@ class PendingUpgradeTests(unittest.TestCase):
         identity = self.root.stat()
         digest = extensions._pack_sha256(retained)
         record = {'version': 1, 'required': True, 'prior_runtime_present': True,
-                  'prior_capability': False, 'prior_coordinator_capable': False,
+                  'prior_capability': False, 'prior_coordinator_capable': False, 'hosts_stopped_confirmed': True,
                   'root': str(self.root), 'root_identity': {'device': identity.st_dev, 'inode': identity.st_ino},
                   'target_version': '1.0.0+retained', 'token': 'guard-token',
                   'pack_sha256': digest, 'pack_path': str(retained)}
@@ -248,7 +248,7 @@ class PendingUpgradeTests(unittest.TestCase):
             'dashboard_restart_complete': True, 'fatal_cleanup_complete': True}
         upgrade_lib.update_upgrade_lock(self.root, index_guard_handoff=record, current_phase='cleanup',
             failed_phase=None, action_required=None, index_publication_failed=False,
-            dashboard_restart_pending=False, memory_backfill_state='indexed')
+            dashboard_restart_pending=False, index_rebuilt_at='observed')
         code, output = self.invoke()
         self.assertEqual(code, 5, output)
         self.assertIn('--cleanup', output)
@@ -548,16 +548,15 @@ class UpgradeHelperReloadTests(unittest.TestCase):
         self.assertNotIn('STALE-SANITIZER', value)
         command = fresh_guidance.resume_guidance(root, resume_flag='--resume-after-memory')
         next_step, _ = handlers._upgrade_next_step('resume_after_gate', root)
-        self.assertIn('--resume-after-memory', next_step)
-        self.assertIn(str(root), next_step)
+        self.assertIn('cleanup', next_step)
+        self.assertNotIn("external terminal", next_step)
         self.assertNotIn('STALE-RESUME', next_step)
-        self.assertIn(command['command'], next_step)
         argv = command['command_argv']
-        self.assertIn('--resume-after-memory', argv)
+        self.assertIn('--update-index', argv)
         self.assertEqual(argv[argv.index('--root') + 1], str(root))
         self.assertNotIn('STALE-RESUME', argv)
-        self.assertTrue(command['operator_run'])
-        self.assertFalse(command['agent_execution_allowed'])
+        self.assertFalse(command['operator_run'])
+        self.assertTrue(command['agent_execution_allowed'])
         self.assertIsNot(fresh_tee, old_tee)
         self.assertIs(fresh_guidance, old_guidance)
         self.assertIs(fresh_guidance.MigrationRequired, old_exception)

@@ -1,9 +1,9 @@
 # Negotiate Tensorwell capabilities and send workload, deadline and session hints
 
 Change ID: `20tpq-enh tensorwell-capability-negotiation-and-request-contract`
-Change Status: `implementing`
+Change Status: `implemented`
 Owner: Engineering
-Status: implementing
+Status: implemented
 Last verified: 2026-10-16
 Wave: `20tpp tensorwell-workload-aware-client`
 

@@ -378,7 +378,8 @@ class BuildPackTests(unittest.TestCase):
         self.assertIn("overflow-wrap: anywhere", css)
         self.assertIn("memory_backfill_runs", backfill)
         self.assertIn("def main", memory_cli)
-        self.assertIn("then rerun ordinary `wf setup`", setup)
+        self.assertIn("historical_memory_report", setup)
+        self.assertNotIn("index_publication_scope", setup)
         self.assertNotIn("wave_setup_resume_after_memory", server)
         self.assertNotIn("wf_resume_setup_after_memory", server)
 
@@ -530,7 +531,7 @@ print(json.dumps({
             python_out = json.loads(python_result.stdout)
             self.assertTrue(python_out["status_marker"])
             self.assertTrue(python_out["qa_pending"])
-            self.assertEqual(python_out["memory_state"], "ready_for_index")
+            self.assertEqual(python_out["memory_state"], "indexed")
             self.assertEqual(
                 python_out["ac_text"],
                 "AC-1: packaged first line packaged continuation",

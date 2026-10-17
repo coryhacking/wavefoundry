@@ -2841,6 +2841,7 @@ def _record_index_publication_outcome(root: Path, published: bool) -> None:
                 datetime.timezone.utc
             ).isoformat(),
             index_publication_failed=False,
+            current_phase="index_complete",
         )
     else:
         upgrade_lib.update_upgrade_lock(
@@ -2940,9 +2941,6 @@ def phase_index_update(root: Path) -> bool:
         return True
 
     _log("  Phase 4a: updating docs and code index layers (blocking) ...")
-    memory_run_id = os.environ.get(
-        "WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID", ""
-    ).strip()
     grant_token = _index_child_publisher_grant(root)
     child_env = dict(os.environ)
     import upgrade_lib
@@ -2953,8 +2951,6 @@ def phase_index_update(root: Path) -> bool:
     if lock.get("model_bundle_path"):
         child_env["WAVEFOUNDRY_MODEL_BUNDLE"] = str(lock["model_bundle_path"])
         child_env["WAVEFOUNDRY_MODEL_BUNDLE_MODEL_SET_VERSION"] = str(lock.get("model_bundle_model_set_version") or "")
-    if memory_run_id:
-        child_env["WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID"] = str(memory_run_id)
     if grant_token:
         child_env["WAVEFOUNDRY_UPGRADE_PUBLISHER_TOKEN"] = grant_token
     published = True
@@ -2968,11 +2964,6 @@ def phase_index_update(root: Path) -> bool:
         message = _child_failure(f"Semantic index update exited {result.returncode}", result)
         if migration_pending:
             raise RuntimeError(message + " — storage migration retains its receipt and legacy sources")
-        if memory_run_id:
-            raise RuntimeError(
-                message
-                + " — historical-memory publication remains incomplete and retryable"
-            )
         # 1u44n: OBSERVED failure, not a silent warning. The upgrade
         # continues (the documented recovery does not need a retained lock),
         # but the outcome propagates to the summary and MCP diagnostic.
@@ -2991,13 +2982,6 @@ def phase_index_update(root: Path) -> bool:
     # during the upgrade instead of waiting for the first-query lazy rebuild.
     _log("  Phase 4b: updating graph index (blocking) ...")
     followup_env = subprocess_util.utf8_child_env()
-    if memory_run_id:
-        # The graph pass is the final staged child of the SAME frozen
-        # publication generation. Keep the run identity so it transfers the
-        # exact receipt attempt before the lock-owning parent CAS.
-        followup_env["WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID"] = memory_run_id
-    else:
-        followup_env.pop("WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID", None)
     # 1u44n: the blocking graph child is an upgrade-owned publisher, but the
     # DETACHED Phase 4c child below is NOT (it outlives the parent and the
     # lock). Strip the grant from the shared env and add it only to the graph
@@ -3022,84 +3006,15 @@ def phase_index_update(root: Path) -> bool:
         # `index_update` field.
         _log(_child_failure(f"  ⚠  Graph index update exited {graph_result.returncode} — continuing (first-query rebuild remains the safety net).", graph_result))
 
-    if os.environ.get("WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", "").strip():
-        _log("  Phase 4c: skipped — child preparation finished; epoch publication is pending the parent.")
-    else:
-        _log(
-            "  Phase 4c: skipped — the foreground setup pass already published "
-            "one complete docs+code semantic epoch."
-        )
+    _log("  Phase 4c: skipped — the foreground setup pass published one complete docs+code semantic epoch.")
     migration_receipt = sqlite_storage_migration.read_receipt(root / ".wavefoundry/index")
     if published and migration_receipt is not None and migration_receipt["state"] in {"published", "verified", "cleanup_pending"}:
         sqlite_storage_migration.record_upgrade_publication(root)
-        if not os.environ.get("WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", "").strip():
-            _verify_storage_publication(root)
+        _verify_storage_publication(root)
     return published
 
 
-def phase_index_update_parent_owned(root: Path, memory_run_id: str) -> None:
-    """Let the child compute, then publish its epoch from the lock-owning parent."""
 
-    _enforce_index_guard_before_children(root)
-    import index_state_store
-
-    index_dir = root / ".wavefoundry" / "index"
-    receipt_path = index_dir / "upgrade-index-staging-receipt.json"
-
-    def _finalize_existing() -> bool:
-        try:
-            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            return False
-        if not isinstance(receipt, dict):
-            return False
-        import sqlite_storage_migration
-        storage_receipt = sqlite_storage_migration.read_receipt(index_dir)
-        if storage_receipt is not None and storage_receipt["state"] != "complete":
-            observed = storage_receipt.get("upgrade_publication", {})
-            if observed.get("semantic_exit") != 0 or observed.get("graph_exit") != 0:
-                # A staging receipt proves the child attempt, not that both
-                # ordinary child processes exited successfully. Retry Phase 4.
-                return False
-            try:
-                sqlite_storage_migration.validate_rebuild_publication(root, receipt)
-            except sqlite_storage_migration.MigrationRequired:
-                # A prior child stage cannot substitute for this migration's
-                # complete, source-derived semantic rebuild proof.
-                return False
-        import memory_backfill
-        if memory_backfill.run_state(root, memory_run_id) != "publishing_index":
-            # Standard recovery may retire the old attempt's authorization.
-            # Recompute through the ordinary children under the current census.
-            return False
-        _enforce_index_guard_before_children(root)
-        if not index_state_store.finalize_staged_build_epoch(
-            index_dir, receipt, memory_run_id
-        ):
-            return False
-        receipt_path.unlink(missing_ok=True)
-        return True
-
-    if _finalize_existing():
-        _log("  Recovered verified child staging receipt; parent finalized index epoch.")
-        _verify_storage_publication(root)
-        return
-    receipt_path.unlink(missing_ok=True)
-    previous = os.environ.get("WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT")
-    os.environ["WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT"] = str(receipt_path)
-    try:
-        phase_index_update(root)
-    finally:
-        if previous is None:
-            os.environ.pop("WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", None)
-        else:
-            os.environ["WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT"] = previous
-    if not _finalize_existing():
-        raise RuntimeError(
-            "index child did not produce a valid staging receipt; authoritative "
-            "index state remains unpublished"
-        )
-    _verify_storage_publication(root)
 
 
 def phase_index_rebuild(root: Path) -> bool:
@@ -3763,6 +3678,15 @@ def phase_cleanup(
     # Storage format failures and missing new-process verification are fatal,
     # unlike ordinary historical index failures. Do this before lock removal.
     sqlite_storage_migration.cleanup_legacy(root)
+    staging_receipt = root / ".wavefoundry/index/upgrade-index-staging-receipt.json"
+    try:
+        retained_entry = staging_receipt.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        import contained_files
+        contained_files.unlink_contained(root, staging_receipt,
+            expected_identity=(retained_entry.st_dev, retained_entry.st_ino))
 
     if restart_pending:
         try:
@@ -3799,9 +3723,9 @@ def phase_cleanup(
     if isinstance(guard_record, dict) and "durable_pack" in guard_record:
         import upgrade_extensions
         if (index_update_failed or lock_state.get("index_publication_failed")
-                or lock_state.get("memory_backfill_state") not in {None, "indexed"}
+                or not lock_state.get("index_rebuilt_at")
                 or guard_record.get("hosts_stopped_confirmed") is not True):
-            _err("Owned continuation archive retained: index/memory/host completion is not proven.")
+            _err("Owned continuation archive retained: index/host completion is not proven.")
             raise SystemExit(1)
         # Re-read after fatal storage/dashboard obligations; terminal proof must
         # bind the same owned file before its deliberately irreversible unlink.
@@ -4028,8 +3952,8 @@ def _is_post_docs_gate_failure(lock: dict | None) -> bool:
     Also recognises the label a pre-1.28 runner writes for the same crash: the
     memory-pause name, but with the docs gate complete and no armed
     ``action_required`` (a real pause always writes both ``action_required``
-    and ``current_phase: awaiting_memory_validation``). A memory run id may or
-    may not be present; the resume reuses one if it is.
+    and ``current_phase: awaiting_memory_validation``). The retired label is
+    recovery provenance only; continuation performs no memory work.
     """
     if not isinstance(lock, dict):
         return False
@@ -4489,6 +4413,18 @@ def _reconciliation_recommendation_lines(
         return []
 
 
+def _historical_memory_report(root: Path) -> dict:
+    import upgrade_lib
+    import memory_backfill
+    if root is None:
+        return {"status": "unavailable", "reason": "root_not_provided", "next_step": memory_backfill.REVIEW_MEMORIES}
+    lock = upgrade_lib.read_upgrade_lock(root) or {}
+    recorded = lock.get("historical_memory_report")
+    if recorded is not None:
+        return memory_backfill.project_historical_memory_report(recorded)
+    return memory_backfill.historical_memory_report(root)
+
+
 def _build_upgrade_summary(
     from_version: str | None,
     to_version: str | None,
@@ -4507,6 +4443,7 @@ def _build_upgrade_summary(
     reconciliation_disposition_diagnostics: list[dict] | None = None,
     setup_assessment: dict | None = None,
     dependency_provisioning_failed: bool = False,
+    historical_memory: dict | None = None,
 ) -> dict:
     """Wave 1p8eu — assemble the operator summary ONCE as a dict.
 
@@ -4548,6 +4485,7 @@ def _build_upgrade_summary(
     permissions_removed = [str(rule) for rule in (delta or {}).get("removed") or []]
     cleanup = _retired_model_cleanup_from_mapping(retired_model_cleanup)
     return {
+        "historical_memory": historical_memory,
         "review_sidecar_cleanup": review_sidecar_cleanup,
         "from_version": from_version,
         "to_version": to_version,
@@ -4685,6 +4623,7 @@ def _emit_primary_phase_summary(
     disposition_diagnostics = report["disposition_diagnostics"]
     renderer_warnings = report["renderer_warnings"]
     summary = _build_upgrade_summary(
+        historical_memory=_historical_memory_report(root),
         from_version=from_version,
         to_version=to_version,
         zip_path=zip_path,
@@ -4930,6 +4869,7 @@ def _emit_delegated_summary(root: Path) -> int:
     disposition_diagnostics = report["disposition_diagnostics"]
     renderer_warnings = report["renderer_warnings"]
     summary = _build_upgrade_summary(
+        historical_memory=_historical_memory_report(root),
         from_version=from_version if isinstance(from_version, str) else None,
         to_version=to_version if isinstance(to_version, str) else None,
         zip_path=Path(str(recorded_zip)) if recorded_zip else None,
@@ -4997,6 +4937,7 @@ def _print_operator_summary(
     disposition_diagnostics = report["disposition_diagnostics"]
     renderer_warnings = report["renderer_warnings"]
     summary = _build_upgrade_summary(
+        historical_memory=_historical_memory_report(root),
         from_version=from_version,
         to_version=to_version,
         zip_path=zip_path,
@@ -5026,6 +4967,7 @@ def _print_operator_summary(
         _log(f"Upgrade INCOMPLETE — failed during phase: {failed_phase}")
     else:
         _log("Upgrade complete")
+    _log("Historical memory: " + json.dumps(summary.get("historical_memory"), sort_keys=True))
     _log("=" * 40)
     _log(f"Version:            {from_str} → {to_str}")
     if zip_path:
@@ -5203,7 +5145,7 @@ def _finalize_failed_upgrade(root: Path, tree_mutated: bool, current_phase: str)
         elif current_phase == POST_DOCS_GATE_PHASE:
             recovery = (
                 "The docs gate passed; a later step failed before the "
-                "historical-memory checkpoint was recorded. Resolve the error, "
+                "post-docs hook completed. Resolve the error, "
                 "then run --resume-after-gate (wf_upgrade(phase='resume_after_gate')); "
                 "it re-runs the docs gate and continues without re-extracting."
             )
@@ -5228,51 +5170,10 @@ def _finalize_failed_upgrade(root: Path, tree_mutated: bool, current_phase: str)
         upgrade_lib.remove_upgrade_lock(root)
 
 
-def _memory_action_required_pause(root: Path, exc: BaseException) -> dict | None:
-    """Return the lock's typed ``action_required`` block when *exc* is the
-    designed memory-checkpoint pause, else ``None``.
-
-    Wave 1uf67: the historical-memory checkpoint arms a typed
-    ``action_required`` block (kind, state, resume_phase, run_id, token) in
-    the upgrade lock and raises the action-required exit code. That pause is
-    designed behavior, not a failure; recognizing it here keeps ``main``'s
-    ``except SystemExit`` from stamping ``failed_phase``/``failed_at`` over
-    correct checkpoint state and from printing failure prose for a routine
-    pause. The check mirrors the legacy pghn/pgi7 bridge's recipe: exit-code
-    check plus token/run-id presence in the typed block. Any other exit
-    (different code, no lock, untyped or incomplete block) is a genuine
-    failure and keeps ``_finalize_failed_upgrade`` unchanged.
-    """
-    import memory_backfill
-    import upgrade_lib
-
-    if not isinstance(exc, SystemExit):
-        return None
-    if exc.code != memory_backfill.ACTION_REQUIRED_EXIT:
-        return None
-    lock = upgrade_lib.read_upgrade_lock(root) or {}
-    action = lock.get("action_required")
-    if not isinstance(action, dict):
-        return None
-    if not str(action.get("token") or "").strip():
-        return None
-    if not str(action.get("run_id") or "").strip():
-        return None
-    return action
 
 
-def _report_action_required_pause(action: dict, root: Path | None = None) -> None:
-    """Checkpoint wording for a designed action-required pause (never failure prose)."""
-    state = str(action.get("state") or "action required")
-    resume_phase = str(action.get("resume_phase") or "resume_after_memory")
-    _log(
-        f"\nUpgrade paused at the designed checkpoint '{state}': agent memory "
-        "work is required before index publication. This is not a failure; "
-        "the upgrade lock keeps the checkpoint state for resume. Complete "
-        "the reported memory work, then call "
-        f"wf_upgrade(phase='{resume_phase}') to continue the upgrade."
-        + ("\n" + __import__('sqlite_storage_migration').resume_guidance(root, resume_flag='--resume-after-memory')["guidance"] if root is not None else "")
-    )
+
+
 
 
 # ── Wave 1p44z — secrets policy materialization (pre-gate) ────────────────────
@@ -5619,7 +5520,7 @@ def _pending_upgrade(root: Path, *, explicit_pack: Path | None = None,
         and snapshot["target_version"] == lock.get("to_version")
         and ((guidance is None and lock.get("failed_phase") in {"extract", "surface_rendering", "pruning"})
              or (not lock.get("failed_phase") and lock.get("pruned_count") is None
-                 and lock.get("memory_backfill_state") == "indexed" and lock.get("index_rebuilt_at"))))
+                 and lock.get("index_rebuilt_at"))))
     if manifest_retry:
         retained_pack = lock.get("zip_path")
         if not retained_pack:
@@ -5680,6 +5581,26 @@ def _report_pending_upgrade(root: Path, *, explicit_pack: Path | None = None,
     return None
 
 
+def _clear_legacy_memory_checkpoint(root: Path) -> None:
+    """Retire only legacy memory fields after ordinary index success."""
+    import upgrade_lib
+    lock = upgrade_lib.read_upgrade_lock(root)
+    if not isinstance(lock, dict):
+        return
+    action = lock.get("action_required")
+    if isinstance(action, dict) and action.get("kind") != "historical_memory":
+        return
+    for key in list(lock):
+        if key.startswith("memory_backfill_"):
+            lock.pop(key)
+    if isinstance(action, dict) and action.get("kind") == "historical_memory":
+        lock.pop("action_required", None)
+    if lock.get("failed_phase") in {"awaiting_memory_validation", "historical_memory_backfill"}:
+        lock["failed_phase"] = None
+        lock["failed_at"] = None
+    upgrade_lib._durable_json_replace(upgrade_lib.upgrade_lock_path(root), lock)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Automated Wavefoundry framework upgrade.",
@@ -5737,7 +5658,7 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "Resume an upgrade that failed at or after the docs gate: re-run "
             "docs-gardener + docs-lint against the already-extracted tree (no "
-            "extract/render/prune), then establish the historical-memory checkpoint. "
+            "extract/render/prune), then continue the ordinary index phase. "
             "Requires a retained lock whose failed_phase is 'docs_gate' or "
             "'post_docs_gate' (or the pre-1.28 label for the same crash)."
         ),
@@ -5747,9 +5668,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         dest="resume_after_memory",
         help=(
-            "Resume the retained upgrade after bounded historical-memory "
-            "extraction and agent validation; publishes the index only when "
-            "the authoritative SQLite pending census is zero."
+            "Deprecated alias of --update-index while older runner protocols remain supported."
         ),
     )
     parser.add_argument(
@@ -5821,6 +5740,8 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     args = parser.parse_args(argv)
+    if args.resume_after_memory:
+        args.update_index = True
     root = Path(args.root).resolve()
 
     # Ensure upgrade_lib is importable (same directory as this script)
@@ -5910,7 +5831,7 @@ def main(argv: list[str] | None = None) -> int:
                  "use --update-index or --rebuild-index for an existing current index.")
             return 3
 
-    # Terminal finalization precedes receipt restoration, memory backstops and
+    # Terminal finalization precedes receipt restoration, index recovery backstops and
     # archive resolution. It can authorize absence only after fatal obligations.
     if args.cleanup:
         terminal_lock = upgrade_lib.read_upgrade_lock(root)
@@ -5968,16 +5889,6 @@ def main(argv: list[str] | None = None) -> int:
                 if p.exists():
                     return p
         return _find_zip(root)
-
-    def _memory_gate(lock: dict | None) -> tuple[object | None, str | None, dict | None]:
-        if not isinstance(lock, dict):
-            return None, None, None
-        run_id = str(lock.get("memory_backfill_run_id") or "").strip()
-        if not run_id:
-            return None, None, None
-        import memory_backfill
-
-        return memory_backfill, run_id, memory_backfill.run_summary(root, run_id)
 
     def _unrecovered_review_or_docs_gate(lock: dict | None) -> bool:
         """Refuse every publication/cleanup path while a typed gate is failed."""
@@ -6052,197 +5963,8 @@ def main(argv: list[str] | None = None) -> int:
                 f"index publication: {message}"
             )
             return None, None, None, 1
-        import memory_backfill
-
-        try:
-            run_id = str(lock.get("memory_backfill_run_id") or "").strip()
-            if not run_id:
-                run_id = memory_backfill.ensure_run(root, "upgrade")
-            summary = memory_backfill.sync_inventory(root, run_id)
-        except Exception as exc:
-            message = f"{type(exc).__name__}: {exc}"
-            upgrade_lib.update_upgrade_lock(
-                root,
-                failed_phase="historical_memory_backfill",
-                memory_backfill_last_failure=message,
-            )
-            _err(
-                "Historical-memory migration could not establish durable state; "
-                f"index publication is refused: {message}"
-            )
-            return None, None, None, memory_backfill.ACTION_REQUIRED_EXIT
-        upgrade_lib.update_upgrade_lock(
-            root,
-            review_sidecar_cleanup=sidecar_counts,
-            memory_backfill_run_id=run_id,
-            memory_backfill_state=summary["state"],
-            memory_backfill_pending=(
-                summary["remaining_waves"]
-                + summary["candidates_pending"]
-                + summary["failures"]
-            ),
-            memory_backfill_last_failure=summary["last_failure"],
-        )
-        return memory_backfill, run_id, summary, None
-
-    # ── Standalone --resume-after-memory ──────────────────────────────────
-    if getattr(args, "resume_after_memory", False):
-        _open_log(root, mode="a")
-        try:
-            lock = upgrade_lib.read_upgrade_lock(root)
-            if _unrecovered_review_or_docs_gate(lock):
-                return 1
-            backfill, run_id, summary = _memory_gate(lock)
-            if backfill is None or run_id is None or summary is None:
-                _err("No retained upgrade memory gate was found — nothing to resume.")
-                return 1
-            checkpoint_phase = lock.get("current_phase")
-            if (
-                lock.get("memory_backfill_run_id")
-                and (
-                    checkpoint_phase is None
-                    or (
-                        checkpoint_phase == "preflight"
-                        and lock.get("runner_protocol") is None
-                    )
-                )
-            ):
-                # Retained checkpoints written before protocol 2 did not carry
-                # current_phase; the durable memory run id is their exact
-                # compatibility discriminator.
-                checkpoint_phase = "awaiting_memory_validation"
-            if checkpoint_phase not in {
-                "awaiting_memory_validation",
-                "awaiting_memory_publication",
-                "memory_resume_preflight",
-                "index_complete",
-            }:
-                _err(
-                    "The retained checkpoint is not at awaiting_memory_validation; "
-                    "resume is refused until the failed upgrade is recovered."
-                )
-                return 1
-            import lifecycle_lock
-            import review_policy_upgrade
-
-            resume_transaction = lifecycle_lock.lifecycle_publication_transaction(root)
-            resume_transaction_entered = False
-            try:
-                resume_transaction.__enter__()
-                resume_transaction_entered = True
-                # Repeat the complete read-only policy/carrier/wave preflight
-                # after reacquiring both locks. No project write precedes it.
-                review_policy_upgrade.plan_review_policy_upgrade(root)
-            except (ValueError, lifecycle_lock.LifecycleLockBusy, lifecycle_lock.LifecycleLockUnavailable) as exc:
-                if resume_transaction_entered:
-                    resume_transaction.__exit__(*sys.exc_info())
-                _err(f"upgrade resume preflight failed: {exc}")
-                return 1
-            upgrade_lib.update_upgrade_lock(root, current_phase="memory_resume_preflight")
-            try:
-                summary = backfill.sync_inventory(root, run_id)
-                summary = backfill.reconcile_index_publication(root, run_id)
-            except Exception as exc:
-                upgrade_lib.update_upgrade_lock(
-                    root,
-                    current_phase="awaiting_memory_validation",
-                    memory_backfill_state="awaiting_validation",
-                    memory_backfill_last_failure=f"{type(exc).__name__}: {exc}",
-                )
-                _err(
-                    "Historical-memory reconciliation failed without changing "
-                    f"candidate authority: {exc}. Inspect the memory validation "
-                    "worklist, resolve the ambiguity, then retry --resume-after-memory."
-                )
-                resume_transaction.__exit__(*sys.exc_info())
-                return backfill.ACTION_REQUIRED_EXIT
-            if summary["state"] == "indexed":
-                try:
-                    _verify_storage_publication(root)
-                except Exception as exc:
-                    upgrade_lib.update_upgrade_lock(
-                        root, failed_phase="index_update",
-                        memory_backfill_last_failure=f"{type(exc).__name__}: {exc}",
-                    )
-                    _err(f"Historical memory storage verification failed: {exc}")
-                    resume_transaction.__exit__(*sys.exc_info())
-                    return 1
-                # A marker from an earlier failed resume names the phase this
-                # reconciliation just proved complete; only that marker clears.
-                upgrade_lib.clear_failed_phase(root, "index_update")
-                _log("Historical memory index publication is already complete.")
-                resume_transaction.__exit__(None, None, None)
-                return 0
-            if summary["state"] != "ready_for_index":
-                upgrade_lib.update_upgrade_lock(
-                    root,
-                    current_phase="awaiting_memory_validation",
-                    memory_backfill_state=summary["state"],
-                    memory_backfill_pending=(
-                        summary["remaining_waves"]
-                        + summary["candidates_pending"]
-                        + summary["failures"]
-                    ),
-                    memory_backfill_last_failure=summary["last_failure"],
-                )
-                _err(
-                    json.dumps(summary, sort_keys=True)
-                    + "\nHistorical memory remains awaiting validation. Run "
-                    "`wf memory-backfill --entry-path upgrade`, validate the "
-                    "candidates, then retry --resume-after-memory."
-                )
-                resume_transaction.__exit__(None, None, None)
-                return backfill.ACTION_REQUIRED_EXIT
-            try:
-                publication_pending = int(summary.get("candidates_drafted") or 0) > 0
-                if publication_pending:
-                    with backfill.index_publication_scope(run_id):
-                        phase_index_update_parent_owned(root, run_id)
-                    backfill.complete_index_publication(root, run_id)
-                else:
-                    # 1u44n: an OBSERVED docs-layer failure must not be marked
-                    # indexed; raise into this branch's existing
-                    # failed_phase="index_update" handler below.
-                    if not phase_index_update(root):
-                        raise RuntimeError(
-                            "index publication did not complete (docs layer "
-                            "child exited non-zero); recover with index_build "
-                            "and confirm with index_health"
-                        )
-                    backfill.mark_indexed(root, run_id)
-            except Exception as exc:
-                recovered = backfill.reconcile_index_publication(root, run_id)
-                upgrade_lib.update_upgrade_lock(
-                    root,
-                    failed_phase="index_update",
-                    memory_backfill_state=recovered["state"],
-                    memory_backfill_last_failure=f"{type(exc).__name__}: {exc}",
-                )
-                _err(f"Historical memory index publication failed: {exc}")
-                resume_transaction.__exit__(*sys.exc_info())
-                return (
-                    backfill.ACTION_REQUIRED_EXIT
-                    if recovered["state"] == "awaiting_validation"
-                    else 1
-                )
-            completion_state = {
-                "current_phase": "index_complete",
-                "memory_backfill_state": "indexed",
-                "index_rebuilt_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                # 1u44n: this success supersedes any earlier observed failure.
-                "index_publication_failed": False,
-            }
-            if lock.get("failed_phase") == "awaiting_memory_validation":
-                completion_state.update(
-                    action_required=None, failed_phase=None, failed_at=None
-                )
-            upgrade_lib.update_upgrade_lock(root, **completion_state)
-            upgrade_lib.clear_failed_phase(root, "index_update")
-            _log("Historical memory validated; Phase 4 index publication complete.")
-            resume_transaction.__exit__(None, None, None)
-            return 0
-        finally:
-            _close_log()
+        upgrade_lib.update_upgrade_lock(root, review_sidecar_cleanup=sidecar_counts)
+        return None, None, None, None
 
     # Index/cleanup verbs are retained upgrade phases, not independent
     # maintenance commands.  Reacquire the exact lifecycle -> publication
@@ -6267,37 +5989,6 @@ def main(argv: list[str] | None = None) -> int:
             if gate_error is not None:
                 standalone_transaction.__exit__(None, None, None)
                 return gate_error
-            if (
-                backfill is not None
-                and summary is not None
-                and summary["state"] != "indexed"
-            ):
-                # 1u44n: branch the refusal on the ACTUAL pending count (the
-                # same memory_backfill_pending composition the checkpoint
-                # writers use). At zero pending, "validation is pending" is
-                # false and the correct recovery is the ordered
-                # resume-after-memory / cleanup / index_build sequence the
-                # field operators had to rediscover by tracing.
-                _gate_pending = (
-                    summary["remaining_waves"]
-                    + summary["candidates_pending"]
-                    + summary["failures"]
-                )
-                if _gate_pending == 0:
-                    _err(
-                        "Historical memory is complete (0 pending) but not yet "
-                        "marked indexed; index/cleanup is refused. Recover in "
-                        "order: --resume-after-memory first (it exits zero "
-                        "while the upgrade is still non-terminal), then "
-                        "--cleanup, then index_build; confirm with index_health."
-                    )
-                else:
-                    _err(
-                        "Historical memory validation is pending; index/cleanup is refused. "
-                        "Run bounded memory backfill + validation, then --resume-after-memory."
-                    )
-                standalone_transaction.__exit__(None, None, None)
-                return backfill.ACTION_REQUIRED_EXIT
         except (
             lifecycle_lock.LifecycleLockBusy,
             lifecycle_lock.LifecycleLockUnavailable,
@@ -6348,6 +6039,8 @@ def main(argv: list[str] | None = None) -> int:
             _record_index_publication_outcome(root, _ui_published)
             if not _ui_published:
                 return 1
+            _clear_legacy_memory_checkpoint(root)
+            upgrade_lib.clear_failed_phase(root, "index_update")
         finally:
             _close_log()
             if standalone_transaction is not None:
@@ -6372,6 +6065,8 @@ def main(argv: list[str] | None = None) -> int:
             _record_index_publication_outcome(root, _ri_published)
             if not _ri_published:
                 return 1
+            _clear_legacy_memory_checkpoint(root)
+            upgrade_lib.clear_failed_phase(root, "index_rebuild")
         finally:
             _close_log()
             if standalone_transaction is not None:
@@ -6559,10 +6254,8 @@ def main(argv: list[str] | None = None) -> int:
                 _close_log()
                 raise
             # Gate passed. The docs failure becomes a post_docs_gate failure
-            # until the historical-memory checkpoint that every publication
-            # path expects is recorded, so a failure below stays resumable
-            # here. A pre-upgrade runner cannot know this post-extraction
-            # protocol, so recovery must compose the newly installed backstop.
+            # until ordinary index publication succeeds, so a failure below
+            # remains resumable without extracting the pack again.
             def _retain_post_docs_gate_failure() -> None:
                 current = upgrade_lib.read_upgrade_lock(root) or {}
                 # A sidecar-cleanup failure keeps its own label: its recovery
@@ -6586,85 +6279,20 @@ def main(argv: list[str] | None = None) -> int:
                 # resumable one unless it is the sidecar cleanup's.
                 _retain_post_docs_gate_failure()
                 return gate_error
-            if backfill is None or run_id is None or summary is None:
-                _err(
-                    "Docs gate recovered, but no historical-memory checkpoint "
-                    "could be established."
-                )
+            _gate_zip = _zip_from_lock(lock)
+            _gate_ctx = UpgradeContext(root, lock.get("from_version"), lock.get("to_version"), _gate_zip, args.yes)
+            _gate_ext = _load_extension_module(_gate_zip)
+            _run_hook("post_docs_gate", _gate_ctx, _gate_ext)
+            _run_hook("pre_index_update", _gate_ctx, _gate_ext)
+            published = bool(phase_index_update(root))
+            _gate_ctx.index_published = published
+            _record_index_publication_outcome(root, published)
+            if not published:
                 return 1
-            summary = backfill.reconcile_index_publication(root, run_id)
-            memory_state = str(summary.get("state") or "")
-            if memory_state not in {
-                "awaiting_validation",
-                "ready_for_index",
-                "indexed",
-            }:
-                _err(
-                    "Docs gate recovered, but historical memory returned an "
-                    f"unknown state {memory_state!r}; publication is refused."
-                )
-                return 1
-            checkpoint_phase = (
-                "index_complete"
-                if memory_state == "indexed"
-                else "awaiting_memory_validation"
-            )
-            upgrade_lib.update_upgrade_lock(
-                root,
-                failed_phase=None,
-                failed_at=None,
-                current_phase=checkpoint_phase,
-                memory_backfill_run_id=run_id,
-                memory_backfill_state=memory_state,
-                memory_backfill_pending=(
-                    summary["remaining_waves"]
-                    + summary["candidates_pending"]
-                    + summary["failures"]
-                ),
-                memory_backfill_last_failure=summary["last_failure"],
-            )
-            if memory_state == "awaiting_validation":
-                import uuid
-
-                # Arm the same typed pause the full upgrade writes, so
-                # wf_upgrade reports this exit as the memory pause it is.
-                upgrade_lib.update_upgrade_lock(
-                    root,
-                    action_required={
-                        "kind": "historical_memory",
-                        "state": "awaiting_memory_validation",
-                        "resume_phase": "resume_after_memory",
-                        **sqlite_storage_migration.resume_guidance(root, resume_flag="--resume-after-memory"),
-                        "run_id": run_id,
-                        "token": uuid.uuid4().hex,
-                    },
-                    failed_phase="awaiting_memory_validation",
-                    failed_at=None,
-                )
-                _log(
-                    "\nReview-state projection and docs gate PASSED on resume. "
-                    "Historical memory requires bounded extraction and agent "
-                    "validation before Phase 4.\n"
-                    + json.dumps(summary, sort_keys=True)
-                    + "\nReload MCP, run memory_backfill(mode='create', "
-                    "entry_path='upgrade') and memory_validate, then call "
-                    "wf_upgrade(phase='resume_after_memory')."
-                    + "\n" + sqlite_storage_migration.resume_guidance(root, resume_flag="--resume-after-memory")["guidance"]
-                )
-                return backfill.ACTION_REQUIRED_EXIT
-            if memory_state == "ready_for_index":
-                _log(
-                    "  Review-state projection and docs gate PASSED on resume; "
-                    "the historical-memory checkpoint is ready. Run "
-                    "wf_upgrade(phase='resume_after_memory') to publish the index."
-                    + "\n" + sqlite_storage_migration.resume_guidance(root, resume_flag="--resume-after-memory")["guidance"]
-                )
-            else:
-                _log(
-                    "  Review-state projection, docs gate, and historical-memory "
-                    "publication are complete. Run --cleanup to finish the upgrade."
-                    + "\n" + sqlite_storage_migration.resume_guidance(root, resume_flag="--cleanup")["guidance"]
-                )
+            _run_hook("post_index_update", _gate_ctx, _gate_ext)
+            _clear_legacy_memory_checkpoint(root)
+            upgrade_lib.update_upgrade_lock(root, failed_phase=None, failed_at=None, current_phase="index_complete")
+            _log("Docs gate and index publication complete. Run --cleanup to finish the upgrade.")
         finally:
             _close_log()
             if gate_transaction is not None:
@@ -7036,111 +6664,22 @@ def main(argv: list[str] | None = None) -> int:
             phase_docs_gate(root)
             # A prior attempt may have retained a docs-gate failure before the
             # operator repaired the exact worklist.  Successful lint is the
-            # authority that clears that stale marker; the following memory pause
-            # is action-required state, never another docs failure.
+            # authority that clears that stale marker before ordinary indexing.
             upgrade_lib.update_upgrade_lock(
                 root,
                 current_phase="docs_gate_complete",
                 failed_phase=None,
                 failed_at=None,
             )
-            # Wave 1zeyo (1zeyn): until the memory run is recorded below, a failure
-            # is a post-docs-gate crash, not the memory pause.
+            # A post-docs-gate hook failure retains the existing recovery label.
             current_phase = POST_DOCS_GATE_PHASE
-            _run_hook("post_docs_gate", ctx, ext_mod)
-
-            # Historical memory is reconciled by the newly extracted implementation
-            # before index publication.  The retained upgrade lock mirrors only the
-            # run id/current gate; memory-state.sqlite owns the authoritative work.
             import memory_backfill
+            memory_backfill.begin_lifecycle_inventory(root)
+            _run_hook("post_docs_gate", ctx, ext_mod)
+            import memory_backfill
+            report = memory_backfill.historical_memory_report(root, entry_path="upgrade")
+            upgrade_lib.update_upgrade_lock(root, historical_memory_report=report)
 
-            memory_run_id = memory_backfill.ensure_run(root, "upgrade")
-            memory_summary = memory_backfill.sync_inventory(root, memory_run_id)
-            memory_summary = memory_backfill.reconcile_index_publication(
-                root, memory_run_id
-            )
-            memory_processed: list[dict[str, Any]] = []
-            memory_worklist: dict[str, Any] = {}
-            if memory_summary["state"] == "awaiting_validation":
-                # Run the exact same bounded producer used by the public
-                # memory_backfill tool while this process already owns lifecycle
-                # + publication.  Auto-advance only when the resulting run-wide
-                # summary is genuinely clear; an initially empty candidate page is
-                # not treated as proof that unprocessed historical waves have no
-                # material evidence.
-                try:
-                    import server_impl
-
-                    (
-                        memory_processed,
-                        memory_summary,
-                        memory_worklist,
-                    ) = server_impl._memory_backfill_batch_locked(
-                        root,
-                        backfill=memory_backfill,
-                        run_id=memory_run_id,
-                        candidate_budget=memory_backfill.MAX_CANDIDATES_PER_CALL,
-                    )
-                except Exception as exc:  # noqa: BLE001 — recovery remains the public memory path
-                    memory_summary = memory_backfill.run_summary(root, memory_run_id)
-                    memory_worklist = memory_backfill.validation_worklist(
-                        root,
-                        memory_run_id,
-                        limit=memory_backfill.MAX_CANDIDATES_PER_CALL,
-                    )
-                    _log(
-                        "Historical-memory automatic bounded extraction was unavailable; "
-                        f"the durable recovery path remains active: {type(exc).__name__}: {exc}"
-                    )
-            upgrade_lib.update_upgrade_lock(
-                root,
-                current_phase="awaiting_memory_validation",
-                memory_backfill_run_id=memory_run_id,
-                memory_backfill_state=memory_summary["state"],
-                memory_backfill_pending=(
-                    memory_summary["remaining_waves"]
-                    + memory_summary["candidates_pending"]
-                    + memory_summary["failures"]
-                ),
-                memory_backfill_last_failure=memory_summary["last_failure"],
-            )
-            current_phase = "awaiting_memory_validation"
-            if memory_summary["state"] == "awaiting_validation":
-                import uuid
-
-                upgrade_lib.update_upgrade_lock(
-                    root,
-                    current_phase="awaiting_memory_validation",
-                    action_required={
-                        "kind": "historical_memory",
-                        "state": "awaiting_memory_validation",
-                        "resume_phase": "resume_after_memory",
-                        **sqlite_storage_migration.resume_guidance(root, resume_flag="--resume-after-memory"),
-                        "run_id": memory_run_id,
-                        "token": uuid.uuid4().hex,
-                    },
-                    # Older dashboards retain a dead-PID lock only through this
-                    # compatibility lease; new readers classify action_required.
-                    failed_phase="awaiting_memory_validation",
-                    failed_at=None,
-                )
-                _log(
-                    "\nHistorical memory requires bounded extraction and agent validation "
-                    "before Phase 4.\n"
-                    + json.dumps(memory_summary, sort_keys=True)
-                    + "\n"
-                    + json.dumps(memory_worklist, sort_keys=True)
-                    + "\nautomatic_batch="
-                    + json.dumps(memory_processed, sort_keys=True)
-                    + "\nReload MCP, run memory_backfill(mode='create', "
-                    "entry_path='upgrade') and memory_validate, then call "
-                    "wf_upgrade(phase='resume_after_memory')."
-                    + "\n" + sqlite_storage_migration.resume_guidance(root, resume_flag="--resume-after-memory")["guidance"]
-                )
-                upgrade_transaction.__exit__(None, None, None)
-                upgrade_transaction_open = False
-                _close_log()
-                return memory_backfill.ACTION_REQUIRED_EXIT
             # Phase 4 — Wave 1p3dk / 1p3ho: always run index update at the end of
             # upgrade so operators don't have to remember a separate
             # `--update-index` invocation. The indexer's `build_index`
@@ -7150,30 +6689,11 @@ def main(argv: list[str] | None = None) -> int:
             # the operator what to expect.
             current_phase = "index_update"
             _run_hook("pre_index_update", ctx, ext_mod)
-            publication_pending = (
-                int(memory_summary.get("candidates_drafted") or 0) > 0
-                and memory_summary["state"] == "ready_for_index"
-            )
-            index_published = True
-            if publication_pending:
-                with memory_backfill.index_publication_scope(memory_run_id):
-                    phase_index_update_parent_owned(root, memory_run_id)
-            else:
-                index_published = bool(phase_index_update(root))
-            if publication_pending:
-                memory_backfill.complete_index_publication(root, memory_run_id)
+            index_published = bool(phase_index_update(root))
             ctx.index_published = index_published
             _record_index_publication_outcome(root, index_published)
             if index_published:
                 _run_hook("post_index_update", ctx, ext_mod)
-            # A failed publication never marks memory indexed. Existing cleanup
-            # recovery policy remains separate from this phase's nonzero result.
-            if index_published:
-                upgrade_lib.update_upgrade_lock(
-                    root,
-                    memory_backfill_state="indexed",
-                )
-
         except SystemExit as exc:
             # A phase or hook failed (phase_docs_gate raises sys.exit(1) on a docs
             # gate failure; hooks may sys.exit too). Only discard a snapshot created
@@ -7193,14 +6713,7 @@ def main(argv: list[str] | None = None) -> int:
                 upgrade_transaction_open = False
                 _close_log()
                 raise
-            action_required = _memory_action_required_pause(root, exc)
-            if action_required is not None:
-                _report_action_required_pause(action_required, root)
-            else:
-                # Wave 1p44o — retain the lock with a failure marker on a
-                # post-mutation failure (half-replaced tree); remove it only on a
-                # pre-mutation failure.
-                _finalize_failed_upgrade(root, tree_mutated, current_phase)
+            _finalize_failed_upgrade(root, tree_mutated, current_phase)
             upgrade_transaction.__exit__(*sys.exc_info())
             upgrade_transaction_open = False
             _close_log()

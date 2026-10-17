@@ -3151,15 +3151,11 @@ def _authorize_build_epoch(index_dir: Path) -> None:
         isinstance(checkpoint, dict)
         and checkpoint.get("pid") == os.getpid()
     )
-    staged_upgrade_child = bool(
-        os.environ.get("WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", "").strip()
-    )
     granted_upgrade_child = _upgrade_publisher_granted(checkpoint)
     reason = publication_control.publication_checkpoint_reason(root, "index_build")
     if (
         reason is not None
         and not owner
-        and not staged_upgrade_child
         and not granted_upgrade_child
     ):
         raise RuntimeError(reason)
@@ -3310,202 +3306,35 @@ def begin_build_epoch(index_dir: Path, scope: str) -> str:
 
 
 def finalize_build_epoch(index_dir: Path, attempt_id: str) -> bool:
-    """Attempt-ID compare-and-set completion: advance generation, mark complete.
-
-    One FULL-durable transaction. Returns False when the CAS misses (a newer
-    attempt superseded this build, or the epoch is not `building` for this
-    attempt) — the caller must treat that as a failed publication, never as
-    success. Only this function may advance `generation`.
-    """
-    import sqlite_storage_migration
-
-    # A graph rebuild in a receipt-owned migration candidate completes only
-    # that candidate's epoch. Live memory authorization and the parent receipt
-    # belong to the later publication pass against the repository's index.
-    if sqlite_storage_migration.is_unpublished_candidate(index_dir):
-        backfill_run_id = parent_receipt_path = ""
-    else:
-        backfill_run_id = os.environ.get("WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID", "").strip()
-        parent_receipt_path = os.environ.get(
-            "WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", ""
-        ).strip()
+    """Ordinary attempt-ID CAS; only an owner or value-bound grant may publish."""
     import publication_control
 
     root = index_dir.parent.parent
     checkpoint = publication_control.read_upgrade_checkpoint(root)
-    owner = bool(
-        isinstance(checkpoint, dict)
-        and checkpoint.get("pid") == os.getpid()
-    )
+    owner = bool(isinstance(checkpoint, dict) and checkpoint.get("pid") == os.getpid())
     reason = publication_control.publication_checkpoint_reason(root, "index_build")
-    if (
-        reason is not None
-        and not owner
-        and not parent_receipt_path
-        and not _upgrade_publisher_granted(checkpoint)
-    ):
+    if reason is not None and not owner and not _upgrade_publisher_granted(checkpoint):
         raise RuntimeError(reason)
-
-    if backfill_run_id and parent_receipt_path:
-        state = read_build_state(index_dir)
-        if (
-            state is None
-            or state.get("status") != "building"
-            or state.get("attempt_id") != str(attempt_id)
-        ):
-            return False
-        import memory_backfill
-
-        expected_generation = int(state["generation"]) + 1
-        gate_state = memory_backfill.run_state(root, backfill_run_id)
-        if gate_state == "publishing_index":
-            authorized = memory_backfill.restage_index_finalize(
-                root,
-                backfill_run_id,
-                str(attempt_id),
-                expected_generation,
-            )
-        else:
-            authorized = memory_backfill.authorize_index_finalize(
-                root,
-                backfill_run_id,
-                str(attempt_id),
-                expected_generation,
-            )
-        if not authorized:
-            return False
-        receipt = Path(parent_receipt_path)
-        receipt.parent.mkdir(parents=True, exist_ok=True)
-        tmp = receipt.with_name(receipt.name + f".{os.getpid()}.tmp")
-        tmp.write_text(
-            json.dumps(
-                {
-                    "index_dir": str(index_dir.resolve()),
-                    "attempt_id": str(attempt_id),
-                    "expected_generation": expected_generation,
-                    "memory_backfill_run_id": backfill_run_id,
-                },
-                sort_keys=True,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        os.replace(tmp, receipt)
-        return True
-
-    def _finalize() -> bool:
-        state = read_build_state(index_dir)
-        if (
-            state is None
-            or state.get("status") != "building"
-            or state.get("attempt_id") != str(attempt_id)
-        ):
-            return False
-        authorized = False
-        if backfill_run_id:
-            import memory_backfill
-
-            root = index_dir.parent.parent
-            # The gate exists to stop publication while memory work is
-            # pending. `publishing_index`/`indexed` mean the zero-pending
-            # census was already frozen by this scope's authorized pass, so
-            # trailing passes (graph, FTS derived rebuild, optimize)
-            # finalize ungated instead of being refused and stranding the
-            # epoch at `building`. Every other stored state routes through
-            # authorize, which re-syncs the census before deciding (the
-            # stored state may lag validation); an unknown run stays
-            # fail-closed.
-            gate_state = memory_backfill.run_state(root, backfill_run_id)
-            if gate_state is None:
-                return False
-            if gate_state not in {"publishing_index", "indexed"}:
-                if not memory_backfill.authorize_index_finalize(
-                    root,
-                    backfill_run_id,
-                    str(attempt_id),
-                    int(state["generation"]) + 1,
-                ):
-                    return False
-                authorized = True
-        conn = _full_durable_connection(index_dir)
-        try:
-            with index_compatibility.writer_transaction(conn):
-                cur = conn.execute(
-                    "UPDATE build_state SET status = 'complete', generation = generation + 1, "
-                    "completed_at = ? WHERE id = 1 AND attempt_id = ? AND status = 'building'",
-                    (time.time(), str(attempt_id)),
-                )
-                finalized = conn.changes() == 1
-                if finalized:
-                    _publish_lexical_statistics(conn)
-        finally:
-            conn.close()
-        if finalized and authorized:
-            import memory_backfill
-
-            # Success is certain exactly here; the last-build row this CAS
-            # just wrote is legitimately overwritten by trailing passes, so
-            # the run is completed now rather than re-derived from it later.
-            memory_backfill.record_publication_success(
-                index_dir.parent.parent, backfill_run_id, str(attempt_id)
-            )
-        return finalized
-
-    if not backfill_run_id:
-        return _finalize()
-
-    # Candidate creation/validation uses this same process-released lock. Hold
-    # it across the last census and epoch CAS so no sanctioned memory writer
-    # can create new pending work inside the publication boundary.
-    import review_evidence
-
-    with review_evidence.project_state_publication_lock(index_dir.parent.parent):
-        return _finalize()
-
-
-def finalize_staged_build_epoch(
-    index_dir: Path, receipt: Mapping[str, Any], expected_run_id: str
-) -> bool:
-    """Parent-owned epoch CAS after a lock-free child staging receipt."""
-
     state = read_build_state(index_dir)
-    if (
-        set(receipt)
-        != {
-            "index_dir", "attempt_id", "expected_generation",
-            "memory_backfill_run_id",
-        }
-        or receipt.get("index_dir") != str(index_dir.resolve())
-        or receipt.get("memory_backfill_run_id") != str(expected_run_id)
-        or state is None
-        or state.get("status") != "building"
-        or state.get("attempt_id") != receipt.get("attempt_id")
-        or int(state.get("generation") or 0) + 1
-        != receipt.get("expected_generation")
-    ):
+    if state is None or state.get("status") != "building" or state.get("attempt_id") != str(attempt_id):
         return False
     conn = _full_durable_connection(index_dir)
     try:
         with index_compatibility.writer_transaction(conn):
-            cur = conn.execute(
+            conn.execute(
                 "UPDATE build_state SET status = 'complete', generation = generation + 1, "
                 "completed_at = ? WHERE id = 1 AND attempt_id = ? AND status = 'building'",
-                (time.time(), str(receipt["attempt_id"])),
+                (time.time(), str(attempt_id)),
             )
             finalized = conn.changes() == 1
             if finalized:
                 _publish_lexical_statistics(conn)
+        return finalized
     finally:
         conn.close()
-    if finalized:
-        import memory_backfill
 
-        memory_backfill.record_publication_success(
-            index_dir.parent.parent,
-            expected_run_id,
-            str(receipt["attempt_id"]),
-        )
-    return finalized
+
+
 
 
 

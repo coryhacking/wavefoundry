@@ -914,10 +914,10 @@ class LockAndPublicationPolicyTests(unittest.TestCase):
                 json.dumps({"current_phase": "awaiting_memory_validation"}),
                 encoding="utf-8",
             )
-            self.assertIsNone(
+            self.assertIn("upgrade_in_progress",
                 publication_control.publication_block_reason(root, "memory_validate")
             )
-            self.assertIsNone(
+            self.assertIn("upgrade_in_progress",
                 publication_control.publication_block_reason(root, "memory_backfill")
             )
             self.assertIn(
@@ -945,7 +945,7 @@ class LockAndPublicationPolicyTests(unittest.TestCase):
             checkpoint.write_text(
                 json.dumps(
                     {
-                        "current_phase": "awaiting_memory_validation",
+                        "current_phase": "awaiting_memory_validation", "failed_phase": "awaiting_memory_validation",
                         "memory_backfill_pending": 0,
                     }
                 ),
@@ -955,13 +955,10 @@ class LockAndPublicationPolicyTests(unittest.TestCase):
                 root, "index_build"
             )
             self.assertTrue(reason.startswith("upgrade_in_progress"))
-            resume = reason.index("resume_after_memory")
+            resume = reason.index("update_index")
             cleanup = reason.index("cleanup")
-            build = reason.index("index_build; confirm")
             self.assertLess(resume, cleanup)
-            self.assertLess(cleanup, build)
             self.assertIn("index_health", reason)
-            self.assertIn("exits zero", reason)
             self.assertNotIn("memory_validate", reason)
 
     def test_pending_or_unknown_refusal_routes_to_validation_not_skip(self):
@@ -983,8 +980,8 @@ class LockAndPublicationPolicyTests(unittest.TestCase):
                     reason = publication_control.publication_checkpoint_reason(
                         root, "index_build"
                     )
-                    self.assertIn("memory_backfill", reason)
-                    self.assertIn("memory_validate", reason)
+                    self.assertIn("upgrade_in_progress", reason)
+                    self.assertNotIn("memory_validate", reason)
                     self.assertNotIn("index_health", reason)
                     self.assertNotIn("cleanup", reason)
             # Unreadable checkpoint file: read_upgrade_checkpoint returns {}
@@ -993,7 +990,7 @@ class LockAndPublicationPolicyTests(unittest.TestCase):
             reason = publication_control.publication_checkpoint_reason(
                 root, "index_build"
             )
-            self.assertIn("memory_validate", reason)
+            self.assertNotIn("memory_validate", reason)
             self.assertNotIn("index_health", reason)
 
     def test_child_raise_renders_the_same_composed_refusal_text(self):
@@ -1027,7 +1024,7 @@ class LockAndPublicationPolicyTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError) as raised:
                     index_state_store.begin_build_epoch(index_dir, "docs")
             self.assertEqual(str(raised.exception), reason)
-            self.assertIn("index_health", str(raised.exception))
+            self.assertNotIn("memory_validate", str(raised.exception))
 
     def test_non_object_checkpoint_shapes_are_corrupt_and_blocking(self):
         with tempfile.TemporaryDirectory() as tmp:

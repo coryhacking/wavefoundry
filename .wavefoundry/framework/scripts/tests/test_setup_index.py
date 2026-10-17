@@ -1282,7 +1282,7 @@ class SetupLayerSchedulingTests(unittest.TestCase):
                             self.mod.main(["--root", "/tmp/repo", "--background-code"])
         spawn.assert_called_once()
 
-    def test_detached_layer_does_not_inherit_memory_publication_receipt(self):
+    def test_detached_layer_leaves_retired_memory_variable_inert(self):
         args = MagicMock(
             full=False,
             rechunk=False,
@@ -1311,7 +1311,7 @@ class SetupLayerSchedulingTests(unittest.TestCase):
             ) as popen:
                 self.mod._spawn_background_semantic_build(root, args, "code")
         child_env = popen.call_args.kwargs["env"]
-        self.assertNotIn("WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID", child_env)
+        self.assertEqual(child_env.get("WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID"), "run-receipt")
 
     def test_include_code_takes_precedence_over_background_code(self):
         """--include-code with --background-code should behave as --include-code (synchronous)."""

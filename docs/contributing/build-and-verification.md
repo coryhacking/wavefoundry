@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-15
+Last verified: 2026-10-16
 
 ## Verification Commands
 
@@ -559,4 +559,4 @@ Keep routine briefing packets, per-seat reports, raw probes, copied source and g
 
 Before close, reconcile mutable watchpoints and handoff. Prune only verified wave-owned, redundant, uncited material with contained identity-checked unlink; uncertain, unique or cited proof stays. No age expiry, automatic deletion, reference resolver, cleanup sidecar or extra gate is introduced. Consume successful typed-write continuation actions, finish material documentation/render edits before the canonical suite, and reuse a current matching green test receipt. Validated routine bookkeeping may continue under the runner contract above without another suite or reviewer cycle solely for recording it. Changed, red or unproven inputs still require fresh qualification. A close dry-run is useful for unresolved checks; current authority permits one operator-authorized close mutation. Required specialists, readiness Council and fresh full docs gates remain unchanged.
 
-Review memory proposals before creating files: select only source events that change a future action and supplement canonical guidance. Use `memory_propose(..., mode='dry_run')`, then create with explicit `source_events`. Omitted or empty selection writes nothing. Put a no-new-memory retrospective in wave.md; actual pending selected candidates still require validation even if their targets disappear. Existing bounded historical-memory checkpoint semantics remain; consumer upgrades gain no source/profile suites, routine evidence generation or broad memory maintenance. Their existing render → docs gate → historical-memory checkpoint → incremental index order is preserved.
+Review memory proposals before creating files: select only source events that change a future action and supplement canonical guidance. Use `memory_propose(..., mode='dry_run')`, then create with explicit `source_events`. Omitted or empty selection writes nothing. Put a no-new-memory retrospective in wave.md; actual pending selected candidates still require validation even if their targets disappear. Consumer upgrades perform one advisory inventory pass without drafting, source/profile suites, routine evidence generation or broad memory maintenance. Their render → docs gate → incremental index order is preserved.

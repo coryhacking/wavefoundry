@@ -125,7 +125,7 @@ def build_kit(output: Path, pack: Path) -> None:
             "Then add --apply --confirm-hosts-stopped. Review the returned exact CLI command.\n"
             "Do not switch packages, delete receipts, copy databases, or restart MCP before recovery.\n"
             "The kit only patches two runtime files and retains original source backups.\n"
-            "Resume through the returned --resume-after-memory command (no extraction).\n"
+            "Resume through the returned index command (no extraction); --resume-after-memory is a deprecated alias of --update-index.\n"
             "Complete the project upgrade-prompt editing pass and docs gate before --cleanup.\n"
             "Retain this kit, original archive, and backups until recovery is verified.\n")
 
@@ -198,10 +198,7 @@ def inspect(root: Path, pack: Path, kit: Path) -> dict:
             or checkpoint.get("failed_phase") != "index_update"
             or checkpoint.get("current_phase") not in {"memory_resume_preflight", "awaiting_memory_validation"}):
         raise Refused("Checkpoint is outside this narrowly supported memory repair")
-    run_id = checkpoint.get("memory_backfill_run_id")
-    if not isinstance(run_id, str) or not run_id or query(index / "memory-state.sqlite",
-            "SELECT state FROM memory_backfill_runs WHERE run_id=?", (run_id,), boundary=root) != [("ready_for_index",)]:
-        raise Refused("Live memory backfill run is not ready_for_index")
+    run_id = ""  # Historical response field only; memory state grants no authority.
     recorded_pack = checkpoint.get("zip_path")
     if not isinstance(recorded_pack, str) or not Path(recorded_pack).is_absolute():
         raise Refused("Retained checkpoint has no absolute package locator; preserve it for supported recovery")

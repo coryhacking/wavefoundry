@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-15
+Last verified: 2026-10-16
 
 ## Runtime advisory boundary
 
@@ -260,8 +260,9 @@ different build suffixes remain eligible. Equality does not prove terminal healt
 and no terminal receipt is created. Explicit index repair stays independent;
 storage rebuild requires an applicable pending legacy conversion. A successful
 primary phase still requires cleanup, while observed index publication failure
-returns nonzero and cannot seal historical memory. The incoming extension observes
-an older parent's index result before sealing its zero-candidate run.
+returns nonzero and cannot claim successful index publication. The incoming
+extension observes an older parent's index result; memory inventory grants no
+publication authority.
 
 Retired graph ownership is captured in the existing storage receipt before the
 rebuild. Cleanup revalidates publication and stopped hosts, then validates the
@@ -460,38 +461,11 @@ so fresh installs and upgraded projects do not require eager directory setup.
 
 ### Historical memory adoption
 
-Install, upgrade, and migration inventory closed local waves without Git or a
-semantic index. The canonical `docs/waves` root and each inventoried source
-must resolve inside the repository. An escaped parent refuses the inventory
-with a typed failure; an unsafe child/source is omitted as unsupported rather
-than fingerprinted. `memory-state.sqlite` owns the backfill
-run (`inventory_pending → awaiting_validation → ready_for_index →
-publishing_index → indexed`),
-per-wave fingerprints, random short claim tokens, source identities, counts,
-and failures. Mechanical extraction creates candidates only; an agent follows
-the evidence/current target and records promote/retain/reject/rewrite through
-`memory_validate`. While a lifecycle run awaits validation, candidate and
-validation writes advance the memory seqlock but suppress background index
-refresh. Upgrade resumes through its existing phase API; setup and migration
-resume by rerunning ordinary `wf setup`. The owning lifecycle command performs
-the single publication pass under a run-scoped receipt protocol. Immediately
-before the index epoch compare-and-set, the index-store finalizer holds the
-shared review/memory mutation lock, re-inventories historical sources, syncs
-changed fingerprints, proves zero pending work, and records the exact index
-attempt, expected generation, and inventory digest as `publishing_index`.
-Only then may that attempt become the complete index generation. The lifecycle
-command reconciles that receipt to `indexed`; if it crashes after the index CAS
-but before the final checkpoint, retry observes the completed generation and
-finishes the checkpoint without running the index pass again. A changed source
-requeues validation and refuses publication. Receipt-authorized publication is
-foreground and synchronous: the owning setup/upgrade command converges both
-semantic layers itself, and detached index jobs never inherit the receipt.
+Setup and upgrade synchronize one advisory inventory pass and report distinct closed waves without memory plus candidates awaiting validation. Reporting reads those rows without a second inventory walk; it has no fixed time or byte bound. Inventory or memory-state errors report unavailable by exception type and never pause installation or index publication. Run **Review memories** (`memory_backfill(mode="create")`, then `memory_validate`) when you choose to curate history; ordinary incremental indexing refreshes candidates and judgments.
 
-Setup additionally supports ordinary core publication without a memory run grant
-while historical curation is pending. The same durable backfill run remains pending;
-no candidate is promoted or marked validated. If history changes during guarded
-memory publication, setup may make one bounded ordinary core-index retry while
-retaining requeued memory work. Only the scoped publication above completes adoption.
+The on-demand run states are `inventory_pending`, `awaiting_validation` and `indexed` (the retained physical terminal label). SQLite owns wave fingerprints, short random claims and source dispositions. Coverage queries all runs in place: a completed wave at its current fingerprint, including no-source completion, is not reclaimed. Pending sources use their newest run outcome and are deduplicated by source event. Candidate and validation writes request ordinary incremental refresh.
+
+Supported old runners call a report-only compatibility layer. It preserves their names and summary keys, reports lifecycle runs terminal with zero drafted candidates, catches Exception at each advisory boundary, and never grants publication authority. A per-lifecycle sync result lets the incoming hook and old main share one inventory walk. Reports query its rows. Retired run labels are interpreted terminal without a bulk rewrite. No index-store import points back into memory backfill; ordinary epoch CAS retains owner-pid, value-bound publisher grant and checkpoint checks.
 
 Before repair, `wf setup --check` assesses a bounded census of installed framework,
 configuration, environment metadata, recovery ownership and index metadata. The
@@ -514,21 +488,16 @@ selects archives or takes over pending upgrade ownership. Required host-stop com
 resume setup; synchronous all-layer publication and fresh-process verification precede
 owned legacy cleanup. Missing/current stores retain normal creation/incremental paths.
 
-An indexed setup/upgrade run remains the durable fingerprint baseline.
-Unchanged ordinary setup calls reuse it without reopening validation; a later
-new or changed eligible wave reopens only the affected inventory work. There is no
-setup-memory-specific MCP tool or public resume flag. Upgrade/install state
-mirrors only the run id and gate; there is no JSON/Markdown fallback authority.
-Active-run lookup and
-creation are one SQLite immediate transaction with one non-indexed run allowed
-per entry path, so concurrent setup/upgrade processes share a census. A
-new-code `update-index`/`rebuild-index`/cleanup backstop first runs the
-one-way retired-sidecar cleanup and establishes this run when the retained
-lock came from an older in-memory upgrade runner; action-required state is
-returned before any index publication. A candidate-bearing run remains
-`ready_for_index` for the newly installed runner to publish; the old loaded
-runner never forwards publication authority into its older index-child
-choreography. Before the old runner reaches its docs gate, the newly extracted
+Setup and upgrade synchronize one advisory inventory and report its existing
+rows without a second discovery walk. A new or changed closed wave contributes
+to the manual worklist; it never reopens a lifecycle validation gate. Completed
+current-fingerprint work and pending candidate sources are counted across runs.
+Supported older runners receive terminal compatibility summaries while ordinary
+owner/grant and epoch checks govern index publication. Inventory and memory-state
+failures make the report unavailable without adding a memory-specific pause or
+preventing normal recovery.
+The new-code index/cleanup backstop still performs the one-way retired-sidecar
+cleanup when required. Before the old runner reaches its docs gate, the newly extracted
 `upgrade_extensions.pre_docs_gate` loads the newly installed upgrader by file
 path under a unique module name and runs the same retired-sidecar cleanup.
 Protocol-2 upgrade additionally migrates review policy and, when that migration
@@ -540,12 +509,7 @@ repeat it. This bridge deliberately executes new code rather than falling
 back to the old in-memory implementation. A refused cleanup retains
 `failed_phase=review_sidecar_cleanup` (stop every attached host, re-run the
 upgrade); a docs-gate failure is recovered by `resume_after_gate`, which
-reruns only the docs gate and then establishes or refreshes the canonical
-historical-memory checkpoint. It may return memory action-required; the next
-publication transition is `resume_after_memory`. Every index-publication and cleanup entry point
-checks that retained phase before doing work: resume-after-memory,
-update/rebuild-index, and cleanup all refuse until the matching recovery
-succeeds and clears the marker. The sidecar cleanup holds both shipped
+reruns the docs gate and ordinary index publication. Every publication and cleanup entry point refuses until the matching recovery succeeds and clears the marker. The sidecar cleanup holds both shipped
 publication-lock paths across the deletions; the v1.13 root-lock file is
 released and then unlinked last, with the residual platform slivers bounded
 by the restart instruction. That restart boundary is cutover-scoped: only a
@@ -568,7 +532,7 @@ invocation with `--pack` and `--confirm-hosts-stopped`. Supported explicit manif
 repair retries remain bound to the recorded target, original manifest and retained
 pack; they do not turn a default call into automatic recovery. Unknown, unreadable
 or inconsistent retained state refuses rather than selecting a newer archive. The MCP
-handler maps the pending response separately from a newly armed historical-memory
+handler maps the pending response separately from an index-guard
 pause and does not reload the server on this path. Existing explicit phase gates
 remain responsible for validation and publication. No new durable state is added.
 
@@ -583,9 +547,9 @@ Ordinary incoming migration previews may write separately disclosed preview logs
 
 For pack-backed upgrades, incoming `upgrade_extensions.post_preflight` checks runner protocol first, then privately loads the standard-library-only `review_plan_prompt_check`. Its single exact LF/CRLF classifier is also used by the renderer. The checker ships an empty `EXTRA_REVIEW_PLAN_LEGACY_CONTRACT_PROFILES` source constant for explicit distribution wording alongside the built-in profiles; declarations are validated and recognition still requires exactly one matching profile and one occurrence of each old contract line. The privately loaded checker imports no project or extension configuration. As before, customized, conflicting, linked/reparse, nonregular or non-UTF-8 legacy review-plan prompts are refused before checkpoint publication, review-policy planning, extraction or wave marking. Installed preflight and dry-run use the same guarded checker; a missing or unloadable incoming checker warns and fails open. Early diagnostics, runtime locks and verified temporary staging are permitted footprints. The current runner's outer transaction releases on refusal and separately proven staging is cleaned. Rerunning avoids re-Prepare only when migrated policy is byte-identical, carriers are unchanged and the evaluator is current. The executed historical fixture covers the v1.15.4 loader/hook ABI; older-runner dry runs do not call that hook, and edits between preflight and rendering remain a TOCTOU limit.
 
-Index-guard handoff consumes persisted post-docs provenance and the installed restart helper. Memory continuation accepts `awaiting_memory_validation`, `awaiting_memory_publication`, `memory_resume_preflight` and `index_complete` with a valid memory gate; absent/preflight legacy phases additionally require no runner protocol. The actual pre-docs post-extract guard excludes these shortcuts. Non-memory update continuation accepts only `docs_gate_complete` and `index_complete` with tree VERSION at the checkpoint target. Pre-docs/rebuild, unknown or synthetic `index_update`, pending storage receipts/restart actions and stale helper contracts retain the full upgrade command.
+Index-guard handoff consumes persisted post-docs provenance and the installed restart helper. A proven post-docs or legacy continuation uses ordinary update-index; pre-docs/rebuild, unknown provenance, pending storage receipts and restart actions retain the full upgrade command. Index completion is proven by its recorded publication outcome, never by memory state.
 
-A resumable pack-backed pause retains one byte-identical ignored archive at `.wavefoundry/cache/upgrade/index-guard-feature.zip`, binding root identity, token, target, locator, file identity and hash into the existing checkpoint. Fresh resume validates this binding before extension loading; it refuses discovery fallback, foreign files, links/reparse points, FIFOs, multilinks and changed files. Paused or failed obligations retain the archive. Successful cleanup proves fatal/storage/dashboard completion and persists terminal state before removing the owned archive, separately proven temporary pack and checkpoint. Fresh `--cleanup` handles terminal state before archive resolution or memory backstops. Deliberate archive absence is accepted only to finalize cleanup; either deletion failing returns nonzero and preserves retry without loading, rendering or reindexing. Tests execute retained argv in fresh processes with bounded fake child publication and the actual v1.15.4 incoming-hook/fatal-finalizer ABI; physical reboot and a complete historical installed process remain unqualified.
+A resumable pack-backed pause retains one byte-identical ignored archive at `.wavefoundry/cache/upgrade/index-guard-feature.zip`, binding root identity, token, target, locator, file identity and hash into the existing checkpoint. Fresh resume validates this binding before extension loading; it refuses discovery fallback, foreign files, links/reparse points, FIFOs, multilinks and changed files. Paused or failed obligations retain the archive. Successful cleanup proves fatal/storage/dashboard completion and persists terminal state before removing the owned archive, separately proven temporary pack and checkpoint. Fresh `--cleanup` handles terminal state before archive resolution. Deliberate archive absence is accepted only to finalize cleanup; either deletion failing returns nonzero and preserves retry without loading, rendering or reindexing. Tests execute retained argv in fresh processes with bounded fake child publication and the actual v1.15.4 incoming-hook/fatal-finalizer ABI; physical reboot and a complete historical installed process remain unqualified.
 
 ### Review history and current state
 
@@ -816,8 +780,7 @@ Upgrade and lifecycle mutation share one strict OS-lock domain. Acquisition is
 always lifecycle first and project publication second, with reverse release;
 authority-bearing paths never yield unlocked. The durable upgrade JSON is a
 recovery checkpoint, not mutual exclusion. Outside publishers fail fast while
-it exists, except `memory_backfill` and `memory_validate` at the exact
-`awaiting_memory_validation` pause. Resume reacquires both locks and repeats
+it exists, including `memory_backfill` and `memory_validate`. Continuation reacquires both locks and repeats
 the complete read-only preflight before publication.
 
 Foreground upgrade children continuously drain stdout and stderr through `child_tee.run`. Generated contained child logs retain five run groups and at most 1 MiB of UTF-8 bytes per file, including platform newline bytes and any explicit elision marker. The owned append handle writes the opening head while reserving space for an unwritten suffix; outputs within the cap keep their exact bytes, and larger outputs finalize the marker plus up to 64 KiB of final tail on that same handle. Completion, nonzero failure and timeout cleanup attempt finalization; log I/O errors preserve diagnostic reporting and never stop a pipe drain. The MCP handler interprets full raw captured output for summary/status/recovery before cleaning returned display text with the known publisher token and applying its display cap. The child tee separately caps captured stdout and stderr at 1 MiB of UTF-8 text each, including elision, retaining a head and final 64 KiB tail after cleaning while continuing pipe drains. Its additive `capture_truncated` stream flags make pruning unproven when stderr is truncated, retaining the manifest snapshot; stdout-only truncation leaves an intact stderr count usable. The MCP handler capture and separate primary `upgrade.log` remain outside these child-tee budgets.
@@ -901,7 +864,7 @@ Conversion backs up the existing SQLite state coherently, streams unchanged
 legacy vectors into a staged schema, validates keyed payload/vector equality and
 FTS postings, then replaces the database only after handles are drained. Normal
 publication reconciles current filesystem inputs and retains the existing docs,
-memory and global epoch gates. Fresh-process verification precedes deletion of
+publisher authorization and global epoch checks. Fresh-process verification precedes deletion of
 owned `docs.lance/`, `code.lance/`, `__manifest/` and recorded staging/rollback
 artifacts. The receipt records progress; it never substitutes for a complete
 published build token. Failure preserves actionable recovery evidence and the
@@ -909,13 +872,12 @@ remaining coherent stores.
 
 The schema-8 graph rebuild completes an unpublished candidate epoch before
 cutover. Its context-local scope is bound to the receipt-owned staging directory
-and filesystem identity; it ignores inherited live memory-run and parent-receipt
-context only for that candidate. It neither creates historical-backfill tables
-in staging nor authorizes the live memory run. The graph walk may still create
+and filesystem identity. Candidate epoch completion does not authorize live
+publication. The graph walk may still create
 its existing disposable memory-cache fence there; that cache is never published.
 Ordinary epoch and compatibility checks remain
-in force. After cutover, the live parent publication still checks memory
-validation and child outcomes, completes the authoritative epoch, and verifies
+in force. After cutover, live publication checks publisher authorization and
+child outcomes, completes the authoritative epoch, and verifies
 the store in a fresh process before cleanup (wave `1xxcd`).
 
 ## Monotonic index publication and first-hop handoff (wave 1xxc9)
@@ -971,7 +933,7 @@ replacement rows. No new transaction, writer or persisted digest format is added
 
 ## Selective wave memory capture
 
-`memory_supply` proposes only current contained regular source anchors. `memory_propose` remains read-only by default; create requires explicit reviewed source-event selection. The server derives bodies and identities, rejects unknown/ineligible selections before writes, and preserves source dispositions across retries. Omitted selection creates nothing, and an empty list is a no-op. Close checks all actual wave-linked pending candidates independently of current proposal eligibility, so a disappeared target cannot conceal unfinished validation. A no-new-memory retrospective lives in wave.md and cannot approve an existing candidate. Ordinary upgrades retain their existing bounded historical-memory checkpoint without broad recuration or a new backfill.
+`memory_supply` proposes only current contained regular source anchors. `memory_propose` remains read-only by default; create requires explicit reviewed source-event selection. The server derives bodies and identities, rejects unknown/ineligible selections before writes, and preserves source dispositions across retries. Omitted selection creates nothing, and an empty list is a no-op. Close checks all actual wave-linked pending candidates independently of current proposal eligibility, so a disappeared target cannot conceal unfinished validation. A no-new-memory retrospective lives in wave.md and cannot approve an existing candidate. Ordinary upgrades perform one advisory inventory pass without drafting or broad recuration.
 
 ## Combined upgrade input
 

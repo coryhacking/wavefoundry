@@ -146,7 +146,7 @@ class RepairTests(unittest.TestCase):
                  (self.receipt, "root_identity", {}), (self.receipt, "work_identity", {}),
                  (self.receipt, "pack_sha256", "wrong"), (self.receipt, "kind", "other"),
                  (self.checkpoint, "current_phase", "extract"), (self.checkpoint, "failed_phase", "docs_gate"),
-                 (self.checkpoint, "storage_migration_id", "b" * 32), (self.checkpoint, "memory_backfill_run_id", "absent")]
+                 (self.checkpoint, "storage_migration_id", "b" * 32)]
         for record, key, value in cases:
             with self.subTest(key=key, value=value):
                 original = record[key]

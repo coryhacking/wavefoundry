@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-03
+Last verified: 2026-10-16
 
 Typed, evidence-backed memory records for the agent memory layer: prior failed
 attempts, operator preferences, fragile files, review findings, environment
@@ -170,55 +170,11 @@ not attempted here.
 
 ## Proposing candidates from review evidence
 
-### Historical install/upgrade backfill
+### Historical backfill on demand
 
-Established projects use `memory_backfill(mode='create',
-entry_path='setup|upgrade')` after the newly installed MCP is reloaded. The
-tool inventories closed waves without Git and processes bounded,
-server-selected batches. It checkpoints per-wave fingerprints and short random
-claims in `.wavefoundry/index/memory-state.sqlite`; there is no fallback state
-file. Every created record remains `candidate` / `Validation: pending` until a
-focused agent follows its evidence and current target and calls
-`memory_validate`.
+Setup and upgrade synchronize one advisory inventory pass and report distinct closed waves without memory plus candidates awaiting validation. Reporting reads those rows without a second inventory walk; it has no fixed time or byte bound. Inventory or memory-state errors report unavailable by exception type and never pause installation or index publication. Run **Review memories** (`memory_backfill(mode="create")`, then `memory_validate`) when you choose to curate history; ordinary incremental indexing refreshes candidates and judgments.
 
-Plain setup can publish core search while this historical validation remains
-pending. It reports the two outcomes separately and preserves candidate status
-and validation labels. Normal core publication does not grant authority to mark
-the backfill run indexed; this does not introduce a new candidate retrieval filter.
-
-Repeat backfill and validation until the response reports
-`ready_for_index`. Setup and migration resume by rerunning ordinary `wf setup`;
-upgrade uses `wf_upgrade(phase='resume_after_memory')`. The owning lifecycle
-command publishes through a durable `publishing_index` receipt: the index
-finalizer rechecks source fingerprints and zero pending work immediately before
-its epoch CAS, then records the exact attempt, expected generation, and
-inventory digest. If the process stops after index publication but before the
-backfill checkpoint, the next ordinary retry reconciles the completed
-generation and does not repeat the index pass. Changed history requeues its
-wave instead of publishing stale candidates; unchanged indexed history reuses
-the completed run without another validation ceremony. Receipt-authorized
-publication is a foreground, synchronous convergence of both semantic layers;
-detached index jobs do not inherit publication authority. While paused,
-backfill mutations update durable files/seqlock state but do not start
-background indexing. A zero-source wave, unsupported legacy source, and
-mechanical failure are reported separately; none is represented as an empty
-successful candidate set.
-Each create response carries a run-scoped `validation_worklist` with the exact
-pending `memory_id` values for the next bounded page, its total count, and the
-remaining count. Validate that page, then call backfill again; older unrelated
-candidates cannot hide the current run. The no-MCP `wf memory-validate`
-fallback accepts the same rewrite fields as the MCP tool (`--rewrite-kind`,
-`--rewrite-title`, `--rewrite-summary`, repeatable `--rewrite-evidence` and
-`--rewrite-target`, and `--rewrite-confidence`).
-
-Concurrent setup/upgrade callers converge on one active SQLite run per entry
-path. The lookup and creation are one `BEGIN IMMEDIATE` transaction backed by a
-partial uniqueness invariant, so separate processes cannot split the pending
-census. An upgrade whose parent process loaded older Wavefoundry code may first
-discover this gate when the newly extracted `--update-index` runs. Exit 4 in
-that handoff is action-required: reload the MCP implementation, use the
-run-scoped worklist, and resume. Index/rebuild/cleanup never fall through an
-old-shaped retained lock.
+The manual tool retains bounded batches, random claims, cursors and replay. Its worklist includes pending sources from older runs exactly once, and completed waves at the current fingerprint (including no-source dispositions) are not reclaimed. `entry_path` is a deprecated compatibility argument; it does not turn manual extraction into an upgrade continuation. All memory writers are refused while a retained upgrade checkpoint exists. Finish that checkpoint through its owning recovery before Review memories.
 
 `memory_propose(wave_id, mode)` fills the corpus from work a wave already
 did, instead of waiting for hand-authored records. It reads two local, typed

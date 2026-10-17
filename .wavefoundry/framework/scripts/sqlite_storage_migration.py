@@ -811,24 +811,43 @@ def _checkpoint_resume_flag(checkpoint: dict) -> str | None:
     current, failed = checkpoint.get("current_phase"), checkpoint.get("failed_phase")
     current = current if isinstance(current, str) else None
     failed = failed if isinstance(failed, str) else None
-    # Memory ownership wins over a failed index child. Legacy post-docs pauses
-    # without a typed action still require the docs-gate recovery first.
+    # 1zeyo is a post-docs hook crash, not a legacy memory pause.
     if failed == "post_docs_gate" or (failed == "awaiting_memory_validation"
             and current == "docs_gate_complete" and not checkpoint.get("action_required")):
         return "--resume-after-gate"
-    if current in {"awaiting_memory_validation", "awaiting_memory_publication", "memory_resume_preflight"}:
-        return "--resume-after-memory"
+    action = checkpoint.get("action_required")
+    if (isinstance(action, dict) and action.get("kind") in {"storage_migration", "index_guard_handoff"}
+            or current == "storage_restart_required"
+            or isinstance(checkpoint.get("index_guard_handoff"), dict) and not checkpoint["index_guard_handoff"].get("hosts_stopped_confirmed")):
+        return None
+    if legacy_memory_pause(checkpoint):
+        return "--update-index"
     if current == "index_complete":
         return "--cleanup"
-    if failed in {"docs_gate", "post_docs_gate"} or current == "docs_gate":
+    if failed == "docs_gate" or current == "docs_gate":
         return "--resume-after-gate"
-    if failed in {"awaiting_memory_validation", "awaiting_memory_publication"}:
-        return "--resume-after-memory"
     if failed in {"index_update", "index_rebuild", "index_publication_failed"} or current in {"index_update", "index_rebuild", "index_publication_failed"}:
         return "--update-index"
     if failed in {"cleanup", "dashboard_restart", "retired_model_cleanup"} or current in {"cleanup", "dashboard_restart", "retired_model_cleanup"}:
         return "--cleanup"
     return None
+
+
+def legacy_memory_pause(checkpoint: dict) -> bool:
+    """Identify only retired memory pauses, preserving storage/guard ownership."""
+    if not isinstance(checkpoint, dict):
+        return False
+    current, failed = checkpoint.get("current_phase"), checkpoint.get("failed_phase")
+    action = checkpoint.get("action_required")
+    if (isinstance(action, dict) and action.get("kind") != "historical_memory"
+            or current == "storage_restart_required"
+            or isinstance(checkpoint.get("index_guard_handoff"), dict) and not checkpoint["index_guard_handoff"].get("hosts_stopped_confirmed")):
+        return False
+    if failed == "awaiting_memory_validation" and current == "docs_gate_complete" and not action:
+        return False
+    return bool(isinstance(action, dict) and action.get("kind") == "historical_memory"
+                or not action and failed in {"awaiting_memory_validation", "historical_memory_backfill"}
+                or current in {"awaiting_memory_publication", "memory_resume_preflight"})
 
 
 def restart_command(root: Path, pack_path: str | None, rebuild_storage: bool = False,
@@ -872,6 +891,15 @@ def resume_guidance(root: Path, checkpoint: dict | None = None, *, resume_flag: 
     flag = resume_flag if resume_flag is not None else _checkpoint_resume_flag(checkpoint or {})
     if flag is None:
         return None
+    if legacy_memory_pause(checkpoint or {}) or resume_flag == "--resume-after-memory":
+        command = restart_command(root, None, resume_flag="--update-index")
+        argv = [arg for arg in command["command_argv"] if arg != "--confirm-hosts-stopped"]
+        rendered = " ".join(_quote_argument(arg) for arg in argv)
+        if os.name == "nt":
+            rendered = "& " + rendered
+        return {"command_argv": argv, "command": rendered, "command_shell": command["command_shell"],
+                "operator_run": False, "requires_hosts_stopped": False, "agent_execution_allowed": True,
+                "guidance": "Continue with wf_upgrade(phase='update_index'), then wf_upgrade(phase='cleanup')."}
     command = restart_command(root, None, resume_flag=flag)
     return {**command, "operator_run": True, "requires_hosts_stopped": True,
             "agent_execution_allowed": False,

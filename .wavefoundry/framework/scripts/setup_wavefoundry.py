@@ -83,10 +83,9 @@ def _print_help() -> None:
         "  --confirm-hosts-stopped  confirm all repository MCP hosts are stopped\n"
         "  --rebuild-storage  rebuild local storage instead of transferring it\n"
         "  -h, --help     show this help without changing the project\n\n"
-        "Other index/provider options are forwarded to setup_index.py. During "
-        "candidate-bearing historical-memory publication, --background-code "
-        "and --background-docs are intentionally ignored so both semantic "
-        "layers converge synchronously under the publication receipt."
+        "Other index/provider options, including --background-code and "
+        "--background-docs, are forwarded to setup_index.py. Run Review memories "
+        "when you choose to curate historical memory; this does not gate indexing."
     )
 
 
@@ -329,15 +328,11 @@ def main(argv: list[str] | None = None) -> int:
     if "--check-gpu" in args:
         return _run_gpu_check()
     repo_root = _resolve_setup_root(args)
-    import memory_backfill
     import setup_reconciliation
 
     try:
-        # Setup owns its publication scope. An inherited memory run must not
-        # gate the core pass or authorize another lifecycle's checkpoint.
         with setup_reconciliation.session(repo_root, args) as reconciliation:
-            with memory_backfill.index_publication_scope(""):
-                return _run_setup(repo_root, reconciliation.args, reconciliation)
+            return _run_setup(repo_root, reconciliation.args, reconciliation)
     except setup_reconciliation.MigrationRequired as exc:
         print(f"\nERROR: {exc}", file=sys.stderr)
         return 1
@@ -420,72 +415,17 @@ def _run_setup(repo_root: Path, args: list[str], reconciliation) -> int:
 
     import memory_backfill
 
-    try:
-        run_id = memory_backfill.ensure_run(repo_root, "setup")
-        summary = memory_backfill.sync_inventory(repo_root, run_id)
-        summary = memory_backfill.reconcile_index_publication(repo_root, run_id)
-    except OSError as exc:
-        print(
-            f"\nERROR: historical wave inventory was refused: {exc}",
-            file=sys.stderr,
-        )
-        return 1
+    memory_backfill.begin_lifecycle_inventory(repo_root)
+    summary = memory_backfill.historical_memory_report(repo_root, entry_path="setup")
     index_args = reconciliation.index_args(args)
-    partial_options = {
-        "--deps-only", "--prewarm-only", "--docs-only", "--code-only", "--graph-only",
-    }
+    partial_options = {"--deps-only", "--prewarm-only", "--docs-only", "--code-only", "--graph-only"}
     core_requested = not any(arg in partial_options for arg in index_args)
-    # A recovered memory receipt proves that publication only. Ordinary code
-    # may have changed since then; let incremental indexing refresh it while
-    # reusing unchanged vectors, without re-adopting the completed memory run.
     _print_step("Step 4/4: build semantic indexes")
-    publication_pending = (
-        int(summary.get("candidates_drafted") or 0) > 0
-        and summary["state"] == "ready_for_index"
-        and core_requested
-    )
-    if publication_pending:
-        # The receipt identifies one foreground epoch. A detached layer
-        # could begin before the lifecycle reconciles that receipt and
-        # overwrite the latest attempt identity, so lifecycle publication
-        # deliberately converges both semantic layers synchronously.
-        index_args = [
-            arg
-            for arg in index_args
-            if arg not in {"--background-code", "--background-docs"}
-        ]
     with reconciliation.publication():
-        with memory_backfill.index_publication_scope(run_id if publication_pending else ""):
-            rc = int(setup_index.main(index_args))
+        rc = int(setup_index.main(index_args))
     if rc != 0:
-        recovered = memory_backfill.reconcile_index_publication(repo_root, run_id)
-        if publication_pending and recovered["state"] == "awaiting_validation":
-            print(
-                "\nHistorical wave sources changed before index publication; "
-                "the changed waves were requeued for validation. Rebuilding "
-                "the core indexes while memory validation remains pending.",
-                file=sys.stderr,
-            )
-            # One bounded retry, without memory authority. Never turn an
-            # unrelated index failure into a successful setup.
-            publication_pending = False
-            summary = recovered
-            with reconciliation.publication():
-                with memory_backfill.index_publication_scope(""):
-                    rc = int(setup_index.main(index_args))
-        if rc != 0:
-            return rc
-    if publication_pending:
-        try:
-            memory_backfill.complete_index_publication(repo_root, run_id)
-        except Exception as exc:
-            print(
-                "\nERROR: the index epoch published but its historical-memory "
-                f"checkpoint was not confirmed: {exc}. Rerun ordinary `wf setup`; "
-                "the durable epoch receipt preserves completed memory publication.",
-                file=sys.stderr,
-            )
-            return 1
+        return rc
+    print("Historical memory: " + json.dumps(summary, sort_keys=True), flush=True)
     reconciliation.complete()
 
     if not core_requested or any(arg in {"--background-code", "--background-docs"} for arg in index_args):
@@ -502,20 +442,6 @@ def _run_setup(repo_root: Path, args: list[str], reconciliation) -> int:
         setup_readiness.write_setup_stamp(repo_root)
     except (OSError, ValueError) as exc:
         print(f"Setup completed, but its advisory assessment stamp could not be written: {exc}", file=sys.stderr)
-
-    if summary["eligible_waves"] > 0 and summary["state"] not in {"ready_for_index", "indexed"}:
-        print(
-            "\nCore setup is ready; historical-memory validation remains pending.\n"
-            + json.dumps(summary, indent=2, sort_keys=True)
-            + "\nRun memory_backfill(mode='create', entry_path='setup') and "
-            "memory_validate for each candidate, then rerun ordinary `wf setup`. "
-            "The durable memory run remains pending until its authoritative "
-            "validation census and publication checkpoint complete. "
-            "Fully quit and reopen your AI agent, or start a fresh conversation "
-            "after restarting MCP, to use the core indexes.",
-            flush=True,
-        )
-        return 0
 
     restart = (
         "\n=== Wavefoundry harness setup complete. ===\n"

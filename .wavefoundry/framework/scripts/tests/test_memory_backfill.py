@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import io
+import contextlib
 import os
 import subprocess
 import sys
@@ -292,7 +293,7 @@ print(memory_backfill.ensure_run(root, "setup"), flush=True)
 
     def test_random_claim_replaces_crashed_owner_under_next_os_lock(self):
         self._wave("1aaa closed")
-        run_id = memory_backfill.ensure_run(self.root, "upgrade")
+        run_id = memory_backfill.ensure_run(self.root, "manual")
         memory_backfill.sync_inventory(self.root, run_id)
         first = memory_backfill.claim_next(self.root, run_id)
         second = memory_backfill.claim_next(self.root, run_id)
@@ -470,7 +471,7 @@ print(json.dumps({
             response["data"]["validation_worklist"][0]["memory_id"],
             memory_records.load_memory_records(self.root)[0]["memory_id"],
         )
-        refresh.assert_not_called()
+        refresh.assert_called()
         records = memory_records.load_memory_records(self.root)
         self.assertEqual(len(records), 1)
         candidate = records[0]
@@ -490,10 +491,10 @@ print(json.dumps({
                 "none",
             )
         self.assertEqual(validated["status"], "ok", validated)
-        validation_refresh.assert_not_called()
+        validation_refresh.assert_called()
         run_id = response["data"]["run_id"]
         summary = memory_backfill.run_summary(self.root, run_id)
-        self.assertEqual(summary["state"], "ready_for_index")
+        self.assertEqual(summary["state"], "indexed")
         memory_backfill.mark_indexed(self.root, run_id)
         self.assertEqual(memory_backfill.run_summary(self.root, run_id)["state"], "indexed")
 
@@ -661,7 +662,7 @@ os._exit(23)
 
     def test_source_fingerprint_change_requeues_completed_wave(self):
         wave = self._wave("1aaa closed", decision=False)
-        run_id = memory_backfill.ensure_run(self.root, "upgrade")
+        run_id = memory_backfill.ensure_run(self.root, "manual")
         memory_backfill.sync_inventory(self.root, run_id)
         claim = memory_backfill.claim_next(self.root, run_id)
         self.assertIsNotNone(claim)
@@ -882,7 +883,7 @@ os._exit(23)
         run_id = memory_backfill.ensure_run(self.root, "setup")
         summary = memory_backfill.sync_inventory(self.root, run_id)
         self.assertEqual(summary["eligible_waves"], 0)
-        self.assertEqual(summary["state"], "ready_for_index")
+        self.assertEqual(summary["state"], "indexed")
 
     def _seed_migrated_memory_record(
         self, legacy_id: str, *, prefix: str = "1abc1"
@@ -924,13 +925,13 @@ os._exit(23)
 
         legacy_id = "mem-" + ("a" * 59) + "-"
         lifecycle_id = self._seed_migrated_memory_record(legacy_id)
-        run_id = memory_backfill.ensure_run(self.root, "upgrade")
+        run_id = memory_backfill.ensure_run(self.root, "manual")
         self._insert_stale_source(run_id, legacy_id)
 
         repaired = memory_backfill.sync_inventory(self.root, run_id)
         self.assertEqual(repaired["memory_id_references_repaired"], 1)
         self.assertEqual(repaired["candidates_pending"], 0)
-        self.assertEqual(repaired["state"], "ready_for_index")
+        self.assertEqual(repaired["state"], "indexed")
         conn = memory_backfill._connect(self.root)
         try:
             row = conn.execute(
@@ -945,7 +946,7 @@ os._exit(23)
         self.assertEqual(unchanged["memory_id_references_repaired"], 0)
 
     def test_sync_inventory_leaves_unresolved_legacy_memory_id_actionable(self):
-        run_id = memory_backfill.ensure_run(self.root, "upgrade")
+        run_id = memory_backfill.ensure_run(self.root, "manual")
         legacy_id = "mem-no-longer-present"
         self._insert_stale_source(run_id, legacy_id)
 
@@ -963,7 +964,7 @@ os._exit(23)
         legacy_id = "mem-ambiguous-record"
         first = self._seed_migrated_memory_record(legacy_id, prefix="1abc1")
         self._seed_migrated_memory_record(legacy_id, prefix="1abc2")
-        run_id = memory_backfill.ensure_run(self.root, "upgrade")
+        run_id = memory_backfill.ensure_run(self.root, "manual")
         self._insert_stale_source(run_id, legacy_id)
 
         with self.assertRaisesRegex(ValueError, "ambiguous migrated memory id"):
@@ -980,230 +981,8 @@ os._exit(23)
         self.assertEqual(str(row["memory_id"]), legacy_id)
         self.assertNotEqual(str(row["memory_id"]), first)
 
-    def test_ready_backfill_routes_to_owning_lifecycle_without_setup_tool(self):
-        setup = server_impl.memory_backfill_response(
-            self.root, mode="create", entry_path="setup"
-        )
-        self.assertEqual(setup["data"]["state"], "ready_for_index")
-        self.assertEqual(setup["next_tools"], [])
-        self.assertIn("wf setup", setup["usage"])
 
-        upgrade = server_impl.memory_backfill_response(
-            self.root, mode="create", entry_path="upgrade"
-        )
-        self.assertEqual(upgrade["data"]["state"], "ready_for_index")
-        self.assertEqual(upgrade["next_tools"], ["wf_upgrade"])
-        self.assertIn("resume_after_memory", upgrade["usage"])
 
-    def test_setup_publishes_core_then_ordinary_rerun_completes_memory_publication(self):
-        self._wave("1aaa closed")
-        (self.root / ".wavefoundry" / "framework").mkdir(parents=True)
-        config = self.root / "docs" / "workflow-config.json"
-        config.write_text(
-            '{"lifecycle_id_policy":{"scheme_version":"v2",'
-            '"epoch_utc":"2022-04-28T00:00:00Z","offset":46656}}\n',
-            encoding="utf-8",
-        )
-        calls: list[list[str] | None] = []
-
-        class FakeSetup:
-            @staticmethod
-            def main(argv=None):
-                calls.append(argv)
-                if argv is not None and "--deps-only" not in argv:
-                    index_dir = self.root / ".wavefoundry" / "index"
-                    attempt = index_state_store.begin_build_epoch(index_dir, "all")
-                    return 0 if index_state_store.finalize_build_epoch(
-                        index_dir, attempt
-                    ) else 1
-                return 0
-
-        with mock.patch.object(
-            setup_wavefoundry, "_load_setup_index", return_value=FakeSetup
-        ), mock.patch.object(
-            setup_wavefoundry, "_run_render_platform_surfaces", return_value=0
-        ), mock.patch.object(
-            setup_wavefoundry, "_run_mcp_server_dry_run", return_value=0
-        ), mock.patch.object(
-            setup_wavefoundry.venv_bootstrap,
-            "ensure_python_resolves",
-            return_value="ok",
-        ):
-            first = setup_wavefoundry.main(["--root", str(self.root)])
-        self.assertEqual(first, 0)
-        self.assertEqual(len(calls), 2)
-        self.assertIn("--deps-only", calls[0])
-        self.assertEqual(index_state_store.read_build_state(
-            self.root / ".wavefoundry" / "index"
-        )["status"], "complete")
-        run_id = memory_backfill.latest_run_id(self.root, "setup")
-        self.assertEqual(memory_backfill.run_summary(self.root, run_id)["state"], "awaiting_validation")
-
-        batch = server_impl.memory_backfill_response(
-            self.root, mode="create", entry_path="setup"
-        )
-        candidate = memory_records.load_memory_records(self.root)[0]
-        candidate_path = Path(candidate["path"])
-        before = candidate_path.read_bytes()
-        with mock.patch.object(
-            setup_wavefoundry, "_load_setup_index", return_value=FakeSetup
-        ), mock.patch.object(
-            setup_wavefoundry, "_run_render_platform_surfaces", return_value=0
-        ), mock.patch.object(
-            setup_wavefoundry, "_run_mcp_server_dry_run", return_value=0
-        ), mock.patch.object(
-            setup_wavefoundry.venv_bootstrap, "ensure_python_resolves", return_value="ok"
-        ), mock.patch.dict(os.environ, {memory_backfill.INDEX_PUBLICATION_RUN_ENV: "unrelated-run"}), \
-            mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
-            self.assertEqual(setup_wavefoundry.main(["--root", str(self.root)]), 0)
-            self.assertEqual(os.environ[memory_backfill.INDEX_PUBLICATION_RUN_ENV], "unrelated-run")
-        self.assertIn("historical-memory validation remains pending", stdout.getvalue())
-        self.assertNotIn("harness setup complete", stdout.getvalue())
-        self.assertNotIn("mark Phase 1 complete", stdout.getvalue())
-        self.assertEqual(candidate_path.read_bytes(), before)
-        self.assertEqual(memory_backfill.run_summary(self.root, run_id)["state"], "awaiting_validation")
-        server_impl.memory_validate_response(
-            self.root,
-            candidate["memory_id"],
-            "promote",
-            "Reuse the local decision.",
-            "The target remains current.",
-            True,
-            True,
-            "none",
-        )
-        inherited_receipt = self.root / "foreign-parent-receipt.json"
-        with mock.patch.object(
-            setup_wavefoundry, "_load_setup_index", return_value=FakeSetup
-        ), mock.patch.object(
-            setup_wavefoundry, "_run_render_platform_surfaces", return_value=0
-        ), mock.patch.object(
-            setup_wavefoundry, "_run_mcp_server_dry_run", return_value=0
-        ), mock.patch.object(
-            setup_wavefoundry.venv_bootstrap,
-            "ensure_python_resolves",
-            return_value="ok",
-        ), mock.patch.dict(os.environ, {
-            "WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT": str(inherited_receipt),
-        }):
-            resumed = setup_wavefoundry.main(
-                ["--root", str(self.root), "--background-code"]
-            )
-            self.assertEqual(os.environ["WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT"], str(inherited_receipt))
-        self.assertEqual(resumed, 0, batch)
-        self.assertFalse(inherited_receipt.exists())
-        self.assertEqual(len(calls), 6)
-        self.assertIn("--deps-only", calls[4])
-        self.assertNotIn("--deps-only", calls[5])
-        self.assertNotIn("--background-code", calls[5])
-        self.assertEqual(
-            memory_backfill.latest_run_id(self.root, "setup"),
-            batch["data"]["run_id"],
-        )
-        with mock.patch.object(
-            setup_wavefoundry, "_load_setup_index", return_value=FakeSetup
-        ), mock.patch.object(
-            setup_wavefoundry, "_run_render_platform_surfaces", return_value=0
-        ), mock.patch.object(
-            setup_wavefoundry, "_run_mcp_server_dry_run", return_value=0
-        ), mock.patch.object(
-            setup_wavefoundry.venv_bootstrap,
-            "ensure_python_resolves",
-            return_value="ok",
-        ):
-            unchanged = setup_wavefoundry.main(["--root", str(self.root)])
-        self.assertEqual(unchanged, 0)
-        self.assertEqual(len(calls), 8)
-        self.assertEqual(
-            memory_backfill.latest_run_id(self.root, "setup"),
-            batch["data"]["run_id"],
-        )
-
-    def test_setup_retry_recovers_memory_publication_and_refreshes_changed_core(self):
-        self._wave("1aaa closed")
-        (self.root / ".wavefoundry" / "framework").mkdir(parents=True)
-        (self.root / "docs" / "workflow-config.json").write_text(
-            '{"lifecycle_id_policy":{"scheme_version":"v2",'
-            '"epoch_utc":"2022-04-28T00:00:00Z","offset":46656}}\n',
-            encoding="utf-8",
-        )
-        index_calls = 0
-        indexed_sources = []
-        publication_scopes = []
-        server_impl.memory_backfill_response(
-            self.root, mode="create", entry_path="setup"
-        )
-        candidate = memory_records.load_memory_records(self.root)[0]
-        server_impl.memory_validate_response(
-            self.root,
-            candidate["memory_id"],
-            "promote",
-            "Reuse the local decision.",
-            "The target remains current.",
-            True,
-            True,
-            "none",
-        )
-
-        class FakeSetup:
-            @staticmethod
-            def main(argv=None):
-                nonlocal index_calls
-                if argv is not None and "--deps-only" not in argv:
-                    index_calls += 1
-                    indexed_sources.append(self.root.joinpath("foo.py").read_text())
-                    publication_scopes.append(os.environ.get(memory_backfill.INDEX_PUBLICATION_RUN_ENV, ""))
-                    index_dir = self.root / ".wavefoundry" / "index"
-                    attempt = index_state_store.begin_build_epoch(index_dir, "all")
-                    return 0 if index_state_store.finalize_build_epoch(
-                        index_dir, attempt
-                    ) else 1
-                return 0
-
-        patches = (
-            mock.patch.object(setup_wavefoundry, "_load_setup_index", return_value=FakeSetup),
-            mock.patch.object(setup_wavefoundry, "_run_render_platform_surfaces", return_value=0),
-            mock.patch.object(setup_wavefoundry, "_run_mcp_server_dry_run", return_value=0),
-            mock.patch.object(
-                setup_wavefoundry.venv_bootstrap,
-                "ensure_python_resolves",
-                return_value="ok",
-            ),
-        )
-        for patch in patches:
-            patch.start()
-            self.addCleanup(patch.stop)
-        # 1t9th crash-window retarget: suppress the CAS-time success record
-        # too, so the run is stranded at publishing_index — the state this
-        # recovery path exists for. Without the suppression the success
-        # record already lands at the CAS and the retry is a plain setup.
-        with mock.patch.object(
-            memory_backfill,
-            "complete_index_publication",
-            side_effect=RuntimeError("checkpoint unavailable"),
-        ), mock.patch.object(
-            memory_backfill, "record_publication_success", return_value=False
-        ):
-            self.assertEqual(
-                setup_wavefoundry.main(["--root", str(self.root)]),
-                1,
-            )
-        self.assertEqual(index_calls, 1)
-        self.root.joinpath("foo.py").write_text("VALUE = 2\n", encoding="utf-8")
-        self.assertEqual(
-            setup_wavefoundry.main(["--root", str(self.root)]),
-            0,
-        )
-        self.assertEqual(index_calls, 2)
-        self.assertEqual(indexed_sources, ["VALUE = 1\n", "VALUE = 2\n"])
-        self.assertTrue(publication_scopes[0])
-        self.assertEqual(publication_scopes[1], "")
-        run_id = memory_backfill.latest_run_id(self.root, "setup")
-        self.assertIsNotNone(run_id)
-        self.assertEqual(
-            memory_backfill.run_summary(self.root, str(run_id))["state"],
-            "indexed",
-        )
 
     def _validated_publication_run(self) -> str:
         """Canonical-producer fixture: one promoted candidate, run ready_for_index."""
@@ -1254,202 +1033,12 @@ os._exit(23)
         # The lifecycle completion check must now pass without any recovery.
         memory_backfill.complete_index_publication(self.root, run_id)
 
-    def test_pending_validation_still_refuses_in_scope_finalize(self):
-        """The real gate is untouched: pending memory work blocks publication."""
 
-        self._wave("1aaa closed")
-        run_id = memory_backfill.ensure_run(self.root, "setup")
-        summary = memory_backfill.sync_inventory(self.root, run_id)
-        self.assertEqual(summary["state"], "awaiting_validation")
-        index_dir = self.root / ".wavefoundry" / "index"
-        with memory_backfill.index_publication_scope(run_id):
-            attempt = index_state_store.begin_build_epoch(index_dir, "all")
-            self.assertFalse(
-                index_state_store.finalize_build_epoch(index_dir, attempt)
-            )
-        self.assertEqual(
-            index_state_store.read_build_state(index_dir)["status"], "building"
-        )
 
-    def test_unknown_run_in_scope_refuses_finalize_fail_closed(self):
-        index_dir = self.root / ".wavefoundry" / "index"
-        with memory_backfill.index_publication_scope("run-that-does-not-exist"):
-            attempt = index_state_store.begin_build_epoch(index_dir, "all")
-            self.assertFalse(
-                index_state_store.finalize_build_epoch(index_dir, attempt)
-            )
 
-    def test_success_record_only_fires_for_the_authorized_attempt(self):
-        run_id = self._validated_publication_run()
-        index_dir = self.root / ".wavefoundry" / "index"
-        attempt = index_state_store.begin_build_epoch(index_dir, "all")
-        self.assertTrue(
-            memory_backfill.authorize_index_finalize(self.root, run_id, attempt, 1)
-        )
-        self.assertFalse(
-            memory_backfill.record_publication_success(
-                self.root, run_id, "some-other-attempt"
-            )
-        )
-        self.assertEqual(memory_backfill.run_state(self.root, run_id), "publishing_index")
-        self.assertTrue(
-            memory_backfill.record_publication_success(self.root, run_id, attempt)
-        )
-        self.assertEqual(memory_backfill.run_state(self.root, run_id), "indexed")
 
-    def test_staged_publication_transfers_to_final_attempt_same_generation(self):
-        run_id = self._validated_publication_run()
-        index_dir = self.root / ".wavefoundry" / "index"
-        content_attempt = index_state_store.begin_build_epoch(index_dir, "all")
-        self.assertTrue(
-            memory_backfill.authorize_index_finalize(
-                self.root, run_id, content_attempt, 1
-            )
-        )
-        graph_attempt = index_state_store.begin_build_epoch(index_dir, "graph")
 
-        self.assertTrue(
-            memory_backfill.restage_index_finalize(
-                self.root, run_id, graph_attempt, 1
-            )
-        )
-        self.assertFalse(
-            memory_backfill.record_publication_success(
-                self.root, run_id, content_attempt
-            )
-        )
-        self.assertTrue(
-            memory_backfill.record_publication_success(
-                self.root, run_id, graph_attempt
-            )
-        )
 
-    def test_staged_publication_rejects_generation_or_inventory_change(self):
-        run_id = self._validated_publication_run()
-        index_dir = self.root / ".wavefoundry" / "index"
-        content_attempt = index_state_store.begin_build_epoch(index_dir, "all")
-        self.assertTrue(
-            memory_backfill.authorize_index_finalize(
-                self.root, run_id, content_attempt, 1
-            )
-        )
-        graph_attempt = index_state_store.begin_build_epoch(index_dir, "graph")
-        self.assertFalse(
-            memory_backfill.restage_index_finalize(
-                self.root, run_id, graph_attempt, 2
-            )
-        )
-        wave_md = waves_dir(self.root) / "1aaa closed" / _RECORD
-        wave_md.write_text(
-            wave_md.read_text(encoding="utf-8") + "\nchanged before publish\n",
-            encoding="utf-8",
-        )
-        self.assertFalse(
-            memory_backfill.restage_index_finalize(
-                self.root, run_id, graph_attempt, 1
-            )
-        )
-        self.assertEqual(
-            memory_backfill.run_summary(self.root, run_id)["state"],
-            "awaiting_validation",
-        )
-
-    def test_receipt_does_not_alias_a_later_unrelated_generation(self):
-        """Crash-window retarget (1t9th): with the CAS-time success record
-        suppressed — simulating a crash between the epoch CAS and the run
-        update — a later unrelated build's generation advance must never be
-        read as this run's publication."""
-
-        run_id = self._validated_publication_run()
-        index_dir = self.root / ".wavefoundry" / "index"
-        with mock.patch.object(
-            memory_backfill, "record_publication_success", return_value=False
-        ):
-            with memory_backfill.index_publication_scope(run_id):
-                receipt_attempt = index_state_store.begin_build_epoch(index_dir, "all")
-                self.assertTrue(
-                    index_state_store.finalize_build_epoch(index_dir, receipt_attempt)
-                )
-        unrelated_attempt = index_state_store.begin_build_epoch(index_dir, "code")
-        self.assertTrue(
-            index_state_store.finalize_build_epoch(index_dir, unrelated_attempt)
-        )
-
-        summary = memory_backfill.reconcile_index_publication(self.root, run_id)
-        self.assertEqual(summary["state"], "ready_for_index")
-        self.assertFalse(summary["publication_recovered"])
-
-    def test_setup_requeues_history_changed_at_index_finalize(self):
-        wave = self._wave("1aaa closed")
-        (self.root / ".wavefoundry" / "framework").mkdir(parents=True)
-        (self.root / "docs" / "workflow-config.json").write_text(
-            '{"lifecycle_id_policy":{"scheme_version":"v2",'
-            '"epoch_utc":"2022-04-28T00:00:00Z","offset":46656}}\n',
-            encoding="utf-8",
-        )
-        server_impl.memory_backfill_response(
-            self.root, mode="create", entry_path="setup"
-        )
-        candidate = memory_records.load_memory_records(self.root)[0]
-        server_impl.memory_validate_response(
-            self.root,
-            candidate["memory_id"],
-            "promote",
-            "Reuse the local decision.",
-            "The target remains current.",
-            True,
-            True,
-            "none",
-        )
-
-        index_calls = []
-
-        class MutatingSetup:
-            @staticmethod
-            def main(argv=None):
-                if argv is not None and "--deps-only" not in argv:
-                    index_calls.append(os.environ.get(memory_backfill.INDEX_PUBLICATION_RUN_ENV, ""))
-                    index_dir = self.root / ".wavefoundry" / "index"
-                    attempt = index_state_store.begin_build_epoch(index_dir, "all")
-                    wave.joinpath(_RECORD).write_text(
-                        wave.joinpath(_RECORD).read_text(encoding="utf-8")
-                        + "\nchanged during publication\n",
-                        encoding="utf-8",
-                    )
-                    return 0 if index_state_store.finalize_build_epoch(
-                        index_dir, attempt
-                    ) else 1
-                return 0
-
-        with mock.patch.object(
-            setup_wavefoundry, "_load_setup_index", return_value=MutatingSetup
-        ), mock.patch.object(
-            setup_wavefoundry, "_run_render_platform_surfaces", return_value=0
-        ), mock.patch.object(
-            setup_wavefoundry, "_run_mcp_server_dry_run", return_value=0
-        ), mock.patch.object(
-            setup_wavefoundry.venv_bootstrap,
-            "ensure_python_resolves",
-            return_value="ok",
-        ):
-            self.assertEqual(
-                setup_wavefoundry.main(["--root", str(self.root)]),
-                0,
-            )
-        run_id = memory_backfill.latest_run_id(self.root, "setup")
-        self.assertIsNotNone(run_id)
-        self.assertEqual(
-            memory_backfill.run_summary(self.root, str(run_id))["state"],
-            "awaiting_validation",
-        )
-        state = index_state_store.read_build_state(
-            self.root / ".wavefoundry" / "index"
-        )
-        self.assertIsNotNone(state)
-        self.assertEqual(state["status"], "complete")
-        self.assertEqual(len(index_calls), 2)
-        self.assertTrue(index_calls[0])
-        self.assertEqual(index_calls[1], "")
 
     def test_setup_help_is_observational(self):
         with mock.patch.object(
@@ -1467,13 +1056,11 @@ os._exit(23)
         self.assertIn(
             "Historical-memory validation remains agent-owned", help_text
         )
-        self.assertIn(
-            "candidate-bearing historical-memory publication", help_text
-        )
-        self.assertIn(
-            "--background-code and --background-docs are intentionally ignored",
-            help_text,
-        )
+        self.assertIn("--background-code and --background-docs", help_text)
+        self.assertIn("are forwarded to setup_index.py", help_text)
+        self.assertIn("Review memories", help_text)
+        self.assertNotIn("publication receipt", help_text)
+        self.assertNotIn("intentionally ignored", help_text)
 
     def test_setup_resume_has_no_one_purpose_public_surface(self):
         setup_source = (SCRIPTS / "setup_wavefoundry.py").read_text(encoding="utf-8")
@@ -1481,6 +1068,210 @@ os._exit(23)
         self.assertNotIn("wave_setup_resume_after_memory", server_source)
         self.assertNotIn("wf_resume_setup_after_memory", server_source)
         self.assertNotIn("setup --resume-after-memory", setup_source)
+
+
+class AdvisoryMemoryInventoryTests(unittest.TestCase):
+    setUp = HistoricalMemoryBackfillTests.setUp
+    tearDown = HistoricalMemoryBackfillTests.tearDown
+    _wave = HistoricalMemoryBackfillTests._wave
+    # Inherit only fixtures, not the old case collection.
+    def test_lifecycle_sync_reuses_one_inventory_and_has_no_publication_authority(self):
+        self._wave("1aaa closed")
+        manual = memory_backfill.ensure_run(self.root, "manual")
+        with mock.patch.object(memory_backfill, "_inventory", wraps=memory_backfill._inventory) as walk:
+            lifecycle = memory_backfill.ensure_run(self.root, "upgrade")
+            first = memory_backfill.sync_inventory(self.root, lifecycle)
+            second = memory_backfill.sync_inventory(self.root, lifecycle)
+            report = memory_backfill.historical_memory_report(self.root)
+        self.assertEqual(walk.call_count, 1)
+        self.assertEqual(first, second)
+        self.assertEqual(first["state"], "indexed")
+        self.assertEqual(first["candidates_drafted"], 0)
+        self.assertEqual(report["closed_waves_without_memory"], 1)
+        self.assertEqual(report["candidates_awaiting_validation"], 0)
+        conn = memory_backfill._connect(self.root)
+        try:
+            self.assertEqual(conn.execute("SELECT state FROM memory_backfill_runs WHERE run_id=?", (manual,)).fetchone()[0], "inventory_pending")
+        finally:
+            conn.close()
+        env = dict(os.environ)
+        with memory_backfill.index_publication_scope(lifecycle):
+            self.assertEqual(dict(os.environ), env)
+
+    def test_advisory_failures_are_path_free_but_manual_failures_propagate(self):
+        for failure in (OSError("private/path"), ValueError("private/value"), RuntimeError("private/state")):
+            with self.subTest(kind=type(failure).__name__):
+                memory_backfill._lifecycle_sync.clear()
+                with mock.patch.object(memory_backfill, "_connect", side_effect=failure), contextlib.redirect_stderr(io.StringIO()):
+                    lifecycle = memory_backfill.ensure_run(self.root, "upgrade")
+                    self.assertIsInstance(lifecycle, str)
+                    summary = memory_backfill.sync_inventory(self.root, lifecycle)
+                    for name in ("state", "remaining_waves", "candidates_pending", "failures", "candidates_drafted", "eligible_waves", "last_failure"):
+                        self.assertIn(name, summary)
+                    self.assertEqual(summary["state"], "indexed")
+                    self.assertNotIn("private/", json.dumps(summary))
+                    self.assertEqual(memory_backfill.reconcile_index_publication(self.root, lifecycle), summary)
+                    self.assertEqual(memory_backfill.validation_worklist(self.root, lifecycle)["validation_worklist_count"], 0)
+                    with self.assertRaises(type(failure)):
+                        memory_backfill.ensure_run(self.root, "manual")
+        with mock.patch.object(memory_backfill, "_connect", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                memory_backfill.ensure_run(self.root, "upgrade")
+
+    def test_legacy_completed_no_source_is_covered_and_pending_source_is_deduplicated(self):
+        wave = self._wave("1aaa closed", decision=False)
+        legacy = memory_backfill.ensure_run(self.root, "upgrade")
+        memory_backfill.sync_inventory(self.root, legacy)
+        conn = memory_backfill._connect(self.root)
+        try:
+            conn.execute("UPDATE memory_backfill_waves SET state='no_source',outcome='no_source' WHERE run_id=?", (legacy,))
+            conn.execute("INSERT INTO memory_backfill_sources VALUES(?,?,?,?)", (legacy, wave.name, "source:legacy-pending", "missing-record"))
+        finally:
+            conn.close()
+        manual = memory_backfill.ensure_run(self.root, "manual")
+        summary = memory_backfill.sync_inventory(self.root, manual)
+        self.assertEqual(summary["remaining_waves"], 0)
+        self.assertIsNone(memory_backfill.claim_next(self.root, manual))
+        self.assertEqual(summary["candidates_pending"], 1)
+        page = memory_backfill.validation_worklist(self.root, manual)
+        self.assertEqual(page["validation_worklist_count"], 1)
+        self.assertEqual(page["validation_worklist"][0]["source_event"], "source:legacy-pending")
+        conn = memory_backfill._connect(self.root)
+        try:
+            conn.execute("INSERT INTO memory_backfill_sources VALUES(?,?,?,?)", (manual, wave.name, "source:legacy-pending", "missing-record"))
+        finally:
+            conn.close()
+        self.assertEqual(memory_backfill.run_summary(self.root, manual)["candidates_pending"], 1)
+        self.assertEqual(memory_backfill.validation_worklist(self.root, manual)["validation_worklist_count"], 1)
+        self.assertEqual(memory_backfill.historical_memory_report(self.root, entry_path="setup")["closed_waves_without_memory"], 0)
+        # A genuinely changed wave fingerprint reopens on-demand extraction.
+        (wave / _RECORD).write_text((wave / _RECORD).read_text() + "\nNew source material.\n")
+        self.assertEqual(memory_backfill.sync_inventory(self.root, manual)["remaining_waves"], 1)
+        self.assertIsNotNone(memory_backfill.claim_next(self.root, manual))
+
+    def test_persisted_report_projection_refuses_extra_content_and_bad_counts(self):
+        report = memory_backfill.project_historical_memory_report({"closed_waves_without_memory": 2, "candidates_awaiting_validation": 3, "private_path": "secret/path", "next_step": "secret text"})
+        self.assertEqual(set(report), {"closed_waves_without_memory", "candidates_awaiting_validation", "next_step"})
+        self.assertNotIn("secret", json.dumps(report))
+        for value in (True, -1, "1"):
+            self.assertEqual(memory_backfill.project_historical_memory_report({"closed_waves_without_memory": value, "candidates_awaiting_validation": 0})["status"], "unavailable")
+
+    def test_new_lifecycle_invocation_resets_sync_but_not_manual_progress(self):
+        first = memory_backfill.historical_memory_report(self.root, entry_path="setup")
+        self.assertEqual(first["closed_waves_without_memory"], 0)
+        self._wave("1aaa closed")
+        memory_backfill.begin_lifecycle_inventory(self.root)
+        second = memory_backfill.historical_memory_report(self.root, entry_path="setup")
+        self.assertEqual(second["closed_waves_without_memory"], 1)
+
+    def test_setup_main_reports_pending_inventory_or_unavailability_without_pausing(self):
+        import types
+        self._wave("1aaa closed")
+        for state, background in (
+            ("pending", None), ("pending", "--background-code"),
+            ("pending", "--background-docs"), ("unreadable", None),
+            ("corrupt", None),
+        ):
+            with self.subTest(state=state, background=background), contextlib.ExitStack() as controls:
+                if state == "corrupt":
+                    (self.root / ".wavefoundry/index/memory-state.sqlite").write_bytes(b"not sqlite")
+                if state == "unreadable":
+                    controls.enter_context(mock.patch.object(memory_backfill, "_inventory", side_effect=OSError("PRIVATE_PATH_MUST_NOT_LEAK")))
+                fake_index = mock.Mock(return_value=0)
+                controls.enter_context(mock.patch.object(setup_wavefoundry, "_load_setup_index", return_value=types.SimpleNamespace(main=fake_index)))
+                for name in ("_run_render_platform_surfaces", "_run_mcp_server_dry_run"):
+                    controls.enter_context(mock.patch.object(setup_wavefoundry, name, return_value=0))
+                controls.enter_context(mock.patch.object(setup_wavefoundry.venv_bootstrap, "ensure_python_resolves"))
+                controls.enter_context(mock.patch.object(setup_wavefoundry.venv_bootstrap, "activate_tool_venv"))
+                import setup_readiness
+                stamp = controls.enter_context(mock.patch.object(setup_readiness, "write_setup_stamp"))
+                output = io.StringIO()
+                controls.enter_context(contextlib.redirect_stdout(output))
+                controls.enter_context(contextlib.redirect_stderr(output))
+                argv = ["--root", str(self.root)] + ([background] if background else [])
+                self.assertEqual(setup_wavefoundry.main(argv), 0)
+                self.assertEqual(fake_index.call_count, 2)
+                if background:
+                    self.assertIn(background, fake_index.call_args.args[0])
+                    stamp.assert_not_called()
+                    self.assertIn("full core readiness was not verified", output.getvalue())
+                else:
+                    stamp.assert_called_once()
+                line = next(line for line in output.getvalue().splitlines() if line.startswith("Historical memory: "))
+                report = json.loads(line.removeprefix("Historical memory: "))
+                if state == "pending":
+                    self.assertEqual(report["closed_waves_without_memory"], 1)
+                    self.assertEqual(report["candidates_awaiting_validation"], 0)
+                else:
+                    self.assertEqual(report["status"], "unavailable")
+                self.assertNotIn("PRIVATE_PATH_MUST_NOT_LEAK", output.getvalue())
+
+    def test_public_manual_corrupt_state_is_an_error_not_an_empty_report(self):
+        path = self.root / ".wavefoundry/index/memory-state.sqlite"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"corrupt sqlite")
+        result = server_impl.memory_backfill_response(self.root, mode="create")
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["diagnostics"][0]["code"], "memory_backfill_state_unavailable")
+
+    def test_manual_backfill_and_validation_refuse_retained_upgrade_without_writes(self):
+        import upgrade_lib
+        upgrade_lib.write_upgrade_lock(self.root, "1.30.0", "1.31.0")
+        upgrade_lib.update_upgrade_lock(self.root, current_phase="awaiting_memory_validation")
+        before = upgrade_lib.upgrade_lock_path(self.root).read_bytes()
+        calls = (
+            lambda: server_impl.memory_backfill_response(self.root, mode="create"),
+            lambda: server_impl.memory_validate_response(self.root, "1abc-mem candidate", "retain", "", "", False, False, "none"),
+        )
+        for call in calls:
+            response = call()
+            self.assertEqual(response["status"], "error", response)
+            self.assertEqual(response["diagnostics"][0]["code"], "upgrade_in_progress")
+        self.assertEqual(upgrade_lib.upgrade_lock_path(self.root).read_bytes(), before)
+        self.assertFalse((self.root / ".wavefoundry/index/memory-state.sqlite").exists())
+
+    def test_failed_inventory_rows_stay_counted_in_lifecycle_and_row_only_reports(self):
+        self._wave("1aaa closed")
+        run = memory_backfill.ensure_run(self.root, "upgrade")
+        memory_backfill.sync_inventory(self.root, run)
+        conn = memory_backfill._connect(self.root)
+        try:
+            conn.execute("UPDATE memory_backfill_waves SET state='failed' WHERE run_id=?", (run,))
+        finally:
+            conn.close()
+        memory_backfill._lifecycle_sync.clear()
+        # A direct summary and row-only report use the same distinct census.
+        summary = memory_backfill.run_summary(self.root, run)
+        report = memory_backfill.historical_memory_report(self.root)
+        self.assertEqual(summary["remaining_waves"] + summary["failures"], 1)
+        self.assertEqual(report["closed_waves_without_memory"], 1)
+
+    def test_known_lifecycle_run_stays_advisory_after_reload_and_later_corruption(self):
+        import importlib
+        run = memory_backfill.ensure_run(self.root, "upgrade")
+        importlib.reload(memory_backfill)
+        path = self.root / ".wavefoundry/index/memory-state.sqlite"
+        path.write_bytes(b"corrupt sqlite")
+        with contextlib.redirect_stderr(io.StringIO()):
+            for call in (memory_backfill.sync_inventory, memory_backfill.run_summary, memory_backfill.reconcile_index_publication, memory_backfill.validation_worklist):
+                self.assertEqual(call(self.root, run)["state"], "indexed")
+        with self.assertRaises(Exception):
+            memory_backfill.ensure_run(self.root, "manual")
+
+    def test_legacy_state_labels_are_read_as_terminal_without_rewriting_rows(self):
+        manual = memory_backfill.ensure_run(self.root, "manual")
+        for state in ("ready_for_index", "publishing_index"):
+            conn = memory_backfill._connect(self.root)
+            try:
+                conn.execute("UPDATE memory_backfill_runs SET state=? WHERE run_id=?", (state, manual))
+            finally:
+                conn.close()
+            self.assertEqual(memory_backfill.run_summary(self.root, manual)["state"], "indexed")
+            conn = memory_backfill._connect(self.root)
+            try:
+                self.assertEqual(conn.execute("SELECT state FROM memory_backfill_runs WHERE run_id=?", (manual,)).fetchone()[0], state)
+            finally:
+                conn.close()
 
 
 class ActivationDeferralFixtureTests(unittest.TestCase):

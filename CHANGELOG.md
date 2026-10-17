@@ -20,6 +20,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Upgrades no longer pause for historical memory. Supported older runners, including skipped-release upgrades, pass through their memory step when installing this or later packs. `--resume-after-memory` and `resume_after_memory` are deprecated aliases of `update_index` until runner protocol 2 leaves the supported set (or a proven new-runner handoff replaces the seam). Retained memory pauses finish with `update_index` then `cleanup`; `memory_backfill` and `memory_validate` refuse a retained upgrade checkpoint until recovery completes. Use Review memories on demand. Wave 20t73.
+
 - Negotiate Tensorwell capabilities and send explicit batch/interactive workloads, per-request deadlines, optional process session hints and timing. Bound retries and concurrency, preserve distinct safe failure reasons, and report cached capacity and outcome counters without loading local models after selected-service failure. Legacy pre-capabilities services use the local route. Live embeddings, reranking and adaptive statistics were verified on macOS ARM64. Wave 20tpp.
 
 ### Added

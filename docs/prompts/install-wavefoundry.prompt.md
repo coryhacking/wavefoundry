@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-22
+Last verified: 2026-10-16
 
 Shortcut: **`Init Wavefoundry`** | Legacy: **`Install Wavefoundry`** / **`Init wave framework`** / **`Install wave framework`** / **`Init wave context`** / **`Install wave context`**
 
@@ -66,12 +66,7 @@ setup storage handoff, save the exact command, stop the repository's old hosts,
 and continue in an external terminal with explicit host confirmation. Never
 purge local stores or recovery files to bypass a refusal.
 
-Historical memory validation does not block core search. Setup reports core
-readiness and pending memory adoption separately; candidates keep their status
-and validation labels. Run `memory_backfill(mode="create", entry_path="setup")`,
-validate each run-scoped worklist item with `memory_validate`, then rerun
-ordinary `wf setup`. Only the guarded memory-publication path may mark that
-run indexed. Core readiness alone does not complete historical adoption.
+Setup and upgrade synchronize one advisory inventory pass and report distinct closed waves without memory plus candidates awaiting validation. Reporting reads those rows without a second inventory walk; it has no fixed time or byte bound. Inventory or memory-state errors report unavailable by exception type and never pause installation or index publication. Run **Review memories** (`memory_backfill(mode="create")`, then `memory_validate`) when you choose to curate history; ordinary incremental indexing refreshes candidates and judgments.
 
 If this setup step fails specifically because a required model cannot be downloaded, keep recovery on the canonical setup path. In agent-driven sessions, the agent should ask the operator for permission to rerun the same setup command with network access or host escalation enabled instead of switching to an out-of-band manual model download.
 
@@ -135,9 +130,7 @@ wf dashboard --root . --open
 
 After registration, restart the MCP server in your host so it loads the installed
 framework. Use `index_health()` and `index_build_status()` to verify core search
-and graph readiness. If historical memory remains pending, complete its
-run-scoped validation and rerun `wf setup`; no manual index purge or lower-level
-script is needed.
+and graph readiness. Historical curation remains an on-demand Review memories action.
 
 The framework's seeds fold into this project docs index — there is no separate framework index to build.
 

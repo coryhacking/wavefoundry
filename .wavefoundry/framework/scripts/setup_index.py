@@ -2277,7 +2277,6 @@ def _spawn_background_semantic_build(root: Path, args: argparse.Namespace, conte
         # foreground publication pass. Detached follow-up layers must never
         # inherit and consume that one-shot authorization after the lifecycle
         # command has checkpointed the run.
-        child_env.pop("WAVEFOUNDRY_MEMORY_BACKFILL_RUN_ID", None)
         proc = subprocess_util.isolated_popen(
             cmd,
             stdout=log_file,

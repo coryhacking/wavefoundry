@@ -293,7 +293,7 @@ class session:
     def publication(self):
         # Setup owns a direct epoch CAS, never an inherited upgrade parent's
         # staged-finalization destination or publisher authorization.
-        with _environment("WAVEFOUNDRY_UPGRADE_PARENT_FINALIZE_RECEIPT", None), _environment(_PUBLISHER_ENV, None):
+        with _environment(_PUBLISHER_ENV, None):
             if not self.requires_index:
                 yield
                 return

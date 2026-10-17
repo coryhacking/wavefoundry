@@ -25013,20 +25013,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 ``"post_docs_gate"`` (including the pre-1.28 label for a crash
                 after the gate passed); preserves
                 the actual failing phase on retry and, after the gate passes,
-                establishes or refreshes the historical-memory checkpoint. It
-                may return action-required memory work; continue with
-                ``"resume_after_memory"``.
-              - ``"resume_after_memory"`` — after bounded historical candidate
-                extraction and focused validation, recompute the SQLite pending
-                set and publish Phase 4 only when it is zero. This and every
-                index/cleanup phase refuse while review projection or docs lint
-                has a retained failed phase; recover through
-                ``"resume_after_gate"`` first.
+                continues through ordinary index publication.
+              - ``"resume_after_memory"`` — deprecated alias of update_index
+                while older runner protocols remain supported; no memory work.
 
         Response fields:
           - ``exit_code``: 0 = success, 1 = docs gate failed, 2 = surface rendering
             failed, 3 = pre-flight check failed (downgrade detected, lock conflict),
-            4 = action required for historical-memory validation.
+            4 = legacy runner continuation required.
           - ``output``: bounded combined stdout + stderr presentation. Parsing
             uses the complete child stream; inspect ``log_path`` when
             ``output_truncated`` is true.
@@ -25369,12 +25363,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         """Inventory closed waves and create one bounded historical candidate batch.
 
         The inventory is local and Git-independent. ``create`` checkpoints
-        progress in memory-state.sqlite, processes at most 10 waves / 20
-        candidates / 64 KiB per call, and suppresses background publication
-        while install or upgrade is awaiting agent validation. Re-run until the
-        response reports zero remaining waves, then validate every pending
-        candidate with memory_validate and invoke the entry path's resume
-        tool.
+        progress in memory-state.sqlite and processes at most 10 waves / 20
+        candidates / 64 KiB per call. Follow each exact validation worklist and
+        call memory_validate; candidate writes use ordinary index refresh.
+        ``entry_path`` is deprecated compatibility input, not a lifecycle gate.
+        Retained upgrades must finish their owning recovery before backfill.
         """
         bad = _ensure_no_extra_args("memory_backfill", kwargs)
         if bad is not None:

@@ -143,8 +143,8 @@ Every upgrade also reconciles shortcut discovery merge-safely: ensure the canoni
 human-readable surfaces). Preserve project-authored additions and prose outside the
 framework-owned regions; never replace an entire discovery surface to add this entry. While
 `.wavefoundry/upgrade-in-progress.json` exists, lifecycle, review-evidence,
-context-efficiency, memory, docs, and index publication is blocked except the named
-memory-recovery phase.
+context-efficiency, memory, docs, and index publication is blocked until the owning
+upgrade continuation completes; memory curation has no checkpoint exemption.
 
 Feature packs carry integer `upgrade_protocol_version` and
 `minimum_runner_protocol`. `upgrade_protocol_invalid` means the pack is missing,

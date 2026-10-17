@@ -1063,6 +1063,11 @@ def memory_backfill_response(
     """Inventory and mechanically draft one bounded historical-memory batch."""
     from wf_server import server_impl
     backfill = server_impl._load_script("memory_backfill")
+    import publication_control
+    reason = publication_control.publication_block_reason(root, "memory_backfill")
+    if reason is not None:
+        return server_impl._response("error", {}, diagnostics=[_diagnostic("upgrade_in_progress", reason)],
+                                     next_tools=["wf_upgrade"], usage="wf_upgrade_status()")
     mode_s = str(mode or "dry_run").strip().lower()
     if mode_s not in {"dry_run", "create"}:
         return server_impl._response(
@@ -1136,18 +1141,23 @@ def memory_backfill_response(
             usage="memory_backfill(mode='create')",
         )
 
-    processed: list[dict[str, Any]] = []
-    with server_impl.project_state_publication_lock(root):
-        run_id = backfill.ensure_run(root, entry_path_s)
-        backfill.sync_inventory(
-            root, run_id, inventory=inventory, shadowed=shadowed
-        )
-        processed, summary, worklist = _memory_backfill_batch_locked(
-            root,
-            backfill=backfill,
-            run_id=run_id,
-            candidate_budget=candidate_budget,
-        )
+    try:
+        processed: list[dict[str, Any]] = []
+        with server_impl.project_state_publication_lock(root):
+            run_id = backfill.ensure_run(root, "manual")
+            backfill.sync_inventory(
+                root, run_id, inventory=inventory, shadowed=shadowed
+            )
+            processed, summary, worklist = _memory_backfill_batch_locked(
+                root,
+                backfill=backfill,
+                run_id=run_id,
+                candidate_budget=candidate_budget,
+            )
+    except Exception as exc:
+        return server_impl._response("error", {"mode": mode_s}, diagnostics=[_diagnostic(
+            "memory_backfill_state_unavailable", "Memory backfill state unavailable: " + type(exc).__name__)],
+            next_tools=["memory_backfill"], usage="repair the local memory state, then retry memory_backfill")
     payload = {
         **summary,
         **worklist,
@@ -1188,15 +1198,9 @@ def memory_backfill_response(
             "validate each data.validation_worklist[].memory_id, then call "
             "memory_backfill(mode='create') for the next exact page"
         )
-    elif entry_path_s == "upgrade":
-        next_tools = ["wf_upgrade"]
-        usage = "wf_upgrade(phase='resume_after_memory'). " + __import__("sqlite_storage_migration").resume_guidance(root, resume_flag="--resume-after-memory")["guidance"]
-    elif entry_path_s == "setup":
-        next_tools = []
-        usage = "Rerun ordinary `wf setup`; it resumes the durable setup run."
     else:
-        next_tools = []
-        usage = "Historical memory validation is complete."
+        next_tools = ["memory_search"]
+        usage = "memory_search(); run Review memories for the next on-demand review."
     return server_impl._response(
         "ok",
         payload,
@@ -1215,10 +1219,8 @@ def _memory_backfill_batch_locked(
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     """Process one bounded historical-memory batch while publication is held.
 
-    The public ``memory_backfill`` wrapper and the protocol-2 upgrade runner
-    share this exact producer path.  The upgrade may therefore auto-advance a
-    no-judgment batch without inventing a second extractor or treating an
-    initially empty validation page as proof that no work exists.
+    This is the on-demand memory producer; setup and upgrade only inventory.
+    An empty validation page does not prove all waves have been processed.
     """
     from wf_server import server_impl
     processed: list[dict[str, Any]] = []
@@ -1239,7 +1241,6 @@ def _memory_backfill_batch_locked(
                 wave_id=wave_id,
                 mode="create",
                 limit=remaining_budget,
-                defer_index_refresh=True,
                 _historical_batch=True,
             )
             if proposed.get("status") != "ok":
@@ -1384,6 +1385,11 @@ def memory_validate_response(
 ) -> dict[str, Any]:
     """Record a focused agent judgment over one evidence-derived candidate."""
     from wf_server import server_impl
+    import publication_control
+    reason = publication_control.publication_block_reason(root, "memory_validate")
+    if reason is not None:
+        return server_impl._response("error", {}, diagnostics=[_diagnostic("upgrade_in_progress", reason)],
+                                     next_tools=["wf_upgrade"], usage="wf_upgrade_status()")
     mem = _memory_mod()
     memory_id = str(memory_id or "").strip()
     verdict = str(verdict or "").strip()
@@ -1498,9 +1504,6 @@ def memory_validate_response(
                     recovery_tools=["memory_search"],
                     recovery_usage="memory_search(include_history=True)")],
                 next_tools=["memory_search"], usage="")
-        backfill_run = server_impl._load_script("memory_backfill").paused_run_for_source(
-            root, str(record.get("source_event") or "")
-        )
         missing_targets = [
             target for target in record.get("target_refs") or []
             if not _memory_file_target_exists(root, target)
@@ -1550,7 +1553,6 @@ def memory_validate_response(
                     _validation_rationale=str(rationale).strip(),
                     _evidence_verified=True, _current_target_verified=True,
                     _canonical_overlap=canonical_overlap,
-                    _defer_index_refresh=bool(backfill_run),
                     _source_exploration_cost=(
                         int(_prior_cost)
                         if _prior_cost is not None and int(_prior_cost) > 0
@@ -1609,8 +1611,7 @@ def memory_validate_response(
         changed = [path]
         if rewritten and rewritten.get("path"):
             changed.append(root / rewritten["path"])
-        if not backfill_run:
-            server_impl._trigger_background_index_refresh_for_paths(root, changed)
+        server_impl._trigger_background_index_refresh_for_paths(root, changed)
         updated = mem.parse_memory_record(path)
         return server_impl._response(
             "ok",

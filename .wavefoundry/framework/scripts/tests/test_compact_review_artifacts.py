@@ -46,7 +46,7 @@ class CompactReviewArtifactContractTests(unittest.TestCase):
             "Required specialist/Council authority, exact test qualification and final full documentation validation remain unchanged",
             "dry-run to resolve uncertain checks, not as a compulsory extra gate",
             "no framework-source suite/profile qualification, extra evidence pass or broad memory maintenance",
-            "existing bounded historical-memory checkpoint",
+            "memory curation is on demand",
             "render → docs gate → incremental index ordering",
             "Reuse a report only while its inputs are unchanged",
         ),

@@ -199,9 +199,9 @@ class SetupWavefoundryTests(unittest.TestCase):
         load.assert_not_called()
         self.assertEqual(checkpoint.read_bytes(), before)
         self.assertIn("storage_setup_foreign_upgrade", stderr.getvalue())
-        self.assertIn("--resume-after-memory", stderr.getvalue())
-        self.assertIn("Operator-run", stderr.getvalue())
-        self.assertIn("agents must not execute", stderr.getvalue())
+        self.assertIn("finish the recorded upgrade", stderr.getvalue())
+        self.assertNotIn("Operator-run", stderr.getvalue())
+        self.assertNotIn("agents must not execute", stderr.getvalue())
 
     def test_abbreviated_or_unknown_options_refuse_before_setup_writes(self):
         for option in ("--graph", "--deps", "--code-o", "--docs-o", "--not-a-setup-option"):
@@ -247,7 +247,8 @@ class SetupWavefoundryTests(unittest.TestCase):
              patch.object(memory_backfill, "reconcile_index_publication", return_value=summary), \
              redirect_stdout(io.StringIO()) as stdout:
             self.assertEqual(self.mod.main([]), 0)
-        self.assertIn("historical-memory validation remains pending", stdout.getvalue())
+        self.assertIn("Historical memory:", stdout.getvalue())
+        self.assertIn("Review memories", stdout.getvalue())
         self.write_setup_stamp_mock.assert_called_once_with(Path.cwd().resolve())
 
     def test_advisory_stamp_failure_does_not_fail_successful_setup(self):

@@ -451,6 +451,10 @@ project root, `~/`, `~/.wavefoundry/`, `~/.wavefoundry/dist/`, and `~/Downloads/
 semver feature zip. If that feature declares an offline model set, it looks in the same locations
 for the exact `wavefoundry-models-<set>.zip` asset; it does not select a model asset by "latest".
 
+Setup and upgrade report closed waves awaiting memory curation and candidates awaiting validation;
+this advisory work does not pause installation or index publication. Run **Review memories** when
+you want to curate that history, using `memory_backfill(mode="create")` followed by `memory_validate`.
+
 An optional `wavefoundry-<semver>.<build>.with-models.zip` embeds that companion and is directly upgradeable. Matching canonical caches avoid extraction; models stay outside installed framework source. New discovery prefers lean for an equal version/build. On an installed 1.31.0 runner, use the incoming ZIP executable after stopping target services: `python3 <combined.zip> --root <repo> --confirm-hosts-stopped`. Follow its retained continuation on a pause. Fresh installs extract only `.wavefoundry/*` and `install-wavefoundry.md`; setup accepts the combined ZIP through `--model-bundle`.
 
 A protocol-1 installation at 1.8.0 or later moves to the current release the same way: same

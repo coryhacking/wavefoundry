@@ -1,8 +1,8 @@
 # Wave Record
 
 Owner: Engineering
-Status: paused
-Last verified: 2026-10-15
+Status: closed
+Last verified: 2026-10-16
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -16,10 +16,10 @@ Bring the Wavefoundry Tensorwell client up to the workload-aware and client-awar
 ## Changes
 
 Change ID: `20tpq-enh tensorwell-capability-negotiation-and-request-contract`
-Change Status: `implementing`
+Change Status: `implemented`
 
 Change ID: `20tpr-enh tensorwell-failure-causes-backpressure-and-reporting`
-Change Status: `implementing`
+Change Status: `implemented`
 Depends On: `20tpq-enh tensorwell-capability-negotiation-and-request-contract`
 
 ## Participants
@@ -29,10 +29,16 @@ Depends On: `20tpq-enh tensorwell-capability-negotiation-and-request-contract`
 - Requested review lanes: code-reviewer, qa-reviewer, security-reviewer, architecture-reviewer, performance-reviewer, docs-contract-reviewer, release-reviewer
 - Required review lanes: code-reviewer, qa-reviewer, architecture-reviewer, docs-contract-reviewer, release-reviewer, performance-reviewer, security-reviewer
 
+Completed At: 2026-10-16
+
 ## Wave Summary
 
-Two changes: `20tpq` negotiates capabilities and sends workload, deadline, session and timing fields; `20tpr` classifies failure causes, bounds retries and concurrency, and reports capacity, then runs the live acceptance checklist against the deployed candidate.
+Wave `20tpp` (Tensorwell Workload Aware Client) delivered two changes: Negotiate Tensorwell capabilities and send workload, deadline and session hints and Preserve Tensorwell failure causes, bound retries and concurrency, and report capacity. Notable adjustments during implementation: Negotiate Tensorwell capabilities and send workload, deadline and session hints: Readiness repair in one round: setup was a phantom call site (its samples embed through local fastembed), and a mandatory caller keyword would have broken the `20qvt` extension contract and its fixture; workload is now derived from the adapter entry point. Added capability value validation and per-instance caching, operation ceilings, the connect-timeout change, final-payload sizing, reload and fork rules for the session hint, timing value bounds, and the architecture docs that actually describe the client.; Negotiate Tensorwell capabilities and send workload, deadline and session hints: Final canonical default qualification passed 11,862 tests / 200 files / 12 existing skips in 740.812s. Green receipt matches current framework inputs, and all 12 reviewed paths remain unchanged. D1 and D2 are independently reverified and terminal; six implemented-scope approvals are recorded. AC-7 is complete in both changes. Wave paused with 20tpr AC-6/live task and full QA/council approval still pending the deliberately selected deployed candidate; no close/commit/push/package.; Negotiate Tensorwell capabilities and send workload, deadline and session hints: Revised API implementation passes producer-grounded controls: client 52/52 green, zero skips; nine guard mutants detected. Consumer/provider focus 37/37 green. Added healthy checkpoint-recovery leg after preserved failed epoch; integration 26/26 green with elapsed-backoff fixture and no local model factories. Real selected-candidate positives passed eight HTTP inference requests, nested timing/stats, prefix/session/privacy and batch-size comparison; results and limits are in wave.md Live Acceptance. Source frozen for fresh delivery review; full canonical suite follows once review settles.
 
+**Changes delivered:**
+
+- **Negotiate Tensorwell capabilities and send workload, deadline and session hints** (`20tpq-enh tensorwell-capability-negotiation-and-request-contract`) — 7 ACs completed. Key decisions: Require capabilities; drop the legacy request shape; Derive `workload` from the adapter entry point; do not forward it to extension callbacks
+- **Preserve Tensorwell failure causes, bound retries and concurrency, and report capacity** (`20tpr-enh tensorwell-failure-causes-backpressure-and-reporting`) — 7 ACs completed. Key decisions: Retry table with small fixed caps per outcome, all under one wall-clock operation deadline, in the adapter; Read `/v1/stats` best-effort after qualification, once per cache window
 ## Watchpoints
 
 - Watchpoint: the adaptive API is deployed locally. Its nested schema_version 2 capabilities, nested response timing and schema_version 3 stats are the contract for the revised plans; prior flat fixtures are provisional and must be replaced before live acceptance.
@@ -66,7 +72,7 @@ Two changes: `20tpq` negotiates capabilities and sends workload, deadline, sessi
 | release-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | performance-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | security-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
-| operator-signoff | withheld | repaired findings require fresh approval: 20tpp-delivery-deadline-validation, 20tpp-delivery-handler-digest | record a fresh independent approval for operator-signoff |
+| operator-signoff | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 <!-- wave:review-status end -->
 
 - operator-signoff: <approved when operator confirms closure>
@@ -83,12 +89,12 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 
 | Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
-| plan | 61 | 493,034 |
+| plan | 63 | 543,503 |
 | implement | 224 | 1,078,312 |
-| review | 460 | 4,291,950 |
-| **Total** | **745** | **5,863,296** |
+| review | 465 | 4,289,197 |
+| **Total** | **752** | **5,911,012** |
 
-<!-- wave:context-efficiency-state {"generation":675,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":224,"content_source_credit":1408143,"derived_artifact_credit":0,"direct_net":1078312,"estimated_tokens_saved":1078312,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":9798,"response_debit":331553,"source_credit_count":49,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":11520},"plan":{"calls":61,"content_source_credit":612709,"derived_artifact_credit":5851,"direct_net":493034,"estimated_tokens_saved":493034,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":24056,"response_debit":108748,"source_credit_count":46,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":7278},"review":{"calls":460,"content_source_credit":5408814,"derived_artifact_credit":1324,"direct_net":4291950,"estimated_tokens_saved":4291950,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":57545,"response_debit":1060643,"source_credit_count":311,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":745,"content_source_credit":7429666,"derived_artifact_credit":7175,"direct_net":5863296,"estimated_tokens_saved":5863296,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":91399,"response_debit":1500944,"source_credit_count":406,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":18798},"wave_id":"20tpp tensorwell-workload-aware-client"} -->
+<!-- wave:context-efficiency-state {"generation":682,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":224,"content_source_credit":1408143,"derived_artifact_credit":0,"direct_net":1078312,"estimated_tokens_saved":1078312,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":9798,"response_debit":331553,"source_credit_count":49,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":11520},"plan":{"calls":63,"content_source_credit":665897,"derived_artifact_credit":6131,"direct_net":543503,"estimated_tokens_saved":543503,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":24758,"response_debit":111045,"source_credit_count":48,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":7278},"review":{"calls":465,"content_source_credit":5408814,"derived_artifact_credit":1324,"direct_net":4289197,"estimated_tokens_saved":4289197,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":57590,"response_debit":1066405,"source_credit_count":311,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3054}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":752,"content_source_credit":7482854,"derived_artifact_credit":7455,"direct_net":5911012,"estimated_tokens_saved":5911012,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":92146,"response_debit":1509003,"source_credit_count":408,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":21852},"wave_id":"20tpp tensorwell-workload-aware-client"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided
