@@ -7293,7 +7293,8 @@ class ClosedInlineRecordLintTests(_DocsLintFixture, unittest.TestCase):
 
     def _predicate(self, root: Path, *, raw: bool = False) -> bool:
         wave_md = root / self.WAVE_DOC_PATH
-        text = wave_md.read_text(encoding="utf-8", newline="" if raw else None)
+        # Path.read_text(newline=...) needs Python 3.13; decoding the bytes keeps CRLF on 3.11.
+        text = wave_md.read_bytes().decode("utf-8") if raw else wave_md.read_text(encoding="utf-8")
         return closed_legacy_inline_record(text, wave_md)
 
     def _stale(self, text: str) -> str:
@@ -7319,7 +7320,7 @@ class ClosedInlineRecordLintTests(_DocsLintFixture, unittest.TestCase):
 
     def test_closed_inline_record_with_crlf_is_left_alone(self) -> None:
         root = self._record("Status: closed\n", crlf=True)
-        self.assertIn("\r\n", (root / self.WAVE_DOC_PATH).read_text(encoding="utf-8", newline=""))
+        self.assertIn("\r\n", (root / self.WAVE_DOC_PATH).read_bytes().decode("utf-8"))
         self.assertTrue(self._predicate(root, raw=True))
         result = self.run_docs_lint(root)
         self.assertEqual(result.returncode, 0, result.stderr)

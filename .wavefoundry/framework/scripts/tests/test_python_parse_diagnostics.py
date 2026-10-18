@@ -44,6 +44,10 @@ INVALID_ESCAPE_SOURCE = (
 
 BROKEN_SOURCE = "def broken(:\n    pass\n"
 
+# Python 3.12 made an invalid string escape a SyntaxWarning; 3.11 raises a
+# DeprecationWarning, which its default filters hide.
+ESCAPE_WARNING = SyntaxWarning if sys.version_info >= (3, 12) else DeprecationWarning
+
 
 def _load(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -54,7 +58,7 @@ def _load(name: str, path: Path):
 
 
 def _syntax_warnings(record):
-    return [w for w in record if issubclass(w.category, SyntaxWarning)]
+    return [w for w in record if issubclass(w.category, ESCAPE_WARNING)]
 
 
 class ParseFilenameInWarningTests(unittest.TestCase):
@@ -184,8 +188,11 @@ class IndexBuildWarningNamesFixturePathTests(unittest.TestCase):
                 print("BUILD_OK", flush=True)
                 """
             )
+            # On 3.11 this proves the path reaches the warning; a default-filter
+            # build log never shows it there.
+            warning_flags = [] if sys.version_info >= (3, 12) else ["-W", "always::DeprecationWarning"]
             proc = subprocess.run(
-                [sys.executable, "-B", "-c", child, str(GRAPH_INDEXER_PATH), str(root)],
+                [sys.executable, "-B", *warning_flags, "-c", child, str(GRAPH_INDEXER_PATH), str(root)],
                 capture_output=True,
                 text=True,
                 timeout=120,
@@ -202,7 +209,7 @@ class IndexBuildWarningNamesFixturePathTests(unittest.TestCase):
                     root / ".wavefoundry" / "index").is_file()
             )
             self.assertFalse((root / ".wavefoundry" / "index" / "graph").exists())
-        self.assertIn("SyntaxWarning", proc.stderr)
+        self.assertIn(ESCAPE_WARNING.__name__, proc.stderr)
         self.assertIn("invalid escape sequence", proc.stderr)
         self.assertIn("src/bad_escape.py", proc.stderr.replace("\\", "/"))
         self.assertNotIn("<unknown>", proc.stderr)
@@ -248,7 +255,7 @@ class InvalidEscapeSweepTests(unittest.TestCase):
                         offenders.append(f"{rel}:{exc.lineno}: {exc}")
                     continue
             for w in record:
-                if issubclass(w.category, SyntaxWarning) and "invalid escape" in str(w.message):
+                if issubclass(w.category, ESCAPE_WARNING) and "invalid escape" in str(w.message):
                     offenders.append(f"{w.filename}:{w.lineno}: {w.message}")
         self.assertEqual(
             offenders,

@@ -15677,7 +15677,9 @@ Status: in-progress
 
         before = digest()
         err = io.StringIO()
+        # The Python 3.11/3.12 runtime advisory would add a stderr line.
         with patch.object(wf_cli.venv_bootstrap, "activate_tool_venv"), \
+             patch.object(wf_cli.runtime_advisory, "python_runtime_advisory", return_value=None), \
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
             rc = wf_cli.main(["techdocs-baseline", "--root", str(self.root)])
         self.assertEqual(rc, 1)

@@ -1617,7 +1617,9 @@ class ReleaseOrchestrationOrderingTests(unittest.TestCase):
                 "--with-embedded-models" if embedded else "--with-models",
                 "--release-dry-run",
             ]
-            with patch.object(sys, "argv", argv), patch.object(
+            # Python 3.11 allows at most 20 statically nested blocks per function.
+            self.enterContext(patch.object(sys, "argv", argv))
+            with patch.object(
                 build_pack, "_reexec_with_venv_if_needed"
             ), patch.object(
                 build_pack, "find_repo_root", return_value=root

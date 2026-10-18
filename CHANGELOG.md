@@ -8,6 +8,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- The framework test suite runs on Python 3.11, the supported minimum, again. Four test files relied on Python 3.12 or 3.13 behaviour: a release test exceeded 3.11's limit of 20 nested blocks, two lint tests used `Path.read_text(newline=...)`, the parse-diagnostics tests expected the 3.12 `SyntaxWarning` for an invalid escape (so the tree-wide invalid-escape sweep could never fail on 3.11), and a techdocs test did not allow for the 3.11 runtime advisory line. Test-only change; product behaviour is unchanged on Windows, macOS, Linux and WSL2.
+
 ## [1.32.0] - 2026-10-17
 
 ### Security
