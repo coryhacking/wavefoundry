@@ -8,17 +8,17 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Fixed
+## [1.32.0] - 2026-10-17
 
-- Skip unused local embedding probes when qualified service inference covers setup's required models. Probe an uncovered model for mixed workloads without letting its automatic CPU fallback disable covered service inference. Explicit local policy and precision compatibility remain authoritative. Wave 20st8 / 20st9.
+### Security
 
-### Added
-
-- Report child index-build embedding activity by attempt, layer and provider through existing build logs and status. Count accepted inputs and logical Tensorwell requests without borrowing MCP/daemon totals; preserve unknown/no-op/failure distinctions and earlier successful provenance. No batching or compatibility identity changes. Wave 20st8 / 20tt3.
-
-## [1.32.0] - 2026-10-16
+- Releases now publish a `SHA256SUMS` asset, and install and upgrade guidance tells agents to verify each downloaded pack against it before placing, extracting or running it, with commands for macOS, Linux, WSL2 and Windows PowerShell. This detects corruption or a copy altered after download, not a replacement by someone who can edit the release; it is not a signature. Wave 20wq7 / 20qvs.
 
 ### Changed
+
+- The Claude pre-edit hook now exempts every Wavefoundry MCP tool whose effective tier is read, including a distribution's declared aliases, overrides, read-tier replacements and extension tools declared `read`, under the same two-file digest. A declared `read` tier is the distribution's own assertion, and declaration values must be literal assignments in `mcp_tool_extensions.py`. Default installs are unchanged. Wave 20x1k / 20wqb.
+
+- Closed wave records that still carry the retired inline review marker and have no sibling `events.jsonl` are left alone: docs-lint and the wave resource no longer ask them to migrate. Seed 209 states closed records need no migration and their signoffs are not converted. Wave 20x1k / 20wqa.
 
 - Upgrades no longer pause for historical memory. Supported older runners, including skipped-release upgrades, pass through their memory step when installing this or later packs. `--resume-after-memory` and `resume_after_memory` are deprecated aliases of `update_index` until runner protocol 2 leaves the supported set (or a proven new-runner handoff replaces the seam). Retained memory pauses finish with `update_index` then `cleanup`; `memory_backfill` and `memory_validate` refuse a retained upgrade checkpoint until recovery completes. Use Review memories on demand. Wave 20t73.
 
@@ -26,11 +26,23 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `build_pack.py --release` refuses unless the default, second and declared qualification reports pass for the exact tree, rechecks the tree before building, and adds a `### Qualification` section to the release notes. A failing renamed or declared report can ship only with `--accept-qualification-exception PROFILE=REASON`. Wave 20wq7 / 20qvs.
+
+- Every pack carries `.wavefoundry/framework/BUILD-PROVENANCE.json` with its source commit, clean-tree flag, build id and release tag. Wave 20wq7 / 20qvs.
+
+- Distributions can declare their own profile assets in `tests/fixtures/profiles/qualification/distribution-assets.json` without editing the upstream coverage inventory. Wave 20wq7 / 20wq6.
+
+- Report child index-build embedding activity by attempt, layer and provider through existing build logs and status. Count accepted inputs and logical Tensorwell requests without borrowing MCP/daemon totals; preserve unknown/no-op/failure distinctions and earlier successful provenance. No batching or compatibility identity changes. Wave 20st8 / 20tt3.
+
 - Distributions can keep automatic Tensorwell, select local-only inference, or declare a trusted enterprise inference adapter. Setup, indexing, query and memory consumers share compatibility checks, safe failures and provider reporting; explicit adapters never fall back to another provider. Synthetic fixtures cover deadlines, raw reranking scores and source-aware reload. Wave 20qvt.
 
 - Optional `--with-embedded-models` packaging produces a directly upgradeable combined ZIP alongside the lean framework and standalone model assets. Reuse verified model caches or provision from the embedded companion, with retained-source recovery and an executable entry for older installations. Wave 20omx / 20nt1.
 
 ### Fixed
+
+- The extra-package and stale-artifact release tests reach the checks they are named for. Wave 20wq9 / 20wq8.
+
+- Skip unused local embedding probes when qualified service inference covers setup's required models. Probe an uncovered model for mixed workloads without letting its automatic CPU fallback disable covered service inference. Explicit local policy and precision compatibility remain authoritative. Wave 20st8 / 20st9.
 
 - Keep the legacy temporary-pack alias fixture in a private staging directory so compatibility qualification preserves worker protection. Release qualification follow-up to wave 20tzs.
 
