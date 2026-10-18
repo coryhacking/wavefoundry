@@ -181,6 +181,26 @@ class SetupReadinessTests(unittest.TestCase):
         result = self.assess()
         self.assertEqual(result['status'], 'action_required', result)
 
+    def test_setup_notes_edit_after_stamp_does_not_request_setup(self):
+        config = self.root / 'docs/workflow-config.json'
+        config.write_text('{"setup":{"notes":"a","dep_install_timeout_seconds":100}}')
+        readiness.write_setup_stamp(self.root)
+        config.write_text('{"setup":{"notes":"b","dep_install_timeout_seconds":100}}')
+        self.assertEqual(self.assess()['status'], 'ready')
+        config.write_text('{"setup":{"notes":"b","dep_install_timeout_seconds":200}}')
+        result = self.assess()
+        self.assertEqual(result['status'], 'action_required', result)
+        self.assertIn('setup_inputs_changed', [reason['code'] for reason in result['reasons']])
+        # A string-valued setting and a non-dict section still count.
+        for before, after in (('{"indexing":{"notes":"a","model":"x"}}', '{"indexing":{"notes":"a","model":"y"}}'),
+                              ('{"platforms":["claude"]}', '{"platforms":["codex"]}')):
+            with self.subTest(after=after):
+                config.write_text(before)
+                readiness.write_setup_stamp(self.root)
+                self.assertEqual(self.assess()['status'], 'ready')
+                config.write_text(after)
+                self.assertEqual(self.assess()['status'], 'action_required')
+
     def test_changed_metadata_signature(self):
         path = readiness._site() / 'numpy-1.0.dist-info'
         path.mkdir(); meta = path / 'METADATA'; meta.write_text('Name: numpy\nVersion: 1.0\n')

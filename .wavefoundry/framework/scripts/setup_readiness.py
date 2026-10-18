@@ -798,6 +798,9 @@ def _configuration_identity(root: Path) -> dict:
                 # Notes, review/lifecycle state and unrelated product settings do not
                 # change setup fitness. Index/provider/platform selections do.
                 data = {key: data[key] for key in ('indexing', 'setup', 'platforms', 'embedding', 'providers') if key in data}
+                # A section's `notes` is prose that setup never reads.
+                data = {key: ({k: v for k, v in value.items() if k != 'notes'} if isinstance(value, dict) else value)
+                        for key, value in data.items()}
                 result[relative] = _digest(data)
             elif relative.endswith(('.toml', '.json')) and relative in SURFACE_FILES:
                 result[relative] = _digest(_surface_entry(root, relative))

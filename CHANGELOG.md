@@ -11,6 +11,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - The framework test suite runs on Python 3.11, the supported minimum, again. Four test files relied on Python 3.12 or 3.13 behaviour: a release test exceeded 3.11's limit of 20 nested blocks, two lint tests used `Path.read_text(newline=...)`, the parse-diagnostics tests expected the 3.12 `SyntaxWarning` for an invalid escape (so the tree-wide invalid-escape sweep could never fail on 3.11), and a techdocs test did not allow for the 3.11 runtime advisory line. Test-only change; product behaviour is unchanged on Windows, macOS, Linux and WSL2.
+- Setup readiness no longer reports `setup_inputs_changed` when only the `notes` text in a `docs/workflow-config.json` section changes; setup never reads that prose. Real setting changes still count. A stamp written before this fix keeps reporting the change until the next `wf setup` or upgrade. Same on Windows, macOS, Linux and WSL2.
 
 ## [1.32.0] - 2026-10-17
 
