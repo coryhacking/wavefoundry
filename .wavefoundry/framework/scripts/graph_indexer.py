@@ -15173,6 +15173,13 @@ class GraphIndexSession:
             payload_fingerprint=input_fingerprint,
         )
 
+    def _finalize_phase(self, phase: str, count: int | None = None, unit: str = "") -> None:
+        # Wave 212ym: name the running finalize phase in the build log, whose
+        # last line is what index_build_status reports as progress.
+        if self.verbose:
+            suffix = f" ({count} {unit})" if count is not None else ""
+            print(f"build_index: graph finalize ({self.layer} layer): {phase}{suffix}", flush=True)
+
     def finalize(self) -> dict[str, Any]:
         """Merge per-file artifacts into the graph payload.
 
@@ -15247,6 +15254,7 @@ class GraphIndexSession:
         }
 
         current_paths = set(self._current_paths)
+        self._finalize_phase("merge state load")
         known_paths = store.paths_with_hashes()
         # Wave 1x54z (1u8o3): a known path under a directory the walk could
         # not read this build is not gone, it is unseen. It counts as current
@@ -15337,6 +15345,7 @@ class GraphIndexSession:
             # rather than serve a graph the rows cannot vouch for.
 
         # --- Acquire the persistent merge state. ---
+        self._finalize_phase("merge state acquire")
         merge_files: dict[str, dict[str, Any]] = {}
         prev_di_synth_nodes: list[dict[str, Any]] = []
         incremental = False
@@ -15378,6 +15387,7 @@ class GraphIndexSession:
                 )
 
         # --- Per-file delta bookkeeping (symbol-scoped invalidation inputs). ---
+        self._finalize_phase("delta bookkeeping")
         changed_code_symbols: set[str] = set()
         # Symbol IDs that existed before but no longer do (renamed/removed
         # within a surviving file). Edges pointing at these are stale.
@@ -15446,6 +15456,7 @@ class GraphIndexSession:
         matcher = self._compile_doc_matcher(symbol_terms)
 
         # Changed docs are rescanned directly from their current text.
+        self._finalize_phase("doc rescans", len(self.pending_doc_text), "changed docs")
         for rel, source_text in self.pending_doc_text.items():
             artifact = self._extract_doc_artifact(rel, source_text, symbol_terms, matcher)
             recompute_artifacts[rel] = artifact
@@ -15505,6 +15516,7 @@ class GraphIndexSession:
                 merge_files.pop(rel, None)
 
         # --- Build merge entries for every recomputed file. ---
+        self._finalize_phase("merge entries", len(recompute_artifacts), "files")
         locality_violation = False
         for rel, artifact in recompute_artifacts.items():
             if rel not in current_paths:
@@ -15553,6 +15565,7 @@ class GraphIndexSession:
             merge_files[rel] = entry
 
         # --- Assemble the merged node map (sorted-file, first-id-wins). ---
+        self._finalize_phase("node map", len(merge_files), "files")
         node_map: dict[str, dict[str, Any]] = {}
         for rel in sorted(merge_files.keys()):
             for node in merge_files[rel].get("nodes", []):
@@ -15569,6 +15582,7 @@ class GraphIndexSession:
                     node_map[node_id] = fresh
 
         # --- DI signal resolution (may synthesize type nodes). ---
+        self._finalize_phase("DI resolution")
         di_edge_items: list[tuple[tuple[str, str, str, str], dict[str, Any]]] = []
         di_synth_nodes: list[dict[str, Any]] = []
         try:
@@ -15609,6 +15623,7 @@ class GraphIndexSession:
             pass
 
         # --- Cross-file resolution context (candidate indexes; wave 130ol+). ---
+        self._finalize_phase("resolution context", len(node_map), "nodes")
         simple_name_index, qualified_index, cs_file_ns, java_pkg_by_file, rust_module_index = _build_candidate_indexes(node_map)
 
         # Raw edge views per file (fragment provenance makes untouched files'
@@ -15649,6 +15664,7 @@ class GraphIndexSession:
 
         # --- Symbol delta (Req-2): candidate-index keys whose candidate set
         # may have changed. Any edge consulting one of these keys re-resolves.
+        self._finalize_phase("symbol delta")
         delta_keys: set[str] = set()
         rust_topology_changed = incremental and _rust_topology_facts(delta_nodes_old) != _rust_topology_facts(delta_nodes_new)
         if incremental:
@@ -15674,8 +15690,15 @@ class GraphIndexSession:
 
         # --- Fragment resolution: full for recomputed files; symbol-scoped for
         # untouched files (scope (a) + scope (b) of Req-2). ---
+        self._finalize_phase("fragment resolution", len(merge_files), "files")
         reresolved = 0
-        for rel in sorted(merge_files.keys()):
+        _resolution_total = len(merge_files)
+        for _resolution_done, rel in enumerate(sorted(merge_files.keys()), start=1):
+            if self.verbose:
+                _report_graph_progress(
+                    f"build_index: graph finalize progress ({self.layer} layer): ",
+                    _resolution_done, _resolution_total, "files",
+                )
             entry = merge_files[rel]
             if rel in recompute_artifacts:
                 entry["edges"] = [
@@ -15710,6 +15733,7 @@ class GraphIndexSession:
         # --- Assemble the final edge map (sorted-file union of fragments,
         # first-key-wins collapse — identical key set to the former in-place
         # rewrite by construction). ---
+        self._finalize_phase("edge assembly")
         edge_map: dict[tuple[str, str, str, str], dict[str, Any]] = {}
         for rel in sorted(merge_files.keys()):
             for fragment_edge in merge_files[rel].get("edges", []):
@@ -16437,6 +16461,7 @@ class GraphIndexSession:
             )),
         }
 
+        self._finalize_phase("publication prepare")
         # --- Prepare (never apply) the graph participants of the caller's
         # publication transaction. Everything below is hashing, grouping and
         # diffing: no BEGIN, no COMMIT, no write. The caller applies the plan
@@ -16506,6 +16531,25 @@ class GraphIndexSession:
 # Doc/seed extraction stays serial because it depends on cross-file
 # `symbol_terms` built across artifacts; only code-file extraction parallelizes.
 _PARALLEL_EXTRACTION_THRESHOLD = int(os.environ.get("WAVEFOUNDRY_GRAPH_PARALLEL_THRESHOLD", "100"))
+# Wave 212ym: verbose graph builds log a progress line every this many items.
+_GRAPH_PROGRESS_INTERVAL = 250
+
+
+def _report_graph_progress(prefix: str, done: int, total: int, unit: str) -> None:
+    """Print ``<prefix><done>/<total> <unit>`` at the interval and at the end."""
+    if done == total or done % _GRAPH_PROGRESS_INTERVAL == 0:
+        print(f"{prefix}{done}/{total} {unit}", flush=True)
+
+
+def _record_files_with_progress(session, items, verbose: bool, layer: str, unit: str) -> None:
+    """Serial ``record_file`` loop that logs extraction progress in verbose mode."""
+    total = len(items)
+    for done, (rel, text) in enumerate(items, start=1):
+        session.record_file(rel, text)
+        if verbose:
+            _report_graph_progress(
+                f"build_index: graph extraction progress ({layer} layer): ", done, total, unit,
+            )
 # Wave 1p2q3 (1p2wd / Bug 4): parallel extraction now uses `spawn` start
 # method (default) + a worker `initializer` that registers `graph_indexer`
 # in each fresh worker's `sys.modules` before task unpickling. The 1.3.14
@@ -17119,8 +17163,11 @@ def update_graph_index(
                             _seen += 1
                             if _seen == 1:
                                 _pdbg(f"first task returned: rel_path={rel_path!r}")
-                            elif _seen % 250 == 0:
-                                _pdbg(f"progress: {_seen}/{len(worker_args)} tasks returned")
+                            if verbose:
+                                _report_graph_progress(
+                                    f"build_index: graph extraction progress ({layer} layer): ",
+                                    _seen, len(worker_args), "code files",
+                                )
                             if entry is not None:
                                 session.pending_code[rel_path] = entry
                         _pdbg(f"pool drained: {_seen} task results consumed")
@@ -17131,8 +17178,7 @@ def update_graph_index(
                             f"({type(exc).__name__}: {exc}); falling back to serial",
                             flush=True,
                         )
-                    for rel, text in code_work_items:
-                        session.record_file(rel, text)
+                    _record_files_with_progress(session, code_work_items, verbose, layer, "code files")
             else:
                 # Process-mode backend (opt-in via WAVEFOUNDRY_GRAPH_PARALLEL_BACKEND=processes).
                 # Kept for benchmarking and for any workload where the Python-side
@@ -17161,8 +17207,7 @@ def update_graph_index(
                 _pdbg(f"step 6/8: sys.path[0]={sys.path[0]!r} (path_inserted={path_inserted})")
                 try:
                     if mp_ctx is None:
-                        for rel, text in code_work_items:
-                            session.record_file(rel, text)
+                        _record_files_with_progress(session, code_work_items, verbose, layer, "code files")
                     else:
                         try:
                             _pdbg(
@@ -17201,8 +17246,11 @@ def update_graph_index(
                                             _seen += 1
                                             if _seen == 1:
                                                 _pdbg(f"first task returned: rel_path={rel_path!r} (workers confirmed spawned)")
-                                            elif _seen % 250 == 0:
-                                                _pdbg(f"progress: {_seen}/{len(worker_args)} tasks returned")
+                                            if verbose:
+                                                _report_graph_progress(
+                                                    f"build_index: graph extraction progress ({layer} layer): ",
+                                                    _seen, len(worker_args), "code files",
+                                                )
                                             if entry is not None:
                                                 session.pending_code[rel_path] = entry
                                         try:
@@ -17218,8 +17266,7 @@ def update_graph_index(
                                     f"({type(exc).__name__}: {exc}); falling back to serial",
                                     flush=True,
                                 )
-                            for rel, text in code_work_items:
-                                session.record_file(rel, text)
+                            _record_files_with_progress(session, code_work_items, verbose, layer, "code files")
                 finally:
                     if path_inserted:
                         try:
@@ -17227,12 +17274,10 @@ def update_graph_index(
                         except ValueError:
                             pass
         else:
-            for rel, text in code_work_items:
-                session.record_file(rel, text)
+            _record_files_with_progress(session, code_work_items, verbose, layer, "code files")
 
         # Doc/seed files always sequential (need cross-file symbol_terms).
-        for rel, text in doc_work_items:
-            session.record_file(rel, text)
+        _record_files_with_progress(session, doc_work_items, verbose, layer, "doc files")
 
         # Every selected source must produce extraction state, even when its
         # artifact has no nodes. Intentional document exclusions and walker-

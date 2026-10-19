@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-16
+Last verified: 2026-10-19
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -117,6 +117,11 @@ in **Build Coordination** below.
 
 - **`index_build`** spawns `indexer.py` for a deterministic docs / code / graph
   build · update · rebuild.
+  The detached build runs verbose and writes `.wavefoundry/logs/project-index-build.log`;
+  `index_build_status` reports its last line as `progress`. Graph extraction logs
+  `graph extraction progress` every 250 code or doc files, and `GraphIndexSession.finalize`
+  logs a `graph finalize` line as each phase starts, so the last line names the running
+  phase (wave `212ym`).
 
 ### Automatic / reactive
 

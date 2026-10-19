@@ -54,6 +54,8 @@ SURFACE_FILES = ('.mcp.json', '.codex/config.toml', '.cursor/mcp.json',
 OWNERSHIP_FILES = ('.wavefoundry/upgrade-in-progress.json',
                    '.wavefoundry/index/sqlite-migration.json')
 STAMP_PATH = '.wavefoundry/index/setup-state.json'
+SOURCE_ONLY_STAMP_LIMITATION = ('Framework sources differ from the setup stamp at the same framework version; '
+                                'live checks decided readiness.')
 ENV_KEYS = (REQUESTED_PROVIDER_ENV, SETUP_SELECTED_ENV,
             'WAVEFOUNDRY_DISABLE_RERANKER', 'PYTHONPATH', 'VIRTUAL_ENV')
 # Stamp comparison projects the recorded environment to the operator-controlled
@@ -527,12 +529,16 @@ def assess_setup(root: Path, *, loaded_identity: dict | None = None,
         if use_stamp and stamp_path.exists():
             try:
                 stamp = _json(stamp_path)
-                if (stamp.get('schema_version') == SCHEMA_VERSION and isinstance(stamp.get('sources'), dict)
-                        and (stamp['sources'] != identity['sources']
-                             or stamp.get('configuration') != _configuration_identity(root)
-                             or projected_environment(stamp.get('environment'))
-                             != projected_environment(_environment_identity()))):
-                    needs_setup = True; reason('setup_inputs_changed', 'Installed setup inputs changed since successful setup.')
+                if stamp.get('schema_version') == SCHEMA_VERSION and isinstance(stamp.get('sources'), dict):
+                    if (stamp.get('configuration') != _configuration_identity(root)
+                            or projected_environment(stamp.get('environment'))
+                            != projected_environment(_environment_identity())):
+                        needs_setup = True; reason('setup_inputs_changed', 'Installed setup inputs changed since successful setup.')
+                    elif stamp['sources'] != identity['sources']:
+                        # Wave 212yk: script edits at an unchanged framework VERSION
+                        # (which the configuration identity hashes) leave setup nothing
+                        # the live checks above would not report.
+                        result['limitations'].append(SOURCE_ONLY_STAMP_LIMITATION)
             except (OSError, ValueError):
                 result['limitations'].append('The advisory setup stamp is unreadable; live observations were used.')
         if not pending and not (loaded_identity is not None and loaded_identity != identity):

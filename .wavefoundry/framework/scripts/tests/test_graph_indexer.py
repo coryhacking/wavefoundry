@@ -4,6 +4,7 @@ import io
 import importlib.util
 import json
 import os
+import re
 import sqlite3
 import sys
 import tempfile
@@ -12523,3 +12524,184 @@ class NonCallableRegistryProvenanceTests(_CallProvenanceFixture, unittest.TestCa
             with self.subTest(language=language):
                 graph = self._extract(path, source)
                 self.assertFalse([e for e in graph["edges"] if e["relation"] == "calls"])
+
+
+class GraphBuildProgressLoggingTests(unittest.TestCase):
+    """Wave 212ym: verbose graph builds log extraction progress on every path
+    and name each finalize phase, so the build log's last line (which
+    index_build_status reports as progress) shows what is running."""
+
+    CODE_FILES = 5
+    DOC_FILES = 2
+    FINALIZE_PHASES = [
+        "merge state load",
+        "merge state acquire",
+        "delta bookkeeping",
+        "doc rescans",
+        "merge entries",
+        "node map",
+        "DI resolution",
+        "resolution context",
+        "symbol delta",
+        "fragment resolution",
+        "edge assembly",
+        "publication prepare",
+    ]
+    FINALIZE_LINE = re.compile(r"^build_index: graph finalize \(\w+ layer\): [A-Za-z ]+( \(\d+ [a-z ]+\))?$")
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        _make_repo(self.root)
+        self.files: list[Path] = []
+        self.meta: dict = {}
+        for i in range(self.CODE_FILES):
+            self._write(f"src/m{i}.py", f"def fn_{i}(x):\n    return x + {i}\n\n\ndef g_{i}():\n    return fn_{i}(1)\n")
+        for i in range(self.DOC_FILES):
+            self._write(f"docs/d{i}.md", f"# Doc {i}\n\nSee `fn_{i}` in src/m{i}.py.\n")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _write(self, rel: str, text: str) -> None:
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        self.files.append(path)
+        self.meta[rel] = {"hash": f"hash-{rel}"}
+
+    def _build(self, *, verbose: bool = True, changed=None, workers: int = 2, backend: str = "threads",
+               interval: int = 2) -> list[str]:
+        buf = io.StringIO()
+        with patch.object(self.mod, "_GRAPH_PROGRESS_INTERVAL", interval), \
+             patch.object(self.mod, "_PARALLEL_EXTRACTION_THRESHOLD", 2), \
+             patch.object(self.mod, "_PARALLEL_EXTRACTION_WORKERS_OVERRIDE", workers), \
+             patch.object(self.mod, "_PARALLEL_EXTRACTION_BACKEND", backend), \
+             redirect_stdout(buf):
+            self.payload = self.mod.update_graph_index(
+                root=self.root,
+                index_dir=self.root / ".wavefoundry" / "index",
+                layer="project",
+                files=self.files,
+                current_file_meta=self.meta,
+                changed=set(self.meta) if changed is None else changed,
+                removed=set(),
+                walker_version="1",
+                chunker_version="1",
+                verbose=verbose,
+            )
+        return buf.getvalue().splitlines()
+
+    @staticmethod
+    def _progress(lines: list[str], unit: str) -> list[str]:
+        prefix = "build_index: graph extraction progress (project layer): "
+        return [line[len(prefix):] for line in lines if line.startswith(prefix) and line.endswith(unit)]
+
+    def _assert_code_progress(self, lines: list[str]) -> None:
+        total = self.CODE_FILES
+        self.assertEqual(self._progress(lines, "code files"),
+                         [f"2/{total} code files", f"4/{total} code files", f"{total}/{total} code files"])
+        self.assertFalse([line for line in lines if "graph extraction progress" in line and "parallel-debug" in line])
+        self.assertFalse([line for line in lines if "tasks returned" in line])
+
+    def test_thread_backend_logs_plain_code_progress(self):
+        self._assert_code_progress(self._build(workers=2))
+
+    def test_serial_path_logs_plain_code_progress(self):
+        lines = self._build(workers=1)
+        self.assertFalse([line for line in lines if "graph extraction parallel" in line])
+        self._assert_code_progress(lines)
+
+    def test_serial_fallback_after_thread_pool_failure_logs_progress(self):
+        import concurrent.futures as futures
+        real = futures.ThreadPoolExecutor
+        raised = []
+
+        def _pool(*args, **kwargs):
+            if kwargs.get("thread_name_prefix") == "wavefoundry-extract":
+                raised.append(True)
+                raise RuntimeError("forced extraction pool failure")
+            return real(*args, **kwargs)
+
+        with patch("concurrent.futures.ThreadPoolExecutor", _pool):
+            lines = self._build(workers=2)
+        self.assertEqual(raised, [True])
+        self.assertTrue([line for line in lines if "parallel extraction (threads) failed" in line])
+        self._assert_code_progress(lines)
+
+    def test_process_backend_without_mp_context_logs_progress(self):
+        with patch.object(self.mod.subprocess_util, "windowless_mp_context", return_value=None):
+            lines = self._build(workers=2, backend="processes")
+        self.assertTrue([line for line in lines if "mp_ctx acquired (None)" in line])
+        self._assert_code_progress(lines)
+
+    def test_serial_fallback_after_process_pool_failure_logs_progress(self):
+        raised = []
+
+        def _pool(*args, **kwargs):
+            raised.append(True)
+            raise RuntimeError("forced process pool failure")
+
+        with patch("concurrent.futures.ProcessPoolExecutor", _pool):
+            lines = self._build(workers=2, backend="processes")
+        self.assertEqual(raised, [True])
+        self.assertTrue([line for line in lines if "parallel extraction failed" in line])
+        self._assert_code_progress(lines)
+
+    def test_merge_state_load_line_precedes_the_store_reads(self):
+        store_cls = self.mod.GraphStateStore
+        real = store_cls.paths_with_hashes
+
+        def _marked(store):
+            print("STORE READ: paths_with_hashes", flush=True)
+            return real(store)
+
+        with patch.object(store_cls, "paths_with_hashes", _marked):
+            lines = self._build()
+        load = lines.index("build_index: graph finalize (project layer): merge state load")
+        extraction_end = max(i for i, line in enumerate(lines) if "graph extraction progress" in line)
+        marker = "STORE READ: paths_with_hashes"
+        # finalize's own read comes after the load line, with none between it
+        # and the end of extraction (earlier reads belong to session setup).
+        self.assertLess(extraction_end, load)
+        self.assertNotIn(marker, lines[extraction_end:load])
+        self.assertIn(marker, lines[load:])
+
+    def test_doc_loop_logs_progress(self):
+        self.assertEqual(self._progress(self._build(), "doc files")[-1],
+                         f"{self.DOC_FILES}/{self.DOC_FILES} doc files")
+
+    def test_finalize_names_every_phase_in_order(self):
+        lines = self._build()
+        phase_lines = [line for line in lines if line.startswith("build_index: graph finalize (")]
+        for line in phase_lines:
+            self.assertRegex(line, self.FINALIZE_LINE)
+        phases = [line.split("): ", 1)[1].split(" (", 1)[0] for line in phase_lines]
+        self.assertEqual(phases, self.FINALIZE_PHASES)
+        counted = {line.split("): ", 1)[1] for line in phase_lines if line.endswith(")")}
+        self.assertIn(f"doc rescans ({self.DOC_FILES} changed docs)", counted)
+        for phase, unit in (("merge entries", "files"), ("node map", "files"),
+                            ("resolution context", "nodes"), ("fragment resolution", "files")):
+            self.assertTrue([c for c in counted if re.fullmatch(rf"{phase} \(\d+ {unit}\)", c)], phase)
+        wrote = next(i for i, line in enumerate(lines) if "graph extraction wrote" in line)
+        self.assertLess(lines.index(phase_lines[-1]), wrote)
+        resolution = [line for line in lines if line.startswith("build_index: graph finalize progress (project layer): ")]
+        self.assertTrue(resolution)
+        self.assertTrue(resolution[-1].endswith(" files"))
+        done, total = resolution[-1].rsplit(": ", 1)[1].split(" ", 1)[0].split("/")
+        self.assertEqual(done, total)
+
+    def test_zero_change_build_logs_only_the_merge_state_load(self):
+        self._build(verbose=False)
+        lines = self._build(changed=set())
+        self.assertEqual((self.payload.get("merge_stats") or {}).get("mode"), "zero-change")
+        phases = [line for line in lines if line.startswith("build_index: graph finalize")]
+        self.assertEqual(phases, ["build_index: graph finalize (project layer): merge state load"])
+
+    def test_non_verbose_build_prints_no_progress_or_phase_lines(self):
+        for workers in (1, 2):
+            with self.subTest(workers=workers):
+                lines = self._build(verbose=False, workers=workers)
+                self.assertFalse([line for line in lines
+                                  if "graph extraction progress" in line or "graph finalize" in line])

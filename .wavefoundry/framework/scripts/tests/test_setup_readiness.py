@@ -404,6 +404,50 @@ class SetupReadinessTests(unittest.TestCase):
         with patch.object(readiness, '_dependencies', return_value=['numpy']):
             self.assertIn('dependencies_missing', [r['code'] for r in self.assess(use_stamp=False)['reasons']])
 
+    # Wave 212yk: a stamp difference confined to framework source hashes, at an
+    # unchanged VERSION, configuration and environment, requests no setup.
+
+    def _stamp_with_changed_source(self):
+        stamp = self._stamp()
+        stamp['sources']['setup_index.py'] = '0' * 64
+        (self.index / 'setup-state.json').write_text(json.dumps(stamp))
+
+    def test_source_only_stamp_difference_is_a_limitation_not_a_setup_request(self):
+        (self.root / '.wavefoundry/framework/VERSION').write_text('1.0.0+aaaa\n')
+        readiness.write_setup_stamp(self.root)
+        self.assertNotIn(readiness.SOURCE_ONLY_STAMP_LIMITATION, self.assess()['limitations'])
+        self._stamp_with_changed_source()
+        result = self.assess()
+        self.assertEqual(result['status'], 'ready', result)
+        self.assertEqual(result['reasons'], [])
+        self.assertEqual(result['actions'], [])
+        self.assertIn('Framework sources differ from the setup stamp at the same framework version; '
+                      'live checks decided readiness.', result['limitations'])
+        self.assertNotIn(readiness.SOURCE_ONLY_STAMP_LIMITATION, self.assess(use_stamp=False)['limitations'])
+
+    def test_source_difference_with_another_input_change_still_requests_setup(self):
+        version = self.root / '.wavefoundry/framework/VERSION'
+        changed = 'coreml' if os.environ.get(readiness.REQUESTED_PROVIDER_ENV) == 'cpu' else 'cpu'
+        cases = {
+            'version': lambda: version.write_text('1.0.1+bbbb\n'),
+            'workflow config': lambda: (self.root / 'docs/workflow-config.json').write_text(
+                '{"indexing":{"include_tests":true}}'),
+            'environment': lambda: os.environ.__setitem__(readiness.REQUESTED_PROVIDER_ENV, changed),
+        }
+        for label, mutate in cases.items():
+            for with_source in (True, False):
+                with self.subTest(change=label, with_source=with_source), patch.dict(os.environ):
+                    version.write_text('1.0.0+aaaa\n')
+                    (self.root / 'docs/workflow-config.json').write_text('{}')
+                    readiness.write_setup_stamp(self.root)
+                    if with_source:
+                        self._stamp_with_changed_source()
+                    mutate()
+                    result = self.assess()
+                    self.assertEqual(result['status'], 'action_required', result)
+                    self.assertIn('setup_inputs_changed', [r['code'] for r in result['reasons']])
+                    self.assertNotIn(readiness.SOURCE_ONLY_STAMP_LIMITATION, result['limitations'])
+
     def test_stamp_records_provenance_and_rejects_unknown(self):
         readiness.write_setup_stamp(self.root)
         self.assertEqual(self._stamp()['provenance'], 'setup')

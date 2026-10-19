@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-10
+Last verified: 2026-10-19
 
 ## Domains
 
@@ -46,8 +46,11 @@ Its advisory stamp has three writers, each a separate call outside the assessor:
 successful ordinary setup (after reconciliation completes), successful upgrade
 cleanup after a live `ready` assessment, and MCP startup after a `ready` startup
 assessment when no readable stamp exists (never replacing a readable one). The stamp
-compares only setup-relevant environment fields (tool environment, Python
-`major.minor`, provider and reranker selection). Recovery continuations
+compares framework source hashes, the configuration identity (which includes the
+framework `VERSION` and the setup-owned launch entries) and only setup-relevant
+environment fields (tool environment, Python `major.minor`, provider and reranker
+selection). A difference confined to source hashes, with the rest equal, is a
+limitation note rather than a setup request (wave `212yk`). Recovery continuations
 remain owned and fully revalidated by setup or upgrade, never by the check.
 
 MCP startup is the one caller that acts on an assessment (wave `1zfd9`): when

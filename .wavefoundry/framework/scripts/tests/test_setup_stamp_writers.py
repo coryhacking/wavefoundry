@@ -62,17 +62,34 @@ class FreshProcessConvergenceTests(_FixtureCase):
         result = self.check()
         self.assertEqual(result['status'], 'ready', result)
 
-    def test_adopted_baseline_reports_a_later_framework_change(self):
+    def _adopt_then_edit_a_source(self):
+        version = self.root / '.wavefoundry/framework/VERSION'
+        version.write_text('1.0.0+aaaa\n')
         with self.in_fixture_environment():
             self.assertTrue(readiness.adopt_setup_stamp(
                 self.root, {'status': 'ready'}, readiness.capture_loaded_identity()))
         self.assertEqual(json.loads(self.stamp.read_text())['provenance'], 'adopted')
         self.assertEqual(self.check()['status'], 'ready')
         source = self.root / '.wavefoundry/framework/scripts/setup_index.py'
-        source.write_text(source.read_text() + '\n# pulled framework update\n')
+        source.write_text(source.read_text() + '\n# edited framework source\n')
+        return version
+
+    def test_adopted_baseline_treats_a_source_only_edit_as_a_limitation(self):
+        # Wave 212yk: the fixture's own edited code runs the check; VERSION is unchanged.
+        self._adopt_then_edit_a_source()
+        result = self.check()
+        self.assertEqual(result['status'], 'ready', result)
+        self.assertEqual(result['reasons'], [])
+        self.assertIn(readiness.SOURCE_ONLY_STAMP_LIMITATION, result['limitations'])
+
+    def test_adopted_baseline_reports_a_later_framework_change(self):
+        # A pulled framework update changes VERSION alongside the scripts.
+        version = self._adopt_then_edit_a_source()
+        version.write_text('1.0.1+bbbb\n')
         result = self.check()
         self.assertEqual(result['status'], 'action_required', result)
         self.assertIn('setup_inputs_changed', [r['code'] for r in result['reasons']])
+        self.assertNotIn(readiness.SOURCE_ONLY_STAMP_LIMITATION, result['limitations'])
 
 
 class ServerStartupAdoptionTests(_FixtureCase):

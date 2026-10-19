@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-16
+Last verified: 2026-10-19
 
 ## Runtime advisory boundary
 
@@ -476,7 +476,8 @@ the advisory `.wavefoundry/index/setup-state.json` is written by successful ordi
 setup, by successful upgrade cleanup after a live `ready` assessment, and by MCP
 startup when no readable stamp exists and startup assessed `ready`. Its comparison
 uses only setup-relevant environment fields, so a checker launched differently from
-setup does not report changed inputs. The stamp is not recovery or publication authority. MCP startup and the existing
+setup does not report changed inputs, and a difference confined to framework source
+hashes at an unchanged `VERSION` is a limitation note, not a setup request. The stamp is not recovery or publication authority. MCP startup and the existing
 monitor share the assessment, invalidate it for relevant changes, and coalesce
 repeated stderr notices. Changed loaded assessment code requests a fresh host;
 ordinary product-source edits do not request setup.

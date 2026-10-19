@@ -1758,6 +1758,9 @@ class PhaseCleanupSetupBaselineTests(unittest.TestCase):
         self.readiness.write_setup_stamp(self.root)
         older = json.loads(self.stamp.read_text())
         older["sources"]["server.py"] = "0" * 64
+        # An older release's stamp: its VERSION differs too (wave 212yk ignores a
+        # source-only difference at the same VERSION).
+        older["configuration"][".wavefoundry/framework/VERSION"] = "0" * 64
         self.stamp.write_text(json.dumps(older))
         before = self.stamp.read_bytes()
         out = self._cleanup(index_update_failed=True)

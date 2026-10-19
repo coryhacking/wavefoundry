@@ -233,7 +233,10 @@ build options. Native Windows uses the same arguments through
 `.\.wavefoundry\bin\wf.cmd setup --check`. A missing advisory setup stamp
 causes live assessment, not an automatic rebuild; the check never writes the stamp.
 Successful setup and upgrade cleanup write it, and MCP startup records a baseline
-when no readable stamp exists and startup assessed ready. Ordinary source edits belong
+when no readable stamp exists and startup assessed ready. The stamp compares framework
+source hashes, the configuration identity (including the framework `VERSION`) and the
+setup-relevant environment; an edit to framework scripts alone, at the same `VERSION`,
+is reported as a limitation and does not request `wf setup` (wave `212yk`). Ordinary source edits belong
 to normal incremental indexing. Pending historical memory validation remains a
 separate advisory and does not invalidate an otherwise usable core index.
 MCP startup and its existing staleness monitor use the same assessment; startup

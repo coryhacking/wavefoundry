@@ -6,7 +6,7 @@ Last verified: 2026-10-19
 
 ## Current Session
 
-**Active wave:** *(none in this committed batch)*
+**Active wave:** *(none)*
 
 **Last closed waves:** 2124l, 2136j, 2136r and 2136s, closed 2026-10-19 on explicit operator approval. Delivered lifecycle intent, journal-alias retirement, workflow guidance/host controls and the guide reduction with all rules retained. Every AC/task and required review approval is complete. Both edit gates are closed.
 
@@ -16,7 +16,7 @@ Last verified: 2026-10-19
 
 ## Open questions / Deferred decisions
 
-Timing investigation remains deferred. Parked 2136o (receipt reminder) and 2136q (small-change lane) remain outside the admitted work. Concurrent work remains local under its own authorization; no setup or index rebuild was performed by this closure.
+Timing investigation remains deferred. Parked 2136o (receipt reminder) and 2136q (small-change lane) remain outside the admitted work. Continue concurrent waves under their own authorizations; no setup or index rebuild was performed by this closure.
 
 ## Prior closed-wave context
 
