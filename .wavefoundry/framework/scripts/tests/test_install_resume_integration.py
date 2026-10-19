@@ -93,13 +93,17 @@ class PartialPromptInstallIntegrationTests(unittest.TestCase):
         manifest = self.root / "docs/prompts/prompt-surface-manifest.json"
         manifest_bytes = manifest.read_bytes()
         data = json.loads(manifest_bytes)
-        prompt_rel = "docs/prompts/plan-change.prompt.md"
+        import vocabulary_profile
+
+        # The catalog lists the prompt at the profile's path; seed 100 names it
+        # at the shipped one (change 2134q).
+        prompt_rel = vocabulary_profile.prompt_doc("plan-change")
         self.assertIn(prompt_rel, {entry["doc"] for entry in data["public_prompt_surface"]})
         # This is a mandatory seed-100 catalog member, not an arbitrary fixture file.
         seed = (FRAMEWORK / "seeds/100-project-prompt-surface-bootstrap.prompt.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn(f"- `{prompt_rel}`", seed)
+        self.assertIn("- `docs/prompts/plan-change.prompt.md`", seed)
         prompt = self.root / prompt_rel
         authored_bytes = prompt.read_bytes()
         prompt.unlink()

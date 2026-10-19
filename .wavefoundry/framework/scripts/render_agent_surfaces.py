@@ -311,6 +311,16 @@ _vp_doc = vocabulary_profile.prompt_doc
 _vp_shortcut = vocabulary_profile.shortcut
 _vp_skill = vocabulary_profile.skill_name
 
+
+def _vp_wave(**kwargs) -> str:
+    """The container tier noun for skill prose (wave 2134s, change 2134r)."""
+    return vocabulary_profile.tier_noun("container", **kwargs)
+
+
+def _vp_change(**kwargs) -> str:
+    """The item tier noun for skill prose (wave 2134s, change 2134r)."""
+    return vocabulary_profile.tier_noun("item", **kwargs)
+
 CONTEXT_EFFICIENCY_DESTINATION = _vp_doc("create-wave")
 
 LIFECYCLE_PROMPT_BASELINES: tuple[tuple[str, str], ...] = (
@@ -681,48 +691,48 @@ WF_COUNCIL_SKILL_BODY = dedent(
 SKILL_REGISTRY: "tuple[Skill, ...]" = (
     Skill(
         name=_vp_skill("plan-change"),
-        description=f"Plan a change of any kind (feature, bug fix, enhancement, refactor, documentation, tech debt, task, maintenance, operations) and produce a consolidated change doc ready for wave admission. The {_vp_shortcut('plan-change')} workflow.",
+        description=f"Plan {_vp_change(article=True)} of any kind (feature, bug fix, enhancement, refactor, documentation, tech debt, task, maintenance, operations) and produce a consolidated {_vp_change()} doc ready for {_vp_wave()} admission. The {_vp_shortcut('plan-change')} workflow.",
         body=_thin_pointer_body(
-            "Plan a change",
+            f"Plan {_vp_change(article=True)}",
             _vp_doc("plan-change"),
             (
-                "The workflow selects the scaffold among the `wf_new_<kind>` MCP creation tools (bug, enhancement, refactor, documentation, tech debt, task, maintenance, operations, change) by change kind, then admits the doc with `wf_add_change`.",
-                "Gate reminder: planning writes docs only; no repository code edits until the stage gate (change doc, wave admission, recorded readiness) is satisfied.",
+                f"The workflow selects the scaffold among the `wf_new_<kind>` MCP creation tools (bug, enhancement, refactor, documentation, tech debt, task, maintenance, operations, change) by {_vp_change()} kind, then admits the doc with `wf_add_change`.",
+                f"Gate reminder: planning writes docs only; no repository code edits until the stage gate ({_vp_change()} doc, {_vp_wave()} admission, recorded readiness) is satisfied.",
             ),
         ),
     ),
     Skill(
         name=_vp_skill("prepare-wave"),
-        description="Confirm a wave's readiness before implementation (docs validation, gardening, lint, and the prepare-phase council gate). "
+        description=f"Confirm {_vp_wave(article=True)}'s readiness before implementation (docs validation, gardening, lint, and the prepare-phase council gate). "
         f"The {' / '.join((_vp_shortcut('prepare-wave'), *vocabulary_profile.shortcut_aliases('prepare-wave')))} workflow.",
         body=_thin_pointer_body(
-            "Prepare a wave",
+            f"Prepare {_vp_wave(article=True)}",
             _vp_doc("prepare-wave"),
             (
                 "Prefer the `wf_prepare_wave` MCP tool: `dry_run` to validate, `ready` to record readiness without opening, `create` to prepare and open.",
-                "The prepare-phase council review runs as the last prepare step; `council-readiness` must be recorded before the wave readies.",
-                "Gate reminder: only one wave may be OPEN at a time; readiness alone never takes that slot.",
+                f"The prepare-phase council review runs as the last prepare step; `council-readiness` must be recorded before the {_vp_wave()} readies.",
+                f"Gate reminder: only one {_vp_wave()} may be OPEN at a time; readiness alone never takes that slot.",
             ),
         ),
     ),
     Skill(
         name=_vp_skill("implement-wave"),
-        description=f"Open a readied wave and coordinate multi-change implementation with real-time AC and task tracking. The {_vp_shortcut('implement-wave')} workflow.",
+        description=f"Open a readied {_vp_wave()} and coordinate multi-{_vp_change()} implementation with real-time AC and task tracking. The {_vp_shortcut('implement-wave')} workflow.",
         body=_thin_pointer_body(
-            "Implement a wave",
+            f"Implement {_vp_wave(article=True)}",
             _vp_doc("implement-wave"),
             (
-                "Prefer the `wf_implement_wave` MCP tool to open the readied wave and receive the ordered change list and watchpoints.",
-                "Gate reminder: the stage gate applies before any code edit (change doc, wave admission, recorded readiness); mark ACs and tasks as work completes, not at wave end.",
-                f"Single-change variant: {_vp_shortcut('implement-change')} (`{_vp_doc('implement-change')}`).",
+                f"Prefer the `wf_implement_wave` MCP tool to open the readied {_vp_wave()} and receive the ordered {_vp_change()} list and watchpoints.",
+                f"Gate reminder: the stage gate applies before any code edit ({_vp_change()} doc, {_vp_wave()} admission, recorded readiness); mark ACs and tasks as work completes, not at {_vp_wave()} end.",
+                f"Single-{_vp_change()} variant: {_vp_shortcut('implement-change')} (`{_vp_doc('implement-change')}`).",
             ),
         ),
     ),
     Skill(
         name=_vp_skill("review-wave"),
-        description=f"Run the open wave's required review lanes and record typed review evidence ahead of closure. The {_vp_shortcut('review-wave')} workflow.",
+        description=f"Run the open {_vp_wave()}'s required review lanes and record typed review evidence ahead of closure. The {_vp_shortcut('review-wave')} workflow.",
         body=_thin_pointer_body(
-            "Review a wave",
+            f"Review {_vp_wave(article=True)}",
             _vp_doc("review-wave"),
             (
                 "Start from the `wf_review_wave` MCP tool for guided actions; record evidence with `wf_review_event` (dry-run first, then create).",
@@ -732,43 +742,43 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
     ),
     Skill(
         name=_vp_skill("close-wave"),
-        description=f"Close and archive a wave after delivery review, reconciling every AC and task checkbox. Closure is operator-owned. The {_vp_shortcut('close-wave')} workflow.",
+        description=f"Close and archive {_vp_wave(article=True)} after delivery review, reconciling every AC and task checkbox. Closure is operator-owned. The {_vp_shortcut('close-wave')} workflow.",
         body=_thin_pointer_body(
-            "Close a wave",
+            f"Close {_vp_wave(article=True)}",
             _vp_doc("close-wave"),
             (
                 "Prefer the `wf_close_wave` MCP tool; run `dry_run` freely to validate close readiness.",
                 'Gate reminder: closure is operator-owned. Call `mode="create"` only when the operator explicitly instructs closure in the current request; closure is never inferred from adjacent actions such as "run the review" or "fix the tests".',
-                f"Single change: {_vp_shortcut('close-change')} (`{_vp_doc('close-change')}`) marks one change `complete` inside the open wave; {_vp_shortcut('close-wave')} is still the only wave close.",
+                f"Single {_vp_change()}: {_vp_shortcut('close-change')} (`{_vp_doc('close-change')}`) marks one {_vp_change()} `complete` inside the open {_vp_wave()}; {_vp_shortcut('close-wave')} is still the only {_vp_wave()} close.",
             ),
         ),
         operator_only=True,
     ),
     Skill(
         name=_vp_skill("close-change"),
-        description=f"Close one admitted change inside the open wave with wf_close_change, marking it complete and activating its dependents; never closes the wave ({_vp_shortcut('close-wave')} is the only wave close). The {_vp_shortcut('close-change')} workflow.",
+        description=f"Close one admitted {_vp_change()} inside the open {_vp_wave()} with wf_close_change, marking it complete and activating its dependents; never closes the {_vp_wave()} ({_vp_shortcut('close-wave')} is the only {_vp_wave()} close). The {_vp_shortcut('close-change')} workflow.",
         body=_thin_pointer_body(
-            "Close a change",
+            f"Close {_vp_change(article=True)}",
             _vp_doc("close-change"),
             (
                 "Prefer the `wf_close_change` MCP tool; run `dry_run` (the default) first, then `create` once the dry run is clean.",
-                f"Run it after {_vp_shortcut('review-wave')} has cleared the change: a completed change cannot be reopened, and the tool records no review evidence.",
-                f"{_vp_shortcut('close-wave')} (`{_vp_skill('close-wave')}`) remains the only wave close, whatever the change count.",
+                f"Run it after {_vp_shortcut('review-wave')} has cleared the {_vp_change()}: a completed {_vp_change()} cannot be reopened, and the tool records no review evidence.",
+                f"{_vp_shortcut('close-wave')} (`{_vp_skill('close-wave')}`) remains the only {_vp_wave()} close, whatever the {_vp_change()} count.",
             ),
         ),
         operator_only=True,
     ),
     Skill(
         name="wf-review-plan",
-        description="Review a change doc, or the current wave record when no change is specified, before implementation by walking every unresolved decision branch one question at a time. "
+        description=f"Review {_vp_change(article=True)} doc, or the current {_vp_wave()} record when no {_vp_change()} is specified, before implementation by walking every unresolved decision branch one question at a time. "
         f"The Review plan workflow; distinct from {_vp_shortcut('review-wave')}.",
         body=_thin_pointer_body(
             "Review a plan",
             "docs/prompts/review-plan.prompt.md",
             (
-                "Review the named change doc, or fall back to the current wave record when no change is specified; this may run before or after admission, but only before implementation.",
+                f"Review the named {_vp_change()} doc, or fall back to the current {_vp_wave()} record when no {_vp_change()} is specified; this may run before or after admission, but only before implementation.",
                 "Self-answer from project resources first; surface only the questions that genuinely need operator judgment.",
-                f"This optional review records no typed signoff and satisfies no lifecycle gate; use `{_vp_skill('review-wave')}` for the open wave's required delivery-review lanes.",
+                f"This optional review records no typed signoff and satisfies no lifecycle gate; use `{_vp_skill('review-wave')}` for the open {_vp_wave()}'s required delivery-review lanes.",
             ),
         ),
     ),
@@ -798,9 +808,9 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
     ),
     Skill(
         name=_vp_skill("pause-wave"),
-        description=f"Park the current session's wave state in the durable handoff artifact when stopping work or handing off. The {_vp_shortcut('pause-wave')} workflow.",
+        description=f"Park the current session's {_vp_wave()} state in the durable handoff artifact when stopping work or handing off. The {_vp_shortcut('pause-wave')} workflow.",
         body=_thin_pointer_body(
-            "Pause a wave",
+            f"Pause {_vp_wave(article=True)}",
             _vp_doc("pause-wave"),
             (
                 "Prefer the `wf_pause_wave` MCP tool; it also closes any open edit gates.",
@@ -812,7 +822,7 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
         name="wf-council",
         # Wave 200ey (change 200ew): the protocol's display name is a profile constant.
         description=f"Convene an on-demand review on one artifact, choosing among the role-based {vocabulary_profile.COUNCIL_DISPLAY_NAME}, the stance-based Archetype Council, and standalone Red-team review. "
-        f"Not the open wave's required lanes ({_vp_shortcut('review-wave')}) and not Review plan, the optional change-doc or current-wave stress test whose aliases are Interrogate this plan and Stress-test this plan.",
+        f"Not the open {_vp_wave()}'s required lanes ({_vp_shortcut('review-wave')}) and not Review plan, the optional {_vp_change()}-doc or current-{_vp_wave()} stress test whose aliases are Interrogate this plan and Stress-test this plan.",
         body=WF_COUNCIL_SKILL_BODY,
     ),
     Skill(
@@ -846,7 +856,7 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
     Skill(
         name="wf-code-cleanup",
         description="Recommend-only maintainability sweep of the whole codebase for dead code, duplication, complexity, abandoned files, and technical debt, producing keep/simplify/remove recommendations (Codebase cleanup review / Dead code review). It changes nothing itself; not a review of one artifact (wf-council) "
-        f"and not the open wave's required lanes ({_vp_skill('review-wave')}).",
+        f"and not the open {_vp_wave()}'s required lanes ({_vp_skill('review-wave')}).",
         body=_thin_pointer_body(
             "Codebase cleanup review",
             "docs/prompts/codebase-cleanup-review.prompt.md",

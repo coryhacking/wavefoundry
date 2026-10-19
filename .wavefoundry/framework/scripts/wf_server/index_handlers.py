@@ -1362,7 +1362,7 @@ def _start_background_index_refresh(root: Path, layer: str = "project") -> bool:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         cwd=str(root),
-        close_fds=os.name != "nt",
+        close_fds=True,  # wave 2134v: never pass the parent's handles to the detached child on Windows
         **detach_kwargs,
     )
     import time

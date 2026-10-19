@@ -6523,7 +6523,7 @@ class EpochOrderingAndFaultTests(_EpochBuildCase):
         with patch.object(vectors.PreparedUpdates, "apply", change_during_publication):
             result = self._run_build(full=False)
         self.assertTrue(result.get("failed"))
-        self.assertIn("Source changed during embedding", result["failure"])
+        self.assertIn("Source changed during indexing", result["failure"])
         self.assertEqual(vectors.payload_rows(self.index_dir, "code", include_vector=True), before)
         self.assertEqual(self.iss.export_meta_snapshot(self.index_dir), old_meta)
         self.assertIsNotNone(self.iss.build_epoch_token(self.index_dir))

@@ -203,6 +203,127 @@ def _doc_scan_exclude_prefixes(root: Path) -> frozenset[str]:
     roots = record_paths.load_record_roots(root)
     return _DOC_SCAN_EXCLUDE_PREFIXES | {roots.waves_prefix, roots.plans_prefix}
 _MIN_DOC_MATCH_TERM_LEN = 6
+
+try:  # Python's own IGNORECASE equivalences (ı~i, ſ~s, ...), 3.11+.
+    from re import _casefix as _re_casefix
+    _RE_EXTRA_CASES: dict[int, tuple[int, ...]] = dict(_re_casefix._EXTRA_CASES)
+except (ImportError, AttributeError):  # pragma: no cover - other interpreters
+    _RE_EXTRA_CASES = {}
+try:
+    from _sre import unicode_tolower as _re_tolower
+except ImportError:  # pragma: no cover - other interpreters
+    def _re_tolower(code: int) -> int:
+        folded = chr(code).lower()
+        return ord(folded) if len(folded) == 1 else code
+
+
+@functools.lru_cache(maxsize=65536)
+def _re_fold_char(ch: str) -> str:
+    """The one character ``re`` treats as ``ch`` under IGNORECASE.
+
+    ``re`` compares characters one at a time by their single-character
+    lowercase plus a few extra equivalences, so two characters match
+    case-insensitively exactly when they fold to the same character here.
+    Unlike ``str.lower`` this never changes a string's length.
+    """
+    lower = _re_tolower(ord(ch))
+    return chr(min((lower, *_RE_EXTRA_CASES.get(lower, ()))))
+
+
+def _is_re_word_char(ch: str) -> bool:
+    """``re``'s ``\\w`` for ``str`` patterns."""
+    return ch.isalnum() or ch == "_"
+
+
+class _DocTermMatcher:
+    """Exact replacement for ``re.compile(r"\\b(?:t1|t2|...)\\b", re.IGNORECASE)``.
+
+    Wave 2134o (change 212o7): the alternation over every complex doc term
+    (over 100,000 in a large repository) made ``finditer`` cost the text
+    length times the term count. This matcher returns the same spans: the
+    leftmost match, the longest term at that position, non-overlapping,
+    with a word boundary at both ends. Matches can only start and end at
+    word boundaries, so it folds the text once and, at each boundary,
+    looks up the folded spans ending at later boundaries within the
+    longest term's length, longest first. Each boundary tries whichever is
+    fewer: the boundaries inside that window or the distinct term lengths,
+    so one very long repository term cannot multiply the cost of every
+    position.
+    """
+
+    _PREFIX = 16
+
+    __slots__ = ("_by_length", "_prefixes", "_lengths", "_max_length")
+
+    def __init__(self, terms) -> None:
+        by_length: dict[int, set[str]] = {}
+        for term in terms:
+            if term:
+                folded = "".join(_re_fold_char(ch) for ch in term)
+                by_length.setdefault(len(folded), set()).add(folded)
+        self._by_length = by_length
+        # Folded first characters of each length's terms, so a long candidate
+        # slice is taken only when its start already matches some term.
+        self._prefixes = {
+            length: {term[: self._PREFIX] for term in group}
+            for length, group in by_length.items() if length > self._PREFIX
+        }
+        self._lengths = sorted(by_length, reverse=True)
+        self._max_length = max(by_length, default=0)
+
+    def spans(self, text: str):
+        """Yield ``(start, end)`` for each match, in order."""
+        if not self._by_length or not text:
+            return
+        words = [_is_re_word_char(ch) for ch in text]
+        size = len(text)
+        boundaries = [
+            index for index in range(size + 1)
+            if (index > 0 and words[index - 1]) != (index < size and words[index])
+        ]
+        is_boundary = bytearray(size + 1)
+        for index in boundaries:
+            is_boundary[index] = 1
+        folded = "".join(_re_fold_char(ch) for ch in text)
+        by_length = self._by_length
+        prefixes = self._prefixes
+        prefix_size = self._PREFIX
+        lengths = self._lengths
+        max_length = self._max_length
+        position = 0
+        count = len(boundaries)
+        while position < count:
+            start = boundaries[position]
+            limit = bisect.bisect_right(boundaries, start + max_length, position + 1)
+            match_end = None
+            if len(lengths) < limit - position - 1:
+                for length in lengths:
+                    end = start + length
+                    if end > size or not is_boundary[end]:
+                        continue
+                    heads = prefixes.get(length)
+                    if heads is not None and folded[start:start + prefix_size] not in heads:
+                        continue
+                    if folded[start:end] in by_length[length]:
+                        match_end = end
+                        break
+            else:
+                for end_index in range(limit - 1, position, -1):
+                    end = boundaries[end_index]
+                    candidates = by_length.get(end - start)
+                    if candidates is None:
+                        continue
+                    heads = prefixes.get(end - start)
+                    if heads is not None and folded[start:start + prefix_size] not in heads:
+                        continue
+                    if folded[start:end] in candidates:
+                        match_end = end
+                        break
+            if match_end is None:
+                position += 1
+                continue
+            yield start, match_end
+            position = bisect.bisect_left(boundaries, match_end, position + 1)
 _SHORT_SYMBOL_MAX_LEN = 2
 _MINIFIED_FILE_RE = re.compile(
     r"(?:\.min\.|\.prod\.|\.production\.|\.bundle\.|\.chunk\.)", re.IGNORECASE
@@ -14815,7 +14936,7 @@ class GraphIndexSession:
         rel_path: str,
         source_text: str,
         symbol_terms: dict[str, set[str]],
-        matcher: tuple[dict[str, set[str]], re.Pattern[str] | None, dict[str, set[str]]] | None = None,
+        matcher: tuple[dict[str, set[str]], _DocTermMatcher | None, dict[str, set[str]]] | None = None,
     ) -> dict[str, Any]:
         kind = _kind_for_path(rel_path)
         node_kind = kind if kind in ("seed", "memory") else "doc"
@@ -14829,7 +14950,7 @@ class GraphIndexSession:
 
         if matcher is None:
             matcher = self._compile_doc_matcher(symbol_terms)
-        simple_lower, complex_pattern, complex_lower = matcher
+        simple_lower, complex_matcher, complex_lower = matcher
 
         # Only scan inline backtick spans for simple keyword matches (skip JSON/config fences).
         inline_ctx = _extract_inline_code_contexts(source_text)
@@ -14855,10 +14976,10 @@ class GraphIndexSession:
                     )
                 )
 
-        # Dotted/complex terms: one combined regex pass over all code context.
-        if complex_pattern:
-            for m in complex_pattern.finditer(code_ctx):
-                key = m.group().lower()
+        # Dotted/complex terms: one pass over all code context.
+        if complex_matcher:
+            for start, end in complex_matcher.spans(code_ctx):
+                key = code_ctx[start:end].lower()
                 targets = complex_lower.get(key)
                 if not targets:
                     continue
@@ -14958,12 +15079,13 @@ class GraphIndexSession:
 
     def _compile_doc_matcher(
         self, symbol_terms: dict[str, set[str]]
-    ) -> tuple[dict[str, set[str]], re.Pattern[str] | None, dict[str, set[str]]]:
+    ) -> tuple[dict[str, set[str]], _DocTermMatcher | None, dict[str, set[str]]]:
         """Build fast lookup structures for doc symbol scanning.
 
-        Returns (simple_lower, complex_pattern, complex_lower) where:
+        Returns (simple_lower, complex_matcher, complex_lower) where:
         - simple_lower: lowercase pure-identifier terms → node id sets
-        - complex_pattern: compiled combined regex for dotted/special terms (or None)
+        - complex_matcher: matcher for dotted/special terms (or None), with the
+          spans of the former combined ``\\b(?:...)\\b`` IGNORECASE regex
         - complex_lower: lowercase complex terms → node id sets
         """
         simple_lower: dict[str, set[str]] = {}
@@ -14978,14 +15100,10 @@ class GraphIndexSession:
                 simple_lower.setdefault(lower, set()).update(ids)
             else:
                 complex_lower.setdefault(lower, set()).update(ids)
-        complex_pattern: re.Pattern[str] | None = None
+        complex_matcher: _DocTermMatcher | None = None
         if complex_lower:
-            sorted_terms = sorted(complex_lower.keys(), key=len, reverse=True)
-            complex_pattern = re.compile(
-                r"\b(?:" + "|".join(re.escape(t) for t in sorted_terms) + r")\b",
-                re.IGNORECASE,
-            )
-        return simple_lower, complex_pattern, complex_lower
+            complex_matcher = _DocTermMatcher(complex_lower)
+        return simple_lower, complex_matcher, complex_lower
 
     def _payload_binding_ok(self, store: GraphStateStore) -> str:
         """The fingerprint of the graph rows in the published generation.
@@ -15457,7 +15575,13 @@ class GraphIndexSession:
 
         # Changed docs are rescanned directly from their current text.
         self._finalize_phase("doc rescans", len(self.pending_doc_text), "changed docs")
-        for rel, source_text in self.pending_doc_text.items():
+        _rescan_total = len(self.pending_doc_text)
+        for _rescan_done, (rel, source_text) in enumerate(self.pending_doc_text.items(), start=1):
+            if self.verbose:
+                _report_graph_progress(
+                    f"build_index: graph finalize progress ({self.layer} layer): ",
+                    _rescan_done, _rescan_total, "docs",
+                )
             artifact = self._extract_doc_artifact(rel, source_text, symbol_terms, matcher)
             recompute_artifacts[rel] = artifact
             row_puts[rel] = {

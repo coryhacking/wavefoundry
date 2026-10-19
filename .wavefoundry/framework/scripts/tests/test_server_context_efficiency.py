@@ -1611,7 +1611,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                 f"{_TITLE}\n\nStatus: planned\n\n## Notes\n\nkeep-me\n",
                 encoding="utf-8",
             )
-            prompt = root / "docs" / "prompts" / "prepare-wave.prompt.md"
+            prompt = root / vocabulary_profile.prompt_doc("prepare-wave")  # the profile's path (2134q)
             prompt.parent.mkdir(parents=True)
             prompt.write_text("prepare instructions " * 200, encoding="utf-8")
             handler = SimpleNamespace(
@@ -1702,7 +1702,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             wave_md = _waves_dir(root) / wave_id / _RECORD
             wave_md.parent.mkdir(parents=True)
             wave_md.write_text(f"{_TITLE}\n", encoding="utf-8")
-            prompt = root / "docs" / "prompts" / "prepare-wave.prompt.md"
+            prompt = root / vocabulary_profile.prompt_doc("prepare-wave")  # the profile's path (2134q)
             prompt.parent.mkdir(parents=True)
             prompt.write_text("prepare " * 100, encoding="utf-8")
             handler = SimpleNamespace(

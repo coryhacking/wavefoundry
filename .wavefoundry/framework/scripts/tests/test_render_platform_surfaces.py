@@ -225,7 +225,9 @@ class PublicRenderReviewProtocolIntegrationTests(unittest.TestCase):
 
     @staticmethod
     def _seed_stale_carrier(root: Path, ras) -> tuple[Path, str, str]:
-        target = root / "docs" / "prompts" / "review-wave.prompt.md"
+        import vocabulary_profile
+
+        target = root / vocabulary_profile.prompt_doc("review-wave")
         target.parent.mkdir(parents=True)
         prefix = "# Project Review Wave\n\nproject-prefix\n\n"
         suffix = "\n\n## Project extension\n\n- preserve this exactly\n"
@@ -253,6 +255,12 @@ class PublicRenderReviewProtocolIntegrationTests(unittest.TestCase):
                 encoding="utf-8",
             )
             target, prefix, suffix = self._seed_stale_carrier(root, ras)
+            # Under a renamed profile an install carries the manifest record the
+            # render needs for the renamed paths; a no-op otherwise (2134q).
+            from prompt_vocabulary_support import prime_profile_render
+            import vocabulary_profile
+
+            prime_profile_render(root)
             with patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"):
                 self.assertEqual(mod.main(["--repo-root", str(root), "--platform", "claude"]), 0)
                 first = target.read_bytes()
@@ -265,7 +273,7 @@ class PublicRenderReviewProtocolIntegrationTests(unittest.TestCase):
             self.assertIn("wf_review_wave(phase='implementation')", text)
             for rel in (
                 "docs/agents/qa-reviewer.md",
-                "docs/prompts/create-wave.prompt.md",
+                vocabulary_profile.prompt_doc("create-wave"),
                 "docs/contributing/review-and-evals.md",
             ):
                 created = root / rel
@@ -2228,7 +2236,82 @@ class HookReindexDetachTests(unittest.TestCase):
         self.assertIn("subprocess.CREATE_NEW_PROCESS_GROUP", src, "hook_helpers: missing CREATE_NEW_PROCESS_GROUP")
         self.assertIn("CREATE_NO_WINDOW", src, "hook_helpers: missing Windows no-window flag")
         self.assertIn("start_new_session", src, "hook_helpers: missing POSIX start_new_session else-branch")
-        self.assertIn('close_fds=os.name != "nt"', src, "hook_helpers: missing per-OS close_fds")
+        # Wave 2134v: close_fds=True on every OS (Windows children must not inherit the hook's pipes).
+        self.assertIn("close_fds=True", src, "hook_helpers: missing close_fds=True")
+        self.assertNotIn('close_fds=os.name', src, "hook_helpers: per-OS close_fds is back")
+
+    def test_rendered_background_spawns_keep_their_isolation_arguments(self):
+        # Wave 2134v AC-2: the three rendered background reindex spawns keep
+        # DEVNULL stdio, an explicit cwd and their detach keyword splat, and
+        # pass close_fds=True.
+        import ast as _ast
+
+        def is_devnull(value):
+            return (isinstance(value, _ast.Attribute) and value.attr == "DEVNULL"
+                    and isinstance(value.value, _ast.Name) and value.value.id == "subprocess")
+
+        for name in ("hook_helpers", "claude_context_efficiency_source", "claude_stop_source"):
+            with self.subTest(template=name):
+                tree = _ast.parse(getattr(self.mod, name)())
+                spawns = [node for node in _ast.walk(tree)
+                          if isinstance(node, _ast.Call) and isinstance(node.func, _ast.Attribute)
+                          and node.func.attr == "Popen"
+                          and any(k.arg == "close_fds" for k in node.keywords)]
+                self.assertEqual(len(spawns), 1, f"{name}: expected one background Popen")
+                keywords = {k.arg: k.value for k in spawns[0].keywords}
+                for stream in ("stdin", "stdout", "stderr"):
+                    self.assertTrue(is_devnull(keywords.get(stream)), f"{name}: {stream} is not subprocess.DEVNULL")
+                self.assertIn("cwd", keywords, f"{name}: missing cwd")
+                self.assertNotIsInstance(keywords["cwd"], _ast.Constant, f"{name}: cwd must name the repository root")
+                self.assertIn(None, keywords, f"{name}: missing the detach keyword splat")
+                self.assertTrue(isinstance(keywords["close_fds"], _ast.Constant) and keywords["close_fds"].value is True)
+
+    def test_no_spawn_passes_close_fds_other_than_true(self):
+        # Wave 2134v census: every framework script outside tests/ and every
+        # rendered hook body (the templates are strings, so they are rendered
+        # and parsed here) passes close_fds only as the literal True.
+        import ast as _ast
+        import inspect as _inspect
+
+        def offenders_in(label, source):
+            found = []
+            for node in _ast.walk(_ast.parse(source)):
+                # A close_fds carried in a dict (``**{"close_fds": ...}``,
+                # ``kwargs["close_fds"] = ...``) is invisible to the keyword
+                # check below, so any such string is an offender too.
+                if isinstance(node, _ast.Constant) and node.value == "close_fds":
+                    found.append(f"{label}:{node.lineno}: close_fds passed through a mapping")
+                if isinstance(node, _ast.Call):
+                    for keyword in node.keywords:
+                        if keyword.arg == "close_fds" and not (
+                                isinstance(keyword.value, _ast.Constant) and keyword.value.value is True):
+                            found.append(f"{label}:{node.lineno}: close_fds={_ast.unparse(keyword.value)}")
+            return found
+
+        offenders = []
+        scripts = Path(self.mod.__file__).resolve().parent
+        for path in sorted(scripts.rglob("*.py")):
+            rel = path.relative_to(scripts)
+            if rel.parts[0] in ("tests", "__pycache__"):
+                continue
+            offenders += offenders_in(rel.as_posix(), path.read_text(encoding="utf-8"))
+        rendered = 0
+        for name, fn in sorted(vars(self.mod).items()):
+            if not callable(fn) or not (name.endswith("_source") or name == "hook_helpers"):
+                continue
+            try:
+                if any(p.default is p.empty and p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+                       for p in _inspect.signature(fn).parameters.values()):
+                    continue
+            except (TypeError, ValueError):
+                continue
+            body = fn()
+            if not isinstance(body, str) or "close_fds" not in body:
+                continue
+            rendered += 1
+            offenders += offenders_in(f"render_platform_surfaces.{name}()", body)
+        self.assertGreaterEqual(rendered, 3, "the census must reach the rendered hook-helper spawns")
+        self.assertEqual(offenders, [])
 
     def test_every_rendered_hook_body_spawn_is_isolated(self):
         # GUARD-4: re-parse EVERY rendered hook body that spawns a child and run the PRODUCTION

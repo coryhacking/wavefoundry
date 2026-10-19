@@ -106,6 +106,12 @@ EXTRA_LEGACY_COUNCIL_ACTORS: tuple[str, ...] = ()
 # history do not.
 COUNCIL_DISPLAY_NAME: str = "Wave Council"
 
+# The indefinite article before each tier name in renderer-owned prose (wave
+# 2134s, change 2134r): "a" or "an", declared because it follows the sound,
+# not the spelling ("an Item", "a Unit").
+CONTAINER_NAME_ARTICLE: str = "a"
+ITEM_NAME_ARTICLE: str = "a"
+
 # ---------------------------------------------------------------------------
 # Derived forms (not edited)
 # ---------------------------------------------------------------------------
@@ -123,6 +129,29 @@ def localize_council_name(text: str) -> str:
     if COUNCIL_DISPLAY_NAME == SHIPPED_COUNCIL_DISPLAY_NAME:
         return text
     return text.replace(SHIPPED_COUNCIL_DISPLAY_NAME, COUNCIL_DISPLAY_NAME)
+
+
+def tier_noun(tier: str, *, plural: bool = False, title: bool = False, article: bool = False) -> str:
+    """A tier name for renderer-owned prose (wave 2134s, change 2134r).
+
+    ``tier`` is ``"container"`` (a wave by default) or ``"item"`` (a change).
+    Lower case unless ``title``, which keeps the declared capitalisation;
+    ``article`` prefixes the declared indefinite article (singular only).
+    Under the default profile ``tier_noun("container", article=True)`` is
+    ``"a wave"``.
+    """
+    if tier == "container":
+        name, plural_name, art = CONTAINER_NAME, CONTAINER_NAME_PLURAL, CONTAINER_NAME_ARTICLE
+    elif tier == "item":
+        name, plural_name, art = ITEM_NAME, ITEM_NAME_PLURAL, ITEM_NAME_ARTICLE
+    else:
+        raise ValueError(f"unknown tier: {tier!r}")
+    noun = plural_name if plural else name
+    if not title:
+        noun = noun.lower()
+    if article and not plural:
+        noun = f"{art} {noun}"
+    return noun
 
 
 PREVIOUS_STATUS_LABEL = f"Previous {MEMBER_STATUS_LABEL}"
@@ -729,10 +758,21 @@ def archive_profile() -> _Profile:
     return _Profile(dict(ARCHIVE_PROFILE))
 
 
+def tier_article_errors() -> list[str]:
+    """Problems with ``CONTAINER_NAME_ARTICLE`` / ``ITEM_NAME_ARTICLE``."""
+    errors = []
+    for name, value in (("CONTAINER_NAME_ARTICLE", CONTAINER_NAME_ARTICLE),
+                        ("ITEM_NAME_ARTICLE", ITEM_NAME_ARTICLE)):
+        if value not in ("a", "an"):
+            errors.append(f"{name}: must be 'a' or 'an', got {value!r}")
+    return errors
+
+
 def validate() -> None:
     """Raise :class:`VocabularyProfileInvalid` when the constants are unusable."""
     errors = (validation_errors() + prompt_name_errors() + legacy_council_key_errors()
-              + legacy_council_actor_errors() + council_display_name_errors())
+              + legacy_council_actor_errors() + council_display_name_errors()
+              + tier_article_errors())
     if ARCHIVE_PROFILE is not None:
         errors += [f"ARCHIVE_PROFILE: {e}" for e in validation_errors(ARCHIVE_PROFILE)]
     if errors:

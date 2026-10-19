@@ -12699,9 +12699,122 @@ class GraphBuildProgressLoggingTests(unittest.TestCase):
         phases = [line for line in lines if line.startswith("build_index: graph finalize")]
         self.assertEqual(phases, ["build_index: graph finalize (project layer): merge state load"])
 
+    def test_doc_rescans_log_progress(self):
+        lines = self._build(interval=1)
+        prefix = "build_index: graph finalize progress (project layer): "
+        docs = [line[len(prefix):] for line in lines if line.startswith(prefix) and line.endswith(" docs")]
+        self.assertEqual(docs, [f"{done}/{self.DOC_FILES} docs" for done in range(1, self.DOC_FILES + 1)])
+
     def test_non_verbose_build_prints_no_progress_or_phase_lines(self):
         for workers in (1, 2):
             with self.subTest(workers=workers):
                 lines = self._build(verbose=False, workers=workers)
                 self.assertFalse([line for line in lines
                                   if "graph extraction progress" in line or "graph finalize" in line])
+
+
+class DocTermMatcherTests(unittest.TestCase):
+    """Wave 2134o (change 212o7): the doc term matcher returns exactly the
+    spans of the combined regex it replaced, which stays here as the oracle."""
+
+    def setUp(self):
+        self.mod = load_graph_indexer()
+
+    @staticmethod
+    def _regex_spans(terms, text):
+        ordered = sorted(terms, key=len, reverse=True)
+        pattern = re.compile(r"\b(?:" + "|".join(re.escape(t) for t in ordered) + r")\b", re.IGNORECASE)
+        return [(m.start(), m.end()) for m in pattern.finditer(text)]
+
+    def _assert_same(self, terms, text):
+        terms = {t.lower() for t in terms}
+        self.assertEqual(list(self.mod._DocTermMatcher(terms).spans(text)), self._regex_spans(terms, text),
+                         f"terms={sorted(terms)!r} text={text!r}")
+
+    def test_named_cases_match_the_regex(self):
+        cases = [
+            ({"a.b", "a.b.c"}, "x a.b.c y a.b z"),                 # longest at a position wins
+            ({"ab.cd", "b.cd.ef"}, "ab.cd.ef"),                     # shorter earlier blocks longer later
+            ({"x.a", "ix.a.b"}, "ıx.a.b"),                          # dotless i consumes without a target key
+            ({"s.key", "file.s"}, "ſ.key FILE.S"),                  # long s and mixed case
+            ({"k.value"}, "K.value"),                           # Kelvin sign
+            ({"i.name"}, "İ.name"),                                 # dotted capital I
+            ({"/reports", "docs/"}, "see docs/reports and /reports"),  # non-word edges
+            ({"::", "a::b"}, "x::y a::b ::"),                       # no word characters at all
+            ({"café.menu"}, "CAFÉ.MENU café.menux"),  # non-ASCII word characters
+            ({"a.b"}, "(a.b), [a.b]; a.b."),                        # adjacent punctuation
+            ({"a/b", "x.y", "a.b.c"}, "a/b then x.y then a.b.c"),   # fallback-style term before lookups
+            ({"σ.x"}, "Σ.X ς.x"),                                   # final sigma
+        ]
+        for terms, text in cases:
+            with self.subTest(text=text):
+                self._assert_same(terms, text)
+
+    def test_random_inputs_match_the_regex(self):
+        import random
+        rng = random.Random(212)
+        alphabet = list("abcsik.:/-_ ") + ["İ", "ı", "ſ", "K", "ß", "é", "É", "1", "\n", "Σ", "ς", "σ"]
+        for _ in range(3000):
+            terms = {"".join(rng.choice(alphabet) for _ in range(rng.randint(1, 6))) for _ in range(rng.randint(1, 12))}
+            terms = {t for t in terms if t.lower()}
+            text = "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 80)))
+            self._assert_same(terms, text)
+
+    def test_long_terms_sharing_prefixes_match_the_regex(self):
+        # Terms longer than the matcher's prefix filter (16 characters), built
+        # from shared stems so many candidates pass the filter and fail late.
+        import random
+        rng = random.Random(2134)
+        alphabet = list("abs.:/_ ") + ["İ", "ı", "ſ", "\u212a", "é", "Σ", "ς"]
+        stems = ["".join(rng.choice("abs._") for _ in range(rng.randint(10, 18))) for _ in range(6)]
+        for _ in range(1500):
+            terms = set()
+            for _ in range(rng.randint(1, 10)):
+                tail = "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 22)))
+                terms.add((rng.choice(stems) + tail).lower())
+            pieces = [rng.choice(sorted(terms)) if rng.random() < 0.4 else "".join(rng.choice(alphabet) for _ in range(rng.randint(1, 12)))
+                      for _ in range(rng.randint(1, 8))]
+            text = "".join(piece + rng.choice(["", " ", ".", "x"]) for piece in pieces)
+            if rng.random() < 0.5:
+                text = text.upper()
+            self._assert_same(terms, text)
+
+    def test_cost_grows_linearly_with_text(self):
+        import time
+        matcher = self.mod._DocTermMatcher(["a." * 95 + "zz", "b.c.d"])
+
+        def best(text):
+            times = []
+            for _ in range(3):
+                started = time.perf_counter()
+                list(matcher.spans(text))
+                times.append(time.perf_counter() - started)
+            return min(times)
+
+        small, large = best("a." * 1250), best("a." * 20000)
+        # Sixteen times the text: linear is about 16x, a quadratic scan about
+        # 256x, so the bound tolerates heavy machine load.
+        self.assertLess(large / max(small, 1e-6), 64.0)
+
+    def test_one_long_term_does_not_slow_every_position(self):
+        # Security repair: a single very long repository term must not
+        # multiply the cost at every boundary (the window walk did: about
+        # 700x on this input).
+        import time
+        text = "a." * 5000
+        short = self.mod._DocTermMatcher(["b.c.d", "x.y.zz"])
+        with_long = self.mod._DocTermMatcher(["b.c.d", "x.y.zz", "q." * 5000 + "zz"])
+
+        def best(matcher):
+            times = []
+            for _ in range(3):
+                started = time.perf_counter()
+                list(matcher.spans(text))
+                times.append(time.perf_counter() - started)
+            return min(times)
+
+        self.assertLess(best(with_long) / max(best(short), 1e-6), 20.0)
+
+    def test_empty_inputs(self):
+        self.assertEqual(list(self.mod._DocTermMatcher([]).spans("a.b")), [])
+        self.assertEqual(list(self.mod._DocTermMatcher(["a.b"]).spans("")), [])

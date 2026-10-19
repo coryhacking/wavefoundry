@@ -29,6 +29,8 @@ import mcp_tool_extensions as ext  # noqa: E402
 import mcp_tool_roster  # noqa: E402
 import render_agent_surfaces as ras  # noqa: E402
 from declaration_support import base_declaration  # noqa: E402
+import vocabulary_profile as vp  # noqa: E402
+from prompt_vocabulary_support import prime_profile_render  # noqa: E402
 
 GURU_STUB = "# Guru\n\nRole: guru\n"
 HOSTS = (".codex", ".claude", ".agents")
@@ -172,8 +174,8 @@ class DeclaredSkillRenderTests(unittest.TestCase):
                 self.assertEqual({p.name for p in (root / host / "skills").iterdir()}, expected)
 
     def test_framework_thin_pointers_keep_the_wavefoundry_label(self) -> None:
-        plan = next(skill for skill in ras.SKILL_REGISTRY if skill.name == "wf-plan-change")
-        self.assertTrue(plan.body.startswith("# Plan a change (Wavefoundry skill)\n\n"))
+        plan = next(skill for skill in ras.SKILL_REGISTRY if skill.name == vp.skill_name("plan-change"))
+        self.assertTrue(plan.body.startswith(f"# Plan {vp.tier_noun('item', article=True)} (Wavefoundry skill)\n\n"))
         with base_declaration(EXTENSION_SKILLS=VALID):
             (declared,) = ras.declared_skills()
         self.assertTrue(declared.body.startswith("# Deploy Acme (skill)\n\n"))
@@ -421,7 +423,9 @@ KEEP_SPEC = _spec(title="Keep Me", prompt_doc="docs/prompts/keep-me.prompt.md")
 
 # Wave 2136r (change 2136l): the operator-owned skills, named literally so the
 # oracle does not read the registry field it checks (default vocabulary profile).
-MANUAL_ONLY_CLAUDE_SKILLS = frozenset({"wf-close-wave", "wf-close-change", "wf-package", "wf-upgrade"})
+# The close skills by key: a renamed profile names them its own way (change 2134q).
+MANUAL_ONLY_CLAUDE_SKILLS = frozenset({vp.skill_name("close-wave"), vp.skill_name("close-change"),
+                                       "wf-package", "wf-upgrade"})
 
 
 def _head_document(skill: "ras.Skill", host: "str | None" = None) -> str:
@@ -523,6 +527,9 @@ class DeclaredSkillOwnershipTests(unittest.TestCase):
             _repo(root)
             hand = root / ".claude/skills/acme-deploy/SKILL.md"
             _write(hand, self.HAND)
+            # A renamed profile's install carries the manifest (else the render
+            # adds its migration notice); a no-op under the shipped names (2134q).
+            prime_profile_render(root)
             written, err = _render_capturing(ras.render_agent_surfaces, root)
             self.assertEqual(hand.read_bytes(), self.HAND.encode("utf-8"))
             self.assertNotIn(".claude/skills/acme-deploy/SKILL.md", written)
@@ -534,7 +541,7 @@ class DeclaredSkillOwnershipTests(unittest.TestCase):
             # Every other skill and surface still renders.
             for host in (".codex", ".agents"):
                 self.assertIn(f"{host}/skills/acme-deploy/SKILL.md", written)
-            self.assertIn(".claude/skills/wf-plan-change/SKILL.md", written)
+            self.assertIn(f".claude/skills/{vp.skill_name('plan-change')}/SKILL.md", written)
             self.assertIn(".claude/agents/guru.md", written)
 
     def test_pre_marker_rendering_is_adopted_lf_and_crlf(self) -> None:
@@ -1251,8 +1258,8 @@ class ManualOnlyClaudeSkillTests(unittest.TestCase):
             root = Path(temp_dir)
             _repo(root)
             ras.render_skills(root)
-            close = next(skill for skill in ras.SKILL_REGISTRY if skill.name == "wf-close-wave")
-            rel = ".claude/skills/wf-close-wave/SKILL.md"
+            close = next(skill for skill in ras.SKILL_REGISTRY if skill.name == vp.skill_name("close-wave"))
+            rel = f".claude/skills/{close.name}/SKILL.md"
             (root / rel).write_text(_head_document(close), encoding="utf-8")
             self.assertEqual(ras.render_skills(root), [rel])
             self.assertEqual((root / rel).read_text(encoding="utf-8"), _head_document(close, ".claude"))

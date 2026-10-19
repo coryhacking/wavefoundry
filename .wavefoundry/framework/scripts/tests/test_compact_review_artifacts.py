@@ -11,6 +11,8 @@ SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS_ROOT))
 import render_agent_surfaces as renderer
 from record_layout_support import SHIPPED_DEFAULTS
+import vocabulary_profile
+from prompt_vocabulary_support import prime_profile_render, shipped_prompt_vocabulary
 
 SEEDS = SCRIPTS_ROOT.parent / "seeds"
 CORE = "209-agent-harness-core.prompt.md"
@@ -143,14 +145,22 @@ class CompactReviewArtifactContractTests(unittest.TestCase):
                 self.assertIn(phrase, text)
 
         assert_completion(completion)
-        self.assertIn(completion, (repo / "docs/prompts/implement-wave.prompt.md").read_text(encoding="utf-8"))
+        # This repository's rendered prompt sits at the profile's path and
+        # carries every phrase; whole-section identity with the template is a
+        # contract only under the shipped names, since a distribution words its
+        # own prompts (change 2134q).
+        authored = (repo / vocabulary_profile.prompt_doc("implement-wave")).read_text(encoding="utf-8")
+        assert_completion(authored)
+        if shipped_prompt_vocabulary():
+            self.assertIn(completion, authored)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             target_template = root / ".wavefoundry/framework/install/lifecycle-prompts/implement-wave.prompt.md"
             shutil.copytree(template_path.parent, target_template.parent)
             target_template.write_text(template, encoding="utf-8")
+            prime_profile_render(root)
             renderer.render_agent_surfaces(root)
-            carrier = root / "docs/prompts/implement-wave.prompt.md"
+            carrier = root / vocabulary_profile.prompt_doc("implement-wave")
             assert_completion(carrier.read_text(encoding="utf-8"))
             self.assertIn(completion, carrier.read_text(encoding="utf-8"))
             # Mutate this consumer's actual template and force a fresh render,

@@ -4337,7 +4337,7 @@ def _validate_prepared_removals(
         removed_by_layer.get("code", set()) & code_paths)
     invalid |= {path for path in removals if _shadowed_by_unreadable(path, unreadable)}
     if invalid:
-        raise SourceChanged("Removal source changed during embedding or became unreadable: "
+        raise SourceChanged("Removal source changed during indexing or became unreadable: "
                            + ", ".join(sorted(invalid)[:5]) + "; retry indexing")
 
 
@@ -6043,11 +6043,11 @@ def _build_index_locked(
                                             getattr(_get_chunker(), "CHUNKER_VERSION", ""))
                         current_config = _sha256(config_path) if config_path.is_file() else None
                         if current_identity != prepared_identity or current_config != prepared_config_hash:
-                            raise RuntimeError("Model/chunker/configuration changed during embedding; retry indexing")
+                            raise RuntimeError("Model/chunker/configuration changed during indexing; retry indexing")
                         for rel in chunks_emitted_by_file:
                             expected = current_file_meta.get(rel,{}).get("hash")
                             if expected and _sha256(root / rel) != expected:
-                                raise SourceChanged(f"Source changed during embedding: {rel}; retry indexing")
+                                raise SourceChanged(f"Source changed during indexing: {rel}; retry indexing")
                         _validate_prepared_removals(
                             root, index_dir, removed_broad,
                             {layer: set(_reap_paths_by_table.get(layer, ())) | _full_removed_by_layer[layer]

@@ -258,7 +258,7 @@ class ReadinessProtocolPins(unittest.TestCase):
         '.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md',
         'docs/contributing/review-and-evals.md',
         '.wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md',
-        'docs/prompts/prepare-wave.prompt.md',
+        vocabulary_profile.prompt_doc('prepare-wave'),  # the profile's path (change 2134q)
         '.wavefoundry/framework/seeds/007-review-system-overview.md',
     )
     RULES = (
@@ -285,7 +285,7 @@ class ReadinessProtocolPins(unittest.TestCase):
     def test_essential_protocol_rules_and_deleted_rule_controls(self):
         groups = [(self.SURFACES, self.RULES), ((
             '.wavefoundry/framework/seeds/170-plan-change.prompt.md',
-            'docs/prompts/plan-change.prompt.md'), self.SHAPE_RULES), ((
+            vocabulary_profile.prompt_doc('plan-change')), self.SHAPE_RULES), ((
             '.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md',
             'docs/contributing/review-and-evals.md'), (
                 'would ship wrong behavior',

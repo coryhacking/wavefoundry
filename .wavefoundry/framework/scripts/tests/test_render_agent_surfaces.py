@@ -26,6 +26,25 @@ import render_platform_surfaces as rps  # noqa: E402
 import review_policy  # noqa: E402
 import review_policy_reconcile  # noqa: E402
 from wave_lint_lib.core_validators import check_review_policy_carriers  # noqa: E402
+import vocabulary_profile as vp  # noqa: E402
+from record_layout_support import default_profile_only  # noqa: E402
+from prompt_vocabulary_support import (  # noqa: E402
+    assert_clause,
+    has_clause,
+    prime_profile_render,
+    profile_paths,
+    shipped_prompt_doc,
+    shipped_prompt_vocabulary,
+    tiered,
+)
+
+
+def prompt_path(name: str) -> str:
+    """A prompt's public path: the profile's for a tier-named lifecycle prompt
+    (change 2134q), ``docs/prompts/<name>.prompt.md`` for a fixed one."""
+    if name in vp.DEFAULT_PROMPT_NAMES:
+        return vp.prompt_doc(name)
+    return f"docs/prompts/{name}.prompt.md"
 
 
 def assert_memory_review_contract(test: unittest.TestCase, text: str) -> None:
@@ -95,16 +114,18 @@ class LegacyAutoGuruSectionTests(unittest.TestCase):
 class BriefingLoopCarrierTests(unittest.TestCase):
     """Distribution/semantic pins, not a claim that agents always follow prose."""
 
+    # Rendered lifecycle prompts sit at the profile's paths (change 2134q);
+    # template asset filenames keep the shipped names.
     CARRIERS = {
         "brief": (
             ".wavefoundry/framework/seeds/170-plan-change.prompt.md",
-            "docs/prompts/plan-change.prompt.md",
+            vp.prompt_doc("plan-change"),
         ),
         "readback": (
             ".wavefoundry/framework/seeds/180-implement-change.prompt.md",
             ".wavefoundry/framework/install/lifecycle-prompts/implement-wave.prompt.md",
-            "docs/prompts/implement-change.prompt.md",
-            "docs/prompts/implement-wave.prompt.md",
+            vp.prompt_doc("implement-change"),
+            vp.prompt_doc("implement-wave"),
         ),
         "gap": (
             ".wavefoundry/framework/seeds/175-review-plan.prompt.md",
@@ -142,11 +163,11 @@ class BriefingLoopCarrierTests(unittest.TestCase):
             "without creating another brief file",
         ),
         "readback": (
-            "Before the first implementation edit of each change",
+            "Before the first implementation edit of each {change}",
             "`Readback:` in its existing Progress Log and surface its substance to the operator",
             "intended behavior, relevant ACs, important scope boundary, and expected affected files",
             "one before/after example for nontrivial behavior changes",
-            "relate the chosen work to Product Intent (or the wave Objective)",
+            "relate the chosen work to Product Intent (or the {wave} Objective)",
             "preserve existing requirement-amendment, re-Prepare and operator-authorization rules",
             "Correct an agent-only misreading directly",
             "actual contract contradiction or missing consequential decision back to planning",
@@ -177,10 +198,10 @@ class BriefingLoopCarrierTests(unittest.TestCase):
             "Retain the read-only pre-apply change evidence for the seeds and install baseline",
             "After extraction",
             "during the same installing run",
-            "`170-plan-change.prompt.md` -> `docs/prompts/plan-change.prompt.md`",
+            "`170-plan-change.prompt.md` -> `{doc[plan-change]}`",
             "`175-review-plan.prompt.md` -> `docs/prompts/review-plan.prompt.md`",
-            "`180-implement-change.prompt.md` -> `docs/prompts/implement-change.prompt.md`",
-            "`.wavefoundry/framework/install/lifecycle-prompts/implement-wave.prompt.md` -> `docs/prompts/implement-wave.prompt.md`",
+            "`180-implement-change.prompt.md` -> `{doc[implement-change]}`",
+            "`.wavefoundry/framework/install/lifecycle-prompts/implement-wave.prompt.md` -> `{doc[implement-wave]}`",
             "Merge only changed authored clauses",
             "preserving project additions, metadata, and every renderer-owned marker region",
             "verify a unique insertion location and absence of conflicting local instructions",
@@ -203,10 +224,16 @@ class BriefingLoopCarrierTests(unittest.TestCase):
         self.assertNotIn("\u2014", body)
         return body
 
-    def _assert_contract(self, kind: str, text: str) -> str:
+    @staticmethod
+    def _is_seed(path: str) -> bool:
+        return path.startswith(".wavefoundry/framework/seeds/")
+
+    def _assert_contract(self, kind: str, text: str, *, seed: bool = True) -> str:
+        # Clause tier nouns and prompt paths: shipped in a seed, the profile's
+        # (case-insensitive) in a template or rendered prompt (change 2134q).
         body = self._block(kind, text)
         for clause in self.CLAUSES[kind]:
-            self.assertIn(clause, body)
+            assert_clause(self, clause, body, seed=seed)
         if kind == "gap":
             self.assertNotIn("Do not review sections outside Requirements", text)
         return body
@@ -216,20 +243,30 @@ class BriefingLoopCarrierTests(unittest.TestCase):
             bodies = []
             for path in paths:
                 with self.subTest(kind=kind, path=path):
-                    bodies.append(self._assert_contract(kind, (PROJECT_ROOT.parent / path).read_text()))
+                    bodies.append(self._assert_contract(
+                        kind, (PROJECT_ROOT.parent / path).read_text(), seed=self._is_seed(path)))
             self.assertTrue(bodies)
-            self.assertTrue(all(body == bodies[0] for body in bodies))
+            # Byte identity with the seed holds only under the shipped names: a
+            # distribution words its own templates and prompts, and the clause
+            # checks above carry the contract there (change 2134q).
+            if shipped_prompt_vocabulary():
+                self.assertTrue(all(body == bodies[0] for body in bodies))
 
     def test_deleted_empty_and_reversed_clauses_are_detected_in_every_carrier(self) -> None:
         for kind, paths in self.CARRIERS.items():
             for path in paths:
+                seed = self._is_seed(path)
                 original = (PROJECT_ROOT.parent / path).read_text()
-                body = self._assert_contract(kind, original)
+                body = self._assert_contract(kind, original, seed=seed)
                 mutants = [original.replace(self.HEADINGS[kind], "", 1), original.replace(body, "", 1)]
                 for clause in self.CLAUSES[kind]:
                     # Mutate only this block: a repeated phrase in unrelated
                     # upgrade guidance must not mask a missing instruction.
-                    mutants.append(original.replace(body, body.replace(clause, "", 1), 1))
+                    # Either accepted wording (profile or shipped nouns) is removed.
+                    forms = {tiered(clause, seed=True)} if seed else {tiered(clause), tiered(clause, seed=True)}
+                    filled = re.compile("|".join(re.escape(form) for form in sorted(forms, key=len, reverse=True)),
+                                        0 if seed else re.IGNORECASE)
+                    mutants.append(original.replace(body, filled.sub("", body, count=1), 1))
                 reversals = {
                     "brief": (
                         ("Silence is neither an answer nor approval", "Silence is approval"),
@@ -258,15 +295,16 @@ class BriefingLoopCarrierTests(unittest.TestCase):
                     with self.subTest(kind=kind, path=path, mutant=index):
                         self.assertNotEqual(mutant, original)
                         with self.assertRaises(AssertionError):
-                            self._assert_contract(kind, mutant)
+                            self._assert_contract(kind, mutant, seed=seed)
 
     def test_real_render_creates_baseline_and_preserves_customized_carriers(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
+            prime_profile_render(root)
             written = ras.render_agent_surfaces(root)
-            target = root / "docs/prompts/implement-wave.prompt.md"
-            self.assertIn("docs/prompts/implement-wave.prompt.md", written)
-            self._assert_contract("readback", target.read_text())
+            target = root / vp.prompt_doc("implement-wave")
+            self.assertIn(vp.prompt_doc("implement-wave"), written)
+            self._assert_contract("readback", target.read_text(), seed=False)
             self.assertNotIn("{{generated_at}}", target.read_text())
             # Review-plan baseline delegates to the seed; other authored prompts
             # are not claimed to be whole-file renderer outputs.
@@ -274,14 +312,15 @@ class BriefingLoopCarrierTests(unittest.TestCase):
             self.assertIn("175-review-plan.prompt.md", review.read_text())
             self.assertEqual(ras.render_agent_surfaces(root), [])
             snapshots = {}
-            for name in ("plan-change", "review-plan", "implement-change", "implement-wave"):
-                relative = f"docs/prompts/{name}.prompt.md"
+            prompts = ("plan-change", "implement-change", "implement-wave")
+            relatives = (*(vp.prompt_doc(name) for name in prompts), "docs/prompts/review-plan.prompt.md")
+            for relative in relatives:
                 custom = ("# Project prompt\n\nOwner: Local team\nStatus: active\n"
                           "Last verified: 2026-01-01\n\nKeep project-specific output conventions.\n")
                 (root / relative).write_text(custom)
             ras.render_agent_surfaces(root)  # Establish the renderer-owned regions.
-            for name in ("plan-change", "review-plan", "implement-change", "implement-wave"):
-                target = root / f"docs/prompts/{name}.prompt.md"
+            for relative in relatives:
+                target = root / relative
                 self.assertTrue(target.read_text().startswith(custom))
                 snapshots[target] = target.read_bytes()
             self.assertEqual(ras.render_agent_surfaces(root), [])
@@ -360,7 +399,7 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
                          "docs/prompts/upgrade-wavefoundry.prompt.md"):
             self._assert_block((self.ROOT / relative).read_text(), self.UPGRADE_HEADING, self.UPGRADE_CLAUSES)
         for phase in (*self.PHASES, "implement-change", "pause-wave", "agent-routing-concurrency"):
-            self._assert_phase_pointer((self.ROOT / f"docs/prompts/{phase}.prompt.md").read_text())
+            self._assert_phase_pointer((self.ROOT / prompt_path(phase)).read_text())
         bootstrap = (self.ROOT / ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md").read_text()
         self.assertIn("Seed 180 owns **Host-neutral orchestration** throughout Prepare-to-Close", bootstrap)
         for phase in self.PHASES:
@@ -398,7 +437,7 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
                     with self.assertRaises(AssertionError):
                         self._assert_block(mutant, heading, clauses)
         for phase in self.PHASES:
-            text = (self.ROOT / f"docs/prompts/{phase}.prompt.md").read_text()
+            text = (self.ROOT / vp.prompt_doc(phase)).read_text()
             self._assert_phase_pointer(text)
             for old, new in ((self.OWNER, "missing-owner.md"),
                              ("does not satisfy required independent review", "satisfies required independent review")):
@@ -411,10 +450,11 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
     def test_public_fresh_render_delivers_every_lifecycle_phase(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
+            prime_profile_render(root)
             written = ras.render_agent_surfaces(root)
             snapshots = {}
             for phase in self.PHASES:
-                relative = f"docs/prompts/{phase}.prompt.md"
+                relative = vp.prompt_doc(phase)
                 self.assertIn(relative, written)
                 target = root / relative
                 self._assert_phase_pointer(target.read_text())
@@ -429,7 +469,7 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
         authored = text.split("<!-- wave:executable-review-evidence", 1)[0]
         flat = " ".join(authored.split())
         for clause in (
-            "Review wave is the delivery phase; readiness review already ran at Prepare",
+            "{shortcut[review-wave]} is the delivery phase; readiness review already ran at Prepare",
             "Every required-lane approval comes from a reviewer context started for delivery review",
             "non-delivery checkpoint pass or repair may return findings and evidence but records no approval",
             "Without the typed tool, return judgment facts to the coordinator and never hand-edit the ledger",
@@ -441,10 +481,10 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
             "AC scope gap check", "`qa-reviewer` attests every required row",
             "Verify every `[~]` AC", "## AC and Task Verification Truth Hierarchy",
             "## Project review specifics",
-            "Review wave ends when every required lane and any receipt-required council approval is current in `wf_review_wave`",
-            "It does not close the wave, mark completion or commit changes",
+            "{shortcut[review-wave]} ends when every required lane and any receipt-required council approval is current in `wf_review_wave`",
+            "It does not close the {wave}, mark completion or commit changes",
         ):
-            self.assertIn(clause, flat)
+            assert_clause(self, clause, flat)
 
     def test_fresh_review_template_contract_and_known_bad_controls(self) -> None:
         template_root = SCRIPTS_ROOT.parent / "install" / "lifecycle-prompts"
@@ -452,7 +492,10 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
         mutants = (
             ("delivery phase", "readiness phase"),
             ("but records no approval", "and records approval"),
-            ("It does not close the wave", "It closes the wave"),
+            # The wording this template actually carries: the profile's nouns
+            # or, for a distribution that kept the shipped text, the shipped ones.
+            next((tiered("It does not close the {wave}", seed=seed), tiered("It closes the {wave}", seed=seed))
+                 for seed in (False, True) if tiered("It does not close the {wave}", seed=seed) in baseline),
         )
         for mutation in (None, *mutants):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temp_dir:
@@ -461,13 +504,14 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
                 local_templates.mkdir(parents=True)
                 for source in template_root.glob("*.md"):
                     (local_templates / source.name).write_bytes(source.read_bytes())
+                prime_profile_render(root)
                 if mutation:
                     old, new = mutation
                     self.assertEqual(baseline.count(old), 1)
                     (local_templates / "review-wave.prompt.md").write_text(baseline.replace(old, new, 1))
                 written = ras.render_agent_surfaces(root)
-                self.assertIn("docs/prompts/review-wave.prompt.md", written)
-                target = root / "docs/prompts/review-wave.prompt.md"
+                self.assertIn(vp.prompt_doc("review-wave"), written)
+                target = root / vp.prompt_doc("review-wave")
                 rendered = target.read_text()
                 self._assert_phase_pointer(rendered)
                 if mutation:
@@ -489,7 +533,7 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
             # Entry documents are agent-authored input, not renderer outputs.
             (root / "AGENTS.md").write_text(
                 "# Project instructions\n\n" + "\n".join(
-                    f"Read docs/prompts/{phase}.prompt.md." for phase in self.PHASES
+                    f"Read {vp.prompt_doc(phase)}." for phase in self.PHASES
                 ) + "\n"
             )
             (root / "CLAUDE.md").write_text("# Claude\n\n## Startup Order\n\n1. AGENTS.md\n")
@@ -498,19 +542,20 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
             )
             for platform in ("codex", "claude", "antigravity", "copilot"):
                 rps.render_platform_entrypoints(root, platform)
+            prime_profile_render(root)
             ras.render_agent_surfaces(root)
             for host in (".codex", ".claude", ".agents"):
                 for phase in self.PHASES:
-                    skill = root / host / "skills" / f"wf-{phase}" / "SKILL.md"
+                    skill = root / host / "skills" / vp.skill_name(phase) / "SKILL.md"
                     text = skill.read_text()
-                    self.assertIn(f"docs/prompts/{phase}.prompt.md", text)
+                    self.assertIn(vp.prompt_doc(phase), text)
                     # The wrapper routes; the policy stays in the shared owner.
                     self.assertNotIn(self.POLICY_HEADING, text)
                     self.assertNotIn(self.POLICY_CLAUSES[3], text)
             self.assertIn("@AGENTS.md", (root / "CLAUDE.md").read_text())
             self.assertIn("AGENTS.md", (root / ".github/copilot-instructions.md").read_text())
             for phase in self.PHASES:
-                self._assert_phase_pointer((root / f"docs/prompts/{phase}.prompt.md").read_text())
+                self._assert_phase_pointer((root / vp.prompt_doc(phase)).read_text())
 
     def test_customized_prompts_require_authored_merge_then_converge(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -520,19 +565,20 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
             prefix = "# Local workflow\n\nOwner: Local team\nStatus: active\nLast verified: 2026-01-01\n\n"
             suffix = "\n\nKeep project-specific output conventions and the local release checklist.\n"
             for phase in self.PHASES:
-                (root / f"docs/prompts/{phase}.prompt.md").write_text(prefix + stale + suffix)
+                (root / vp.prompt_doc(phase)).write_text(prefix + stale + suffix)
+            prime_profile_render(root)
             ras.render_agent_surfaces(root)
             before = {}
             for phase in self.PHASES:
-                target = root / f"docs/prompts/{phase}.prompt.md"
+                target = root / vp.prompt_doc(phase)
                 text = target.read_text()
                 self.assertTrue(text.startswith(prefix + stale + suffix))
-                before[target] = text
+                before[phase] = (target, text)
             # Deliberate test-side agent editing step, NOT upgrader automation.
             # Only the known authored stale clause is replaced; all renderer-owned
             # regions and unrelated project text retain their exact bytes.
-            for target, original in before.items():
-                baseline = self.ROOT / ".wavefoundry/framework/install/lifecycle-prompts" / target.name
+            for phase, (target, original) in before.items():
+                baseline = self.ROOT / ".wavefoundry/framework/install/lifecycle-prompts" / f"{phase}.prompt.md"
                 paragraphs = [p for p in baseline.read_text().split("\n\n") if self.OWNER in p]
                 self.assertEqual(len(paragraphs), 1, target.name)
                 self.assertEqual(original.count(stale), 1)
@@ -541,7 +587,7 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
                 self.assertEqual(merged.replace(paragraphs[0], stale, 1), original)
                 self._assert_phase_pointer(merged)
                 self.assertNotIn(stale, merged)
-            snapshots = {target: target.read_bytes() for target in before}
+            snapshots = {target: target.read_bytes() for target, _original in before.values()}
             for _ in range(2):
                 ras.render_agent_surfaces(root)
                 for target, expected in snapshots.items():
@@ -652,9 +698,10 @@ class ScaffoldBaselineTests(unittest.TestCase):
         """2124l: real rendering proves instruction delivery, not agent adherence."""
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
+            prime_profile_render(root)
             ras.render_agent_surfaces(root)
             contracts = {
-                "create-wave": "shared outcome of admitted changes",
+                "create-wave": "shared outcome of admitted {changes}",
                 "implement-wave": "relate the chosen work to Product Intent",
                 "review-plan": "would satisfying them establish the intended outcome",
                 "prepare-wave": "operator burden undermines that outcome",
@@ -665,7 +712,8 @@ class ScaffoldBaselineTests(unittest.TestCase):
                 relative = next(destination for destination, template in ras.LIFECYCLE_PROMPT_BASELINES
                                 if template == f"{key}.prompt.md")
                 text = (root / relative).read_text(encoding="utf-8")
-                self.assertIn(clause, text, key)
+                with self.subTest(key=key):
+                    assert_clause(self, clause, text)
                 self.assertNotIn("{{generated_at}}", text)
             template = ras.record_paths.load_record_roots(root).plans / "plan-template.md"
             self.assertIn("## Product Intent", template.read_text(encoding="utf-8"))
@@ -920,7 +968,7 @@ class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
         self.assertEqual(ras.REVIEW_PROTOCOL_CARRIER_MANIFEST, expected)
         self.assertEqual(len(expected), len(set(expected)))
         self.assertIn("docs/agents/qa-reviewer.md", expected)
-        self.assertIn("docs/prompts/agents/review-wave.prompt.md", expected)
+        self.assertIn(vp.agent_prompt_doc("review-wave"), expected)
         self.assertIn("docs/contributing/review-and-evals.md", expected)
         seeds_root = PROJECT_ROOT / "framework" / "seeds"
         missing_sources = [
@@ -940,10 +988,13 @@ class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
         )
         # The closed 1skt1 change doc is history and names a destination as it
         # was then (wave 200ey, change 200ew: the council role doc's earlier path).
+        # It also names lifecycle prompts at their shipped paths, whatever the
+        # profile now calls them (change 2134q).
         historical = {"docs/agents/specialists/council-chair.md": "docs/agents/specialists/wave-council.md"}
         for carrier in ras.REVIEW_PROTOCOL_CARRIER_REGISTRY:
             self.assertIn(carrier.destination, ownership, carrier.destination)
-            self.assertIn(historical.get(carrier.destination, carrier.destination), change, carrier.destination)
+            recorded = shipped_prompt_doc(carrier.destination)
+            self.assertIn(historical.get(recorded, recorded), change, carrier.destination)
 
     def test_reconciles_before_guru_guard_preserves_extensions_and_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -953,11 +1004,12 @@ class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
             operator_extension = "## Project extension\n\n- keep this byte-for-byte\n"
             target.write_text("# Code Reviewer\n\n" + operator_extension, encoding="utf-8")
 
+            prime_profile_render(repo_root)
             written = ras.render_agent_surfaces(repo_root)
             self.assertIn("docs/agents/code-reviewer.md", written)
             self.assertIn("docs/agents/qa-reviewer.md", written)
-            self.assertIn("docs/prompts/review-wave.prompt.md", written)
-            self.assertIn("docs/prompts/create-wave.prompt.md", written)
+            self.assertIn(vp.prompt_doc("review-wave"), written)
+            self.assertIn(vp.prompt_doc("create-wave"), written)
             first = target.read_bytes()
             text = first.decode("utf-8")
             self.assertIn(operator_extension, text)
@@ -970,7 +1022,7 @@ class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
             self.assertIn("assertion that would falsify", qa_text)
             self.assertIn("`independent: false`", qa_text)
             self.assertFalse((repo_root / "docs" / "agents" / "guru.md").exists())
-            create_wave = (repo_root / "docs" / "prompts" / "create-wave.prompt.md").read_text(encoding="utf-8")
+            create_wave = (repo_root / vp.prompt_doc("create-wave")).read_text(encoding="utf-8")
             for literal in (
                 # declaration-check: asserts the declaration contract; creates no lifecycle state
                 "review-evidence-source: events.jsonl",
@@ -1010,6 +1062,7 @@ class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
+            prime_profile_render(repo_root)
             ras.render_agent_surfaces(repo_root)
             first = target.read_bytes()
             text = first.decode("utf-8")
@@ -1072,7 +1125,7 @@ class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
     def test_stale_owned_region_refreshes_without_touching_surrounding_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
-            target = repo_root / "docs" / "prompts" / "review-wave.prompt.md"
+            target = repo_root / vp.prompt_doc("review-wave")
             target.parent.mkdir(parents=True)
             prefix = "# Review Wave\n\nproject-prefix\n\n"
             suffix = "\n\nproject-suffix\n"
@@ -1222,6 +1275,7 @@ class RenderAgentSurfacesTests(unittest.TestCase):
     def test_missing_guru_stays_disabled_while_required_review_carriers_are_created(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
+            prime_profile_render(repo_root)
             result = subprocess.run(
                 ["python3", str(RENDER_SCRIPT), "--repo-root", str(repo_root)],
                 cwd=PROJECT_ROOT / "framework" / "scripts",
@@ -1231,7 +1285,7 @@ class RenderAgentSurfacesTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue((repo_root / "docs" / "agents" / "qa-reviewer.md").is_file())
-            self.assertTrue((repo_root / "docs" / "prompts" / "review-wave.prompt.md").is_file())
+            self.assertTrue((repo_root / vp.prompt_doc("review-wave")).is_file())
             self.assertFalse((repo_root / "docs" / "agents" / "guru.md").exists())
             self.assertFalse((repo_root / ".cursor" / "rules" / "auto-guru.mdc").exists())
 
@@ -1660,6 +1714,12 @@ class ChangePromptRenameMigrationTests(unittest.TestCase):
     NEW_IMPL_AGENT = "docs/prompts/agents/implement-change.prompt.md"
     OLD_IMPL = "docs/prompts/implement-feature.prompt.md"
     NEW_IMPL = "docs/prompts/implement-change.prompt.md"
+    # The 1zyc4 moves land at the shipped (applied) names; a full render then
+    # moves them on to the profile's names (change 2134q).
+    FINAL_PLAN = vp.prompt_doc("plan-change")
+    FINAL_IMPL_AGENT = vp.agent_prompt_doc("implement-change")
+    # A manifest with no ``prompt_names`` record applies the shipped names.
+    APPLIED_CLOSE_CHANGE = "docs/prompts/close-change.prompt.md"
     PAIR_PATHS = (
         "docs/prompts/plan-feature.prompt.md",
         "docs/prompts/plan-change.prompt.md",
@@ -1723,17 +1783,17 @@ class ChangePromptRenameMigrationTests(unittest.TestCase):
                 written = ras.render_agent_surfaces(root)
             self.assertFalse((root / self.OLD_PLAN).exists())
             self.assertFalse((root / self.OLD_IMPL_AGENT).exists())
-            self.assertEqual((root / self.NEW_PLAN).read_bytes(), custom[self.OLD_PLAN])
-            self.assertEqual((root / self.NEW_IMPL_AGENT).read_bytes(), custom[self.OLD_IMPL_AGENT])
-            for rel in (self.OLD_PLAN, self.NEW_PLAN, self.OLD_IMPL_AGENT, self.NEW_IMPL_AGENT, self.MANIFEST):
+            self.assertEqual((root / self.FINAL_PLAN).read_bytes(), custom[self.OLD_PLAN])
+            self.assertEqual((root / self.FINAL_IMPL_AGENT).read_bytes(), custom[self.OLD_IMPL_AGENT])
+            for rel in (self.OLD_PLAN, self.FINAL_PLAN, self.OLD_IMPL_AGENT, self.FINAL_IMPL_AGENT, self.MANIFEST):
                 self.assertIn(rel, written)
             entries = json.loads((root / self.MANIFEST).read_text(encoding="utf-8"))["public_prompt_surface"]
             self.assertEqual(
                 entries,
                 [
-                    {"doc": self.NEW_PLAN, "shortcut": "Plan change"},
-                    {"doc": "docs/prompts/close-wave.prompt.md", "shortcut": "Close wave"},
-                    {"doc": ras.CLOSE_CHANGE_PROMPT, "shortcut": "Close change"},
+                    {"doc": self.FINAL_PLAN, "shortcut": vp.shortcut("plan-change")},
+                    {"doc": vp.prompt_doc("close-wave"), "shortcut": vp.shortcut("close-wave")},
+                    {"doc": ras.CLOSE_CHANGE_PROMPT, "shortcut": ras.CLOSE_CHANGE_SHORTCUT},
                 ],
             )
             self.assertTrue((root / ras.CLOSE_CHANGE_PROMPT).is_file())
@@ -1965,7 +2025,7 @@ class ChangePromptRenameMigrationTests(unittest.TestCase):
                 self.assertEqual(self._snapshot(root), before)
                 self.assertFalse((root / ras.CLOSE_CHANGE_PROMPT).exists())
                 self.assertFalse((root / ".claude").exists())
-                self.assertFalse((root / "docs/prompts/create-wave.prompt.md").exists())
+                self.assertFalse((root / vp.prompt_doc("create-wave")).exists())
 
     def test_partial_earlier_run_is_repaired_by_manifest_rewrite_only(self) -> None:
         import json
@@ -1975,10 +2035,10 @@ class ChangePromptRenameMigrationTests(unittest.TestCase):
             (root / "docs/prompts").mkdir(parents=True)
             moved = b"# Already moved\r\nProject prose.\r\n"
             (root / self.NEW_PLAN).write_bytes(moved)
-            (root / ras.CLOSE_CHANGE_PROMPT).write_bytes(b"# Close Change\n")
+            (root / self.APPLIED_CLOSE_CHANGE).write_bytes(b"# Close Change\n")
             (root / self.MANIFEST).write_text(
                 self._manifest_text(
-                    [(self.OLD_PLAN, "Plan feature"), (ras.CLOSE_CHANGE_PROMPT, "Close change")]
+                    [(self.OLD_PLAN, "Plan feature"), (self.APPLIED_CLOSE_CHANGE, "Close change")]
                 ),
                 encoding="utf-8",
             )
@@ -1991,7 +2051,7 @@ class ChangePromptRenameMigrationTests(unittest.TestCase):
                 entries,
                 [
                     {"doc": self.NEW_PLAN, "shortcut": "Plan change"},
-                    {"doc": ras.CLOSE_CHANGE_PROMPT, "shortcut": "Close change"},
+                    {"doc": self.APPLIED_CLOSE_CHANGE, "shortcut": "Close change"},
                 ],
             )
             self.assertEqual(ras.migrate_change_prompt_renames(root).written, ())
@@ -2001,7 +2061,7 @@ class ChangePromptRenameMigrationTests(unittest.TestCase):
             root = Path(temp_dir)
             (root / "docs/prompts").mkdir(parents=True)
             text = self._manifest_text(
-                [(self.OLD_IMPL, "Implement feature"), (ras.CLOSE_CHANGE_PROMPT, "Close change")]
+                [(self.OLD_IMPL, "Implement feature"), (self.APPLIED_CLOSE_CHANGE, "Close change")]
             )
             (root / self.MANIFEST).write_text(text, encoding="utf-8")
             self.assertEqual(ras.migrate_change_prompt_renames(root).written, ())
@@ -2025,7 +2085,7 @@ class ChangePromptRenameMigrationTests(unittest.TestCase):
             self.assertNotIn("docs/prompts/finalize-feature.prompt.md", docs)
             self.assertIn(ras.CLOSE_CHANGE_PROMPT, docs)
             baseline = (root / ras.CLOSE_CHANGE_PROMPT).read_text(encoding="utf-8")
-            self.assertIn("Shortcut: **`Close change`**", baseline)
+            self.assertIn(vp.shortcut_line("close-change"), baseline)
             self.assertNotIn("{{generated_at}}", baseline)
             sys.path.insert(0, str(SCRIPTS_ROOT))
             import reconcile_scan
@@ -2083,17 +2143,17 @@ class ChangePromptSkillAndContractTests(unittest.TestCase):
                 skills = root / host / "skills"
                 with self.subTest(host=host):
                     self.assertFalse((skills / "wf-plan-feature").exists())
-                    for name in ("wf-plan-change", "wf-close-change"):
+                    for name in (vp.skill_name("plan-change"), vp.skill_name("close-change")):
                         self.assertTrue((skills / name / "SKILL.md").is_file())
                     for skill_md in skills.glob("*/SKILL.md"):
                         text = skill_md.read_text(encoding="utf-8")
                         for token in self.RETIRED:
                             self.assertNotIn(token, text, f"{skill_md}: {token}")
-        close_change = next(s for s in ras.SKILL_REGISTRY if s.name == "wf-close-change")
+        close_change = next(s for s in ras.SKILL_REGISTRY if s.name == vp.skill_name("close-change"))
         self.assertIsNone(close_change.requires_doc)
-        self.assertIn("docs/prompts/close-change.prompt.md", close_change.body)
+        self.assertIn(vp.prompt_doc("close-change"), close_change.body)
         self.assertIn("dry_run", close_change.body)
-        self.assertIn("only wave close", close_change.body)
+        assert_clause(self, "only {wave} close", close_change.body)
 
     def _close_change_sources(self) -> dict[str, str]:
         repo = PROJECT_ROOT.parent
@@ -2103,34 +2163,36 @@ class ChangePromptSkillAndContractTests(unittest.TestCase):
             "template": (PROJECT_ROOT / "framework/install/lifecycle-prompts/close-change.prompt.md").read_text(
                 encoding="utf-8"
             ),
-            "rendered": (repo / "docs/prompts/close-change.prompt.md").read_text(encoding="utf-8"),
+            "rendered": (repo / vp.prompt_doc("close-change")).read_text(encoding="utf-8"),
         }
 
     def test_close_change_states_the_implemented_wf_close_change_contract(self) -> None:
+        # Seed text is literal; the template and rendered prompt carry each
+        # clause in the profile's nouns and names (change 2134q).
         clauses = (
             "wf_close_change",
             "(`active` or `implementing`)",
-            "admitted to that wave",
-            "change doc exists and is readable",
+            "admitted to that {wave}",
+            "{change} doc exists and is readable",
             "(`ready`, `active`, `review` or `implemented`)",
-            "agrees between the wave record and the change doc",
+            "agrees between the {wave} record and the {change} doc",
             "silent `[ ]` AC or task",
             "`Depends On:`",
             "records no review evidence",
-            "Review wave",
+            "{shortcut[review-wave]}",
             "cannot be reopened",
             "`dry_run`",
-            "only wave close",
+            "only {wave} close",
         )
         for name, text in self._close_change_sources().items():
             for clause in clauses:
                 with self.subTest(source=name, clause=clause):
-                    self.assertIn(clause, text)
+                    assert_clause(self, clause, text, seed=name == "seed")
 
     def test_close_wave_item_one_accepts_implemented_and_names_close_change_optional(self) -> None:
         repo = PROJECT_ROOT.parent
         sources = {
-            "prompt": (repo / "docs/prompts/close-wave.prompt.md").read_text(encoding="utf-8"),
+            "prompt": (repo / vp.prompt_doc("close-wave")).read_text(encoding="utf-8"),
             "template": (PROJECT_ROOT / "framework/install/lifecycle-prompts/close-wave.prompt.md").read_text(
                 encoding="utf-8"
             ),
@@ -2141,7 +2203,8 @@ class ChangePromptSkillAndContractTests(unittest.TestCase):
             with self.subTest(source=name):
                 for status in ("`implemented`", "`complete`", "`deferred`"):
                     self.assertIn(status, item)
-                self.assertIn("Close change", text[text.index(item):text.index(item) + 600])
+                assert_clause(self, "{shortcut[close-change]}", text[text.index(item):text.index(item) + 600],
+                              seed=name == "seed")
                 self.assertIn("optional", text[text.index(item):text.index(item) + 600])
 
 
@@ -2193,15 +2256,17 @@ class SkillRegistryTests(unittest.TestCase):
         self.assertIn("wf-review-plan", by_name)
         self.assertNotIn("wf-interrogate-plan", by_name)
         skill = by_name["wf-review-plan"]
+        # Renderer-owned prose names the tiers and skills in the profile's
+        # names (changes 2134r, 2134q).
         for literal in (
             "docs/prompts/review-plan.prompt.md",
-            "current wave record",
+            "current {wave} record",
             "before or after admission",
             "before implementation",
             "no typed signoff",
-            "wf-review-wave",
+            vp.skill_name("review-wave"),
         ):
-            self.assertIn(literal, f"{skill.description}\n{skill.body}")
+            assert_clause(self, literal, f"{skill.description}\n{skill.body}")
 
         council = by_name["wf-council"]
         council_contract = f"{council.description}\n{council.body}"
@@ -2210,8 +2275,8 @@ class SkillRegistryTests(unittest.TestCase):
             "wf-review-plan",
             "Interrogate this plan",
             "Stress-test this plan",
-            "Review wave",
-            "wf-review-wave",
+            vp.shortcut("review-wave"),
+            vp.skill_name("review-wave"),
         ):
             self.assertIn(literal, council_contract)
 
@@ -2243,9 +2308,10 @@ class SkillRegistryTests(unittest.TestCase):
                 self.assertTrue(skill.is_file())
                 skill_text = skill.read_text(encoding="utf-8")
                 self.assertIn("docs/prompts/review-plan.prompt.md", skill_text)
-                self.assertIn("current wave record", skill_text)
+                assert_clause(self, "current {wave} record", skill_text)
                 self.assertIn("before or after admission", skill_text)
 
+    @default_profile_only("compares this repository's own rendered skill files, rendered under the shipped names")
     def test_self_hosted_review_plan_skills_match_registry_bytes(self) -> None:
         root = TESTS_ROOT.parents[2].parent
         review_plan = next(
@@ -4308,6 +4374,14 @@ class TechdocsCarrierLiteralPinTests(unittest.TestCase):
             return all(clause in text for clause in replacements)
 
         for label, text in surfaces:
+            # The rendered prompt names lifecycle prompts at the profile's
+            # paths; the seed keeps the shipped ones (change 2134q).
+            seed = label.startswith("seed-")
+            localize = (lambda value: value) if seed else profile_paths
+            surface_mappings = {
+                heading: {localize(clause): localize(bad) for clause, bad in clauses.items()}
+                for heading, clauses in mapping_contracts.items()
+            }
             techdocs_line = next(
                 (
                     line
@@ -4324,7 +4398,7 @@ class TechdocsCarrierLiteralPinTests(unittest.TestCase):
                 self.assertTrue(contract_holds(techdocs_line), label)
                 for literal in (
                     "seeds `170`, `180`, `190`, `209`, `214`, `221`, or `239` changed",
-                    "docs/prompts/implement-wave.prompt.md",
+                    localize("docs/prompts/implement-wave.prompt.md"),
                     "docs/agents/wave-coordinator.md",
                     "Review Artifact Discipline",
                     "preserve historical review artifacts",
@@ -4335,7 +4409,7 @@ class TechdocsCarrierLiteralPinTests(unittest.TestCase):
                     mutant = techdocs_line.replace(clause, known_bad, 1)
                     self.assertNotEqual(mutant, techdocs_line, f"vacuous mutant: {label}: {clause}")
                     self.assertFalse(contract_holds(mutant), f"surviving mutant: {label}: {clause}")
-            for heading, clauses in mapping_contracts.items():
+            for heading, clauses in surface_mappings.items():
                 with self.subTest(surface=label, mapping=heading):
                     mapping_line = next(
                         (
@@ -4857,7 +4931,7 @@ class CodexPatchWorkflowCarrierTests(unittest.TestCase):
         self._assert_patch_policy(text)
         self.assertIn("semantic amendments hidden only in narration", text)  # Preserve 20bw2.
         for host in (".codex", ".claude", ".agents"):
-            skill = root / host / "skills/wf-implement-wave/SKILL.md"
+            skill = root / host / "skills" / vocabulary_profile.skill_name("implement-wave") / "SKILL.md"
             self.assertIn(key, skill.read_text(encoding="utf-8"))
 
     def test_existing_managed_reconciler_preserves_customization_and_is_idempotent(self):

@@ -1757,6 +1757,13 @@ class LifecyclePromptTextTests(unittest.TestCase):
 
     REPO = Path(__file__).resolve().parents[4]
 
+    @staticmethod
+    def _prompt(key: str) -> str:
+        # The profile's path for a tier-named lifecycle prompt (change 2134q).
+        import vocabulary_profile
+
+        return vocabulary_profile.prompt_doc(key)
+
     def _text(self, rel: str) -> str:
         path = self.REPO / rel
         if not path.exists():
@@ -1764,19 +1771,19 @@ class LifecyclePromptTextTests(unittest.TestCase):
         return path.read_text(encoding="utf-8")
 
     def test_close_prompt_requires_the_agent_validation_checkpoint(self):
-        text = self._text("docs/prompts/close-wave.prompt.md")
+        text = self._text(self._prompt("close-wave"))
         self.assertIn("Agent Memory Validation Checkpoint", text)
         for word in ("promote", "reject", "retain", "rewrite", "memory_validate"):
             self.assertIn(word, text)
 
     def test_review_and_pause_prompts_propose_candidates(self):
-        review = self._text("docs/prompts/review-wave.prompt.md")
+        review = self._text(self._prompt("review-wave"))
         self.assertIn("memory_add(status='candidate'", review)
-        pause = self._text("docs/prompts/pause-wave.prompt.md")
+        pause = self._text(self._prompt("pause-wave"))
         self.assertIn("memory_add(status='candidate'", pause)
 
     def test_implement_prompt_requires_the_briefing(self):
-        text = self._text("docs/prompts/implement-wave.prompt.md")
+        text = self._text(self._prompt("implement-wave"))
         self.assertIn("memory_brief(context='pre_implementation'", text)
         self.assertIn("needs_reverification", text)
 

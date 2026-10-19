@@ -659,17 +659,20 @@ class RetiredFeaturePromptNameTests(unittest.TestCase):
             root = Path(td)
             (root / "guide.md").write_text(self.LIVE_DOC, encoding="utf-8")
             findings = self.scan.scan_repo(root)
+        # Replacements are the profile's names (change 2134q); seed filenames
+        # are fixed.
+        vp = vocabulary_profile
         self.assertEqual(
             [(f.line, f.retired_surface, f.suggested) for f in findings],
             [
-                (1, "wf-plan-feature", "wf-plan-change"),
-                (2, "docs/prompts/plan-feature.prompt.md", "docs/prompts/plan-change.prompt.md"),
-                (3, "docs/prompts/implement-feature.prompt.md", "docs/prompts/implement-change.prompt.md"),
-                (4, "docs/prompts/agents/plan-feature.prompt.md", "docs/prompts/agents/plan-change.prompt.md"),
+                (1, "wf-plan-feature", vp.skill_name("plan-change")),
+                (2, "docs/prompts/plan-feature.prompt.md", vp.prompt_doc("plan-change")),
+                (3, "docs/prompts/implement-feature.prompt.md", vp.prompt_doc("implement-change")),
+                (4, "docs/prompts/agents/plan-feature.prompt.md", vp.agent_prompt_doc("plan-change")),
                 (
                     5,
                     "docs/prompts/agents/implement-feature.prompt.md",
-                    "docs/prompts/agents/implement-change.prompt.md",
+                    vp.agent_prompt_doc("implement-change"),
                 ),
                 (6, "170-plan-feature.prompt.md", ".wavefoundry/framework/seeds/170-plan-change.prompt.md"),
                 (
@@ -678,9 +681,10 @@ class RetiredFeaturePromptNameTests(unittest.TestCase):
                     ".wavefoundry/framework/seeds/180-implement-change.prompt.md",
                 ),
                 (8, "190-finalize-feature.prompt.md", ".wavefoundry/framework/seeds/190-close-wave.prompt.md"),
-                (9, "Plan feature", "Plan change"),
-                (10, "Implement feature", "Implement change"),
-                (11, "Finalize feature", "Close change (one change) or Close wave (the wave)"),
+                (9, "Plan feature", vp.shortcut("plan-change")),
+                (10, "Implement feature", vp.shortcut("implement-change")),
+                (11, "Finalize feature",
+                 f"{vp.shortcut('close-change')} (one change) or {vp.shortcut('close-wave')} (the wave)"),
             ],
         )
 
@@ -726,8 +730,8 @@ class RetiredFeaturePromptNameTests(unittest.TestCase):
 
     def test_finalize_prompts_are_reported_by_file_identity(self):
         suggestion = (
-            "merge unique guidance into docs/prompts/close-wave.prompt.md or "
-            "docs/prompts/close-change.prompt.md, then remove the retired prompt"
+            f"merge unique guidance into {vocabulary_profile.prompt_doc('close-wave')} or "
+            f"{vocabulary_profile.prompt_doc('close-change')}, then remove the retired prompt"
         )
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -770,13 +774,13 @@ class RetiredFeaturePromptNameTests(unittest.TestCase):
             findings = self.scan.scan_repo(root)
         self.assertEqual(
             [(f.file, f.line, f.matched, f.suggested) for f in findings],
-            [(".claude/agents/guru.md", 3, "Plan feature", "Plan change")],
+            [(".claude/agents/guru.md", 3, "Plan feature", vocabulary_profile.shortcut("plan-change"))],
         )
 
     def test_this_repository_guru_description_says_plan_change(self):
         guru = (REPO_ROOT / ".claude/agents/guru.md").read_text(encoding="utf-8")
         description = next(line for line in guru.splitlines() if line.startswith("description:"))
-        self.assertIn("Plan change", description)
+        self.assertIn(vocabulary_profile.shortcut("plan-change"), description)
         self.assertNotIn("Plan feature", description)
 
 

@@ -5603,6 +5603,39 @@ class PreferredPythonSubprocessTests(unittest.TestCase):
         self.assertEqual(called_cmd[0], str(venv_python))
         self.assertEqual(called_cmd[-2:], ["--content", "all"])
 
+    def test_background_index_refresh_never_inherits_handles(self):
+        # Wave 2134v: on Windows close_fds=False let the detached indexer inherit
+        # the server's stdio pipes (MCP "Connection closed" after write tools).
+        import wf_server.index_handlers as handlers
+        indexer = self.root / ".wavefoundry" / "framework" / "scripts" / "indexer.py"
+        indexer.parent.mkdir(parents=True, exist_ok=True)
+        indexer.write_text("", encoding="utf-8")
+        for os_name in ("posix", "nt"):
+            with self.subTest(os_name=os_name), \
+                    patch("subprocess.Popen", return_value=MagicMock(pid=12345)) as popen_mock, \
+                    patch("wf_server.index_handlers._background_refresh_active", return_value=False), \
+                    patch("wf_server.index_handlers._check_index_writer_current"), \
+                    patch("wf_server.index_handlers._reap_background_build_pids"), \
+                    patch("wf_server.index_handlers._reap_dashboard_child_pids"), \
+                    patch.object(handlers.publication_control, "native_publication_block_reason", return_value=None), \
+                    patch("wf_server.server_impl._preferred_python", return_value="python"), \
+                    patch.object(subprocess, "DETACHED_PROCESS", 0x8, create=True), \
+                    patch.object(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200, create=True), \
+                    patch("wf_server.server_impl._windows_no_window_flag", return_value=0x08000000), \
+                    patch.object(handlers.os, "name", os_name):
+                self.assertTrue(self.srv._start_background_index_refresh(self.root, "project"))
+                kwargs = popen_mock.call_args.kwargs
+                self.assertIs(kwargs.get("close_fds", True), True)
+                for stream in ("stdin", "stdout", "stderr"):
+                    self.assertIs(kwargs[stream], subprocess.DEVNULL)
+                self.assertEqual(kwargs["cwd"], str(self.root))
+                if os_name == "nt":
+                    self.assertEqual(kwargs["creationflags"], 0x8 | 0x200 | 0x08000000)
+                    self.assertNotIn("start_new_session", kwargs)
+                else:
+                    self.assertIs(kwargs["start_new_session"], True)
+                    self.assertNotIn("creationflags", kwargs)
+
     def test_wf_start_dashboard_prefers_tool_venv_python(self):
         venv_python = self._make_venv_python()
         import server_impl

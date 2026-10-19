@@ -717,7 +717,7 @@ def hook_helpers() -> str:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 cwd=str(REPO_ROOT),
-                close_fds=os.name != "nt",
+                close_fds=True,  # wave 2134v: never pass the parent's handles to the detached child on Windows
                 **_detach_kwargs,
             )
 
@@ -1659,7 +1659,7 @@ def claude_context_efficiency_source() -> str:
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     cwd=str(root),
-                    close_fds=os.name != "nt",
+                    close_fds=True,  # wave 2134v: never pass the parent's handles to the detached child on Windows
                     **detached,
                 )
             except Exception:
@@ -1883,7 +1883,7 @@ def claude_stop_source() -> str:
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     cwd=str(root),
-                    close_fds=os.name != "nt",
+                    close_fds=True,  # wave 2134v: never pass the parent's handles to the detached child on Windows
                     **_detach,
                 )
             except Exception:

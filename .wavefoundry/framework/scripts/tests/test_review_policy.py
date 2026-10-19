@@ -26,6 +26,7 @@ import publication_control
 from wave_lint_lib.core_validators import check_review_policy_carriers
 import record_paths
 import vocabulary_profile
+from prompt_vocabulary_support import prime_profile_render
 from record_layout_support import default_profile_only
 from historical_fixture_support import historical_bytes
 
@@ -100,7 +101,7 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
     def test_production_validator_consumes_direct_doc_obligations(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            prepare = root / "docs/prompts/prepare-wave.prompt.md"
+            prepare = root / vocabulary_profile.prompt_doc("prepare-wave")
             prepare.parent.mkdir(parents=True)
             prepare.write_text(
                 review_policy.REVIEW_POLICY_SURFACE_MARKER_BEGIN
@@ -170,7 +171,7 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
     def test_one_ambiguous_carrier_prevents_every_write(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self._root(tmp)
-            path = root / "docs/prompts/implement-wave.prompt.md"
+            path = root / vocabulary_profile.prompt_doc("implement-wave")
             path.write_text("unrecognized pre-implementation review gate prose\n", encoding="utf-8")
             before = {p: (root / p).read_bytes() for p in review_policy.LIFECYCLE_RECONCILER_CARRIERS}
             with self.assertRaisesRegex(ValueError, "not an exact registered baseline"):
@@ -180,7 +181,7 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
     def test_ambiguous_carrier_reports_complete_retired_token_worklist_once(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self._root(tmp)
-            path = root / "docs/prompts/implement-wave.prompt.md"
+            path = root / vocabulary_profile.prompt_doc("implement-wave")
             path.write_text(
                 "project heading\npre-implementation review gate\n"
                 "project prose\nreviewer loop\n",
@@ -196,8 +197,9 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
             self.assertIn("'pre-implementation review gate' at line(s) 2", message)
             self.assertIn("'reviewer loop' at line(s) 4", message)
             self.assertIn("registered replacement preview(s)", message)
-            self.assertIn("--- docs/prompts/implement-wave.prompt.md:registered-legacy-", message)
-            self.assertIn("+++ docs/prompts/implement-wave.prompt.md:current-", message)
+            implement = vocabulary_profile.prompt_doc("implement-wave")
+            self.assertIn(f"--- {implement}:registered-legacy-", message)
+            self.assertIn(f"+++ {implement}:current-", message)
             self.assertIn("edit the listed project-authored prose", message)
             self.assertIn("retry the same upgrade command", message)
             self.assertEqual(
@@ -315,7 +317,7 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
     def test_symlink_carrier_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self._root(tmp)
-            path = root / "docs/prompts/implement-wave.prompt.md"
+            path = root / vocabulary_profile.prompt_doc("implement-wave")
             path.unlink()
             try:
                 path.symlink_to(Path(tmp).parent / "outside.md")
@@ -350,7 +352,7 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            path = root / "docs/prompts/review-wave.prompt.md"
+            path = root / vocabulary_profile.prompt_doc("review-wave")
             path.parent.mkdir(parents=True, exist_ok=True)
             shipped_v1153 = (
                 "Blocking findings open a recorded repair cycle; the implementer repairs the affected "
@@ -370,7 +372,7 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
 
             self.assertEqual(
                 review_policy_reconcile.reconcile_lifecycle_sections(root),
-                ("docs/prompts/review-wave.prompt.md",),
+                (vocabulary_profile.prompt_doc("review-wave"),),
             )
             current = path.read_bytes()
             self.assertIn(
@@ -399,6 +401,9 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
                 path.write_bytes(source)
 
             review_policy_reconcile.reconcile_lifecycle_sections(root)
+            # Under a renamed profile an installed target carries the manifest
+            # record; without it the render skips the renamed paths (2134q).
+            prime_profile_render(root)
             render_agent_surfaces.render_agent_surfaces(root)
             self.assertEqual(check_review_policy_carriers(root), [])
             snapshot = {
@@ -713,7 +718,7 @@ class ReviewPolicyUpgradeTests(unittest.TestCase):
             )
             # Only the carrier half of the guard can see this delta: one registered legacy
             # section that reconciliation rewrites while the config stays byte-identical.
-            relative = "docs/prompts/implement-wave.prompt.md"
+            relative = vocabulary_profile.prompt_doc("implement-wave")
             legacy = "Required review lanes from readiness must participate during execution."
             self.assertIn(
                 legacy,
@@ -774,7 +779,7 @@ class ReviewPolicyUpgradeTests(unittest.TestCase):
     def test_preflight_failure_leaves_config_carriers_and_waves_unchanged(self):
         with tempfile.TemporaryDirectory() as tmp:
             root, open_md, _closed_md = self._repo(tmp, enabled=True)
-            bad = root / "docs/prompts/implement-wave.prompt.md"
+            bad = root / vocabulary_profile.prompt_doc("implement-wave")
             bad.parent.mkdir(parents=True)
             bad.write_text("unknown pre-implementation review gate\n", encoding="utf-8")
             config_before = (root / "docs/workflow-config.json").read_bytes()

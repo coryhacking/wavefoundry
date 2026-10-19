@@ -4238,8 +4238,16 @@ class McpRepoCache:
             record_paths.load_record_roots(self.root).plans, "*.md", skip={"plan-template.md"}
         )
 
-    def _prompts_fingerprint(self) -> tuple[int, int]:
-        return _dir_fingerprint(self.root / "docs" / "prompts", "*.md")
+    def _prompts_fingerprint(self) -> tuple:
+        # Wave 2134s (change 2134p): the manifest's ``prompt_names`` decides
+        # where a declared shortcut resolves, so its change must miss the cache.
+        prompts = self.root / "docs" / "prompts"
+        try:
+            manifest = (prompts / _PROMPT_SURFACE_MANIFEST_NAME).stat()
+            manifest_key = (manifest.st_mtime_ns, manifest.st_size)
+        except OSError:
+            manifest_key = None
+        return _dir_fingerprint(prompts, "*.md"), manifest_key
 
     def get_prompt_text_cached(self, shortcut: str, refused: Optional[list[str]] = None) -> Optional[str]:
         """Return prompt body like ``get_prompt``, using an mtime-keyed per-process cache.
@@ -4418,8 +4426,48 @@ def get_change(root: Path, change_id_prefix: str) -> Optional[str]:
     return str(matches[0].get("content") or "")
 
 
+_PROMPT_SURFACE_MANIFEST_NAME = "prompt-surface-manifest.json"
+
+
+def _profile_prompt_path(root: Path, shortcut: str) -> Optional[Path]:
+    """The prompt a declared shortcut or alias names, or ``None`` (wave 2134s,
+    change 2134p).
+
+    Only the active profile's own phrases resolve here; a default phrase the
+    profile renamed does not, because under a name swap it can mean another
+    prompt. The applied slug is where the file actually is: the manifest's
+    ``prompt_names`` record, an absent record meaning the shipped names (as the
+    renderer reads it, before a profile's prompts are migrated), and the
+    profile's own slug only when the record is invalid. A hand-edited record
+    that disagrees with the files misroutes exactly as the renderer would.
+    """
+    wanted = shortcut.strip().casefold()
+    key = next((name for name in _vocab.PROMPT_NAMES
+                if wanted in (phrase.casefold() for phrase in
+                              (_vocab.shortcut(name), *_vocab.shortcut_aliases(name)))), None)
+    if key is None:
+        return None
+    record = None
+    try:
+        manifest = json.loads(_read_repo_text_checked(
+            root, root / "docs" / "prompts" / _PROMPT_SURFACE_MANIFEST_NAME))
+        if isinstance(manifest, dict):
+            record = manifest.get("prompt_names")
+    except Exception:  # missing, refused or unreadable manifest: no record
+        record = None
+    try:
+        slug = _vocab.applied_prompt_slugs(record)[key]
+    except ValueError:
+        slug = _vocab.prompt_slug(key)
+    return root / "docs" / "prompts" / f"{slug}.prompt.md"
+
+
 def get_prompt(root: Path, shortcut: str, refused: Optional[list[str]] = None) -> Optional[str]:
     """The first prompt matching ``shortcut``, or ``None``.
+
+    Wave 2134s (change 2134p): a shortcut or alias the vocabulary profile
+    declares resolves to its own prompt first; a missing file there falls
+    through silently to the file-name and content search below.
 
     Wave 1zxnz (1zx02): a candidate that resolves to a runtime lock is skipped,
     never opened, and the search continues, so a lock target cannot hide a
@@ -4445,6 +4493,12 @@ def get_prompt(root: Path, shortcut: str, refused: Optional[list[str]] = None) -
             if refused is not None and rel not in refused:
                 refused.append(rel)
             return None
+
+    declared = _profile_prompt_path(root, shortcut)
+    if declared is not None and declared.is_file():
+        text = read(declared)
+        if text is not None:
+            return text
 
     # Slug-match the shortcut against prompt filenames and content
     slug = re.sub(r"[^\w]+", "-", shortcut_lower).strip("-")

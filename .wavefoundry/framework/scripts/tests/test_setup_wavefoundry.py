@@ -785,6 +785,11 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
                 encoding="utf-8",
             )
             original = target.read_bytes()
+            # Under a renamed profile an install carries the manifest record the
+            # render needs for the renamed paths; a no-op otherwise (2134q).
+            from prompt_vocabulary_support import prime_profile_render
+
+            prime_profile_render(root)
 
             with patch.object(mod, "_load_setup_index", return_value=FakeSetupIndex), \
                  patch.object(mod, "_run_mcp_server_dry_run", return_value=0), \
@@ -833,8 +838,8 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
                 )
             for rel in (
                 "docs/agents/qa-reviewer.md",
-                "docs/prompts/review-wave.prompt.md",
-                "docs/prompts/create-wave.prompt.md",
+                vocabulary_profile.prompt_doc("review-wave"),
+                vocabulary_profile.prompt_doc("create-wave"),
                 "docs/contributing/review-and-evals.md",
             ):
                 created = root / rel
@@ -875,7 +880,7 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
                 memory_snapshot,
             )
             create_text = (
-                root / "docs" / "prompts" / "create-wave.prompt.md"
+                root / vocabulary_profile.prompt_doc("create-wave")
             ).read_text(encoding="utf-8")
             # declaration-check: asserts the declaration contract; creates no lifecycle state
             self.assertIn("review-evidence-source: events.jsonl", create_text)
@@ -888,26 +893,23 @@ class PublicSetupReviewProtocolIntegrationTests(unittest.TestCase):
             self.assertIn(ras._context_efficiency_carrier_block(), create_text)
             self.assertNotIn("review-evidence-protocol: 1", create_text)
             self.assertNotIn("```jsonl", create_text)
-            for prompt_name in (
-                "create-wave.prompt.md",
-                "prepare-wave.prompt.md",
-                "implement-wave.prompt.md",
-                "review-wave.prompt.md",
-                "close-wave.prompt.md",
-                "memory-review.prompt.md",
+            for prompt_rel in (
+                *(vocabulary_profile.prompt_doc(key)
+                  for key in ("create-wave", "prepare-wave", "implement-wave", "review-wave", "close-wave")),
+                "docs/prompts/memory-review.prompt.md",
             ):
-                self.assertTrue(prompt_root.joinpath(prompt_name).is_file())
+                self.assertTrue((root / prompt_rel).is_file())
                 self.assertGreater(
-                    prompt_root.joinpath(prompt_name).stat().st_size,
+                    (root / prompt_rel).stat().st_size,
                     500,
                 )
             self.assertIn(
                 "memory_validate",
-                prompt_root.joinpath("review-wave.prompt.md").read_text(encoding="utf-8"),
+                (root / vocabulary_profile.prompt_doc("review-wave")).read_text(encoding="utf-8"),
             )
             self.assertIn(
                 "memory_validate",
-                prompt_root.joinpath("close-wave.prompt.md").read_text(encoding="utf-8"),
+                (root / vocabulary_profile.prompt_doc("close-wave")).read_text(encoding="utf-8"),
             )
             self.assertIn(
                 "Review memories",

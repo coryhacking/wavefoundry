@@ -4389,7 +4389,11 @@ class ReviewPlanInstallingUpgradeTests(unittest.TestCase):
         self.assertEqual(self.new_path.read_bytes(), self._migrated_bytes(original))
         skill = self.skill_path.read_text(encoding="utf-8")
         self.assertIn("docs/prompts/review-plan.prompt.md", skill)
-        self.assertIn("current wave record when no change is specified", skill)
+        # The skill is renderer-owned prose in the profile's tier nouns
+        # (changes 2134r, 2134q).
+        from prompt_vocabulary_support import assert_clause
+
+        assert_clause(self, "current {wave} record when no {change} is specified", skill)
         self.assertIn("before or after admission", skill)
         self.assertIn("before implementation", skill)
 
