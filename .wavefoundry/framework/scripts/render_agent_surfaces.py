@@ -75,6 +75,9 @@ ROOT_BRIDGE_MARKER_END = "<!-- wave:root-bridge end -->"
 ROOT_BRIDGE_BLOCK = (
     f"{ROOT_BRIDGE_MARKER_BEGIN}\n"
     "@AGENTS.md\n"
+    # Wave 2136r (change 2136m): Claude re-reads the root CLAUDE.md after
+    # compaction. This text is a re.sub replacement, so it must hold no backslash.
+    "When compacting, preserve the open wave and change ids, the operator's scoped authorizations and decisions still pending, the files modified, and the exact verification commands with their last results; a summary never records an approval the operator did not give. After resuming, recheck mutable state such as open gates and wave status with the tools instead of trusting the summary.\n"
     f"{ROOT_BRIDGE_MARKER_END}"
 )
 # The legacy prose pointer this bridge replaces.
@@ -341,6 +344,7 @@ def scaffold_baselines(repo_root: Path) -> tuple[tuple[str, str], ...]:
 
 PLAN_TEMPLATE_REQUIRED_HEADINGS: tuple[str, ...] = (
     "Rationale",
+    "Product Intent",
     "Requirements",
     "Scope",
     "Acceptance Criteria",
@@ -572,6 +576,10 @@ class Skill:
     # ownership marker and may name a prompt-doc template under install/.
     declared: bool = False
     prompt_doc_template: "str | None" = None
+    # Wave 2136r (change 2136l): an operator-owned skill. On the Claude host its
+    # frontmatter adds `disable-model-invocation: true`, so only the operator
+    # runs it. Other hosts render it unchanged.
+    operator_only: bool = False
 
 
 WF_GURU_SKILL_BODY = dedent(
@@ -588,7 +596,7 @@ WF_GURU_SKILL_BODY = dedent(
 
     1. Read `AGENTS.md` § **Codebase and documentation questions (auto-Guru)**.
     2. Read and follow `docs/agents/guru.md` (classification, retrieval loop, Pass 3, citations).
-    3. Attach the `wavefoundry` MCP server via your host's project-local registration (see the `AGENTS.md` MCP table; Codex loads it automatically from the committed `.codex/config.toml`).
+    3. Attach the `wavefoundry` MCP server via your host's project-local registration (see Step 2 of `docs/prompts/install-wavefoundry.prompt.md`; Codex loads it automatically from the committed `.codex/config.toml`).
     4. Prefer **`code_ask`** and **`docs_search`** over ad-hoc search when MCP is available.
     5. Complete Pass 3 validation before answering; never paraphrase only the `code_ask` `answer` field.
 
@@ -734,6 +742,7 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
                 f"Single change: {_vp_shortcut('close-change')} (`{_vp_doc('close-change')}`) marks one change `complete` inside the open wave; {_vp_shortcut('close-wave')} is still the only wave close.",
             ),
         ),
+        operator_only=True,
     ),
     Skill(
         name=_vp_skill("close-change"),
@@ -747,6 +756,7 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
                 f"{_vp_shortcut('close-wave')} (`{_vp_skill('close-wave')}`) remains the only wave close, whatever the change count.",
             ),
         ),
+        operator_only=True,
     ),
     Skill(
         name="wf-review-plan",
@@ -816,6 +826,7 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
         name="wf-upgrade",
         description="Operator checklist for intentionally editing the Wave Framework or repo-local wave surfaces (Upgrade Wavefoundry). Framework maintenance only, never product code changes.",
         body=WF_UPGRADE_SKILL_BODY,
+        operator_only=True,
     ),
     Skill(
         name="wf-package",
@@ -830,6 +841,7 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
             ),
         ),
         requires_doc="docs/prompts/package-wavefoundry.prompt.md",
+        operator_only=True,
     ),
     Skill(
         name="wf-code-cleanup",
@@ -869,12 +881,21 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
 DECLARED_SKILL_MARKER = "<!-- wavefoundry:declared-skill -->"
 
 
-def skill_document(skill: Skill) -> str:
-    """Assemble the standard SKILL.md text for one registry entry."""
+def skill_document(skill: Skill, skills_dir: "str | None" = None) -> str:
+    """Assemble the standard SKILL.md text for one registry entry.
+
+    ``skills_dir`` names the host (an entry of ``SKILL_HOSTS``); only the Claude
+    host adds the manual-only key for an ``operator_only`` skill.
+    """
 
     body = f"{DECLARED_SKILL_MARKER}\n\n{skill.body}" if skill.declared else skill.body
+    manual_only = (
+        "disable-model-invocation: true\n"
+        if skill.operator_only and skills_dir == ".claude/skills"
+        else ""
+    )
     return (
-        f"---\nname: {skill.name}\ndescription: {skill.description}\n---\n\n{body}"
+        f"---\nname: {skill.name}\ndescription: {skill.description}\n{manual_only}---\n\n{body}"
     )
 
 
@@ -1510,7 +1531,7 @@ def render_skills(repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()
             if rel in refused:
                 continue
             target = root / rel
-            document = skill_document(skill)
+            document = skill_document(skill, skills_dir)
             # A skill file can also be a review carrier (wf-guru on Codex):
             # the reconcile passes own marked regions inside it. Graft any
             # existing well-formed regions into the fresh template with the

@@ -2,11 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-15
+Last verified: 2026-10-19
 
 Shortcut: **`Create wave`**
 
 ## Purpose
+
+Use the existing wave `## Objective` for the shared outcome of admitted changes: who benefits, what observably improves, and material boundaries. Do not add a second wave-level intent section or duplicate change requirements and tasks.
 
 Create a wave record at `docs/waves/<wave-id>/wave.md`. The wave is the coordination container for one or more admitted changes.
 

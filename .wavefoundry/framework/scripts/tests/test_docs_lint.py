@@ -6122,6 +6122,7 @@ class FreshPlanTemplateTests(unittest.TestCase):
 
         path = SCRIPTS_ROOT.parent / "install" / "plan-template.md"
         text = path.read_text(encoding="utf-8")
+        self.assertIn("Product Intent", ras.PLAN_TEMPLATE_REQUIRED_HEADINGS)
         for heading in ras.PLAN_TEMPLATE_REQUIRED_HEADINGS:
             self.assertIn(f"## {heading}", text)
         self.assertEqual(serialization_point_paths(text), ())

@@ -4,12 +4,16 @@ Change ID: `<id-prefix>-<kind> <slug>` — **mint via the MCP `wf_new_*` tool** 
 Change Status: `planned`
 Owner: [role or person]
 Status: planned
-Last verified: 2026-09-02
+Last verified: 2026-10-19
 Wave: [wave-id or TBD]
 
 ## Rationale
 
 Why this change is needed. State a specific motivation a reviewer can understand without additional context.
+
+## Product Intent
+
+State who benefits, the observable before/after outcome, and material boundaries. One sentence can suffice, including for framework, maintenance and documentation work. Describe the outcome rather than prescribing a mechanism; link relevant specs when useful.
 
 ## Requirements
 
@@ -29,6 +33,8 @@ Why this change is needed. State a specific motivation a reviewer can understand
 - …
 
 ## Acceptance Criteria
+
+Name at least one AC, or a clearly identified combination, that tests whether the intent was established. Keep implementation checks where useful; delivery of guidance alone does not prove improved agent behavior.
 
 - [ ] AC-1: [Testable outcome — verifiable by QA, automated test, or manual check]
 - [ ] AC-2: …

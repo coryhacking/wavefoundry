@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-17
+Last verified: 2026-10-19
 
 ## Repository Summary
 
@@ -35,7 +35,7 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 21021 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 21034 |
 | wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1010 |
 | lifecycle_gate_support | `.wavefoundry/framework/scripts` | code | 870 |
 | upgrade | `.wavefoundry/framework/scripts` | code | 453 |

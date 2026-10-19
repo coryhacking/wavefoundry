@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-17
+Last verified: 2026-10-19
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
@@ -31,7 +31,7 @@ Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neut
 | Junie | `.junie/guidelines.md` |
 | Warp | `WARP.md` |
 | Windsurf | `AGENTS.md` (no separate guidelines file in default seed) |
-| Air | `AGENTS.md` (provider MCP config per `AGENTS.md` MCP table) |
+| Air | `AGENTS.md` (provider MCP config per `docs/prompts/install-wavefoundry.prompt.md` Step 2) |
 | Antigravity | `AGENTS.md` (Tier-1 native; no separate file; MCP via `.agents/mcp_config.json` — workspace-local configuration) |
 
 ### Tier 3 — optional native (enhances tier 1)
@@ -44,7 +44,7 @@ Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neut
 
 ### Skills (`wf-` namespace, registry-rendered)
 
-One registry (`render_agent_surfaces.render_skills`, wave `1p6lp`) renders every Wavefoundry skill as standard `SKILL.md` (frontmatter `name`/`description` + thin-pointer body) into each **active** skill host directory. A host is active when its root directory exists.
+One registry (`render_agent_surfaces.render_skills`, wave `1p6lp`) renders every Wavefoundry skill as standard `SKILL.md` (frontmatter `name`/`description` + thin-pointer body) into each **active** skill host directory. A host is active when its root directory exists. On the Claude host only, the operator-owned skills `wf-close-wave`, `wf-close-change`, `wf-package` and `wf-upgrade` also carry `disable-model-invocation: true` (wave `2136r`), so Claude runs them only when the operator invokes them by name.
 
 | Skill | Backing prompt(s) | Gate |
 |-------|-------------------|------|

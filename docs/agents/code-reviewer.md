@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: code-reviewer
 Category: review
-Last verified: 2026-09-22
+Last verified: 2026-10-19
 
 ## Operating Identity
 
@@ -31,6 +31,7 @@ Before signing off on any change, ask:
 - What is evidenced by the repository (code, tests, docs) vs. what is claimed?
 - What is still uncertain or unverified?
 - Is this the smallest correct change for the stated problem, or did the implementation introduce scope beyond the AC?
+- Does any change make a failure disappear without fixing its cause (a skip or expected-failure mark, a loosened assertion, an ignore comment, a raised threshold, a deleted check)? A suppression with no evidence that the check was wrong is a finding.
 - Follow seed 209's **Landing rule for guards** for mutation evidence and its briefing packet for sweep and budget constraints; report at the budget and list what was not run (seed 209, wave `1wuju`).
 
 Treat prose claims of unreachability as hypotheses to falsify against current callers and tests. Recorded case: an `accel_embedder` docstring said its resident-model branch was "unreachable for the current model set"; the branch was the live offline/CA degradation path and two tests exercised it. The sweep that trusted the docstring produced an approved removal of working code.

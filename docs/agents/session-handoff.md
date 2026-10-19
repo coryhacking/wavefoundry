@@ -2,28 +2,21 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-18
+Last verified: 2026-10-19
 
 ## Current Session
 
-**Active wave:** *(none)*
+**Active wave:** *(none in this committed batch)*
 
-**Why:** a downstream distribution (Waveforge) sent requests and a private security note against `2452c73f`. The operator asked to implement the bounded items before cutting the next release (1.32.0) and to plan the rest separately.
+**Last closed waves:** 2124l, 2136j, 2136r and 2136s, closed 2026-10-19 on explicit operator approval. Delivered lifecycle intent, journal-alias retirement, workflow guidance/host controls and the guide reduction with all rules retained. Every AC/task and required review approval is complete. Both edit gates are closed.
 
-**Done:**
-- `20wq6-enh` (report K5, K6, G19): an optional distribution-owned `tests/fixtures/profiles/qualification/distribution-assets.json` for the qualification scope; `RetainedUpgradePreviewTests` installs the base declaration; the threat-model Tensorwell lookup sentence matches the code.
-- `20qvs-enh` (revived and narrowed; report K1, K2, part of G16): `build_pack.py --release` / `--release-dry-run` refuse unless `.wavefoundry/cache/qualification/{default,second,declared}.json` qualify the current tree, with named `--accept-qualification-exception PROFILE=REASON` only for a real failing worker or skip difference and a `### Qualification` notes section; every pack carries `BUILD-PROVENANCE.json`; releases upload `SHA256SUMS`; install and upgrade guidance (seeds 010/160, local upgrade prompt, install block, README) verifies downloads against it. Signing stays deferred (no authority chosen).
-- Review: readiness six lanes plus council after one correction round; delivery findings DEL-1 (exception excused a guard failure, repaired twice within cycle 1) and DEL-2 (vacuous oversized control) reverified by fresh code and QA; all six lanes and council-delivery approved.
+**Validation:** Matching current green receipt covers 11,914 tests; full docs validation passed. This includes concurrent local setup-readiness work, which remains uncommitted separately. The four-wave implementation also passed its earlier 11,911-test run. Durable outcomes and evidence live in the four closed wave records and ledgers; the required rule census is retained, with routine reports/probes outside the repository.
 
-**Test state:** canonical default `--no-cache` 11,890 / 200 / 12 skips, receipt inputs_hash `fc8af1b262ad8b54c413e8155d3c62f8d9f8d23f7a4ed8e02b234f4351a49da7`; second 11,882 / 200 / 28 skips; declared 11,890 / 200 / 12 skips; both comparisons pass; the new gate accepts the real reports. Reports are at `.wavefoundry/cache/qualification/{default,second,declared}.json`, exactly what `--release` reads. Any framework edit invalidates them.
+**Finalization:** Operator authorized closure and commit of these four waves, without push or release. Commit only their scope; preserve concurrent 212yk and newly planned 212ym. No new memory candidate warranted duplication of canonical guidance and retained evidence.
 
-**Next (operator):** record signoff and close 20wq7, commit, then cut 1.32.0. The release owner must add CHANGELOG bullets for the gate and exceptions, `BUILD-PROVENANCE.json`, `SHA256SUMS` with its guidance, and the distribution asset list. A Waveforge reply draft is in the session scratchpad (`20wq7-waveforge-reply.md`); it must go through the private channel.
+## Open questions / Deferred decisions
 
-**Follow-ups:** plan K3 (prose-signoff conversion tool), K4 (distribution read tools in the pre-edit exemption), G13 (fail-closed model check), G14 (hashed dependency installs) and release signing separately. Two pre-existing release-main rejection tests in `test_build_pack.py` exit at the missing `--with-models` check and never reach the code they name. The coverage inventory is stale (188 of 200 workers classified, four pins stale), so profile runs fall back to full. Profile runs race the live-tree `build_zip` tests' transient generated files if any other test run touches the tree concurrently: run qualification alone. The VERSION bump to `1.32.0+px1p` is still uncommitted from before. Setup readiness reports `setup_inputs_changed`; `wf setup` was not run.
-
-**Watch:** `docs/plans/20vin-debt delete-upgrade-memory-compat-layer.md` is parked, not admitted. Its precondition is runner protocol 2 leaving `upgrade_protocol.SUPPORTED_RUNNER_PROTOCOLS` or a proven handoff from the installing upgrade to the extracted runner before its memory step.
-
-**Last closed waves:** `20st7 release-profile-fixture-isolation` (pushed `3c6416d6`), and `20t73` and `20tpp` (pushed `1fb0adde`).
+Timing investigation remains deferred. Parked 2136o (receipt reminder) and 2136q (small-change lane) remain outside the admitted work. Concurrent work remains local under its own authorization; no setup or index rebuild was performed by this closure.
 
 ## Prior closed-wave context
 

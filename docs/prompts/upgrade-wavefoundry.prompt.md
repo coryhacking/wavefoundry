@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-17
+Last verified: 2026-10-19
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -514,6 +514,12 @@ Inventory/drift-detection subagents run read-only. Broad edits to `docs/prompts/
    - `175-review-plan.prompt.md` -> `docs/prompts/review-plan.prompt.md`: Compare the draft with its brief, including permission to consult Rationale as reference.
    - `180-implement-change.prompt.md` -> `docs/prompts/implement-change.prompt.md`: Readback before editing.
    - `.wavefoundry/framework/install/lifecycle-prompts/implement-wave.prompt.md` -> `docs/prompts/implement-wave.prompt.md`: Readback before editing.
+   - `.wavefoundry/framework/install/plan-template.md` -> the project-local `plan-template.md` under the declared plans root: reconcile Product Intent (beneficiary, observable before/after outcome and material boundaries) and the AC evidence direction, preserving custom prose. `new_change` prefers this project template; updating only the shipped fallback does not deliver the contract to existing targets.
+   - Seeds 100/110 and `create-wave` install baseline -> the profile-resolved Create wave prompt: use Objective for the shared outcome, with no second wave intent section.
+   - Seed 175 and `review-plan` baseline -> the profile-resolved Review plan prompt: compare Requirements, ACs and Scope with intent in the existing review.
+   - Seed 209 and `prepare-wave`/`review-wave` baselines -> the profile-resolved Prepare/Review prompts and `docs/contributing/review-and-evals.md`: assess intent and complexity, runtime cost and operator burden in existing lanes.
+   - Seed 190 and `close-wave` baseline -> the profile-resolved Close wave prompt: explicitly authored `Intent outcome:` in exact `## Review Checkpoints`, with evidence and limitations preserved by the summary composer.
+   Apply these changes prospectively and clarify intent during material revisions; do not bulk-edit existing waves/plans, rotate other receipts or rewrite closed records/ledgers. Follow declared layout and vocabulary. These are agent-assisted edits, not a mechanical template rewrite; add no broad history scan, index pass, source/profile qualification, model work or evidence sidecar.
    Merge only changed authored clauses, preserving project additions, metadata, and every renderer-owned marker region. For newly added guidance, verify a unique insertion location and absence of conflicting local instructions. If the old clause or insertion location is ambiguous, or local intent conflicts, stop and present the conflict to the operator. Never replace a whole destination or silently omit a changed mapping. Missing-only baseline rendering does not update existing authored prose; run `wf render-surfaces` after reconciliation for the regions it owns.
 
 - **Changed Prepare Serialization Points carrier.** When `170-plan-change.prompt.md` changed, or the freshly extracted `.wavefoundry/framework/install/lifecycle-prompts/prepare-wave.prompt.md` carries Serialization Points grammar absent from the existing destination, merge only that grammar into the project-authored prose of `docs/prompts/prepare-wave.prompt.md`. Preserve its metadata, all other project prose, and every renderer-owned marker region; the final `wf render-surfaces` pass remains responsible for those managed regions. Never replace the carrier as a whole. If the prior project-authored clause cannot be identified uniquely or local wording conflicts with the new grammar, stop and present the conflict to the operator instead of guessing or overwriting it.

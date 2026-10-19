@@ -320,9 +320,10 @@ class McpPythonLaunchGuidanceTests(unittest.TestCase):
         self.assertNotIn('command = "/Users/coryhacking/.wavefoundry/venv/bin/python"', text)
 
     def test_agent_guide_copy_ready_entry_uses_path_python(self) -> None:
+        # Change 2136p: the copy-ready stdio entry left AGENTS.md for the install prompt's
+        # Step 2, where test_install_prompt_uses_path_python_not_tool_venv_python already pins
+        # both entry strings. The python3 rule sentence stays in AGENTS.md and stays pinned here.
         text = self._read("AGENTS.md")
-        self.assertIn('"command": "python3"', text)
-        self.assertIn("<repo>/.wavefoundry/framework/scripts/server.py", text)
         self.assertIn("do not point MCP config at `.wavefoundry/venv/Scripts/python.exe`", text)
 
 

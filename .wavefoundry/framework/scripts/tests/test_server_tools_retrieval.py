@@ -18413,10 +18413,9 @@ class ConfidenceBasisContractTests(unittest.TestCase):
                 self.assertTrue(value in spec,
                                 f"the specification omits the value {value!r}")
 
-    def test_the_agent_guide_lists_it_in_the_response_envelope(self):
-        agents = (self.REPO / "AGENTS.md").read_text()
-        self.assertTrue("confidence_basis" in agents,
-                        "AGENTS.md omits confidence_basis")
+    # Change 2136p: the code_ask envelope description moved from AGENTS.md to the MCP
+    # specification, where test_the_specification_names_the_field_and_every_value pins it;
+    # the former AGENTS.md assertion was a duplicate and was removed with the move.
 
     def test_the_documented_value_set_is_exactly_what_the_code_defines(self):
         # Guards against documenting a value the code cannot emit, or adding a

@@ -29,6 +29,8 @@ Required target-repo outputs:
 - when the legacy baseline is captured into `wave-0`:
   - `docs/waves/00000 wave-zero-plans-and-specs/wave.md` (single file; no subdirectories required)
 
+Use the existing wave `## Objective` for the shared outcome of admitted changes: who benefits, what observably improves, and material boundaries. Do not add a second wave-level intent section or duplicate change requirements and tasks.
+
 Wave artifact anchors:
 
 Every `wave.md` must carry the anchors below, grouped into the natural section layout shown in the left column:

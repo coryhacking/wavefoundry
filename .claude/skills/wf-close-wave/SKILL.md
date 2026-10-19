@@ -1,6 +1,7 @@
 ---
 name: wf-close-wave
 description: Close and archive a wave after delivery review, reconciling every AC and task checkbox. Closure is operator-owned. The Close wave workflow.
+disable-model-invocation: true
 ---
 
 # Close a wave (Wavefoundry skill)

@@ -11,6 +11,10 @@ Wave: TBD
 
 Why this change is needed. State a specific motivation a reviewer can understand without additional context.
 
+## Product Intent
+
+State who benefits, the observable before/after outcome, and material boundaries. One sentence can suffice, including for framework, maintenance and documentation work. Describe the outcome rather than prescribing a mechanism; link relevant specs when useful.
+
 ## Requirements
 
 1. [Numbered behavioral requirement]
@@ -28,6 +32,8 @@ Why this change is needed. State a specific motivation a reviewer can understand
 - …
 
 ## Acceptance Criteria
+
+Name at least one AC, or a clearly identified combination, that tests whether the intent was established. Keep implementation checks where useful; delivery of guidance alone does not prove improved agent behavior.
 
 - [ ] AC-1: [Testable outcome]
 

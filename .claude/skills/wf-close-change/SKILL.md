@@ -1,6 +1,7 @@
 ---
 name: wf-close-change
 description: Close one admitted change inside the open wave with wf_close_change, marking it complete and activating its dependents; never closes the wave (Close wave is the only wave close). The Close change workflow.
+disable-model-invocation: true
 ---
 
 # Close a change (Wavefoundry skill)

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-02
+Last verified: 2026-10-19
 
 Shortcut: **`Plan change`**
 
@@ -12,7 +12,7 @@ Author a consolidated change document at `docs/plans/<change-id>.md`. Wave admis
 
 **Brief before drafting:**
 
-Reuse the request, prior answers, and relevant project context before the Divergent Pre-Plan. Establish the relevant goal, consumer/audience, angle or approach, constraints, deliverable/format, exclusions, and observable success. Put the brief in the existing Rationale and summarize it to the operator before dependent drafting. For clear tasks, one concise sentence can suffice; do not require a field-filling interview or confirmation.
+Reuse the request, prior answers, and relevant project context before the Divergent Pre-Plan. Establish the relevant goal, consumer/audience, angle or approach, constraints, deliverable/format, exclusions, and observable success. Put why now in Rationale and the beneficiary, observable before/after outcome and material boundaries in Product Intent; summarize the brief to the operator before dependent drafting. For clear tasks, one concise sentence can suffice; do not require a field-filling interview or confirmation.
 
 Ask only questions whose answers materially change the result: at most three for small tasks and five for complex tasks per briefing pass, ceilings rather than quotas. Do not repeat known questions or restart a pass to evade the budget. State assumptions only for reversible implementation choices within established scope. Keep unresolved goal, scope, acceptance, or authorization decisions open until answered; pause dependent work and continue independent work while waiting. Silence is neither an answer nor approval. Reuse established durable preferences without creating another brief file.
 
@@ -37,6 +37,7 @@ Ask only questions whose answers materially change the result: at most three for
 4. If MCP is unavailable, use the CLI fallback: `wf lifecycle-id --kind <kind> --slug <slug>`, then create `docs/plans/<change-id>.md` from `docs/plans/plan-template.md`.
 5. Author or refine the change doc. Include:
    - `## Rationale` — specific motivation a reviewer can understand
+   - `## Product Intent` — who benefits, the observable before/after outcome and material boundaries, for every kind including framework, maintenance and documentation. Describe the outcome rather than prescribe a mechanism. Rationale explains why now; Requirements specify behavior, Scope bounds work, Tasks describe implementation and ACs provide proof. Name at least one AC or a clearly identified combination that tests whether intent was established; renderer checks can prove delivered guidance, but improved agent behavior needs separate evidence.
    - `## Requirements` — numbered behavioral requirements
    - `## Scope` — in-scope / out-of-scope
    - `## Acceptance Criteria` — testable outcomes written with stable checkbox identifiers: `- [ ] AC-1: <outcome>`, `- [ ] AC-2: <outcome>`, etc. Three checkbox states are canonical: `[ ]` (unmet, in scope), `[x]` (done), `[~]` (intentionally not met — operator-directed removal or scope-narrowing during implementation, with mandatory inline status note for required-priority ACs). See `.wavefoundry/framework/seeds/170-plan-change.prompt.md` *"AC and task checkbox states — the `[~]` marker"* for the canonical convention. An acceptance criterion asserts an outcome **this change controls** and that a reviewer can verify from **this change's own evidence**; repository-wide or environment state (the whole test suite being green, machine load, another wave's artifacts, the state of files this change never touches) is a gate concern and must not be written as an AC. `docs-lint` runs an advisory sensor on change documents in a readied, active, or implementing wave, or in any wave whose record carries an explicit `Activated at:` line (a paused wave that was once activated stays in scope): its findings are `WARNING:` lines that never fail validation, and it stays advisory by recorded decision (wave `1yzj9`); new docs-lint sensors ship advisory the same way, and a later recorded change either flips one to blocking on field data or records a decision to keep it advisory (the release checklist lists every advisory sensor without a recorded decision so the choice is made, not forgotten); it recognises a finite list of repository-scope words, so an unlisted repository-wide adjective passes silently to review while a compliant change-local criterion is never blocked. The diagnostic supplies the replacement sentence: write "the change's own suites and every test it adds pass; the documents this change authors or edits validate; and no failure elsewhere is attributable to this change" instead. See `.wavefoundry/framework/seeds/170-plan-change.prompt.md` *"Acceptance criteria assert what the change controls"*.
@@ -53,6 +54,8 @@ Ask only questions whose answers materially change the result: at most three for
 - A readiness repair narrows or deletes a claim it cannot verify rather than elaborating it. Explicitly identify any new mechanism introduced by the repair as new review surface.
 
 ## Stage Gate
+
+Use this prospectively for new plans and clarify intent concisely during an ordinary material revision of an existing plan. Existing Product Intent sections remain valid. Do not bulk-convert planned, readied, active or historical records, rotate other waves' receipts, or rewrite closed records and ledgers; legacy records remain readable and closable under existing gates.
 
 Repository code must not be edited until:
 1. This change doc exists

@@ -2021,6 +2021,15 @@ def render_claude_settings(repo_root: Path) -> None:
             entry = {"matcher": hook["matcher"], **entry}
         hooks.setdefault(str(hook["event"]), []).append(entry)
     existing["hooks"] = hooks
+    # Wave 2136r (change 2136n): an empty commit attribution stops Claude Code
+    # adding a co-author trailer, matching the run contract's commit-message
+    # rule. Only an absent value is filled; an operator value, sibling keys and
+    # a non-object `attribution` are left as they are.
+    attribution = existing.get("attribution")
+    if attribution is None:
+        existing["attribution"] = {"commit": ""}
+    elif isinstance(attribution, dict) and "commit" not in attribution:
+        attribution["commit"] = ""
     write_text(settings_path, json.dumps(existing, indent=2) + "\n", root=repo_root)
 
 

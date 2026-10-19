@@ -23,6 +23,7 @@ if str(TESTS_ROOT) not in sys.path:
     sys.path.insert(0, str(TESTS_ROOT))
 
 import graph_fixture_support as gfs  # noqa: E402
+import render_agent_surfaces as ras  # noqa: E402
 PROJECT_ROOT = TESTS_ROOT.parents[2]  # .wavefoundry
 REPO_ROOT = PROJECT_ROOT.parent
 GEN_PATH = SCRIPTS_ROOT / "gen_codebase_map.py"
@@ -167,6 +168,27 @@ class RootBridgeTests(unittest.TestCase):
             self.assertIn("@AGENTS.md", claude)
             self.assertNotIn("Thin pointer. Read", claude)
             self.assertIn("wave:root-bridge begin", claude)
+            self.assertEqual(_bridge_region(claude), ras.ROOT_BRIDGE_BLOCK)
+
+    def test_refreshes_pre_change_bridge_to_the_current_block(self) -> None:
+        # Wave 2136r (change 2136m): the marker-replace path must emit the block
+        # byte for byte; it is a re.sub replacement, so a backslash would be mangled.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_root = Path(tmp)
+            (repo_root / "docs" / "agents").mkdir(parents=True)
+            (repo_root / "docs" / "agents" / "guru.md").write_text(GURU_STUB, encoding="utf-8")
+            old_block = f"{ras.ROOT_BRIDGE_MARKER_BEGIN}\n@AGENTS.md\n{ras.ROOT_BRIDGE_MARKER_END}"
+            (repo_root / "CLAUDE.md").write_text(
+                f"# Claude\n\n{old_block}\n\n## Startup Order\n\n1. x\n", encoding="utf-8",
+            )
+            result = self._render(repo_root)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            claude = (repo_root / "CLAUDE.md").read_text(encoding="utf-8")
+            self.assertEqual(_bridge_region(claude), ras.ROOT_BRIDGE_BLOCK)
+            self.assertIn("When compacting, preserve the open wave and change ids", claude)
+            self.assertEqual(claude.count("@AGENTS.md"), 1)
+            self._render(repo_root)
+            self.assertEqual(_bridge_region((repo_root / "CLAUDE.md").read_text(encoding="utf-8")), ras.ROOT_BRIDGE_BLOCK)
 
     def test_bridge_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -195,6 +217,13 @@ class RootBridgeTests(unittest.TestCase):
                 e = t.index("wave:root-bridge end")
                 return t[b:e]
             self.assertEqual(bridge(first), bridge(second))
+
+
+def _bridge_region(text: str) -> str:
+    """The rendered root-bridge block, from its begin marker through its end marker."""
+    begin = text.index(ras.ROOT_BRIDGE_MARKER_BEGIN)
+    end = text.index(ras.ROOT_BRIDGE_MARKER_END) + len(ras.ROOT_BRIDGE_MARKER_END)
+    return text[begin:end]
 
 
 class RepoInvariantTests(unittest.TestCase):

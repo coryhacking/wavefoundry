@@ -12,6 +12,8 @@ Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neut
 
 ## Purpose
 
+In existing readiness and delivery reviews, ask whether meeting Requirements and ACs would establish Product Intent and the wave Objective, and whether added complexity, runtime cost or operator burden undermines that outcome. At delivery, distinguish evidenced outcomes from intended benefits; checked implementation steps alone prove neither benefit nor approval. Use the existing lanes and gates.
+
 Evaluate the implemented wave against its acceptance criteria, public
 contracts, failure modes, and current repository state.
 

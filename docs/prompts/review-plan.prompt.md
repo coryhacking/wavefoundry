@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-08
+Last verified: 2026-10-19
 
 Shortcut: **`Review plan`** | Aliases: **`Interrogate this plan`**, **`Stress-test this plan`**
 
@@ -11,6 +11,8 @@ Shortcut: **`Review plan`** | Aliases: **`Interrogate this plan`**, **`Stress-te
 Optional stress-test of a consolidated change doc, or the current wave record when no change is specified, before or after admission and before implementation. Walks every unresolved decision branch in Requirements, Acceptance Criteria, and Scope.
 
 **Compare the draft with its brief:**
+
+Compare Requirements, ACs and Scope with Product Intent (or the wave Objective): would satisfying them establish the intended outcome, and could complexity, runtime cost or operator burden undermine it? Keep this within the existing decision-branch walk; use Rationale for why now and do not reopen resolved choices or expand scope.
 
 At the start of this optional review, compare drafted Requirements, Acceptance Criteria, and Scope against the brief in Rationale, the operator's request, and relevant established context. When no change is specified, use the corresponding current-wave planning content. Consider what is strong, vague, missing, removable, or less useful to the consumer; report only meaningful observations and feed unresolved discrepancies into the existing decision-branch walk.
 

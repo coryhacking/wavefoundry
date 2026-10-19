@@ -127,7 +127,9 @@ class BriefingLoopCarrierTests(unittest.TestCase):
             "Reuse the request, prior answers, and relevant project context",
             "before the Divergent Pre-Plan",
             "goal, consumer/audience, angle or approach, constraints, deliverable/format, exclusions, and observable success",
-            "existing Rationale and summarize it to the operator before dependent drafting",
+            "why now in Rationale",
+            "observable before/after outcome and material boundaries in Product Intent",
+            "summarize the brief to the operator before dependent drafting",
             "one concise sentence can suffice",
             "do not require a field-filling interview or confirmation",
             "at most three for small tasks and five for complex tasks",
@@ -144,6 +146,8 @@ class BriefingLoopCarrierTests(unittest.TestCase):
             "`Readback:` in its existing Progress Log and surface its substance to the operator",
             "intended behavior, relevant ACs, important scope boundary, and expected affected files",
             "one before/after example for nontrivial behavior changes",
+            "relate the chosen work to Product Intent (or the wave Objective)",
+            "preserve existing requirement-amendment, re-Prepare and operator-authorization rules",
             "Correct an agent-only misreading directly",
             "actual contract contradiction or missing consequential decision back to planning",
             "pausing only dependent work",
@@ -152,6 +156,8 @@ class BriefingLoopCarrierTests(unittest.TestCase):
             "do not repeat an unchanged readback or create another artifact",
         ),
         "gap": (
+            "Compare Requirements, ACs and Scope with Product Intent (or the wave Objective)",
+            "could complexity, runtime cost or operator burden undermine it",
             "At the start of this optional review",
             "Requirements, Acceptance Criteria, and Scope against the brief in Rationale",
             "operator's request, and relevant established context",
@@ -165,6 +171,9 @@ class BriefingLoopCarrierTests(unittest.TestCase):
             "preserve the existing stop condition and one-question-at-a-time flow",
         ),
         "upgrade": (
+            "the project-local `plan-template.md` under the declared plans root",
+            "`new_change` prefers this project template",
+            "These are agent-assisted edits, not a mechanical template rewrite",
             "Retain the read-only pre-apply change evidence for the seeds and install baseline",
             "After extraction",
             "during the same installing run",
@@ -639,6 +648,32 @@ class MemoryReviewPromptTests(unittest.TestCase):
 
 
 class ScaffoldBaselineTests(unittest.TestCase):
+    def test_fresh_render_delivers_lifecycle_intent_and_preserves_existing_prose(self):
+        """2124l: real rendering proves instruction delivery, not agent adherence."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            ras.render_agent_surfaces(root)
+            contracts = {
+                "create-wave": "shared outcome of admitted changes",
+                "implement-wave": "relate the chosen work to Product Intent",
+                "review-plan": "would satisfying them establish the intended outcome",
+                "prepare-wave": "operator burden undermines that outcome",
+                "review-wave": "checked implementation steps alone prove neither benefit nor approval",
+                "close-wave": "Legacy records without this assessment remain closable",
+            }
+            for key, clause in contracts.items():
+                relative = next(destination for destination, template in ras.LIFECYCLE_PROMPT_BASELINES
+                                if template == f"{key}.prompt.md")
+                text = (root / relative).read_text(encoding="utf-8")
+                self.assertIn(clause, text, key)
+                self.assertNotIn("{{generated_at}}", text)
+            template = ras.record_paths.load_record_roots(root).plans / "plan-template.md"
+            self.assertIn("## Product Intent", template.read_text(encoding="utf-8"))
+            custom = template.read_bytes() + b"\nProject addition: keep the local checklist.\n"
+            template.write_bytes(custom)
+            self.assertEqual(ras.render_agent_surfaces(root), [])
+            self.assertEqual(template.read_bytes(), custom)
+
     def test_plan_template_materializes_missing_with_date_and_preserves_existing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir, patch.object(
             ras.time, "strftime", return_value="2026-08-17"
@@ -649,6 +684,8 @@ class ScaffoldBaselineTests(unittest.TestCase):
             self.assertEqual(written, ["docs/plans/plan-template.md"])
             text = target.read_text(encoding="utf-8")
             self.assertIn("Last verified: 2026-08-17", text)
+            self.assertIn("## Product Intent\n", text)
+            self.assertIn("who benefits, the observable before/after outcome", text)
             self.assertNotIn("{{generated_at}}", text)
             snapshot = target.read_bytes()
             self.assertEqual(ras.reconcile_scaffold_baselines(root), [])

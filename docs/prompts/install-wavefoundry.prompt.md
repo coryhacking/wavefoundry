@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-16
+Last verified: 2026-10-19
 
 Shortcut: **`Init Wavefoundry`** | Legacy: **`Install Wavefoundry`** / **`Init wave framework`** / **`Install wave framework`** / **`Init wave context`** / **`Install wave context`**
 
@@ -81,9 +81,9 @@ After setup, MCP host configs should launch the PATH `python3` command on Wavefo
 | **Claude Code** | `.mcp.json` (auto-generated) | Run `render_platform_surfaces --platform claude`. Open the project - Claude Code discovers `.mcp.json` automatically. |
 | **Cursor** | `.cursor/mcp.json` (auto-generated) | Run `render_platform_surfaces --platform cursor`. Enable under **Cursor -> Settings -> MCP** if not auto-loaded. |
 | **Junie** | `.junie/mcp/mcp.json` (auto-generated) | Run `render_platform_surfaces --platform junie`. Junie discovers this on project open. |
-| **GitHub Copilot** | VS Code MCP settings | Open **VS Code -> Settings -> MCP servers** and add the stdio entry below. |
+| **GitHub Copilot** | VS Code MCP settings | Open **VS Code -> Settings -> MCP servers** (or workspace `.vscode/mcp.json` if your VS Code version supports it) and add the stdio entry below. No auto-generated file in this release; VS Code MCP workspace support is still stabilising. |
 | **Codex** | `.codex/config.toml` (committed) | Project-local `.codex/config.toml` is committed to the repo. Codex loads the `wavefoundry` MCP server automatically for trusted projects. Trust the project when Codex prompts on first clone. |
-| **Antigravity** | `.agents/mcp_config.json` (auto-generated) | Run `render_platform_surfaces --platform antigravity`. The `ag` CLI loads `.agents/mcp_config.json` automatically. (The app/IDE uses the global `~/.gemini/…` config — add the stdio entry below there.) |
+| **Antigravity** | `.agents/mcp_config.json` (auto-generated) | Run `render_platform_surfaces --platform antigravity`. The `ag` CLI loads `.agents/mcp_config.json` automatically. (The app/IDE uses the global `~/.gemini/…` config — add the stdio entry below there.) Antigravity reads the project-root `AGENTS.md` natively (Tier-1), so no thin-pointer entry file is rendered. |
 | **Windsurf / Air / Warp / other** | Host UI / settings | Add the stdio entry below via your host's MCP settings. Windsurf also gets auto-rendered hooks via `render_platform_surfaces --platform windsurf`; its MCP attachment is still manual. See your host's MCP documentation. |
 
 After connecting, call `wf_server_info()` once to confirm the attached `repo_root` before you rely on any other MCP tools.
@@ -101,7 +101,7 @@ After connecting, call `wf_server_info()` once to confirm the attached `repo_roo
 }
 ```
 
-See `AGENTS.md → MCP / Wavefoundry server — enabling per host` for the full matrix with UI paths and vendor links.
+The **Step 2** table above is the full per-host registration matrix; see each host's own MCP documentation for current UI paths and vendor links.
 
 **Codex config** (`~/.codex/config.toml`):
 

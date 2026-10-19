@@ -2066,6 +2066,40 @@ class LauncherCommandTests(unittest.TestCase):
             self.mod.render_claude_settings(root)
             self.assertEqual(settings.read_bytes(), first)
 
+    def test_claude_settings_add_empty_commit_attribution_when_absent(self):
+        # Wave 2136r (change 2136n), AC-1.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = root / ".claude" / "settings.json"
+            settings.parent.mkdir(parents=True)
+            settings.write_text(json.dumps({"theme": "dark"}), encoding="utf-8")
+            self.mod.render_claude_settings(root)
+            first = settings.read_bytes()
+            self.assertEqual(json.loads(first)["attribution"], {"commit": ""})
+            self.mod.render_claude_settings(root)
+            self.assertEqual(settings.read_bytes(), first)
+
+    def test_claude_settings_keep_existing_attribution(self):
+        # Wave 2136r (change 2136n), AC-2: operator values, sibling keys and a
+        # non-object attribution are left unchanged.
+        cases = (
+            {"commit": "custom", "pr": "x"},
+            {"pr": "x"},
+            "not an object",
+        )
+        for attribution in cases:
+            with self.subTest(attribution=attribution), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                settings = root / ".claude" / "settings.json"
+                settings.parent.mkdir(parents=True)
+                settings.write_text(json.dumps({"attribution": attribution}), encoding="utf-8")
+                self.mod.render_claude_settings(root)
+                rendered = json.loads(settings.read_text(encoding="utf-8"))["attribution"]
+                if attribution == {"pr": "x"}:
+                    self.assertEqual(rendered, {"pr": "x", "commit": ""})
+                else:
+                    self.assertEqual(rendered, attribution)
+
 
 class GpuDoctorLauncherTests(unittest.TestCase):
     """1p6et: there is NO dedicated GPU-doctor bin launcher — the diagnostic is reached via

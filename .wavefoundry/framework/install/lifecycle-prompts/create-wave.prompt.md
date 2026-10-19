@@ -8,6 +8,8 @@ Shortcut: **`Create wave`**
 
 ## Purpose
 
+Use the existing wave `## Objective` for the shared outcome of admitted changes: who benefits, what observably improves, and material boundaries. Do not add a second wave-level intent section or duplicate change requirements and tasks.
+
 Create a wave record for a bounded set of already-planned changes. Creation
 does not imply readiness, implementation approval, or delivery approval.
 

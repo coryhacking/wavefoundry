@@ -12,6 +12,8 @@ Optional stress-test of a consolidated change doc, or the current wave record wh
 
 ## Behavior
 
+Compare Requirements, ACs and Scope with Product Intent (or the wave Objective): would satisfying them establish the intended outcome, and could complexity, runtime cost or operator burden undermine it? Keep this within the existing decision-branch walk; use Rationale for why now and do not reopen resolved choices or expand scope.
+
 Given a change doc as context, or the current wave record when no change is specified:
 1. Walk every unresolved decision branch one question at a time.
 2. Provide a recommended answer and cite the supporting project resource (source code, specs, architecture docs, references, agent docs).

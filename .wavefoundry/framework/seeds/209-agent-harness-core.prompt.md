@@ -8,6 +8,8 @@ Last verified: 2026-10-12
 
 Define the shared contracts that all harness participants use: evidence grounding, briefing packet format, finding record schema, reachability labels, and coordination behaviors.
 
+In existing readiness and delivery reviews, ask whether meeting Requirements and ACs would establish Product Intent and the wave Objective, and whether added complexity, runtime cost or operator burden undermines that outcome. At delivery, distinguish evidenced outcomes from intended benefits; checked implementation steps alone prove neither benefit nor approval. Use the existing lanes and gates.
+
 ## Evidence Grounding
 
 | Source | Weight | Rule |

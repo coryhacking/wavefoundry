@@ -142,7 +142,7 @@ Required semantics:
 
 Implementation details to preserve:
 
-- `AGENTS.md` should stay map-like and route work to canonical docs rather than duplicating deep policy
+- `AGENTS.md` should stay map-like and route work to canonical docs rather than duplicating deep policy. Rules and routing stay in the root `AGENTS.md`; reference detail beyond the sections this seed requires is linked from it rather than copied into it.
 - thin pointer files should identify startup order and canonical sources, not restate project-specific operational guidance
 - native wrappers should point back to canonical role or persona docs rather than duplicating policy
 - wrapper naming should stay stable so upgrades can reconcile them safely
@@ -282,7 +282,7 @@ Add to `AGENTS.md` auto-Guru section an **Agent platform routing** subsection: t
 
 Wave `1p5xc` (wave `1p5x8 large-codebase-map`). Vendor-neutral per-area context, reached on demand — no per-folder bridge files, and `@import` used in exactly one place (the root).
 
-**Root `@import` bridge (the only `@import`).** The root `CLAUDE.md` is rendered as a real `@AGENTS.md` import (a marker block produced by `render_agent_surfaces.py`), replacing the prose "read `AGENTS.md` first" pointer. This makes the root `AGENTS.md` the single source of truth that Claude loads deterministically and that `AGENTS.md`-native agents (Codex, etc.) read directly. Do **not** introduce `@import` anywhere except the root `CLAUDE.md`, and do **not** create `CLAUDE.md` bridge files in subdirectories. Re-run `render_platform_surfaces.py` (which calls `render_agent_surfaces.py`) after upgrade; do not hand-edit the `wave:root-bridge` marker region.
+**Root `@import` bridge (the only `@import`).** The root `CLAUDE.md` is rendered as a real `@AGENTS.md` import (a marker block produced by `render_agent_surfaces.py`), replacing the prose "read `AGENTS.md` first" pointer. This makes the root `AGENTS.md` the single source of truth that Claude loads deterministically and that `AGENTS.md`-native agents (Codex, etc.) read directly. Inside the markers, after the import, the block carries one compaction line telling Claude what to preserve through compaction (open wave and change ids, scoped operator authorizations and pending decisions, files modified, exact verification commands and their last results; never an approval the operator did not give) and to recheck mutable state such as open gates and wave status with the tools after resuming. Do **not** introduce `@import` anywhere except the root `CLAUDE.md`, and do **not** create `CLAUDE.md` bridge files in subdirectories. Re-run `render_platform_surfaces.py` (which calls `render_agent_surfaces.py`) after upgrade; do not hand-edit the `wave:root-bridge` marker region.
 
 **Root convention line.** The root `AGENTS.md` must carry a standing instruction: *before working in an area of the codebase, consult that area's `AGENTS.md` if present, orienting first from the generated codebase map (`docs/references/codebase-map.md`)*. This same operating instruction is woven into the run-contract seed (`020`) so it renders into **every** host agent surface, not just the root `AGENTS.md` body.
 
@@ -389,7 +389,7 @@ For Codex, Air, Junie, and Warp, reinforce rules in `AGENTS.md` and the respecti
 
 ### Claude Code
 
-Seed or update `.claude/settings.json` with the hooks below. **Merge with any existing hooks — do not replace the entire file.** `.claude/settings.json` is not read by Cursor, Codex, Windsurf, or other tools, so the behavioral rules must also be present in `AGENTS.md`, `CLAUDE.md`, and other platform thin-pointer files.
+Seed or update `.claude/settings.json` with the hooks below. **Merge with any existing hooks — do not replace the entire file.** The render also sets `"attribution": {"commit": ""}` when no `attribution.commit` value exists, so Claude Code adds no co-author trailer to commits, matching the run contract's commit-message rule; an existing value, its sibling keys, and an `attribution` that is not an object are left alone. `.claude/settings.json` is not read by Cursor, Codex, Windsurf, or other tools, so the behavioral rules must also be present in `AGENTS.md`, `CLAUDE.md`, and other platform thin-pointer files.
 
 ```json
 {
@@ -564,7 +564,7 @@ An unconditional "all roles available" stub is factually wrong before role docs 
 
 - the active host skill directories (`.claude/skills/`, `.codex/skills/`, `.agents/skills/`, whichever roots exist);
 - the skills actually rendered in this repository, listed from disk (never copied from a seed or from another repository), so a doc-gated skill is claimed only where its backing doc exists;
-- the gating rules: skills render on `wf setup` and **Upgrade Wavefoundry**; a `requires_doc`-gated skill renders only where its backing doc exists (`wf-guru` on `docs/agents/guru.md`; `wf-package`, `wf-code-cleanup`, and `wf-techdocs` on their prompt docs, `wf-techdocs` therefore in every target once `docs/prompts/refresh-techdocs.prompt.md` has been rendered); skill rendering is independent of `enabled_agent_roles`, which gates agent-role wrappers, not skills; every skill body is a thin pointer to the backing `docs/prompts/*.prompt.md`, so the phrase and the skill run the identical workflow.
+- the gating rules: skills render on `wf setup` and **Upgrade Wavefoundry**; a `requires_doc`-gated skill renders only where its backing doc exists (`wf-guru` on `docs/agents/guru.md`; `wf-package`, `wf-code-cleanup`, and `wf-techdocs` on their prompt docs, `wf-techdocs` therefore in every target once `docs/prompts/refresh-techdocs.prompt.md` has been rendered); skill rendering is independent of `enabled_agent_roles`, which gates agent-role wrappers, not skills; every skill body is a thin pointer to the backing `docs/prompts/*.prompt.md`, so the phrase and the skill run the identical workflow; on the Claude host only, the operator-owned skills (`wf-close-wave`, `wf-close-change`, `wf-package` and `wf-upgrade`) carry `disable-model-invocation: true`, so Claude does not invoke them on its own and the operator runs them by name.
 
 Upgrades re-verify the listed set against the rendered directories (seed-160 checklist), so registry growth cannot leave the section stale.
 

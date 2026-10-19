@@ -1,6 +1,7 @@
 ---
 name: wf-package
 description: Build the Wavefoundry framework distribution pack with build_pack.py (Package Wavefoundry). Available only where the packaging prompt doc exists, normally the framework source repository.
+disable-model-invocation: true
 ---
 
 # Package Wavefoundry (Wavefoundry skill)

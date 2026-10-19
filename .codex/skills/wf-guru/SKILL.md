@@ -15,7 +15,7 @@ Use this skill for **code** and **documentation** Q&A. Skip when the user is run
 
 1. Read `AGENTS.md` § **Codebase and documentation questions (auto-Guru)**.
 2. Read and follow `docs/agents/guru.md` (classification, retrieval loop, Pass 3, citations).
-3. Attach the `wavefoundry` MCP server via your host's project-local registration (see the `AGENTS.md` MCP table; Codex loads it automatically from the committed `.codex/config.toml`).
+3. Attach the `wavefoundry` MCP server via your host's project-local registration (see Step 2 of `docs/prompts/install-wavefoundry.prompt.md`; Codex loads it automatically from the committed `.codex/config.toml`).
 4. Prefer **`code_ask`** and **`docs_search`** over ad-hoc search when MCP is available.
 5. Complete Pass 3 validation before answering; never paraphrase only the `code_ask` `answer` field.
 

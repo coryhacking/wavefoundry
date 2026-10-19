@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-11
+Last verified: 2026-10-19
 
 ## Default Change Path
 
@@ -17,6 +17,10 @@ All non-trivial work follows this sequence. Do not edit repository code before s
 7. **Close change** (per change, optional) then **Close wave** (the only wave close): all changes implemented, complete, or deferred; validate memory candidates; promote memory to canonical docs; clear session handoff.
 
 ## Route implementation narration and amendments
+
+New change docs use Product Intent for who benefits, the observable before/after outcome and material boundaries, including framework, maintenance and documentation work. One sentence can suffice. Rationale explains why now, Requirements specify behavior, Scope bounds work, Tasks describe implementation and ACs provide proof. Name at least one AC or a clearly identified combination that tests whether the intent was established. Use the wave Objective for the shared outcome. Clarify intent during material plan revisions; do not bulk-convert existing records or rewrite closed records and ledgers. Legacy records remain readable and closable under existing gates.
+
+For example, operators need reliable answers without extra waiting: an implementation may replace a planned cache with a simpler bounded lookup while preserving that intent, provided it stays within existing scope and amendment, re-Prepare and authorization rules. Conversely, all renderer checks may pass for new agent instructions while improved agent adherence remains unestablished. Delivery proves the instructions arrived; observing behavior requires separate evidence. Intent grants no broader authority.
 
 Put ordinary test observations, repair progress, evidence locations and continuation
 notes in the canonical `## Progress Log` or existing session handoff. Keep weighed

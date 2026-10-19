@@ -871,19 +871,21 @@ class RetiredContentReferenceScanTests(unittest.TestCase):
         self._write("docs/prompts/close-wave.prompt.md", "# Close wave\n")
         self.assertEqual(self.scan.scan_repo(self.root), [])
 
-    def test_live_migrate_journals_alias_is_not_reported(self):
-        """Found by running the scan against this repository: `Distill journals`
-        is ALSO the documented legacy alias of the LIVE `Migrate journals`
-        command, so flagging it would tell operators to delete a working alias.
-        The exemption is line-scoped and must not silence a bare instruction."""
+    def test_leftover_distill_journals_alias_is_reported(self):
+        """The `Distill journals` alias of `Migrate journals` is retired, so a
+        leftover alias is reported even on a line naming the live command, with
+        a suggestion that keeps the command row. The directory pattern keeps its
+        line-scoped exemption for a line that names the live command."""
         self._write(
             "docs/prompts/index.md",
             "| **Migrate journals** | one-time retirement "
             "(legacy alias: **Distill journals**) | seed-210 |\n"
-            "At close, distill journals.\n",
+            "Migrate journals removes docs/agents/journals/ when it is empty.\n",
         )
         findings = self.scan.scan_repo(self.root)
-        self.assertEqual([f.line for f in findings], [2], findings)
+        self.assertEqual([(f.line, f.retired_surface) for f in findings],
+                         [(1, "journal instruction")], findings)
+        self.assertIn("keep the `Migrate journals` row", findings[0].suggested)
 
     def test_wave_archives_are_not_reported(self):
         """AC-8: historical records legitimately narrate the retired system."""

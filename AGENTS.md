@@ -65,9 +65,9 @@ Explicit shortcut **Guru** remains available in `docs/prompts/index.md` when the
 | Cursor | `.cursor/rules/auto-guru.mdc` | `.cursor/mcp.json` |
 | Claude Code | `.claude/agents/guru.md` | `.mcp.json` (repo root) |
 | Codex | `.codex/skills/wf-guru/SKILL.md` | `.codex/config.toml` (project-local, committed) |
-| Copilot / Windsurf / Junie / Air / Warp | Tier 1 + tier 2 only | Per `AGENTS.md` MCP table (stdio entry or provider UI) |
+| Copilot / Windsurf / Junie / Air / Warp | Tier 1 + tier 2 only | Per `docs/prompts/install-wavefoundry.prompt.md` Step 2 (stdio entry or provider UI) |
 
-**Skills (`wf-` namespace, wave `1p6lp`):** every Wavefoundry skill renders from one registry (`render_agent_surfaces.render_skills`) as standard `SKILL.md` into each active skill host (`.codex/skills/<name>/`, `.claude/skills/<name>/`, `.agents/skills/<name>/`). Names are `wf-` kebab-case, so typing `/wf` filters a host's command list to the family. Bodies are thin pointers to the backing `docs/prompts/*.prompt.md`; the workflow content never lives in the skill. Current entries: the lifecycle set `wf-plan-change`, `wf-prepare-wave`, `wf-implement-wave`, `wf-review-wave`, `wf-close-wave`, `wf-close-change`, `wf-review-plan`, `wf-evaluate-decision`, `wf-memory-review`, `wf-pause-wave`, the review router `wf-council` (Wave Council / Archetype Council / Red-team review), plus `wf-guru` (requires `docs/agents/guru.md`) and `wf-upgrade` (framework-maintenance checklist). `wf-review-plan` is the only plan-review skill; **Interrogate this plan** and **Stress-test this plan** remain natural-language aliases, while **Review wave** / `wf-review-wave` stays the distinct delivery-review lifecycle path. Doc-gated entries (wave `1ve3a`) emit only where their backing prompt exists: `wf-package` (packaging, normally this framework source repo only), `wf-code-cleanup` (recommend-only whole-codebase maintainability sweep), and `wf-techdocs` (Refresh TechDocs, wave `1vj4e`; renders once `docs/prompts/refresh-techdocs.prompt.md` exists, which is every target after seed-100 reconciliation). The old flat `.claude/skills/upgrade-wave.md` and pre-namespace `.codex/skills/auto-guru/` are stale-cleaned on render.
+**Skills (`wf-` namespace, wave `1p6lp`):** every Wavefoundry skill renders from one registry (`render_agent_surfaces.render_skills`) as standard `SKILL.md` into each active skill host (`.codex/skills/<name>/`, `.claude/skills/<name>/`, `.agents/skills/<name>/`). Names are `wf-` kebab-case, so typing `/wf` filters a host's command list to the family. Bodies are thin pointers to the backing `docs/prompts/*.prompt.md`; the workflow content never lives in the skill. On the Claude host the operator-owned `wf-close-wave`, `wf-close-change`, `wf-package` and `wf-upgrade` are manual-only (`disable-model-invocation: true`, wave `2136r`). Current entries: the lifecycle set `wf-plan-change`, `wf-prepare-wave`, `wf-implement-wave`, `wf-review-wave`, `wf-close-wave`, `wf-close-change`, `wf-review-plan`, `wf-evaluate-decision`, `wf-memory-review`, `wf-pause-wave`, the review router `wf-council` (Wave Council / Archetype Council / Red-team review), plus `wf-guru` (requires `docs/agents/guru.md`) and `wf-upgrade` (framework-maintenance checklist). `wf-review-plan` is the only plan-review skill; **Interrogate this plan** and **Stress-test this plan** remain natural-language aliases, while **Review wave** / `wf-review-wave` stays the distinct delivery-review lifecycle path. Doc-gated entries (wave `1ve3a`) emit only where their backing prompt exists: `wf-package` (packaging, normally this framework source repo only), `wf-code-cleanup` (recommend-only whole-codebase maintainability sweep), and `wf-techdocs` (Refresh TechDocs, wave `1vj4e`; renders once `docs/prompts/refresh-techdocs.prompt.md` exists, which is every target after seed-100 reconciliation). The old flat `.claude/skills/upgrade-wave.md` and pre-namespace `.codex/skills/auto-guru/` are stale-cleaned on render.
 
 ## Purpose
 
@@ -126,7 +126,7 @@ Public Wave Framework commands for Wavefoundry's self-hosted surface. Full detai
 | **Close change** | Close one admitted change inside the open wave (`wf_close_change`); optional, after Review wave | `docs/prompts/close-change.prompt.md` |
 | **Review plan** / **Interrogate this plan** / **Stress-test this plan** | Optionally stress-test a change doc, or current-wave fallback, before or after admission and before implementation; no signoff or gate | `docs/prompts/review-plan.prompt.md` |
 | **Evaluate decision** | Structured decision evaluation for ADR-shaped choices | `docs/prompts/evaluate-decision.prompt.md` |
-| **Migrate journals** | One-time retirement of remaining journal files into the memory system (legacy alias: **Distill journals**) | `.wavefoundry/framework/seeds/210-migrate-journals.prompt.md` |
+| **Migrate journals** | One-time retirement of remaining journal files into the memory system | `.wavefoundry/framework/seeds/210-migrate-journals.prompt.md` |
 | **Archetype review** / **Archetype council** | Optional stance-based review applied to plans, design docs, code, prose, decision narratives, naming, AC formulation | `docs/prompts/archetype-council.prompt.md` |
 | **Red-team review** / **Red team this** | Standalone single-stance adversarial pass on one artifact; records no signoffs, satisfies no gate | `docs/prompts/red-team-review.prompt.md` |
 | **Package Wavefoundry** | Build framework zip distribution | `docs/prompts/package-wavefoundry.prompt.md` |
@@ -176,7 +176,7 @@ Run the framework tests:
 python3 .wavefoundry/framework/scripts/run_tests.py
 ```
 
-**Bytecode cache (changes `1zyv1`, `206fi`).** Ordinary framework processes keep Python bytecode in the project cache `.wavefoundry/cache/pycache/`, never in `__pycache__` beside the framework sources. The first cache-enabled process after `.wavefoundry/framework/VERSION` changes flushes the cache. `PYTHONDONTWRITEBYTECODE=1`, `python3 -B`, explicit read-only configuration or `WAVEFOUNDRY_DISABLE_BYTECODE_CACHE=1` disables project-cache reads and writes after configuration, with no flush, warm-up or pruning; the test runner respects those controls. Controlled read-only children also remove `PYTHONPYCACHEPREFIX` before interpreter startup. For externally configured direct invocations, unset `PYTHONPYCACHEPREFIX` at launch: configuration and the disabling switch cannot undo imports already executed during interpreter startup. Ordinary caching uses a process-wide prefix, including standard-library and site-packages bytecode; source digests and pack integrity checks do not authenticate cached bytecode. The cache is refused when `.wavefoundry/cache` or `.wavefoundry/cache/pycache` is a symlink, or on Windows a junction or other reparse point. On macOS, Linux and WSL2 it mirrors absolute source paths; on Windows the mirrored path drops the drive letter, and a long path or a locked file only skips caching (inferred, not yet run on Windows). A stray `__pycache__` under `.wavefoundry/framework/` is a defect to report, not routine cleanup. The cache is outside the pack, indexes, secrets and reconcile scans, and test receipt.
+**Bytecode cache (changes `1zyv1`, `206fi`).** Ordinary framework processes keep Python bytecode in the project cache `.wavefoundry/cache/pycache/`, never in `__pycache__` beside the framework sources. For externally configured direct invocations, unset `PYTHONPYCACHEPREFIX` at launch: configuration and the disabling switch cannot undo imports already executed during interpreter startup. A stray `__pycache__` under `.wavefoundry/framework/` is a defect to report, not routine cleanup. Cache detail: `docs/contributing/build-and-verification.md` **Framework Script Hygiene**.
 
 During routine `docs/` edits, the post-edit hook automatically runs incremental changed-set lint via `docs_lint.py --changed`; MCP documentation-writing tools report the same advisory result. Use that fast feedback while editing rather than manually running full lint after every change. At an explicit validation or handoff boundary, agents with MCP must run full **`wf_validate_docs`** (and fix failures); use **`wf_garden_docs`** when metadata timestamps need refresh. Manual CLI fallback: POSIX `**./.wavefoundry/bin/wf docs-lint**`; native Windows `**.\\.wavefoundry\\bin\\wf.cmd docs-lint**`.
 
@@ -204,7 +204,7 @@ Do **not** infer close approval from adjacent actions such as "remove the dead c
 
 `wf_close_wave` dry-run (`mode="dry_run"`) does not require operator approval and may be used freely to validate readiness.
 
-**Framework test receipt at close (wave `1wur7`):** close verifies the existing `.wavefoundry/framework/test-cache.json` receipt written by `run_tests.py` — it requires `result == "ok"` with an `inputs_hash` matching the current framework tree, and reports a missing, red, stale, or unreadable receipt as `framework_test_receipt_not_proven` rather than assuming green. It runs no suite and spawns no subprocess; record a fresh receipt with `python3 .wavefoundry/framework/scripts/run_tests.py`. The receipt's hash covers `.wavefoundry/framework/` (excluding `VERSION`, `MANIFEST`, the cache itself, `test-run.lock`, and the `index`/`__pycache__`/`.pytest_cache` directories), so only its STALENESS is framework-scoped. `_write_cache` writes a receipt only when the WHOLE suite is green, so a failure triggered by content under `docs/` prevents a NEW receipt from being written. The practical consequence: when the framework tree also changed, the standing receipt is stale and close is blocked; in a documentation-only wave a current green receipt persists and close is not blocked despite a red suite. The gate is **not** a whole-repository guarantee, and it is not a whole-repository exemption either. Run the suite LAST before close: any edit under `.wavefoundry/framework/` invalidates the receipt. Where the runner is absent (every repository consuming the packaged framework — the distribution excludes it) the check is a documented no-op.
+**Framework test receipt at close (wave `1wur7`):** close verifies the existing `.wavefoundry/framework/test-cache.json` receipt written by `run_tests.py` — it requires `result == "ok"` with an `inputs_hash` matching the current framework tree, and reports a missing, red, stale, or unreadable receipt as `framework_test_receipt_not_proven` rather than assuming green. It runs no suite and spawns no subprocess; record a fresh receipt with `python3 .wavefoundry/framework/scripts/run_tests.py`. Run the suite LAST before close: any edit under `.wavefoundry/framework/` invalidates the receipt. Receipt scope and the packaged-framework no-op: `docs/contributing/build-and-verification.md` **Close gate: the framework test receipt**.
 
 ## Core Principles
 
@@ -219,19 +219,19 @@ Do **not** infer close approval from adjacent actions such as "remove the dead c
 
 ## MCP Server
 
-The Wavefoundry MCP server ships at `.wavefoundry/framework/scripts/server.py` and runs via stdio transport.
-
 **Build the semantic index before first use:**
 
 ```bash
 wf setup
 ```
 
-This checks for the required runtime packages (`fastembed`, `httpx[socks]`, `numpy`, `mcp[cli]`) and builds the project index: docs/seeds, semantic code embeddings, and graph in the foreground by default. If dependencies are missing, it prints an isolated tool-venv install command instead of modifying the system Python. Pass `--root <path>` to target a different repository. Use `--background-code` only when you intentionally want docs/graph ready first while code embeddings continue in a detached background pass; use `--background-docs` for the inverse code-first tradeoff. `--include-code` remains accepted for explicit CI/full-build callers, but default setup already includes code. Code indexing defaults to source files only and skips tests/generated platform hooks; add `--include-tests` or `--include-generated` when those are useful. Wavefoundry framework internals under `.wavefoundry/framework/scripts/tests/` are never included in the semantic code index. The setup wrapper runs indexing in subprocesses to keep each pass isolated.
+Pass `--root <path>` to target a different repository. Use `--background-code` only when you intentionally want docs/graph ready first while code embeddings continue in a detached background pass; use `--background-docs` for the inverse code-first tradeoff. Code indexing defaults to source files only and skips tests/generated platform hooks; add `--include-tests` or `--include-generated` when those are useful.
+
+Setup details: `docs/contributing/build-and-verification.md` **Onboarding**.
 
 If `wf setup` fails specifically because a required model cannot be downloaded, keep recovery on the canonical setup path. In agent-driven sessions, the agent should ask the operator for permission to rerun the same setup command with network access or host escalation enabled instead of switching to a separate manual model-download step.
 
-The project-local index is stored at `.wavefoundry/index/` (gitignored) and is the **only** semantic index: the framework's own seeds/docs fold into each project's docs index at setup/upgrade, so distributions ship framework **source only** — there is no separately packaged `.wavefoundry/framework/index/` "framework layer" (ADR `1p4xx fold-framework-index-into-project-docs`; `build_pack.py` ships source only). The project-local index is refreshed incrementally: post-edit hooks coalesce eligible changes for a turn-end refresh where the host supports it, MCP mutations request best-effort refreshes, and the MCP quiet-period monitor recovers missed triggers. Use `index_health()` to check whether a layer is ready and inspect `data.background_monitors`, `index_build_status(layer?)` to poll background refreshes, and `index_build(content=..., mode=...)` when you need a deterministic update or rebuild. **To check whether a build is currently running, read the `lock` object on `index_build_status` (the `held` boolean) — do NOT read `.wavefoundry/index/index-build.lock` directly.** That lock file persists **by design** as a crash-safe last-owner record and is reclaimed lazily on the next build, so its *presence does not mean a build is running*. `held` is determined by **testing the real OS lock** (not the file), and `ended_at` distinguishes a clean finish from an interrupted build.
+The project-local index at `.wavefoundry/index/` (gitignored) is the **only** semantic index. Use `index_health()` to check whether a layer is ready and inspect `data.background_monitors`, `index_build_status(layer?)` to poll background refreshes, and `index_build(content=..., mode=...)` when you need a deterministic update or rebuild. **To check whether a build is currently running, read the `lock` object on `index_build_status` (the `held` boolean) — do NOT read `.wavefoundry/index/index-build.lock` directly.** That lock file persists **by design** as a crash-safe last-owner record and is reclaimed lazily on the next build, so its *presence does not mean a build is running*. Index details: `docs/architecture/chunking-and-indexing-pipeline.md` **The Project Index**.
 
 ### Check readiness after Git changes
 
@@ -265,33 +265,9 @@ it installs them into the tool environment through uv (in the background when it
 run without them) and reports the install in `wf_server_info`; if it still cannot
 start, run `wf setup`. No Git hooks are installed by this guidance.
 
-### MCP / Wavefoundry server — enabling per host
+### MCP / Wavefoundry server registration
 
-
-| Host | Registration surface | How |
-| ------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Claude Code** | `.mcp.json` (repo root) | **Auto:** generated by `render_platform_surfaces --platform claude`. Open the project in Claude Code — it discovers `.mcp.json` automatically. |
-| **Cursor** | `.cursor/mcp.json` | **Auto:** generated by `render_platform_surfaces --platform cursor`. Enable under **Cursor → Settings → MCP** if not auto-loaded. |
-| **Junie** | `.junie/mcp/mcp.json` | **Auto:** generated by `render_platform_surfaces --platform junie`. Junie discovers this file on project open. |
-| **GitHub Copilot** | VS Code MCP settings | **Instruction:** open **VS Code → Settings → MCP servers** (or workspace `.vscode/mcp.json` if your VS Code version supports it) and add the stdio entry below. No auto-generated file in this release — VS Code MCP workspace support is still stabilising. |
-| **Codex** | `.codex/config.toml` (committed) | **Auto:** project-local `.codex/config.toml` is committed to the repo. Codex loads the `wavefoundry` MCP server automatically for trusted projects — no manual registration step needed. Trust the project on first clone when Codex prompts. |
-| **Air** | Provider-specific | **Instruction:** add the stdio server in your Air project settings or MCP config using the entry below. See your Air provider's MCP documentation for the current attachment path. |
-| **Antigravity** | `.agents/mcp_config.json` | **Auto:** generated by `render_platform_surfaces --platform antigravity`. The `ag` CLI discovers and loads `.agents/mcp_config.json` automatically. The app/IDE uses the global `~/.gemini/…` config (manual). Antigravity reads the project-root `AGENTS.md` natively (Tier-1), so no thin-pointer entry file is rendered. |
-| **Windsurf** | Windsurf MCP settings | **Instruction:** add the **copy-ready stdio entry below** via Windsurf's MCP settings (no auto-generated MCP file). Hooks *are* auto-rendered (`render_platform_surfaces --platform windsurf`); only MCP attachment is manual. |
-| **Warp** | Warp MCP settings | **Instruction:** add the **copy-ready stdio entry below** via Warp's MCP settings. |
-
-
-**Copy-ready stdio entry** (for instruction-only hosts — replace `<repo>` with the absolute path to this repository):
-
-```json
-{
- "command": "python3",
- "args": [
- "<repo>/.wavefoundry/framework/scripts/server.py",
- "--root", "<repo>"
- ]
-}
-```
+Host registration: `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host**.
 
 Use the `python3` on PATH after `wf setup`; do not point MCP config at `.wavefoundry/venv/Scripts/python.exe` or a project-local venv path as a workaround for a missing or too-old `python3`. Before setup proceeds, `python3 --version` must work from the command line and report Python 3.11 or newer. `wf setup` verifies that this interpreter can import `mcp` and smoke-test `server.py --dry-run`. After changing MCP config or fixing Python on PATH, fully quit and reopen the agent host or start a fresh conversation; existing sessions may keep the toolset from the failed startup.
 
@@ -302,53 +278,21 @@ On native Windows, a fresh install and an already-seeded checkout on a new works
 
 **Graph index:** `index_build(content='graph', mode='rebuild')` rebuilds only the structural graph (no semantic embedding). Graph query tools operate on the single `project` layer (target-repo code from the whole-repo walk; `indexing.project_include_prefixes` only opts `.wavefoundry/`-nested subpaths back in) — there is no framework or union graph layer. Community detection optionally uses `igraph`+`leidenalg` (installed by `wf setup`) and falls back to a built-in label-propagation pass when they are unavailable.
 
-**Codebase Q&A shortcut:** `code_ask(question)` — ask a cross-cutting natural-language question about the codebase; returns `{answer, citations, reranked, confidence, confidence_basis, gaps, question_type, index_freshness, partition_applied, demotion_count, second_hop_symbols, retrieval_accounting, total_ms, vector_ms, rerank_ms}` (`retrieval_accounting`, wave `1wpif`: per-source substrate queries and examined rows against the stated public-call ceiling; `confidence_basis`, wave `1wscp`: why the confidence has that value -- `semantic_lead`, `exact_owner`, `no_citations`, `unranked_similarity`, or `lexical_fallback`, read from the LEAD citation rather than the best-scoring one). Each citation may also include `final_rank`, `demoted`, `partition_reason` (`doc_code_drift` — drift-flagged doc moved behind a comparable current alternative; the partition ships default-off), and an optional `freshness` object ({age_days, churn_score}, plus {drifted, commits_since_verified} on living docs or {historical, waves_behind} on wave archives) telling whether the cited content still matches the code it describes — distinct from the envelope `index_freshness` (index-vs-working-tree). Synthesize from `citations` directly — the `answer` field is a navigation pointer, not a synthesized answer. `score` is the pre-partition reranker score; `final_rank` is the post-partition output order. `reranked: true` means cross-encoder ranking ran (trust the order unless a citation is explicitly `demoted: true`); `reranked: false` means degraded ordering — vector/coverage on the healthy path (reranker disabled/unbuildable) or BM25 in `lexical_fallback`. Use `code_search`/`docs_search` instead when you want raw results to browse. See `docs/agents/guru.md` for retrieval loop, citation format, and uncertainty protocol.
+**Codebase Q&A shortcut:** `code_ask(question)` — ask a cross-cutting natural-language question about the codebase. Synthesize from `citations` directly — the `answer` field is a navigation pointer, not a synthesized answer. Use `code_search`/`docs_search` instead when you want raw results to browse. See `docs/agents/guru.md` for retrieval loop, citation format, and uncertainty protocol.
 
-Full tool reference — `code_ask` signal notes, `wf_new_*` creation tools, session handoff, edit gates, Codex server selection, wave lifecycle notes: `docs/specs/mcp-tool-surface.md` → **Tool Detail** section.
+`reranked: true` means cross-encoder ranking ran (trust the order unless a citation is explicitly `demoted: true`); `reranked: false` means degraded ordering — vector/coverage on the healthy path (reranker disabled/unbuildable) or BM25 in `lexical_fallback`.
 
-**Retired change kind (wave `1zli8`):** `wf_new_feature` stays registered but is retired: the `feat` kind is no longer minted for new change docs, so the tool (and `wf lifecycle-id --kind feat`) refuses with `change_kind_retired` and names `wf_new_enhancement`. Existing `feat` ids stay valid; plan a large feature as several changes, possibly across waves.
+Existing `feat` ids stay valid; plan a large feature as several changes, possibly across waves.
+
+Tool reference: `docs/specs/mcp-tool-surface.md` **Current Tool Surface**.
 
 ### Code Navigation
 
-See `docs/specs/mcp-tool-surface.md` → **Code Navigation** for the full three-layer listing (semantic search, exact navigation, symbol navigation, graph query) with per-tool parameter docs. Quick chooser:
-
-- Use `code_search` when you know the behavior or concept but not the exact symbol or file.
-- Use `code_definition` when you know the symbol and want its defining declaration.
-- Use `code_references` when you know the symbol and want call sites or usages.
-- Use `code_keyword` when you need exact-token or exact-string matches; use `queries=[...]` for multiple patterns.
-- Use `code_lexical` when you need BM25-ranked exact-token search over the indexed chunk corpus (compound identifiers, error strings, rare tokens) or to verify what the lexical (FTS5) layer holds. Not regex; tokens keep `_` inside, so query the full compound identifier.
-- Use `code_constants` when you need the current value of one or more named constants.
-- Use `code_pattern` when you need regex matching (non-literal patterns like `def .*handler`).
-- Use `code_outline` when you need the structural shape of a file before deciding what to read.
-- Use `code_read` after any of the above once you know which file to inspect directly.
+Choose the code tool by what you know: `docs/specs/mcp-tool-surface.md` **Tool Selection Guide**.
 
 ### MCP Resources and Resource Templates
 
-The server also exposes read-only **MCP resources** and **resource templates** for stable context discovery without tool calls:
-
-Full resource documentation: `docs/specs/mcp-tool-surface.md` → **MCP Resources** section.
-
-**Stable resources** (no parameters — attach to context directly):
-
-- `wavefoundry://overview` — project overview doc
-- `wavefoundry://prompts` — prompt/command index
-- `wavefoundry://architecture/current-state` — architecture current-state summary
-- `wavefoundry://wave/current` — active wave.md as markdown
-- `wavefoundry://session-handoff` — session handoff state
-- `wavefoundry://agents` — AGENTS.md (this file; primary agent operating guide)
-- `wavefoundry://index/status` — semantic + graph index health summary (present/absent, counts, builder version)
-- `wavefoundry://graph/status` — graph index metadata (present, node/edge/file counts, builder version, path)
-- `wavefoundry://graph/communities` — catalog of code-graph communities (id, label, node count, boundary count, top members by degree); read first before `code_graph_community(community_id=…)`. Architectural communities come first; Evidence/Data communities (machine-result artifacts) are listed last under their own heading, marked with their evidence share and the reason they were classified, so a large captured artifact never reads as an architectural domain. They stay listed and queryable rather than hidden.
-- `wavefoundry://waves` — markdown summary of all wave records and admitted changes
-
-**Resource templates** (parameterized reads):
-
-- `wavefoundry://change/{change_id}` — change doc by ID or prefix
-- `wavefoundry://wave/{wave_id}` — wave.md by ID or prefix
-- `wavefoundry://prompt/{slug}` — prompt doc by slug
-- `wavefoundry://seed/{slug}` — seed doc by slug
-- `wavefoundry://architecture/{slug}` — architecture doc by slug
-- `wavefoundry://area/{area_id}` — a major area's per-area `AGENTS.md` (local conventions/gotchas/intent) by `area_id` (the URI-safe key shown in the codebase map; read `wavefoundry://codebase-map` first to discover area ids). Resolves by walking **up** from the area's representative path to the nearest ancestor `AGENTS.md` (so a conventionally project-root-placed file is found even when the area is a deep subdirectory). Serves the on-disk file (also indexed for `code_ask`/`docs_search`); a missing/un-authored area returns a `# Not Found` message — never synthesized.
+Resource catalog: `docs/specs/mcp-tool-surface.md` **MCP Resources**.
 
 **When to use resources vs tools:**
 

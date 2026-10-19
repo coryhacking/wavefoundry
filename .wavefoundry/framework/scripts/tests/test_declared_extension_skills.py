@@ -115,7 +115,7 @@ class DeclaredSkillRenderTests(unittest.TestCase):
                 if skill.requires_doc and not (root / skill.requires_doc).is_file():
                     continue
                 self.assertEqual((root / ".claude" / "skills" / skill.name / "SKILL.md").read_text(
-                    encoding="utf-8"), ras.skill_document(skill))
+                    encoding="utf-8"), ras.skill_document(skill, ".claude/skills"))
             before = _snapshot(root)
             self.assertEqual(ras.render_skills(root), [])
             self.assertEqual(_snapshot(root), before)
@@ -419,9 +419,22 @@ PACKAGED_TEMPLATE = SCRIPTS_ROOT.parent / "install" / TEMPLATE
 KEEP_SPEC = _spec(title="Keep Me", prompt_doc="docs/prompts/keep-me.prompt.md")
 
 
-def _head_document(skill: "ras.Skill") -> str:
-    """The SKILL.md bytes HEAD renders for a framework skill: frontmatter, blank line, body."""
-    return f"---\nname: {skill.name}\ndescription: {skill.description}\n---\n\n{skill.body}"
+# Wave 2136r (change 2136l): the operator-owned skills, named literally so the
+# oracle does not read the registry field it checks (default vocabulary profile).
+MANUAL_ONLY_CLAUDE_SKILLS = frozenset({"wf-close-wave", "wf-close-change", "wf-package", "wf-upgrade"})
+
+
+def _head_document(skill: "ras.Skill", host: "str | None" = None) -> str:
+    """The SKILL.md bytes HEAD renders for a framework skill: frontmatter, blank line, body.
+
+    On the Claude host an operator-owned skill also carries the manual-only key.
+    """
+    manual_only = (
+        "disable-model-invocation: true\n"
+        if host == ".claude" and skill.name in MANUAL_ONLY_CLAUDE_SKILLS
+        else ""
+    )
+    return f"---\nname: {skill.name}\ndescription: {skill.description}\n{manual_only}---\n\n{skill.body}"
 
 
 def _render_capturing(func, root: Path) -> "tuple[list[str], str]":
@@ -485,6 +498,7 @@ class DeclaredSkillMarkerTests(unittest.TestCase):
             with self.subTest(skill=skill.name):
                 self.assertFalse(skill.declared)
                 self.assertEqual(ras.skill_document(skill), _head_document(skill))
+                self.assertEqual(ras.skill_document(skill, ".claude/skills"), _head_document(skill, ".claude"))
                 self.assertNotIn(MARKER, ras.skill_document(skill))
         with tempfile.TemporaryDirectory() as temp_dir, base_declaration(EXTENSION_SKILLS=VALID):
             root = Path(temp_dir)
@@ -495,7 +509,7 @@ class DeclaredSkillMarkerTests(unittest.TestCase):
                     continue
                 for host in HOSTS:
                     self.assertEqual((root / host / "skills" / skill.name / "SKILL.md").read_bytes(),
-                                     _head_document(skill).encode("utf-8"))
+                                     _head_document(skill, host).encode("utf-8"))
 
 
 class DeclaredSkillOwnershipTests(unittest.TestCase):
@@ -1202,8 +1216,47 @@ class StockDeclarationSkillBytesTests(unittest.TestCase):
                     # The Codex guru skill is also a review carrier with reconciled regions.
                     self.assertTrue(text.startswith(_head_document(by_name["wf-guru"])[:200]))
                     continue
-                self.assertEqual(text, _head_document(by_name[rel.split("/")[2]]), rel)
+                self.assertEqual(text, _head_document(by_name[rel.split("/")[2]], rel.split("/")[0]), rel)
             self.assertFalse(any(MARKER in (root / rel).read_text(encoding="utf-8") for rel in skill_paths))
+
+
+class ManualOnlyClaudeSkillTests(unittest.TestCase):
+    """Wave 2136r (change 2136l): operator-owned skills are manual-only on the Claude host."""
+
+    def _marked(self, root: Path) -> "set[str]":
+        return {
+            path.parent.name
+            for path in (root / ".claude" / "skills").glob("*/SKILL.md")
+            if "\ndisable-model-invocation: true\n" in path.read_text(encoding="utf-8").split("\n---\n", 1)[0] + "\n"
+        }
+
+    def test_exactly_the_operator_owned_skills_are_manual_only_on_claude(self) -> None:
+        for with_package in (True, False):
+            with self.subTest(with_package=with_package), tempfile.TemporaryDirectory() as temp_dir, base_declaration():
+                root = Path(temp_dir)
+                _repo(root)
+                if with_package:
+                    (root / "docs/prompts/package-wavefoundry.prompt.md").write_text("# p\n", encoding="utf-8")
+                ras.render_skills(root)
+                expected = set(MANUAL_ONLY_CLAUDE_SKILLS)
+                if not with_package:
+                    expected.discard("wf-package")
+                self.assertEqual(self._marked(root), expected)
+                for host in (".codex", ".agents"):
+                    for path in (root / host / "skills").glob("*/SKILL.md"):
+                        self.assertNotIn("disable-model-invocation", path.read_text(encoding="utf-8"), path)
+
+    def test_rerender_over_pre_change_skill_updates_it_then_writes_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, base_declaration():
+            root = Path(temp_dir)
+            _repo(root)
+            ras.render_skills(root)
+            close = next(skill for skill in ras.SKILL_REGISTRY if skill.name == "wf-close-wave")
+            rel = ".claude/skills/wf-close-wave/SKILL.md"
+            (root / rel).write_text(_head_document(close), encoding="utf-8")
+            self.assertEqual(ras.render_skills(root), [rel])
+            self.assertEqual((root / rel).read_text(encoding="utf-8"), _head_document(close, ".claude"))
+            self.assertEqual(ras.render_skills(root), [])
 
 
 if __name__ == "__main__":

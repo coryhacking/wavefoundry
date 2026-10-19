@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-17
+Last verified: 2026-10-19
 
 ## Verification Commands
 
@@ -250,6 +250,8 @@ wf setup
 # or, after setup already exists:
 wf update-indexes
 ```
+
+`wf setup` checks for the required runtime packages (`fastembed`, `httpx[socks]`, `numpy`, `mcp[cli]`) and builds the project index: docs/seeds, semantic code embeddings, and graph in the foreground by default. If dependencies are missing, it prints an isolated tool-venv install command instead of modifying the system Python. Pass `--root <path>` to target a different repository. The setup wrapper runs indexing in subprocesses to keep each pass isolated. Code indexing defaults to source files only and skips tests/generated platform hooks; add `--include-tests` or `--include-generated` when those are useful. Wavefoundry framework internals under `.wavefoundry/framework/scripts/tests/` are never included in the semantic code index.
 
 `--include-code` remains accepted for explicit CI/full-build callers, but it is redundant with the default code-included setup path:
 

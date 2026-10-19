@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-15
+Last verified: 2026-10-19
 
 Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
 
@@ -11,6 +11,8 @@ Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
 Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose models and reasoning effort for readiness analysis by task fit, and record the bounded work allocation in the existing wave record. Use only available host capabilities; sequential implementation does not satisfy required independent review.
 
 ## Purpose
+
+In existing readiness and delivery reviews, ask whether meeting Requirements and ACs would establish Product Intent and the wave Objective, and whether added complexity, runtime cost or operator burden undermines that outcome. At delivery, distinguish evidenced outcomes from intended benefits; checked implementation steps alone prove neither benefit nor approval. Use the existing lanes and gates.
 
 Prepare wave has passed cleanly; declared review-enabled waves require the typed `council-readiness` approval on the current receipt. Legacy prose-verdict and review-disabled behavior are preserved.
 

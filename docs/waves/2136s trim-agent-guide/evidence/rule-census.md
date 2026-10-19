@@ -1,0 +1,390 @@
+# Rule census: 2136p trim of the always-loaded agent guide
+
+Owner: Engineering
+Status: active
+Last verified: 2026-10-18
+Change: `2136p-enh trim-always-loaded-agent-guide`
+Wave: `2136s trim-agent-guide`
+
+## Baseline
+
+- Baseline file: root `AGENTS.md` after waves `2136j` and `2136r`, 46932 bytes, sha256 `5e6e559d8f4e52d7be1f1db8ae16f61714eb94253122999fb52b77a12e40a226`.
+- Result file: root `AGENTS.md` after delivery repair, 36374 bytes, sha256 `0b84b3a1e9cfb45855a16f43baf6a1d3b72053f6334f78ef7014e3588469dec5`.
+- Unit: one row per pre-change sentence; headings, table rows, list items and fenced-code lines are one row each. Quoted text is verbatim from the baseline, so it keeps the baseline's own punctuation.
+- Dispositions: `kept` (the sentence is still in `AGENTS.md` verbatim), `relocated to <destination heading>` (added to the destination by this change, then removed here), `reference detail deleted; held by <destination heading>` (the destination already held the substance), and `kept; ...` notes for pointer lines whose target was retargeted without changing a rule.
+- Reviewer check for AC-2: every row marked `kept` must be a verbatim substring of the result file; a script that re-splits the baseline with the same rules and tests `sentence in result` reproduces the `kept` column.
+
+## Summary
+
+- kept: 285
+- relocated: 8
+- reference detail deleted (destination already held it): 64
+- kept with pointer retarget or merge: 5
+- total rows: 362
+
+## Census
+
+Each row: `L<baseline line>` | disposition | sentence.
+
+- L1 | kept | # Agent Guide — Wavefoundry
+- L3 | kept | ## Start Here
+- L5 | kept | Read in this order at the start of every session:
+- L7 | kept | 1. `docs/references/project-overview.md` — project orientation, workflow, roles
+- L8 | kept | 2. `docs/references/codebase-map.md` — generated, graceful-scaling map of this project's own code (areas → key files/entry points → `code_*` drill-in); orient here before grep-thrashing
+- L9 | kept | 3. `docs/prompts/index.md` — shortcut phrase catalog (public command surface)
+- L10 | kept | 4. `docs/ARCHITECTURE.md` — architecture hub and child doc index
+- L11 | kept | 5. `docs/agents/session-handoff.md` — current session state (if work is in progress)
+- L13 | kept | Before editing any repository code or framework seeds, read the **Stage Gate (repository code)** and **Framework Script Hygiene** sections below.
+- L15 | kept | **Before working in an area of the codebase, consult that area's `AGENTS.md` if one is present** (vendor-neutral per-area context — local conventions, gotchas, intent).
+- L15 | kept | Orient first from `docs/references/codebase-map.md`, which routes you to the right area and names its repo-relative `AGENTS.md` path when one exists.
+- L15 | kept | There are no per-folder `CLAUDE.md` bridge files; the only `@import` is the root `CLAUDE.md` → `AGENTS.md` bridge.
+- L17 | kept | ## Codebase and documentation questions (auto-Guru)
+- L19 | kept | Operators do **not** need to say **Guru** or **Ask codebase** for questions about how this repository's **code** or **documentation** works.
+- L21 | kept | **Pre-flight question — ask this before responding to any user message:** *does answering this require reading code or documentation to understand what's there?* If yes, route to Guru.
+- L21 | kept | Surface forms vary infinitely ("how does X work", "tell me about X", "walk me through X", "I want to understand X", "where is X", "describe the Y flow"); intent does not.
+- L21 | kept | Apply the intent check on every message, not just messages that obviously match a phrase pattern.
+- L23 | kept | When the answer is yes (or when the message is primarily about **understanding, locating, or explaining** source code or project docs — including architecture, specs, framework scripts, seeds, and `docs/` content) and is **not** a wave lifecycle shortcut from `docs/prompts/index.md` (**Plan change**, **Implement wave**, **Close wave**, etc.), adopt the **Guru** workflow:
+- L25 | kept | 1. Read and follow `docs/agents/guru.md` (question classification, retrieval loop, mechanism completeness, citations).
+- L26 | kept | 2. When MCP is available, use `code_ask(question)` for cross-cutting code questions and `docs_search` for documentation-heavy questions per Guru's classification table.
+- L27 | kept | 3. Complete Pass 3 validation (`code_outline`, targeted `code_read`, `code_keyword` as needed) before synthesizing — do not answer from memory or from the `code_ask` `answer` field alone.
+- L28 | kept | 4. When MCP is unavailable, follow Guru's **When MCP is Not Available** fallbacks in `docs/agents/guru.md`.
+- L30 | kept | **Examples — anchoring the boundary (these are examples, NOT a keyword list to match against; the rule is the pre-flight question above):**
+- L32 | kept | | Example user question | Route to Guru? | Reason |
+- L33 | kept | | --- | --- | --- |
+- L34 | kept | | "How does authentication work?" | Yes | Explicit how-question; answer comes from reading auth code. |
+- L35 | kept | | "Tell me about the way authentication works" | Yes | Semantic intent = "how does it work"; surface form doesn't match keyword patterns but the answer still comes from reading auth code. |
+- L36 | kept | | "Walk me through the request flow" | Yes | Code investigation; answer comes from reading routing/middleware code. |
+- L37 | kept | | "I want to understand session management" | Yes | Code investigation; answer comes from reading session code. |
+- L38 | kept | | "What's the structure of the API layer?" | Yes | Architecture question; answer comes from reading code + docs. |
+- L39 | kept | | "Where is the rate limiter defined?" | Yes | Code-location question; answer comes from code search. |
+- L40 | kept | | "Explain how config loading works" | Yes | Explanation question; answer comes from reading config code. |
+- L41 | kept | | "Describe the data flow from request to response" | Yes | Flow question; answer comes from reading code. |
+- L42 | kept | | "Rename `getUserId` to `resolveUserId`" | No | Operational; the agent does the rename, no code-understanding required to answer. |
+- L43 | kept | | "Delete the old session config" | No | Operational. |
+- L44 | kept | | "Run the test suite" | No | Operational. |
+- L45 | kept | | "What's the value of `MAX_RETRIES` in this file?" | No | Trivial lookup; targeted read suffices, no investigation needed. |
+- L47 | kept | **Retrieval-intent backstop — late-detect signal:** if you find yourself about to call `code_search`, `code_keyword`, `code_lexical`, `code_read`, `code_definition`, `code_outline`, `code_callhierarchy`, `code_references`, or `code_pattern` in service of a user question, **stop**.
+- L47 | kept | That retrieval IS Guru's job.
+- L47 | kept | Route to Guru instead of doing the retrieval yourself.
+- L47 | kept | The tool reach-for catches misses the pre-flight skipped.
+- L47 | kept | **This applies to delegated work too:** when you spawn a subagent for code investigation or implementation, route it through a role-typed agent (`implementer`/`guru`) or carry the MCP-first directive in its prompt — check the receiving worker's actual tools and allowlist rather than assuming inherited MCP access; follow seed 180's host-neutral orchestration fallback when unavailable and MCP-first when available, so a bare general-purpose subagent grepping by habit is the same defect; a worker on a host that defers MCP tools loads them and confirms they are callable before its first retrieval, and falls back only with a `Gapfill:` note naming why (seed 020 Retrieval Rules, seed 180); a deferred tool that has not been loaded is not unavailable (the exploration order lives in `seed-180`/`seed-211` — do not restate it).
+- L49 | kept | Explicit shortcut **Guru** remains available in `docs/prompts/index.md` when the operator wants to name the mode.
+- L51 | kept | ### Agent platform routing (all hosts)
+- L53 | kept | **Every agent host** uses the same canonical workflow above (`docs/agents/guru.md`).
+- L53 | kept | Operators never need to say **Guru** for code or documentation Q&A.
+- L55 | kept | | Tier | Who | What to read / use |
+- L56 | kept | |------|-----|-------------------|
+- L57 | kept | | **1 — Canonical** | All hosts (Cursor, Claude Code, Codex, Copilot, Windsurf, Junie, Air, Warp, Antigravity, …) | This section + `docs/agents/guru.md`; Wavefoundry MCP when attached (`code_ask`, `docs_search`, …) |
+- L58 | kept | | **2 — Thin pointer** | Each host's entry file (`CLAUDE.md`, `.cursor/rules/project-context.mdc`, `.junie/guidelines.md`, `.github/copilot-instructions.md`, `WARP.md`, …) | One guardrail bullet pointing at tier 1 — no duplicated workflow text |
+- L59 | kept | | **3 — Optional native** | Only when the host supports that affordance | Extra routing (rules, subagents, skills) — **enhances** tier 1; does not replace it |
+- L61 | kept | **Optional native surfaces** (Guru surfaces seed when `docs/agents/guru.md` exists; see `docs/agents/platform-mapping.md`):
+- L63 | kept | | Host | Optional surface | MCP registration |
+- L64 | kept | |------|------------------|------------------|
+- L65 | kept | | Cursor | `.cursor/rules/auto-guru.mdc` | `.cursor/mcp.json` |
+- L66 | kept | | Claude Code | `.claude/agents/guru.md` | `.mcp.json` (repo root) |
+- L67 | kept | | Codex | `.codex/skills/wf-guru/SKILL.md` | `.codex/config.toml` (project-local, committed) |
+- L68 | kept; pointer cell retargeted from the removed `AGENTS.md` MCP table to `docs/prompts/install-wavefoundry.prompt.md` Step 2 | | Copilot / Windsurf / Junie / Air / Warp | Tier 1 + tier 2 only | Per `AGENTS.md` MCP table (stdio entry or provider UI) |
+- L70 | kept | **Skills (`wf-` namespace, wave `1p6lp`):** every Wavefoundry skill renders from one registry (`render_agent_surfaces.render_skills`) as standard `SKILL.md` into each active skill host (`.codex/skills/<name>/`, `.claude/skills/<name>/`, `.agents/skills/<name>/`).
+- L70 | kept | Names are `wf-` kebab-case, so typing `/wf` filters a host's command list to the family.
+- L70 | kept | Bodies are thin pointers to the backing `docs/prompts/*.prompt.md`; the workflow content never lives in the skill.
+- L70 | kept | On the Claude host the operator-owned `wf-close-wave`, `wf-close-change`, `wf-package` and `wf-upgrade` are manual-only (`disable-model-invocation: true`, wave `2136r`).
+- L70 | kept | Current entries: the lifecycle set `wf-plan-change`, `wf-prepare-wave`, `wf-implement-wave`, `wf-review-wave`, `wf-close-wave`, `wf-close-change`, `wf-review-plan`, `wf-evaluate-decision`, `wf-memory-review`, `wf-pause-wave`, the review router `wf-council` (Wave Council / Archetype Council / Red-team review), plus `wf-guru` (requires `docs/agents/guru.md`) and `wf-upgrade` (framework-maintenance checklist).
+- L70 | kept | `wf-review-plan` is the only plan-review skill; **Interrogate this plan** and **Stress-test this plan** remain natural-language aliases, while **Review wave** / `wf-review-wave` stays the distinct delivery-review lifecycle path.
+- L70 | kept | Doc-gated entries (wave `1ve3a`) emit only where their backing prompt exists: `wf-package` (packaging, normally this framework source repo only), `wf-code-cleanup` (recommend-only whole-codebase maintainability sweep), and `wf-techdocs` (Refresh TechDocs, wave `1vj4e`; renders once `docs/prompts/refresh-techdocs.prompt.md` exists, which is every target after seed-100 reconciliation).
+- L70 | kept | The old flat `.claude/skills/upgrade-wave.md` and pre-namespace `.codex/skills/auto-guru/` are stale-cleaned on render.
+- L72 | kept | ## Purpose
+- L74 | kept | Wavefoundry is the agent harness repository.
+- L74 | kept | It owns the Wave Framework and the local MCP server that delivers the harness to AI coding agents: feedforward seed prompts that guide correct behavior at every lifecycle step, and feedback sensors — computational sensors and inferential reviewer lanes — that verify what was actually done.
+- L76 | kept | It owns the canonical framework source and provides local tooling for framework-aware work across target repositories.
+- L76 | kept | The MCP tool surface covers semantic search, cited codebase Q&A, wave inspection, change creation, and framework operations (lint, garden, audit, index health/build, sync surfaces).
+- L78 | kept | Each target repository still owns its rendered local operating surface: `AGENTS.md`, `docs/prompts/`, `docs/agents/`, `docs/waves/`, `docs/plans/`, project specs, architecture docs, and workflow config.
+- L80 | kept | The goal is not to hide the framework inside MCP.
+- L80 | kept | The goal is to make the canonical framework installable, upgradable, searchable, auditable, and operable while preserving explicit project-local instructions that agents can read without secret context.
+- L82 | kept | ## Product Boundary
+- L84 | kept | This project is a framework and tooling repository, not a target product repository.
+- L86 | kept | Wavefoundry should work against any explicitly configured target repository with Wave Framework state.
+- L86 | kept | Target examples in docs and tests must stay generic unless a fixture intentionally names a sample repository.
+- L88 | kept | ## Self-Hosting Boundary
+- L90 | kept | Wavefoundry uses the Wave Framework to develop the Wave Framework.
+- L92 | kept | This is intentional bootstrapping, not a source-of-truth collapse:
+- L94 | kept | - `.wavefoundry/framework/` is the canonical framework product source: seed prompts, reference material, scripts, renderers, validators, packaging logic, and upgrade logic.
+- L95 | kept | - `docs/` is Wavefoundry's self-hosted project operating surface: plans, waves, local prompt surfaces, agent roles, handoff, memory records, MCP design docs, and project-specific decision records.
+- L96 | kept | - Changes to framework behavior should be planned, reviewed, and closed through Wavefoundry's local `docs/` wave process.
+- L97 | kept | - When `.wavefoundry/framework/seeds/` conflicts with rendered local prompt surfaces under `docs/prompts/`, treat `.wavefoundry/framework/seeds/` as source of truth for framework behavior.
+- L98 | kept | - When project-specific process policy under `docs/` conflicts with generic framework defaults, treat the project-specific `docs/` policy as the local operating rule for Wavefoundry, then decide whether the framework default should be changed through an explicit wave.
+- L99 | kept | - Install and upgrade tools should support a self-hosting mode where Wavefoundry is both the framework source repository and a target repository consuming rendered framework surfaces.
+- L100 | kept | - Do not edit generated self-hosted surfaces as a substitute for fixing canonical framework seeds. If a rendered file is wrong because a seed is wrong, update the seed and regenerate or document the drift.
+- L102 | kept | ## Shortcut Phrases
+- L104 | kept | Public Wave Framework commands for Wavefoundry's self-hosted surface.
+- L104 | kept | Full details in `docs/prompts/index.md`.
+- L107 | kept | | Phrase | Purpose | Doc |
+- L108 | kept | | --------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------- |
+- L109 | kept | | **Init Wavefoundry** | Initialize Wave Framework in a target repo | `docs/prompts/install-wavefoundry.prompt.md` |
+- L110 | kept | | **Start dashboard** | Start the local repository dashboard | `docs/prompts/start-dashboard.prompt.md` |
+- L111 | kept | | **Stop dashboard** | Stop the local repository dashboard | `docs/prompts/stop-dashboard.prompt.md` |
+- L112 | kept | | **Restart dashboard** | Restart the local repository dashboard | `docs/prompts/restart-dashboard.prompt.md` |
+- L113 | kept | | **Upgrade Wavefoundry** | Upgrade Wave Framework in a target repo | `docs/prompts/upgrade-wavefoundry.prompt.md` |
+- L114 | kept | | **Plan change** | Author a consolidated change doc | `docs/prompts/plan-change.prompt.md` |
+- L115 | kept | | **Create wave** | Create a wave record | `docs/prompts/create-wave.prompt.md` |
+- L116 | kept | | **Add change to wave** | Admit a change doc into the active wave | `docs/prompts/add-change-to-wave.prompt.md` |
+- L117 | kept | | **Remove change from wave** | Remove an admitted change | `docs/prompts/remove-change-from-wave.prompt.md` |
+- L118 | kept | | **Prepare wave** / **Ready wave** | Confirm readiness before implementation | `docs/prompts/prepare-wave.prompt.md` |
+- L119 | kept | | **Implement wave** | Coordinator-managed multi-change implementation | `docs/prompts/implement-wave.prompt.md` |
+- L120 | kept | | **Implement change** | Single-change docs-first implementation | `docs/prompts/implement-change.prompt.md` |
+- L121 | kept | | **Pause wave** | Park session state in handoff artifact | `docs/prompts/pause-wave.prompt.md` |
+- L122 | kept | | **Review wave** | Run required review lanes | `docs/prompts/review-wave.prompt.md` |
+- L123 | kept | | **Review memories** / **Memory review** | Review and apply eligible memory consolidation, archival, and purge | `docs/prompts/memory-review.prompt.md` |
+- L124 | kept | | **Refresh TechDocs** / **Author TechDocs** | Generate the missing-only Backstage catalog and TechDocs baseline (MCP: `wf_techdocs_baseline(mode='run')`; CLI: `wf techdocs-baseline`), then author the published pages with the technical-writer-coordinated collaboration; an explicit read-only request selects the review-only branch, which runs `wf_techdocs_audit` (CLI: `wf techdocs-audit`) and returns findings and proposed edits without writing | `docs/prompts/refresh-techdocs.prompt.md` |
+- L125 | kept | | **Close wave** | Close and archive the wave | `docs/prompts/close-wave.prompt.md` |
+- L126 | kept | | **Close change** | Close one admitted change inside the open wave (`wf_close_change`); optional, after Review wave | `docs/prompts/close-change.prompt.md` |
+- L127 | kept | | **Review plan** / **Interrogate this plan** / **Stress-test this plan** | Optionally stress-test a change doc, or current-wave fallback, before or after admission and before implementation; no signoff or gate | `docs/prompts/review-plan.prompt.md` |
+- L128 | kept | | **Evaluate decision** | Structured decision evaluation for ADR-shaped choices | `docs/prompts/evaluate-decision.prompt.md` |
+- L129 | kept | | **Migrate journals** | One-time retirement of remaining journal files into the memory system | `.wavefoundry/framework/seeds/210-migrate-journals.prompt.md` |
+- L130 | kept | | **Archetype review** / **Archetype council** | Optional stance-based review applied to plans, design docs, code, prose, decision narratives, naming, AC formulation | `docs/prompts/archetype-council.prompt.md` |
+- L131 | kept | | **Red-team review** / **Red team this** | Standalone single-stance adversarial pass on one artifact; records no signoffs, satisfies no gate | `docs/prompts/red-team-review.prompt.md` |
+- L132 | kept | | **Package Wavefoundry** | Build framework zip distribution | `docs/prompts/package-wavefoundry.prompt.md` |
+- L133 | kept | | **Migrate to Wavefoundry** | Migrate a target repo from legacy layout | `.wavefoundry/framework/seeds/250-migrate-existing-wave-project.prompt.md` |
+- L136 | kept | Legacy aliases: `Init wave framework`, `Init wave context`, `Upgrade wave framework`, `Upgrade wave context`, `Package wave framework`, `Package wave context` — identical behavior; accept from operators and older docs.
+- L138 | kept | ## Implementation Principles
+- L140 | kept | Behavioral rules for all agents working in this repository.
+- L140 | kept | Apply these before writing any code or docs.
+- L142 | kept | 1. **Ask, don't assume.** If something is unclear, ask before writing a single line. Never make silent assumptions about intent, architecture, or requirements.
+- L143 | kept | 2. **Simplest solution first.** Always implement the simplest thing that could work. Do not add abstractions or flexibility that weren't explicitly requested.
+- L144 | kept | 3. **Don't touch unrelated code.** If a file or function is not directly part of the current task, do not modify it, even if you think it could be improved.
+- L145 | kept | 4. **Flag uncertainty explicitly.** If you are not confident about an approach or technical detail, say so before proceeding. Confidence without certainty causes more damage than admitting a gap.
+- L147 | kept | ## Stage Gate (repository code)
+- L149 | kept | Applies to all repository code: framework scripts, seed prompts, test files, build manifests, and any checked-in code or config that affects shipped or verified behavior.
+- L151 | kept | **Before the first code edit in a given effort, all three of the following must be true:**
+- L153 | kept | 1. A consolidated change document exists at `docs/plans/<change-id>.md` or `docs/waves/<wave-id>/<change-id>.md`.
+- L154 | kept | 2. The change is admitted into a wave via **Create wave** / **Add change to wave**.
+- L155 | kept | 3. The wave is **readied** — a successful **Prepare wave** / **Ready wave** pass with `council-readiness` recorded. On declared waves, missing typed readiness returns an error until the approval is recorded; the `ready_for_council_review` intermediate status is legacy-wave compatibility only. After recording the review, call `wf_prepare_wave` again (`mode='ready'` to ready-without-opening, or `mode='create'` to prepare-and-open).
+- L157 | kept | If any step is missing, stop and route back to **Plan change**, **Create wave**, **Add change to wave**, or **Prepare wave**.
+- L159 | kept | **READY vs OPEN (wave 1p45l):** readiness (plan → admit → ready) does **not** take the single-OPEN slot — any number of waves may be readied in parallel.
+- L159 | kept | Only **one** wave may be OPEN (`active`/`implementing`) at a time; that guard fires at the **activation** step (`Implement wave` / `wf_reopen_wave` / `wf_prepare_wave(mode='create')`).
+- L159 | kept | Readying other waves never displaces the currently OPEN wave.
+- L161 | kept | **Out of scope for this gate:**
+- L163 | kept | - Documentation-only edits under `docs/` with no behavioral impact
+- L164 | kept | - Prompt/framework docs edits that don't change repository code
+- L165 | kept | - Operator-approved explicit waivers for a named scope (record in change doc or `docs/agents/session-handoff.md`)
+- L167 | kept | ## Implementation Guard (product code)
+- L169 | kept | No product implementation source exists in this repository yet.
+- L169 | kept | When `src/wavefoundry/` or other implementation directories appear, add a full Implementation guard section at that time requiring a consolidated change document and clean **Prepare wave** before the first edit to those paths.
+- L171 | kept | ## Framework Script Hygiene
+- L173 | kept | Run the framework tests:
+- L175 | kept | ```bash
+- L176 | kept | python3 .wavefoundry/framework/scripts/run_tests.py
+- L177 | kept | ```
+- L179 | kept | **Bytecode cache (changes `1zyv1`, `206fi`).** Ordinary framework processes keep Python bytecode in the project cache `.wavefoundry/cache/pycache/`, never in `__pycache__` beside the framework sources.
+- L179 | reference detail deleted; held by `docs/contributing/build-and-verification.md` **Framework Script Hygiene** | The first cache-enabled process after `.wavefoundry/framework/VERSION` changes flushes the cache.
+- L179 | reference detail deleted; held by `docs/contributing/build-and-verification.md` **Framework Script Hygiene** | `PYTHONDONTWRITEBYTECODE=1`, `python3 -B`, explicit read-only configuration or `WAVEFOUNDRY_DISABLE_BYTECODE_CACHE=1` disables project-cache reads and writes after configuration, with no flush, warm-up or pruning; the test runner respects those controls.
+- L179 | reference detail deleted; held by `docs/contributing/build-and-verification.md` **Framework Script Hygiene** | Controlled read-only children also remove `PYTHONPYCACHEPREFIX` before interpreter startup.
+- L179 | kept | For externally configured direct invocations, unset `PYTHONPYCACHEPREFIX` at launch: configuration and the disabling switch cannot undo imports already executed during interpreter startup.
+- L179 | reference detail deleted; held by `docs/contributing/build-and-verification.md` **Framework Script Hygiene** | Ordinary caching uses a process-wide prefix, including standard-library and site-packages bytecode; source digests and pack integrity checks do not authenticate cached bytecode.
+- L179 | reference detail deleted; held by `docs/contributing/build-and-verification.md` **Framework Script Hygiene** | The cache is refused when `.wavefoundry/cache` or `.wavefoundry/cache/pycache` is a symlink, or on Windows a junction or other reparse point.
+- L179 | reference detail deleted; held by `docs/contributing/build-and-verification.md` **Framework Script Hygiene** | On macOS, Linux and WSL2 it mirrors absolute source paths; on Windows the mirrored path drops the drive letter, and a long path or a locked file only skips caching (inferred, not yet run on Windows).
+- L179 | kept | A stray `__pycache__` under `.wavefoundry/framework/` is a defect to report, not routine cleanup.
+- L179 | reference detail deleted; held by `docs/contributing/build-and-verification.md` **Framework Script Hygiene** | The cache is outside the pack, indexes, secrets and reconcile scans, and test receipt.
+- L181 | kept | During routine `docs/` edits, the post-edit hook automatically runs incremental changed-set lint via `docs_lint.py --changed`; MCP documentation-writing tools report the same advisory result.
+- L181 | kept | Use that fast feedback while editing rather than manually running full lint after every change.
+- L181 | kept | At an explicit validation or handoff boundary, agents with MCP must run full **`wf_validate_docs`** (and fix failures); use **`wf_garden_docs`** when metadata timestamps need refresh.
+- L181 | kept | Manual CLI fallback: POSIX `**./.wavefoundry/bin/wf docs-lint**`; native Windows `**.\\.wavefoundry\\bin\\wf.cmd docs-lint**`.
+- L183 | kept | Or: `python3 -B -m unittest discover -s .wavefoundry/framework/scripts/tests`
+- L185 | kept | ## Change Doc Tracking (Real-Time)
+- L187 | kept | Mark task and AC checkboxes `[x]` as each item completes; update `Change Status` in the change doc and `wave.md` immediately — not at wave end.
+- L189 | kept | Three checkbox states are canonical: `[ ]` (unmet, in scope), `[x]` (done, evidence exists), and `[~]` (**intentionally not met** — requirement reconsidered, removed by operator direction, or genuinely narrowed by scope-discovery during implementation).
+- L189 | kept | Every `[~]` AC at required priority must carry an inline status note explaining the rationale; silent `[~]` is a docs-lint error.
+- L189 | kept | At `wf_close_wave` every AC and task must be `[x]` or `[~]` (the hard close-time gate); silent `[ ]` blocks close.
+- L189 | kept | See `.wavefoundry/framework/seeds/170-plan-change.prompt.md` *"AC and task checkbox states — the `[~]` marker"* for the canonical convention.
+- L191 | kept | ## Git Commits (Operator-Owned)
+- L193 | kept | Agents must **not** run `git commit` unless the operator explicitly instructs them to finalize that commit in the **current** request after reviewing the diff.
+- L193 | kept | Default agent behavior: hand off a suggested commit message and diff for the operator to commit locally.
+- L195 | kept | This applies to all changes: framework source edits, self-hosted docs changes, platform surface renders, and packaging builds.
+- L195 | kept | See `docs/contributing/build-and-verification.md` **Git commits** for the full policy.
+- L197 | kept | **Commit message style:** Do not mention Claude Code, Claude, or any AI tool in commit message subject lines or bodies.
+- L197 | kept | The `Co-Authored-By` trailer is also prohibited — omit it entirely.
+- L199 | kept | ## Wave Close (Operator-Owned)
+- L201 | kept | Agents must **not** call `wf_close_wave(mode="create")` (or `mode="apply"`) unless the operator explicitly instructs them to close the wave in the **current** request.
+- L201 | kept | Passing a dry-run is always safe and encouraged; writing the closed status is not.
+- L203 | kept | Do **not** infer close approval from adjacent actions such as "remove the dead code", "fix the tests", "run the review", or "implement wave".
+- L203 | kept | Those phrases authorize the named task only.
+- L203 | kept | The operator must say something like "close the wave", "go ahead and close it", or "yes" after you have explicitly asked for closure confirmation.
+- L205 | kept | `wf_close_wave` dry-run (`mode="dry_run"`) does not require operator approval and may be used freely to validate readiness.
+- L207 | kept | **Framework test receipt at close (wave `1wur7`):** close verifies the existing `.wavefoundry/framework/test-cache.json` receipt written by `run_tests.py` — it requires `result == "ok"` with an `inputs_hash` matching the current framework tree, and reports a missing, red, stale, or unreadable receipt as `framework_test_receipt_not_proven` rather than assuming green.
+- L207 | kept | It runs no suite and spawns no subprocess; record a fresh receipt with `python3 .wavefoundry/framework/scripts/run_tests.py`.
+- L207 | reference detail deleted; held by `docs/contributing/build-and-verification.md` **Close gate: the framework test receipt** | The receipt's hash covers `.wavefoundry/framework/` (excluding `VERSION`, `MANIFEST`, the cache itself, `test-run.lock`, and the `index`/`__pycache__`/`.pytest_cache` directories), so only its STALENESS is framework-scoped.
+- L207 | reference detail deleted; held by `docs/contributing/build-and-verification.md` **Close gate: the framework test receipt** | `_write_cache` writes a receipt only when the WHOLE suite is green, so a failure triggered by content under `docs/` prevents a NEW receipt from being written.
+- L207 | reference detail deleted; held by `docs/contributing/build-and-verification.md` **Close gate: the framework test receipt** | The practical consequence: when the framework tree also changed, the standing receipt is stale and close is blocked; in a documentation-only wave a current green receipt persists and close is not blocked despite a red suite.
+- L207 | reference detail deleted; held by `docs/contributing/build-and-verification.md` **Close gate: the framework test receipt** | The gate is **not** a whole-repository guarantee, and it is not a whole-repository exemption either.
+- L207 | kept | Run the suite LAST before close: any edit under `.wavefoundry/framework/` invalidates the receipt.
+- L207 | reference detail deleted; held by `docs/contributing/build-and-verification.md` **Close gate: the framework test receipt** | Where the runner is absent (every repository consuming the packaged framework — the distribution excludes it) the check is a documented no-op.
+- L209 | kept | ## Core Principles
+- L211 | kept | - Local-only by default: no network dependency, no remote indexing, no hosted service requirement.
+- L212 | kept | - Project-visible contracts: generated project-local files remain the operating contract for agents.
+- L213 | kept | - Canonical source in one place: seed prompts, renderers, lifecycle rules, validators, and upgrade logic live here.
+- L214 | kept | - MCP as capability, not identity: the MCP server is one Wavefoundry interface.
+- L215 | kept | - Typed tools over arbitrary shell: MCP tools should expose structured operations rather than raw command execution.
+- L216 | kept | - Read-first mutation model: tools should inspect, validate, and propose patches before writing where practical.
+- L217 | kept | - Reusable target model: every tool should accept a target repository root or use configured allowed roots.
+- L218 | kept | - Drift detection is a first-class feature: Wavefoundry should compare canonical framework state with project-local rendered surfaces.
+- L220 | kept | ## MCP Server
+- L222 | reference detail deleted; held by `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host** (the copy-ready stdio entry names `server.py` and the stdio launch) | The Wavefoundry MCP server ships at `.wavefoundry/framework/scripts/server.py` and runs via stdio transport.
+- L224 | kept | **Build the semantic index before first use:**
+- L226 | kept | ```bash
+- L227 | kept | wf setup
+- L228 | kept | ```
+- L230 | relocated to `docs/contributing/build-and-verification.md` **Onboarding** | This checks for the required runtime packages (`fastembed`, `httpx[socks]`, `numpy`, `mcp[cli]`) and builds the project index: docs/seeds, semantic code embeddings, and graph in the foreground by default.
+- L230 | relocated to `docs/contributing/build-and-verification.md` **Onboarding** | If dependencies are missing, it prints an isolated tool-venv install command instead of modifying the system Python.
+- L230 | kept | Pass `--root <path>` to target a different repository.
+- L230 | kept | Use `--background-code` only when you intentionally want docs/graph ready first while code embeddings continue in a detached background pass; use `--background-docs` for the inverse code-first tradeoff.
+- L230 | reference detail deleted; held by `docs/contributing/build-and-verification.md` **Onboarding** (already documented there) | `--include-code` remains accepted for explicit CI/full-build callers, but default setup already includes code.
+- L230 | kept | Code indexing defaults to source files only and skips tests/generated platform hooks; add `--include-tests` or `--include-generated` when those are useful.
+- L230 | relocated to `docs/contributing/build-and-verification.md` **Onboarding** | Wavefoundry framework internals under `.wavefoundry/framework/scripts/tests/` are never included in the semantic code index.
+- L230 | relocated to `docs/contributing/build-and-verification.md` **Onboarding** | The setup wrapper runs indexing in subprocesses to keep each pass isolated.
+- L232 | kept | If `wf setup` fails specifically because a required model cannot be downloaded, keep recovery on the canonical setup path.
+- L232 | kept | In agent-driven sessions, the agent should ask the operator for permission to rerun the same setup command with network access or host escalation enabled instead of switching to a separate manual model-download step.
+- L234 | reference detail deleted; held by `docs/contributing/build-and-verification.md` **Wave Framework Pack Upgrade Verification** (Upgrade index rule), `docs/architecture/chunking-and-indexing-pipeline.md` **The Project Index**, **Index Update Triggers (Entry Points)** and **Build Coordination (single-lock lifecycle)**, and `docs/specs/mcp-tool-surface.md` **Current Tool Surface** (`index_build_status` lock object: `held`, `ended_at`) | The project-local index is stored at `.wavefoundry/index/` (gitignored) and is the **only** semantic index: the framework's own seeds/docs fold into each project's docs index at setup/upgrade, so distributions ship framework **source only** — there is no separately packaged `.wavefoundry/framework/index/` "framework layer" (ADR `1p4xx fold-framework-index-into-project-docs`; `build_pack.py` ships source only).
+- L234 | reference detail deleted; held by `docs/contributing/build-and-verification.md` **Wave Framework Pack Upgrade Verification** (Upgrade index rule), `docs/architecture/chunking-and-indexing-pipeline.md` **The Project Index**, **Index Update Triggers (Entry Points)** and **Build Coordination (single-lock lifecycle)**, and `docs/specs/mcp-tool-surface.md` **Current Tool Surface** (`index_build_status` lock object: `held`, `ended_at`) | The project-local index is refreshed incrementally: post-edit hooks coalesce eligible changes for a turn-end refresh where the host supports it, MCP mutations request best-effort refreshes, and the MCP quiet-period monitor recovers missed triggers.
+- L234 | kept | Use `index_health()` to check whether a layer is ready and inspect `data.background_monitors`, `index_build_status(layer?)` to poll background refreshes, and `index_build(content=..., mode=...)` when you need a deterministic update or rebuild.
+- L234 | kept | **To check whether a build is currently running, read the `lock` object on `index_build_status` (the `held` boolean) — do NOT read `.wavefoundry/index/index-build.lock` directly.** That lock file persists **by design** as a crash-safe last-owner record and is reclaimed lazily on the next build, so its *presence does not mean a build is running*.
+- L234 | reference detail deleted; held by `docs/contributing/build-and-verification.md` **Wave Framework Pack Upgrade Verification** (Upgrade index rule), `docs/architecture/chunking-and-indexing-pipeline.md` **The Project Index**, **Index Update Triggers (Entry Points)** and **Build Coordination (single-lock lifecycle)**, and `docs/specs/mcp-tool-surface.md` **Current Tool Surface** (`index_build_status` lock object: `held`, `ended_at`) | `held` is determined by **testing the real OS lock** (not the file), and `ended_at` distinguishes a clean finish from an interrupted build.
+- L236 | kept | ### Check readiness after Git changes
+- L238 | kept | After a Git operation that changes local checkout files, call `index_health()`
+- L239 | kept | before relying on indexed retrieval.
+- L239 | kept | This includes pull, merge, rebase,
+- L240 | kept | switch/checkout, cherry-pick, revert, reset, restore, and stash apply/pop; check
+- L241 | kept | also when an operation stops with conflicts, since files may already have changed.
+- L242 | kept | Check once after a related sequence of operations, rather than after every command.
+- L243 | kept | Read-only commands (status, diff, log), fetch alone, and push do not require this check.
+- L245 | kept | Inspect both index freshness and `data.setup_readiness`, including its reasons
+- L246 | kept | and recommended actions.
+- L246 | kept | If MCP is unavailable, run `wf setup --check --json`
+- L247 | kept | from the affected repository (native Windows: `.\.wavefoundry\bin\wf.cmd setup --check --json`).
+- L248 | kept | That fallback checks setup readiness only; it does not establish source freshness.
+- L249 | kept | Return the status and recommended action to the local agent's workflow; the check
+- L250 | kept | must not automatically install dependencies, run setup, rebuild, or resume recovery.
+- L251 | kept | Use the reported remedy under the existing task authorization, and never treat
+- L252 | kept | `indeterminate` or a failed check as ready.
+- L252 | kept | For stale loaded framework code, follow
+- L253 | kept | the restart guidance before trusting further index operations.
+- L255 | kept | This instruction applies to every agent host through the canonical `AGENTS.md`.
+- L256 | kept | The MCP startup check and background monitor cover changes made outside the agent;
+- L257 | kept | they do not replace the explicit post-operation check or guarantee that the agent
+- L258 | kept | sees stderr notices.
+- L258 | kept | Where the host supports it, a session-start hook runs the same
+- L259 | kept | read-only check and reports a non-ready result into the session; at session start
+- L260 | kept | no task authorization exists yet, so report it and ask the operator before running
+- L261 | kept | setup, and the existing task-authorization rule applies after that.
+- L261 | kept | The hook never
+- L262 | kept | runs setup.
+- L262 | kept | The MCP server's own startup is the one exception to report-only: when
+- L263 | kept | missing or version-incompatible declared dependencies are the only thing blocking it,
+- L264 | kept | it installs them into the tool environment through uv (in the background when it can
+- L265 | kept | run without them) and reports the install in `wf_server_info`; if it still cannot
+- L266 | kept | start, run `wf setup`.
+- L266 | kept | No Git hooks are installed by this guidance.
+- L268 | heading renamed to **MCP / Wavefoundry server registration**; the per-host content it introduced is reference detail deleted; held by `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host** | ### MCP / Wavefoundry server — enabling per host
+- L271 | reference detail deleted; held by `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host** | | Host | Registration surface | How |
+- L272 | reference detail deleted; held by `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host** | | ------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+- L273 | reference detail deleted; held by `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host** | | **Claude Code** | `.mcp.json` (repo root) | **Auto:** generated by `render_platform_surfaces --platform claude`. Open the project in Claude Code — it discovers `.mcp.json` automatically. |
+- L274 | reference detail deleted; held by `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host** | | **Cursor** | `.cursor/mcp.json` | **Auto:** generated by `render_platform_surfaces --platform cursor`. Enable under **Cursor → Settings → MCP** if not auto-loaded. |
+- L275 | reference detail deleted; held by `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host** | | **Junie** | `.junie/mcp/mcp.json` | **Auto:** generated by `render_platform_surfaces --platform junie`. Junie discovers this file on project open. |
+- L276 | relocated to `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host** (the `.vscode/mcp.json` and no-auto-generated-file sentences were added to the Copilot row) | | **GitHub Copilot** | VS Code MCP settings | **Instruction:** open **VS Code → Settings → MCP servers** (or workspace `.vscode/mcp.json` if your VS Code version supports it) and add the stdio entry below. No auto-generated file in this release — VS Code MCP workspace support is still stabilising. |
+- L277 | reference detail deleted; held by `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host** | | **Codex** | `.codex/config.toml` (committed) | **Auto:** project-local `.codex/config.toml` is committed to the repo. Codex loads the `wavefoundry` MCP server automatically for trusted projects — no manual registration step needed. Trust the project on first clone when Codex prompts. |
+- L278 | reference detail deleted; held by `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host** | | **Air** | Provider-specific | **Instruction:** add the stdio server in your Air project settings or MCP config using the entry below. See your Air provider's MCP documentation for the current attachment path. |
+- L279 | relocated to `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host** (the Antigravity-reads-`AGENTS.md`-natively sentence was added to the Antigravity row) | | **Antigravity** | `.agents/mcp_config.json` | **Auto:** generated by `render_platform_surfaces --platform antigravity`. The `ag` CLI discovers and loads `.agents/mcp_config.json` automatically. The app/IDE uses the global `~/.gemini/…` config (manual). Antigravity reads the project-root `AGENTS.md` natively (Tier-1), so no thin-pointer entry file is rendered. |
+- L280 | reference detail deleted; held by `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host** | | **Windsurf** | Windsurf MCP settings | **Instruction:** add the **copy-ready stdio entry below** via Windsurf's MCP settings (no auto-generated MCP file). Hooks *are* auto-rendered (`render_platform_surfaces --platform windsurf`); only MCP attachment is manual. |
+- L281 | reference detail deleted; held by `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host** | | **Warp** | Warp MCP settings | **Instruction:** add the **copy-ready stdio entry below** via Warp's MCP settings. |
+- L284 | reference detail deleted; held by `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host** (the **Copy-ready stdio entry** block) | **Copy-ready stdio entry** (for instruction-only hosts — replace `<repo>` with the absolute path to this repository):
+- L286 | reference detail deleted; held by `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host** | ```json
+- L287 | reference detail deleted; held by `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host** | {
+- L288 | reference detail deleted; held by `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host** | "command": "python3",
+- L289 | reference detail deleted; held by `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host** | "args": [
+- L290 | reference detail deleted; held by `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host** | "<repo>/.wavefoundry/framework/scripts/server.py",
+- L291 | reference detail deleted; held by `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host** | "--root", "<repo>"
+- L292 | kept | ]
+- L293 | reference detail deleted; held by `docs/prompts/install-wavefoundry.prompt.md` **Step 2 — Register the server in your host** | }
+- L294 | kept | ```
+- L296 | kept | Use the `python3` on PATH after `wf setup`; do not point MCP config at `.wavefoundry/venv/Scripts/python.exe` or a project-local venv path as a workaround for a missing or too-old `python3`.
+- L296 | kept | Before setup proceeds, `python3 --version` must work from the command line and report Python 3.11 or newer.
+- L296 | kept | `wf setup` verifies that this interpreter can import `mcp` and smoke-test `server.py --dry-run`.
+- L296 | kept | After changing MCP config or fixing Python on PATH, fully quit and reopen the agent host or start a fresh conversation; existing sessions may keep the toolset from the failed startup.
+- L298 | kept | On native Windows, a fresh install and an already-seeded checkout on a new workstation need the same pre-MCP diagnosis.
+- L298 | kept | From the repository root run `powershell -NoProfile -File ".\.wavefoundry\framework\scripts\diagnose_python.ps1"` before trusting `wf.cmd`, MCP or completed install-log rows.
+- L298 | kept | If Python or PowerShell policy prevents this, use the manual probes and IT handoff in `docs/references/native-windows-support.md`.
+- L298 | kept | Do not bypass execution policy, treat `python.exe` as the MCP command, or reseed/rebuild merely to diagnose a local prerequisite.
+- L300 | kept | **Available tools:** `wf_help`, `wf_server_info`, `wf_gpu_doctor`, `wf_audit`, `wf_map`, `wf_scan_secrets`, `wf_audit_install`, `wf_run_sensors`, `docs_search`, `code_search`, `code_ask`, `seed_get`, `wf_current_wave`, `wf_list_waves`, `wf_list_plans`, `wf_get_change`, `wf_get_prompt`, `wf_get_handoff`, `wf_set_handoff`, `wf_open_gate`, `wf_close_gate`, `wf_gate_status`, `wf_create_wave`, `wf_add_change`, `wf_remove_change`, `wf_prepare_wave`, `wf_pause_wave`, `wf_review_wave`, `wf_review_event`, `wf_mark_ac`, `wf_mark_task`, `wf_context_efficiency_eval`, `wf_memory_eval`, `wf_close_wave`, `wf_close_change`, `memory_add`, `memory_propose`, `memory_backfill`, `memory_validate`, `memory_search`, `memory_brief`, `memory_reconcile`, `memory_consolidate`, `memory_purge`, `wf_new_feature`, `wf_new_bug`, `wf_new_enhancement`, `wf_new_refactor`, `wf_new_change`, `wf_new_documentation`, `wf_new_tech_debt`, `wf_new_task`, `wf_new_maintenance`, `wf_new_operations`, `wf_validate_docs`, `wf_garden_docs`, `wf_sync_surfaces`, `wf_techdocs_baseline`, `wf_techdocs_audit`, `index_health`, `index_build_status`, `index_build`, `index_optimize`, `wf_reload_mcp`, `wf_implement_wave`, `wf_reopen_wave`, `wf_upgrade`, `wf_upgrade_status`, `wf_start_dashboard`, `wf_stop_dashboard`, `wf_restart_dashboard`, `wf_open_dashboard`, `code_list_files`, `code_read`, `code_keyword`, `code_lexical`, `code_constants`, `code_pattern`, `code_outline`, `code_definition`, `code_references`, `code_dependencies`, `code_impact`, `code_callgraph`, `code_callhierarchy`, `code_graph_path`, `code_graph_community`, `code_commit_provenance`, `code_hover`, `code_risk_score`, `wf_graph_report`.
+- L303 | kept | **Graph index:** `index_build(content='graph', mode='rebuild')` rebuilds only the structural graph (no semantic embedding).
+- L303 | kept | Graph query tools operate on the single `project` layer (target-repo code from the whole-repo walk; `indexing.project_include_prefixes` only opts `.wavefoundry/`-nested subpaths back in) — there is no framework or union graph layer.
+- L303 | kept | Community detection optionally uses `igraph`+`leidenalg` (installed by `wf setup`) and falls back to a built-in label-propagation pass when they are unavailable.
+- L305 | relocated to `docs/specs/mcp-tool-surface.md` **Search And Retrieval** (`code_ask` envelope bullet added) | **Codebase Q&A shortcut:** `code_ask(question)` — ask a cross-cutting natural-language question about the codebase; returns `{answer, citations, reranked, confidence, confidence_basis, gaps, question_type, index_freshness, partition_applied, demotion_count, second_hop_symbols, retrieval_accounting, total_ms, vector_ms, rerank_ms}` (`retrieval_accounting`, wave `1wpif`: per-source substrate queries and examined rows against the stated public-call ceiling; `confidence_basis`, wave `1wscp`: why the confidence has that value -- `semantic_lead`, `exact_owner`, `no_citations`, `unranked_similarity`, or `lexical_fallback`, read from the LEAD citation rather than the best-scoring one).
+- L305 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **Search And Retrieval** (`code_ask` bullets) and **Confidence Basis** | Each citation may also include `final_rank`, `demoted`, `partition_reason` (`doc_code_drift` — drift-flagged doc moved behind a comparable current alternative; the partition ships default-off), and an optional `freshness` object ({age_days, churn_score}, plus {drifted, commits_since_verified} on living docs or {historical, waves_behind} on wave archives) telling whether the cited content still matches the code it describes — distinct from the envelope `index_freshness` (index-vs-working-tree).
+- L305 | kept | Synthesize from `citations` directly — the `answer` field is a navigation pointer, not a synthesized answer.
+- L305 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **Search And Retrieval** (`code_ask` bullets) and **Confidence Basis** | `score` is the pre-partition reranker score; `final_rank` is the post-partition output order.
+- L305 | kept | `reranked: true` means cross-encoder ranking ran (trust the order unless a citation is explicitly `demoted: true`); `reranked: false` means degraded ordering — vector/coverage on the healthy path (reranker disabled/unbuildable) or BM25 in `lexical_fallback`.
+- L305 | kept | Use `code_search`/`docs_search` instead when you want raw results to browse.
+- L305 | kept | See `docs/agents/guru.md` for retrieval loop, citation format, and uncertainty protocol.
+- L307 | kept as a shortened pointer; retargeted from nonexistent **Tool Detail** to `docs/specs/mcp-tool-surface.md` **Current Tool Surface** | Full tool reference — `code_ask` signal notes, `wf_new_*` creation tools, session handoff, edit gates, Codex server selection, wave lifecycle notes: `docs/specs/mcp-tool-surface.md` → **Tool Detail** section.
+- L309 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **Current Tool Surface** (Retired kinds, wave `1zli8`; `wf_new_<kind>` row and the `wf_new_feature` bullet) | **Retired change kind (wave `1zli8`):** `wf_new_feature` stays registered but is retired: the `feat` kind is no longer minted for new change docs, so the tool (and `wf lifecycle-id --kind feat`) refuses with `change_kind_retired` and names `wf_new_enhancement`.
+- L309 | kept | Existing `feat` ids stay valid; plan a large feature as several changes, possibly across waves.
+- L311 | kept | ### Code Navigation
+- L313 | kept as the one routing sentence; retargeted from nonexistent **Code Navigation** to `docs/specs/mcp-tool-surface.md` **Tool Selection Guide** | See `docs/specs/mcp-tool-surface.md` → **Code Navigation** for the full three-layer listing (semantic search, exact navigation, symbol navigation, graph query) with per-tool parameter docs. Quick chooser:
+- L315 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **Tool Selection Guide** and **Which Code Tool To Use** (the `code_lexical` token note is held by the spec `code_lexical` entry) | - Use `code_search` when you know the behavior or concept but not the exact symbol or file.
+- L316 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **Tool Selection Guide** and **Which Code Tool To Use** (the `code_lexical` token note is held by the spec `code_lexical` entry) | - Use `code_definition` when you know the symbol and want its defining declaration.
+- L317 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **Tool Selection Guide** and **Which Code Tool To Use** (the `code_lexical` token note is held by the spec `code_lexical` entry) | - Use `code_references` when you know the symbol and want call sites or usages.
+- L318 | relocated to `docs/specs/mcp-tool-surface.md` **Tool Selection Guide** (`queries=[...]` note added to the `code_keyword` row) | - Use `code_keyword` when you need exact-token or exact-string matches; use `queries=[...]` for multiple patterns.
+- L319 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **Tool Selection Guide** and **Which Code Tool To Use** (the `code_lexical` token note is held by the spec `code_lexical` entry) | - Use `code_lexical` when you need BM25-ranked exact-token search over the indexed chunk corpus (compound identifiers, error strings, rare tokens) or to verify what the lexical (FTS5) layer holds. Not regex; tokens keep `_` inside, so query the full compound identifier.
+- L320 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **Tool Selection Guide** and **Which Code Tool To Use** (the `code_lexical` token note is held by the spec `code_lexical` entry) | - Use `code_constants` when you need the current value of one or more named constants.
+- L321 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **Tool Selection Guide** and **Which Code Tool To Use** (the `code_lexical` token note is held by the spec `code_lexical` entry) | - Use `code_pattern` when you need regex matching (non-literal patterns like `def .*handler`).
+- L322 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **Tool Selection Guide** and **Which Code Tool To Use** (the `code_lexical` token note is held by the spec `code_lexical` entry) | - Use `code_outline` when you need the structural shape of a file before deciding what to read.
+- L323 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **Tool Selection Guide** and **Which Code Tool To Use** (the `code_lexical` token note is held by the spec `code_lexical` entry) | - Use `code_read` after any of the above once you know which file to inspect directly.
+- L325 | kept | ### MCP Resources and Resource Templates
+- L327 | kept as a shortened catalog pointer to `docs/specs/mcp-tool-surface.md` **MCP Resources** | The server also exposes read-only **MCP resources** and **resource templates** for stable context discovery without tool calls:
+- L329 | kept as a pointer; merged into the shortened resource catalog pointer above | Full resource documentation: `docs/specs/mcp-tool-surface.md` → **MCP Resources** section.
+- L331 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **MCP Resources** (**Stable resources** and **Resource templates**) | **Stable resources** (no parameters — attach to context directly):
+- L333 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **MCP Resources** (**Stable resources** and **Resource templates**) | - `wavefoundry://overview` — project overview doc
+- L334 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **MCP Resources** (**Stable resources** and **Resource templates**) | - `wavefoundry://prompts` — prompt/command index
+- L335 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **MCP Resources** (**Stable resources** and **Resource templates**) | - `wavefoundry://architecture/current-state` — architecture current-state summary
+- L336 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **MCP Resources** (**Stable resources** and **Resource templates**) | - `wavefoundry://wave/current` — active wave.md as markdown
+- L337 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **MCP Resources** (**Stable resources** and **Resource templates**) | - `wavefoundry://session-handoff` — session handoff state
+- L338 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **MCP Resources** (**Stable resources** and **Resource templates**) | - `wavefoundry://agents` — AGENTS.md (this file; primary agent operating guide)
+- L339 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **MCP Resources** (**Stable resources** and **Resource templates**) | - `wavefoundry://index/status` — semantic + graph index health summary (present/absent, counts, builder version)
+- L340 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **MCP Resources** (**Stable resources** and **Resource templates**) | - `wavefoundry://graph/status` — graph index metadata (present, node/edge/file counts, builder version, path)
+- L341 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **MCP Resources** (**Stable resources** and **Resource templates**) | - `wavefoundry://graph/communities` — catalog of code-graph communities (id, label, node count, boundary count, top members by degree); read first before `code_graph_community(community_id=…)`. Architectural communities come first; Evidence/Data communities (machine-result artifacts) are listed last under their own heading, marked with their evidence share and the reason they were classified, so a large captured artifact never reads as an architectural domain. They stay listed and queryable rather than hidden.
+- L342 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **MCP Resources** (**Stable resources** and **Resource templates**) | - `wavefoundry://waves` — markdown summary of all wave records and admitted changes
+- L344 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **MCP Resources** (**Stable resources** and **Resource templates**) | **Resource templates** (parameterized reads):
+- L346 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **MCP Resources** (**Stable resources** and **Resource templates**) | - `wavefoundry://change/{change_id}` — change doc by ID or prefix
+- L347 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **MCP Resources** (**Stable resources** and **Resource templates**) | - `wavefoundry://wave/{wave_id}` — wave.md by ID or prefix
+- L348 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **MCP Resources** (**Stable resources** and **Resource templates**) | - `wavefoundry://prompt/{slug}` — prompt doc by slug
+- L349 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **MCP Resources** (**Stable resources** and **Resource templates**) | - `wavefoundry://seed/{slug}` — seed doc by slug
+- L350 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **MCP Resources** (**Stable resources** and **Resource templates**) | - `wavefoundry://architecture/{slug}` — architecture doc by slug
+- L351 | reference detail deleted; held by `docs/specs/mcp-tool-surface.md` **MCP Resources** (**Stable resources** and **Resource templates**) | - `wavefoundry://area/{area_id}` — a major area's per-area `AGENTS.md` (local conventions/gotchas/intent) by `area_id` (the URI-safe key shown in the codebase map; read `wavefoundry://codebase-map` first to discover area ids). Resolves by walking **up** from the area's representative path to the nearest ancestor `AGENTS.md` (so a conventionally project-root-placed file is found even when the area is a deep subdirectory). Serves the on-disk file (also indexed for `code_ask`/`docs_search`); a missing/un-authored area returns a `# Not Found` message — never synthesized.
+- L353 | kept | **When to use resources vs tools:**
+- L355 | kept | - Use **resources/templates** when you need to attach stable reference material as context (project overview, architecture docs, a specific change doc). Resources return raw markdown.
+- L356 | kept | - Use **tools** (`wf_get_change`, `wf_current_wave`, `seed_get`, etc.) when you need structured envelope responses with `diagnostics`, `next_tools`, and `usage` hints — especially for error-handling, recovery, or actions that return metadata beyond raw text.
+- L357 | kept | - Missing resources return a clear `# Not Found` markdown message rather than raising an error.
+- L359 | kept | ### Docs validation and gardening (agents)
+- L361 | kept | **Prefer MCP over shell launchers.** Use `**wf_validate_docs`** for docs lint results, `**wf_garden_docs**` for metadata gardening (follow the tool’s `mode` contract), and `**wf_audit**` when you need wave state + validation + index health in one structured response.
+- L361 | kept | Treat the no-PATH dispatcher forms as **CLI fallbacks** for hooks, CI, terminals, or any host where MCP is not attached — POSIX `**./.wavefoundry/bin/wf docs-lint**` / `**./.wavefoundry/bin/wf docs-gardener**`, native Windows `**.\\.wavefoundry\\bin\\wf.cmd docs-lint**` / `**.\\.wavefoundry\\bin\\wf.cmd docs-gardener**` — not the default path for agent instructions.
+- L361 | kept | More broadly: **before reaching for `ls`, `grep`, or filesystem tools to answer any question about wave state, plans, or change docs, check the MCP tool list first** — `wf_list_plans`, `wf_list_waves`, `wf_current_wave`, `wf_get_change`, and related tools return structured answers directly without shell round-trips.
+- L363 | kept | Incremental changed-set lint is the routine edit-feedback path; workflow-config, manifest, or repo-profile changes automatically escalate it to a full scan.
+- L363 | kept | `wf_garden_docs` targets Git-changed markdown by default, so use explicit paths for untracked docs that need stamping.
+- L363 | kept | Do not treat the automatic incremental result as an integrity-boundary result: use the full tools above for validation, handoff, Prepare, Review, Close, installation, and upgrade.
+- L365 | kept | ## Repository Shape and Ownership
+- L367 | kept | See `docs/references/project-overview.md` for repository layout, target repository model, and framework vs. target ownership boundaries.
+- L369 | kept | ## Safety Rules
+- L371 | kept | - Never operate outside configured allowed roots.
+- L372 | kept | - Never run destructive operations by default.
+- L373 | kept | - Never overwrite project-local customizations without showing a diff or conflict report.
+- L374 | kept | - Never require a network call for install, upgrade, validation, indexing, or packaging.
+- L375 | kept | - Keep generated project-local surfaces readable and reviewable.
+- L376 | kept | - Treat target repository docs as source of truth for project-specific facts.
+- L377 | kept | - Treat canonical framework seeds as source of truth for framework behavior.
+- L379 | kept | ## Cleanup and Destructive Operations
+- L381 | kept | **Historical reference preservation:** During legacy cleanup, only remove live working docs and deprecated prompt/wrapper files that have valid replacements.
+- L381 | kept | Do not delete mentions of removed artifacts from wave records, closed-wave archives, or historical documentation.
+- L383 | kept | **Framework distribution zip archives:** Zip files at the repository root (`wavefoundry-*.zip`) are transport artifacts only.
+- L383 | kept | Never commit them.
+- L383 | kept | If a zip was accidentally committed, remove it with `git rm --cached <file>.zip`.
+- L385 | kept | **Seed prompts:** Never delete or overwrite seed prompts under `.wavefoundry/framework/seeds/` without an explicit wave and `seed_edit_allowed` guard approval.
+- L385 | kept | Open the gate with `wf_open_gate(gate="seed_edit_allowed")` before editing and close it immediately after with `wf_close_gate(gate="seed_edit_allowed")`.
+- L385 | kept | Seed edits affect all target repositories.

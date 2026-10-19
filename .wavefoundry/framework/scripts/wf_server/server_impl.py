@@ -8612,8 +8612,8 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run", parent: Optional[s
             f"{_vocab.id_line(wave_id)}\n"
             f"Title: {title}\n\n"
             "## Objective\n\n"
-            "<Describe the wave's load-bearing goal in 1–3 sentences — what changes "
-            "in the project state when this wave closes, and why now. This text is "
+            "<Describe the shared outcome of the admitted changes in 1–3 sentences: "
+            "who benefits, what observably improves, and the material boundaries. This text is "
             "displayed in the dashboard wave card.>\n\n"
             f"{_vocab.MEMBER_HEADING}\n\n"
             "## Participants\n\n"
@@ -13657,7 +13657,8 @@ def _generate_wf_close_wave_summary(
 
     Format: one or more prose paragraphs followed by optional per-change bullet points.
     Reads completed ACs ([x] lines), progress log entries, and decision log entries from
-    each admitted change doc. Does not require operator input.
+    each admitted change doc, preserving an explicitly authored intent outcome from
+    Review Checkpoints when present. Does not infer benefit or approval from AC counts.
     """
     # Extract wave title
     title_m = re.search(r"^Title:\s*(.+)$", wave_text, re.MULTILINE)
@@ -13752,7 +13753,24 @@ def _generate_wf_close_wave_summary(
     if pivots:
         para += " Notable adjustments during implementation: " + "; ".join(pivots[:3]) + ("." if not pivots[0].endswith(".") else "")
 
+    # Only the exact H2 is the authored assessment carrier. Older records,
+    # including the lowercase legacy heading, retain byte-identical output.
+    checkpoints = re.search(
+        r"^## Review Checkpoints\r?\n(.*?)(?=^## |\Z)",
+        wave_text, re.MULTILINE | re.DOTALL,
+    )
+    intent_outcome = ""
+    if checkpoints:
+        # A paragraph or list item can wrap; retain its authored qualification
+        # and references rather than deriving an outcome from titles or ACs.
+        for block in re.split(r"\r?\n[ \t]*\r?\n|\r?\n(?=- )", checkpoints.group(1)):
+            candidate = re.sub(r"^(?:- )?(?:\d{4}-\d{2}-\d{2}: )?", "", block.strip("\r\n"), count=1)
+            if candidate.startswith("Intent outcome:"):
+                intent_outcome = candidate
+
     lines = [para, ""]
+    if intent_outcome:
+        lines.extend([intent_outcome, ""])
 
     # Per-change bullet points if there are decisions or completed ACs worth surfacing
     any_detail = any(cs["decisions"] or cs["completed_acs"] for cs in change_summaries)

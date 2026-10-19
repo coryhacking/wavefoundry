@@ -637,6 +637,53 @@ class NewChangeTests(unittest.TestCase):
         self.assertIn("## Agent Execution Graph", text)
         self.assertNotIn("{{generated_at}}", text)
 
+    def test_public_creation_fallback_delivers_intent_for_every_new_kind(self):
+        """2124l: exercise the response used by all public wf_new_* tools."""
+        for kind in vocabulary_profile.MINTABLE_CHANGE_KINDS:
+            with self.subTest(kind=kind):
+                result = self.srv._change_create_response(
+                    self.root, kind, f"intent-{kind}", mode="create")
+                self.assertEqual(result["status"], "ok", result)
+                text = (self.root / result["data"]["path"]).read_text(encoding="utf-8")
+                self.assertIn("## Product Intent\n", text)
+                self.assertIn("who benefits, the observable before/after outcome", text)
+                self.assertIn("tests whether the intent was established", text)
+                self.assertIn(f"{vocabulary_profile.MEMBER_ID_LABEL}: `", text)
+
+    def test_reconciled_custom_template_creates_intent_under_declared_layout(self):
+        """Agent-assisted merge fixture; renderer still never rewrites a local copy."""
+        import render_agent_surfaces as ras
+
+        apply_layout(self, modules=(record_paths, self.srv.record_paths, ras.record_paths),
+                     plans_root="docs/intent/plans", waves_root="docs/intent/records")
+        plans = ras.record_paths.load_record_roots(self.root).plans
+        plans.mkdir(parents=True, exist_ok=True)
+        target = plans / "plan-template.md"
+        shipped = vocabulary_profile.localize_template(self.srv._default_template(self.root))
+        intent = "## Product Intent\n" + shipped.split("## Product Intent\n", 1)[1].split("## Requirements", 1)[0]
+        legacy = shipped.replace(intent, "") + "\nProject addition: preserve the operator runbook.\n"
+        target.write_text(legacy, encoding="utf-8")
+        historical = plans / "1200a-doc legacy.md"
+        historical.write_bytes(b"# Existing plan\r\nNo intent retrofit.\r\n")
+        legacy_bytes = historical.read_bytes()
+        self.assertEqual(ras.reconcile_scaffold_baselines(self.root), [])
+        self.assertEqual(target.read_text(encoding="utf-8"), legacy)
+        # Represents the existing seed-160 agent-assisted, merge-safe edit;
+        # no production rewriter is added or claimed by this fixture.
+        reconciled = legacy.replace("## Requirements", intent + "## Requirements", 1)
+        target.write_text(reconciled, encoding="utf-8")
+        before = target.read_bytes()
+        self.assertEqual(ras.reconcile_scaffold_baselines(self.root), [])
+        self.assertEqual(target.read_bytes(), before)
+        result = self.srv._change_create_response(self.root, "doc", "intent-local", mode="create")
+        self.assertEqual(result["status"], "ok", result)
+        self.assertTrue(result["data"]["path"].startswith("docs/intent/plans/"))
+        created = (self.root / result["data"]["path"]).read_text(encoding="utf-8")
+        self.assertIn(intent.strip(), created)
+        self.assertIn("Project addition: preserve the operator runbook.", created)
+        self.assertIn(f"{vocabulary_profile.MEMBER_ID_LABEL}: `", created)
+        self.assertEqual(historical.read_bytes(), legacy_bytes)
+
     def test_default_template_resolves_target_file_before_module(self):
         target = self.root / ".wavefoundry/framework/install/plan-template.md"
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -835,6 +882,11 @@ class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
         wave_md = self.root / result["path"]
         text = wave_md.read_text(encoding="utf-8")
         self.assertIn("## Objective", text)
+        objective = text.split("## Objective\n", 1)[1].split("\n## ", 1)[0].strip()
+        self.assertIn("shared outcome of the admitted changes", objective)
+        self.assertIn("who benefits, what observably improves", objective)
+        self.assertTrue(self.srv._wave_objective_unpopulated(text))
+        self.assertNotIn("## Product intent", text)
         # Order check: Title line precedes ## Objective which precedes ## Changes
         title_idx = text.find("Title:")
         obj_idx = text.find("## Objective")
@@ -12901,6 +12953,58 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
         # Summary contains wave_id or title
         wave_summary_body = closed_text.split(_loc("## Wave Summary"))[1].split("## ")[0] if _loc("## Wave Summary") in closed_text else ""
         self.assertTrue(len(wave_summary_body.strip()) > 0, "Wave Summary section must be populated")
+
+    def test_public_close_preserves_last_authored_intent_and_qualification(self):
+        """2124l: summary publication retains evidence and uncertainty, not AC-derived success."""
+        for prefix in ("", "- ", "2026-10-18: ", "- 2026-10-18: "):
+            with self.subTest(prefix=prefix):
+                wave_md = self._make_closeable_wave("1200a-intent", "1200a-enh guidance")
+                outcome = ("Intent outcome: partial; guidance delivery is established by "
+                           "[fixture](docs/reports/fixture.md); improved agent adherence "
+                           "is not established because no behavioral observation ran.")
+                wave_md.write_text(wave_md.read_text(encoding="utf-8") +
+                    "\n## Review Checkpoints\n\n"
+                    "Intent outcome: achieved in an earlier, superseded assessment.\n\n"
+                    + prefix + outcome + "\n\n"
+                    "## Handoff\n\nIntent outcome: achieved outside the carrier.\n",
+                    encoding="utf-8")
+                with patch.object(self.srv, "run_garden", return_value={"passed": True, "files_updated": 0, "updated": [], "output": ""}), \
+                     patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": [], "output": ""}):
+                    result = self.srv.wf_close_wave_response(self.root, "1200a-intent", mode="create")
+                self.assertEqual(result["status"], "ok", result)
+                summary = result["data"]["wave_summary"]
+                expected = ("Wave `1200a-intent` (Test Wave Title) delivered one change: "
+                            "Change Title For 1200a-enh guidance.\n\n" + outcome +
+                            "\n\n**Changes delivered:**\n\n"
+                            "- **Change Title For 1200a-enh guidance** (`1200a-enh guidance`) — 1 AC completed")
+                self.assertEqual(summary, expected)
+                published = wave_md.read_text(encoding="utf-8").split(vocabulary_profile.SUMMARY_HEADING, 1)[1].split("\n## ", 1)[0]
+                self.assertIn(outcome, published)
+                self.assertEqual(summary.count("Intent outcome:"), 1)
+
+    def test_intent_composer_preserves_crlf_wrapping_and_legacy_output(self):
+        wave_md = self._make_closeable_wave("1200a-legacy", "1200a-enh guidance")
+        original = wave_md.read_text(encoding="utf-8")
+        expected = ("Wave `1200a-legacy` (Test Wave Title) delivered one change: "
+                    "Change Title For 1200a-enh guidance.\n\n**Changes delivered:**\n\n"
+                    "- **Change Title For 1200a-enh guidance** (`1200a-enh guidance`) — 1 AC completed")
+        for extra in ("", "\n## Review checkpoints\n\nIntent outcome: partial; legacy heading.\n",
+                      "\n## Other\n\nIntent outcome: achieved; wrong section.\n",
+                      "\n## Review Checkpoints extra\n\nIntent outcome: achieved; wrong heading.\n"):
+            with self.subTest(extra=extra):
+                self.assertEqual(self.srv._generate_wf_close_wave_summary(
+                    "1200a-legacy", original + extra, wave_md, self.root), expected)
+        authored = ("Intent outcome: not established; [fixture](docs/reports/fixture.md).\r\n"
+                    "  Delivery passed; behavioral benefit remains unobserved.  ")
+        crlf = original.replace("\n", "\r\n") + (
+            "\r\n## Review Checkpoints\r\n\r\n"
+            "- Intent outcome: achieved; superseded.\r\n"
+            "- 2026-10-18: " + authored + "\r\n"
+            "- Ordinary checkpoint: preserved outside summary.\r\n\r\n"
+            "## Handoff\r\n\r\nIntent outcome: achieved; excluded.\r\n")
+        self.assertEqual(self.srv._generate_wf_close_wave_summary(
+            "1200a-legacy", crlf, wave_md, self.root),
+            expected.replace("\n\n**Changes delivered:**", "\n\n" + authored + "\n\n**Changes delivered:**"))
 
     def test_wf_close_wave_summary_includes_change_details(self):
         """AC-2: Summary includes completed ACs and decision log entries."""

@@ -149,13 +149,20 @@ _JOURNAL_SUGGESTION = (
     "records under docs/agents/memory/ (memory_add / memory_propose)"
 )
 
-# `Distill journals` is ALSO the documented legacy alias of the LIVE `Migrate
-# journals` command (seed-210), so the phrase is stale as a closure instruction
-# and correct as an alias entry. Found by running the scan against this
-# repository: `AGENTS.md` names the alias in its shortcut table, and flagging it
-# would tell operators to delete a working command's alias. The guard is
-# line-scoped and names the live command, so it cannot silence a bare
-# instruction that merely appears near one.
+# `Distill journals` was both a retired close-time instruction and a legacy
+# alias of `Migrate journals`; the alias is gone too, so every mention is
+# reported. A leftover alias in a shortcut table must lose only the alias text:
+# the `Migrate journals` command itself stays.
+_DISTILL_JOURNALS_SUGGESTION = (
+    "`Distill journals` is retired: delete a leftover \"(legacy alias: "
+    "Distill journals)\" from a shortcut table and keep the `Migrate journals` "
+    "row; otherwise " + _JOURNAL_SUGGESTION
+)
+
+# Seed-210's own instructions name the retired directory beside the live
+# `Migrate journals` command, so the directory pattern exempts a line that also
+# names the command. The guard is line-scoped, so it cannot silence a bare
+# reference that merely appears near one.
 _LIVE_JOURNAL_MIGRATION = re.compile(r"(?i)migrate journals|210-migrate-journals")
 
 # (pattern, retired_surface label, suggestion, line-scoped exemption or None)
@@ -181,8 +188,8 @@ _RETIRED_CONTENT_PATTERNS: tuple[
     (
         re.compile(r"(?i)distill journals?\b"),
         "journal instruction",
-        _JOURNAL_SUGGESTION,
-        _LIVE_JOURNAL_MIGRATION,
+        _DISTILL_JOURNALS_SUGGESTION,
+        None,
     ),
     (
         re.compile(r"(?i)associated journal\b"),

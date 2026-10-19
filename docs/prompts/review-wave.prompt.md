@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-11
+Last verified: 2026-10-19
 
 Shortcut: **`Review wave`**
 
@@ -11,6 +11,8 @@ Shortcut: **`Review wave`**
 Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose reviewer models and effort for the actual review risks. Read the existing scope, fingerprint, commands/results, findings and next action; independently verify the current tree. A host change does not itself establish independence. Use only available host capabilities; sequential implementation does not satisfy required independent review.
 
 ## Purpose
+
+In existing readiness and delivery reviews, ask whether meeting Requirements and ACs would establish Product Intent and the wave Objective, and whether added complexity, runtime cost or operator burden undermines that outcome. At delivery, distinguish evidenced outcomes from intended benefits; checked implementation steps alone prove neither benefit nor approval. Use the existing lanes and gates.
 
 Run all required review lanes against the admitted changes. Review is not optional when required lanes were confirmed at readiness. Review wave is the delivery phase, started with `wf_review_wave(wave_id, phase='implementation')`; readiness review already ran at Prepare.
 

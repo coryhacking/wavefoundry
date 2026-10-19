@@ -25,6 +25,8 @@ Before reviewing, consult all available project resources to self-answer questio
 
 **Compare the draft with its brief:**
 
+Compare Requirements, ACs and Scope with Product Intent (or the wave Objective): would satisfying them establish the intended outcome, and could complexity, runtime cost or operator burden undermine it? Keep this within the existing decision-branch walk; use Rationale for why now and do not reopen resolved choices or expand scope.
+
 At the start of this optional review, compare drafted Requirements, Acceptance Criteria, and Scope against the brief in Rationale, the operator's request, and relevant established context. When no change is specified, use the corresponding current-wave planning content. Consider what is strong, vague, missing, removable, or less useful to the consumer; report only meaningful observations and feed unresolved discrepancies into the existing decision-branch walk.
 
 Read Rationale as reference for the brief, without reopening the whole section or resolved Decision Log entries. New ideas remain proposals, not authorized scope. This comparison adds no document, gate, or signoff; preserve the existing stop condition and one-question-at-a-time flow.
