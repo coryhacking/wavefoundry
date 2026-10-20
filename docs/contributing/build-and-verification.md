@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-19
+Last verified: 2026-10-20
 
 ## Verification Commands
 
@@ -314,6 +314,8 @@ wf setup --full --include-code
 ```
 
 If the repo needs extra project index roots beyond the default, declare them explicitly in `docs/workflow-config.json` under `indexing.project_include_prefixes`. Use repo-relative `docs` and `code` lists rather than one-off booleans. Wavefoundry uses this in self-hosting mode to include `.wavefoundry/framework/scripts` in project code search without changing the default for ordinary target repos.
+
+To keep a folder of evidence that quotes retired names on purpose (for example upstream merge baselines) out of the upgrade's retired-surface reconcile scan, list it under `reconcile_scan.excluded_dirs` in the same file, for example `"reconcile_scan": {"excluded_dirs": ["tools/upstream-sync/baselines"]}`. Entries are repo-relative folders matched by prefix; anything under `docs/` or a dot-directory, overlapping a registered carrier or the plans or waves root, absolute, or naming a file is refused and excludes nothing, and `AGENTS.md`, `CLAUDE.md` and `WARP.md` inside an excluded folder are still scanned. The upgrade summary lists each excluded and refused folder.
 
 Structured-format directories (wave `1wfsl`, `1wdvr`): the code index covers every
 `SOURCE_CODE_EXTENSIONS` format including YAML/JSON/TOML across the WHOLE repository by

@@ -1883,3 +1883,143 @@ class FindingSpecificDispositionTests(unittest.TestCase):
             self.assertEqual(diagnostics[1]["candidate_locations"], [f"{raw.file}:{raw.line}"])
             self.assertEqual(self.scan.scan_repo_channels(root)[0], [])
             self.assertEqual(store.read_text(encoding="utf-8"), original)
+
+
+class ConfiguredEvidenceFolderTests(unittest.TestCase):
+    """Wave 215xx (215xw): folders declared under reconcile_scan.excluded_dirs."""
+
+    REF = "Run `.wavefoundry/bin/docs-lint` here.\n"
+
+    def setUp(self):
+        self.scan = _load("reconcile_scan", RECONCILE_PATH)
+
+    def _repo(self, td, rels, config=None):
+        root = Path(td)
+        for rel in rels:
+            path = root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(self.REF, encoding="utf-8")
+        if config is not None:
+            path = root / self.scan.WORKFLOW_CONFIG_REL
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(config if isinstance(config, str) else json.dumps(config), encoding="utf-8")
+        return root
+
+    def _flagged(self, root):
+        return {f.file for f in self.scan.scan_repo(root)}
+
+    def _configured(self, root):
+        return [d for d in self.scan.disposition_diagnostics(root, findings=[]) if "excluded_directory" in d]
+
+    def test_declared_folder_is_skipped_except_instruction_files(self):
+        rels = ["tools/evidence/old.md", "tools/evidence/sub/deep.md", "tools/evidence/AGENTS.md",
+                "tools/evidence-notes.md", "docs/runbook.md"]
+        with tempfile.TemporaryDirectory() as td:
+            root = self._repo(td, rels)
+            self.assertEqual(self._flagged(root), set(rels))
+        for entry in ("tools/evidence", "tools/evidence/"):
+            with self.subTest(entry=entry), tempfile.TemporaryDirectory() as td:
+                root = self._repo(td, rels, {"reconcile_scan": {"excluded_dirs": [entry]}})
+                self.assertEqual(self._flagged(root),
+                                 {"tools/evidence/AGENTS.md", "tools/evidence-notes.md", "docs/runbook.md"})
+                self.assertEqual(self._configured(root),
+                                 [{"excluded_directory": entry, "disposition_state": "excluded-directory"}])
+
+    def test_each_refusal_reason_excludes_nothing(self):
+        cases = {
+            "not_a_string": (7, "tools/x/a.md"),
+            "backslash": ("tools\\evidence", "tools/evidence/a.md"),
+            "absolute": ("/tools/x", "tools/x/a.md"),
+            "absolute drive": ("C:/tools", "tools/a.md"),
+            "bad_component .": ("tools/./x", "tools/x/a.md"),
+            "bad_component ..": ("tools/../x", "x/a.md"),
+            "bad_component empty": ("tools//x", "tools/x/a.md"),
+            "dot_directory": (".vscode/x", ".vscode/x/a.md"),
+            "under_docs": ("docs/specs", "docs/specs/a.md"),
+            "protected_carrier": ("AGENTS.md", "AGENTS.md"),
+            "not_a_directory": ("tools/evidence/old.md", "tools/evidence/old.md"),
+        }
+        for name, (entry, rel) in cases.items():
+            reason = name.split(" ")[0]
+            with self.subTest(case=name), tempfile.TemporaryDirectory() as td:
+                root = self._repo(td, [rel], {"reconcile_scan": {"excluded_dirs": [entry]}})
+                self.assertIn(rel, self._flagged(root))
+                expected_entry = entry if isinstance(entry, str) else json.dumps(entry)
+                self.assertEqual(self._configured(root), [{"excluded_directory": expected_entry,
+                    "disposition_state": "excluded-directory-refused", "reason": reason}])
+
+    def test_moved_record_roots_are_protected(self):
+        from unittest.mock import patch
+        record_paths = sys.modules["record_paths"]
+        with tempfile.TemporaryDirectory() as td:
+            root = self._repo(td, ["planning/plans/1aaaa-feat a.md", "planning/notes.md"],
+                              {"reconcile_scan": {"excluded_dirs": ["planning"]}})
+            with patch.object(record_paths, "PLANS_ROOT", "planning/plans"):
+                self.assertEqual(self._configured(root)[0]["reason"], "protected_carrier")
+                self.assertIn("planning/plans/1aaaa-feat a.md", self._flagged(root))
+            self.assertEqual(self._configured(root)[0]["disposition_state"], "excluded-directory")
+
+    def test_bare_component_entry_does_not_match_elsewhere(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._repo(td, ["docs/prompts/x.prompt.md", "prompts/y.md"],
+                              {"reconcile_scan": {"excluded_dirs": ["prompts"]}})
+            self.assertEqual(self._flagged(root), {"docs/prompts/x.prompt.md"})
+
+    def test_value_shapes_duplicates_and_absent_or_unreadable_config(self):
+        for config, expected in (
+            ({"reconcile_scan": {"excluded_dirs": "tools"}}, [{"excluded_directory": "tools",
+              "disposition_state": "excluded-directory-refused", "reason": "not_a_list"}]),
+            ({"reconcile_scan": ["tools"]}, [{"excluded_directory": '["tools"]',
+              "disposition_state": "excluded-directory-refused", "reason": "not_a_list"}]),
+            ({"reconcile_scan": {"excluded_dirs": ["tools", "tools/"]}},
+             [{"excluded_directory": "tools", "disposition_state": "excluded-directory"}]),
+            ({"docs_lint": {}}, []),
+            ("{not json", []),
+            (None, []),
+        ):
+            with self.subTest(config=config), tempfile.TemporaryDirectory() as td:
+                root = self._repo(td, ["tools/a.md"], config)
+                self.assertEqual(self._configured(root), expected)
+                self.assertEqual(self.scan.disposition_diagnostics(root, findings=[]), expected)
+
+    def test_every_registered_carrier_is_protected_by_a_rule(self):
+        # A future carrier outside docs/ and the dot-directories would not be
+        # covered by under_docs or dot_directory; it must then be listed in
+        # _MANDATORY_FILES or HOST_PERMISSION_FILES for protected_carrier.
+        listed = set(self.scan._MANDATORY_FILES) | set(self.scan.HOST_PERMISSION_FILES)
+        work = self.scan._ScanWork(self.scan.ScanLimits())
+        for rel in [*self.scan._mandatory_paths(work), *self.scan._MANDATORY_DIRECTORIES]:
+            with self.subTest(carrier=rel):
+                first = rel.split("/")[0]
+                self.assertTrue(rel in listed or first == "docs" or first.startswith("."), rel)
+
+    def test_invalid_record_layout_yields_no_configured_entries(self):
+        # CODE-DEL-1: the upgrade report child calls disposition_diagnostics
+        # without a guard, so an invalid layout must not raise from here.
+        from unittest.mock import patch
+        record_paths = sys.modules["record_paths"]
+        with tempfile.TemporaryDirectory() as td:
+            root = self._repo(td, ["tools/evidence/a.md"], {"reconcile_scan": {"excluded_dirs": ["tools/evidence"]}})
+            with patch.object(record_paths, "load_record_roots",
+                              side_effect=record_paths.RecordLayoutInvalid(["fixture invalid layout"])):
+                self.assertEqual(self.scan.configured_excluded_dirs(root), ((), []))
+                self.assertEqual(self.scan.disposition_diagnostics(root, findings=[]), [])
+
+    def test_symlinked_folder_entry_is_refused(self):
+        import os
+        with tempfile.TemporaryDirectory() as td:
+            root = self._repo(td, ["real/a.md"])
+            try:
+                os.symlink(root / "real", root / "link", target_is_directory=True)
+            except (OSError, NotImplementedError) as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+            (root / self.scan.WORKFLOW_CONFIG_REL).parent.mkdir(parents=True, exist_ok=True)
+            (root / self.scan.WORKFLOW_CONFIG_REL).write_text(
+                json.dumps({"reconcile_scan": {"excluded_dirs": ["link"]}}), encoding="utf-8")
+            self.assertEqual(self._configured(root)[0]["reason"], "not_a_directory")
+
+    def test_instruction_carve_out_ignores_case(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._repo(td, ["ev/Claude.md", "ev/warp.md", "ev/other.md"],
+                              {"reconcile_scan": {"excluded_dirs": ["ev"]}})
+            self.assertEqual(self._flagged(root), {"ev/Claude.md", "ev/warp.md"})

@@ -526,6 +526,101 @@ def excluded_dirs_for(root: Path) -> tuple[str, ...]:
     roots = record_paths.load_record_roots(root)
     archive = (roots.archive_rel,) if roots.archive_rel else ()
     return _STATIC_EXCLUDED_DIRS + (roots.waves_rel,) + archive
+
+
+# Wave 215xx (215xw): folders a project declares as evidence under
+# ``reconcile_scan.excluded_dirs`` in docs/workflow-config.json. They are kept
+# apart from the static set and matched by prefix only, never as a bare path
+# component, and an instruction file inside one is still scanned. An entry that
+# overlaps a carrier the scan must inspect is refused and excludes nothing.
+WORKFLOW_CONFIG_REL = "docs/workflow-config.json"
+# Compared case-insensitively: on Windows and macOS a host asking for CLAUDE.md can open Claude.md.
+_CONFIGURED_EXCLUSION_CARVE_OUTS = frozenset({"agents.md", "claude.md", "warp.md"})
+_DRIVE_PREFIX_RE = re.compile(r"^[A-Za-z]:")
+
+
+def configured_excluded_dirs(root: Path | str) -> tuple[tuple[str, ...], list[dict[str, object]]]:
+    """Return ``(accepted folders, one diagnostic per entry)``; ``((), [])``
+    when the config is missing, unreadable or has no ``reconcile_scan`` key."""
+    root = Path(root)
+    try:
+        body = contained_files.read_contained_bytes(
+            root, root / WORKFLOW_CONFIG_REL, max_bytes=DEFAULT_SCAN_FILE_BYTES)
+        data = json.loads(body.decode("utf-8"))
+    except (OSError, UnicodeError, ValueError, RecursionError):
+        return (), []
+    if not isinstance(data, dict) or "reconcile_scan" not in data:
+        return (), []
+    section = data["reconcile_scan"]
+    if not isinstance(section, dict):
+        return (), [_excluded_dir_diagnostic(section, "not_a_list")]
+    if "excluded_dirs" not in section:
+        return (), []
+    entries = section["excluded_dirs"]
+    if not isinstance(entries, list):
+        return (), [_excluded_dir_diagnostic(entries, "not_a_list")]
+    try:
+        roots = record_paths.load_record_roots(root)
+    except record_paths.RecordLayoutInvalid:
+        # The scan itself reports the invalid layout; diagnostics never raise.
+        return (), []
+    protected = (*_MANDATORY_FILES, *HOST_PERMISSION_FILES, *_MANDATORY_DIRECTORIES, roots.plans_rel, roots.waves_rel)
+    accepted: list[str] = []
+    diagnostics: list[dict[str, object]] = []
+    for entry in entries:
+        reason, rel = _excluded_dir_refusal(root, entry, protected)
+        if reason is None:
+            if rel in accepted:
+                continue
+            accepted.append(rel)
+        diagnostics.append(_excluded_dir_diagnostic(entry, reason))
+    return tuple(accepted), diagnostics
+
+
+def _excluded_dir_refusal(root: Path, entry: object, protected: tuple[str, ...]) -> tuple[str | None, str | None]:
+    """Return ``(reason, None)`` for a refused entry or ``(None, folder)``."""
+    if not isinstance(entry, str):
+        return "not_a_string", None
+    rel = entry[:-1] if entry.endswith("/") else entry
+    if "\\" in rel:
+        return "backslash", None
+    if rel.startswith("/") or _DRIVE_PREFIX_RE.match(rel):
+        return "absolute", None
+    parts = rel.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        return "bad_component", None
+    if parts[0].startswith("."):
+        return "dot_directory", None
+    if parts[0] == "docs":
+        return "under_docs", None
+    if any(rel == p or p.startswith(rel + "/") or rel.startswith(p + "/") for p in protected):
+        return "protected_carrier", None
+    path = root.joinpath(*parts)
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return None, rel
+    except OSError:
+        return "not_a_directory", None
+    if not stat.S_ISDIR(info.st_mode) or contained_files._is_windows_link(str(path)):
+        return "not_a_directory", None
+    return None, rel
+
+
+def _excluded_dir_diagnostic(entry: object, reason: str | None) -> dict[str, object]:
+    diagnostic: dict[str, object] = {
+        "excluded_directory": entry if isinstance(entry, str) else json.dumps(entry),
+        "disposition_state": "excluded-directory" if reason is None else "excluded-directory-refused",
+    }
+    if reason is not None:
+        diagnostic["reason"] = reason
+    return diagnostic
+
+
+def _configured_excluded(rel: str, configured: tuple[str, ...]) -> bool:
+    if rel.rsplit("/", 1)[-1].lower() in _CONFIGURED_EXCLUSION_CARVE_OUTS:
+        return False
+    return any(rel == d or rel.startswith(d + "/") for d in configured)
 # Protocol-bridge upgrades retain the previous framework tree under a generated sibling such as
 # ``.wavefoundry/framework.rollback-bridge-pfps-p2/``.  It is inactive recovery state, not a live
 # project carrier.  Keep this separate from ``excluded_dirs_for`` because it is a component prefix, not
@@ -1329,12 +1424,14 @@ def _git_ignored(root, rels, work):
 def _iter_scannable_files(root: Path, work=None) -> Iterator[tuple[Path, str]]:
     work = work or _ScanWork(ScanLimits())
     excluded_dirs = excluded_dirs_for(root)
+    configured, _diagnostics = configured_excluded_dirs(root)
     git = _in_git_worktree(root, work)
     seen = set()
 
     def eligible(rel):
         path = root / rel
         return not (_directory_excluded(rel, excluded_dirs)
+                    or _configured_excluded(rel, configured)
                     or is_excluded(rel, name=path.name, suffix=path.suffix, excluded_dirs=excluded_dirs))
 
     # Exact candidates and direct directory members bypass only Git ignores.
@@ -1876,6 +1973,7 @@ def disposition_diagnostics(root: Path | str, *, findings=None) -> list[dict[str
                 "proposed_v2_keys": proposed,
             }
         )
+    diagnostics.extend(configured_excluded_dirs(root)[1])
     return diagnostics
 
 

@@ -4399,6 +4399,14 @@ def _reconciliation_recommendation_lines(
             lines.append("")
             lines.append("  Disposition-store diagnostics (read-only; store bytes unchanged):")
             for diagnostic in disposition_diagnostics:
+                # Wave 215xx (215xw): a folder from reconcile_scan.excluded_dirs.
+                if "excluded_directory" in diagnostic:
+                    state = diagnostic.get("disposition_state") or "unrecorded"
+                    line = f"    excluded directory {diagnostic['excluded_directory']} [{state}]"
+                    if diagnostic.get("reason"):
+                        line += f" reason={diagnostic['reason']}"
+                    lines.append(line)
+                    continue
                 key = diagnostic.get("disposition_key") or "(missing key)"
                 state = diagnostic.get("disposition_state") or "unrecorded"
                 count = diagnostic.get("candidate_count", 0)

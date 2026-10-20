@@ -8,6 +8,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- A project can list folders the upgrade's retired-surface reconcile scan should skip under `reconcile_scan.excluded_dirs` in `docs/workflow-config.json`, for evidence that quotes old names on purpose, instead of recording one `historical-record` disposition per finding. Entries are repo-relative folders matched by prefix. An entry under `docs/` or a dot-directory, overlapping a file or folder the scan must always check (such as `AGENTS.md`, `docs/prompts` or the plans root), absolute, using `\`, `.` or `..`, or naming a file or link is refused and excludes nothing; `AGENTS.md`, `CLAUDE.md` and `WARP.md` inside an excluded folder are still scanned. The upgrade summary lists each excluded and refused folder with its reason. The key takes effect once the project runs this version's scanner. Same on Windows, macOS, Linux and WSL2. Wave 215xx / 215xw.
+
 ### Fixed
 
 - Removing a change from a wave (`wf_remove_change`) now also removes the `Depends On:` lines written under that change's entry. Before, they stayed behind and attached to the entry above, which docs-lint then reported or read as a dependency that entry never had. Lines placed outside the canonical shape (indented, or after a blank line) are left as before. Same on Windows, macOS, Linux and WSL2. Wave 216ga / 216g8.

@@ -8960,6 +8960,25 @@ class ReconciliationRecommendationTests(unittest.TestCase):
         self.assertIn("keep every candidate reported", joined)
         self.assertIn("text or heading context distinct", joined)
 
+    def test_store_diagnostics_render_configured_excluded_directories(self):
+        # Wave 215xx (215xw): reconcile_scan.excluded_dirs entries name the folder.
+        diagnostics = [
+            {"excluded_directory": "tools/evidence", "disposition_state": "excluded-directory"},
+            {"excluded_directory": "AGENTS.md", "disposition_state": "excluded-directory-refused",
+             "reason": "protected_carrier"},
+        ]
+        joined = "\n".join(
+            self.mod._reconciliation_recommendation_lines(
+                "1.19.0",
+                "1.19.0",
+                disposition_diagnostics=diagnostics,
+            )
+        )
+
+        self.assertIn("excluded directory tools/evidence [excluded-directory]", joined)
+        self.assertIn("excluded directory AGENTS.md [excluded-directory-refused] reason=protected_carrier", joined)
+        self.assertNotIn("(missing key)", joined)
+
     def test_store_diagnostics_render_settled_and_dormant_states(self):
         diagnostics = [
             {
