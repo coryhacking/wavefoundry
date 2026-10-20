@@ -2724,6 +2724,7 @@ _GITIGNORE_BLOCK = [
     "# Wavefoundry upgrade recovery assets (generated locally — never commit)",
     ".wavefoundry/upgrade-assets/",
     ".wavefoundry/framework.rollback-*/",
+    ".wavefoundry/framework/BRIDGE-ROLLBACK.json",
     "",
     "# Wavefoundry framework pack archives (tracked source lives under .wavefoundry/framework/; do not commit zip drops)",
     "/wavefoundry-*.zip",

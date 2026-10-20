@@ -340,6 +340,7 @@ Preserve the personal-override carve-out (the framework tree can be tracked, but
 # Wavefoundry upgrade recovery assets (generated locally — never commit)
 .wavefoundry/upgrade-assets/
 .wavefoundry/framework.rollback-*/
+.wavefoundry/framework/BRIDGE-ROLLBACK.json
 
 # Wavefoundry framework pack archives (tracked source lives under .wavefoundry/framework/; do not commit zip drops)
 /wavefoundry-*.zip
@@ -380,7 +381,7 @@ The same principle applies to **literal-identifier and cross-surface text sweeps
 Known limits of the edit gates (state these to targets; do not describe the gates as complete isolation):
 
 - **The shell tool is not gated on any host.** An agent that writes a file through a shell command (Claude `Bash`, Copilot `bash`/`powershell`, a terminal) bypasses every pre-write gate.
-- **File-writing MCP tools are not gated on Claude.** The Claude matcher names only the built-in edit tools (`Edit`, `Write`, `MultiEdit`, `NotebookEdit`), so a write made through an MCP tool, the Wavefoundry server's or a third-party server's, never reaches the pre-edit hook.
+- **File-writing MCP tools are gated on Claude only by a recognised path field.** The Claude pre-edit hook has no matcher, so it receives every tool call. It exempts the Wavefoundry read-tier MCP tools, and blocks another tool, such as a write through the Wavefoundry server or a third-party server, only when its input names a gated path in a path field the hook recognises (for example `file_path`, `notebook_path`, `path` or `tool_info.file_path`); any other call goes through with a compatibility warning.
 - **Check-then-use.** A hook resolves and classifies the path, and then the host performs the write; a path swapped in between (for example by retargeting a symlink) is written unchecked. Exploiting that window needs an actor who can already write the repository.
 - **Codex `apply_patch` is not gated.** Wavefoundry renders no Codex hook, so the rules in `AGENTS.md` are the only control there.
 - **A missing `python3` fails open on Claude and Windsurf.** The launcher needs `python3` on `PATH`; when it is missing the shell returns 127, not 2, and those hosts treat any exit other than 2 as allow. (Copilot denies on any non-zero `preToolUse` exit.)

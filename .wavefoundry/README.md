@@ -142,7 +142,7 @@ Wave state and all review evidence live in ordinary Markdown files under `docs/w
 
 ### Seeds
 
-Seeds are numbered prompt documents (001–214+) that define how agents should behave at each lifecycle step. They live in `framework/seeds/`. When you type a shortcut like `Plan change` or `Prepare wave`, the agent retrieves the relevant seed and follows it.
+Seeds are numbered prompt documents (001–214+) that define how agents should behave at each lifecycle step. They live in `framework/seeds/`. When you type a lifecycle shortcut (listed in `docs/prompts/index.md`), the agent retrieves the relevant seed and follows it.
 
 Seeds are the framework's long-term memory — they encode operational lessons in a form agents can retrieve and apply across sessions.
 
@@ -199,7 +199,7 @@ The framework ships a local search index with three layers: semantic embeddings 
 
 ### The Coordinator Loop
 
-When a wave contains multiple changes, the coordinator — not each individual implementer — owns execution order, dependency sequencing, and exceptional named checkpoints. The coordinator follows an explicit ReAct-derived loop: **Thought → Action → Observe**, recorded in the wave's Progress Log. Routine inferential review runs later through the distinct `Review wave` phase.
+When a wave contains multiple changes, the coordinator — not each individual implementer — owns execution order, dependency sequencing, and exceptional named checkpoints. The coordinator follows an explicit ReAct-derived loop: **Thought → Action → Observe**, recorded in the wave's Progress Log. Routine inferential review runs later through the distinct review phase (see the review shortcut in `docs/prompts/index.md`).
 
 **Before the first edit**, the coordinator produces a wave plan: an ordered sequence of lane invocations with explicit inputs per change, and which changes can run in parallel vs. sequentially.
 

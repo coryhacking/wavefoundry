@@ -224,7 +224,18 @@ def _epoch_state(root: Path, *, propagate_runtime_errors: bool = False) -> "tupl
     from wf_server import server_impl
     try:
         iss = server_impl._load_script("index_state_store")
-        return iss.build_epoch_state_token(root / ".wavefoundry" / "index")
+        index_dir = root / ".wavefoundry" / "index"
+        token = iss.build_epoch_state_token(index_dir)
+        # Wave 215sy: inside a degraded partial-index read snapshot a
+        # ``building`` token also carries the per-layer publication rows. The
+        # three-field token does not change at the publication commit, so the
+        # extended token is what turns over every epoch-keyed cache (loaded
+        # index, FTS verdicts, freshness) when that commit lands. Outside a
+        # snapshot, and for complete epochs, the token is unchanged.
+        if (token is not None and token[1] == "building"
+                and server_impl._load_script("sqlite_vector_store").snapshot_active(index_dir)):
+            token = tuple(token) + (iss.build_layer_state_signature(index_dir),)
+        return token
     except Exception as exc:
         if propagate_runtime_errors:
             import sqlite_runtime as runtime

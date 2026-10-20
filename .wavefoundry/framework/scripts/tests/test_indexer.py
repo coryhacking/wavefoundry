@@ -2979,7 +2979,7 @@ class ExplicitPrecisionRebuildTests(unittest.TestCase):
     def test_both_directions_all_scopes_and_dry_run_preserve_published_state(self):
         for recorded, requested in (("full", "int8"), ("int8", "full")):
             self._seed(recorded)
-            for content in ("docs", "code", "all", "graph"):
+            for content in ("docs", "code", "all"):
                 for dry_run in (False, True):
                     with self.subTest(recorded=recorded, content=content, dry_run=dry_run):
                         result = self._refuse(requested, content=content, dry_run=dry_run)
@@ -3109,7 +3109,7 @@ class ExplicitPrecisionRebuildTests(unittest.TestCase):
             code = self.bi.main(args)
             if code:
                 raise subprocess.CalledProcessError(code, args)
-        for graph_only in (False, True):
+        for graph_only in (False,):  # graph-only builds are exempt (2134z), tested below
             with self.subTest(graph_only=graph_only), \
                  patch.object(self.bi, "_predicted_precision_class", return_value="int8"), \
                  patch.object(self.bi, "_get_embedder") as embed, \
@@ -3129,7 +3129,7 @@ class ExplicitPrecisionRebuildTests(unittest.TestCase):
             self.assertNotIn("readers fail closed", err.getvalue())
             self.assertNotIn("Done.", out.getvalue())
             embed.assert_not_called()
-        self.assertEqual(calls, [("all", False), ("graph", False)])
+        self.assertEqual(calls, [("all", False)])
         self.assertEqual(self._snapshot(), before)
 
     def test_mcp_consumes_real_cli_refusal_and_graph_update_does_not_force_full(self):
@@ -3160,7 +3160,7 @@ class ExplicitPrecisionRebuildTests(unittest.TestCase):
                 code = self.bi.main(args)
             kwargs["stdout"].flush()
             return MagicMock(pid=999999, poll=MagicMock(return_value=code))
-        for content in ("docs", "graph"):
+        for content in ("docs",):  # graph-only builds are exempt (2134z), tested below
             with self.subTest(content=content), \
                  patch.object(self.bi, "_predicted_precision_class", return_value="int8"), \
                  patch.object(self.bi, "_get_embedder") as embed, \
@@ -3178,6 +3178,56 @@ class ExplicitPrecisionRebuildTests(unittest.TestCase):
         self.assertTrue(commands)
         self.assertTrue(all("--full" not in command for command in commands))
         self.assertEqual(self._snapshot(), before)
+
+    def _graph_build(self, precision, **kwargs):
+        err = io.StringIO()
+        providers = ["CoreMLExecutionProvider"] if precision == "full" else ["CPUExecutionProvider"]
+        with patch.object(self.bi, "_onnx_providers", return_value=providers), \
+             patch.object(self.bi, "_predicted_precision_class", side_effect=lambda model, selected:
+                          "full" if "CoreMLExecutionProvider" in selected else "int8"), \
+             patch.object(self.bi, "_get_embedder", return_value=self.embedder) as factory, \
+             patch.object(self.bi, "_resolve_build_embedders", wraps=self.bi._resolve_build_embedders) as resolve, \
+             redirect_stdout(io.StringIO()), redirect_stderr(err):
+            result = self.bi.build_index(self.root, content="graph", **kwargs)
+        return result, factory, resolve, err.getvalue()
+
+    def test_graph_only_build_ignores_predicted_precision_change_without_embedding(self):
+        # 2134z: a graph-only build embeds nothing, so a predicted precision
+        # that differs from the recorded one neither refuses nor widens it.
+        self._seed("full")
+        recorded = _read_meta_store(self.index_dir)["model_versions"]
+        for dry_run in (False, True):
+            with self.subTest(dry_run=dry_run):
+                result, factory, resolve, err = self._graph_build("int8", dry_run=dry_run)
+                self.assertFalse(result.get("failed"), result)
+                self.assertNotIn("precision_changes", result)
+                self.assertNotIn("escalating", err)
+                factory.assert_not_called()
+                resolve.assert_not_called()
+                self.assertEqual(self.calls, [])
+                self.assertEqual(_read_meta_store(self.index_dir)["model_versions"], recorded)
+        # The same state still refuses every embedding build.
+        for content in ("docs", "code"):
+            with self.subTest(content=content):
+                self._refuse("int8", content=content)
+
+    def test_graph_only_model_name_change_still_widens_and_keeps_the_guard(self):
+        self._seed("full")
+        with patch.object(self.bi, "DOCS_MODEL", "fixture-renamed-docs"):
+            # Widened to embed while the precision also changed: the guard applies.
+            refused, factory, resolve, err = self._graph_build("int8")
+            self.assertTrue(refused.get("failed"), refused)
+            self.assertIn("Implicit precision conversion refused", refused["failure"])
+            self.assertIn("escalating", err)
+            factory.assert_not_called()
+            resolve.assert_not_called()
+            self.assertEqual(self.calls, [])
+            # Same precision: the model-name change still widens to a real re-embed.
+            widened, factory, resolve, err = self._graph_build("full")
+            self.assertFalse(widened.get("failed"), widened)
+            self.assertIn("escalating", err)
+            self.assertTrue(self.calls, "a model-name change must still widen and re-embed")
+            self.assertIn("fixture-renamed-docs", _read_meta_store(self.index_dir)["model_versions"]["docs"])
 
     def test_indexer_cli_returns_failure_from_real_preflight(self):
         self._seed()
@@ -9565,7 +9615,8 @@ class OperationalEvidencePolicyTests(_EpochBuildCase):
              patch.object(srv, "_attach_lint_to_response", side_effect=lambda envelope, *a: envelope):
             mcp = runner.build_server(self.root)
             tools = mcp._tool_manager._tools
-            created = asyncio.run(tools["wf_create_wave"].run({"slug": "retained-proof", "mode": "create"}))
+            created = asyncio.run(tools["wf_create_wave"].run({"slug": "retained-proof", "parent": "group",
+                "mode": "create"}))
             self.assertEqual(created["status"], "ok", created)
             wave_id = created["data"]["wave_id"]
             event = asyncio.run(tools["wf_review_event"].run({

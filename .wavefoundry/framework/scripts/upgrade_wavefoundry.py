@@ -3755,6 +3755,7 @@ def phase_cleanup(
         reason = retained_reasons[-1] if retained_reasons else "cleanup could not prove ownership or remove it"
         _log(f"  Owned embedded archive retained — {reason}.")
     _log("  Upgrade lock removed — dashboard will trigger post-upgrade reindex.")
+    _remove_bridge_rollback_record(root)
 
     _warn_if_background_code_incomplete(root)
     _warn_if_migration_errors(root)
@@ -3864,6 +3865,39 @@ def _regenerate_codebase_map_on_upgrade(root: Path) -> None:
             _log("  Codebase map refreshed → docs/references/codebase-map.md")
     except Exception as exc:  # noqa: BLE001 — fail-safe: never break the upgrade
         _log(f"  Codebase map refresh skipped ({exc}).")
+
+
+BRIDGE_ROLLBACK_RECORD = ".wavefoundry/framework/BRIDGE-ROLLBACK.json"
+
+
+def _remove_bridge_rollback_record(root: Path) -> None:
+    """Remove the protocol bridge's rollback record once the upgrade succeeded (change 2134y).
+
+    Called only after the upgrade lock is released, so a failed or interrupted
+    run (which exits earlier with the lock retained) keeps the record as
+    evidence for recovery. Same-protocol upgrades never write one. Removal
+    goes through the contained file operations, so a symlink or other
+    non-regular entry at the path is refused and left in place; a refusal
+    only warns, because the upgrade itself has already succeeded.
+    """
+    root = Path(root).resolve()  # the root itself is trusted; containment applies below it
+    record = root / BRIDGE_ROLLBACK_RECORD
+    try:
+        entry = record.lstat()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        _log(f"  Warning: bridge rollback record could not be inspected and was left in place ({exc}).")
+        return
+    import contained_files
+    try:
+        contained_files.unlink_contained(root, record, expected_identity=(entry.st_dev, entry.st_ino))
+    except FileNotFoundError:
+        return
+    except OSError as exc:  # includes contained_files.ContainedFileRefused
+        _log(f"  Warning: bridge rollback record was left in place ({exc}); remove {BRIDGE_ROLLBACK_RECORD} by hand.")
+        return
+    _log("  Bridge rollback record removed.")
 
 
 def _warn_if_background_code_incomplete(root: Path) -> None:

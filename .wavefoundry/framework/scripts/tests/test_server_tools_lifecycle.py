@@ -15391,31 +15391,38 @@ class EpochSeqlockConcurrencyTests(unittest.TestCase):
         self.assertNotIn("mixed-epoch-chunk", json.dumps(result))
 
 
-    def test_docs_search_discards_on_aba_building_to_building_transition(self):
-        """Review reproduction (initial-None ABA): building A → complete A →
-        building B entirely within one docs_search. Both endpoints are "not
-        ready" (the complete-only token is None at both), but the state-row
-        token distinguishes the attempts — the results MUST be discarded."""
+    def test_docs_search_reads_one_snapshot_across_aba_building_transition(self):
+        """Review reproduction (initial-None ABA), wave 215sy contract:
+        building A -> complete A -> building B entirely within one docs_search.
+        A building epoch is now read from ONE read snapshot, so every read in
+        the operation still sees building A (nothing of the later states is
+        combined) and the response carries the incomplete-coverage warning."""
         import shutil
         shutil.rmtree(self.index_dir)
         self.index_dir.mkdir(parents=True)
         # Pre-state: building A.
         attempt_a = self.iss.begin_build_epoch(self.index_dir, "A")
+        building_a = self.iss.build_epoch_state_token(self.index_dir)
         fn = self._tool_fn("docs_search")
+        seen = []
 
         def aba_writer(index, query, kind, limit=7, tags=None, **kwargs):
             assert self.iss.finalize_build_epoch(self.index_dir, attempt_a)
             self.iss.begin_build_epoch(self.index_dir, "B")
-            return {"status": "ok", "data": {"results": [{"id": "escaped-aba"}]}}
+            seen.append(self.iss.build_epoch_state_token(self.index_dir))
+            return {"status": "ok", "data": {"results": [{"id": "snapshot-aba"}]}}
 
         restore = self._with_hijacked_response(fn, "docs_search_response", aba_writer)
         try:
             result = fn("anything")
         finally:
             restore()
-        self.assertEqual(result["status"], "error")
-        self.assertEqual(result["diagnostics"][0]["code"], "index_not_ready")
-        self.assertNotIn("escaped-aba", json.dumps(result))
+        self.assertEqual(seen, [building_a], "reads inside the operation must stay on building A")
+        self.assertEqual(result["status"], "ok")
+        self.assertFalse(result["data"]["index_coverage"]["complete"])
+        self.assertIn("index_coverage_incomplete", [d["code"] for d in result["diagnostics"]])
+        self.assertEqual(self.iss.build_epoch_state_token(self.index_dir)[1], "building")
+        self.assertNotEqual(self.iss.build_epoch_state_token(self.index_dir), building_a)
 
     def test_docs_search_stable_building_state_serves_degraded_path(self):
         """Control: a STABLE building state (no transition at all) is the
@@ -15467,29 +15474,37 @@ class EpochSeqlockConcurrencyTests(unittest.TestCase):
             body = src[reg:end]
             self.assertEqual(body.count("_epoch_state(get_handler().root, propagate_runtime_errors=True)"), 2,
                              f"{tool}: exactly one capture + one post-compare")
-            self.assertIn('_tok[1] != "complete"', body,
+            # Wave 215sy: code_search and code_ask also serve a building
+            # epoch, but only through the read snapshot; the gate still
+            # checks the captured token.
+            gate = ('_tok[1] != "complete"' if tool == "code_lexical"
+                    else "not _epoch_servable(_tok)")
+            self.assertIn(gate, body,
                           f"{tool}: completeness gate must check the captured token")
             self.assertNotIn("_epoch_token(", body,
                              f"{tool}: no separate complete-probe read (between-reads window)")
 
-    def test_code_search_refuses_on_building_pre_state_via_captured_token(self):
-        """The captured token's own status gates: a BUILDING pre-state (not
-        just an absent store) refuses before the response fn runs."""
+    def test_code_search_serves_building_pre_state_only_through_the_snapshot(self):
+        """The captured token's own status gates (wave 215sy contract): a
+        BUILDING pre-state runs the response fn inside the degraded read
+        snapshot, with an extended token, and warns about coverage."""
         self.iss.begin_build_epoch(self.index_dir, "between-probes")
         fn = self._tool_fn("code_search")
-        called = []
+        tokens = []
         restore = self._with_hijacked_response(
             fn, "code_search_response",
-            lambda *a, **k: called.append(1) or {"status": "ok", "data": {"results": [{"id": "escaped-between-probes"}]}},
+            lambda *a, **k: tokens.append(k.get("epoch_state")) or {"status": "ok", "data": {"results": [{"id": "partial-rows"}]}},
         )
         try:
             result = fn("anything")
         finally:
             restore()
-        self.assertEqual(result["status"], "error")
-        self.assertEqual(result["diagnostics"][0]["code"], "index_not_ready")
-        self.assertEqual(called, [], "a building pre-state must refuse up front")
-        self.assertNotIn("escaped-between-probes", json.dumps(result))
+        self.assertEqual(len(tokens), 1)
+        self.assertEqual(tokens[0][1], "building")
+        self.assertGreater(len(tokens[0]), 3, "a building epoch is served only with the snapshot token")
+        self.assertEqual(result["status"], "ok")
+        self.assertFalse(result["data"]["index_coverage"]["complete"])
+        self.assertIn("index_coverage_incomplete", [d["code"] for d in result["diagnostics"]])
 
     def test_code_search_and_code_ask_refuse_up_front_without_epoch(self):
         """Review refutation: strict pre-gate — with no complete epoch the

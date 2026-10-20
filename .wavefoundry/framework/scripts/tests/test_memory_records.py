@@ -3219,7 +3219,11 @@ class MemoryProposeTests(_MemoryCase):
                           if record["memory_id"] == "mem-manual")
             self.assertIsNone(manual["source_event"])
             self.assertIsNone(manual["validation"])
-            close = server._tool_manager._tools["wf_close_wave"]
+            # A distribution may replace wf_close_wave; the core gate stays
+            # reachable under its alias_for_core (change 2134w X2).
+            import mcp_tool_extensions
+            replaced = mcp_tool_extensions.replacement_targets().get("wf_close_wave")
+            close = server._tool_manager._tools[replaced[1]["alias_for_core"] if replaced else "wf_close_wave"]
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": []}):
                 for disappeared in (False, True):
                     if disappeared:

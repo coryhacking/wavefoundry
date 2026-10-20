@@ -8,6 +8,7 @@ from __future__ import annotations
 import index_compatibility
 index_compatibility.register_loaded_source()
 
+import contextlib
 import errno
 import itertools
 import json
@@ -177,7 +178,101 @@ def _predicate(predicate):
     return " ".join(out), values
 
 
+# One caller-owned read transaction, lent to every nested reader of the same
+# database file in this context (degraded partial-index reads, wave 215sy).
+# Dense rows, FTS rows, build state and bookkeeping then come from ONE snapshot,
+# so a publication that commits mid-read cannot be combined with older rows.
+# Nothing is copied or retained: the transaction ends with the context. The
+# context variable lives in sqlite_runtime because this module is also loaded
+# under a private name by the server; both instances must see one snapshot.
+_READ_SNAPSHOT = runtime.READ_SNAPSHOT
+_TRANSACTION_CONTROL = frozenset({"BEGIN", "BEGIN DEFERRED", "COMMIT", "END", "ROLLBACK"})
+
+
+def _snapshot_key(path) -> str:
+    return str(Path(path).resolve())
+
+
+class _SnapshotConnection:
+    """A borrowed view of the active snapshot connection.
+
+    ``close`` and bare transaction-control statements are inert so a nested
+    reader that opens, BEGINs and closes per operation joins the caller's
+    snapshot instead of ending it. Every other attribute is the real connection.
+    """
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def execute(self, statement, *args, **kwargs):
+        if isinstance(statement, str) and " ".join(statement.split()).upper().rstrip(";") in _TRANSACTION_CONTROL:
+            return self._conn.execute("SELECT 1")
+        return self._conn.execute(statement, *args, **kwargs)
+
+    def close(self):
+        return None
+
+    def __enter__(self):
+        return self._conn.__enter__()
+
+    def __exit__(self, *exc):
+        return self._conn.__exit__(*exc)
+
+
+def snapshot_connection(path):
+    """The active snapshot for this database file, or None (open your own)."""
+    active = _READ_SNAPSHOT.get()
+    if active is None or active[0] != _snapshot_key(path):
+        return None
+    return _SnapshotConnection(active[1])
+
+
+def snapshot_active(index_dir) -> bool:
+    return snapshot_connection(Path(index_dir) / FILENAME) is not None
+
+
+@contextlib.contextmanager
+def read_snapshot(index_dir):
+    """Hold one read-only connection inside one read transaction for this context.
+
+    The snapshot is pinned by reading ``build_state`` before any caller read and
+    checked with the ordinary compatibility rules in that same snapshot. Readers
+    that reach this file through ``_open`` or ``index_state_store`` reuse it.
+    Read-only: no write, repair or copy. Nested use of the same file reuses the
+    outer snapshot.
+    """
+    if snapshot_active(index_dir):
+        yield
+        return
+    path = Path(index_dir) / FILENAME
+    conn = runtime.connect(path, read_only=True)
+    try:
+        conn.execute("BEGIN")
+        version = conn.execute("SELECT value FROM meta WHERE key='store_schema_version'").fetchone()
+        if version != (SCHEMA_VERSION,):
+            raise runtime.StorageRecoveryRequired("Semantic index migration required; run wf setup.")
+        conn.execute("SELECT status FROM build_state WHERE id=1").fetchone()
+        index_compatibility.check_connection(conn)
+        token = _READ_SNAPSHOT.set((_snapshot_key(path), conn))
+        try:
+            yield
+        finally:
+            _READ_SNAPSHOT.reset(token)
+    finally:
+        try:
+            if not conn.get_autocommit():
+                conn.execute("ROLLBACK")
+        finally:
+            conn.close()
+
+
 def _open(index_dir):
+    shared = snapshot_connection(Path(index_dir) / FILENAME)
+    if shared is not None:
+        return shared
     conn = runtime.connect(Path(index_dir) / FILENAME, read_only=True)
     try:
         version = conn.execute("SELECT value FROM meta WHERE key='store_schema_version'").fetchone()

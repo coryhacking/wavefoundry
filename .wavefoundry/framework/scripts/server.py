@@ -81,6 +81,31 @@ def _missing_now(root: Path) -> list[str]:
     return setup_readiness.missing_dependency_specs(result)
 
 
+# Change 2136x: deployments that install only through setup set this switch. It is
+# deliberately not in setup_readiness.ENV_KEYS, so it never changes the stamp identity.
+STARTUP_INSTALL_OPT_OUT_ENV = "WAVEFOUNDRY_NO_STARTUP_INSTALL"
+
+
+def _startup_install_disabled() -> bool:
+    return os.environ.get(STARTUP_INSTALL_OPT_OUT_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _startup_install_refused(assessment: dict[str, Any], specs: list[str], *, deferrable_only: bool) -> dict[str, Any]:
+    """Install nothing; report the blocked state with the ``wf setup`` remedy (change 2136x)."""
+    packages = ", ".join(specs)
+    message = (
+        f"{STARTUP_INSTALL_OPT_OUT_ENV} is set, so MCP startup did not install {packages}; run `wf setup`."
+    )
+    print(f"wavefoundry: {message}", file=sys.stderr)
+    _set_startup_install(mode="disabled", packages=list(specs), status="disabled", message=message)
+    result = _with_reason(assessment, "startup_install_disabled", message)
+    if deferrable_only:
+        # The server runs without deferrable packages: start, and keep the remedy visible.
+        # Otherwise the entry exits on the still-blocked result after printing the remedy.
+        result["startup_blocked"] = False
+    return result
+
+
 def _startup_install_gate(root: Path, assessment: dict[str, Any], *, dry_run: bool) -> dict[str, Any]:
     """Install what blocks startup, or plan a background install (wave 1zfd9).
 
@@ -109,7 +134,10 @@ def _startup_install_gate_unguarded(root: Path, assessment: dict[str, Any], *, d
     import setup_index
     import setup_requirements
 
-    if all(spec in setup_requirements.STARTUP_DEFERRABLE_IMPORTS for spec in specs):
+    deferrable_only = all(spec in setup_requirements.STARTUP_DEFERRABLE_IMPORTS for spec in specs)
+    if _startup_install_disabled():
+        return _startup_install_refused(assessment, specs, deferrable_only=deferrable_only)
+    if deferrable_only:
         import process_info
 
         process_info.set_startup_install_pending(

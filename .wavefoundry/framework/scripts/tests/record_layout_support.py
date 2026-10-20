@@ -761,7 +761,7 @@ class RecordTreeBuilder:
 
 
 def localized_docs_lint_fixture(dest: Path, *, vocabulary: "dict[str, Any] | None" = None,
-                                layout: "dict[str, Any] | None" = None) -> Path:
+                                layout: "dict[str, Any] | None" = None, migrate_prompts: bool = True) -> Path:
     """A copy of the docs-lint fixture tree at ``dest`` in a profile's
     vocabulary and layout (default: the loaded modules): its records move to
     the configured waves root, each record file takes the profile's name, and
@@ -793,6 +793,16 @@ def localized_docs_lint_fixture(dest: Path, *, vocabulary: "dict[str, Any] | Non
         text = manifest.read_text(encoding="utf-8").replace('"docs/waves/"', json.dumps(waves_rel + "/"))
         manifest.write_text(text, encoding="utf-8")
     builder.waves_readme()
+    # Under a profile that renames prompts, move the fixture's prompts to the
+    # profile's names and record them, as a render would (change 2134w X6);
+    # a no-op under the default profile. The migration follows the loaded
+    # profile, so a fixture built in an explicit ``vocabulary`` keeps the
+    # shipped names, and ``migrate_prompts=False`` keeps them for tests of a
+    # pre-rename target.
+    if migrate_prompts and vocabulary is None:
+        import render_agent_surfaces
+
+        render_agent_surfaces.migrate_profile_prompt_names(dest)
     return dest
 
 

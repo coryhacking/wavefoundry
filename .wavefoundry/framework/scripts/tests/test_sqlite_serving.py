@@ -309,6 +309,7 @@ class SQLiteServingTests(unittest.TestCase):
     def test_registered_epochs_keep_absence_building_transition_and_zero_hit_distinct(self):
         tools = self._registered_epoch_tools()
         strict = {"code_search", "code_ask", "code_lexical"}
+        partial_tools = {"docs_search", "code_search", "code_ask"}
         for tool, request in self._registered_requests().items():
             for status in (None, "building", "complete"):
                 for transition in (False, True):
@@ -323,14 +324,26 @@ class SQLiteServingTests(unittest.TestCase):
                                 patch.object(server, "_record_retrieval_context",
                                              side_effect=lambda h, n, r, **kw: r):
                             result = tools[tool](**request)
-                        pre_refused = tool in strict and status != "complete"
+                        # Wave 215sy: the three question tools serve a building
+                        # epoch's stored rows from ONE read snapshot, so a commit
+                        # during the read cannot change what the read sees; every
+                        # such response carries the incomplete-coverage warning.
+                        partial = tool in partial_tools and status == "building"
+                        pre_refused = tool in strict and status != "complete" and not partial
                         self.assertEqual(respond.call_count, 0 if pre_refused else 1)
-                        refused = pre_refused or transition
+                        refused = pre_refused or (transition and not partial)
                         self.assertEqual(result["status"], "error" if refused else "ok")
                         self.assertEqual(result["data"]["fallback_reason"], "index_not_ready" if refused else None)
                         self.assertEqual(result["data"]["results"], [])
                         self.assertFalse(any(d["code"].startswith("storage_")
                                              for d in result.get("diagnostics", [])))
+                        codes = [d["code"] for d in result.get("diagnostics", [])]
+                        if partial:
+                            self.assertFalse(result["data"]["index_coverage"]["complete"])
+                            self.assertIn("index_coverage_incomplete", codes)
+                        else:
+                            self.assertNotIn("index_coverage", result["data"])
+                            self.assertNotIn("index_coverage_incomplete", codes)
 
     def test_runtime_failure_is_not_an_absent_layer_or_empty_search(self):
         for error in (runtime.RuntimeUnavailable('native binding missing; run wf setup'),

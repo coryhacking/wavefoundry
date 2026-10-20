@@ -393,7 +393,8 @@ class IndexStateStore:
         self.read_only = read_only
         self._migration = migration
         if read_only:
-            self._conn = sqlite_runtime.connect(self.path, read_only=True)
+            shared = sqlite_vector_store.snapshot_connection(self.path)
+            self._conn = shared if shared is not None else sqlite_runtime.connect(self.path, read_only=True)
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = self._open()
@@ -996,6 +997,11 @@ def open_read_only(index_dir: Path) -> Optional["sqlite3.Connection"]:
     long-lived reader would starve WAL autocheckpoint between builds.
     """
     path = state_store_path(index_dir)
+    # A degraded partial-index read holds one snapshot for the whole operation
+    # (wave 215sy); join it rather than reading a newer generation.
+    shared = sqlite_vector_store.snapshot_connection(path)
+    if shared is not None:
+        return shared
     if not path.exists():
         return None
     conn = None
@@ -3571,6 +3577,21 @@ def build_epoch_state_token(index_dir: Path) -> Optional[tuple[str, str, int]]:
     if state is None:
         return None
     return (state["attempt_id"], state["status"], state["generation"])
+
+
+def build_layer_state_signature(index_dir: Path) -> tuple:
+    """Hashable per-layer publication rows (wave 215sy).
+
+    ``build_epoch_state_token`` is unchanged between a publication commit and
+    its finalize; these rows are written inside the publication transaction,
+    so a reader of a ``building`` epoch combines both to notice that commit.
+    Empty when the store is absent or unreadable.
+    """
+    rows = read_build_layer_state(index_dir)
+    return tuple(sorted(
+        (layer, row["generation"], row["attempt_id"], row["status"], row["updated_at"])
+        for layer, row in rows.items()
+    ))
 
 
 def build_epoch_token(index_dir: Path) -> Optional[tuple[str, int]]:

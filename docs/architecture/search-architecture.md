@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-14
+Last verified: 2026-10-19
 
 ## The Problem
 
@@ -430,24 +430,24 @@ latter is deliberately narrower: only navigational and explanatory-like (`explan
 
 ## Fallback Chain
 
-The search fallback chain (wave `1seav` — driven by the CAPTURED `1sed7` epoch token):
+The search fallback chain (wave `1seav`, with partial reads added by `215sy`):
 
 ```
 1. docs_search / code_search / code_ask (query)
  ↓
 2. Semantic/hybrid retrieval [embed query → vector + FTS fusion → rerank]
- ↓ if SemanticModelUnavailableOfflineError (or unservable tables) AND the captured epoch is COMPLETE
+ ↓ if the semantic model is unavailable (or its tables cannot serve), with compatible stored FTS rows
 3. FTS fallback [_fts_degraded_serve: BM25 from fts_docs/fts_code, filters preserved,
    typed {available, failure_reason, results, coverage}; a broken FTS layer under a
    readable build_state probes as query_failed, never a silent zero-hit]
- ↓ docs_search ONLY, when NO published epoch exists (absent/uninitialized/building/interrupted)
+ ↓ docs_search ONLY, when no usable indexed rows can serve the request
 4. Live-filesystem walk [search_docs_lexical: per-call re-chunk — its only reachable states]
  ↓ if no results
 5. Typed zero/failed result: search_mode + always-present fallback_reason (null when healthy)
    + a token-semantics note on WORKING-lexical zero-hits + recovery diagnostics
 ```
 
-`code_search`/`code_ask`/`code_lexical` have NO degraded path on a not-ready index — they refuse (`index_not_ready`, the 1sed7 lockout). `code_ask` classifies the weak generated-symbol/config/tool artifact exact-first short circuit as `search_mode: "exact"` (healthy); direct file/path artifact questions remain `hybrid`. It caps confidence in lexical fallback. The legacy `mode: "semantic" | "lexical"` field remains for back-compat; `search_mode` is the authoritative signal.
+`code_search` and `code_ask`, like `docs_search`, can read compatible stored rows during a building or interrupted epoch from one SQLite read transaction. Each such response carries `index_coverage.complete: false` and an `index_coverage_incomplete` warning; it does not prove current source coverage or mark the build ready. No copied database or retained generation is created. With no usable rows the code tools remain unavailable, while `docs_search` retains its existing live-filesystem fallback. `code_lexical` retains its complete-epoch requirement. See [partial retrieval versus completed publication](chunking-and-indexing-pipeline.md#advisory-partial-retrieval-versus-completed-publication). `code_ask` classifies the weak generated-symbol/config/tool artifact exact-first short circuit as `search_mode: "exact"` (healthy); direct file/path artifact questions remain `hybrid`. It caps confidence in lexical fallback. The legacy `mode: "semantic" | "lexical"` field remains for back-compat; `search_mode` is the authoritative signal.
 
 For code navigation (Layer 2 and 3), there is no fallback: the tools either return results or return a clear empty/unsupported response. This is intentional — exact and symbol navigation are not degraded by missing infrastructure, only by missing language support.
 
@@ -471,7 +471,7 @@ compound identifiers as whole tokens.
 
 **Availability.** FTS5 presence is probed once per process and recorded in store meta; absence degrades to vector-only retrieval with no lexical tables and no errors. `code_keyword` is untouched — live grep remains the exactness contract; FTS is a ranked-retrieval candidate source, not a keyword-tool replacement.
 
-**Honest serving (wave 1wpif, `1wpag`).** Every public FTS read goes through one probed-serving chokepoint (`server_impl._fts_probed_fetch`): `code_lexical`, the hybrid FTS half of `code_search` / `code_ask` (`_fts5_lexical_search`, `_lexical_candidates`), and the degraded fallbacks (`_fts_degraded_serve`; healthy `docs_search` is dense-only and participates only there), so the paths cannot re-diverge into a silent healthy zero. The serve decision is an O(1) read of an in-process verdict cache keyed by the 1sed7 build-state token: the full probe (`index_state_store.fts_state_verdict`: liveness, canonical/vector/registry parity, native posting integrity and keyed digest) runs once per build-state transition per table, or once after a serving error (`fts_search(strict=True)` re-raises table-state errors instead of swallowing them to `[]`), and is then cached, so a warmed read performs no `COUNT(*)`, no `quick_check`, and no corpus scan; the per-call health/coverage tie-in `code_lexical` used to run is the same epoch-cached read. Before repair every affected query is typed, never a healthy zero: `code_lexical` returns `status: error` with `failure_reason: query_failed` (plus `damaged_tables` and a bounded, repo-relative `detail`), the degraded fallbacks keep their typed `{available, failure_reason, results, coverage}` result, and a healthy hybrid response keeps its semantic results and carries a `lexical_undercoverage` diagnostic (and a gap on `code_ask`). Healthy zero-hit queries keep their existing contracts. The query path never heals and never writes: damage at most schedules healing through the single-flight background refresh, and the indexer's ordinary reconcile path (the end-of-build reconcile, or the zero-change probe `_chunk_index_needs_heal`, which consults the same verdict) heals under the build lock and, as the lock owner, writes the per-table heal marker naming the build attempt it healed under. A table re-damaged within the epoch that already healed it is not healed again: the typed failure persists until the next epoch. `index_health` reports, per table, FTS-versus-registry row parity, liveness, the recorded digest state, the heal marker, and the epoch-cached verdict (`state_store.fts`), with an `fts_integrity_failed` diagnostic on damage.
+**Honest serving (wave 1wpif, `1wpag`).** Every public FTS read goes through one probed-serving chokepoint (`server_impl._fts_probed_fetch`): `code_lexical`, the hybrid FTS half of `code_search` / `code_ask` (`_fts5_lexical_search`, `_lexical_candidates`), and the degraded fallbacks (`_fts_degraded_serve`; healthy `docs_search` is dense-only and participates only there), so the paths cannot re-diverge into a silent healthy zero. The serve decision is an O(1) read of an in-process verdict cache keyed by the 1sed7 build-state token: the full probe (`index_state_store.fts_state_verdict`: liveness, canonical/vector/registry parity, native posting integrity and keyed digest) runs once per build-state transition per table, or once after a serving error (`fts_search(strict=True)` re-raises table-state errors instead of swallowing them to `[]`), and is then cached, so a warmed read performs no `COUNT(*)`, no `quick_check`, and no corpus scan; the per-call health/coverage tie-in `code_lexical` used to run is the same epoch-cached read. Before repair every affected query is typed, never a healthy zero: `code_lexical` returns `status: error` with `failure_reason: query_failed` (plus `damaged_tables` and a bounded, repo-relative `detail`), the degraded fallbacks keep their typed `{available, failure_reason, results, coverage}` result, and a healthy hybrid response keeps its semantic results and carries a `lexical_undercoverage` diagnostic (and a gap on `code_ask`). Healthy zero-hit queries keep their existing contracts. The query path never heals and never writes: outside a partial-index read, damage at most schedules healing through the single-flight background refresh; partial-index reads suppress that scheduling, and the indexer's ordinary reconcile path (the end-of-build reconcile, or the zero-change probe `_chunk_index_needs_heal`, which consults the same verdict) heals under the build lock and, as the lock owner, writes the per-table heal marker naming the build attempt it healed under. A table re-damaged within the epoch that already healed it is not healed again: the typed failure persists until the next epoch. `index_health` reports, per table, FTS-versus-registry row parity, liveness, the recorded digest state, the heal marker, and the epoch-cached verdict (`state_store.fts`), with an `fts_integrity_failed` diagnostic on damage.
 
 **One lexical engine.** The FTS5 layer is the ONLY lexical index. The former Lance/Tantivy FTS (retired in wave 1rsh9/1sauc) rebuilt whole on every changed build and leaked un-GC-able index versions under `_indices/` (measured 98 MB on this repo); its one consumer — `search_code`'s hybrid lexical half — now reads the FTS5 tables (`kind`/`tags` and, since wave 1wpif `1wpah`, the allowlisted `language` set all filter inside the query as bound parameters; rows still carry `language` for the row guard; scores are −bm25 so the RRF merge order holds), and verified migration cleanup retires the obsolete Lance stores, including their legacy indices.
 

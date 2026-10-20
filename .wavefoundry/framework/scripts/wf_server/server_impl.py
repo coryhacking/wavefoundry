@@ -1404,6 +1404,9 @@ class WaveIndex:
         self._loaded = False
         self._loaded_meta_signature: dict[str, tuple[int, int] | None] = {}
         self._vector_available: set[tuple[str, str]] = set()
+        # Wave 215sy: True while serving an unfinished (building) epoch from
+        # its stored rows inside the degraded read snapshot.
+        self._partial = False
 
     def _open_vector_layer(self, layer: str, kind: str):
         """Resolve a current SQLite layer without retaining a database handle."""
@@ -1767,7 +1770,16 @@ class WaveIndex:
         except Exception:
             return None
         try:
-            return iss.build_epoch_token(index_dir)
+            token = iss.build_epoch_token(index_dir)
+            if token is None:
+                # Wave 215sy: a ``building`` epoch is servable only inside the
+                # degraded read snapshot, where the extended state token (state
+                # row plus per-layer publication rows) is the signature, so a
+                # publication commit or finalize reloads the index.
+                partial = _partial_epoch_state(index_dir)
+                if partial is not None:
+                    return ("partial",) + tuple(partial)
+            return token
         except Exception as exc:
             import sqlite_runtime as runtime
             if isinstance(exc, (runtime.RuntimeUnavailable, runtime.StorageRecoveryRequired)):
@@ -1795,18 +1807,10 @@ class WaveIndex:
                 "or index_build(content='all', mode='update')."
             )
 
+        partial = isinstance(_token, tuple) and bool(_token) and _token[0] == "partial"
+        self._partial = False
         proj_docs_table = self._open_vector_layer("project", "docs")
         proj_code_table = self._open_vector_layer("project", "code")
-        if proj_docs_table is None and proj_code_table is None:
-            raise IndexNotReadyError(
-                "[wavefoundry] No compatible SQLite index found. Run wf setup."
-            )
-        self._docs_vector_layer = self._proj_docs_vector_layer = proj_docs_table
-        self._code_vector_layer = self._proj_code_vector_layer = proj_code_table
-        self._vector_available = {
-            ("project", kind) for kind in (proj_docs_table, proj_code_table)
-            if kind is not None
-        }
 
         def _load_meta_only(index_dir: Path) -> dict:
             # 1sed6: build-state snapshot from the store (meta.json retired).
@@ -1816,13 +1820,51 @@ class WaveIndex:
             except Exception:
                 return {}
 
-        self._meta = {
-            "project": _load_meta_only(self.index_dir),
+        meta = _load_meta_only(self.index_dir)
+        if partial:
+            # Wave 215sy: an unfinished epoch is not covered by the published-
+            # identity rule (index_compatibility requires it only after a
+            # complete build), so each layer must prove its own recorded model
+            # identity in this snapshot. A layer without it is unusable.
+            proj_docs_table = proj_docs_table if self._layer_model_matches(meta, "docs") else None
+            proj_code_table = proj_code_table if self._layer_model_matches(meta, "code") else None
+        if proj_docs_table is None and proj_code_table is None:
+            raise IndexNotReadyError(
+                "[wavefoundry] The unfinished index build has no usable compatible rows "
+                "(none stored, or no recorded embedding model identity). Check "
+                "index_build_status; retry after the build completes."
+                if partial else
+                "[wavefoundry] No compatible SQLite index found. Run wf setup."
+            )
+        self._docs_vector_layer = self._proj_docs_vector_layer = proj_docs_table
+        self._code_vector_layer = self._proj_code_vector_layer = proj_code_table
+        self._vector_available = {
+            ("project", kind) for kind in (proj_docs_table, proj_code_table)
+            if kind is not None
         }
+
+        self._meta = {
+            "project": meta,
+        }
+        self._partial = partial
         self._loaded_meta_signature = {
             "project": _token,
         }
         self._loaded = True
+
+    def _require_partial_layer(self, layer: str) -> None:
+        """Wave 215sy: an unfinished epoch without usable rows for ``layer``
+        is unavailable, never an empty success. No-op on a complete epoch."""
+        if getattr(self, "_partial", False) and ("project", layer) not in self._vector_available:
+            raise IndexNotReadyError(f"The unfinished index build has no usable {layer} rows.")
+
+    def _layer_model_matches(self, meta: dict, layer: str) -> bool:
+        """Recorded ``model_versions`` for ``layer`` names this host's model."""
+        value = (meta.get("model_versions") or {}).get(layer)
+        if not isinstance(value, str) or not value:
+            return False
+        expected = self._indexer_constant("DOCS_MODEL" if layer == "docs" else "CODE_MODEL")
+        return value.split("@", 1)[0] == expected
 
     # ------------------------------------------------------------------
     # Embedding model
@@ -2910,6 +2952,7 @@ class WaveIndex:
             where_parts.append(f"({' OR '.join(tag_clauses)})")
         where = " AND ".join(where_parts) if where_parts else None
         tables = [t for t in [getattr(self, "_proj_docs_vector_layer", None)] if t is not None]
+        self._require_partial_layer("docs")
         if not tables:
             return [], False
         fetch_n = max(top_n, VECTOR_TOP_K)
@@ -2971,6 +3014,7 @@ class WaveIndex:
 
         hybrid = bool(getattr(self, "_vector_available", None))
         fixed_table = None
+        self._require_partial_layer("code")
         if hybrid:
             if ("project", "code") not in self._vector_available:
                 return [], False
@@ -5607,6 +5651,114 @@ def _retired_flat_leftover_warning(files: Sequence[str]) -> str:
 
 
 
+def _is_partial_epoch(epoch_state: Any) -> bool:
+    """True for the extended ``building`` token that only the degraded read
+    snapshot produces (wave 215sy): stored rows of an unfinished epoch may be
+    served, with incomplete-coverage warnings, from that one snapshot."""
+    return (isinstance(epoch_state, tuple) and len(epoch_state) > 3
+            and epoch_state[1] == "building")
+
+
+def _epoch_servable(epoch_state: Any) -> bool:
+    """A complete epoch, or a partial epoch inside its read snapshot."""
+    return (epoch_state is not None and epoch_state[1] == "complete") or _is_partial_epoch(epoch_state)
+
+
+def _partial_epoch_state(index_dir: Path) -> "tuple | None":
+    """The extended building token when a degraded read snapshot is active."""
+    if not _load_script("sqlite_vector_store").snapshot_active(index_dir):
+        return None
+    token = _epoch_state(Path(index_dir).parent.parent, propagate_runtime_errors=True)
+    return token if _is_partial_epoch(token) else None
+
+
+_PARTIAL_INDEX_COVERAGE_CODE = "index_coverage_incomplete"
+
+
+def _attach_partial_index_coverage(result: dict[str, Any], root: Path, epoch_state: Any, tool: str) -> dict[str, Any]:
+    """Mark a response served from an unfinished epoch (wave 215sy).
+
+    Every such envelope, including zero matches and refusals, carries the
+    additive ``index_coverage`` object and a visible warning: coverage may be
+    incomplete or out of date, the index needs updating, and current source must
+    be verified. Healthy responses never pass through here.
+    """
+    data = result.get("data") if isinstance(result, dict) else None
+    if not isinstance(data, dict):
+        return result
+    try:
+        held = _index_build_lock_info(root).get("held")
+    except Exception:  # noqa: BLE001 - status is advisory
+        held = None
+    build_state = "building" if held is True else ("interrupted" if held is False else "unknown")
+    search_mode = data.get("search_mode")
+    unavailable = result.get("status") == "error" or data.get("fallback_reason") in (
+        _REASON_INDEX_NOT_READY, _REASON_STORE_ABSENT, _REASON_QUERY_FAILED)
+    source = ("live_filesystem" if search_mode == _MODE_LIVE_FALLBACK and result.get("status") != "error"
+              else "none" if unavailable else "stored_rows")
+    message = (
+        f"Index coverage is incomplete: the index build has not completed (build state: {build_state}). "
+        + {"none": "No usable stored rows could answer this request. ",
+           "live_filesystem": "These results come from a live filesystem walk because no usable stored rows exist. ",
+           "stored_rows": "These results come from rows already stored in the SQLite index and may be "
+                          "incomplete or out of date. "}[source]
+        + "The index needs updating: check index_build_status and run index_build when no build is running. "
+        "Verify current source before relying on these results; a missing match is not proof of absence "
+        "from the repository."
+    )
+    data["index_coverage"] = {
+        "complete": False,
+        "build_status": epoch_state[1],
+        "build_state": build_state,
+        "generation": epoch_state[2],
+        "search_mode": search_mode,
+        "source": source,
+        "absence_is_proof": False,
+        "message": message,
+    }
+    diagnostics = result.setdefault("diagnostics", [])
+    diagnostics.append(_diagnostic(
+        _PARTIAL_INDEX_COVERAGE_CODE, message,
+        recovery_tools=["index_build_status", "index_build"],
+        recovery_usage="index_build_status()",
+    ))
+    if tool == "code_ask":
+        if isinstance(data.get("gaps"), list):
+            data["gaps"].append(message)
+        if data.get("index_freshness") == "current":
+            # An unfinished build never establishes current coverage.
+            data["index_freshness"] = "unknown"
+    return result
+
+
+def _partial_index_read(root: Path, tool: str, run: "Callable[[Any], dict[str, Any]]") -> dict[str, Any]:
+    """Run one retrieval tool against a ``building`` epoch (wave 215sy).
+
+    The whole operation reads from ONE read-only connection inside ONE read
+    transaction (``sqlite_vector_store.read_snapshot``): dense rows, FTS rows,
+    build state and bookkeeping cannot straddle a publication commit. The state
+    token is re-read inside the snapshot and drives the run; a complete token
+    there takes the ordinary path. A storage failure opening the snapshot is an
+    explicit storage error, never an empty result. Read-only throughout.
+    """
+    import contextlib as _contextlib
+    import sqlite_runtime as runtime
+    vectors = _load_script("sqlite_vector_store")
+    with _contextlib.ExitStack() as stack:
+        try:
+            stack.enter_context(vectors.read_snapshot(root / ".wavefoundry" / "index"))
+        except (runtime.RuntimeUnavailable, runtime.StorageRecoveryRequired):
+            raise
+        except Exception as exc:  # noqa: BLE001 - unreadable/corrupt storage is typed, never empty
+            raise runtime.StorageRecoveryRequired(
+                f"Semantic index is unreadable ({type(exc).__name__}: {exc}); index preserved.") from exc
+        token = _epoch_state(root, propagate_runtime_errors=True)
+        result = run(token)
+        if _is_partial_epoch(token):
+            result = _attach_partial_index_coverage(result, root, token, tool)
+        return result
+
+
 def _store_has_completed_build(index_dir: Path) -> bool:
     """True when the store's build epoch is `complete` (1sed6 readiness)."""
     try:
@@ -6150,7 +6302,9 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
         # live walk only where no published FTS exists).
         results, reranked = index.search_docs(query, kind=k or None, top_n=n, tags=tags or None)
     except SemanticModelUnavailableOfflineError as exc:
-        if _epoch_complete:
+        # Wave 215sy: a partial epoch's stored FTS rows serve too, from the
+        # same read snapshot, before any live walk.
+        if _epoch_servable(epoch_state):
             _fts_fallback(_REASON_MODEL_UNAVAILABLE, str(exc))
         else:
             _live_walk(_REASON_STORE_ABSENT if epoch_state is None else _REASON_INDEX_NOT_READY, str(exc))
@@ -6359,7 +6513,7 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
         if category_langs is not None:
             results = [r for r in results if r.get("language") in category_langs][:n]
     except SemanticModelUnavailableOfflineError as exc:
-        results = _fts_fallback(_REASON_MODEL_UNAVAILABLE, str(exc)) if _epoch_complete else None
+        results = _fts_fallback(_REASON_MODEL_UNAVAILABLE, str(exc)) if _epoch_servable(epoch_state) else None
         if results is None:
             _log_degradation_transition(index.root, "code_search", fallback_reason or _REASON_INDEX_NOT_READY)
             return _degraded_error(
@@ -15599,6 +15753,11 @@ def _fts_schedule_heal(root: Path, table: str, verdict: dict[str, Any], *, epoch
     table per epoch from this process."""
     entry = _fts_serve_entry(root, epoch_state)
     out: dict[str, Any] = {"scheduled": False, "suppressed": None}
+    if _is_partial_epoch(epoch_state):
+        # Wave 215sy: a degraded read of an unfinished epoch never triggers
+        # indexing work; the running or interrupted build owns that state.
+        out["suppressed"] = "index_incomplete"
+        return out
     attempt = epoch_state[0] if isinstance(epoch_state, (tuple, list)) and epoch_state else None
     marker = verdict.get("heal_attempt")
     if attempt and marker and str(marker) == str(attempt):
@@ -17865,10 +18024,11 @@ def _code_ask_response_body(
 
     degraded_coverage: dict[str, Any] = {}
 
-    def _degraded_citation_pass(reason: str, exc_msg: str) -> list:
-        """FTS-built citations for the degraded mode (complete epoch only)."""
+    def _degraded_citation_pass(reason: str, exc_msg: str, servable: bool) -> list:
+        """FTS-built citations for the degraded mode (complete epoch, or a
+        partial epoch inside its read snapshot when the model is unavailable)."""
         nonlocal search_mode, fallback_reason, gaps, degraded_coverage
-        if not _epoch_complete:
+        if not servable:
             fallback_reason = _REASON_INDEX_NOT_READY if epoch_state is not None else _REASON_STORE_ABSENT
             gaps.append(f"search index unavailable ({fallback_reason}): {exc_msg}")
             return []
@@ -17915,9 +18075,10 @@ def _code_ask_response_body(
             }
             infrastructure_demoted = bool(infra_paths)
     except SemanticModelUnavailableOfflineError as exc:
-        combined_results = _degraded_citation_pass(_REASON_MODEL_UNAVAILABLE, str(exc))
+        combined_results = _degraded_citation_pass(
+            _REASON_MODEL_UNAVAILABLE, str(exc), _epoch_servable(epoch_state))
     except IndexNotReadyError as exc:
-        combined_results = _degraded_citation_pass(_REASON_INDEX_MISSING, str(exc))
+        combined_results = _degraded_citation_pass(_REASON_INDEX_MISSING, str(exc), _epoch_complete)
     except Exception as exc:  # noqa: BLE001 - typed, never a bare generic gap
         combined_results = []
         fallback_reason = _REASON_QUERY_FAILED
@@ -22702,7 +22863,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Degrades per the 1seaq state table: with a PUBLISHED index (complete build epoch)
         but an unavailable semantic model, serves BM25 results from the FTS layer
         (search_mode: lexical_fallback); with no published index at all, serves the
-        live-filesystem walk (search_mode: live_fallback). Every response carries
+        live-filesystem walk (search_mode: live_fallback). While a build epoch is
+        building or interrupted, compatible stored rows are served from one read
+        snapshot, and the response carries index_coverage (complete: false) plus an
+        index_coverage_incomplete warning: verify current source. Every response carries
         search_mode (semantic | lexical_fallback | live_fallback; null on refusal/validation errors) and fallback_reason
         (null when healthy; else model_unavailable | index_missing | store_absent |
         index_not_ready | query_failed — query_failed means infrastructure failure,
@@ -22738,8 +22902,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         # pre-token is allowed here — docs_search's live-filesystem fallback
         # is the explicitly degraded path for a not-ready index.
         import sqlite_runtime as runtime
-        try:
-            _tok = _epoch_state(get_handler().root, propagate_runtime_errors=True)
+
+        def _run(_tok: Any) -> dict[str, Any]:
             # The CAPTURED token drives the fallback serve decisions inside the
             # response fn (1seaq single-capture discipline — no second read).
             result = docs_search_response(get_handler().index, query, kind, limit=limit, tags=tags or None, epoch_state=_tok)
@@ -22763,6 +22927,13 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                     "limit": limit,
                 },
             )
+
+        try:
+            _tok = _epoch_state(get_handler().root, propagate_runtime_errors=True)
+            if _tok is not None and _tok[1] == "building":
+                # Wave 215sy: stored rows of an unfinished epoch, one snapshot.
+                return _partial_index_read(get_handler().root, "docs_search", _run)
+            return _run(_tok)
         except (runtime.RuntimeUnavailable, runtime.StorageRecoveryRequired) as exc:
             return _index_runtime_failure_response(
                 'docs_search', get_handler().root, {'query': query}, exc)
@@ -22777,8 +22948,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         When the code index is absent: returns status='error' with a diagnostic — does not crash.
         Degrades per the 1seaq state table: with a PUBLISHED index (complete build epoch) but an
         unavailable semantic model, serves BM25 results from the FTS layer with the requested
-        filters preserved (search_mode: lexical_fallback, exact-token recall). With no published
-        index there is NO degraded path — the tool refuses (index_not_ready). Every response
+        filters preserved (search_mode: lexical_fallback, exact-token recall). While a build epoch
+        is building or interrupted, compatible stored rows are served from one read snapshot with
+        index_coverage (complete: false) and an index_coverage_incomplete warning; with no usable
+        rows the tool refuses (index_not_ready). Every response
         carries search_mode (hybrid | lexical_fallback; null on refusal/validation errors) and fallback_reason (null when healthy;
         else model_unavailable | index_missing | store_absent | index_not_ready | query_failed).
 
@@ -22848,9 +23021,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         # fence and the unchanged building==building post-check passed). The
         # completeness gate checks the CAPTURED token's own status.
         import sqlite_runtime as runtime
-        try:
-            _tok = _epoch_state(get_handler().root, propagate_runtime_errors=True)
-            if _tok is None or _tok[1] != "complete":
+
+        def _run(_tok: Any) -> dict[str, Any]:
+            # Wave 215sy: a partial epoch is servable only inside its snapshot.
+            if not _epoch_servable(_tok):
                 return _index_rebuilding_response("code_search", {"query": query})
             result = code_search_response(get_handler().index, query, language, limit=limit, kind=kind or None, max_per_file=max_per_file or None, tags=tags or None, epoch_state=_tok)
             result = _augment_with_graph_neighbors_if_enabled(
@@ -22867,7 +23041,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 get_handler(),
                 "code_search",
                 _inject_timing(result, t_start, "code_search"),
-                indexed_epoch_stable=True,
+                indexed_epoch_stable=_tok[1] == "complete",
                 request_arguments={
                     "query": query,
                     "language": language,
@@ -22880,6 +23054,13 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                     "layer": layer,
                 },
             )
+
+        try:
+            _tok = _epoch_state(get_handler().root, propagate_runtime_errors=True)
+            if _tok is not None and _tok[1] == "building":
+                # Wave 215sy: stored rows of an unfinished epoch, one snapshot.
+                return _partial_index_read(get_handler().root, "code_search", _run)
+            return _run(_tok)
         except (runtime.RuntimeUnavailable, runtime.StorageRecoveryRequired) as exc:
             return _index_runtime_failure_response(
                 'code_search', get_handler().root, {'query': query}, exc)
@@ -23502,6 +23683,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - fallback_reason: null when healthy; else model_unavailable | index_missing |
           store_absent | index_not_ready | query_failed (infrastructure failure, not zero hits)
         - coverage: per-table lexical coverage (present on every degraded/failed envelope; {} = collection unavailable)
+        - index_coverage: present only when the build epoch is building or interrupted and the answer
+          came from rows already stored (complete: false, build_state, search_mode, source); results
+          may be incomplete or out of date, the index needs updating, and an empty result is not
+          proof of absence. Verify current source.
         - Refusal/invalid-argument error envelopes carry search_mode: null (status "error"
           disambiguates from a healthy null fallback_reason)
         - vector_ms: milliseconds spent on vector retrieval across all indexes.
@@ -23529,9 +23714,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         # ONE state-token capture; completeness gate on the captured token
         # (review fix — no separate probe pair, no between-reads window).
         import sqlite_runtime as runtime
-        try:
-            _tok = _epoch_state(get_handler().root, propagate_runtime_errors=True)
-            if _tok is None or _tok[1] != "complete":
+
+        def _run(_tok: Any) -> dict[str, Any]:
+            # Wave 215sy: a partial epoch is servable only inside its snapshot.
+            if not _epoch_servable(_tok):
                 return _index_rebuilding_response("code_ask", {"question": question})
             result = code_ask_response(get_handler().index, get_handler().root, question, rerank=rerank, epoch_state=_tok)
             if _epoch_state(get_handler().root, propagate_runtime_errors=True) != _tok:
@@ -23540,9 +23726,16 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 get_handler(),
                 "code_ask",
                 result,
-                indexed_epoch_stable=True,
+                indexed_epoch_stable=_tok[1] == "complete",
                 request_arguments={"question": question, "rerank": rerank},
             )
+
+        try:
+            _tok = _epoch_state(get_handler().root, propagate_runtime_errors=True)
+            if _tok is not None and _tok[1] == "building":
+                # Wave 215sy: stored rows of an unfinished epoch, one snapshot.
+                return _partial_index_read(get_handler().root, "code_ask", _run)
+            return _run(_tok)
         except (runtime.RuntimeUnavailable, runtime.StorageRecoveryRequired) as exc:
             return _index_runtime_failure_response(
                 'code_ask', get_handler().root, {'question': question}, exc)

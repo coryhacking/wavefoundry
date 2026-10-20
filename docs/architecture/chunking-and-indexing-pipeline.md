@@ -920,6 +920,28 @@ uncertain commits and postcommit failures remain ineligible. A failed build may
 therefore leave a historical snapshot queryable, but never certifies source freshness.
 See [the decision record](decisions/1yj14-adr%20index-build-source-races.md).
 
+### Advisory partial retrieval versus completed publication
+
+Publication is one transaction and finalize is a later compare-and-set, so a store whose
+epoch is `building` holds either the previous generation's rows intact or, after a crash
+between the publication commit and finalize, the complete new rows; half-written rows
+never exist. Since wave `215sy` the question tools (`code_ask`, `code_search`,
+`docs_search`) read such a store instead of refusing. That read is advisory: it does not
+complete the epoch, repair storage, schedule healing or start a build, and every
+response carries an incomplete-coverage warning (see the MCP tool surface spec).
+
+The epoch state token does not change between the publication commit and finalize, so
+the read takes its dense rows, FTS rows, build state and bookkeeping from one read-only
+connection inside one read transaction (`sqlite_vector_store.read_snapshot`). Readers in
+`sqlite_vector_store` and `index_state_store` that open a read-only connection to the
+same file join that transaction rather than reading a newer generation. Inside it the
+reader token also carries the `build_layer_state` rows, which publication writes in its
+own transaction, so the loaded index, FTS verdicts and freshness cache turn over at the
+publication commit. Before any complete build the published-identity rule does not
+apply, so each layer proves its recorded embedding model identity in the same
+transaction or stays unusable. A completed publication remains the only readiness
+authority.
+
 Vector queries use exact FP32 cosine scans with metadata filters applied before top-K.
 There is no ANN creation threshold or secondary vector-index maintenance. Ordinary metadata
 indexes support filtering. Derived FTS/registry repair reads canonical SQLite rows and

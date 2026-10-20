@@ -1408,6 +1408,60 @@ class PhaseCleanupLockStateTests(unittest.TestCase):
         self.assertIn("failure marker", out)
         self.assertIsNotNone(self.lib.read_upgrade_lock(self.root))
 
+    # Change 2134y: the protocol bridge's rollback record (absolute paths, untracked) is removed
+    # once the upgrade succeeds, and kept whenever the run stops with the lock retained.
+    def _plant_bridge_record(self):
+        record = self.root / ".wavefoundry/framework/BRIDGE-ROLLBACK.json"
+        record.parent.mkdir(parents=True, exist_ok=True)
+        record.write_text('{"rollback": "/abs/framework.rollback-x"}\n', encoding="utf-8")
+        return record
+
+    def test_successful_cleanup_removes_the_bridge_rollback_record(self):
+        record = self._plant_bridge_record()
+        self.lib.write_upgrade_lock(self.root, "2026-05-10a", "2026-05-19a")
+        out = self._capture_cleanup(failed_phase=None, lock_present=True)
+        self.assertFalse(record.exists() or record.is_symlink())
+        self.assertIn("Bridge rollback record removed.", out)
+        self.assertIsNone(self.lib.read_upgrade_lock(self.root))
+
+    def test_successful_cleanup_without_a_bridge_record_says_nothing_about_it(self):
+        self.lib.write_upgrade_lock(self.root, "2026-05-10a", "2026-05-19a")
+        out = self._capture_cleanup(failed_phase=None, lock_present=True)
+        self.assertNotIn("Bridge rollback record", out)
+        self.assertNotIn("bridge rollback record", out)
+
+    def test_failed_cleanup_keeps_the_bridge_rollback_record(self):
+        record = self._plant_bridge_record()
+        self.lib.write_upgrade_lock(self.root, "2026-05-10a", "2026-05-19a")
+        self.lib.update_upgrade_lock(self.root, failed_phase="docs_gate")
+        with self.assertRaises(SystemExit):
+            self._capture_cleanup(failed_phase="docs_gate", lock_present=True)
+        self.assertTrue(record.is_file())
+
+    def test_unreleased_lock_keeps_the_bridge_rollback_record(self):
+        record = self._plant_bridge_record()
+        self.lib.write_upgrade_lock(self.root, "2026-05-10a", "2026-05-19a")
+        with patch.object(self.lib, "remove_upgrade_lock", return_value=False):
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                self._capture_cleanup(failed_phase=None, lock_present=True)
+        self.assertTrue(record.is_file())
+
+    def test_symlinked_bridge_record_is_refused_and_left_in_place(self):
+        target = self.root / "outside.json"
+        target.write_text("{}\n", encoding="utf-8")
+        record = self.root / ".wavefoundry/framework/BRIDGE-ROLLBACK.json"
+        record.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.symlink(target, record)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks unavailable on this platform")
+        self.lib.write_upgrade_lock(self.root, "2026-05-10a", "2026-05-19a")
+        out = self._capture_cleanup(failed_phase=None, lock_present=True)
+        self.assertTrue(record.is_symlink())
+        self.assertTrue(target.is_file())
+        self.assertIn("bridge rollback record was left in place", out)
+        self.assertIsNone(self.lib.read_upgrade_lock(self.root))
+
     def test_successful_cleanup_regenerates_codebase_map(self):
         # Wave 1p601: a clean upgrade regenerates the codebase map once, after the
         # index phase (so a fresh install has it — a "not generated" field report).
@@ -14710,10 +14764,19 @@ class JournalTriggerPolicyTests(_JournalDeclarationFixture, unittest.TestCase):
 
         self.assertEqual(SHIPPED_DECLARATION[self.TRIGGER], "legacy_cutover")
         self.assertIn(self.TRIGGER, DECLARATION_CONSTANTS)
+        # A distribution's active profile may declare any trigger the
+        # validator accepts (change 2134w X4); the shipped pin stays above.
+        from upgrade_extensions import _JOURNAL_TRIGGER_POLICIES
         for profile in ("default", "second", "prompt-names", "declared"):
             environ = {} if profile == "default" else {"WAVEFOUNDRY_TEST_PROFILE": profile}
             with self.subTest(profile=profile):
-                self.assertEqual(expected_profile(environ).declaration()[self.TRIGGER], "legacy_cutover")
+                trigger = expected_profile(environ).declaration()[self.TRIGGER]
+                self.assertIn(trigger, _JOURNAL_TRIGGER_POLICIES)
+                self.assertEqual(declaration.journal_declaration_problems((), "", (), trigger=trigger), [])
+        active = expected_profile().declaration()[self.TRIGGER]
+        self.assertIn(active, _JOURNAL_TRIGGER_POLICIES)
+        self.assertEqual(active, declaration.EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER)
+        self.assertEqual(declaration.journal_declaration_problems((), "", (), trigger=active), [])
         with base_declaration(EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER="journals_present"):
             self.assertEqual(declaration.journal_declaration_problems((), "acme_journal_hooks:prepare", ("acme_journal_hooks",)), [])
             self.assertFalse(declaration.declared())

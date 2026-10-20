@@ -91,10 +91,10 @@ class _DocsLintFixture:
         """The fixture record, relative to the fixture root, under the loaded profile."""
         return Path(record_paths.WAVES_ROOT) / self.FIXTURE_WAVE_DIR / vocabulary_profile.RECORD_FILENAME
 
-    def copy_fixture(self) -> Path:
+    def copy_fixture(self, *, migrate_prompts: bool = True) -> Path:
         temp_dir = Path(tempfile.mkdtemp(prefix="wave-docs-lint-fixture-"))
         temp_dir.rmdir()
-        localized_docs_lint_fixture(temp_dir)
+        localized_docs_lint_fixture(temp_dir, migrate_prompts=migrate_prompts)
         for rel in _FIXTURE_RECORD_REFERENCE_DOCS:
             doc = temp_dir / rel
             doc.write_text(_v(doc.read_text(encoding="utf-8")), encoding="utf-8")
@@ -255,7 +255,8 @@ class DocsLintFixtureTests(_DocsLintFixture, unittest.TestCase):
         # reported and left alone, and docs-lint passes after the link is edited.
         import render_agent_surfaces as ras
 
-        root = self.copy_fixture()
+        # A pre-rename target carries the shipped prompt names (change 2134w X6).
+        root = self.copy_fixture(migrate_prompts=False)
         try:
             prompts = root / "docs" / "prompts"
             plan_bytes = (
@@ -297,9 +298,14 @@ class DocsLintFixtureTests(_DocsLintFixture, unittest.TestCase):
             entries = json.loads(manifest.read_text(encoding="utf-8"))["public_prompt_surface"]
             self.assertIn({"doc": "docs/prompts/plan-change.prompt.md", "shortcut": "Plan change"}, entries)
 
+            # Under a profile that renames prompts the next render moves them to
+            # the profile's names; the operator then points the link at the
+            # name that exists (a no-op move under the default profile).
+            ras.migrate_profile_prompt_names(root)
+            plan_name = Path(vocabulary_profile.prompt_doc("plan-change")).name
             index.write_text(
                 index.read_text(encoding="utf-8").replace(
-                    "[planning](plan-feature.prompt.md)", "[planning](plan-change.prompt.md)"
+                    "[planning](plan-feature.prompt.md)", f"[planning]({plan_name})"
                 ),
                 encoding="utf-8",
             )
@@ -1387,7 +1393,8 @@ class DocsLintFixtureTests(_DocsLintFixture, unittest.TestCase):
             f"`{(self.WAVE_DOC_PATH.parent / '00058-bug fixture-core.md').as_posix()}`",
             result.stderr,
         )
-        self.assertIn("Prepare wave", result.stderr)
+        # The profile's shortcut, so a distribution that renames it still passes (change 2134w X6).
+        self.assertIn(vocabulary_profile.shortcut("prepare-wave"), result.stderr)
 
     def test_implementing_wave_requires_sibling_change_docs(self) -> None:
         """1v0lx AC-3 red-first (end-to-end half): the existence check must

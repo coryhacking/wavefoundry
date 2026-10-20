@@ -5,6 +5,7 @@ separate memory store may retain its existing binding.
 """
 from __future__ import annotations
 
+from contextvars import ContextVar
 from pathlib import Path
 import tempfile
 
@@ -26,6 +27,14 @@ try:
     import apsw
 except ImportError:
     apsw = None
+
+
+# ``(resolved database path, connection)`` of the read snapshot a degraded
+# partial-index read holds for its whole operation (wave 215sy), or None.
+# Owned and set only by ``sqlite_vector_store.read_snapshot``; it is one
+# process-wide variable so every loaded copy of the readers joins it.
+READ_SNAPSHOT: "ContextVar[tuple[str, object] | None]" = ContextVar(
+    "wavefoundry_sqlite_read_snapshot", default=None)
 
 
 class RuntimeUnavailable(RuntimeError):

@@ -1426,11 +1426,39 @@ walk), and `null` on refusal/validation error envelopes (`status: "error"`
 disambiguates). `coverage` is present on every degraded/failed envelope (`{}` =
 collection unavailable). Reasons: `model_unavailable`, `index_missing`, `store_absent`,
 `index_not_ready`, `query_failed` (infrastructure failure — distinguishable from a
-genuine zero-hit, which carries a token-semantics note instead). FTS serves ONLY from
+genuine zero-hit, which carries a token-semantics note instead). FTS serves from
 the captured complete build epoch (the 1sed7 single-capture token, threaded from the
-tool registration); the strict code-tool lockout during builds is unchanged — code
-retrieval has no degraded path on a not-ready index. Degradation transitions persist
-to the store log once per `(tool, reason)` change, never per query.
+tool registration), or from a `building` epoch's stored rows inside the partial-index
+read snapshot described below. Degradation transitions persist to the store log once
+per `(tool, reason)` change, never per query.
+- **Partial-index reads (wave 215sy):** while the build epoch is `building` (a build
+holds the lock, or an interrupted build left it), `code_ask`, `code_search` and
+`docs_search` answer from the compatible rows already stored in the SQLite index
+instead of refusing. The whole operation reads dense rows, FTS rows, build state and
+bookkeeping from ONE read-only connection inside ONE read transaction, so a publication
+that commits during the read is never combined with older rows; the next read sees the
+committed rows. No snapshot file, copy or retained generation exists: the read
+transaction ends with the call. Each layer must prove its recorded embedding model
+identity in that transaction (a layer with no or a blank `model_versions` entry is
+unusable); the ordinary compatibility checks still apply, so a schema mismatch, a
+newer recorded version or a runtime-stale host stays an explicit error. With no usable
+rows, `code_search` refuses with `index_not_ready`, `code_ask` returns no citations
+with `fallback_reason: "index_not_ready"`, and `docs_search` uses its live-filesystem
+walk. An unavailable query model serves the stored FTS rows (`lexical_fallback`) before
+any live walk. Every response read this way, including zero matches and refusals,
+carries an additive `index_coverage` object (`complete: false`, `build_status`,
+`build_state` of `building`, `interrupted` or `unknown`, `generation`, the actual
+`search_mode`, `source` of `stored_rows`, `live_filesystem` or `none`,
+`absence_is_proof: false`, `message`) and an `index_coverage_incomplete` diagnostic
+saying that coverage may be incomplete or out of date, that the index needs updating,
+and that current source must be verified; `code_ask` also adds the message to `gaps`
+and never reports `index_freshness: "current"`. These reads never complete an epoch,
+schedule FTS healing or start a build, and they do not make the index ready:
+`index_health`, `index_build_status` and publication report actual readiness. A
+complete epoch takes the unchanged healthy path with no coverage warning. Platform
+behaviour is the same on Windows, macOS, Linux and WSL2 (SQLite WAL reader snapshots;
+on Windows a concurrent writer's file locks are handled by SQLite's WAL reader
+semantics), and the build-state label reuses `index_build_status`'s lock probe.
 - `index_missing` and `index_stale` diagnostics are not emitted by `docs_search`; call
 `index_health` explicitly to check whether an index layer is stale or absent
 before deciding whether to run `wf update-indexes`.
@@ -1440,10 +1468,11 @@ token before and after the indexed operation, and the post-compare is UNCONDITIO
 any change (including a build publishing mid-operation, None → complete) discards
 results and returns a structured `index_not_ready` error rather than a mixed-epoch
 result set. `code_search`, `code_ask`, and `code_lexical` also refuse up front when no
-complete epoch exists (indexed code retrieval has no sanctioned degraded path — this
-also prevents keyword/graph stages from surfacing citations labeled current over a
-not-ready index). `docs_search`'s live-filesystem walk and `seed_get`'s on-disk seed
-read remain the two sanctioned degraded paths, valid only under a STABLE None token.
+complete epoch exists, except that `code_search` and `code_ask` serve a `building`
+epoch through the partial-index read snapshot above (inside it the token also carries
+the per-layer publication rows, which change at the publication commit, and both
+compares read the same snapshot). `docs_search`'s live-filesystem walk and `seed_get`'s
+on-disk seed read remain the sanctioned paths for a stable not-ready token.
 - **Graph builds on a reset store (wave 1sed7):** `index_build(content='graph')`
 normally touches only the structural graph (no semantic embedding). The one exception:
 on a store whose model bookkeeping lacks provenance for an available semantic layer, ANY scoped build — including graph — escalates to all-layer
@@ -1453,8 +1482,9 @@ integrity-over-latency trade after a reset; the build log states the escalation 
 - **Build status epoch (wave 1sed7):** `index_build_status` carries an `epoch`
 object (`status`, `generation`, `scope`, `interrupted`) on every response, and reports
 `state: "interrupted"` — never `idle` — when the store records a `building` epoch with
-no live builder (a crashed build; readers are failed closed until an ordinary
-`index_build` run heals the epoch, which an unchanged retry does automatically).
+no live builder (a crashed build; an ordinary `index_build` run heals the epoch, which
+an unchanged retry does automatically). Until then the question tools answer only
+through the partial-index read contract, with its coverage warning.
 - **Child embedding activity (wave 20st8):** a running/finished response's
 `embedding_execution` describes the current attempt's observed embedding work.
 Persisted `previous_stats.embedding_execution` retains successful-build provenance;

@@ -763,6 +763,83 @@ class GateTests(unittest.TestCase):
         self.assertTrue(result["startup_blocked"])
         self.assertEqual(self.server._BACKGROUND_INSTALL_SPECS, [])  # so the entry exits instead of starting
 
+    # Change 2136x: WAVEFOUNDRY_NO_STARTUP_INSTALL turns startup installs off.
+    OPT_OUT = "WAVEFOUNDRY_NO_STARTUP_INSTALL"
+
+    def _gate_with(self, value, blocked):
+        stderr = io.StringIO()
+        env = {self.OPT_OUT: value} if value is not None else {}
+        with patch.dict(os.environ, env), patch.object(setup_index, "install_requirement_specs") as install, \
+                patch.object(self.server.setup_readiness, "assess_setup") as assess, \
+                contextlib.redirect_stderr(stderr):
+            if value is None:
+                os.environ.pop(self.OPT_OUT, None)
+            result = self.server._startup_install_gate(Path("/r"), blocked, dry_run=False)
+        return result, install, assess, stderr.getvalue()
+
+    def test_opt_out_with_only_a_deferrable_gap_starts_without_installing(self):
+        blocked = _assessment("setup_inputs_changed", "dependencies_missing", missing=[PSUTIL])
+        result, install, assess, stderr = self._gate_with("1", blocked)
+        install.assert_not_called()
+        assess.assert_not_called()
+        self.assertEqual(self.server._BACKGROUND_INSTALL_SPECS, [])  # no background install either
+        self.assertIsNone(process_info._STARTUP_INSTALL_PENDING)
+        self.assertFalse(result["startup_blocked"])  # the entry starts the server
+        codes = [item["code"] for item in result["reasons"]]
+        self.assertIn("dependencies_missing", codes)
+        disabled = [item for item in result["reasons"] if item["code"] == "startup_install_disabled"]
+        self.assertEqual(len(disabled), 1)
+        self.assertIn("wf setup", disabled[0]["message"])
+        self.assertIn(PSUTIL, disabled[0]["message"])
+        snapshot = self.server._startup_install_snapshot()
+        self.assertEqual((snapshot["mode"], snapshot["status"]), ("disabled", "disabled"))
+        self.assertIn("wf setup", snapshot["message"])
+        self.assertEqual(len(stderr.splitlines()), 1)
+        self.assertIn(self.OPT_OUT, stderr)
+        self.assertIn("wf setup", stderr)
+
+    def test_opt_out_with_a_non_deferrable_gap_stays_blocked_and_names_the_remedy(self):
+        blocked = _assessment("dependencies_missing", missing=["numpy", PSUTIL])
+        result, install, _assess, stderr = self._gate_with(" Yes ", blocked)
+        install.assert_not_called()
+        self.assertTrue(result["startup_blocked"])
+        self.assertEqual(self.server._BACKGROUND_INSTALL_SPECS, [])  # so the entry exits
+        self.assertIn("startup_install_disabled", [item["code"] for item in result["reasons"]])
+        self.assertIn("wf setup", stderr)
+
+    def test_without_the_opt_out_startup_installs_as_today(self):
+        for value in (None, "", "0", "false", "off", "no"):
+            with self.subTest(value=value):
+                self.server._BACKGROUND_INSTALL_SPECS = []
+                blocked = _assessment("dependencies_missing", missing=[PSUTIL])
+                result, install, _assess, _stderr = self._gate_with(value, blocked)
+                install.assert_not_called()  # deferrable: planned for the background
+                self.assertEqual(self.server._BACKGROUND_INSTALL_SPECS, [PSUTIL])
+                self.assertIn("startup_install_running", [item["code"] for item in result["reasons"]])
+                process_info.set_startup_install_pending(None)
+        self.server._BACKGROUND_INSTALL_SPECS = []
+        installed = {"status": "installed", "packages": ["numpy"], "message": ""}
+        ready = _assessment(blocked=False, status="ready")
+        with patch.dict(os.environ, {self.OPT_OUT: "0"}), \
+                patch.object(setup_index, "install_requirement_specs", return_value=installed) as install, \
+                patch.object(self.server.setup_readiness, "assess_setup", return_value=ready), \
+                contextlib.redirect_stderr(io.StringIO()):
+            result = self.server._startup_install_gate(
+                Path("/r"), _assessment("dependencies_missing", missing=["numpy"]), dry_run=False
+            )
+        install.assert_called_once()
+        self.assertFalse(result["startup_blocked"])
+
+    def test_the_opt_out_is_not_part_of_the_setup_stamp_identity(self):
+        self.assertNotIn(self.OPT_OUT, setup_readiness.ENV_KEYS)
+        self.assertNotIn(self.OPT_OUT, setup_readiness.COMPARED_ENV_KEYS)
+        with patch.dict(os.environ, {self.OPT_OUT: "1"}):
+            with_flag = setup_readiness._environment_identity()
+        with patch.dict(os.environ, {}):
+            os.environ.pop(self.OPT_OUT, None)
+            without = setup_readiness._environment_identity()
+        self.assertEqual(with_flag, without)
+
 
 class McpStartupTests(unittest.TestCase):
     """End to end: the real runner installs, starts, and serves MCP requests."""
@@ -822,11 +899,14 @@ class McpStartupTests(unittest.TestCase):
         (self.dir / "harness.py").write_text(self.HARNESS, encoding="utf-8")
         self.marker = self.dir / "installed.txt"
 
-    def _start(self, spec: str, sleep: str, *, exit_code: str = "0", ready_marker: "Path | None" = None):
+    def _start(self, spec: str, sleep: str, *, exit_code: str = "0", ready_marker: "Path | None" = None,
+               extra_env: "dict | None" = None):
         env = dict(
             os.environ, FAKE_UV_MARKER=str(self.marker), FAKE_UV_SLEEP=sleep, FAKE_UV_EXIT=exit_code,
             READY_MARKER=str(ready_marker or self.marker),
         )
+        env.pop("WAVEFOUNDRY_NO_STARTUP_INSTALL", None)
+        env.update(extra_env or {})
         proc = subprocess.Popen(
             [sys.executable, "-B", str(self.dir / "harness.py"), str(SCRIPTS), str(self.root), spec, str(self.dir)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", env=env,
@@ -952,6 +1032,28 @@ class McpStartupTests(unittest.TestCase):
         self.assertTrue(failed, notices)
         self.assertIn("wf setup", failed[0])
         self.assertFalse(never_ready.exists())
+
+
+    def test_opt_out_serves_and_reports_the_remedy_without_installing(self):
+        proc, lines = self._start(PSUTIL, "0", extra_env={"WAVEFOUNDRY_NO_STARTUP_INSTALL": "1"})
+        self._initialize(proc, lines)
+        notices = self._notices(proc, lines, 2)
+        self.assertTrue(notices and "startup_install_disabled" in notices[0], notices)
+        self.assertIn("wf setup", notices[0])
+        info = self._server_info(proc, lines, 3)
+        self.assertEqual(info["data"]["startup_install"]["status"], "disabled")
+        self.assertIn("wf setup", info["data"]["startup_install"]["message"])
+        time.sleep(1)  # a background install, were one started, would have written the marker
+        self.assertFalse(self.marker.exists())
+
+    def test_opt_out_with_a_non_deferrable_gap_exits_with_the_remedy(self):
+        proc, _lines = self._start("numpy", "0", extra_env={"WAVEFOUNDRY_NO_STARTUP_INSTALL": "1"})
+        proc.wait(timeout=120)
+        stderr = proc.stderr.read()
+        self.assertNotEqual(proc.returncode, 0, stderr)
+        self.assertIn("WAVEFOUNDRY_NO_STARTUP_INSTALL is set", stderr)
+        self.assertIn("wf setup", stderr)
+        self.assertFalse(self.marker.exists())
 
 
 class StaleServerNoticeTests(unittest.TestCase):

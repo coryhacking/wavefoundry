@@ -3435,6 +3435,23 @@ def _implicit_precision_changes(index_dir: Path) -> list[dict[str, str]]:
     return changes
 
 
+def _implicit_precision_refusal(index_dir: Path, files) -> Optional[dict]:
+    """Return the failed build result for an implicit precision change, or None."""
+    precision_changes = _implicit_precision_changes(index_dir)
+    if not precision_changes:
+        return None
+    detail = "; ".join(
+        f"{item['layer']}: recorded {item['recorded']}, requested {item['requested']}"
+        for item in precision_changes
+    )
+    result = _build_failed_result(files or [],
+        "Implicit precision conversion refused (" + detail + "). "
+        "Restore the compatible provider environment, or deliberately rebuild with "
+        "wf setup --full / index_build(mode='rebuild'). Existing published index retained.")
+    result["precision_changes"] = precision_changes
+    return result
+
+
 def _model_set_fingerprint_from_version(value: Optional[str]) -> str:
     return value.split("@", 2)[2] if value and value.count("@") >= 2 else ""
 
@@ -4417,19 +4434,14 @@ def _build_index_locked(
             content, full = "all", True
         rebuild_inventory = preflight_rebuild_sources(root, index_dir, **rebuild_options)
 
-    if not explicitly_full:
-        precision_changes = _implicit_precision_changes(index_dir)
-        if precision_changes:
-            detail = "; ".join(
-                f"{item['layer']}: recorded {item['recorded']}, requested {item['requested']}"
-                for item in precision_changes
-            )
-            result = _build_failed_result(files or [],
-                "Implicit precision conversion refused (" + detail + "). "
-                "Restore the compatible provider environment, or deliberately rebuild with "
-                "wf setup --full / index_build(mode='rebuild'). Existing published index retained.")
-            result["precision_changes"] = precision_changes
-            return result
+    # A graph-only build embeds nothing, so a predicted precision it never uses
+    # must not refuse it (2134z); embedding builds keep the guard unchanged. A
+    # graph-only build that is later widened to embed re-applies the guard there.
+    requested_content = content
+    if not explicitly_full and content != "graph":
+        refusal = _implicit_precision_refusal(index_dir, files)
+        if refusal is not None:
+            return refusal
 
     prepared_identity = (DOCS_MODEL, CODE_MODEL, WALKER_VERSION,
                          getattr(_get_chunker(), "CHUNKER_VERSION", ""))
@@ -4569,6 +4581,12 @@ def _build_index_locked(
             )
             content = "all"
 
+    if requested_content == "graph" and content != "graph" and not explicitly_full:
+        # The graph-only exemption ends once the build is widened to embed.
+        refusal = _implicit_precision_refusal(index_dir, files)
+        if refusal is not None:
+            return refusal
+
     build_docs = content in ("docs", "all")
     build_code = content in ("code", "all")
     old_file_meta: dict[str, dict] = meta.get("file_meta", {})
@@ -4592,6 +4610,13 @@ def _build_index_locked(
             if not _layer_present:
                 continue
             _value = old_model_versions.get(_layer)
+            if content == "graph":
+                # A graph-only build embeds nothing: only a model-name change
+                # widens it. A predicted precision or fingerprint difference
+                # alone must not escalate it into a silent re-embed (2134z).
+                if (_value or "").split("@", 1)[0] != _expected_model:
+                    _stale_model_layers.append(_layer)
+                continue
             _fingerprint_stale = (
                 _model_set_fingerprint_from_version(_value)
                 != _identity_fingerprint_for_class(
@@ -4616,6 +4641,11 @@ def _build_index_locked(
             content = "all"
             build_docs = True
             build_code = True
+            if requested_content == "graph" and not explicitly_full:
+                # The graph-only exemption ends once the build is widened to embed.
+                refusal = _implicit_precision_refusal(index_dir, files)
+                if refusal is not None:
+                    return refusal
     # chunker_versions tracks per-content-layer chunker version so that a
     # docs-only update does not falsely stamp the code layer as current.
     old_chunker_versions: dict[str, str] = meta.get("chunker_versions", {})

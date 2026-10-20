@@ -2485,6 +2485,7 @@ class RenderGitignoreBlockTests(unittest.TestCase):
         ".wavefoundry/guard-overrides.json",
         ".wavefoundry/upgrade-assets/",
         ".wavefoundry/framework.rollback-*/",
+        ".wavefoundry/framework/BRIDGE-ROLLBACK.json",
         "/wavefoundry-*.zip",
     )
 

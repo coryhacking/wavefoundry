@@ -2169,12 +2169,17 @@ class ChangePromptSkillAndContractTests(unittest.TestCase):
     def test_close_change_states_the_implemented_wf_close_change_contract(self) -> None:
         # Seed text is literal; the template and rendered prompt carry each
         # clause in the profile's nouns and names (change 2134q).
+        # The closable-state list is checked literally on the seed only; the
+        # template and rendered prompt must name exactly the statuses the code
+        # closes (change 2134w X1), since a distribution may narrow that rule.
+        from wf_server import server_impl as srv
+
+        closable_list = "(`ready`, `active`, `review` or `implemented`)"
         clauses = (
             "wf_close_change",
             "(`active` or `implementing`)",
             "admitted to that {wave}",
             "{change} doc exists and is readable",
-            "(`ready`, `active`, `review` or `implemented`)",
             "agrees between the {wave} record and the {change} doc",
             "silent `[ ]` AC or task",
             "`Depends On:`",
@@ -2188,6 +2193,28 @@ class ChangePromptSkillAndContractTests(unittest.TestCase):
             for clause in clauses:
                 with self.subTest(source=name, clause=clause):
                     assert_clause(self, clause, text, seed=name == "seed")
+            with self.subTest(source=name, clause="closable statuses"):
+                if name == "seed":
+                    self.assertIn(closable_list, text)
+                else:
+                    self.assertEqual(self._closable_statuses_named(text), set(srv._close_change_closable_statuses()))
+
+    @staticmethod
+    def _closable_statuses_named(text: str) -> set[str]:
+        """Backticked statuses inside the ``closable (...)`` parenthetical of
+        the closable-states list item, with hard-wrapped lines joined first."""
+        items: list[str] = []
+        for line in text.splitlines():
+            if re.match(r"\s*(?:\d+\.|[-*])\s", line) or not line.strip() or not items:
+                items.append(line.strip())
+            else:
+                items[-1] += " " + line.strip()
+        item = next((entry for entry in items if "closable (" in entry), None)
+        if item is None:
+            raise AssertionError("no closable-states line ('closable (') found")
+        start = item.index("closable (") + len("closable (")
+        end = item.index(")", start)
+        return set(re.findall(r"`([^`]+)`", item[start:end]))
 
     def test_close_wave_item_one_accepts_implemented_and_names_close_change_optional(self) -> None:
         repo = PROJECT_ROOT.parent
