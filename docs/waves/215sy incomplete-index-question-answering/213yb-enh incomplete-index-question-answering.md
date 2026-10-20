@@ -111,4 +111,4 @@ Update `docs/architecture/chunking-and-indexing-pipeline.md` for advisory partia
 
 ## Session Handoff
 
-Planned only. Readiness and implementation are pending. No review approval or completed-build claim is inferred.
+Implemented, delivery-reviewed and closed 2026-10-19 on operator approval; committed and pushed as `26786c70`.

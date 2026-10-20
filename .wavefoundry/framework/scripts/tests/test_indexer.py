@@ -3229,6 +3229,37 @@ class ExplicitPrecisionRebuildTests(unittest.TestCase):
             self.assertTrue(self.calls, "a model-name change must still widen and re-embed")
             self.assertIn("fixture-renamed-docs", _read_meta_store(self.index_dir)["model_versions"]["docs"])
 
+    def test_graph_only_unprovenanced_escalation_keeps_the_guard(self):
+        # 216g6: the second re-guard site. A completed store whose docs rows
+        # were removed while `content` still lists docs passes
+        # check_connection, but its docs layer has no recorded model, so a
+        # graph-only build escalates to all layers. The code layer is recorded
+        # full while int8 is predicted: the re-guard after the escalation
+        # must refuse before any embedder is built.
+        self._seed("full")
+        import sqlite_runtime
+        conn = sqlite_runtime.connect(index_paths.runtime_database_path(self.index_dir))
+        try:
+            conn.execute("DELETE FROM vectors_docs")
+            conn.execute("DELETE FROM chunks_docs")
+        finally:
+            conn.close()
+        meta = _read_meta_store(self.index_dir)
+        self.assertIn("docs", meta["content"])
+        meta["model_versions"].pop("docs")
+        _seed_meta_store(self.index_dir, meta)  # explicit damaged-provenance variant of a real built index
+        recorded = _read_meta_store(self.index_dir)["model_versions"]
+        self.assertNotIn("docs", recorded)
+        self.assertEqual(recorded["code"].split("@")[1], "full")
+        refused, factory, resolve, err = self._graph_build("int8")
+        self.assertIn("escalating", err)
+        self.assertTrue(refused.get("failed"), refused)
+        self.assertIn("Implicit precision conversion refused", refused["failure"])
+        factory.assert_not_called()
+        resolve.assert_not_called()
+        self.assertEqual(self.calls, [])
+        self.assertEqual(_read_meta_store(self.index_dir)["model_versions"], recorded)
+
     def test_indexer_cli_returns_failure_from_real_preflight(self):
         self._seed()
         before = self._snapshot()

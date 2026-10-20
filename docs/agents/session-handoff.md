@@ -8,11 +8,11 @@ Last verified: 2026-10-19
 
 **Active wave:** *(none)*
 
-**Last closed waves:** 2124l, 2136j, 2136r and 2136s, closed 2026-10-19 on explicit operator approval. Delivered lifecycle intent, journal-alias retirement, workflow guidance/host controls and the guide reduction with all rules retained. Every AC/task and required review approval is complete. Both edit gates are closed.
+**Last closed waves:** 2136y, 2136z and 215sy, closed 2026-10-19 on explicit operator approval and committed and pushed as `26786c70`. Delivered distribution test portability and shipped-guidance corrections (2136y), bridge rollback record cleanup, graph-only precision handling and the `WAVEFOUNDRY_NO_STARTUP_INSTALL` opt-out (2136z), and question answering from stored rows during an index build (215sy). Every AC/task and required review approval is complete. Both edit gates are closed.
 
-**Validation:** Matching current green receipt covers 11,914 tests; full docs validation passed. This includes concurrent local setup-readiness work, which remains uncommitted separately. The four-wave implementation also passed its earlier 11,911-test run. Durable outcomes and evidence live in the four closed wave records and ledgers; the required rule census is retained, with routine reports/probes outside the repository.
+**Validation:** Full suite green with a current receipt covering 11,975 tests; full docs validation passed. Durable outcomes and evidence live in the three closed wave records and ledgers.
 
-**Finalization:** Operator authorized closure and commit of these four waves, without push or release. Commit only their scope; preserve concurrent 212yk and newly planned 212ym. No new memory candidate warranted duplication of canonical guidance and retained evidence.
+**Follow-up:** a small wave adds a test for the 2134z precision re-guard after the unprovenanced-layer escalation and rewords the `.wavefoundry/README.md` diagrams that still name renameable shortcuts. The Waveforge reply on the 2134w/2134x note is still owed.
 
 ## Open questions / Deferred decisions
 

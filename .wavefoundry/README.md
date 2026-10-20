@@ -32,13 +32,13 @@ The Wave Framework addresses this by giving agents a persistent operating surfac
           │
           ▼
   ┌────────────────────┐
-  │   Plan change(s)   │  For each change: author a change doc with
+  │        Plan        │  For each change: author a change doc with
   │                    │  WHY, WHAT, ACs, RISKS. Lives in docs/plans/.
   └─────────┬──────────┘
             │  Plan one change or bundle compatible changes together
             ▼
   ┌────────────────────┐
-  │    Create wave     │  Open a delivery unit. Admit one or more
+  │       Create       │  Open a delivery unit. Admit one or more
   │                    │  change docs. Wave gets an ID (e.g. 12ecs).
   │  Change A ──┐      │  Changes with compatible assumptions and
   │  Change B ──┤ wave │  interfaces can share a single wave.
@@ -47,14 +47,14 @@ The Wave Framework addresses this by giving agents a persistent operating surfac
             │
             ▼
   ┌────────────────────┐
-  │    Prepare wave    │  Readiness gate runs automatically.
+  │      Prepare       │  Readiness gate runs automatically.
   │                    │  Verifies all changes are ready, deps are
   │                    │  stable, no blocking assumptions.
   └─────────┬──────────┘
             │  Gate passes? ──► No ──► Fix blockers, re-prepare
             ▼
   ┌────────────────────────────────────────────────────────────┐
-  │                     Implement wave                          │
+  │                     Implement                               │
   │                                                             │
   │  Coordinator builds a dependency graph across changes:      │
   │                                                             │
@@ -75,7 +75,7 @@ The Wave Framework addresses this by giving agents a persistent operating surfac
             │
             ▼
   ┌────────────────────┐
-  │    Review wave     │  Run required reviewer lanes across ALL
+  │       Review       │  Run required reviewer lanes across ALL
   │                    │  changes in the wave:
   │                    │  • Computational sensors
   │                    │  • Security reviewer
@@ -86,7 +86,7 @@ The Wave Framework addresses this by giving agents a persistent operating surfac
             │  All lanes recorded? ──► No ──► Address findings
             ▼
   ┌────────────────────┐
-  │    Close wave      │  Server enforces: operator signoff + all
+  │       Close        │  Server enforces: operator signoff + all
   │                    │  required lane signoffs must be recorded.
   │                    │  Disposition of every change is explicit:
   │                    │  complete / deferred / moved / retried.
@@ -129,7 +129,7 @@ installs and protocol-2 upgrades extract that package through `Upgrade Wavefound
 A *wave* is the delivery unit. Work is never planned directly into production — it is first authored as a change document, admitted into a wave, and then implemented through the wave lifecycle. This keeps scope explicit, makes handoffs durable, and gives every closed wave a permanent record.
 
 ```
-Plan change(s) → Create wave → Add changes → Prepare wave → Implement → Review → Close wave
+Plan → Create → Admit → Prepare → Implement → Review → Close
 ```
 
 **A wave can contain one change or many.** A single bug fix is a wave. A coordinated feature spanning data model, API, and UI is also a wave — the three changes are admitted together, their dependencies are declared, and the coordinator sequences their execution. What makes them a wave is that they share compatible assumptions and can be reviewed and closed as a unit.
@@ -290,13 +290,16 @@ wf_help()           ← Full shortcut phrase table
 ### Opening a wave
 
 ```
-Plan change           ← Author a change doc and plan the work
-Create wave           ← Open a delivery unit and admit the change
-Prepare wave          ← Run readiness gate before touching code
-Implement wave        ← Execute admitted changes
-Review wave           ← Run required reviewer lanes
-Close wave            ← Seal with operator signoff
+Plan       ← Author a change doc and plan the work
+Create     ← Open a delivery unit
+Admit      ← Admit the change into the wave
+Prepare    ← Run readiness gate before touching code
+Implement  ← Execute admitted changes
+Review     ← Run required reviewer lanes
+Close      ← Seal with operator signoff
 ```
+
+The shortcut phrase for each stage is listed in `docs/prompts/index.md`.
 
 ---
 
