@@ -3224,11 +3224,20 @@ class MemoryProposeTests(_MemoryCase):
             import mcp_tool_extensions
             replaced = mcp_tool_extensions.replacement_targets().get("wf_close_wave")
             close = server._tool_manager._tools[replaced[1]["alias_for_core"] if replaced else "wf_close_wave"]
+            # Wave 216ga (216g9): an override has its own close rules, so the
+            # core gate is reached through the core response function.
+            overridden = "wf_close_wave" in sys.modules["mcp_tool_extensions"].override_targets()
+
+            def dry_close():
+                if overridden:
+                    return self.srv.wf_close_wave_response(self.root, "1aaaa", mode="dry_run")
+                return asyncio.run(close.run({"wave_id": "1aaaa", "mode": "dry_run"}))
+
             with patch.object(self.srv, "run_validate", return_value={"passed": True, "errors": [], "warnings": []}):
                 for disappeared in (False, True):
                     if disappeared:
                         (self.root / "src/a.py").unlink()
-                    result = asyncio.run(close.run({"wave_id": "1aaaa", "mode": "dry_run"}))
+                    result = dry_close()
                     pending = [item for item in result["diagnostics"]
                                if item["code"] == "memory_validation_required"]
                     self.assertEqual(len(pending), 1, result)
@@ -3243,7 +3252,7 @@ class MemoryProposeTests(_MemoryCase):
                     "memory_id": "mem-manual", "status": "rejected",
                 }))
                 self.assertEqual(validated["status"], "ok", validated)
-                result = asyncio.run(close.run({"wave_id": "1aaaa", "mode": "dry_run"}))
+                result = dry_close()
                 self.assertNotIn("memory_validation_required", [item["code"] for item in result["diagnostics"]])
             self.assertEqual(active_path.read_bytes(), original_active)
 

@@ -2196,6 +2196,10 @@ class ChangePromptSkillAndContractTests(unittest.TestCase):
             with self.subTest(source=name, clause="closable statuses"):
                 if name == "seed":
                     self.assertIn(closable_list, text)
+                elif name == "rendered" and "wf_close_change" in sys.modules["mcp_tool_extensions"].override_targets():
+                    # Wave 216ga (216g9): an overriding distribution's prompt
+                    # states its own close rule, not the core one.
+                    self.skipTest("wf_close_change is overridden; the rendered prompt states the override's rule")
                 else:
                     self.assertEqual(self._closable_statuses_named(text), set(srv._close_change_closable_statuses()))
 

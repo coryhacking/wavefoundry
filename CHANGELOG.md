@@ -6,6 +6,13 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Removing a change from a wave (`wf_remove_change`) now also removes the `Depends On:` lines written under that change's entry. Before, they stayed behind and attached to the entry above, which docs-lint then reported or read as a dependency that entry never had. Lines placed outside the canonical shape (indented, or after a blank line) are left as before. Same on Windows, macOS, Linux and WSL2. Wave 216ga / 216g8.
+- Three framework tests now hold on a distribution that overrides the tool they drive. The close-change prompt test skips only its rendered closable-statuses check when `wf_close_change` is overridden, since that prompt states the override's rule; the memory-gate close test and the operational-evidence test reach the core `wf_close_wave_response` and `wf_create_wave_response` when `wf_close_wave` or `wf_create_wave` is overridden, so they keep checking core behaviour. With no overrides declared, nothing changes. Test only; same on Windows, macOS, Linux and WSL2. Wave 216ga / 216g9.
+
 ## [1.33.0] - 2026-10-19
 
 ### Changed

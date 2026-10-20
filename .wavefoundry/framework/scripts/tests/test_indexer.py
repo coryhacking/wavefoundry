@@ -9646,8 +9646,13 @@ class OperationalEvidencePolicyTests(_EpochBuildCase):
              patch.object(srv, "_attach_lint_to_response", side_effect=lambda envelope, *a: envelope):
             mcp = runner.build_server(self.root)
             tools = mcp._tool_manager._tools
-            created = asyncio.run(tools["wf_create_wave"].run({"slug": "retained-proof", "parent": "group",
-                "mode": "create"}))
+            # Wave 216ga (216g9): an override may refuse a parent; the fixture
+            # wave is then made through the core response function.
+            if "wf_create_wave" in sys.modules["mcp_tool_extensions"].override_targets():
+                created = srv.wf_create_wave_response(self.root, "retained-proof", "create", parent="group")
+            else:
+                created = asyncio.run(tools["wf_create_wave"].run({"slug": "retained-proof", "parent": "group",
+                    "mode": "create"}))
             self.assertEqual(created["status"], "ok", created)
             wave_id = created["data"]["wave_id"]
             event = asyncio.run(tools["wf_review_event"].run({

@@ -1340,6 +1340,40 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         self.assertFalse((_waves_dir(self.root) / "1200a test-wave" / "1200a-feat sample.md").exists())
         trigger.assert_called_once()
 
+    def test_remove_change_takes_its_depends_on_lines(self):
+        # Wave 216ga (216g8): the removed entry's `Depends On:` lines go with
+        # it, so they never attach to the entry above.
+        from wave_lint_lib.wave_validators import _parse_change_records
+        wave_md = _waves_dir(self.root) / "1200a test-wave" / vocabulary_profile.RECORD_FILENAME
+        head = _loc("# Wave Record\n") + _loc("wave-id: `1200a test-wave`\n") + "Status: planned\n" + _loc("\n## Changes\n\n")
+
+        def entry(change_id, depends=()):
+            text = _loc(f"Change ID: `{change_id}`\n") + _loc("Change Status: `planned`\n")
+            return text + "".join(f"Depends On: `{d}`\n" for d in depends)
+
+        a, b, c = "1200b-feat a", "1200c-feat b", "1200d-feat c"
+        cases = {
+            "middle": (entry(a) + "\n" + entry(b, [a]) + "\n" + entry(c, [a]) + "\n", b,
+                       entry(a) + "\n\n" + entry(c, [a]) + "\n", {a: [], c: [a]}),
+            "first": (entry(b, [a]) + "\n" + entry(a) + "\n", b, "\n" + entry(a) + "\n", {a: []}),
+            "last before a section": (entry(a) + "\n" + entry(b, [a, c]) + "\n## Participants\n\n- x\n", b,
+                                      entry(a) + "\n\n## Participants\n\n- x\n", {a: []}),
+            "last at end of file": (entry(a) + "\n" + entry(b, [a]).rstrip("\n"), b, entry(a) + "\n", {a: []}),
+            # Only the canonical column-0 run goes; an indented line stays as before.
+            "indented line stays": (entry(a) + "\n" + entry(b, [a]) + f"  Depends On: `{c}`\n\n", b,
+                                    entry(a) + "\n" + f"  Depends On: `{c}`\n\n", {a: [c]}),
+        }
+        for name, (changes, removed, expected, dependencies) in cases.items():
+            with self.subTest(case=name):
+                wave_md.write_text(head + changes, encoding="utf-8")
+                with patch.object(self.srv, "_trigger_background_index_refresh_for_paths"):
+                    result = self.srv.wf_remove_change_response(self.root, "1200a test-wave", removed, mode="create")
+                self.assertEqual(result["status"], "ok", result)
+                text = wave_md.read_text(encoding="utf-8")
+                self.assertEqual(text, head + expected)
+                records = {r.record_id: r.depends_on for r in _parse_change_records(text, vocabulary_profile.RECORD_FILENAME)}
+                self.assertEqual(records, dependencies)
+
     def test_wf_add_change_rejects_ambiguous_prefix(self):
         _make_repo(self.root, {
             "docs/plans/1200a-feat sample-two.md": (

@@ -8426,8 +8426,10 @@ def _broken_relative_links_after_relocation(doc_text: str) -> list[str]:
 
 
 def _change_block_pattern(change_id: str) -> re.Pattern[str]:
+    # Wave 216ga (216g8): the entry's column-0 `Depends On:` lines directly
+    # after the status line go with it ("Depends On" is a fixed label).
     return re.compile(
-        rf"\n?^{_vocab.MEMBER_ID_LABEL_RE}:\s+`{re.escape(change_id)}`\n(?:{_vocab.PREVIOUS_STATUS_LABEL_RE}:\s+`[^`]+`\n)?{_vocab.MEMBER_STATUS_LABEL_RE}:\s+`[^`]+`\n?",
+        rf"\n?^{_vocab.MEMBER_ID_LABEL_RE}:\s+`{re.escape(change_id)}`\n(?:{_vocab.PREVIOUS_STATUS_LABEL_RE}:\s+`[^`]+`\n)?{_vocab.MEMBER_STATUS_LABEL_RE}:\s+`[^`]+`(?:\nDepends On:[^\n]*)*\n?",
         re.MULTILINE,
     )
 
