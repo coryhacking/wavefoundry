@@ -6,7 +6,7 @@ Last verified: 2026-10-20
 
 ## Current Session
 
-**Active wave:** `215a9 distribution-followup-vocabulary-and-baseline-drift`, implemented and reviewed, still open. Changes 21511 and 21512 have every AC/task checked; readiness, six specialist delivery lanes and council approved. Three integration findings are repaired and independently reverified in cycle 1. Operator closure approval remains pending; no closure or commit was requested.
+**Active wave:** *(none)*
 
 **Delivered:** Profile-derived root bridge and wave scaffold nouns with default bytes preserved; explicit operator-instruction gates in close-change/package skills on all three hosts. Report-only lifecycle/plan baseline comparison, pre-extraction capture and version/pack-bound resume/cleanup replay. Destination templates are preserved. The checkpoint capture runs after existing package-identity refusal.
 

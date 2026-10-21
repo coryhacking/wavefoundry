@@ -1,7 +1,7 @@
 # Wave Record
 
 Owner: Engineering
-Status: implementing
+Status: closed
 Last verified: 2026-10-20
 review-evidence-source: events.jsonl
 
@@ -28,10 +28,16 @@ Change Status: `implemented`
 - Requested review lanes: code-reviewer, qa-reviewer, architecture-reviewer, security-reviewer, docs-contract-reviewer
 - Required review lanes: code-reviewer, qa-reviewer, architecture-reviewer, docs-contract-reviewer, release-reviewer, security-reviewer
 
+Completed At: 2026-10-20
+
 ## Wave Summary
 
-Both changes are implemented with every AC/task checked. Six specialist lanes and delivery council approved after three integration findings were repaired and independently reverified. Final canonical suite passed 12,005 tests across 203 files (12 existing skips); edit gates are closed. Wave remains open for operator review and closure.
+Wave `215a9` (Distribution Followup Vocabulary And Baseline Drift) delivered two changes: Profile Vocabulary and Operator-Gate Text in Rendered Surfaces and Report Lifecycle Baseline and Plan-Template Drift at Upgrade. Notable adjustments during implementation: Profile Vocabulary and Operator-Gate Text in Rendered Surfaces: Implemented profile-derived bridge/scaffold nouns and explicit operator gates; regenerated exactly the six close-change/package skills. Callable regex replacements preserve literal backslashes in renamed nouns.; Report Lifecycle Baseline and Plan-Template Drift at Upgrade: Readback: report differences for eight lifecycle baselines plus the resolved plan template, captured before extraction and replayed through resume/cleanup. AC-1–7 cover neutral states, unknown baseline, date/newline equality, preserved destinations and immutable evidence. Example: local template A with installed B and incoming C reports differs from previous without inferring customization. Upgrade runner, incoming hooks, shared renderer transform, tests, upgrade seed and architecture flow are in scope; no automatic refresh or changed upgrade exit status.
 
+**Changes delivered:**
+
+- **Profile Vocabulary and Operator-Gate Text in Rendered Surfaces** (`21511-enh profile-vocabulary-and-operator-gate-text`) — 5 ACs completed. Key decisions: Use existing profile helpers for nouns and add body-text gates on all hosts; Keep `ready` closable; state the contract in skill text
+- **Report Lifecycle Baseline and Plan-Template Drift at Upgrade** (`21512-enh lifecycle-baseline-drift-report`) — 7 ACs completed. Key decisions: Report "matches/differs from previous template", never "customised"; Report-only preflight comparison against the on-disk previous templates
 ## Watchpoints
 
 - Watchpoint: serialize writes to render_agent_surfaces.py; integrate both changes before final qualification.
@@ -65,7 +71,7 @@ Both changes are implemented with every AC/task checked. Six specialist lanes an
 | docs-contract-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | release-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | security-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
-| operator-signoff | withheld | repaired findings require fresh approval: 215a9-baseline-checkpoint-fixture-prerequisite, 215a9-rejected-pack-mutates-baseline-checkpoint, 215a9-timed-call-census-owner-stale | record a fresh independent approval for operator-signoff |
+| operator-signoff | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 <!-- wave:review-status end -->
 
 - operator-signoff: <approved when operator confirms closure>
@@ -99,10 +105,10 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 | --- | ---: | ---: |
 | plan | 285 | 3,366,993 |
 | implement | 165 | 1,398,734 |
-| review | 119 | 1,481,485 |
-| **Total** | **569** | **6,247,212** |
+| review | 165 | 1,966,175 |
+| **Total** | **615** | **6,731,902** |
 
-<!-- wave:context-efficiency-state {"generation":397,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":165,"content_source_credit":1798737,"derived_artifact_credit":1884,"direct_net":1398734,"estimated_tokens_saved":1398734,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":14887,"response_debit":391622,"source_credit_count":56,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":4622},"plan":{"calls":285,"content_source_credit":4075306,"derived_artifact_credit":4235,"direct_net":3366993,"estimated_tokens_saved":3366993,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":16105,"response_debit":703981,"source_credit_count":122,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":7538},"review":{"calls":119,"content_source_credit":1790737,"derived_artifact_credit":1160,"direct_net":1481485,"estimated_tokens_saved":1481485,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":37150,"response_debit":273262,"source_credit_count":72,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":569,"content_source_credit":7664780,"derived_artifact_credit":7279,"direct_net":6247212,"estimated_tokens_saved":6247212,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":68142,"response_debit":1368865,"source_credit_count":250,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":12160},"wave_id":"215a9 distribution-followup-vocabulary-and-baseline-drift"} -->
+<!-- wave:context-efficiency-state {"generation":410,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":165,"content_source_credit":1798737,"derived_artifact_credit":1884,"direct_net":1398734,"estimated_tokens_saved":1398734,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":14887,"response_debit":391622,"source_credit_count":56,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":4622},"plan":{"calls":285,"content_source_credit":4075306,"derived_artifact_credit":4235,"direct_net":3366993,"estimated_tokens_saved":3366993,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":16105,"response_debit":703981,"source_credit_count":122,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":7538},"review":{"calls":165,"content_source_credit":2422750,"derived_artifact_credit":1456,"direct_net":1966175,"estimated_tokens_saved":1966175,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":39147,"response_debit":422098,"source_credit_count":84,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3214}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":615,"content_source_credit":8296793,"derived_artifact_credit":7575,"direct_net":6731902,"estimated_tokens_saved":6731902,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":70139,"response_debit":1517701,"source_credit_count":262,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":15374},"wave_id":"215a9 distribution-followup-vocabulary-and-baseline-drift"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided
