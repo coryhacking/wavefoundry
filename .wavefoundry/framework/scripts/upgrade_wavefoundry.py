@@ -1222,6 +1222,10 @@ def _verify_chunker_rebuild_succeeded(root: Path) -> bool:
 
 # ── Extension hook model (12r1y) ─────────────────────────────────────────────
 
+# Current-run preview facts only; durable replay belongs to the upgrade lock.
+_LIFECYCLE_BASELINE_PLAN_FINDINGS: dict[tuple[str, str], list[dict]] = {}
+
+
 class UpgradeContext:
     """Context passed to every extension hook function.
 
@@ -1269,6 +1273,8 @@ class UpgradeContext:
         # preview-log instead of the action log. Propagated from the upgrade
         # orchestrator's --dry-run flag.
         self.dry_run = dry_run
+        self.lifecycle_baseline_findings = _LIFECYCLE_BASELINE_PLAN_FINDINGS.get((str(root), str(zip_path)))
+        self.lifecycle_baseline_reported = self.lifecycle_baseline_findings is not None
         # Wave 1p3dk / 1p3ho: chunker-version transition tracking. Populated
         # before extract (pre_extract_chunker_versions) and after extract
         # (chunker_version_bumped, chunker_version_transition) so Phase 4 can
@@ -1694,6 +1700,7 @@ def phase_dry_run(root: Path, *, explicit_pack: Path | None = None,
         ran_index_rebuild=False,
         failed_phase=None,
         reconciliation=[],
+        lifecycle_baseline_drift=_LIFECYCLE_BASELINE_PLAN_FINDINGS.get((str(root), str(zip_path))),
         retired_model_cleanup=_retired_model_cleanup_result("dry_run"),
     )
     dry_summary[SUMMARY_SCHEMA_KEY] = SUMMARY_SCHEMA_VERSION
@@ -1977,6 +1984,15 @@ def _print_change_plan(
             _log(diff_text.rstrip())
         _log("\n── End Seed Diffs ──────────────────────────────────────────────────────")
         _log("")
+    if zip_path:
+        extension = _load_extension_module(zip_path)
+        report = getattr(extension, "lifecycle_baseline_report", None)
+        if callable(report):
+            preview = UpgradeContext(root, from_version, to_version, zip_path, True, dry_run=True)
+            preview.lifecycle_baseline_findings = None
+            preview.lifecycle_baseline_reported = False
+            _LIFECYCLE_BASELINE_PLAN_FINDINGS[(str(root), str(zip_path))] = report(preview)
+
 
 
 # ── Phase 1 — Surface rendering ───────────────────────────────────────────────
@@ -3623,6 +3639,7 @@ def phase_cleanup(
     # consent line from the human summary. Adopt the record the rendering process
     # persisted (read BEFORE the lock is removed below). A dict is the only shape the
     # summary builder accepts; anything else degrades to "no claim".
+    _cl_baseline_drift = _lifecycle_baseline_findings(root)
     _cl_permissions = lock_state.get(_PERMISSIONS_DELTA_LOCK_FIELD)
     if not isinstance(_cl_permissions, dict):
         _cl_permissions = None
@@ -3668,6 +3685,7 @@ def phase_cleanup(
             failed_phase=failed_phase,
             root=root,
             review_sidecar_cleanup=review_sidecar_cleanup,
+            lifecycle_baseline_drift=_cl_baseline_drift,
             permissions_delta=_cl_permissions,
             index_update_failed=index_update_failed,
             retired_model_cleanup=retired_model_cleanup,
@@ -3794,6 +3812,7 @@ def phase_cleanup(
             failed_phase=failed_phase,
             root=root,
             review_sidecar_cleanup=review_sidecar_cleanup,
+            lifecycle_baseline_drift=_cl_baseline_drift,
             permissions_delta=_cl_permissions,
             index_update_failed=index_update_failed,
             retired_model_cleanup=retired_model_cleanup,
@@ -3806,6 +3825,7 @@ def phase_cleanup(
         summary = _build_upgrade_summary(
             from_version, to_version, zip_path, pruned_count, ran_index_rebuild,
             failed_phase, [], review_sidecar_cleanup=review_sidecar_cleanup,
+            lifecycle_baseline_drift=_cl_baseline_drift,
             permissions_delta=_cl_permissions, index_update_failed=index_update_failed,
             retired_model_cleanup=retired_model_cleanup, setup_assessment=setup_assessment,
             dependency_provisioning_failed=dependency_provisioning_failed)
@@ -4467,6 +4487,21 @@ def _historical_memory_report(root: Path) -> dict:
     return memory_backfill.historical_memory_report(root)
 
 
+def _lifecycle_baseline_findings(root: Path | None) -> list[dict]:
+    """Read captured facts only; never infer previous templates after extraction."""
+    if root is None:
+        return []
+    import upgrade_lib
+    state = upgrade_lib.read_upgrade_lock(root) or {}
+    findings = state.get("lifecycle_baseline_drift")
+    if isinstance(findings, list):
+        return findings
+    if state:
+        return [{"channel": "lifecycle_baseline_drift", "file": "",
+                 "detail": "baseline_unknown: no pre-extraction comparison captured; previous-template evidence unavailable"}]
+    return []
+
+
 def _build_upgrade_summary(
     from_version: str | None,
     to_version: str | None,
@@ -4486,6 +4521,7 @@ def _build_upgrade_summary(
     setup_assessment: dict | None = None,
     dependency_provisioning_failed: bool = False,
     historical_memory: dict | None = None,
+    lifecycle_baseline_drift: list[dict] | None = None,
 ) -> dict:
     """Wave 1p8eu — assemble the operator summary ONCE as a dict.
 
@@ -4567,6 +4603,7 @@ def _build_upgrade_summary(
         # this summary. NOT self-healing — a malformed marker pair stays
         # malformed until an operator repairs it.
         "renderer_warnings": renderer_warnings or [],
+        "lifecycle_baseline_drift": lifecycle_baseline_drift or [],
         # 1u2az/1u2b0: this upgrade's rendered-permissions delta (the operator
         # consent point), FLATTENED so the response bounder pages the rule lists
         # instead of dropping a nested dict as one over-cap scalar.
@@ -4665,6 +4702,7 @@ def _emit_primary_phase_summary(
     disposition_diagnostics = report["disposition_diagnostics"]
     renderer_warnings = report["renderer_warnings"]
     summary = _build_upgrade_summary(
+        lifecycle_baseline_drift=_lifecycle_baseline_findings(root),
         historical_memory=_historical_memory_report(root),
         from_version=from_version,
         to_version=to_version,
@@ -4911,6 +4949,7 @@ def _emit_delegated_summary(root: Path) -> int:
     disposition_diagnostics = report["disposition_diagnostics"]
     renderer_warnings = report["renderer_warnings"]
     summary = _build_upgrade_summary(
+        lifecycle_baseline_drift=_lifecycle_baseline_findings(root),
         historical_memory=_historical_memory_report(root),
         from_version=from_version if isinstance(from_version, str) else None,
         to_version=to_version if isinstance(to_version, str) else None,
@@ -4967,6 +5006,7 @@ def _print_operator_summary(
     retired_model_cleanup: dict | None = None,
     setup_assessment: dict | None = None,
     dependency_provisioning_failed: bool = False,
+    lifecycle_baseline_drift: list[dict] | None = None,
 ) -> None:
     # Wave 1p8et/1p8kz: run the shipped retired-surface reconciliation scan on EVERY upgrade (operator
     # direction — a patch or same-version build-successor can change/retire a surface too), report-only
@@ -4979,6 +5019,7 @@ def _print_operator_summary(
     disposition_diagnostics = report["disposition_diagnostics"]
     renderer_warnings = report["renderer_warnings"]
     summary = _build_upgrade_summary(
+        lifecycle_baseline_drift=(lifecycle_baseline_drift if lifecycle_baseline_drift is not None else _lifecycle_baseline_findings(root)),
         historical_memory=_historical_memory_report(root),
         from_version=from_version,
         to_version=to_version,
@@ -5109,6 +5150,10 @@ def _print_operator_summary(
         _log("  Renderer warnings (follow the recovery guidance for each item):")
         for warning in renderer_warnings:
             _log(f"    {warning.get('detail') or warning}")
+    if summary["lifecycle_baseline_drift"]:
+        _log("  Lifecycle baseline drift (report only; project copies preserved):")
+        for finding in summary["lifecycle_baseline_drift"]:
+            _log("    " + json.dumps(finding, ensure_ascii=True))
     # Wave 1vgep: this line already acts on the upgrade that DELIVERS the audit, because
     # phase_cleanup runs in the standalone --cleanup process from the freshly extracted
     # runner (see _new_code_upgrade_backstop). It is the advisory's single owner; a

@@ -177,8 +177,10 @@ def write_upgrade_lock(
     prior_pack_sha = prior.get("graph_builder_doc_claim_pack_sha256")
     prior_scalar_snapshot = prior.get("docs_scalar_claims_pre_extract")
     prior_scalar_pack_sha = prior.get("docs_scalar_claims_pack_sha256")
+    prior_baseline = prior.get("lifecycle_baseline_drift")
+    prior_baseline_pack_sha = prior.get("lifecycle_baseline_drift_pack_sha256")
     requested_pack_sha = ""
-    pack_hint = prior_pack_sha or prior_scalar_pack_sha
+    pack_hint = prior_pack_sha or prior_scalar_pack_sha or prior_baseline_pack_sha
     if isinstance(pack_hint, str) and pack_hint and zip_path is not None:
         digest = hashlib.sha256()
         try:
@@ -208,6 +210,17 @@ def write_upgrade_lock(
     ):
         data["docs_scalar_claims_pre_extract"] = prior_scalar_snapshot
         data["docs_scalar_claims_pack_sha256"] = prior_scalar_pack_sha
+    if (
+        isinstance(prior_baseline, list)
+        and prior.get("to_version") == to_version
+        and isinstance(prior_baseline_pack_sha, str)
+        and prior_baseline_pack_sha
+        and prior_baseline_pack_sha == requested_pack_sha
+    ):
+        # An empty list is captured evidence too. Never re-derive the previous
+        # templates from the already-extracted framework during a full retry.
+        data["lifecycle_baseline_drift"] = prior_baseline
+        data["lifecycle_baseline_drift_pack_sha256"] = prior_baseline_pack_sha
     _durable_json_replace(p, data)
     return p
 

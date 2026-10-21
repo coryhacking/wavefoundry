@@ -6,6 +6,16 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Upgrade plans and machine-readable summaries report lifecycle prompt and plan-template drift against the previous and incoming shipped templates. Findings distinguish upstream changes from differences in the repository copy without attributing those differences to local edits. The report preserves destination files and captures its evidence before extraction for reuse during resume and cleanup. Wave 215a9 / 21512.
+
+### Fixed
+
+- The root agent bridge and new-wave placeholders use the vocabulary profile's tier nouns; default-profile output is unchanged. Close-change and package skills now require an explicit operator instruction for closure and for each build, tag push or publish action on every skill host. The close-change skill also explains that the tool permits closing from `ready` without verifying review evidence, while required review must still be completed. Wave 215a9 / 21511.
+
 ## [1.34.0] - 2026-10-20
 
 ### Added

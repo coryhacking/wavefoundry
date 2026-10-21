@@ -2249,6 +2249,33 @@ class SkillRegistryTests(unittest.TestCase):
         "wf-techdocs": "docs/prompts/refresh-techdocs.prompt.md",
     }
 
+    def test_operator_instruction_gates_render_on_each_host(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._repo(root)
+            ras.render_skills(root)
+            by_skill = {vp.skill_name("close-change"): [], "wf-package": []}
+            for host in (".claude", ".codex", ".agents"):
+                for name, bodies in by_skill.items():
+                    text = (root / host / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
+                    head, body = text[4:].split("\n---\n", 1)
+                    self.assertEqual("disable-model-invocation: true" in head, host == ".claude")
+                    self.assertIn("explicit", body)
+                    self.assertIn("operator instruction" if name == "wf-package" else "operator explicitly instructs", body)
+                    self.assertIn("in the current request", body)
+                    bodies.append(body)
+                    if name == "wf-package":
+                        self.assertIn("building the pack, pushing tags and publishing", body)
+                        self.assertIn("perform each only", body)
+                    else:
+                        self.assertIn('Call `mode="create"` only when', body)
+                        self.assertIn("run `dry_run` (the default) freely", body)
+                        self.assertIn("closure is never inferred from adjacent actions", body)
+                        self.assertIn("The tool permits closure from `ready` and does not verify review evidence; required review must still be completed before closure.", body)
+                        self.assertNotIn("then `create` once the dry run is clean", body)
+            for name, bodies in by_skill.items():
+                self.assertEqual(len(set(bodies)), 1, name)
+
     def _repo(
         self,
         root: Path,

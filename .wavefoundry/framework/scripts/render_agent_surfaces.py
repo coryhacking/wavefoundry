@@ -76,8 +76,8 @@ ROOT_BRIDGE_BLOCK = (
     f"{ROOT_BRIDGE_MARKER_BEGIN}\n"
     "@AGENTS.md\n"
     # Wave 2136r (change 2136m): Claude re-reads the root CLAUDE.md after
-    # compaction. This text is a re.sub replacement, so it must hold no backslash.
-    "When compacting, preserve the open wave and change ids, the operator's scoped authorizations and decisions still pending, the files modified, and the exact verification commands with their last results; a summary never records an approval the operator did not give. After resuming, recheck mutable state such as open gates and wave status with the tools instead of trusting the summary.\n"
+    # compaction. Callable replacements below preserve profile nouns literally.
+    f"When compacting, preserve the open {vocabulary_profile.tier_noun('container')} and {vocabulary_profile.tier_noun('item')} ids, the operator's scoped authorizations and decisions still pending, the files modified, and the exact verification commands with their last results; a summary never records an approval the operator did not give. After resuming, recheck mutable state such as open gates and {vocabulary_profile.tier_noun('container')} status with the tools instead of trusting the summary.\n"
     f"{ROOT_BRIDGE_MARKER_END}"
 )
 # The legacy prose pointer this bridge replaces.
@@ -761,7 +761,9 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
             f"Close {_vp_change(article=True)}",
             _vp_doc("close-change"),
             (
-                "Prefer the `wf_close_change` MCP tool; run `dry_run` (the default) first, then `create` once the dry run is clean.",
+                "Prefer the `wf_close_change` MCP tool; run `dry_run` (the default) freely to validate close readiness.",
+                f'Gate reminder: closure is operator-owned. Call `mode="create"` only when the operator explicitly instructs closing that {_vp_change()} in the current request; closure is never inferred from adjacent actions such as "run the review" or "fix the tests".',
+                "The tool permits closure from `ready` and does not verify review evidence; required review must still be completed before closure.",
                 f"Run it after {_vp_shortcut('review-wave')} has cleared the {_vp_change()}: a completed {_vp_change()} cannot be reopened, and the tool records no review evidence.",
                 f"{_vp_shortcut('close-wave')} (`{_vp_skill('close-wave')}`) remains the only {_vp_wave()} close, whatever the {_vp_change()} count.",
             ),
@@ -846,7 +848,7 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
             "docs/prompts/package-wavefoundry.prompt.md",
             (
                 "Prefer `--release` for a published release; a bare `--version` build only packages. `build_pack.py` hard-fails without a matching `## [version]` CHANGELOG section, so write the changelog first.",
-                "Gate reminder: publishing a release is operator-owned; never push tags or publish without explicit operator instruction in the current session.",
+                "Gate reminder: building the pack, pushing tags and publishing are operator-owned; perform each only on explicit operator instruction in the current request.",
                 "The ordered verification commands live in `docs/contributing/build-and-verification.md`.",
             ),
         ),
@@ -2016,7 +2018,7 @@ def patch_root_bridge(path: Path, *, root: Path) -> bool:
         re.DOTALL,
     )
     if bridge_re.search(text):
-        text = bridge_re.sub(ROOT_BRIDGE_BLOCK, text, count=1)
+        text = bridge_re.sub(lambda _match: ROOT_BRIDGE_BLOCK, text, count=1)
         if text != original:
             _write_repo_text_platform_newlines(root, path, text)
             return True
@@ -2024,7 +2026,7 @@ def patch_root_bridge(path: Path, *, root: Path) -> bool:
 
     # Replace the legacy prose pointer if present; otherwise insert after the H1.
     if _LEGACY_THIN_POINTER_RE.search(text):
-        text = _LEGACY_THIN_POINTER_RE.sub(ROOT_BRIDGE_BLOCK + "\n", text, count=1)
+        text = _LEGACY_THIN_POINTER_RE.sub(lambda _match: ROOT_BRIDGE_BLOCK + "\n", text, count=1)
     else:
         lines = text.splitlines(keepends=True)
         insert_at = 0
@@ -4264,6 +4266,82 @@ def review_protocol_carriers_skipped_by_render(repo_root: Path) -> list[str]:
     return list(dict.fromkeys(skipped))
 
 
+def materialize_baseline_template(template_name: str, content: str, generated_at: str) -> str:
+    """Apply the same install transform to both writes and drift comparisons."""
+    content = content.replace("{{generated_at}}", generated_at)
+    if template_name.endswith(".prompt.md"):
+        key = template_name.removesuffix(".prompt.md")
+        if key in vocabulary_profile.DEFAULT_PROMPT_NAMES:
+            content = vocabulary_profile.localize_prompt_template(key, content)
+        return content
+    return vocabulary_profile.localize_template(content)
+
+
+def lifecycle_baseline_drift(repo_root: Path, incoming: dict[str, str]) -> list[dict]:
+    """Compare project-owned copies without inferring their installation origin.
+
+    ``incoming`` maps install-relative template names to the incoming bytes
+    decoded as UTF-8. Previous templates are always read from the target.
+    """
+    findings = []
+    pairs = [(destination, "lifecycle-prompts/" + template)
+             for destination, template in LIFECYCLE_PROMPT_BASELINES]
+    pairs.extend(scaffold_baselines(repo_root))
+
+    def comparable(content):
+        content = _universal_newlines(content)
+        return re.sub(r"(?m)^(Last verified: )[0-9]{4}-[0-9]{2}-[0-9]{2}(?=\s*$)",
+                      r"\1{{generated_at}}", content)
+
+    for destination, template in pairs:
+        local_path = repo_root / destination
+        try:
+            local_path.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError:
+            findings.append({"channel": "lifecycle_baseline_drift", "file": destination,
+                             "detail": "baseline_unknown: local copy unavailable through contained read; comparison unavailable"})
+            continue
+        try:
+            local = comparable(_read_repo_text(repo_root, local_path))
+        except (OSError, UnicodeError, RuntimeError):
+            findings.append({"channel": "lifecycle_baseline_drift", "file": destination,
+                             "detail": "baseline_unknown: local copy unavailable through contained read; comparison unavailable"})
+            continue
+        source = incoming.get(template)
+        if source is None:
+            findings.append({"channel": "lifecycle_baseline_drift", "file": destination,
+                             "detail": "baseline_unknown: incoming template unavailable; comparison unavailable"})
+            continue
+        name = template.rsplit("/", 1)[-1]
+        current = comparable(materialize_baseline_template(name, source, "{{generated_at}}"))
+        incoming_matches = local == current
+        try:
+            previous_source = _read_repo_text(repo_root, repo_root / ".wavefoundry/framework/install" / template)
+        except (OSError, UnicodeError, RuntimeError):
+            state = "baseline_unknown"
+            explanation = "previous template unavailable; local copy " + ("matches" if incoming_matches else "differs from") + " incoming template"
+        else:
+            previous = comparable(materialize_baseline_template(name, previous_source, "{{generated_at}}"))
+            upstream_changed = comparable(previous_source) != comparable(source)
+            if incoming_matches:
+                if not upstream_changed:
+                    continue
+                state, explanation = "already_current", "local copy matches incoming template"
+            elif upstream_changed:
+                matches_previous = local == previous
+                state = "upstream_changed_local_" + ("matches_previous" if matches_previous else "differs_from_previous")
+                explanation = "local copy " + ("matches" if matches_previous else "differs from") + " previous template"
+            else:
+                state, explanation = "upstream_unchanged_local_differs", "local copy differs from previous template"
+            if local != previous:
+                explanation += "; difference may be a local edit or an earlier template update that was never applied"
+        findings.append({"channel": "lifecycle_baseline_drift", "file": destination,
+                         "detail": state + ": " + explanation})
+    return findings
+
+
 def reconcile_lifecycle_prompt_baselines(
     repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()
 ) -> list[str]:
@@ -4309,12 +4387,7 @@ def reconcile_lifecycle_prompt_baselines(
         # `Last verified: {{generated_at}}` placeholder so a freshly
         # materialized carrier satisfies `check_metadata` on the first
         # docs-lint pass; stamp it exactly as the scaffold baselines do.
-        content = _framework_read_text(template).replace("{{generated_at}}", today)
-        # Wave 1zyb4 (1zxnw): a mapped prompt's heading and Shortcut line take
-        # the profile's names; the identity under the default profile.
-        key = template_name.removesuffix(".prompt.md")
-        if key in vocabulary_profile.DEFAULT_PROMPT_NAMES:
-            content = vocabulary_profile.localize_prompt_template(key, content)
+        content = materialize_baseline_template(template_name, _framework_read_text(template), today)
         _write_review_carrier_text(path, content, root=repo_root)
         written.append(destination)
     return written
@@ -4351,10 +4424,7 @@ def reconcile_scaffold_baselines(repo_root: Path) -> list[str]:
         if path.is_file():
             continue
         template = _resolve_install_asset(repo_root, template_name)
-        content = _framework_read_text(template).replace("{{generated_at}}", today)
-        # Wave 1z8mm: the header labels follow the vocabulary profile; the
-        # identity under the default profile, so the baseline stays byte-identical.
-        content = vocabulary_profile.localize_template(content)
+        content = materialize_baseline_template(template_name, _framework_read_text(template), today)
         _write_review_carrier_text(path, content, root=repo_root)
         written.append(destination)
     return written

@@ -6,13 +6,15 @@ Last verified: 2026-10-20
 
 ## Current Session
 
-**Active wave:** *(none)*
+**Active wave:** `215a9 distribution-followup-vocabulary-and-baseline-drift`, implemented and reviewed, still open. Changes 21511 and 21512 have every AC/task checked; readiness, six specialist delivery lanes and council approved. Three integration findings are repaired and independently reverified in cycle 1. Operator closure approval remains pending; no closure or commit was requested.
 
-**Last closed waves:** 2136y, 2136z and 215sy, closed 2026-10-19 on explicit operator approval and committed and pushed as `26786c70`. Delivered distribution test portability and shipped-guidance corrections (2136y), bridge rollback record cleanup, graph-only precision handling and the `WAVEFOUNDRY_NO_STARTUP_INSTALL` opt-out (2136z), and question answering from stored rows during an index build (215sy). Every AC/task and required review approval is complete. Both edit gates are closed.
+**Delivered:** Profile-derived root bridge and wave scaffold nouns with default bytes preserved; explicit operator-instruction gates in close-change/package skills on all three hosts. Report-only lifecycle/plan baseline comparison, pre-extraction capture and version/pack-bound resume/cleanup replay. Destination templates are preserved. The checkpoint capture runs after existing package-identity refusal.
 
-**Validation:** Full suite green with a current receipt covering 11,975 tests; full docs validation passed. Durable outcomes and evidence live in the three closed wave records and ledgers.
+**Validation:** Final canonical suite passed 12,005 tests across 203 files, 12 existing skips, in 714.645 seconds and wrote the current receipt. Four formerly failing files pass after minimal source-order and fixture/census corrections. Targeted independent review and mutation controls passed. Final full docs validation passed with no errors or warnings. Both framework and seed edit gates are closed; no source changed after the green suite.
 
-**Follow-up:** a small wave adds a test for the 2134z precision re-guard after the unprovenanced-layer escalation and rewords the `.wavefoundry/README.md` diagrams that still name renameable shortcuts. The Waveforge reply on the 2134w/2134x note is still owed.
+**Next:** Operator reviews the diff and may explicitly request wave closure and a commit. No package, release, reply sending, setup or index rebuild ran. Setup previously reported `setup_inputs_changed`; loaded MCP code predates source edits, so use the normal reconnect guidance before relying on changed server behavior.
+
+**Compatibility limit:** Older installed runners expose the incoming dry-run text report; their old dry-run JSON schema is unchanged. New-runner dry runs and real delegated/cleanup summaries carry structured findings. No archived historical-runner end-to-end, downstream installation or native Windows qualification is claimed.
 
 ## Open questions / Deferred decisions
 

@@ -14,6 +14,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 TESTS_ROOT = Path(__file__).resolve().parent
 SCRIPTS_ROOT = TESTS_ROOT.parents[0]
@@ -146,6 +147,24 @@ class MapAreaContextPathTests(unittest.TestCase):
 
 
 class RootBridgeTests(unittest.TestCase):
+    def test_profile_backslashes_are_literal_on_both_replacement_paths(self) -> None:
+        # A declared noun can contain a backslash. Neither the marker refresh
+        # nor the legacy pointer path may parse it as a regex replacement.
+        block = ras.ROOT_BRIDGE_BLOCK.replace("When compacting", r"Team\unit: When compacting")
+        originals = (
+            f"{ras.ROOT_BRIDGE_MARKER_BEGIN}\n@AGENTS.md\n{ras.ROOT_BRIDGE_MARKER_END}",
+            "Thin pointer. Read `AGENTS.md` first.\n",
+        )
+        for original in originals:
+            with self.subTest(original=original), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                path = root / "CLAUDE.md"
+                path.write_text(original, encoding="utf-8")
+                with patch.object(ras, "ROOT_BRIDGE_BLOCK", block):
+                    self.assertTrue(ras.patch_root_bridge(path, root=root))
+                    self.assertEqual(_bridge_region(path.read_text(encoding="utf-8")), block)
+                    self.assertFalse(ras.patch_root_bridge(path, root=root))
+
     def _render(self, repo_root: Path):
         return subprocess.run(
             ["python3", str(RENDER_SCRIPT), "--repo-root", str(repo_root)],
@@ -172,7 +191,7 @@ class RootBridgeTests(unittest.TestCase):
 
     def test_refreshes_pre_change_bridge_to_the_current_block(self) -> None:
         # Wave 2136r (change 2136m): the marker-replace path must emit the block
-        # byte for byte; it is a re.sub replacement, so a backslash would be mangled.
+        # byte for byte through the marker replacement path.
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)
             (repo_root / "docs" / "agents").mkdir(parents=True)
@@ -185,7 +204,10 @@ class RootBridgeTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             claude = (repo_root / "CLAUDE.md").read_text(encoding="utf-8")
             self.assertEqual(_bridge_region(claude), ras.ROOT_BRIDGE_BLOCK)
-            self.assertIn("When compacting, preserve the open wave and change ids", claude)
+            self.assertIn(
+                f"When compacting, preserve the open {ras.vocabulary_profile.tier_noun('container')} "
+                f"and {ras.vocabulary_profile.tier_noun('item')} ids", claude,
+            )
             self.assertEqual(claude.count("@AGENTS.md"), 1)
             self._render(repo_root)
             self.assertEqual(_bridge_region((repo_root / "CLAUDE.md").read_text(encoding="utf-8")), ras.ROOT_BRIDGE_BLOCK)

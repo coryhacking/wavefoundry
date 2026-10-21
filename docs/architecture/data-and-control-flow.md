@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-19
+Last verified: 2026-10-20
 
 ## Runtime advisory boundary
 
@@ -251,6 +251,10 @@ operator-driven behavior. Persistent lock-file presence alone never blocks work.
 
 **State written:** write-through opaque event/source/evaluation accounting, producer lease files, sealed checkpoint floors and compact replay tombstones, plus separately labeled memory-advisory estimates in `.wavefoundry/logs/`; durable gap poison on failed transactions; marker-owned Context Efficiency and Estimated Exploration Avoided `wave.md` projections at lifecycle/reload/upgrade barriers and accounting-neutral turn-end/quiet-period opportunities. Monitor observations remain bounded process memory only.
 **Failure semantics:** ordinary measurement uncertainty undercounts; a durable accounting gap suppresses the headline; only the inability to persist both an event and the poison barrier fails the public tool call
+
+### Upgrade lifecycle baseline drift
+
+Before extraction, the incoming extension compares the renderer's registered lifecycle baselines and resolved plan-template scaffold with the previous target framework's `install/` templates. It shares the materialization transform with missing-only rendering, normalizes generated dates and line endings, and reads project copies through contained-file helpers. Its report distinguishes previous-template matches, differences, already-current copies and unknown evidence without inferring customization. The existing incoming dry-run `post_extract` hook and real `pre_extract` hook supply first-adoption behavior to older coordinators. Older dry-run coordinators print the report as text; new-runner dry runs and freshly extracted real summary/cleanup producers carry the machine-readable field. A retained lock without captured evidence reports `baseline_unknown`. Real runs persist `{channel, file, detail}` findings in `lifecycle_baseline_drift` in the upgrade lock; resume and separate summary/cleanup processes replay that pre-extraction evidence, even when empty or unavailable. The report leaves project-owned destination bytes and upgrade status unchanged.
 
 ### Upgrade rerun and cleanup outcomes
 

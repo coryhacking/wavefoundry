@@ -981,6 +981,12 @@ when combined with `--dry-run`. Public MCP remains apply-only; its internal
 preview handler has the same pending/refusal meaning. Ordinary previews still
 disclose any migration preview logs they write.
 
+## Lifecycle baseline drift report
+
+Upgrade reports differences for the registered lifecycle prompt baselines and the plan template under the resolved plans root. It compares incoming templates with the previous framework's `install/` copies before extraction, using the renderer's generated-date and vocabulary transforms and normalizing line endings. The change plan and machine-readable summary's `lifecycle_baseline_drift` list use `{channel, file, detail}` entries. States distinguish `upstream_changed_local_matches_previous`, `upstream_changed_local_differs_from_previous`, `upstream_unchanged_local_differs`, `already_current`, and `baseline_unknown`; unchanged upstream templates whose local copy is current are omitted. An unavailable previous template yields `baseline_unknown` and only a comparison with the incoming template. A difference may reflect a local edit or an earlier template update that was never applied; it does not establish customization or permission to replace a file.
+
+The incoming extension supplies this report on its installing upgrade. Supported older runners show the dry-run findings as text; new-runner dry runs and real delegated/cleanup summaries include the machine-readable field. A retained upgrade that predates capture reports `baseline_unknown`, rather than claiming no drift. Real runs capture the findings once before extraction in the upgrade checkpoint. Resume and separate cleanup replay that evidence, including an empty result or an unavailable-comparison notice, without recomputing against the replaced framework. Findings preserve destination bytes and do not change the upgrade's exit status. Review the reported differences and merge deliberately; this report performs no refresh.
+
 ## Lifecycle document names
 
 The conceptual seed is now `001-framework-lifecycle-overview.md` (formerly

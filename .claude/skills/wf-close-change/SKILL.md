@@ -8,6 +8,8 @@ disable-model-invocation: true
 
 This skill is a thin pointer: the workflow lives in `docs/prompts/close-change.prompt.md`. Read that document and follow it; do not improvise the steps from this summary.
 
-- Prefer the `wf_close_change` MCP tool; run `dry_run` (the default) first, then `create` once the dry run is clean.
+- Prefer the `wf_close_change` MCP tool; run `dry_run` (the default) freely to validate close readiness.
+- Gate reminder: closure is operator-owned. Call `mode="create"` only when the operator explicitly instructs closing that change in the current request; closure is never inferred from adjacent actions such as "run the review" or "fix the tests".
+- The tool permits closure from `ready` and does not verify review evidence; required review must still be completed before closure.
 - Run it after Review wave has cleared the change: a completed change cannot be reopened, and the tool records no review evidence.
 - Close wave (`wf-close-wave`) remains the only wave close, whatever the change count.

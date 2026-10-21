@@ -1004,7 +1004,7 @@ class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
         text = wave_md.read_text(encoding="utf-8")
         self.assertIn("## Objective", text)
         objective = text.split("## Objective\n", 1)[1].split("\n## ", 1)[0].strip()
-        self.assertIn("shared outcome of the admitted changes", objective)
+        self.assertIn(f"shared outcome of the admitted {self.srv._vocab.tier_noun('item', plural=True)}", objective)
         self.assertIn("who benefits, what observably improves", objective)
         self.assertTrue(self.srv._wave_objective_unpopulated(text))
         self.assertNotIn("## Product intent", text)
@@ -1014,6 +1014,29 @@ class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
         changes_idx = text.find(_loc("## Changes"))
         self.assertLess(title_idx, obj_idx)
         self.assertLess(obj_idx, changes_idx)
+
+    def test_scaffold_nouns_follow_profile_with_literal_oracles(self):
+        # The default strings are the 3d21af8e scaffold. The renamed expected
+        # strings deliberately do not call tier_noun or localize_template.
+        cases = (
+            ("Wave", "Waves", "Change", "Changes", "default-nouns",
+             "<Describe the shared outcome of the admitted changes in 1–3 sentences: who benefits, what observably improves, and the material boundaries. This text is displayed in the dashboard wave card.>",
+             "- Coordinator: <wave coordinator>"),
+            ("Set", "Sets", "Unit", "Units", "renamed-nouns",
+             "<Describe the shared outcome of the admitted units in 1–3 sentences: who benefits, what observably improves, and the material boundaries. This text is displayed in the dashboard set card.>",
+             "- Coordinator: <set coordinator>"),
+        )
+        for container, containers, item, items, slug, expected, coordinator in cases:
+            with self.subTest(slug=slug), patch.multiple(
+                self.srv._vocab, CONTAINER_NAME=container, CONTAINER_NAME_PLURAL=containers,
+                ITEM_NAME=item, ITEM_NAME_PLURAL=items,
+            ):
+                result = self._create_wave(slug)
+                text = (self.root / result["path"]).read_text(encoding="utf-8")
+                objective = text.split("## Objective\n", 1)[1].split("\n## ", 1)[0].strip()
+                self.assertEqual(objective, expected)
+                self.assertIn(coordinator + "\n", text)
+                self.assertTrue(self.srv._wave_objective_unpopulated(text))
 
     def test_new_wave_opts_into_review_evidence_with_valid_empty_owned_block(self):
         result = self._create_wave("review-evidence-wave")

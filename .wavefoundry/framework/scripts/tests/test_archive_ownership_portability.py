@@ -430,7 +430,9 @@ class IncomingManifestMetadataTests(unittest.TestCase):
         incoming = runner._load_extension_module(package)
         self.assertIsNotNone(incoming)
         self.assertFalse(Path(incoming.__file__).is_absolute(), 'incoming old-runner path must be exercised')
-        ctx = SimpleNamespace(root=root, to_version='2.0.0', dry_run=False)
+        ctx = SimpleNamespace(root=root, from_version='1.0.0', to_version='2.0.0',
+                              zip_path=package, dry_run=False)
+        upgrade_lib.write_upgrade_lock(root, ctx.from_version, ctx.to_version, package)
         with contextlib.ExitStack() as stack:
             for name in ('_preview_council_role_links', '_capture_index_guard_handoff',
                          '_protect_existing_root_bootstrap', '_snapshot_graph_builder_doc_claim', '_cut_over_runtime_locks'):

@@ -8423,9 +8423,12 @@ class Context: pass
 ''', legacy.__dict__)
         ctx = legacy.Context()
         ctx.root, ctx.zip_path, ctx.dry_run = self.root, self.pack, False
+        ctx.from_version, ctx.to_version = "9.9.8", "9.9.9"
         return legacy, ctx, name
 
     def _exclude_old(self, legacy, ctx, name):
+        import upgrade_lib
+        upgrade_lib.write_upgrade_lock(self.root, ctx.from_version, ctx.to_version, self.pack)
         with patch.dict(sys.modules, {name: legacy}), \
              patch.object(self.ext, "_preserve_original_manifest"), \
              patch.object(self.ext, "_snapshot_graph_builder_doc_claim"), \

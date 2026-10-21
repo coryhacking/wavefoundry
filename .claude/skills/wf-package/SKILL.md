@@ -9,5 +9,5 @@ disable-model-invocation: true
 This skill is a thin pointer: the workflow lives in `docs/prompts/package-wavefoundry.prompt.md`. Read that document and follow it; do not improvise the steps from this summary.
 
 - Prefer `--release` for a published release; a bare `--version` build only packages. `build_pack.py` hard-fails without a matching `## [version]` CHANGELOG section, so write the changelog first.
-- Gate reminder: publishing a release is operator-owned; never push tags or publish without explicit operator instruction in the current session.
+- Gate reminder: building the pack, pushing tags and publishing are operator-owned; perform each only on explicit operator instruction in the current request.
 - The ordered verification commands live in `docs/contributing/build-and-verification.md`.

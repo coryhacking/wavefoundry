@@ -1402,6 +1402,7 @@ def pre_extract(ctx):
     # refuse predictable migration failures before replacing target scripts.
     _preview_council_role_links(ctx)
     _capture_index_guard_handoff(ctx)
+    lifecycle_baseline_report(ctx, persist=True)
     _protect_existing_root_bootstrap(ctx)
     _preserve_original_manifest(ctx)
     _snapshot_graph_builder_doc_claim(ctx)
@@ -4007,7 +4008,7 @@ def _extract_preview_scripts(archive, scripts, prefix):
         target.write_bytes(data)
 
 
-def _preview_council_role_links(ctx) -> None:
+def _incoming_renderer_query(ctx, program: str) -> str:
     """Preview the incoming renderer in a private scripts tree, never the target.
 
     This renderer has framework dependencies, so the stdlib-only private module
@@ -4038,13 +4039,7 @@ def _preview_council_role_links(ctx) -> None:
             shutil.copytree(Path(__file__).parent, scripts, dirs_exist_ok=True,
                             ignore=shutil.ignore_patterns("tests", "benchmarks", "__pycache__"))
         if not (scripts / "render_agent_surfaces.py").is_file():
-            return
-        program = (
-            "import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); "
-            "import render_agent_surfaces as r; "
-            "p=r.migrate_role_and_lifecycle_documents(Path(sys.argv[2]), apply=False); "
-            "print('\\n'.join(p.link_report))"
-        )
+            return ""
         # Resolve the incoming stdlib-only helper privately: an old runner's
         # cached subprocess_util must not shadow this pack's isolation contract.
         try:
@@ -4058,10 +4053,10 @@ def _preview_council_role_links(ctx) -> None:
                 "no target files were written by the role-link preview",
                 file=sys.stderr, flush=True,
             )
-            return
+            return ""
         interpreter = subprocess_util.windowless_pythonw() or sys.executable
         result = subprocess_util.run_with_tree_kill(
-            [interpreter, "-B", "-c", program, str(scripts), str(ctx.root)],
+            [interpreter, "-B", "-c", program, str(scripts), str(ctx.root), str(getattr(ctx, "zip_path", ""))],
             capture_output=True, text=True, timeout=60,
             env=subprocess_util.utf8_child_env({
                 **{k: v for k, v in os.environ.items() if k != "PYTHONPYCACHEPREFIX"},
@@ -4072,8 +4067,81 @@ def _preview_council_role_links(ctx) -> None:
             detail = result.stderr.strip().splitlines()[-1:] or ["migration plan refused"]
             raise RuntimeError("incoming document migration preflight refused: " + detail[0] +
                                "; restore contained source/target paths or reduce the indicated scope and retry; no target extraction was performed")
-        for line in result.stdout.splitlines():
-            print("council role migration preview: " + line, flush=True)
+        return result.stdout
+
+
+def _preview_council_role_links(ctx) -> None:
+    program = (
+        "import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); "
+        "import render_agent_surfaces as r; "
+        "p=r.migrate_role_and_lifecycle_documents(Path(sys.argv[2]), apply=False); "
+        "print('\\n'.join(p.link_report))"
+    )
+    for line in _incoming_renderer_query(ctx, program).splitlines():
+        print("council role migration preview: " + line, flush=True)
+
+
+_LIFECYCLE_BASELINE_FIELD = "lifecycle_baseline_drift"
+_LIFECYCLE_BASELINE_PACK_FIELD = "lifecycle_baseline_drift_pack_sha256"
+
+
+def lifecycle_baseline_report(ctx, *, persist=False):
+    """Capture before extraction; replay even empty or unavailable evidence."""
+    state = _read_json_object(ctx.root / ".wavefoundry/upgrade-in-progress.json")
+    captured = state.get(_LIFECYCLE_BASELINE_FIELD)
+    pack = getattr(ctx, "zip_path", None)
+    if (state.get("to_version") != getattr(ctx, "to_version", None)
+            or state.get(_LIFECYCLE_BASELINE_PACK_FIELD) != _pack_sha256(pack)):
+        captured = None
+    preview = getattr(ctx, "lifecycle_baseline_findings", None)
+    if isinstance(captured, list):
+        findings = captured
+    elif isinstance(preview, list):
+        findings = preview
+    else:
+        # The private incoming renderer supplies registry paths and transforms,
+        # including the incoming distribution's vocabulary and plans root.
+        program = """import sys,json,zipfile
+from pathlib import Path
+sys.path.insert(0,sys.argv[1])
+import render_agent_surfaces as r
+root = Path(sys.argv[2])
+incoming = {}
+if sys.argv[3] != 'None':
+    with zipfile.ZipFile(sys.argv[3]) as archive:
+        prefix = next(n.rsplit('/scripts/',1)[0]+'/install/' for n in archive.namelist()
+                      if n.endswith('/scripts/upgrade_extensions.py'))
+        incoming = {n[len(prefix):]: archive.read(n).decode('utf-8')
+                    for n in archive.namelist() if n.startswith(prefix) and n.endswith('.md')}
+else:
+    templates = ['lifecycle-prompts/' + t for _,t in r.LIFECYCLE_PROMPT_BASELINES]
+    templates.extend(t for _,t in r.scaffold_baselines(root))
+    for template in templates:
+        try:
+            incoming[template] = r._read_repo_text(root, root / '.wavefoundry/framework/install' / template)
+        except (OSError, UnicodeError):
+            pass
+print(json.dumps(r.lifecycle_baseline_drift(root, incoming)))
+"""
+        try:
+            findings = json.loads(_incoming_renderer_query(ctx, program))
+        except Exception as exc:
+            findings = [{"channel": "lifecycle_baseline_drift", "file": "",
+                         "detail": "baseline_unknown: pre-extraction comparison unavailable (" + type(exc).__name__ + "); no previous-template claim"}]
+    if persist and not isinstance(captured, list):
+        fields = {_LIFECYCLE_BASELINE_FIELD: findings,
+                  _LIFECYCLE_BASELINE_PACK_FIELD: _pack_sha256(pack)}
+        _update_upgrade_state(ctx.root, **fields)
+    if getattr(ctx, "lifecycle_baseline_reported", False):
+        return findings
+    print("Lifecycle baseline drift (report only; project copies preserved):", flush=True)
+    for finding in findings:
+        print("  " + json.dumps(finding, ensure_ascii=True), flush=True)
+    if not findings:
+        print("  none", flush=True)
+    ctx.lifecycle_baseline_reported = True
+    return findings
+
 
 
 def post_extract(ctx):
@@ -4101,6 +4169,7 @@ def post_extract(ctx):
     it there.
     """
     if getattr(ctx, "dry_run", False):
+        lifecycle_baseline_report(ctx)
         print("journal hook preview: " + json.dumps(
             _journal_hook_preview(ctx.root, getattr(ctx, "zip_path", None)), sort_keys=True
         ), flush=True)
