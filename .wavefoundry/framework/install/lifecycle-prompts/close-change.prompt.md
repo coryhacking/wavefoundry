@@ -24,6 +24,12 @@ dependent change.
 
 ## Gates
 
+First, before any gate and with nothing written, `wf_close_change` refuses
+a wave record it cannot read unambiguously (`wave_record_ambiguous`): an id
+in more than one record, a record with more than one status line (fenced or
+not, readable or not), or a fenced example id line that starts a record.
+Move fenced examples out of the record lines and retry.
+
 `wf_close_change` reports every failing gate, in `dry_run` and `create`:
 
 1. The wave is OPEN (`active` or `implementing`).

@@ -220,6 +220,17 @@ def _pack_entry_identity(path: Path, *, entry=None) -> list[int] | None:
     return identity
 
 
+def _cross_kind_pack_identity_matches(handle_identity, path_identity) -> bool:
+    """Compare an open-handle identity with a path identity, ignoring ctime.
+
+    Windows with Python 3.12 can report a different ``st_ctime`` from
+    ``fstat`` than from a path ``lstat`` of the same unchanged file. Device,
+    inode, size and mtime still bind; same-kind comparisons keep ctime.
+    """
+    return (handle_identity is not None and path_identity is not None
+            and handle_identity[:4] == path_identity[:4])
+
+
 def _cleanup_verified_pack(path: Path | None, proof: dict | None) -> bool:
     """Use recorded temporary-parent authority and freshly anchored file identity."""
     if path is None:
@@ -280,7 +291,7 @@ def _cleanup_verified_pack(path: Path | None, proof: dict | None) -> bool:
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
         file_fd = (os.open(path.name, flags, dir_fd=directory) if directory is not None else os.open(path, flags))
         try:
-            if _pack_entry_identity(path, entry=os.fstat(file_fd)) != current:
+            if not _cross_kind_pack_identity_matches(_pack_entry_identity(path, entry=os.fstat(file_fd)), current):
                 return retained("fresh opened file identity changed")
         finally:
             os.close(file_fd)
@@ -347,11 +358,13 @@ def _stage_pack_for_consumption(
             raise ValueError("selected feature archive hash does not match bridge selection")
         import upgrade_protocol
 
-        if copied_identity is None or _pack_entry_identity(staged) != copied_identity:
+        before_validation = _pack_entry_identity(staged)
+        if not _cross_kind_pack_identity_matches(copied_identity, before_validation):
             raise ValueError("verified private pack changed before validation")
         upgrade_protocol.validate_feature_pack(staged)
         identity = _pack_entry_identity(staged)
-        if identity is None or identity != copied_identity:
+        # Same-kind path stats bracket validation, so ctime still binds there.
+        if not _cross_kind_pack_identity_matches(copied_identity, identity) or identity != before_validation:
             raise ValueError("verified private pack identity could not be established")
         checked_parent = staged.parent.lstat()
         if (checked_parent.st_dev, checked_parent.st_ino) != (parent.st_dev, parent.st_ino):

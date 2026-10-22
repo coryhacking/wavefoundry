@@ -1007,9 +1007,11 @@ def report_unknown_tool(name: str, has_paths: bool = False) -> None:
     )
 '''
 
-# Exact Claude identities documented at https://code.claude.com/docs/en/hooks (Read/Bash).
-# Shell exemption means no shell interception by this file-path hook, not a read-only shell.
-CLAUDE_NON_EDIT_TOOL_NAMES = ("Read", "Bash")
+# Exact Claude identities documented at https://code.claude.com/docs/en/hooks (Read/Bash/Grep/Glob).
+# Read, Grep and Glob are read-only tools, so a path they name (a scoped search included) is
+# never an edit. Shell exemption means no shell interception by this file-path hook, not a
+# read-only shell.
+CLAUDE_NON_EDIT_TOOL_NAMES = ("Read", "Bash", "Grep", "Glob")
 
 
 def _claude_core_read_contract() -> tuple[tuple[str, ...], dict[str, str]]:

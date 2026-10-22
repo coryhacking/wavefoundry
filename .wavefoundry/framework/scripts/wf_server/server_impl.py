@@ -14596,6 +14596,46 @@ def _close_change_in_memory_violations(wave_text: str, written_ids: list[str]) -
     return violations
 
 
+def _close_change_ambiguity_messages(text: str, records: list) -> list[str]:
+    """Wave 21cw4 (21cw2): each way the wave record is ambiguous to
+    close-change, as ``"`<id>`: <cause>"``.  A record is ambiguous when its id
+    is returned more than once (duplicate record), when the parser attributes
+    more than one status value to it, fenced or not, readable or not
+    (multiple status lines), or when a fenced id line starts it (fenced record
+    line).  The shared parser is unchanged; close-wave stays fail-closed."""
+    from wave_lint_lib import constants as lint_constants
+
+    if not records:
+        return []
+    messages: list[str] = []
+    counts: dict[str, int] = {}
+    for record in records:
+        counts[record.record_id] = counts.get(record.record_id, 0) + 1
+    for record_id, count in counts.items():
+        if count > 1:
+            messages.append(f"`{record_id}`: duplicate record ({count} records carry this id)")
+    for record in records:
+        values = record.status_values
+        if len(values) > 1:
+            unreadable = sum(1 for value in values if value is None)
+            readable = ", ".join(f"`{value}`" for value in values if value is not None)
+            detail = f"{len(values)} status lines"
+            if readable:
+                detail += f": {readable}"
+            if unreadable:
+                detail += f"; {unreadable} status line(s) unreadable"
+            messages.append(f"`{record.record_id}`: multiple status lines ({detail})")
+    lines = text.splitlines()
+    fenced = change_doc_checklist.fenced_line_flags(lines)
+    for number, (raw_line, is_fenced) in enumerate(zip(lines, fenced), start=1):
+        if not is_fenced:
+            continue
+        match = lint_constants.CHANGE_ID_PATTERN.match(raw_line.strip())
+        if match:
+            messages.append(f"`{match.group(1)}`: fenced record line (line {number})")
+    return messages
+
+
 @_fail_closed_on_record_layout("wf_close_change")
 def wf_close_change_response(
     root: Path, wave_id: str, change_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None,
@@ -14662,6 +14702,23 @@ def wf_close_change_response(
     base = {**base, "wave_id": canonical_wave_id}
     wave_rel = _repo_rel(root, wave_md)
     diagnostics: list[dict[str, Any]] = []
+
+    # Wave 21cw4 (21cw2): act only on a record every status reader below reads
+    # the same way; refuse an ambiguous one before any gate or planned write.
+    ambiguities = _close_change_ambiguity_messages(text, _parse_change_records(text, wave_rel))
+    if ambiguities:
+        listed = "\n".join(f"  - {message}" for message in ambiguities)
+        return _response(
+            "error", {**base, "previous_status": None, "written": [], "activated": [], "not_activated": []},
+            diagnostics=[_diagnostic(
+                "wave_record_ambiguous",
+                f"{wave_rel} cannot be read unambiguously, so nothing was checked or written:\n{listed}\n"
+                "Move fenced examples out of the record lines, keep one status line per record and one record "
+                "per id, then retry.",
+                recovery_tools=["wf_current_wave", "wf_validate_docs"], recovery_usage="wf_current_wave()",
+            )],
+            next_tools=["wf_current_wave"], usage="wf_current_wave()",
+        )
 
     # Gate: the wave is open.
     status_m = _STATUS_PATTERN.search(text)

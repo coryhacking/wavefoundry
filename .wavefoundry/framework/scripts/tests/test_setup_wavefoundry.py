@@ -99,6 +99,9 @@ class SetupWavefoundryTests(unittest.TestCase):
         _prev_cwd = os.getcwd()
         os.chdir(self._sandbox.name)
         self.addCleanup(os.chdir, _prev_cwd)
+        # Setup refuses a root without the framework copy; the sandbox cwd
+        # stands in for a repository root.
+        Path(self._sandbox.name, ".wavefoundry", "framework").mkdir(parents=True)
         # Wave 1p7pm: setup `main` calls venv_bootstrap.ensure_python_resolves() after Step 1, which
         # is SIDE-EFFECTING (creates ~/.local/bin/python3 + may append to the shell rc). These tests
         # mock Step 1 to succeed, so they would reach that heal against the REAL machine — patch it to
@@ -120,18 +123,20 @@ class SetupWavefoundryTests(unittest.TestCase):
                 delegated.append(argv)
                 return 0
 
+        repo = Path(self._sandbox.name, "repo")
+        (repo / ".wavefoundry" / "framework").mkdir(parents=True)
         with patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
              patch.object(self.mod, "_run_render_platform_surfaces", return_value=0), \
              patch.object(self.mod, "_run_mcp_server_dry_run", return_value=0):
-            result = self.mod.main(["--root", "/tmp/repo", "--full"])
+            result = self.mod.main(["--root", str(repo), "--full"])
 
         self.assertEqual(result, 0)
-        self.write_setup_stamp_mock.assert_called_once_with(Path("/tmp/repo").resolve())
+        self.write_setup_stamp_mock.assert_called_once_with(repo.resolve())
         self.assertEqual(
             delegated,
             [
-                ["--root", "/tmp/repo", "--full", "--deps-only"],
-                ["--root", "/tmp/repo", "--full"],
+                ["--root", str(repo), "--full", "--deps-only"],
+                ["--root", str(repo), "--full"],
             ],
         )
 
@@ -157,6 +162,7 @@ class SetupWavefoundryTests(unittest.TestCase):
         root = Path.cwd()
         first = root / "first"
         target = root / "last"
+        (target / ".wavefoundry" / "framework").mkdir(parents=True)
         for args in (["--root", str(first), "--root", str(target)],
                      [f"--root={first}", "--root", str(target)],
                      ["--root", str(first), f"--root={target}"]):
@@ -459,7 +465,7 @@ class SetupWavefoundryTests(unittest.TestCase):
         import setup_reconciliation
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / ".wavefoundry").mkdir()
+            (root / ".wavefoundry/framework").mkdir(parents=True)
             (root / ".wavefoundry/install-log.md").write_text("- [x] 2.9 complete\n")
             (root / ".mcp.json").write_text('{"command":"python3"}')
             (root / ".wavefoundry/index").mkdir()
@@ -488,6 +494,7 @@ class SetupWavefoundryTests(unittest.TestCase):
         # instead of failing on the old nonexistent placeholder path.
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
+        Path(tmp.name, ".wavefoundry", "framework").mkdir(parents=True)
 
         out = io.StringIO()
         with patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
@@ -1215,6 +1222,120 @@ class LifecyclePolicyStepZeroTests(unittest.TestCase):
         self.assertEqual(order, ["provision", "defaults", "setup_deps", "setup_index"])
         pol = json.loads(self.cfg.read_text(encoding="utf-8"))["lifecycle_id_policy"]
         self.assertEqual(pol["scheme_version"], "v2")
+
+
+class SetupRootWithoutFrameworkTests(unittest.TestCase):
+    """Setup refuses a root without the framework copy before any check or write."""
+
+    def setUp(self):
+        self.mod = load_setup_wavefoundry()
+        sandbox = tempfile.TemporaryDirectory()
+        self.addCleanup(sandbox.cleanup)
+        self.sandbox = Path(sandbox.name).resolve()
+        # Scratch HOME so no real host settings are reachable from any step.
+        self.home = self.sandbox / "home"
+        self.home.mkdir()
+        env = patch.dict(os.environ, {"HOME": str(self.home), "USERPROFILE": str(self.home)})
+        env.start()
+        self.addCleanup(env.stop)
+        prev_cwd = os.getcwd()
+        os.chdir(self.sandbox)
+        self.addCleanup(os.chdir, prev_cwd)
+        import setup_readiness
+        import setup_reconciliation
+        import venv_bootstrap
+        self.spies = {}
+        for name, target, attr in (
+            ("python_check", venv_bootstrap, "ensure_python_resolves"),
+            ("activate", venv_bootstrap, "activate_tool_venv"),
+            ("reconciliation", setup_reconciliation, "session"),
+            ("stamp", setup_readiness, "write_setup_stamp"),
+            ("render", self.mod, "_run_render_platform_surfaces"),
+            ("server_dry_run", self.mod, "_run_mcp_server_dry_run"),
+            ("setup_index", self.mod, "_load_setup_index"),
+        ):
+            patcher = patch.object(target, attr)
+            self.spies[name] = patcher.start()
+            self.addCleanup(patcher.stop)
+        self.spies["render"].return_value = 0
+        self.spies["server_dry_run"].return_value = 0
+
+    @staticmethod
+    def _snapshot(root: Path) -> dict[str, bytes | None]:
+        return {
+            str(p.relative_to(root)): (p.read_bytes() if p.is_file() else None)
+            for p in sorted(root.rglob("*"))
+        }
+
+    def _run(self, root: Path) -> tuple[int, str]:
+        err = io.StringIO()
+        with redirect_stderr(err), redirect_stdout(io.StringIO()):
+            rc = self.mod.main(["--root", str(root)])
+        return rc, err.getvalue()
+
+    def _assert_nothing_reached(self) -> None:
+        for name in ("python_check", "activate", "reconciliation", "render", "setup_index", "stamp"):
+            self.spies[name].assert_not_called()
+
+    def test_setup_refuses_an_empty_folder(self):
+        root = self.sandbox / "empty"
+        root.mkdir()
+        rc, err = self._run(root)
+        self.assertNotEqual(rc, 0)
+        self.assertIn("--root", err)
+        self.assertIn("not a Wavefoundry repository root", err)
+        self.assertEqual(list(root.iterdir()), [])
+        self._assert_nothing_reached()
+
+    def test_setup_leaves_a_home_like_folder_unchanged(self):
+        root = self.home
+        (root / ".claude").mkdir()
+        (root / ".claude" / "settings.json").write_text('{"permissions": {"allow": []}}\n')
+        (root / ".codex").mkdir()
+        (root / ".codex" / "config.toml").write_text('model = "example"\n')
+        before = self._snapshot(root)
+        rc, err = self._run(root)
+        self.assertNotEqual(rc, 0)
+        self.assertIn("--root", err)
+        self.assertEqual(self._snapshot(root), before)
+        self._assert_nothing_reached()
+
+    def test_setup_refuses_a_framework_entry_that_is_a_file(self):
+        root = self.sandbox / "file-entry"
+        (root / ".wavefoundry").mkdir(parents=True)
+        (root / ".wavefoundry" / "framework").write_text("not a directory\n")
+        before = self._snapshot(root)
+        rc, err = self._run(root)
+        self.assertNotEqual(rc, 0)
+        self.assertIn("--root", err)
+        self.assertEqual(self._snapshot(root), before)
+        self._assert_nothing_reached()
+
+    def test_setup_accepts_a_linked_framework_directory(self):
+        real = self.sandbox / "framework-real"
+        real.mkdir()
+        root = self.sandbox / "linked"
+        (root / ".wavefoundry").mkdir(parents=True)
+        try:
+            (root / ".wavefoundry" / "framework").symlink_to(real, target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"directory links unavailable: {exc}")
+        self.assertTrue(self.mod._root_has_framework(["--root", str(root)]))
+
+    def test_check_mode_still_reports_on_a_folder_without_the_framework(self):
+        import setup_readiness
+        root = self.sandbox / "check-only"
+        root.mkdir()
+        out = io.StringIO()
+        with patch("time.sleep"), redirect_stdout(out), redirect_stderr(io.StringIO()):
+            rc = self.mod.main(["--check", "--json", "--root", str(root)])
+        report = json.loads(out.getvalue())
+        self.assertEqual(rc, setup_readiness.exit_code(report))
+        self.assertEqual(report["status"], "action_required")
+        self.assertIn("framework_missing", [reason["code"] for reason in report["reasons"]])
+        self.assertEqual(list(root.iterdir()), [])
+        self.assertEqual(list(self.home.iterdir()), [])
+        self._assert_nothing_reached()
 
 
 class StrayArtifactGuardTests(unittest.TestCase):

@@ -131,6 +131,8 @@ Guardrails:
 
 Shortcut: **`Close change`**. Backed by `wf_close_change(wave_id, change_id, mode)`. It closes ONE admitted change inside an open wave, the same way whether the wave has one change or many, and never closes the wave: **Close wave** remains the only wave close. Close change is optional; `wf_close_wave` already accepts a change left `implemented`.
 
+First, before any gate and with nothing written, it refuses a wave record it cannot read unambiguously (`wave_record_ambiguous`): an id in more than one record, a record with more than one status line (fenced or not, readable or not), or a fenced example id line that starts a record.
+
 Gates, as implemented (every failing gate is reported, in `dry_run` and `create`):
 
 1. The wave is OPEN (`active` or `implementing`).

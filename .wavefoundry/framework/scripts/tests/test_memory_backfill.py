@@ -1166,6 +1166,8 @@ class AdvisoryMemoryInventoryTests(unittest.TestCase):
 
     def test_setup_main_reports_pending_inventory_or_unavailability_without_pausing(self):
         import types
+        # Setup refuses a root without the framework copy (change 21ayw).
+        (self.root / ".wavefoundry" / "framework").mkdir(parents=True, exist_ok=True)
         self._wave("1aaa closed")
         for state, background in (
             ("pending", None), ("pending", "--background-code"),

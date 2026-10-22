@@ -1770,7 +1770,7 @@ class RenderedEditHookPathTests(unittest.TestCase):
 
     def test_evidenced_non_edit_names_preserve_no_feedback(self):
         # Exact identities from primary host docs/source; never namespace or substring matching.
-        expected = {"claude": ("Read", "Bash"),
+        expected = {"claude": ("Read", "Bash", "Grep", "Glob"),
                     "copilot": ("view", "bash", "powershell", "read_file", "run_in_terminal")}
         for host, names in expected.items():
             for name in names:
@@ -1784,6 +1784,39 @@ class RenderedEditHookPathTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(result.stderr, "")
                     self.assertFalse(self._pending())
+
+    def test_claude_read_only_search_tools_pass_on_gated_paths(self):
+        """Change 21ayv AC-1: Grep and Glob scoped to the seeds folder run with both gates closed."""
+        self._gates()
+        seeds = str(self.root / ".wavefoundry" / "framework" / "seeds")
+        payloads = {
+            "Grep": {"pattern": "Stage Gate", "path": seeds},
+            "Glob": {"pattern": "*.prompt.md", "path": seeds},
+        }
+        for tool, tool_input in payloads.items():
+            with self.subTest(tool=tool):
+                result = self._run_raw(".claude/hooks/pre-edit.py",
+                                       json.dumps({"tool_name": tool, "tool_input": tool_input}))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stderr, "")
+
+    def test_claude_edit_and_unfamiliar_tools_stay_gated_on_seed_paths(self):
+        """Change 21ayv AC-2: edit tools and an unfamiliar tool naming a seed path are refused."""
+        self._gates()
+        seed = self._seed()
+        cases = {
+            "Edit": {"file_path": seed, "old_string": "a", "new_string": "b"},
+            "Write": {"file_path": seed, "content": "x"},
+            "MultiEdit": {"file_path": seed, "edits": []},
+            "NotebookEdit": {"notebook_path": seed, "new_source": "x"},
+            "ExampleUnfamiliarTool": {"path": seed},
+        }
+        for tool, tool_input in cases.items():
+            with self.subTest(tool=tool):
+                result = self._run_raw(".claude/hooks/pre-edit.py",
+                                       json.dumps({"tool_name": tool, "tool_input": tool_input}))
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("BLOCKED: Seed prompt edit requires", result.stderr)
 
     # Wave 1zyb3 (1zxny) -------------------------------------------------------------------------
 

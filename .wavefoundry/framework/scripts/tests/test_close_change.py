@@ -636,6 +636,103 @@ class FencedDependsOnTests(_CloseChangeCase):
         self.assertEqual(srv._wave_member_dependencies(text), {C: [A]})
 
 
+class AmbiguousWaveRecordTests(_CloseChangeCase):
+    """Wave 21cw4 (21cw2): close-change refuses a wave record it cannot read
+    unambiguously (duplicate record, multiple status lines, fenced record
+    line) before any gate or write; a clean record closes as before."""
+
+    def insert_after_status(self, change_id: str, extra: "list[str]") -> None:
+        lines = self.wave_md.read_text(encoding="utf-8").split("\n")
+        start = lines.index(f"{vp.MEMBER_ID_LABEL}: `{change_id}`")
+        status = next(i for i in range(start, len(lines)) if lines[i].startswith(f"{vp.MEMBER_STATUS_LABEL}:"))
+        lines[status + 1:status + 1] = extra
+        self.wave_md.write_text("\n".join(lines), encoding="utf-8")
+
+    def append(self, extra: str) -> None:
+        text = self.wave_md.read_text(encoding="utf-8")
+        self.wave_md.write_text(text.rstrip("\n") + "\n\n" + extra, encoding="utf-8")
+
+    def assert_ambiguous(self, cause: str, record_id: str, change_id: str = A) -> dict:
+        before = self.snapshot()
+        result: dict = {}
+        for mode in ("dry_run", "create"):
+            result = self.close(change_id, mode=mode)
+            self.assertEqual(result["status"], "error", result)
+            self.assertEqual(self.codes(result), ["wave_record_ambiguous"], result)
+            message = result["diagnostics"][0]["message"]
+            self.assertIn(f"`{record_id}`: {cause}", message)
+            self.assertEqual(result["data"]["written"], [])
+            self.assertEqual(self.snapshot(), before, f"{mode} wrote")
+        return result
+
+    def test_fenced_complete_example_after_a_planned_dependency(self) -> None:
+        """AC-1: B is `planned` with a fenced `complete` example in its block."""
+        self.wave([(A, "active", "planned", (B,)), (B, "planned")])
+        self.insert_after_status(B, ["", "```text", f"{vp.MEMBER_STATUS_LABEL}: `complete`", "```", ""])
+        self.assert_ambiguous("multiple status lines", B)
+
+    def test_fenced_closable_example_under_a_later_heading(self) -> None:
+        """AC-2: the parser attributes a fenced status under a later heading
+        to the last member, so A (`planned`) would read as `active`."""
+        self.wave([(A, "planned")], docs={A: _doc_text(A, "active")})
+        self.append(f"## Notes\n\n```text\n{vp.MEMBER_STATUS_LABEL}: `active`\n```\n")
+        self.assert_ambiguous("multiple status lines", A)
+        self.assertEqual(self.block_status(A), (None, "active"))
+        self.assertIn(f"{vp.MEMBER_STATUS_LABEL}: `planned`", self.wave_md.read_text(encoding="utf-8"))
+
+    def test_unreadable_status_line_counts_and_is_named(self) -> None:
+        """Readiness note: an unreadable status-label line is a status value."""
+        self.wave([(A, "active", "planned")])
+        self.insert_after_status(A, [f"{vp.MEMBER_STATUS_LABEL}: complete"])
+        result = self.assert_ambiguous("multiple status lines", A)
+        self.assertIn("1 status line(s) unreadable", result["diagnostics"][0]["message"])
+
+    def test_fenced_id_line_between_status_and_depends_on(self) -> None:
+        """AC-3: a fenced id example would take B's dependency."""
+        self.wave([(A, "active", "planned"), (B, "planned")])
+        self.insert_after_status(B, ["", "```text", f"{vp.MEMBER_ID_LABEL}: `{F}`", "```", "", f"Depends On: `{A}`"])
+        self.assert_ambiguous("fenced record line", F)
+
+    def test_duplicate_member_and_out_of_section_id(self) -> None:
+        """AC-4: the lookup would read the last record while the rewrite
+        targets the first block."""
+        self.wave([(A, "planned"), (A, "active", "planned")])
+        self.assert_ambiguous("duplicate record", A)
+        self.setUp()
+        self.wave([(A, "planned")], docs={A: _doc_text(A, "active")})
+        self.append(f"## Notes\n\n{vp.MEMBER_ID_LABEL}: `{A}`\n{vp.MEMBER_STATUS_LABEL}: `active`\n")
+        self.assert_ambiguous("duplicate record", A)
+
+    def test_previous_status_line_is_not_a_status_value(self) -> None:
+        """Readiness note: `Previous ... Status:` does not make a record ambiguous."""
+        from wave_lint_lib.wave_validators import _parse_change_records
+
+        self.wave([(A, "review", "active"), (B, "complete", "planned")])
+        text = self.wave_md.read_text(encoding="utf-8")
+        self.assertIn(f"{vp.PREVIOUS_STATUS_LABEL}: `active`", text)
+        self.assertEqual(srv._close_change_ambiguity_messages(text, _parse_change_records(text, "")), [])
+        result = self.close()
+        self.assertEqual(result["status"], "ok", result)
+        self.assertEqual(self.block_status(A), ("review", "complete"))
+
+    def test_clean_record_writes_the_same_bytes_as_without_the_check(self) -> None:
+        """AC-5: an unambiguous record closes with the same writes."""
+        members = [(A, "active", "planned"), (B, "planned", None, (A,)), (C, "complete", "planned")]
+        outcomes = []
+        for disabled in (False, True):
+            self.setUp()
+            self.wave(members)
+            if disabled:
+                with patch.object(srv, "_close_change_ambiguity_messages", return_value=[]):
+                    result = self.close()
+            else:
+                result = self.close()
+            self.assertEqual(result["status"], "ok", result)
+            outcomes.append((self.snapshot(), sorted(result["data"]["written"]),
+                             [a["change_id"] for a in result["data"]["activated"]]))
+        self.assertEqual(outcomes[0], outcomes[1])
+
+
 class CloseWaveCompletedChangeTests(unittest.TestCase):
     """Requirement 8: wave close treats a closed change as finished."""
 

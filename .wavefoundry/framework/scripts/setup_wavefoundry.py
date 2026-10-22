@@ -76,7 +76,7 @@ def _print_help() -> None:
         "reconcile local storage, and publish the core indexes. Historical-memory "
         "validation remains agent-owned and may remain pending.\n\n"
         "options:\n"
-        "  --root PATH    target repository (defaults to the current project)\n"
+        "  --root PATH    target repository (defaults to the repository that holds this setup script)\n"
         "  --check        assess local setup without repairs (exit 0 ready, 1 action, 2 unknown)\n"
         "  --json         with --check, emit the versioned assessment as JSON\n"
         "  --check-gpu    print the provider diagnostic without running setup\n"
@@ -144,6 +144,28 @@ def _resolve_setup_root(args: list[str]) -> Path:
     parser.add_argument("--root")
     parsed, _ = parser.parse_known_args(args)
     return Path(parsed.root).expanduser().resolve() if parsed.root else Path.cwd().resolve()
+
+
+def _root_has_framework(args: list[str]) -> bool:
+    """Return True when the setup root holds ``.wavefoundry/framework/``.
+
+    A linked framework directory is accepted (``is_dir`` follows the link).
+    Otherwise print a refusal naming ``--root`` and return False; the message
+    names only the root as the operator supplied it.
+    """
+    if (_resolve_setup_root(args) / ".wavefoundry" / "framework").is_dir():
+        return True
+    parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+    parser.add_argument("--root")
+    parsed, _ = parser.parse_known_args(args)
+    named = f"--root {parsed.root}" if parsed.root else "the current folder (no --root given)"
+    print(
+        f"\nERROR: {named} is not a Wavefoundry repository root: it has no "
+        ".wavefoundry/framework/ directory. Setup changed nothing. Run setup from "
+        "the repository root, or pass --root <repository root>.",
+        file=sys.stderr,
+    )
+    return False
 
 
 def _provision_lifecycle_policy_if_absent(root: Path) -> int:
@@ -321,6 +343,10 @@ def main(argv: list[str] | None = None) -> int:
     if "-h" in args or "--help" in args:
         _print_help()
         return 0
+    # Setup writes host settings, hooks and permissions into its root, so it
+    # refuses a root without the framework copy before any check or write.
+    if "--check-gpu" not in args and not _root_has_framework(args):
+        return 1
     # Diagnose the machine before activation, reconciliation, or setup writes.
     if "--check-gpu" not in args:
         venv_bootstrap.ensure_python_resolves(strict=True)
@@ -481,5 +507,53 @@ def _install_in_progress(repo_root: Path) -> bool:
     return any(row.is_pending for row in install_log_lib.filter_phase(rows, 1))
 
 
+def _direct_run_default(argv: list[str], script_path: str) -> tuple[list[str], "Path | None"]:
+    """Change 21cw5: a direct run without ``--root`` targets the script's repository.
+
+    Returns the arguments with a relative ``--model-bundle`` made absolute
+    against the operator's folder, and the folder to change into (``None``
+    when ``--root`` is given). The script path is made absolute without
+    resolving links, so a linked framework folder still targets the
+    repository that holds the link. Only the ``__main__`` entry calls this:
+    an imported module's ``__file__`` is the link target, and in-process
+    ``main`` callers keep the current folder.
+    """
+    if any(arg == "--root" or arg.startswith("--root=") for arg in argv):
+        return list(argv), None
+    args = list(argv)
+    for index, arg in enumerate(args):
+        if arg == "--model-bundle" and index + 1 < len(args):
+            args[index + 1] = os.path.abspath(args[index + 1])
+        elif arg.startswith("--model-bundle="):
+            args[index] = "--model-bundle=" + os.path.abspath(arg.split("=", 1)[1])
+    return args, Path(os.path.abspath(script_path)).parents[3]
+
+
+def _enter_direct_run_root(argv: list[str], script_path: str) -> "list[str] | None":
+    """Apply :func:`_direct_run_default` for the ``__main__`` entry.
+
+    A relative ``WAVEFOUNDRY_MODEL_BUNDLE`` is made absolute before the
+    directory change too. Returns the arguments to pass to ``main``, or
+    ``None`` after printing a refusal naming ``--root`` when the script's
+    repository cannot be derived or entered.
+    """
+    try:
+        args, root = _direct_run_default(argv, script_path)
+        if root is not None:
+            bundle = os.environ.get("WAVEFOUNDRY_MODEL_BUNDLE")
+            if bundle:
+                os.environ["WAVEFOUNDRY_MODEL_BUNDLE"] = os.path.abspath(bundle)
+            os.chdir(root)
+    except (IndexError, OSError) as exc:
+        print(
+            "\nERROR: cannot use the repository that holds this setup script "
+            f"({type(exc).__name__}). Setup changed nothing. Pass --root <repository root>.",
+            file=sys.stderr,
+        )
+        return None
+    return args
+
+
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
+    _argv = _enter_direct_run_root(sys.argv[1:], __file__)
+    raise SystemExit(1 if _argv is None else main(_argv))

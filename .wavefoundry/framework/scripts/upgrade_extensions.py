@@ -849,12 +849,19 @@ def _guard_root_identity_matches(stored, entry):
             and stored['inode'] == entry.st_ino)
 
 
-def _guard_durable_file_matches(stored, entry):
+def _guard_cross_kind_matches(handle_entry, path_entry):
+    # Windows (Python 3.12) handle and path stats of one unchanged file may
+    # disagree on ctime alone; same-kind comparisons keep all five fields.
+    return _guard_file_identity(handle_entry)[:4] == _guard_file_identity(path_entry)[:4]
+
+
+def _guard_durable_file_matches(stored, entry, *, cross_kind=False):
     current = _guard_file_identity(entry)
+    end = 4 if cross_kind else 5
     return (isinstance(stored, list) and len(stored) == 5
             and all(type(value) is int and value > 0 for value in stored)
             and all(type(value) is int and value > 0 for value in current)
-            and stored[1:] == current[1:])
+            and stored[1:end] == current[1:end])
 
 
 def _guard_contained_helper(package=None):
@@ -870,9 +877,9 @@ def _read_guard_pack(root, path, helper):
     if not stat.S_ISREG(entry.st_mode) or entry.st_nlink != 1:
         raise ValueError('index_guard_durable_pack_invalid: not an exclusively owned regular file')
     data, opened, resolved = helper.read_contained_identity(root, path, max_bytes=entry.st_size)
-    if opened.st_nlink != 1 or _guard_file_identity(entry) != _guard_file_identity(opened):
+    if opened.st_nlink != 1 or not _guard_cross_kind_matches(opened, entry):
         raise ValueError('index_guard_durable_pack_invalid: file identity changed')
-    if _guard_file_identity(path.lstat()) != _guard_file_identity(opened):
+    if not _guard_cross_kind_matches(opened, path.lstat()):
         raise ValueError('index_guard_durable_pack_invalid: file changed during read')
     return data, opened, resolved
 
@@ -916,7 +923,8 @@ def validate_index_guard_durable_pack(root, lock, *, allow_terminal_absence=Fals
             validate_index_guard_terminal_cleanup(root, lock)
             return None
         raise ValueError('index_guard_durable_pack_invalid: owned archive is missing') from None
-    if not _guard_durable_file_matches(proof['identity'], entry):
+    # The proof is bound from a held descriptor; ``entry`` is a path stat.
+    if not _guard_durable_file_matches(proof['identity'], entry, cross_kind=True):
         raise ValueError('index_guard_durable_pack_invalid: replaced file identity')
     helper = helper or _guard_contained_helper()
     data, opened, resolved = _read_guard_pack(root, path, helper)
@@ -1052,7 +1060,7 @@ def _retain_index_guard_pack(ctx, lock, record):
                 if (temporary is not None or not isinstance(exc, (OSError, NotImplementedError))
                         or not stat.S_ISREG(entry.st_mode) or _is_link_metadata(entry)
                         or entry.st_nlink != 1 or current.st_nlink != 1
-                        or _guard_file_identity(entry) != _guard_file_identity(current)
+                        or not _guard_cross_kind_matches(current, entry)
                         or _guard_file_identity(current)[:4] != _guard_file_identity(written)[:4]
                         or any(type(value) is not int or value <= 0 for value in _guard_file_identity(current))):
                     raise ValueError('retained ownership unavailable')

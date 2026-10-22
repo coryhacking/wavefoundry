@@ -291,12 +291,11 @@ class ReceiptTests(unittest.TestCase):
           "action.get('root_identity') != receipt['root_identity']"),
          # 20b36: descriptor/ownership checks for the one retained upgrade pack,
          # not storage snapshot comparisons; keep each reviewed expression exact.
-         ('upgrade_extensions', '_read_guard_pack', '_guard_file_identity(entry) != _guard_file_identity(opened)'),
-         ('upgrade_extensions', '_read_guard_pack', '_guard_file_identity(path.lstat()) != _guard_file_identity(opened)'),
+         # 21alh: handle-against-path comparisons ignore ctime through one helper.
+         ('upgrade_extensions', '_guard_cross_kind_matches', '_guard_file_identity(handle_entry)[:4] == _guard_file_identity(path_entry)[:4]'),
          ('upgrade_extensions', '_retain_index_guard_pack', 'hashlib.sha256(retained).hexdigest() != digest'),
          # 20tzs: fresh held-descriptor/publication comparisons, not portable
          # historical storage identities. Device equality must remain exact.
-         ('upgrade_extensions', '_retain_index_guard_pack', '_guard_file_identity(entry) != _guard_file_identity(current)'),
          ('upgrade_extensions', '_retain_index_guard_pack', '_guard_file_identity(owned)[:4] != _guard_file_identity(written)[:4]'),
          ('upgrade_extensions', '_retain_index_guard_pack', '_guard_file_identity(current)[:4] != _guard_file_identity(written)[:4]'),
          ('upgrade_extensions', '_retain_index_guard_pack', '_guard_file_identity(opened) != _guard_file_identity(owned)'),
@@ -305,7 +304,7 @@ class ReceiptTests(unittest.TestCase):
          # 20qrr: durable proof device drift is portable; fresh operation identity stays exact.
          ('upgrade_extensions', '_guard_durable_binding', "len(proof['identity']) != 5"),
          ('upgrade_extensions', '_guard_durable_file_matches', 'len(stored) == 5'),
-         ('upgrade_extensions', '_guard_durable_file_matches', 'stored[1:] == current[1:]'),
+         ('upgrade_extensions', '_guard_durable_file_matches', 'stored[1:end] == current[1:end]'),
          ('upgrade_extensions', '_guard_root_identity_matches', "stored['inode'] == entry.st_ino"),
         }
         # Retired graph deletion deliberately requires exact device/inode and

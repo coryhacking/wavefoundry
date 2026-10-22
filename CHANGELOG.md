@@ -6,6 +6,21 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.35.1] - 2026-10-21
+
+### Changed
+
+- Running `setup_wavefoundry.py` directly without `--root` now targets the repository that holds the script, as `wf setup` already does, wherever it is run from; a relative `--model-bundle` still names the file in the folder it was typed from, and an explicit `--root` is unchanged. Wave 21cw4 / 21cw5.
+
+### Fixed
+
+- Upgrades on native Windows no longer refuse with "verified private pack changed before validation". Python's handle and path stat calls can report different ctimes for the same file there, so every pack identity check that compares a handle stat with a path stat now ignores ctime and still compares every other field it compared before (inode, size and mtime, plus device where it was checked). Checks between two stats of the same kind, and the recorded five-field proof, are unchanged. An upgrade is staged by the installed runner, so a Windows repository that patched this locally keeps that patch until this release is installed. Wave 21cw4 / 21alh.
+- The Claude Code pre-edit hook lets the read-only Grep and Glob tools search seed and framework paths while the edit gates are closed; edit tools stay gated. Repositories receive the updated hook when setup or upgrade re-renders platform surfaces. Wave 21cw4 / 21ayv.
+- `wf setup` refuses a root that has no `.wavefoundry/framework/` folder before doing anything else, exits non-zero, and names `--root`; `--check`, `--check-gpu` and `--help` are unchanged. A framework folder reached through a link is still accepted. Wave 21cw4 / 21ayw.
+- Rendering refuses a carrier destination that is a dangling link, or whose ancestor folder is one, and any destination that resolves inside the repository's `.git` folder (compared case-insensitively on every platform), instead of creating the file at the link's target. Docs-lint reports such a destination as a finding instead of failing. Other links inside the repository behave as before. Wave 21cw4 / 21ayx.
+- `wf_close_change` refuses an ambiguous wave record before any gate or write: an id recorded more than once, a record with more than one status line (fenced or not, including an unreadable one), or a record started by a fenced id line. Fenced `Depends On:` examples stay ignored, and `wf_close_wave` is unchanged. Wave 21cw4 / 21cw2.
+- The profile shortcut tests read the colliding prompt names from the default table instead of literals, so a source-rebranded distribution can run them unchanged. Wave 21cw4 / 21cw3.
+
 ## [1.35.0] - 2026-10-20
 
 ### Added

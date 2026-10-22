@@ -511,26 +511,52 @@ class ProfileShortcutLookupTests(unittest.TestCase):
         (self.root / "docs" / "prompts" / "prompt-surface-manifest.json").write_text(
             json.dumps({"prompt_names": record}), encoding="utf-8")
 
+    # Wave 21cw4 (21cw3): the simulated rename moves `close-change` onto the
+    # shipped DEFAULT slug and shortcut of `close-wave` (read from the default
+    # table, so a source rebrand that rewrites the table carries it along),
+    # exercising a renamed phrase that equals another key's default; `close-wave`
+    # moves to a name no shipped or known distribution profile uses.
+    UNUSED_SLUG = "close-unit"
+    UNUSED_SHORTCUT = "Close unit"
+
+    def _names(self):
+        defaults = self.vocab.DEFAULT_PROMPT_NAMES
+        taken_slug = defaults["close-wave"]["slug"]
+        taken_shortcut = defaults["close-wave"]["shortcut"]
+        verb, noun = taken_shortcut.split(" ", 1)
+        return types.SimpleNamespace(
+            old_slug=defaults["close-change"]["slug"], old_shortcut=defaults["close-change"]["shortcut"],
+            slug=taken_slug, shortcut=taken_shortcut, alias=f"Finish {noun}",
+            alias_probe=f"finish {noun.upper()} ", unused_slug=self.UNUSED_SLUG,
+            unused_shortcut=self.UNUSED_SHORTCUT,
+        )
+
     def _swap_profile(self):
+        names = self._names()
         overrides = {
-            "close-change": {"slug": "close-wave", "shortcut": "Close wave", "aliases": ["Finish wave"]},
-            "close-wave": {"slug": "close-set", "shortcut": "Close set"},
+            "close-change": {"slug": names.slug, "shortcut": names.shortcut, "aliases": [names.alias]},
+            "close-wave": {"slug": names.unused_slug, "shortcut": names.unused_shortcut},
         }
         return patch.object(self.vocab, "PROMPT_NAMES", self.vocab.derive_prompt_names(overrides))
 
     def test_renamed_profile_resolves_its_own_phrases(self):
+        names = self._names()
         self._write({
-            "docs/prompts/close-wave.prompt.md": "# Item close\n\nBODY:item-close\n",
-            "docs/prompts/close-set.prompt.md": "# Container close\n\nBODY:container-close\n",
+            f"docs/prompts/{names.slug}.prompt.md": "# Item close\n\nBODY:item-close\n",
+            f"docs/prompts/{names.unused_slug}.prompt.md": "# Container close\n\nBODY:container-close\n",
         })
-        self._manifest({"close-change": "close-wave", "close-wave": "close-set"})
+        self._manifest({"close-change": names.slug, "close-wave": names.unused_slug})
         with self._swap_profile():
-            self.assertIn("BODY:item-close", self.srv.get_prompt(self.root, "Close wave"))
-            self.assertIn("BODY:item-close", self.srv.get_prompt(self.root, "finish WAVE "))
-            self.assertIn("BODY:container-close", self.srv.get_prompt(self.root, "Close set"))
+            # The collision: this phrase is `close-wave`'s DEFAULT shortcut,
+            # and the renamed profile gives it to `close-change`.
+            self.assertEqual(names.shortcut, self.vocab.DEFAULT_PROMPT_NAMES["close-wave"]["shortcut"])
+            self.assertEqual(self.vocab.shortcut("close-change"), names.shortcut)
+            self.assertIn("BODY:item-close", self.srv.get_prompt(self.root, names.shortcut))
+            self.assertIn("BODY:item-close", self.srv.get_prompt(self.root, names.alias_probe))
+            self.assertIn("BODY:container-close", self.srv.get_prompt(self.root, names.unused_shortcut))
             # The old default phrase is not declared by this profile, and no
             # file name or body carries it, so nothing resolves.
-            self.assertIsNone(self.srv.get_prompt(self.root, "Close change"))
+            self.assertIsNone(self.srv.get_prompt(self.root, names.old_shortcut))
 
     def test_default_profile_resolves_every_declared_phrase(self):
         files = {f"docs/prompts/{self.vocab.prompt_slug(key)}.prompt.md": f"# {key}\n\nBODY:{key}\n"
@@ -562,9 +588,10 @@ class ProfileShortcutLookupTests(unittest.TestCase):
         self.assertIn("special instructions", self.srv.get_prompt(self.root, "special instructions"))
 
     def test_missing_declared_file_falls_through_without_refusal(self):
-        self._write({"docs/prompts/notes.md": "# Notes\n\nPrepare wave by hand.\n"})
+        phrase = self.vocab.shortcut("prepare-wave")
+        self._write({"docs/prompts/notes.md": f"# Notes\n\n{phrase} by hand.\n"})
         refused = []
-        text = self.srv.get_prompt(self.root, "Prepare wave", refused=refused)
+        text = self.srv.get_prompt(self.root, phrase, refused=refused)
         self.assertIn("by hand", text)
         self.assertEqual(refused, [])
 
@@ -572,15 +599,17 @@ class ProfileShortcutLookupTests(unittest.TestCase):
         outside = Path(self.tmp.name).parent / f"outside-{os.getpid()}-{id(self)}.md"
         outside.write_text("# Outside\n", encoding="utf-8")
         self.addCleanup(lambda: outside.unlink(missing_ok=True))
-        self._write({"docs/prompts/notes.md": "# Notes\n\nPrepare wave by hand.\n"})
-        link = self.root / "docs" / "prompts" / "prepare-wave.prompt.md"
+        phrase = self.vocab.shortcut("prepare-wave")
+        declared = self.vocab.prompt_doc("prepare-wave")
+        self._write({"docs/prompts/notes.md": f"# Notes\n\n{phrase} by hand.\n"})
+        link = self.root / declared
         try:
             os.symlink(outside, link)
         except (OSError, NotImplementedError):
             self.skipTest("symlinks unavailable")
         refused = []
-        text = self.srv.get_prompt(self.root, "Prepare wave", refused=refused)
-        self.assertIn("docs/prompts/prepare-wave.prompt.md", refused)
+        text = self.srv.get_prompt(self.root, phrase, refused=refused)
+        self.assertIn(declared, refused)
         self.assertIn("by hand", text)
 
     def test_malformed_manifest_resolves_through_the_profile(self):
@@ -589,23 +618,25 @@ class ProfileShortcutLookupTests(unittest.TestCase):
         self.assertIn("BODY:close-change", self.srv.get_prompt(self.root, "Close change"))
 
     def test_malformed_manifest_uses_the_profile_slug_not_the_shipped_one(self):
-        self._write({"docs/prompts/close-change.prompt.md": "# Shipped\n\nBODY:shipped-slug\n",
-                     "docs/prompts/close-wave.prompt.md": "# Profile\n\nBODY:profile-slug\n"})
+        names = self._names()
+        self._write({f"docs/prompts/{names.old_slug}.prompt.md": "# Shipped\n\nBODY:shipped-slug\n",
+                     f"docs/prompts/{names.slug}.prompt.md": "# Profile\n\nBODY:profile-slug\n"})
         self._manifest({"close-change": 5})
         with self._swap_profile():
-            self.assertIn("BODY:profile-slug", self.srv.get_prompt(self.root, "Close wave"))
+            self.assertIn("BODY:profile-slug", self.srv.get_prompt(self.root, names.shortcut))
 
     def test_cache_follows_manifest_changes(self):
+        names = self._names()
         self._write({
-            "docs/prompts/close-change.prompt.md": "# Old\n\nBODY:old-name\n",
-            "docs/prompts/close-wave.prompt.md": "# New\n\nBODY:new-name\n",
-            "docs/prompts/close-set.prompt.md": "# Set\n\nBODY:set\n",
+            f"docs/prompts/{names.old_slug}.prompt.md": "# Old\n\nBODY:old-name\n",
+            f"docs/prompts/{names.slug}.prompt.md": "# New\n\nBODY:new-name\n",
+            f"docs/prompts/{names.unused_slug}.prompt.md": "# Unit\n\nBODY:unit\n",
         })
         cache = self.srv.McpRepoCache(self.root)
         with self._swap_profile():
-            self.assertIn("BODY:old-name", cache.get_prompt_text_cached("Close wave"))
-            self._manifest({"close-change": "close-wave", "close-wave": "close-set"})
-            self.assertIn("BODY:new-name", cache.get_prompt_text_cached("Close wave"))
+            self.assertIn("BODY:old-name", cache.get_prompt_text_cached(names.shortcut))
+            self._manifest({"close-change": names.slug, "close-wave": names.unused_slug})
+            self.assertIn("BODY:new-name", cache.get_prompt_text_cached(names.shortcut))
 
 
 class ChangePromptLookupTests(unittest.TestCase):

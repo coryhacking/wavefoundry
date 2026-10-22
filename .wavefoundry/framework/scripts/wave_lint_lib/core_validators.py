@@ -501,7 +501,13 @@ def _check_marker_family_parity(
     )
     failures: list[str] = []
     for destination, block in entries:
-        path = _contained_review_carrier_path(root, destination)
+        try:
+            path = _contained_review_carrier_path(root, destination)
+        except RuntimeError as exc:
+            # Change 21ayx: a read-only gate reports a refused destination
+            # (dangling link, .git target, escaping link) instead of raising.
+            failures.append(f"{destination}: {family} carrier refused ({exc})")
+            continue
         if not path.is_file():
             continue
         if only_resolved is not None and path.resolve() not in only_resolved:

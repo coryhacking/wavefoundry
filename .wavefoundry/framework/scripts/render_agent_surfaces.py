@@ -2344,6 +2344,35 @@ def _contained_review_carrier_path(repo_root: Path, destination: str) -> Path:
             "review carrier path escapes the repository root through a symlink: "
             f"{_display_name(destination)}"
         )
+    # Change 21ayx: a dangling link at the destination or an ancestor would
+    # make a missing-only writer create the file at the link's target, so
+    # refuse it. Each component below the root is checked with lstat and the
+    # shared link-metadata helper, which also covers Windows junctions and
+    # other name-surrogate reparse points. A missing component ends the walk:
+    # nothing beneath it exists, so nothing beneath it can be a link.
+    current = repo_root
+    for part in Path(destination).parts:
+        current = current / part
+        try:
+            info = os.lstat(current)
+        except OSError:
+            break
+        if contained_files._is_link_metadata(info) and not os.path.exists(current):
+            raise RuntimeError(
+                "review carrier path is a dangling link: "
+                f"{_display_name(destination)}"
+            )
+    # Change 21ayx: no carrier belongs under the repository's .git directory,
+    # whichever link leads there and whether or not the target exists.
+    # Compared case-insensitively on every platform: macOS, native Windows
+    # and WSL2 checkouts on a Windows drive may all ignore case.
+    relative_parts = resolved.relative_to(root).parts
+    if relative_parts:
+        if relative_parts[0].casefold() == ".git":
+            raise RuntimeError(
+                "review carrier path resolves inside the repository's .git directory: "
+                f"{_display_name(destination)}"
+            )
     return resolved
 
 
