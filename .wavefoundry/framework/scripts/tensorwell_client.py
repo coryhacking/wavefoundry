@@ -1171,7 +1171,9 @@ def _controller_digest(executable: Path, deadline: float) -> str:
         after = os.fstat(fd)
         current = executable.stat(follow_symlinks=False)
         identity = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
-        if identity(before) != identity(after) or identity(after) != identity(current):
+        # Handle and path stats may disagree on ctime alone (Windows,
+        # Python 3.12; change 21bzm), so the cross-kind check omits it.
+        if identity(before) != identity(after) or identity(after)[:4] != identity(current)[:4]:
             raise ValueError("changed controller")
         _remaining(deadline)
         return digest.hexdigest()

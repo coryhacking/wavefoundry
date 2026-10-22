@@ -6,7 +6,7 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.35.1] - 2026-10-21
+## [1.36.0] - 2026-10-21
 
 ### Changed
 
@@ -19,6 +19,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `wf setup` refuses a root that has no `.wavefoundry/framework/` folder before doing anything else, exits non-zero, and names `--root`; `--check`, `--check-gpu` and `--help` are unchanged. A framework folder reached through a link is still accepted. Wave 21cw4 / 21ayw.
 - Rendering refuses a carrier destination that is a dangling link, or whose ancestor folder is one, and any destination that resolves inside the repository's `.git` folder (compared case-insensitively on every platform), instead of creating the file at the link's target. Docs-lint reports such a destination as a finding instead of failing. Other links inside the repository behave as before. Wave 21cw4 / 21ayx.
 - `wf_close_change` refuses an ambiguous wave record before any gate or write: an id recorded more than once, a record with more than one status line (fenced or not, including an unreadable one), or a record started by a fenced id line. Fenced `Depends On:` examples stay ignored, and `wf_close_wave` is unchanged. Wave 21cw4 / 21cw2.
+- The Tensorwell controller check compares its open-file and path snapshots without ctime, matching the pack identity fix, so it cannot refuse an unchanged controller when handle and path stats disagree on ctime alone; replacing, resizing or rewriting the controller is still refused. Wave 21bzn / 21bzm.
 - The profile shortcut tests read the colliding prompt names from the default table instead of literals, so a source-rebranded distribution can run them unchanged. Wave 21cw4 / 21cw3.
 
 ## [1.35.0] - 2026-10-20

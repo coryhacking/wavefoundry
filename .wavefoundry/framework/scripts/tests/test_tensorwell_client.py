@@ -14,6 +14,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import types
 import threading
 import time
 import unittest
@@ -1402,6 +1403,39 @@ class ClientTests(unittest.TestCase):
         linked.unlink()
         linked.symlink_to(bad)
         with self.assertRaises(OSError): tc._controller_digest(linked, time.monotonic() + 1)
+
+    def test_controller_digest_ignores_ctime_only_between_handle_and_path(self):
+        controller = self.home / "tensorwell"
+        controller.write_bytes(b"qualified bytes")
+        controller.chmod(0o700)
+        expected = hashlib.sha256(b"qualified bytes").hexdigest()
+        real_stat, real_fstat = Path.stat, os.fstat
+
+        def shifted(real, field):
+            values = {name: getattr(real, name) for name in ("st_mode", "st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")}
+            values[field] += 1000
+            return types.SimpleNamespace(**values)
+
+        def path_stat(field):
+            return lambda path, **kwargs: (shifted(real_stat(path, **kwargs), field) if path == controller
+                                           else real_stat(path, **kwargs))
+        # Path differs from the handle only in ctime: accepted (AC-1).
+        with patch.object(Path, "stat", path_stat("st_ctime_ns")):
+            self.assertEqual(tc._controller_digest(controller, time.monotonic() + 1), expected)
+        # Real changes on the path side still refuse (AC-2).
+        for field in ("st_dev", "st_ino", "st_size", "st_mtime_ns"):
+            with self.subTest(field=field), patch.object(Path, "stat", path_stat(field)), \
+                    self.assertRaisesRegex(ValueError, "changed controller"):
+                tc._controller_digest(controller, time.monotonic() + 1)
+        # The two handle stats still compare ctime (AC-2).
+        calls = []
+
+        def fstat(fd):
+            calls.append(fd)
+            real = real_fstat(fd)
+            return shifted(real, "st_ctime_ns") if len(calls) == 2 else real
+        with patch.object(tc.os, "fstat", fstat), self.assertRaisesRegex(ValueError, "changed controller"):
+            tc._controller_digest(controller, time.monotonic() + 1)
 
     def test_start_once_ready_stopped_starting_failed_and_unknown(self):
         self.enterContext(patch.object(tc, "_controller_file_identity", return_value=(1, 2, 3, 4, 5)))
