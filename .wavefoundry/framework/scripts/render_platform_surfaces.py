@@ -256,7 +256,7 @@ def _preflight_platform_render_paths(
             )
 
 
-def launcher_command(rel_base: str, project_dir_var: str | None = None, *, fail_closed: bool = False) -> str:
+def launcher_command(rel_base: str, project_dir_var: str | None = None, *, fail_closed: bool = False, disable_bytecode: bool = False) -> str:
     """Launcher command for a hook config — ``python3`` invoking the ``.py`` hook body directly.
 
     When a host supplies an owner-root environment variable, resolve the body
@@ -272,6 +272,7 @@ def launcher_command(rel_base: str, project_dir_var: str | None = None, *, fail_
     the hook. The text avoids ``$`` and inner double quotes so PowerShell passes it
     through unchanged. A missing ``python3`` still yields the shell's own status.
     """
+    python_command = "python3 -B" if disable_bytecode else "python3"
     parts = ", ".join(repr(part) for part in f"{rel_base}.py".split("/"))
     hook_line = ""
     if fail_closed:
@@ -289,18 +290,18 @@ def launcher_command(rel_base: str, project_dir_var: str | None = None, *, fail_
             if fail_closed else f"sys.exit({missing_message})"
         )
         return (
-            'python3 -c "import os,runpy,sys; '
+            f'{python_command} -c "import os,runpy,sys; '
             f"{hook_line}root=os.environ.get('{project_dir_var}'); root or {missing}; "
             f"runpy.run_path(os.path.join(root, {parts}), "
             "run_name='__main__')\""
         )
     if fail_closed:
         return (
-            'python3 -c "import os,runpy,sys; '
+            f'{python_command} -c "import os,runpy,sys; '
             f"{hook_line}runpy.run_path(os.path.abspath(os.path.join({parts})), "
             "run_name='__main__')\""
         )
-    return f'python3 "{rel_base}.py"'
+    return f'{python_command} "{rel_base}.py"'
 
 
 # Single source of truth for Claude hooks. Both the settings renderer
@@ -313,12 +314,22 @@ def launcher_command(rel_base: str, project_dir_var: str | None = None, *, fail_
 #   matcher: tool matcher for the settings entry, or None for unmatched events (Stop)
 #   status_message: statusMessage shown by Claude while the hook runs
 #   timeout: optional seconds, emitted on the command object only when present
+#   disable_bytecode: optional -B for read-only hooks, including launcher imports
 # Claude's post-edit subscription names supported edits. Pre-edit receives all
 # tools so its classifier can inspect supported paths on unfamiliar names.
 CLAUDE_EDIT_TOOL_NAMES: tuple[str, ...] = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 CLAUDE_EDIT_MATCHER = "|".join(CLAUDE_EDIT_TOOL_NAMES)
+CLAUDE_MODERNIZATION_MATCHER = r"^code-modernization:[A-Za-z0-9][A-Za-z0-9_-]*$"
 
 CLAUDE_HOOKS: tuple[dict[str, object], ...] = (
+    {
+        "name": "wf-modernization-briefing",
+        "event": "SubagentStart",
+        "matcher": CLAUDE_MODERNIZATION_MATCHER,
+        "status_message": "Briefing modernization agent on Wavefoundry...",
+        "timeout": 5,
+        "disable_bytecode": True,
+    },
     {
         "name": "pre-edit",
         "event": "PreToolUse",
@@ -858,6 +869,61 @@ def compose_preactivation_script(body: str) -> str:
     ``sys.exit``) is never reached. The body owns its own ``sys.path`` and bytecode setup."""
     return "".join(["#!/usr/bin/env python3\n", _FUTURE_LINE, "\n\n",
                     _strip_leading_future(dedent(body).strip()), "\n"])
+
+
+def claude_modernization_briefing_source() -> str:
+    """Fixed, read-only SubagentStart context; no framework/bootstrap imports."""
+    # No future import: disable bytecode before importing even stdlib modules.
+    body = r'''
+        import sys
+
+        sys.dont_write_bytecode = True
+
+        import json
+        import re
+
+        MAX_INPUT_BYTES = 16384
+        AGENT_PATTERN = __AGENT_PATTERN__
+        BRIEFING = (
+            "Wavefoundry modernization briefing: Read AGENTS.md and follow "
+            ".wavefoundry/framework/seeds/180-implement-change.prompt.md, "
+            "especially Host-neutral orchestration and its canonical retrieval rules "
+            "(docs/agents/guru.md for code/documentation investigation). "
+            "Stay within the assigned change/ACs and owned paths; honor forbidden paths "
+            "and read-only assignments. Investigation may precede readiness; implementation "
+            "requires the repository stage gate. Verify your actual available tools; use "
+            "Wavefoundry MCP first when available, and follow the documented fallback with "
+            "a Gapfill: note naming unavailable access when it is not. Return scoped cited "
+            "evidence, checks and limitations to the coordinator, who owns lifecycle tracking. "
+            "This briefing grants no tools or permissions. Plugin plan approval or proof "
+            "does not replace Wavefoundry readiness/review or operator authorization for "
+            "closure, commits and releases."
+        )
+
+        def main():
+            try:
+                raw = sys.stdin.buffer.read(MAX_INPUT_BYTES + 1)
+                if len(raw) > MAX_INPUT_BYTES:
+                    return
+                payload = json.loads(raw)
+                if not isinstance(payload, dict) or payload.get("hook_event_name") != "SubagentStart":
+                    return
+                agent_type = payload.get("agent_type")
+                if not isinstance(agent_type, str) or re.fullmatch(AGENT_PATTERN, agent_type) is None:
+                    return
+                print(json.dumps({"hookSpecificOutput": {
+                    "hookEventName": "SubagentStart",
+                    "additionalContext": BRIEFING,
+                }}))
+            except (ValueError, UnicodeError, RecursionError, OSError):
+                return
+
+        if __name__ == "__main__":
+            main()
+        '''
+    return "#!/usr/bin/env python3\n" + dedent(body).strip().replace(
+        "__AGENT_PATTERN__", repr(CLAUDE_MODERNIZATION_MATCHER)
+    ) + "\n"
 
 
 def claude_session_start_source() -> str:
@@ -2013,6 +2079,7 @@ def render_claude_settings(repo_root: Path) -> None:
             "command": launcher_command(
                 f".claude/hooks/{hook['name']}", "CLAUDE_PROJECT_DIR",
                 fail_closed=hook["event"] == "PreToolUse",
+                disable_bytecode=bool(hook.get("disable_bytecode")),
             ),
             "statusMessage": hook["status_message"],
         }
@@ -2969,6 +3036,10 @@ def render_platform_entrypoints(repo_root: Path, platform: str) -> None:
         write_hook_bundle(repo_root / ".claude" / "hooks" / "simulate-hooks", claude_simulate_hooks_source(), root=repo_root)
         write_hook_bundle(repo_root / ".claude" / "hooks" / "session-capture", claude_stop_source(), root=repo_root)
         write_hook_bundle(repo_root / ".claude" / "hooks" / "wf-session-start", claude_session_start_source(), root=repo_root)
+        write_hook_bundle(
+            repo_root / ".claude" / "hooks" / "wf-modernization-briefing",
+            claude_modernization_briefing_source(), root=repo_root,
+        )
         write_hook_bundle(
             repo_root / ".claude" / "hooks" / "context-efficiency-project",
             claude_context_efficiency_source(),

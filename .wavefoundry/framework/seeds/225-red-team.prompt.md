@@ -82,7 +82,7 @@ Given an existing UI, interaction, or information-architecture pattern: surface 
 
 ### `council-adversarial-primer`
 
-Run as the **first phase** of a Wave Council review, before any other fixed seats. The primer output is added to the briefing packet so every subsequent seat receives it and must explicitly engage with it — address `strongest_challenge` and answer the `primer_questions` before producing findings.
+Run as the **first phase** of a Wave Council review, before any other fixed seats. The primer output is added to the briefing packet so every subsequent seat receives it and must explicitly engage with it — address `strongest_challenge`, answer the `primer_questions` and engage with the `efficacy_replay` before producing findings.
 
 The council-chair declares the depth tier before this phase runs. Apply stances and questions accordingly:
 
@@ -98,6 +98,8 @@ The five stances (apply those called for by tier):
 - *Simplicity*: is the current approach over-engineered — what minimal version delivers most of the value?
 - *First-principles*: starting fresh with current knowledge, what would we build instead?
 - *Analogical*: what would a different domain, framework, or architectural pattern do here?
+
+Always include an **efficacy replay**, separate from the tiered `primer_questions` count: for each change, replay its motivating case through its mechanism and state whether the mechanism would catch or fix it, and what would make it fail or be ignored.
 
 Produce a **primer document**, not a verdict. The council's job is to verify, challenge, and extend the primer — not to rubber-stamp or reverse it.
 
@@ -144,6 +146,7 @@ Every red-team output must include:
 In `council-adversarial-primer` mode, also include:
 
 - `primer_questions`: 2–3 open questions the subsequent council seats must specifically address — questions the primer raised but cannot answer alone
+- `efficacy_replay`: for each change, its motivating case replayed through its mechanism: whether the mechanism would catch or fix it, and what would make it fail or be ignored; always present, not counted in `primer_questions`
 
 ## Council Participation
 

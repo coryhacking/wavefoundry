@@ -59,6 +59,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HOOKS = {
+    "wf-modernization-briefing": REPO_ROOT / ".claude" / "hooks" / "wf-modernization-briefing.py",
     "pre-edit": REPO_ROOT / ".claude" / "hooks" / "pre-edit.py",
     "post-edit": REPO_ROOT / ".claude" / "hooks" / "post-edit.py",
     "session-capture": REPO_ROOT / ".claude" / "hooks" / "session-capture.py",

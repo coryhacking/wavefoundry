@@ -1209,13 +1209,22 @@ class StockDeclarationSkillBytesTests(unittest.TestCase):
             _repo(root)
             (root / "docs/prompts/package-wavefoundry.prompt.md").write_text("# p\n", encoding="utf-8")
             written = ras.render_agent_surfaces(root)
-            skill_paths = sorted(rel for rel in written if "/skills/" in rel)
+            skill_paths = sorted(rel for rel in written if "/skills/" in rel and rel.endswith("/SKILL.md"))
             expected = sorted(
                 f"{host}/skills/{skill.name}/SKILL.md"
                 for skill in ras.SKILL_REGISTRY for host in HOSTS
                 if not skill.requires_doc or (root / skill.requires_doc).is_file()
             )
             self.assertEqual(skill_paths, expected)
+            policy_paths = sorted(rel for rel in written if "/skills/" in rel and not rel.endswith("/SKILL.md"))
+            expected_policies = sorted(
+                f"{host}/skills/{name}/agents/openai.yaml"
+                for host in (".codex", ".agents")
+                for name in (vp.skill_name("close-wave"), vp.skill_name("close-change"), "wf-package", "wf-upgrade")
+            )
+            self.assertEqual(policy_paths, expected_policies)
+            for rel in policy_paths:
+                self.assertEqual((root / rel).read_bytes(), b"policy:\n  allow_implicit_invocation: false\n")
             by_name = {skill.name: skill for skill in ras.SKILL_REGISTRY}
             for rel in skill_paths:
                 text = (root / rel).read_text(encoding="utf-8")

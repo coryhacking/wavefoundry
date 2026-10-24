@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-19
+Last verified: 2026-10-24
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
@@ -45,6 +45,12 @@ Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neut
 ### Skills (`wf-` namespace, registry-rendered)
 
 One registry (`render_agent_surfaces.render_skills`, wave `1p6lp`) renders every Wavefoundry skill as standard `SKILL.md` (frontmatter `name`/`description` + thin-pointer body) into each **active** skill host directory. A host is active when its root directory exists. On the Claude host only, the operator-owned skills `wf-close-wave`, `wf-close-change`, `wf-package` and `wf-upgrade` also carry `disable-model-invocation: true` (wave `2136r`), so Claude runs them only when the operator invokes them by name.
+
+The same four eligible operator-owned skills also receive `agents/openai.yaml` containing `policy.allow_implicit_invocation: false` under active `.agents/skills/` and `.codex/skills/` roots (wave `21fgr`). [OpenAI's skill guidance](https://learn.chatgpt.com/docs/build-skills) documents `.agents/skills/` discovery and this explicit-invocation policy; `.codex/skills/` remains a compatibility carrier. The renderer owns the literal sidecar bytes and creates missing files only. An existing exact match is unchanged; any custom or unreadable sidecar is preserved byte-for-byte with a notice that the policy was not applied. Reconcile the policy manually, or remove or rename that file and render again to regenerate it; the renderer does not merge YAML. All nested and leaf output paths are preflighted for symlinks before host writes.
+
+This metadata controls skill selection; it grants or denies no tool permissions and proves no runtime enforcement in every host version. Antigravity shares the `.agents/` carrier, but its enforcement of OpenAI metadata is unqualified. Ordinary skills receive no sidecar, Claude keeps its existing frontmatter, and all `SKILL.md` bodies remain unchanged. The same doc-presence and active-host gates apply to the sidecars.
+
+When an existing profile migration retires a default operator-skill path, the renderer removes its sidecar only when the bytes exactly match its generated policy, then removes only empty directories. It also recovers an owned sidecar left after an earlier removal of `SKILL.md`. Custom or unreadable metadata, unknown files and paths reused by the current profile survive. Stale policy paths receive the same symlink preflight; contained reads and removal-boundary identity/content checks preserve observed replacement or customization. These checks do not provide an atomic compare-and-unlink guarantee against OS writes between the final check and removal; the existing native-Windows path-based removal window remains.
 
 | Skill | Backing prompt(s) | Gate |
 |-------|-------------------|------|
@@ -90,6 +96,12 @@ Root-only means exactly that: the host must launch from the configured project r
 not search upward from an arbitrary cwd, because a descendant containing another installation could
 silently change project identity. Missing host authority is surfaced as a support limitation, not
 papered over with a generic locator.
+
+## Code Modernization context delivery
+
+Claude Code alone receives the generated `.claude/hooks/wf-modernization-briefing.py` entry under `SubagentStart`. Its anchored `code-modernization:` matcher covers plugin-qualified agent names without a fixed agent roster or plugin-cache lookup. The hook validates the event and identifier again and returns fixed `hookSpecificOutput.additionalContext`; malformed or unrelated input exits silently. Its five-second host timeout and bounded stdin keep the context adapter small. No framework activation, MCP call, transcript read, child command, network operation or state write occurs in the hook body.
+
+This is instruction delivery, not permission expansion or proof of compliance. A missing plugin needs no installation, and other hosts receive no new hook surface. The coordinator supplies seed 180's task-specific modernization briefing and records evidence; the existing retrieval fallback and lifecycle/operator authority remain unchanged. The framework renderer owns the script, registry entry and simulation-helper mapping, preserving operator hook entries and unrelated settings on reconciliation.
 
 ## Received tool names and patch instructions
 

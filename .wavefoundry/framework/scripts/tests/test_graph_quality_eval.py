@@ -20,6 +20,7 @@ import index_paths  # noqa: E402
 import indexer  # noqa: E402
 import retrieval_eval  # noqa: E402
 import graph_fixture_support as gfs  # noqa: E402
+from upstream_fixture_support import upstream_fixture  # noqa: E402
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3].parent
@@ -449,7 +450,7 @@ class MoveRenameInvarianceTests(unittest.TestCase):
     identical payload keeps its verdict under any move or rename."""
 
     def setUp(self):
-        self.payload = json.loads(MACHINE_RESULT_CONTROL.read_text())
+        self.payload = json.loads(upstream_fixture(MACHINE_RESULT_CONTROL).read_text())
 
     def test_the_machine_result_verdict_survives_relocation(self):
         verdict, reasons = graph_indexer.classify_evidence_payload(self.payload)
@@ -564,6 +565,7 @@ class ClassificationControlScorerTests(unittest.TestCase):
     def test_the_control_directory_matches_the_files_on_disk(self):
         # Binds the frozen table to reality: a renamed or deleted control is
         # caught here rather than silently dropping out of the run.
+        upstream_fixture(CONTROL_DIR)
         on_disk = {p.name for p in CONTROL_DIR.glob("*.json")}
         self.assertEqual(set(subject.CLASSIFICATION_CONTROLS), on_disk)
         self.assertEqual(
@@ -1265,21 +1267,22 @@ class GraphParityBaselineFixtureTests(unittest.TestCase):
     caught a later regression that moved a node identity, dropped a duplicate
     edge, changed extraction coverage or reshaped community output.
 
-    No skip path, deliberately. The fixture records its corpus by ``sha256``
+    No silent skip path, deliberately (change 21ile routes the corpus read
+    through ``upstream_fixture``: it skips only where the source-repository
+    opt-in is off, and fails here). The fixture records its corpus by ``sha256``
     and NOT by content, so there is no recorded copy to rebuild from; embedding
     one would mean re-capturing a baseline whose file digest is already
     recorded in the wave's ``runtime-qualification.json``, which is receipt
-    editing. Instead an absent or drifted corpus FAILS here and names which of
-    the two moved. That costs nothing in practice: this module is a framework
-    internal that is never packaged, so it only ever runs in a tree that also
-    carries ``docs/evals/graph-quality-golden.json``.
+    editing. Instead an absent corpus FAILS here through the helper, and a
+    drifted one fails the corpus-identity test, which names which of the two
+    moved. A distribution without ``docs/evals/graph-quality-golden.json``
+    skips the class.
     """
 
     @classmethod
     def setUpClass(cls):
         cls.fixture = json.loads(PARITY_FIXTURE.read_text(encoding="utf-8"))
-        if not CORPUS.is_file():
-            return  # reported as a failure by the corpus-identity test below
+        upstream_fixture(CORPUS)
         cls.corpus = subject.load_corpus(CORPUS)
         cls._tmp = tempfile.TemporaryDirectory()
         root = Path(cls._tmp.name)

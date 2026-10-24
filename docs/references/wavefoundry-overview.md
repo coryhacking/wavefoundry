@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-06
+Last verified: 2026-10-24
 
 ---
 
@@ -30,7 +30,7 @@ Most teams deploying AI coding agents invest heavily in feedforward: system prom
 
 Wavefoundry addresses this asymmetry. It gives agents both:
 
-- **Feedforward guidance** — numbered seed prompts that cover every lifecycle step, from planning a change to reviewing architecture to distilling journal lessons at closure
+- **Feedforward guidance** — numbered seed prompts that cover every lifecycle step, from planning a change to reviewing architecture to reviewing typed memory candidates at closure
 - **Feedback sensors** — computational sensors (shell commands that produce exit codes), inferential sensors (LLM-run reviewer agents that assess code changes along specific dimensions), and structural gates (server-enforced checks that block closure until required evidence is recorded)
 
 The goal is not to eliminate human judgment. It is to *direct* human judgment to the places where it matters most — and to reduce the amount of human attention spent verifying that routine process was followed correctly.
@@ -179,6 +179,7 @@ This self-hosting model means every wave that improves Wavefoundry is also a dem
 Wavefoundry is in active development and self-hosted on its own framework.
 
 **Shipped:**
+- `code_ask` — mechanical semantic/lexical retrieval routing with ranked citations; the calling agent synthesizes the answer
 - Full wave lifecycle MCP surface (see `AGENTS.md` for the current tool list)
 - Local three-layer index (semantic docs + code, BM25 lexical, code graph) with incremental update and offline fallback
 - Three-dimension feedback harness: computational sensors, security/performance/architecture inferential lanes, severity triage
@@ -188,7 +189,6 @@ Wavefoundry is in active development and self-hosted on its own framework.
 - Pack distribution and upgrade flow with MANIFEST-aware pruning
 
 **In progress:**
-- Code Insight Agent (code_ask) — semantic code search with LLM synthesis
 - Prompt indexing quality improvements for kind="prompt" content
 - Agent feedback harness coverage metrics and coherence checks in wf_audit
 
@@ -197,4 +197,4 @@ Wavefoundry is in active development and self-hosted on its own framework.
 - Hotfix bypass detection
 - Harnessability assessment surfaced in wf_current_wave
 
-Distribution: `wavefoundry-2026-05-06g.zip`
+Distribution: see the [Wavefoundry releases](https://github.com/coryhacking/wavefoundry/releases) for published packages.

@@ -43,6 +43,7 @@ if str(FRAMEWORK / "scripts") not in sys.path:
     sys.path.insert(0, str(FRAMEWORK / "scripts"))
 
 from review_policy import RETIRED_LIFECYCLE_TOKENS
+from upstream_fixture_support import upstream_fixture
 
 
 # Adoption-only API symbols, migration helpers, retired projector, and
@@ -1027,6 +1028,7 @@ LOCAL_RETIRED_ROLE_HEADINGS = (
 
 class LocalRoleHistoryCensusTests(unittest.TestCase):
     def test_journal_payload_only_in_bounded_history(self):
+        upstream_fixture(REPO_ROOT / "docs/agents/history/operating-memory-2026-07-22.md")
         for heading in LOCAL_RETIRED_ROLE_HEADINGS:
             hits = {
                 str(path.relative_to(REPO_ROOT)).replace("\\", "/"): count

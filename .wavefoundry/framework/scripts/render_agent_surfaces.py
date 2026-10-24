@@ -551,6 +551,10 @@ SKILL_HOSTS: "tuple[tuple[str, str], ...]" = (
     (".agents", ".agents/skills"),
 )
 
+# Codex skill-selection metadata, not tool authorization. .agents is the
+# current documented carrier; .codex remains a compatibility carrier.
+OPERATOR_SKILL_POLICY = b"policy:\n  allow_implicit_invocation: false\n"
+
 # Retired by the wave-1p6lp migration onto the registry: the flat,
 # frontmatter-less Claude upgrade skill (invisible to current Claude Code
 # skill discovery) and the pre-namespace Codex guru skill. Wave 1zyc5 retired
@@ -588,7 +592,8 @@ class Skill:
     prompt_doc_template: "str | None" = None
     # Wave 2136r (change 2136l): an operator-owned skill. On the Claude host its
     # frontmatter adds `disable-model-invocation: true`, so only the operator
-    # runs it. Other hosts render it unchanged.
+    # runs it. Codex-compatible roots receive a separate agents/openai.yaml;
+    # their SKILL.md remains unchanged.
     operator_only: bool = False
 
 
@@ -1042,6 +1047,12 @@ def _all_skills() -> "tuple[Skill, ...]":
     return (*SKILL_REGISTRY, *declared_skills())
 
 
+def _operator_skill_policy_path(skill: Skill, skills_dir: str) -> "str | None":
+    if skill.operator_only and skills_dir in (".codex/skills", ".agents/skills"):
+        return f"{skills_dir}/{skill.name}/agents/openai.yaml"
+    return None
+
+
 def _skill_output_destinations(repo_root: Path) -> list[str]:
     """Every skill path the registry pass may write, honoring both gates.
 
@@ -1058,6 +1069,9 @@ def _skill_output_destinations(repo_root: Path) -> list[str]:
         for host_root, skills_dir in SKILL_HOSTS:
             if (repo_root / host_root).is_dir():
                 destinations.append(f"{skills_dir}/{skill.name}/SKILL.md")
+                policy_path = _operator_skill_policy_path(skill, skills_dir)
+                if policy_path is not None:
+                    destinations.append(policy_path)
     return destinations
 
 
@@ -1246,12 +1260,26 @@ def _remove_judged_entry(
     *,
     directory: bool,
     parent_identity: "tuple[int, int] | None" = None,
+    expected_content: "bytes | None" = None,
 ) -> "str | None":
     """Remove ``name`` in ``root/parent_parts`` when it is still the judged
     entry: a regular file (``directory=False``) or a directory, not a link, with
     ``identity``; and, when ``parent_identity`` is given, inside the judged
     parent. Returns ``None`` once removed, else the cause class of the skip.
-    The unlink or rmdir's own ``OSError`` propagates to the caller."""
+    The unlink or rmdir's own ``OSError`` propagates to the caller. Optional
+    ``expected_content`` rechecks owned file bytes at the removal boundary;
+    this is not an atomic compare-and-unlink against concurrent OS writes."""
+
+    def content_matches() -> bool:
+        if expected_content is None:
+            return True
+        try:
+            data, _mode, _path, opened_id = _read_move_source_identity(
+                root, Path(*parent_parts, name).as_posix(), max_bytes=len(expected_content) + 1
+            )
+        except OSError:
+            return False
+        return opened_id == identity and data == expected_content
 
     wanted = stat.S_ISDIR if directory else stat.S_ISREG
     if _descriptor_removal():
@@ -1271,6 +1299,8 @@ def _remove_judged_entry(
             if directory:
                 os.rmdir(name, dir_fd=fd)
             else:
+                if not content_matches():
+                    return _CAUSE_ENTRY_CHANGED
                 os.unlink(name, dir_fd=fd)
         finally:
             os.close(fd)
@@ -1295,6 +1325,8 @@ def _remove_judged_entry(
     if directory:
         os.rmdir(path)
     else:
+        if not content_matches():
+            return _CAUSE_ENTRY_CHANGED
         os.unlink(path)
     return None
 
@@ -1342,6 +1374,75 @@ def _removal_skipped_notice(what: str, rel: str, cause: str) -> None:
     )
 
 
+class _RetiredSkillPolicy(NamedTuple):
+    rel: str
+    file_id: "tuple[int, int]"
+    agents_id: "tuple[int, int]"
+    skill_id: "tuple[int, int]"
+
+
+def _judge_retired_skill_policies(root: Path, paths: "list[str]") -> "list[_RetiredSkillPolicy]":
+    """Judge exact owned bytes and directory identities before any host mutation."""
+    judged: list[_RetiredSkillPolicy] = []
+    for rel in paths:
+        path = root / rel
+        if not os.path.lexists(path):
+            continue
+        try:
+            agents_info, skill_info = os.lstat(path.parent), os.lstat(path.parent.parent)
+            if any(_is_link_or_reparse(folder, info) or not stat.S_ISDIR(info.st_mode)
+                   for folder, info in ((path.parent, agents_info), (path.parent.parent, skill_info))):
+                raise OSError("changed directory")
+            data, _mode, _resolved, file_id = _read_move_source_identity(
+                root, rel, max_bytes=len(OPERATOR_SKILL_POLICY) + 1
+            )
+        except OSError:
+            _removal_skipped_notice("retired skill policy", rel, "custom, unreadable or changed metadata")
+            continue
+        if data != OPERATOR_SKILL_POLICY:
+            _removal_skipped_notice("retired skill policy", rel, "custom metadata")
+            continue
+        judged.append(_RetiredSkillPolicy(rel, file_id, _identity(agents_info), _identity(skill_info)))
+    return judged
+
+
+def _remove_retired_skill_policies(root: Path, policies: "list[_RetiredSkillPolicy]") -> list[str]:
+    written: list[str] = []
+    for policy in policies:
+        parts = Path(policy.rel).parts
+        try:
+            skill_info = os.lstat(root.joinpath(*parts[:-2]))
+            if _identity(skill_info) != policy.skill_id or _is_link_or_reparse(root.joinpath(*parts[:-2]), skill_info):
+                cause = _CAUSE_ENTRY_CHANGED
+            else:
+                cause = _remove_judged_entry(
+                    root, parts[:-1], parts[-1], policy.file_id, directory=False,
+                    parent_identity=policy.agents_id, expected_content=OPERATOR_SKILL_POLICY,
+                )
+        except OSError as exc:
+            cause = _failure_class(exc)
+        if cause is not None:
+            _removal_skipped_notice("retired skill policy", policy.rel, cause)
+            continue
+        written.append(policy.rel)
+        # Empty directories only: unknown entries and late arrivals survive.
+        for folder_parts, identity, parent_identity in (
+            (parts[:-1], policy.agents_id, policy.skill_id),
+            (parts[:-2], policy.skill_id, None),
+        ):
+            try:
+                cause = _remove_judged_entry(
+                    root, folder_parts[:-1], folder_parts[-1], identity,
+                    directory=True, parent_identity=parent_identity,
+                )
+            except OSError as exc:
+                cause = _failure_class(exc)
+            if cause is not None:
+                _removal_skipped_notice("retired skill folder", "/".join(folder_parts), cause)
+                break
+    return written
+
+
 def render_skills(repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()) -> list[str]:
     """Render every registry skill, then every declared skill, to each active skill host.
 
@@ -1386,6 +1487,10 @@ def render_skills(repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()
     # This preserves all hosts if one later lexical path redirects through a
     # symlink, including a per-skill directory symlink inside a valid root.
     stale_paths = stale_skill_paths()
+    retired_policy_paths = _stale_operator_skill_policy_paths(root)
+    for rel in retired_policy_paths:
+        if _skill_path_has_symlink_component(root, root / rel):
+            raise RuntimeError(f"stale skill policy path contains a symlink: {_display_name(rel)}")
     for rel in stale_paths:
         stale = root / rel
         if _skill_path_has_symlink_component(root, stale):
@@ -1411,6 +1516,12 @@ def render_skills(repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()
                     "skill output path escapes its declared host skill root through a symlink: "
                     f"{skills_dir}/{skill.name}/SKILL.md"
                 )
+            policy_path = _operator_skill_policy_path(skill, skills_dir)
+            if policy_path is not None and _skill_path_has_symlink_component(root, root / policy_path):
+                raise RuntimeError(
+                    "skill policy output path contains a symlink: "
+                    f"{_display_name(policy_path)}"
+                )
     # Wave 1zyb3 (change 1zxnu): decide every declared-skill refusal and every
     # orphan before the first write.
     refused = _refused_declared_skill_paths(root, skills, creations, active_skill_roots)
@@ -1421,6 +1532,7 @@ def render_skills(repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()
         rel: (file_id, folder_id)
         for rel, file_id, folder_id in _judge_stale_skill_paths(root, stale_paths)
     }
+    retired_policies = _judge_retired_skill_policies(root, retired_policy_paths)
 
     written: list[str] = []
     for rel in stale_paths:
@@ -1482,6 +1594,7 @@ def render_skills(repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()
                 cause = None
             if cause is not None:
                 _removal_skipped_notice("stale skill folder", "/".join(parent_parts), cause)
+    written.extend(_remove_retired_skill_policies(root, retired_policies))
     for orphan in orphans:
         rel = orphan.rel
         folder_rel = rel.rsplit("/", 1)[0]
@@ -1574,6 +1687,25 @@ def render_skills(repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()
                     )
             if write_text(target, document, root=root):
                 written.append(rel)
+            policy_path = _operator_skill_policy_path(skill, skills_dir)
+            if policy_path is not None:
+                policy_target = root / policy_path
+                if os.path.lexists(policy_target):
+                    try:
+                        owned = _read_repo_bytes(root, policy_target) == OPERATOR_SKILL_POLICY
+                    except OSError:
+                        owned = False
+                    if not owned:
+                        print(
+                            "render_agent_surfaces: NOTICE - skill policy not applied: "
+                            f"{_display_name(policy_path)} contains custom or unreadable metadata; "
+                            "preserved unchanged. Reconcile policy.allow_implicit_invocation: false "
+                            "manually, or remove or rename the file to allow regeneration",
+                            file=sys.stderr,
+                        )
+                else:
+                    _write_bytes_atomic_exclusive(policy_target, OPERATOR_SKILL_POLICY, root=root)
+                    written.append(policy_path)
     return written
 
 CODEX_MCP_CONFIG_TOML = dedent(
@@ -4106,6 +4238,23 @@ def stale_skill_paths() -> "tuple[str, ...]":
     return STALE_SKILL_PATHS + tuple(extra)
 
 
+def _stale_operator_skill_policy_paths(repo_root: Path) -> list[str]:
+    """Only default operator paths already retired by the existing migration."""
+    stale = set(stale_skill_paths())
+    operators = {skill.name for skill in SKILL_REGISTRY if skill.operator_only}
+    paths: list[str] = []
+    for key in SKILL_PROMPT_KEYS:
+        if _vp_skill(key) not in operators:
+            continue
+        default = f"wf-{vocabulary_profile.DEFAULT_PROMPT_NAMES[key]['slug']}"
+        for host_root, skills_dir in SKILL_HOSTS:
+            if skills_dir not in (".codex/skills", ".agents/skills") or not (repo_root / host_root).is_dir():
+                continue
+            if f"{skills_dir}/{default}/SKILL.md" in stale:
+                paths.append(f"{skills_dir}/{default}/agents/openai.yaml")
+    return paths
+
+
 def _agent_surface_output_destinations(repo_root: Path) -> list[str]:
     """Return every non-registry agent destination this pass may write.
 
@@ -4136,13 +4285,20 @@ def _agent_surface_output_destinations(repo_root: Path) -> list[str]:
 def preflight_agent_surface_paths(repo_root: Path) -> None:
     """Refuse every registered/native agent escape before the first write."""
 
+    skill_destinations = [*_skill_output_destinations(repo_root), *_stale_operator_skill_policy_paths(repo_root)]
+    root = repo_root.resolve()
+    for destination in skill_destinations:
+        if destination.endswith("/agents/openai.yaml") and _skill_path_has_symlink_component(root, root / destination):
+            raise RuntimeError(
+                f"skill output path contains a symlink: {_display_name(destination)}"
+            )
     destinations = [
         *(carrier.destination for carrier in review_protocol_carriers(repo_root)),
         *(destination for destination, _template in LIFECYCLE_PROMPT_BASELINES),
         *(destination for destination, _template in scaffold_baselines(repo_root)),
         UPGRADE_POLICY_DESTINATION,
         *_agent_surface_output_destinations(repo_root),
-        *_skill_output_destinations(repo_root),
+        *skill_destinations,
         *_declared_prompt_doc_creations(repo_root),
     ]
     for destination in dict.fromkeys(destinations):

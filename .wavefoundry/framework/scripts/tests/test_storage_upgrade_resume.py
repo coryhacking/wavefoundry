@@ -18,7 +18,9 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
+from unittest.mock import patch
 import zipfile
 
 SCRIPTS = Path(__file__).resolve().parents[1]
@@ -32,6 +34,7 @@ import vocabulary_profile
 
 sys.path.insert(0, str(SCRIPTS / "tests"))
 from record_layout_support import localize_record_text, waves_dir  # noqa: E402
+from framework_files import source_path  # noqa: E402
 
 # A separate driver process imports exactly the on-disk runner named by the
 # emitted command, then gives main its emitted arguments unchanged.
@@ -331,14 +334,20 @@ raise SystemExit(0 if result.get("status") != "failed" and not result.get("failu
 
 
 def _legacy_available():
+    # The migration refuses every reader but the pinned one, so only that one
+    # can exercise these paths.
     try:
         import lancedb
-        return True
     except ImportError:
         return False
+    return getattr(lancedb, "__version__", None) == migration.LEGACY_READER_VERSION
 
 
-@unittest.skipUnless(_native_available() and _legacy_available(), "qualified SQLite and legacy Lance reader unavailable")
+LEGACY_SKIP_REASON = f"pinned migration-only lancedb=={migration.LEGACY_READER_VERSION} not installed"
+
+
+@unittest.skipUnless(_legacy_available(), LEGACY_SKIP_REASON)
+@unittest.skipUnless(_native_available(), "qualified APSW + sqlite-vec runtime unavailable")
 class StorageRebuildPublicationTests(unittest.TestCase):
     """Real duplicate source, actual parent orchestration, native child builds."""
 
@@ -593,6 +602,55 @@ class StorageRebuildPublicationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LegacyReaderPinTests(unittest.TestCase):
+    """The resume tests and every migration-reader pin follow one constant (21goe)."""
+
+    def _fake_lancedb(self, version):
+        return types.SimpleNamespace(__version__=version)
+
+    def test_availability_requires_the_pinned_reader(self):
+        cases = (
+            (self._fake_lancedb(migration.LEGACY_READER_VERSION), True),
+            (self._fake_lancedb(migration.LEGACY_READER_VERSION + ".post1"), False),
+            (None, False),  # a None entry makes ``import lancedb`` raise ImportError
+        )
+        for module, expected in cases:
+            with self.subTest(module=module), patch.dict(sys.modules, {"lancedb": module}):
+                self.assertIs(_legacy_available(), expected)
+
+    def test_a_non_pinned_reader_skips_every_rebuild_test(self):
+        if not _native_available():
+            self.skipTest("qualified APSW + sqlite-vec runtime unavailable")
+        # The fake goes into sys.modules before the test module imports, so the
+        # tool-venv activation on import cannot put the real reader ahead of it.
+        driver = (
+            "import sys, types, unittest\n"
+            "sys.modules['lancedb'] = types.SimpleNamespace(__version__='0.0.0-not-pinned')\n"
+            "unittest.main(module=None, argv=['unittest', '-v',"
+            " 'test_storage_upgrade_resume.StorageRebuildPublicationTests'])\n")
+        env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(SCRIPTS), str(SCRIPTS / "tests")]))
+        result = subprocess.run(
+            [sys.executable, "-B", "-c", driver],
+            cwd=SCRIPTS / "tests", env=env, capture_output=True, text=True, timeout=300)
+        output = result.stdout + result.stderr
+        expected = sum(1 for name in dir(StorageRebuildPublicationTests) if name.startswith("test_"))
+        self.assertGreater(expected, 0)
+        self.assertEqual(output.count(f"skipped '{LEGACY_SKIP_REASON}'"), expected, output)
+        self.assertEqual(result.returncode, 0, output)
+
+    def test_no_migration_reader_literal_outside_the_constant(self):
+        version = migration.LEGACY_READER_VERSION
+        definition = f'LEGACY_READER_VERSION = "{version}"'
+        sites = ("sqlite_storage_migration.py", "setup_index.py",
+                 "tests/test_storage_upgrade_resume.py", "tests/test_sqlite_storage_migration.py",
+                 "tests/test_setup_index.py")
+        for relative in sites:
+            with self.subTest(site=relative):
+                lines = [line for line in source_path(relative).read_text(encoding="utf-8").splitlines()
+                         if version in line and line.strip() != definition]
+                self.assertEqual(lines, [])
 
 
 @unittest.skipUnless(_native_available(), "qualified APSW + sqlite-vec runtime unavailable")

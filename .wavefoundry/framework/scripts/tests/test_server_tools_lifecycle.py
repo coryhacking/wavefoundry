@@ -42,6 +42,7 @@ from server_tools_support import (  # noqa: F401 — shared server-test fixtures
 from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 import record_paths
 import vocabulary_profile
+from upstream_fixture_support import upstream_fixture
 from record_layout_support import apply_layout, default_profile_only
 
 
@@ -15077,6 +15078,10 @@ class DeclaredWaveTreeSweepTests(unittest.TestCase):
                 and authority.evidence_present()
             )
             seen[wave_md.parent.name] = (lanes, green)
+        if not seen:
+            # The snapshot pins this repository's own closed waves.
+            upstream_fixture(self.repo / "docs" / "waves"
+                             / "1tomw events-only-review-evidence-authority" / "wave.md")
         self.assertTrue(seen, "no closed declared waves found — sweep is vacuous")
         for wave_key, derived in sorted(seen.items()):
             expected = self.TOPOLOGY_SNAPSHOT.get(wave_key)
@@ -17276,7 +17281,7 @@ class ImplementDependencyProducerTests(unittest.TestCase):
         config = {"wave_review": server_tools_support.review_policy_config()}
         (self.root / "docs/workflow-config.json").write_text(json.dumps(config))
         self.ids = []
-        source = Path(__file__).resolve().parents[4] / "docs/waves/1ypy6 implement-prompt-efficiency/1ypy4-bug implement-wave-tool-gaps.md"
+        source = upstream_fixture(Path(__file__).resolve().parents[4] / "docs/waves/1ypy6 implement-prompt-efficiency/1ypy4-bug implement-wave-tool-gaps.md")
         # Use the real motivating change prose, which contains the old regex's false matches.
         prose = source.read_text().split("## Rationale\n", 1)[1].split("## Requirements", 1)[0]
         for slug in ("producer-first", "producer-second", "producer-third"):

@@ -5,6 +5,7 @@ import json
 import io
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -1175,6 +1176,175 @@ class ContextEfficiencyStopHookTests(unittest.TestCase):
         self.assertIn("project_context_efficiency.py", adapter)
         self.assertIn("start_new_session", adapter)
         self.assertIn("CREATE_NO_WINDOW", adapter)
+
+
+class ModernizationBriefingTests(unittest.TestCase):
+    """Execute the shipped adapter without a framework install or plugin cache."""
+
+    def setUp(self):
+        self.mod = _load_render_module()
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        self.mod.render_platform_entrypoints(self.root, "claude")
+        self.hook = self.root / ".claude/hooks/wf-modernization-briefing.py"
+        self.settings = self.root / ".claude/settings.json"
+        self.entry = next(
+            entry for entry in json.loads(self.settings.read_bytes())["hooks"]["SubagentStart"]
+            if "wf-modernization-briefing.py" in entry["hooks"][0]["command"]
+        )
+
+    def payload(self, agent="code-modernization:future-agent_42", **extra):
+        return json.dumps({"hook_event_name": "SubagentStart", "agent_type": agent, **extra}).encode()
+
+    def run_hook(self, payload, *, command=None):
+        argv = shlex.split(command or self.entry["hooks"][0]["command"])
+        env = dict(os.environ, CLAUDE_PROJECT_DIR=str(self.root),
+                   PYTHONPYCACHEPREFIX=str(self.root / "must-not-create-cache"))
+        env.pop("PYTHONDONTWRITEBYTECODE", None)
+        result = subprocess.run(argv, input=payload, cwd=self.root, env=env,
+                                capture_output=True, timeout=5, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, b"")
+        return result.stdout
+
+    def snapshot(self):
+        return {str(p.relative_to(self.root)): (p.read_bytes(), stat.S_IMODE(p.stat().st_mode))
+                for p in self.root.rglob("*") if p.is_file()}
+
+    def test_configured_launcher_delivers_fixed_host_context(self):
+        self.assertEqual(self.entry["hooks"][0]["timeout"], 5)
+        self.assertIsNotNone(re.search(self.entry["matcher"], "code-modernization:new-specialist"))
+        response = json.loads(self.run_hook(self.payload()))
+        self.assertEqual(set(response), {"hookSpecificOutput"})
+        context = response["hookSpecificOutput"]
+        self.assertEqual(set(context), {"hookEventName", "additionalContext"})
+        self.assertEqual(context["hookEventName"], "SubagentStart")
+        self.assertIsInstance(context["additionalContext"], str)
+        self.assertLess(len(context["additionalContext"]), 1400)
+        second = self.run_hook(self.payload("code-modernization:another-agent", prompt="DO_NOT_ECHO_SECRET"))
+        self.assertEqual(json.loads(second), response)
+        self.assertNotIn(b"DO_NOT_ECHO_SECRET", second)
+
+    def test_unrelated_misleading_and_malformed_payloads_are_silent(self):
+        for agent in ("Explore", "modernization-planner", "code-modernization", "code-modernization:",
+                      "other:code-modernization:agent", "my-code-modernization:agent",
+                      "code-modernization:agent:other", "code-modernization:../agent",
+                      "code-modernization:agent\n", "code-modernization:agent extra", None, 1, [], {}):
+            with self.subTest(agent=agent):
+                self.assertEqual(self.run_hook(self.payload(agent)), b"")
+        for raw in (b"", b"{", b"[]", b"null", b"42", b'"text"', b"\xff", b"{}",
+                    b"[" * 2000 + b"]" * 2000,
+                    self.payload(hook_event_name="SubagentStop"),
+                    b'{"agent_type":"code-modernization:agent"}'):
+            with self.subTest(raw=raw[:80]):
+                self.assertEqual(self.run_hook(raw), b"")
+
+    def test_bounded_input_accepts_limit_and_silences_overflow(self):
+        base = self.payload()
+        at_limit = base + b" " * (16384 - len(base))
+        self.assertTrue(self.run_hook(at_limit))
+        self.assertEqual(self.run_hook(at_limit + b" "), b"")
+
+    def test_configured_launcher_preserves_fixture_and_creates_no_bytecode(self):
+        import vocabulary_profile as vp
+
+        record = _waves_dir(self.root) / "example" / vp.RECORD_FILENAME
+        for rel in (record, ".claude/settings.local.json",
+                    "plugin/agents/agent.md", "transcript.jsonl", "lifecycle-state.json"):
+            target = self.root / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("PRIVATE_FIXTURE_CONTENT", encoding="utf-8")
+        before = self.snapshot()
+        output = self.run_hook(self.payload(
+            transcript_path=str(self.root / "transcript.jsonl"),
+            cwd=str(self.root / "plugin"), instructions="write lifecycle-state.json",
+        ))
+        self.assertNotIn(b"PRIVATE_FIXTURE_CONTENT", output)
+        self.assertNotIn(str(self.root).encode(), output)
+        self.assertEqual(self.snapshot(), before)
+        self.assertFalse((self.root / "must-not-create-cache").exists())
+
+    def test_delivered_body_attempts_no_filesystem_children_or_network(self):
+        # Read/compile and preload the hook's stdlib dependencies BEFORE auditing.
+        # The audit records attempted I/O even if the hook catches the refusal.
+        harness = '''
+import io, json, re, sys
+source = open(sys.argv[1], encoding="utf-8").read()
+compiled = compile(source, sys.argv[1], "exec")
+events = []
+reads = []
+original_stdin = sys.stdin
+class BoundedInput:
+    def read(self, size=-1):
+        reads.append(size)
+        if size < 0 or size > 16385:
+            raise AssertionError("unbounded input read")
+        return original_stdin.buffer.read(size)
+class Input:
+    buffer = BoundedInput()
+sys.stdin = Input()
+def audit(event, args):
+    if event == "open" or event.startswith(("os.", "socket.", "subprocess.", "ctypes.")):
+        events.append(event)
+        raise OSError("unexpected hook I/O")
+sys.addaudithook(audit)
+exec(compiled, {"__name__": "__main__"})
+print(json.dumps({"events": events, "reads": reads}), file=sys.stderr)
+'''
+        result = subprocess.run([sys.executable, "-B", "-c", harness, str(self.hook)],
+                                input=self.payload(), cwd=self.root, capture_output=True,
+                                timeout=5, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stderr), {"events": [], "reads": [16385]})
+        self.assertEqual(json.loads(result.stdout), json.loads(self.run_hook(self.payload())))
+
+    def test_reconciliation_preserves_custom_settings_and_one_owned_entry(self):
+        existing = json.loads(self.settings.read_bytes())
+        custom = {"matcher": ".*", "hooks": [{"type": "command", "command": "python custom.py"}]}
+        # A mixed entry exercises preservation at command granularity.
+        existing["hooks"]["SubagentStart"][0]["hooks"].extend(custom["hooks"])
+        existing["hooks"]["SubagentStart"].append(custom)
+        existing["hooks"]["Notification"] = [custom]
+        existing["permissions"] = {"allow": ["Read"], "deny": ["Bash"]}
+        existing["enabledPlugins"] = {"unrelated@market": True}
+        existing["theme"] = "dark"
+        self.settings.write_text(json.dumps(existing), encoding="utf-8")
+        self.mod.render_platform_entrypoints(self.root, "claude")
+        first = self.snapshot()
+        actual = json.loads(self.settings.read_bytes())
+        for key in ("permissions", "enabledPlugins", "theme"):
+            self.assertEqual(actual[key], existing[key])
+        self.assertEqual(actual["hooks"]["Notification"], [custom])
+        self.assertIn(custom, actual["hooks"]["SubagentStart"])
+        commands = [c for e in actual["hooks"]["SubagentStart"] for c in e["hooks"]]
+        self.assertEqual(sum("wf-modernization-briefing.py" in c["command"] for c in commands), 1)
+        self.assertEqual(sum(c["command"] == "python custom.py" for c in commands), 2)
+        self.mod.render_platform_entrypoints(self.root, "claude")
+        self.assertEqual(self.snapshot(), first)
+
+    def test_other_hosts_do_not_consume_the_new_registry_entry_or_body(self):
+        for host in ("cursor", "copilot", "windsurf", "junie", "antigravity", "codex"):
+            with self.subTest(host=host), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp).resolve()
+                self.mod.render_platform_entrypoints(root, host)
+                before = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+                without = tuple(h for h in self.mod.CLAUDE_HOOKS if h["name"] != "wf-modernization-briefing")
+                with patch.object(self.mod, "CLAUDE_HOOKS", without), patch.object(
+                    self.mod, "claude_modernization_briefing_source", side_effect=AssertionError("Claude-only")
+                ):
+                    self.mod.render_platform_entrypoints(root, host)
+                after = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+                self.assertEqual(after, before)
+                self.assertFalse((root / ".claude").exists())
+
+    def test_context_preserves_canonical_guidance_and_authority(self):
+        context = json.loads(self.run_hook(self.payload()))["hookSpecificOutput"]["additionalContext"]
+        for required in ("AGENTS.md", "180-implement-change.prompt.md", "docs/agents/guru.md",
+                         "owned paths", "forbidden paths", "Investigation may precede readiness",
+                         "repository stage gate", "actual available tools", "MCP first", "Gapfill:",
+                         "coordinator", "no tools or permissions", "operator authorization"):
+            self.assertIn(required, context)
 
 
 class ClaudeHookSimulateParityTests(unittest.TestCase):
@@ -3986,7 +4156,7 @@ class HookVenvMismatchTests(unittest.TestCase):
             cwd=str(repo), text=True, capture_output=True, check=False,
             env={**os.environ, "WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}, timeout=300)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        for rel in [*_BOOTSTRAP_HOOKS, ".claude/hooks/wf-session-start.py"]:
+        for rel in [*_BOOTSTRAP_HOOKS, ".claude/hooks/wf-session-start.py", ".claude/hooks/wf-modernization-briefing.py"]:
             with self.subTest(rel):
                 committed = (repo / rel).read_bytes()
                 fresh = (render_root / rel).read_bytes()

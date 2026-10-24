@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-20
+Last verified: 2026-10-24
 
 ## Runtime advisory boundary
 
@@ -125,6 +125,17 @@ exclusions. See [configuration and examples](../contributing/build-and-verificat
 **State read:** `.wavefoundry/framework/scripts/` (templates), `.wavefoundry/framework/install/` (missing-only baseline templates), registered carrier seeds and enabled target files
 **State written:** `.claude/`, `.cursor/`, `.github/hooks/`, `.junie/mcp/mcp.json`, `.mcp.json`, framework-marked regions in registered review carriers under `docs/` plus explicitly enabled native role carriers under `.claude/agents/` and `.codex/skills/`, controlled role-file moves and exact local Markdown link destination repairs in current docs, and the missing-only whole-file baselines it materializes when absent (`docs/plans/plan-template.md`, the lifecycle prompt baselines under `docs/prompts/`, the pointer-form review carriers), each stamped `Last verified` on write and never rewritten afterwards
 **Must not touch:** `.github/workflows/`, `.git/hooks/`, and the Backstage/TechDocs trio (`catalog-info.yaml`, `mkdocs.yml`, `docs/index.md`), which only Path 3a writes
+
+### Claude modernization worker briefing
+
+`render_platform_surfaces.py` owns the `CLAUDE_HOOKS` registration, generated `.claude/hooks/wf-modernization-briefing.py` and simulation-helper mapping. The existing settings merger preserves operator entries and unrelated settings while reconciling one owned `SubagentStart` entry. No plugin install or cache discovery is required.
+
+Claude dispatches plugin-qualified `code-modernization:` agent identifiers to the hook. The standalone stdlib body disables bytecode before its imports, reads at most 16 KiB plus one overflow byte, and validates the event, JSON object and anchored identifier before returning a fixed `hookSpecificOutput` with `hookEventName: SubagentStart` and `additionalContext`. Malformed, oversized and unrelated payloads produce no briefing and exit successfully. The host timeout is five seconds. Payload text and transcript paths are never echoed or followed; the body performs no filesystem reads/writes, framework activation, child command, MCP or network operation.
+
+The context points workers to `AGENTS.md`, seed 180's canonical delegation/retrieval rules and Guru. The coordinator supplies the assignment's change/ACs, path ownership and expected evidence, then records returned results. Investigation can precede readiness; implementation, review, closure and commits keep their existing authority boundaries. Context delivery grants no permissions and does not enforce worker adherence. Other hosts retain coordinator-led briefing without a new adapter.
+
+**State read:** bounded event stdin only (apart from interpreter/module loading)
+**State written:** none; fixed context on stdout only
 
 ### Path 3a: Backstage/TechDocs Baseline Command and MCP Tool (wave 1vj4e)
 

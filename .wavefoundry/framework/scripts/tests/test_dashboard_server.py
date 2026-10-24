@@ -5204,6 +5204,24 @@ if __name__ == "__main__":
     unittest.main()
 
 
+def _hold_loopback_ports(stack, ports):
+    """Keep each 127.0.0.1 port unavailable for the stack's lifetime (21ilg).
+
+    A port another process already holds counts as held: any bind ``OSError`` qualifies,
+    because Windows reports WSAEADDRINUSE or WSAEACCES rather than ``errno.EADDRINUSE``.
+    """
+    import socket
+    for port in ports:
+        holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            holder.bind(("127.0.0.1", port))
+            holder.listen(1)
+        except OSError:
+            holder.close()
+            continue
+        stack.callback(holder.close)
+
+
 class DashboardManagedIdentityTests(unittest.TestCase):
     """1xpo1: exercise actual daemon argv and native process output."""
 
@@ -5291,16 +5309,42 @@ class DashboardManagedIdentityTests(unittest.TestCase):
         self.assertEqual(self.lib.read_dashboard_metadata(self.root), {})
 
     def test_mcp_start_confirms_serving_own_child(self):
+        # 21ilg: an ephemeral port, so a dashboard already on the default range cannot fail it.
+        import contextlib
+        with contextlib.ExitStack() as held:
+            _hold_loopback_ports(held, (43127, 43128, 43129))
+            with patch.dict(os.environ, {'WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER': '1'}):
+                result = self.impl.wf_start_dashboard_response(self.root, port=0)
+            pid = result['data'].get('pid')
+            if pid:
+                self.addCleanup(self.impl._terminate_dashboard_pid, pid)
+            self.assertTrue(result['data'].get('started'), result)
+            self.assertIn(pid, self.lib.dashboard_cmdline_pids(self.root))
+            self.assertTrue(self.impl._dashboard_url_reachable(result['data']['url']))
+            stopped = self.impl.wf_stop_dashboard_response(self.root)
+            self.assertTrue(stopped['data'].get('stopped'), stopped)
+
+    def test_mcp_start_reports_the_child_startup_failure(self):
+        # 21ilg AC-1: a real child that finds no free port; the response names why it exited.
+        import socket
+        holder = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.addCleanup(holder.close)
+        holder.bind(('127.0.0.1', 0))
+        holder.listen(1)
+        held = holder.getsockname()[1]
+        config_path = self.root / 'docs' / 'workflow-config.json'
+        config = json.loads(config_path.read_text(encoding='utf-8'))
+        config['dashboard'].update(preferred_port=held, port_range_start=held, port_range_end=held)
+        config_path.write_text(json.dumps(config), encoding='utf-8')
+        self.assertEqual(self.lib.read_dashboard_metadata(self.root), {})
         with patch.dict(os.environ, {'WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER': '1'}):
             result = self.impl.wf_start_dashboard_response(self.root)
-        pid = result['data'].get('pid')
-        if pid:
-            self.addCleanup(self.impl._terminate_dashboard_pid, pid)
-        self.assertTrue(result['data'].get('started'), result)
-        self.assertIn(pid, self.lib.dashboard_cmdline_pids(self.root))
-        self.assertTrue(self.impl._dashboard_url_reachable(result['data']['url']))
-        stopped = self.impl.wf_stop_dashboard_response(self.root)
-        self.assertTrue(stopped['data'].get('stopped'), stopped)
+        if result['data'].get('pid'):
+            self.addCleanup(self.impl._terminate_dashboard_pid, result['data']['pid'])
+        self.assertEqual(result['status'], 'error', result)
+        messages = [d['message'] for d in result['diagnostics'] if d['code'] == 'dashboard_child_exited']
+        self.assertEqual(len(messages), 1, result)
+        self.assertIn('No free dashboard port available', messages[0])
 
     def test_scan_unavailable_preserves_stop_fallback(self):
         self.lib.write_dashboard_metadata(self.root, {'pid': 424242})
@@ -5310,6 +5354,201 @@ class DashboardManagedIdentityTests(unittest.TestCase):
             result = self.impl.wf_stop_dashboard_response(self.root)
         terminate.assert_called_once_with(424242)
         self.assertTrue(result['data']['stopped'])
+
+
+class DashboardStartSpawnTests(unittest.TestCase):
+    """21ilg AC-2: the start spawn stays all-DEVNULL and detached, on Windows as elsewhere."""
+
+    def setUp(self):
+        load_dashboard_modules()
+        self.impl = sys.modules['server_impl']
+        self.dh = sys.modules['dashboard_handlers']
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+
+    def _spawn_kwargs(self, os_name):
+        import subprocess
+        captured = {}
+
+        def fake_popen(cmd, **kwargs):
+            captured.update(kwargs)
+            raise OSError('spawn stopped by test')
+
+        with patch.object(self.dh, '_dashboard_already_serving', return_value=None), \
+             patch.object(self.dh, '_dashboard_cmdline_pids', return_value=[]), \
+             patch.object(self.dh, '_terminate_dashboard_pid'), \
+             patch.object(self.dh, 'os', SimpleNamespace(name=os_name)), \
+             patch.object(subprocess, 'DETACHED_PROCESS', 0x00000008, create=True), \
+             patch.object(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0x00000200, create=True), \
+             patch.object(self.impl, '_windows_no_window_flag', return_value=0x08000000), \
+             patch.object(subprocess, 'Popen', side_effect=fake_popen):
+            result = self.impl.wf_start_dashboard_response(self.root)
+        self.assertIn('spawn_failed', [d['code'] for d in result['diagnostics']], result)
+        for stream in ('stdin', 'stdout', 'stderr'):
+            self.assertIs(captured[stream], subprocess.DEVNULL, stream)
+        return captured
+
+    def test_windows_spawn_is_detached_with_devnull_stdio(self):
+        kwargs = self._spawn_kwargs('nt')
+        # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | the stubbed no-window flag.
+        self.assertEqual(kwargs['creationflags'], 0x08000208)
+        self.assertNotIn('start_new_session', kwargs)
+
+    def test_posix_spawn_starts_a_new_session_with_devnull_stdio(self):
+        kwargs = self._spawn_kwargs('posix')
+        self.assertTrue(kwargs['start_new_session'])
+        self.assertNotIn('creationflags', kwargs)
+
+
+class DashboardMainStartupTests(unittest.TestCase):
+    """21ilg AC-3: main records the bound port and reports a startup failure in its log."""
+
+    def setUp(self):
+        self.lib, self.srv = load_dashboard_modules()
+        self.addCleanup(setattr, self.srv, '_LOG_ROOT', self.srv._LOG_ROOT)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        _make_repo(self.root)
+        env = patch.dict(os.environ, {'WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER': '1'})
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop(self.srv._DAEMON_ENV_MARKER, None)
+
+    def test_port_zero_records_the_bound_port(self):
+        with patch.object(self.srv, 'SnapshotStore', MagicMock()), \
+             patch.object(self.srv._QuietThreadingHTTPServer, 'serve_forever', side_effect=KeyboardInterrupt), \
+             patch('sys.stdout', new=io.StringIO()), patch('sys.stderr', new=io.StringIO()):
+            rc = self.srv.main(['--root', str(self.root), '--port', '0'])
+        self.assertEqual(rc, 0)
+        meta = self.lib.read_dashboard_metadata(self.root)
+        self.assertNotEqual(meta['port'], 0)
+        self.assertEqual(urlparse(meta['url']).port, meta['port'])
+
+    def test_startup_failure_logs_releases_the_lock_and_returns_one(self):
+        released = []
+        real_lock = self.srv.dashboard_lib.dashboard_server_lock
+
+        def spying_lock(root):
+            lock = real_lock(root)
+
+            class Spy:
+                def __enter__(self):
+                    return lock.__enter__()
+
+                def __exit__(self, *exc):
+                    released.append(True)
+                    return lock.__exit__(*exc)
+
+            return Spy()
+
+        # A ValueError, so a catch narrowed to the port and bind errors would let it escape.
+        closed = []
+        real_close = self.srv._QuietThreadingHTTPServer.server_close
+
+        def recording_close(server):
+            closed.append(True)
+            return real_close(server)
+
+        with patch.object(self.srv.dashboard_lib, 'dashboard_server_lock', side_effect=spying_lock), \
+             patch.object(self.srv, 'SnapshotStore', side_effect=ValueError('snapshot broke')), \
+             patch.object(self.srv._QuietThreadingHTTPServer, 'server_close', recording_close), \
+             patch('sys.stdout', new=io.StringIO()), patch('sys.stderr', new=io.StringIO()):
+            rc = self.srv.main(['--root', str(self.root), '--port', '0'])
+        self.assertEqual(rc, 1)
+        self.assertEqual(released, [True])
+        self.assertEqual(closed, [True])
+        log = (self.root / '.wavefoundry' / 'logs' / 'dashboard.log').read_text(encoding='utf-8')
+        self.assertIn(' - startup failed: ValueError: snapshot broke', log)
+
+    def test_a_failing_server_close_still_releases_the_lock(self):
+        released = []
+        real_lock = self.srv.dashboard_lib.dashboard_server_lock
+
+        def spying_lock(root):
+            lock = real_lock(root)
+
+            class Spy:
+                def __enter__(self):
+                    return lock.__enter__()
+
+                def __exit__(self, *exc):
+                    released.append(True)
+                    return lock.__exit__(*exc)
+
+            return Spy()
+
+        def failing_close(server):
+            raise OSError('close refused')
+
+        with patch.object(self.srv.dashboard_lib, 'dashboard_server_lock', side_effect=spying_lock), \
+             patch.object(self.srv, 'SnapshotStore', side_effect=ValueError('snapshot broke')), \
+             patch.object(self.srv._QuietThreadingHTTPServer, 'server_close', failing_close), \
+             patch('sys.stdout', new=io.StringIO()), patch('sys.stderr', new=io.StringIO()), \
+             self.assertRaises(OSError):
+            self.srv.main(['--root', str(self.root), '--port', '0'])
+        self.assertEqual(released, [True])
+
+    def test_a_lock_that_cannot_be_taken_is_a_logged_startup_failure(self):
+        with patch.object(self.srv.dashboard_lib, 'dashboard_server_lock',
+                          side_effect=PermissionError('logs directory is read-only')), \
+             patch('sys.stdout', new=io.StringIO()), patch('sys.stderr', new=io.StringIO()):
+            rc = self.srv.main(['--root', str(self.root), '--port', '0'])
+        self.assertEqual(rc, 1)
+        log = (self.root / '.wavefoundry' / 'logs' / 'dashboard.log').read_text(encoding='utf-8')
+        self.assertIn(' - startup failed: PermissionError: logs directory is read-only', log)
+
+
+class StartupFailureLineTests(unittest.TestCase):
+    """21ilg AC-5: the log read-back is bounded, tolerant and reads only this spawn's lines."""
+
+    LINE = '[dashboard] 2026-10-24T00:00:00+00:00 - startup failed: RuntimeError: No free dashboard port available'
+
+    def setUp(self):
+        load_dashboard_modules()
+        self.dh = sys.modules['dashboard_handlers']
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.log = self.dh._dashboard_log_path(self.root)
+        self.log.parent.mkdir(parents=True)
+
+    def test_missing_log_yields_no_line(self):
+        self.log.parent.rmdir()
+        self.assertEqual(self.dh._dashboard_log_size(self.root), 0)
+        self.assertIsNone(self.dh._startup_failure_line(self.root, 0))
+
+    def test_only_lines_after_the_offset_count(self):
+        self.log.write_text(self.LINE + '\n', encoding='utf-8')
+        offset = self.dh._dashboard_log_size(self.root)
+        with self.log.open('a', encoding='utf-8') as fh:
+            fh.write('[dashboard] 2026-10-24T00:00:01+00:00 - watcher started\n')
+        self.assertIsNone(self.dh._startup_failure_line(self.root, offset))
+        newer = self.LINE.replace('No free', 'OSError: address in use; no free')
+        with self.log.open('a', encoding='utf-8') as fh:
+            fh.write(newer + '\n')
+        self.assertEqual(self.dh._startup_failure_line(self.root, offset), newer)
+
+    def test_a_shrunk_log_is_read_from_the_start(self):
+        self.log.write_text(self.LINE + '\n', encoding='utf-8')
+        self.assertEqual(self.dh._startup_failure_line(self.root, 10 ** 6), self.LINE)
+
+    def test_the_read_is_bounded_and_the_line_capped(self):
+        filler = ('[dashboard] 2026-10-24T00:00:01+00:00 - request\n' * 400)
+        self.log.write_text(self.LINE + '\n' + filler, encoding='utf-8')
+        self.assertIsNone(self.dh._startup_failure_line(self.root, 0))
+        self.log.write_text(self.LINE + 'x' * 2000 + '\n', encoding='utf-8')
+        self.assertEqual(len(self.dh._startup_failure_line(self.root, 0)), 500)
+
+    def test_non_utf8_bytes_and_crlf_are_tolerated(self):
+        self.log.write_bytes(b'\xff\xfe noise\r\n' + self.LINE.encode('utf-8') + b'\r\n')
+        self.assertEqual(self.dh._startup_failure_line(self.root, 0), self.LINE)
+
+    def test_a_line_without_the_child_prefix_is_ignored(self):
+        self.log.write_text('note - startup failed: copied text\n', encoding='utf-8')
+        self.assertIsNone(self.dh._startup_failure_line(self.root, 0))
 
 
 class DashboardTaskkillBoundTests(unittest.TestCase):

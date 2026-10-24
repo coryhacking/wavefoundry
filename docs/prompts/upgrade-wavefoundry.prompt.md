@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-20
+Last verified: 2026-10-24
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -510,7 +510,8 @@ Inventory/drift-detection subagents run read-only. Broad edits to `docs/prompts/
 - **Install reliability guidance.** Merge current seed-011 pre-Python diagnosis and seed-012/100 partial-install resume guidance into existing local prompts and `AGENTS.md` without replacing project-authored prose. Once required prompt/role sources exist, call `wf_sync_surfaces(mode='run')` over MCP or `wf render-surfaces` from CLI to fill owned upgrade-policy regions; empty markers are incomplete and no manual `UPGRADE_POLICY_BLOCK` copy is needed. Sync does not expand its MCP permission allowlist. Keep `docs_lint.framework_internal_constants` as an explicit source-repository opt-in only; target projects do not need framework model/chunker facts in posture docs. Run the docs gate and audit before declaring resumed installation complete.
 - **Changed Refresh TechDocs instructions (seed 178).** Keep the read-only pre-apply seed diff through the installing run. If it reports `178-refresh-techdocs.prompt.md` changed, merge the changed canonical clauses into the existing `docs/prompts/refresh-techdocs.prompt.md` during the same installing run, after extraction makes the new seed available. Preserve project-only additions and metadata; never replace the project-owned prompt as a whole. If the prior canonical clause cannot be identified uniquely, or local wording conflicts with the new invariant, stop and present the conflict to the operator instead of guessing or overwriting it. After the merge, run `wf render-surfaces` again so doc-gated skills and other generated agent surfaces see the reconciled prompt.
 - **Changed briefing-loop carriers.** Retain the read-only pre-apply change evidence for the seeds and install baseline through the installing run. After extraction, reconcile each changed source into its destination during the same installing run:
-   - `170-plan-change.prompt.md` -> `docs/prompts/plan-change.prompt.md`: Brief before drafting.
+   - `170-plan-change.prompt.md` -> `docs/prompts/plan-change.prompt.md`: Brief before drafting; carry the Code-grounded authoring block, including its Mechanism efficacy bullet, with the same text under the same heading.
+   - Seeds 225, 215, 237 and 007 -> `docs/agents/specialists/red-team.md`, `docs/agents/specialists/council-chair.md`, and the profile-resolved Council review, Prepare and Review prompts: the council-adversarial-primer's fixed `efficacy_replay` output and each seat's obligation to engage with it.
    - `175-review-plan.prompt.md` -> `docs/prompts/review-plan.prompt.md`: Compare the draft with its brief, including permission to consult Rationale as reference.
    - `180-implement-change.prompt.md` -> `docs/prompts/implement-change.prompt.md`: Readback before editing.
    - `.wavefoundry/framework/install/lifecycle-prompts/implement-wave.prompt.md` -> `docs/prompts/implement-wave.prompt.md`: Readback before editing.
@@ -518,7 +519,8 @@ Inventory/drift-detection subagents run read-only. Broad edits to `docs/prompts/
    - Seeds 100/110 and `create-wave` install baseline -> the profile-resolved Create wave prompt: use Objective for the shared outcome, with no second wave intent section.
    - Seed 175 and `review-plan` baseline -> the profile-resolved Review plan prompt: compare Requirements, ACs and Scope with intent in the existing review.
    - Seed 209 and `prepare-wave`/`review-wave` baselines -> the profile-resolved Prepare/Review prompts and `docs/contributing/review-and-evals.md`: assess intent and complexity, runtime cost and operator burden in existing lanes.
-   - Seed 190 and `close-wave` baseline -> the profile-resolved Close wave prompt: explicitly authored `Intent outcome:` in exact `## Review Checkpoints`, with evidence and limitations preserved by the summary composer.
+   - Seeds 209, 213 and 229 -> the project's security reviewer and security engineer role docs (`docs/agents/security-reviewer.md` and `docs/agents/specialists/security-engineer.md` by default), outside their renderer-owned marker regions: the credible-threat gate's rule that an unknown factor is not an absent factor, as a one-sentence summary pointing to seed 209.
+   - Seed 190 and `close-wave` baseline -> the profile-resolved Close wave prompt: explicitly authored `Intent outcome:` in exact `## Review Checkpoints`, with evidence and limitations preserved by the summary composer, citing the plan's measure of success when one exists.
    Apply these changes prospectively and clarify intent during material revisions; do not bulk-edit existing waves/plans, rotate other receipts or rewrite closed records/ledgers. Follow declared layout and vocabulary. These are agent-assisted edits, not a mechanical template rewrite; add no broad history scan, index pass, source/profile qualification, model work or evidence sidecar.
    Merge only changed authored clauses, preserving project additions, metadata, and every renderer-owned marker region. For newly added guidance, verify a unique insertion location and absence of conflicting local instructions. If the old clause or insertion location is ambiguous, or local intent conflicts, stop and present the conflict to the operator. Never replace a whole destination or silently omit a changed mapping. Missing-only baseline rendering does not update existing authored prose; run `wf render-surfaces` after reconciliation for the regions it owns.
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-16
+Last verified: 2026-10-24
 
 ## Tensorwell qualification
 
@@ -285,6 +285,10 @@ Reconcile expectations use literal canonical keys. The hook-contract test reads 
 `test_legacy_council_actors` loads copied declarations and real lifecycle producers to verify canonical writes, byte-preserved replay, request conflicts, authority refusals, runtime role collisions and actual MCP reload. Its repair controls preserve both council actor equivalence and a legitimate distinct-reviewer case. Fixture gardening and post-write lint are stubbed in this actor owner; role-link upgrade tests separately use the real docs gate. Local subprocess and scratch-tree results do not qualify native Windows execution or a downstream merge.
 
 `PostWriteLintFreshGitTests` compares each nested untracked fallback trigger in a real no-commit Git repository with the actual changed-file collector and CLI scope, then checks the real lint subprocess's timeout and advisory flags. The predictor requests `git status --porcelain --untracked-files=all` so Git cannot collapse a new directory into one entry. Unrelated nested docs retain incremental scope and the hook bound; tracked edits, supported rename parsing and Git failure controls retain their existing selection. The advisory reuse suite also checks a no-commit tree's first full fallback and subsequent identical-proof incremental scan. These scratch regressions do not qualify native Windows execution.
+
+### Upstream-only fixtures (change 21ile)
+
+Some tests read content that only the framework source repository hosts: evaluation corpora under `docs/evals/`, history under `docs/waves/` and `docs/agents/history/`, and report artifacts under `docs/reports/`. Each such read goes through `upstream_fixture(path)` in `tests/upstream_fixture_support.py`, which returns the path when it exists. When it is absent, the outcome comes from the source-repository opt-in `testing.upstream_fixtures_required` in `docs/workflow-config.json`, resolved from the repository root above the helper's own file rather than the current directory: `true` fails the test naming the path; absent or `false` skips it with `upstream-only fixture absent: <path>`, which is what a distribution sees; a missing, unreadable or malformed config, a non-object `testing` or a non-boolean key fails, naming the cause. A missing config fails closed, the opposite of the docs-lint opt-in, because every distribution ships the config. This repository pins the key `true`, and the install defaults never carry a `testing` key, so the opt-in cannot reach consumers. The routed set is derived mechanically: run the suite in a full working-tree copy with and without the upstream-only content (and with a config lacking the key); the tests that fail only in the second run are the set. Tests that build their own fixtures are not routed. The same opt-in also gates the credible-threat carrier census in `tests/test_credible_threat_unknown_factor.py` (change 21ild), which checks this repository's own role docs; a later split of the key must keep that census running here.
 
 ### Profile-Aware Fixtures and the Second-Profile Run (wave 1zim5)
 

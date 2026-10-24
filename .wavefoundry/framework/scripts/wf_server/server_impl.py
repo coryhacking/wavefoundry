@@ -10767,6 +10767,9 @@ def _audit_harness_coherence(root: Path) -> dict[str, Any]:
     NON_TOOL_IDENTIFIERS = {
         "wave_id",        # parameter name in wf_pause_wave/wf_reopen_wave, URI {wave_id}, briefing field
         "wave_lint_lib",  # Python module under framework/scripts/wave_lint_lib/
+        "code_patterns",  # repo-profile field used by implementation guidance
+        "wf_server",      # Python package, e.g. wf_server/server_impl.py
+        "wave_record_ambiguous",  # discovery diagnostic, not a callable tool
         # 1u8o2 (1u8o1): Python module wf_cli.py; every seed mention is
         # already module-path form (`wf_cli.py`) and the regex substring-
         # matches the stem, so a seed rewrite cannot silence it; the checker

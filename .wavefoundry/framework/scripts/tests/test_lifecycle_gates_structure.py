@@ -18,6 +18,7 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
+from upstream_fixture_support import upstream_fixture
 MODULES = ("lifecycle_gate_support", "lifecycle_gates", "sensor_runner")
 FIELDS = {"root", "wave_md", "wave_text", "mode", "lint_result", "phase"}
 MARKERS = ("events.jsonl", "## Review Evidence", "## Review Signoff Evidence",
@@ -797,8 +798,8 @@ class LifecycleGateStructureTests(unittest.TestCase):
             "`would_run` without execution.", surface)
         # Pinned independently by a docs-constants lint row; this change must not move it.
         self.assertIn("configured_gates outcomes: `would_run/passed/failed/invalid`", surface)
-        prior = (repo / "docs/waves/1y0h0 typed-phase-gates"
-                 / "1y0bd-enh config-declared-phase-gates.md").read_text(encoding="utf-8")
+        prior = upstream_fixture(repo / "docs/waves/1y0h0 typed-phase-gates"
+                                 / "1y0bd-enh config-declared-phase-gates.md").read_text(encoding="utf-8")
         # 1y0bd AC-9's provenance-only invariant: not a member, not cited, unchanged.
         self.assertIn("- [x] AC-9: `sensor_runner` is a member of the purge-set literal", prior)
         self.assertIn("so layering row (a) is mechanically verified for every module it names.", prior)

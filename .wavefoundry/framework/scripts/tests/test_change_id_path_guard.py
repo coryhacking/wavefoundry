@@ -22,6 +22,7 @@ from unittest.mock import patch
 
 from test_close_change import A, WAVE_ID, _CloseChangeCase, srv
 from record_layout_support import RecordTreeBuilder, default_profile_only
+from upstream_fixture_support import upstream_fixture
 
 _OUTSIDE_DOC = (
     "# Outside\n\n## Acceptance Criteria\n\n- [ ] AC-1: Outside criterion.\n\n"
@@ -233,6 +234,10 @@ class IsChangeIdTests(unittest.TestCase):
             record = directory / archive.RECORD_FILENAME
             if record.is_file():
                 ids.extend(archive_pattern.findall(record.read_text(encoding="utf-8")))
+        if len(ids) <= 100:
+            # This repository's own admitted-ID corpus; a distribution lacks it.
+            upstream_fixture(repo / record_paths.WAVES_ROOT
+                             / "1xjmm unified-sqlite-vector-storage" / vp.RECORD_FILENAME)
         self.assertGreater(len(ids), 100)
         rejected = [value for value in ids if not lgs.is_change_id(value)]
         self.assertEqual(rejected, [])

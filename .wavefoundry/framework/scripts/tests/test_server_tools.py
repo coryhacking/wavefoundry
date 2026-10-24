@@ -8237,6 +8237,41 @@ class HarnessCoherencePackTextTests(unittest.TestCase):
         self.assertEqual(result["pack_internal_count"], 1)
         self.assertEqual(result["project_findings_count"], 1)
 
+    def test_public_audit_distinguishes_non_tool_identifiers_from_stale_calls(self):
+        # Profile fields, package paths and error codes are not callable tools.
+        # Keep the unknown callable in the same passages so suppression cannot
+        # accidentally silence the entire file or tool-name family.
+        passage = (
+            'Follow `docs/repo-profile.json` `code_patterns` when populated.\n'
+            'The implementation lives in `wf_server/server_impl.py`.\n'
+            'Ambiguous discovery returns `wave_record_ambiguous`.\n'
+            'Call `wf_totally_retired_tool()` to demonstrate a stale tool.\n'
+        )
+        (self.seeds / "999-audit-fixture.prompt.md").write_text(passage, encoding="utf-8")
+        (self.prompts / "audit-fixture.prompt.md").write_text(passage, encoding="utf-8")
+        # Isolate unrelated readiness legs, not the served audit/scanner path.
+        with patch.object(self.srv, "run_validate", return_value={
+            "passed": True, "errors": [], "warnings": [],
+        }), patch.object(self.srv, "_audit_index_snapshot", return_value={
+            "metadata_ready": True,
+        }):
+            response = self.srv.wf_audit_response(self.root)
+        result = response["data"]["harness_coherence"]
+        self.assertEqual(result["scanned_files"], 2)
+        self.assertEqual(result["findings_count"], 2, result["findings"])
+        self.assertEqual(result["pack_internal_count"], 1)
+        self.assertEqual(result["project_findings_count"], 1)
+        self.assertEqual(
+            {finding["classification"] for finding in result["findings"]},
+            {"pack_internal", "project"},
+        )
+        for finding in result["findings"]:
+            self.assertEqual(finding["type"], "stale_tool_reference")
+            self.assertEqual(
+                finding["detail"],
+                "Tool 'wf_totally_retired_tool' mentioned but not found in live MCP surface",
+            )
+
     def test_real_surfaces_keep_retired_names_and_scan_clean_of_them(self):
         # AC-3 + AC-4: the canonical seed still carries BOTH retired names at
         # the instruction lines (a checker fix that "fixed" the seed instead

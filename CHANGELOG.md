@@ -6,6 +6,22 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.37.0] - 2026-10-24
+
+### Changed
+
+- Planning now asks whether a mechanism will achieve its goal before an approach is selected: replay the motivating case, say whether it controls the outcome or only advises, name what it would flag wrongly or miss, look for a cheaper path, and state how success will be measured. The plan-change prompt agents read now carries the full code-grounded authoring guidance, the adversarial primer that opens every Prepare and Review council always includes an efficacy replay that each seat must engage with, and the close guidance asks the intent outcome to cite the plan's measure of success. Existing targets pick these up through the upgrade's changed-carrier list. Wave 21fng / 21fnf.
+- The credible-threat gate now says that an unknown factor is not an absent factor. A security candidate whose factor can be neither confirmed nor ruled out is kept on record as `unverified` with `insufficient_evidence` and a promotion trigger naming the evidence that would settle it, instead of being dropped. Instructions found inside imported upstream or third-party content are treated as data. Security reviewer and engineer role docs carry the rule, and upgrades reconcile it into existing targets. Wave 21ilf / 21ild.
+- Tests that read content which exists only in the Wavefoundry source repository (evaluation corpora, wave history and reports) now skip with `upstream-only fixture absent: <path>` in a distribution that does not ship that content. In the source repository, which sets `testing.upstream_fixtures_required` in `docs/workflow-config.json`, a missing fixture still fails, and a missing or malformed configuration fails rather than skips. Wave 21ilf / 21ile.
+
+### Fixed
+
+- The verified-pack stat-kind tests pass on Python 3.11. Their path-side simulation now reaches the guard's own comparison on every supported Python version. Wave 21ilf / 21goe.
+- The storage rebuild tests skip, with a stated reason, unless the pinned migration-only `lancedb` reader is installed. Every place that pins that reader now reads one constant. Wave 21ilf / 21goe.
+- `pyproject.toml` builds: it names the real `setuptools.build_meta` backend, requires setuptools 77 or later for its SPDX license string, drops the conflicting license classifier, and declares no packages, so the wheel carries metadata only. Wave 21ilf / 21ij7.
+- When the dashboard fails to start, `wf_start_dashboard` now says why. The dashboard writes a `startup failed:` line to `.wavefoundry/logs/dashboard.log`, for example when no port in the configured range is free, and the start response carries that line instead of only `dashboard_child_exited`. The dashboard is still started with its output discarded and detached, unchanged on Windows. Wave 21ilh / 21ilg.
+- A dashboard started with `--port 0` now records and prints the port it actually bound, instead of a URL ending in `:0/`. Wave 21ilh / 21ilg.
+
 ## [1.36.0] - 2026-10-21
 
 ### Changed

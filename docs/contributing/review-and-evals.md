@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-19
+Last verified: 2026-10-24
 
 ## Review Lane Summary
 
@@ -16,7 +16,7 @@ Last verified: 2026-10-19
 | `performance-reviewer` | Indexing, search, or MCP response path changes | Advisory |
 | `release-reviewer` | Packaging, VERSION, or distribution format changes | Yes |
 | `council-readiness` | Every wave before implementation (`wave_review.enabled`) | Yes |
-| `council-delivery` | Every wave after implementation and before closure (`wave_review.enabled`) | Yes |
+| `council-delivery` | Before closure when the current Prepare receipt/configured delivery mode requires it | Yes when required |
 
 All review lanes follow the **Retrieval Posture (All Lanes)** in `docs/contributing/agent-team-workflow.md` — MCP retrieval tools first, and how-many/blast-radius claims backed by `code_references`/`code_callhierarchy`, never a sampled grep.
 
@@ -85,16 +85,16 @@ Before implementation begins, the wave-coordinator confirms:
 
 **Closure requires all of the following:**
 
-1. All changes marked `complete` or `deferred` with explicit rationale
+1. All changes marked `implemented`, `complete`, or `deferred` with explicit rationale for deferral
 2. All required review lanes from readiness are reconciled in `## Review checkpoints` (including deferred with rationale when applicable)
 3. `council-readiness` is present when review is enabled, and `council-delivery` is present when the persisted Prepare receipt says the configured delivery mode requires it (typed, phase-scoped approval events on declared waves; prose lines count only on legacy waves)
 4. Docs-contract review: recorded as performed (findings in `## Review checkpoints`) or `not applicable` with rationale, when any `docs/specs/*.md` changed during the wave
-5. Journal distillation complete: any important implementation/review lessons added to relevant role or persona journals
-6. Durable memory promoted to `docs/references/project-context-memory.md` (and other canonical docs when applicable)
+5. Typed memory candidate review complete: review every actual wave-linked pending candidate, including candidates absent from current proposals; record evidence-based dispositions through the memory tools
+6. Promote only justified durable lessons; a wave may correctly yield zero new memories, with the rationale recorded inline in `wave.md`. Routine successful work does not require creating memory
 7. `docs/agents/session-handoff.md` cleared or refreshed to reflect post-closure state
 8. Chronology reconciled: `Status: completed`, `Completed at:` date, all change statuses settled
 
-**Closure is blocked until all eight items above are explicitly recorded in the wave record.**
+Record the applicable closure obligations and their evidence in the wave record. Follow the [canonical Close wave workflow](../../.wavefoundry/framework/seeds/190-close-wave.prompt.md) for the complete checklist and memory review procedure; a valid zero-new-memory outcome does not waive review of existing pending candidates.
 
 **Secrets gate (enforced by `wf_close_wave`):** Before calling `wf_close_wave`, check `docs/scan-findings.json`. Any `pending` or `suspected-secret` entry **hard-blocks** close — run the security reviewer (`seed-213`) to classify each as `confirmed-secret` or `false-positive`. `confirmed-secret` entries do **not** block close (wave 1p5pz — classification is the acknowledgment); instead every close returns a non-blocking standing reminder (`confirmed_secrets` + `secrets_reminder` in the response `data`) that the agent presents to the operator. If the file is absent or has no unresolved entries, the gate passes automatically.
 

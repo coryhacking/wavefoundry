@@ -67,7 +67,7 @@ Finish material documentation, source and surface-rendering edits before the can
 
 Consumer upgrades retain render → docs gate → incremental index ordering. They gain no source/profile suite, routine evidence generation or broad memory-maintenance pass.
 
-Before closure, explicitly author one concise `Intent outcome:` paragraph in the existing exact `## Review Checkpoints` section: state achieved, partial or not established, cite evidence, and retain material limitations. It may cover changes sharing an outcome. The close-summary composer carries the last such paragraph or list item (optionally dated `YYYY-MM-DD: `) into Wave Summary, preserving its text and qualification; do not infer achievement from titles or checked ACs. Legacy records without this assessment remain closable under existing gates and retain their existing summary behavior; this adds no schema or blocking gate.
+Before closure, explicitly author one concise `Intent outcome:` paragraph in the existing exact `## Review Checkpoints` section: state achieved, partial or not established, cite evidence, and retain material limitations. When the plan states a measure of success, cite it and say whether it can be read yet. It may cover changes sharing an outcome. The close-summary composer carries the last such paragraph or list item (optionally dated `YYYY-MM-DD: `) into Wave Summary, preserving its text and qualification; do not infer achievement from titles or checked ACs. Legacy records without this assessment remain closable under existing gates and retain their existing summary behavior; this adds no schema or blocking gate.
 
 ## Wave-folder cleanup
 

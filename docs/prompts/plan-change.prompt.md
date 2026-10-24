@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-19
+Last verified: 2026-10-24
 
 Shortcut: **`Plan change`**
 
@@ -21,7 +21,7 @@ Ask only questions whose answers materially change the result: at most three for
 1. Clarify scope through discovery; classify by risk and blast radius.
 2. **Divergent Pre-Plan (required):** Before drafting the plan, execute a diverge → critique → select pass:
    - **Diverge:** enumerate 2–3 distinct approaches differing in a meaningful assumption, strategy, or scope boundary — not just surface wording.
-   - **Critique:** for each approach, state its primary weakness or risk in one sentence.
+   - **Critique:** for each approach, state its primary weakness or risk in one sentence. For an approach that adds or changes a mechanism, sensor or gate, apply the Mechanism efficacy questions under Code-grounded authoring before you select.
    - **Select:** choose one approach and state in one sentence why it is preferred.
    - Record the selected approach and the rejected alternatives (with weaknesses) in `## Decision Log`.
 3. Create the staged change doc through MCP when available. The `feat` kind is retired for new change docs (existing `feat` ids stay valid; `wf_new_feature` refuses and names `wf_new_enhancement`). A change doc is one scoped change that a single wave can close, so plan a large feature as several changes (usually `enh`), possibly across waves:
@@ -46,6 +46,14 @@ Ask only questions whose answers materially change the result: at most three for
    - if the operator's request clearly extends work already admitted into the current wave, prefer updating that existing change rather than creating a fresh one; extend that change's Acceptance Criteria and Tasks to capture the added scope, and create a new change only when the remaining work is materially different or should be tracked separately
 6. Surface assumptions explicitly; prefer one clarifying question over a wrong assumption.
 7. Note: **Review plan** is available as an optional stress-test of this change doc, or of the current wave when no change is named, before or after admission and before implementation. **Interrogate this plan** and **Stress-test this plan** remain natural-language aliases. It records no typed signoff and satisfies no gate; **Review wave** is the distinct delivery-review lifecycle command.
+
+Code-grounded authoring (required; definition in seed-209, "Code-Grounded Verification"):
+
+- Before a claim about existing code enters `## Requirements`, `## Scope`, an Acceptance Criterion, or a `## Decision Log` rationale, verify it against the actual tree, and execute it where executable: render into the failing shape, call the dispatch path, run the census. Reading code and reasoning about it produces plausible, internally consistent, and false plans; every mechanism defect in the motivating incidents was killed by execution and none by argument.
+- Three claim shapes need the strongest evidence: "X already does Y" mechanism claims, "no other caller/site" censuses (run them with `limit=0`, state them exhaustively or narrow the claim to what the census supports), and a rationale that justifies a decision by a benefit (observe the benefit; a plan once kept a mechanism for behavior that never fired).
+- A load-bearing claim that cannot be executed is marked `inferred` or `unverified` in the plan, using seed-209's `execution_status` vocabulary, instead of asserted flatly. The reviewer then knows which premises the prepare council must probe first.
+- Write each Acceptance Criterion so that an implementation with the fix absent cannot satisfy it, and state the failing condition where it is not obvious. This is the authoring counterpart of the reviewer's known-bad rule in seed-209; an AC satisfiable by a no-op, or by documenting a defect the change itself introduces, is a defect in the plan.
+- **Mechanism efficacy:** before selecting an approach, test whether its mechanism will achieve the goal, in proportion to the change (one sentence for a small fix; each point for a new mechanism, sensor or gate): replay the motivating case through the mechanism and say whether it would catch or fix it; say whether the mechanism controls the outcome or only advises, and what makes someone act on the advice; name what it would flag wrongly, miss, or what would make it ignored; check whether existing data or an existing mechanism gives most of the value; and state how success will be measured after release. Record the answers with the selected approach in `## Decision Log`.
 
 ### Plan shape and readiness repairs
 

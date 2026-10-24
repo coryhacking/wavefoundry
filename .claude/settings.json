@@ -1,5 +1,18 @@
 {
   "hooks": {
+    "SubagentStart": [
+      {
+        "matcher": "^code-modernization:[A-Za-z0-9][A-Za-z0-9_-]*$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -B -c \"import os,runpy,sys; root=os.environ.get('CLAUDE_PROJECT_DIR'); root or sys.exit('wavefoundry hook .claude/hooks/wf-modernization-briefing.py: missing project root environment variable CLAUDE_PROJECT_DIR'); runpy.run_path(os.path.join(root, '.claude', 'hooks', 'wf-modernization-briefing.py'), run_name='__main__')\"",
+            "statusMessage": "Briefing modernization agent on Wavefoundry...",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "hooks": [

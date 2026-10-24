@@ -38,7 +38,7 @@ The five thinking stances:
 - *First-principles*: starting fresh with current knowledge, what would we build instead?
 - *Analogical*: what would a different domain, framework, or pattern do here?
 
-Produce: `strongest_challenge`, `best_alternative`, `thinking_stances_applied`, `consequence_of_current_path`, `primer_questions` (count per tier above).
+Produce: `strongest_challenge`, `best_alternative`, `thinking_stances_applied`, `consequence_of_current_path`, `primer_questions` (count per tier above), `efficacy_replay` (always).
 
 Add the primer output to the briefing packet. Every subsequent seat receives it.
 
@@ -47,6 +47,7 @@ Add the primer output to the briefing packet. Every subsequent seat receives it.
 Run each fixed seat in isolation. Each seat receives the standard briefing plus the Phase 1 primer and must:
 - Explicitly address the red-team's `strongest_challenge`
 - Answer the `primer_questions` from their lane's perspective
+- Engage with the `efficacy_replay`: confirm or refute it from their lane's perspective
 - Contribute lane-specific findings independent of the primer
 - **Verify code-grounded:** check the artifact's load-bearing claims against the actual tree, not against the artifact's own prose — cited `file:line` sites and symbols must resolve, "X already does Y" claims must hold in the code, and "no other caller/site" censuses must be complete. Do not approve an artifact whose claims were checked only against its own text. (A readiness review answerable purely from plan prose is how nonexistent symbols, wrong caller censuses, and no-op mechanisms pass review.)
 

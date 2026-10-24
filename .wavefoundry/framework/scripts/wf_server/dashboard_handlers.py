@@ -9,6 +9,42 @@ import os
 
 
 DASHBOARD_START_WAIT_SECONDS = 5.0
+# 21ilg: the child's startup failure line, read back from dashboard.log after it exits.
+_STARTUP_FAILURE_MARKER = " - startup failed: "
+_STARTUP_LOG_TAIL_BYTES = 8192
+_STARTUP_LINE_LIMIT = 500
+
+
+def _dashboard_log_path(root: Path) -> Path:
+    return Path(root) / ".wavefoundry" / "logs" / "dashboard.log"
+
+
+def _dashboard_log_size(root: Path) -> int:
+    try:
+        return _dashboard_log_path(root).stat().st_size
+    except OSError:
+        return 0
+
+
+def _startup_failure_line(root: Path, offset: int) -> str | None:
+    """The child's last `startup failed:` line appended after ``offset``, or None.
+
+    Read only after the child exited, so no handle is shared with it; the child opens,
+    appends and closes per line. A log that shrank is read from the start.
+    """
+    try:
+        with _dashboard_log_path(root).open("rb") as handle:
+            size = handle.seek(0, 2)
+            start = offset if 0 <= offset <= size else 0
+            start = max(start, size - _STARTUP_LOG_TAIL_BYTES)
+            handle.seek(start)
+            data = handle.read(size - start)
+    except OSError:
+        return None
+    for line in reversed(data.decode("utf-8", errors="replace").splitlines()):
+        if line.startswith("[dashboard] ") and _STARTUP_FAILURE_MARKER in line:
+            return line[:_STARTUP_LINE_LIMIT]
+    return None
 
 
 def wf_start_dashboard_response(root: Path, port: int | None = None) -> dict[str, Any]:
@@ -140,6 +176,7 @@ def wf_start_dashboard_response(root: Path, port: int | None = None) -> dict[str
         else:
             spawn_kwargs["start_new_session"] = True
 
+        log_offset = _dashboard_log_size(root)
         try:
             proc = subprocess.Popen(cmd, **spawn_kwargs)
         except OSError as exc:
@@ -174,11 +211,13 @@ def wf_start_dashboard_response(root: Path, port: int | None = None) -> dict[str
             if exited:
                 proc.wait()
                 server_impl._DASHBOARD_CHILD_PIDS.discard(proc.pid)
+                message = "Dashboard child exited before serving."
+                reason = _startup_failure_line(root, log_offset)
+                if reason:
+                    message = f"{message} {reason}"
                 return server_impl._response(
                     "error", {"started": False, "starting": False, "pid": None, "url": None},
-                    diagnostics=[*orphan_diags, _diagnostic(
-                        "dashboard_child_exited", "Dashboard child exited before serving.",
-                    )],
+                    diagnostics=[*orphan_diags, _diagnostic("dashboard_child_exited", message)],
                 )
             if _time.monotonic() >= deadline:
                 return server_impl._response(

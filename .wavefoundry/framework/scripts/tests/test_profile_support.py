@@ -34,6 +34,7 @@ from unittest import mock
 
 import record_layout_support
 import record_paths
+import upstream_fixture_support
 import vocabulary_profile
 from record_layout_support import (
     PROFILES_DIR,
@@ -285,6 +286,10 @@ class DefaultProfileOnlyMarkerTests(unittest.TestCase):
                 mock.patch.dict(os.environ, {"WAVEFOUNDRY_TEST_PROFILE": "declared"}):
             corpus.IsChangeIdTests("test_accepts_every_admitted_id_in_this_repository").run(result)
         self.assertEqual(result.testsRun, 1)
+        # The corpus is upstream-only (change 21ile): a helper skip is passed on.
+        for _case, reason in result.skipped:
+            if reason.startswith(upstream_fixture_support.SKIP_PREFIX):
+                raise unittest.SkipTest(reason)
         self.assertEqual(result.skipped, [])
         self.assertEqual(result.errors, [])
         self.assertEqual(result.failures, [])

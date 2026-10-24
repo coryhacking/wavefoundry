@@ -33,6 +33,7 @@ import sqlite_storage_migration as _ssm_for_retired_name  # noqa: E402
 RETIRED_GRAPH_STATE_RELPATH = (
     f"{_ssm_for_retired_name.GRAPH_OUTPUT_DIRNAME}/project-graph-state.sqlite")
 PYPROJECT_PATH = SCRIPTS_ROOT.parents[2] / "pyproject.toml"
+READER_REQUIREMENT = f"lancedb=={_ssm_for_retired_name.LEGACY_READER_VERSION}"
 
 FAKE_VENV_PYTHON = Path("/fake/venv/bin/python")
 # Wave 1zls6: dependency installs run only through uv, so install tests name one explicitly.
@@ -653,6 +654,17 @@ class SetupIndexTests(unittest.TestCase):
             metadata = tomllib.load(fh)
         self.assertIn("httpx[socks]", metadata["project"]["dependencies"])
 
+    def test_pyproject_builds_a_metadata_only_wheel(self):
+        # 21ij7: the backend must exist, the SPDX license string needs
+        # setuptools 77 and forbids the classifier, and no code ships.
+        with PYPROJECT_PATH.open("rb") as fh:
+            metadata = tomllib.load(fh)
+        self.assertEqual(metadata["build-system"]["build-backend"], "setuptools.build_meta")
+        self.assertEqual(metadata["build-system"]["requires"], ["setuptools>=77"])
+        self.assertEqual(metadata["project"]["license"], "Apache-2.0")
+        self.assertFalse([c for c in metadata["project"]["classifiers"] if c.startswith("License ::")])
+        self.assertEqual(metadata["tool"]["setuptools"]["packages"], [])
+
     def test_required_imports_include_leiden(self):
         self.assertIn("igraph>=0.11", self.mod.REQUIRED_IMPORTS)
         self.assertEqual(self.mod.REQUIRED_IMPORTS["igraph>=0.11"], "igraph")
@@ -1173,15 +1185,15 @@ class MigrationReaderDependencyTests(unittest.TestCase):
         root=Path('/test/root')
         with patch.object(self.mod,'_bootstrap_venv',return_value=FAKE_VENV_PYTHON), \
              patch.object(self.mod,'_venv_needs_bootstrap',return_value=True), \
-             patch.object(self.mod,'_missing_in_venv',side_effect=[['lancedb==0.33.0'],[]]), \
+             patch.object(self.mod,'_missing_in_venv',side_effect=[[READER_REQUIREMENT],[]]), \
              patch.object(self.mod,'_held_install_lock',return_value=contextlib.nullcontext()), \
              patch.object(self.mod,'_install_deps') as install:
             self.mod.ensure_migration_deps(root)
-        install.assert_called_once_with(['lancedb==0.33.0'],FAKE_VENV_PYTHON,root,lock=None)
+        install.assert_called_once_with([READER_REQUIREMENT],FAKE_VENV_PYTHON,root,lock=None)
         self.assertNotIn('lancedb',self.mod.REQUIRED_IMPORTS.values())
     def test_reader_install_failure_is_not_success(self):
         with patch.object(self.mod,'_bootstrap_venv',return_value=FAKE_VENV_PYTHON), \
-             patch.object(self.mod,'_missing_in_venv',return_value=['lancedb==0.33.0']), \
+             patch.object(self.mod,'_missing_in_venv',return_value=[READER_REQUIREMENT]), \
              patch.object(self.mod,'_held_install_lock',return_value=contextlib.nullcontext()), \
              patch.object(self.mod,'_install_deps'):
             with self.assertRaises(SystemExit): self.mod.ensure_migration_deps(Path('/test/root'))

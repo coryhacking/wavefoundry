@@ -1174,42 +1174,60 @@ def main(argv: list[str] | None = None) -> int:
             print(url, flush=True)
         _dashboard_log("Dashboard already running for this repository.")
         return 0
+    except Exception as exc:
+        # 21ilg: a lock that cannot be taken (an unwritable .wavefoundry, say) is a startup failure too.
+        _dashboard_log(f"startup failed: {type(exc).__name__}: {exc}")
+        return 1
 
-    cfg = dashboard_lib.read_dashboard_config(root)
-    host = args.host.strip() or cfg["host"]
-    if host not in _LOOPBACK_HOSTS:
-        _dashboard_log(
-            f"WARNING: binding to non-loopback host '{host}'. "
-            "The dashboard is designed for local-only access."
+    # 21ilg: a startup failure goes to dashboard.log as one `startup failed:` line, because the MCP
+    # spawn discards stderr; the start response reads that line back after this child exits.
+    httpd = None
+    try:
+        cfg = dashboard_lib.read_dashboard_config(root)
+        host = args.host.strip() or cfg["host"]
+        if host not in _LOOPBACK_HOSTS:
+            _dashboard_log(
+                f"WARNING: binding to non-loopback host '{host}'. "
+                "The dashboard is designed for local-only access."
+            )
+        port = choose_port(root, host, args.port)
+
+        httpd = _QuietThreadingHTTPServer((host, port), DashboardHandler)
+        httpd.repo_root = root  # type: ignore[attr-defined]
+        # Wave 1zim2: an explicit non-loopback bind also answers its own host name.
+        httpd.bound_host = host  # type: ignore[attr-defined]
+        # 21ilg: advertise the bound port, so `--port 0` records a reachable URL.
+        port = httpd.server_address[1]
+
+        # Write metadata immediately after binding so MCP callers can detect the URL
+        # without waiting for the (potentially slow) initial snapshot build.
+        entrypoint = cfg["entrypoint"]
+        # Wave 1zim2: a wildcard bind advertises a loopback URL the Host check admits.
+        url = f"http://{_advertised_host(host)}:{port}/{entrypoint}"
+        dashboard_lib.write_dashboard_metadata(
+            root,
+            {
+                "host": host,
+                "port": port,
+                "url": url,
+                "entrypoint": entrypoint,
+                "pid": os.getpid(),
+                "started_at": datetime.now(UTC).isoformat(),
+            },
         )
-    port = choose_port(root, host, args.port)
+        print(url, flush=True)
+        if args.open and dashboard_lib.dashboard_browser_open_enabled():
+            webbrowser.open(url, new=2)
 
-    httpd = _QuietThreadingHTTPServer((host, port), DashboardHandler)
-    httpd.repo_root = root  # type: ignore[attr-defined]
-    # Wave 1zim2: an explicit non-loopback bind also answers its own host name.
-    httpd.bound_host = host  # type: ignore[attr-defined]
-
-    # Write metadata immediately after binding so MCP callers can detect the URL
-    # without waiting for the (potentially slow) initial snapshot build.
-    entrypoint = cfg["entrypoint"]
-    # Wave 1zim2: a wildcard bind advertises a loopback URL the Host check admits.
-    url = f"http://{_advertised_host(host)}:{port}/{entrypoint}"
-    dashboard_lib.write_dashboard_metadata(
-        root,
-        {
-            "host": host,
-            "port": port,
-            "url": url,
-            "entrypoint": entrypoint,
-            "pid": os.getpid(),
-            "started_at": datetime.now(UTC).isoformat(),
-        },
-    )
-    print(url, flush=True)
-    if args.open and dashboard_lib.dashboard_browser_open_enabled():
-        webbrowser.open(url, new=2)
-
-    httpd.snapshot_store = SnapshotStore(root)  # type: ignore[attr-defined]
+        httpd.snapshot_store = SnapshotStore(root)  # type: ignore[attr-defined]
+    except Exception as exc:
+        _dashboard_log(f"startup failed: {type(exc).__name__}: {exc}")
+        try:
+            if httpd is not None:
+                httpd.server_close()
+        finally:
+            server_lock.__exit__(None, None, None)
+        return 1
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

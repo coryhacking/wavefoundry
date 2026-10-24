@@ -46,7 +46,7 @@ Divergent Pre-Plan (required before drafting):
 Before writing the plan, execute a structured diverge → critique → select pass:
 
 - **Diverge:** enumerate 2–3 distinct approaches to the stated problem, each differing in a meaningful assumption, strategy, or scope boundary — not just surface wording.
-- **Critique:** for each approach, state its primary weakness or risk in one sentence.
+- **Critique:** for each approach, state its primary weakness or risk in one sentence. For an approach that adds or changes a mechanism, sensor or gate, apply the Mechanism efficacy questions under Code-grounded authoring before you select.
 - **Select:** choose one approach and state in one sentence why it is preferred over the alternatives.
 
 Record the selected approach and the rejected alternatives (with their weaknesses) in the change doc's `## Decision Log`. This pass executes within the single planning agent — no additional agents or sub-processes are required.
@@ -57,6 +57,7 @@ Code-grounded authoring (required; definition in seed-209, "Code-Grounded Verifi
 - Three claim shapes need the strongest evidence: "X already does Y" mechanism claims, "no other caller/site" censuses (run them with `limit=0`, state them exhaustively or narrow the claim to what the census supports), and a rationale that justifies a decision by a benefit (observe the benefit; a plan once kept a mechanism for behavior that never fired).
 - A load-bearing claim that cannot be executed is marked `inferred` or `unverified` in the plan, using seed-209's `execution_status` vocabulary, instead of asserted flatly. The reviewer then knows which premises the prepare council must probe first.
 - Write each Acceptance Criterion so that an implementation with the fix absent cannot satisfy it, and state the failing condition where it is not obvious. This is the authoring counterpart of the reviewer's known-bad rule in seed-209; an AC satisfiable by a no-op, or by documenting a defect the change itself introduces, is a defect in the plan.
+- **Mechanism efficacy:** before selecting an approach, test whether its mechanism will achieve the goal, in proportion to the change (one sentence for a small fix; each point for a new mechanism, sensor or gate): replay the motivating case through the mechanism and say whether it would catch or fix it; say whether the mechanism controls the outcome or only advises, and what makes someone act on the advice; name what it would flag wrongly, miss, or what would make it ignored; check whether existing data or an existing mechanism gives most of the value; and state how success will be measured after release. Record the answers with the selected approach in `## Decision Log`.
 
 Required planning outputs for non-trivial work:
 

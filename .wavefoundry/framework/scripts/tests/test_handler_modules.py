@@ -26,6 +26,7 @@ from server_tools_support import load_server
 SCRIPTS = Path(__file__).resolve().parents[1]
 ROOT = SCRIPTS.parents[2]
 from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
+from upstream_fixture_support import upstream_fixture
 # Explicit aliases preserve the retired gate response names and private optimize name.
 FAMILIES = {'wf_server.memory_handlers': {'memory_add': 'memory_add_response',
                      'memory_propose': 'memory_propose_response',
@@ -527,7 +528,7 @@ class HandlerPackagingAndEvaluatorTests(unittest.TestCase):
                            and node.value.id == 'server'}
         self.assertTrue({'WaveIndex', 'code_ask_response'} <= evaluator_reads)
         self.assertFalse(memory_names & evaluator_reads)
-        corpus = json.loads((ROOT / 'docs/evals/retrieval-quality-golden.json').read_text())
+        corpus = json.loads(upstream_fixture(ROOT / 'docs/evals/retrieval-quality-golden.json').read_text())
         anchors = [entry['anchor'] for fixture in corpus['fixtures']
                    for entry in fixture['relevance'] if entry.get('anchor')]
         self.assertTrue(anchors)
@@ -555,7 +556,7 @@ class HandlerPackagingAndEvaluatorTests(unittest.TestCase):
     def test_golden_symbol_and_content_anchors_resolve_and_stale_path_fails(self):
         import retrieval_eval as evaluator
         server = load_server()
-        corpus = evaluator.load_fixture_corpus(ROOT / 'docs/evals/retrieval-quality-golden.json', root=ROOT)
+        corpus = evaluator.load_fixture_corpus(upstream_fixture(ROOT / 'docs/evals/retrieval-quality-golden.json'), root=ROOT)
         # Wave 1yzd0: resolve the golden paths the way the evaluator does.
         resolution = evaluator.implementing_relevance_paths(ROOT, corpus)
         resolved = evaluator.resolve_symbol_anchors(corpus, server, ROOT, resolution)

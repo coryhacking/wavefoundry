@@ -35,7 +35,7 @@ Run in this order:
    - `standard` — implementation changes with clear scope; no trust boundary crossing. Three stances, two `primer_questions`.
    - `full` — trust boundary changes, architectural changes, data-path changes, security-relevant changes, or cross-cutting scope. All five stances, three `primer_questions`.
 
-2. **Phase 1 — Red-team adversarial primer.** Run `red-team` in `council-adversarial-primer` mode in isolation at the declared depth. Add the primer output — including `strongest_challenge`, `best_alternative`, `thinking_stances_applied`, and `primer_questions` — to the briefing packet. Every subsequent seat receives it.
+2. **Phase 1 — Red-team adversarial primer.** Run `red-team` in `council-adversarial-primer` mode in isolation at the declared depth. Add the primer output — including `strongest_challenge`, `best_alternative`, `thinking_stances_applied`, `primer_questions` and `efficacy_replay` — to the briefing packet. Every subsequent seat receives it.
 
 3. **Phase 2 — Fixed seats.** Run each fixed seat in isolation, in this exact sequence:
 
@@ -43,7 +43,7 @@ Run in this order:
 
    **Step 2 — Engage the primer.** Now read the Phase 1 primer. State whether it confirmed, extended, or changed your initial read, and what specifically shifted. The one-sentence explanation is **required** regardless of state — do not record the label alone: `Primer effect: [confirmed / extended / changed — required: one sentence on what shifted or was unchanged / not applicable — primer skipped at lightweight tier, one sentence on what the seat would have flagged if a primer had run].`
 
-   **Step 3 — Address primer output.** Explicitly address the red-team's `strongest_challenge` and answer the `primer_questions` from your lane's perspective.
+   **Step 3 — Address primer output.** Explicitly address the red-team's `strongest_challenge`, answer the `primer_questions` and engage with the `efficacy_replay` from your lane's perspective.
 
    **Step 4 — Lane findings.** Contribute lane-specific findings independent of the primer.
 

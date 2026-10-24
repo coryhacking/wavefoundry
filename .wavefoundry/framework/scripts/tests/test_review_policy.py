@@ -16,6 +16,7 @@ if str(SCRIPTS) not in sys.path:
 
 import review_policy
 import review_policy_reconcile
+from upstream_fixture_support import upstream_fixture
 import review_policy_upgrade
 import review_evidence
 import render_agent_surfaces
@@ -1624,7 +1625,7 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
             "docs/waves/1uo1x declaration-and-digest-boundaries/wave.md"
         )
         self.assertTrue(
-            (root / artifact).exists(), "fixture must name a real artifact"
+            upstream_fixture(root / artifact).exists(), "fixture must name a real artifact"
         )
         doc = self._PROSE_DOC.format(body=(
             "**Review targets (repo-relative paths):**\n\n"
@@ -1999,6 +2000,11 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
             p for p in sorted((root / "docs/waves").glob("*/*.md"))
             if p.name != "wave.md"
         ]
+        if len(docs) <= 100:
+            # This repository's own change-doc corpus; a distribution lacks it.
+            upstream_fixture(root.joinpath(
+                *record_paths.WAVES_ROOT.split("/"), "1uo1x declaration-and-digest-boundaries",
+                "1uo1w-bug prose-flips-declared-mode-and-drops-lanes.md"))
         self.assertGreater(len(docs), 100, "census must see a real corpus")
 
         def roster(text, paths):

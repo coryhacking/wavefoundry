@@ -56,10 +56,8 @@ class SessionStartRenderTests(unittest.TestCase):
         self.assertEqual(command['timeout'], 15)
         self.assertIn('.claude', command['command'])
         self.assertIn('wf-session-start.py', command['command'])
-        for event, event_entries in settings['hooks'].items():
-            if event == 'SessionStart':
-                continue
-            for entry in event_entries:
+        for event in ('PreToolUse', 'PostToolUse', 'Stop'):
+            for entry in settings['hooks'][event]:
                 for hook in entry['hooks']:
                     self.assertNotIn('timeout', hook, event)
 

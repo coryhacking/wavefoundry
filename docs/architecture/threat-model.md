@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-17
+Last verified: 2026-10-24
 
 ## Trust Boundaries
 
@@ -100,7 +100,7 @@ A finding is a **credible security threat** only when ALL five factors are groun
 4. **Authority/asset delta** — something the program can then do or access that the actor could **not already** do with their own authority.
 5. **Concrete impact** — a specific confidentiality, integrity, availability, or privilege consequence.
 
-If any factor is absent — most commonly a trusted actor as the only controller (factor 1) or no delta beyond the operator's existing authority (factor 4) — the finding may still be a real **required-contract / correctness** issue worth fixing, but it is **not** a demonstrated security vulnerability and does not drive security severity, blocking, or approval freshness.
+If any factor is absent — most commonly a trusted actor as the only controller (factor 1) or no delta beyond the operator's existing authority (factor 4) — the finding may still be a real **required-contract / correctness** issue worth fixing, but it is **not** a demonstrated security vulnerability and does not drive security severity, blocking, or approval freshness. Absent means ruled out: an unknown factor is not an absent factor, and a candidate whose factor can be neither confirmed nor ruled out stays on record as `unverified` with a `promotion_trigger` naming its settling evidence (seed 209, Credible-threat gate).
 
 ### Promotion Triggers
 

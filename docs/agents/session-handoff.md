@@ -2,11 +2,27 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-21
+Last verified: 2026-10-24
 
 ## Current Session
 
 **Active wave:** *(none)*
+
+**Implementation/review complete:** A3-A5 documentation corrections in21fgo; A8 scanner exclusions and A9 Codex invocation policy/owned-sidecar migration in21fgr; A2 modernization briefing in21a5a. All required ACs/tasks for21fgr/21a5a are checked and all specialist delivery approvals current. Both close dry-runs prove the current framework receipt and report only missing operator signoff. No operator approval, closure or commit inferred from the status question. A6 removed exactly two obsolete permission entries, preserving114others and all other settings.
+
+**Canonical qualification:** Operator-requested targeted retry passed2tests in2.370s using the existing framework venv. Subsequent canonical run passed12,072tests across206files,12existing skips,648.998s; exit0 and fresh green receipt. Both earlier failing files pass in that full run. All reviewed implementation fingerprints unchanged. No failure waiver, source fix or threshold change was used to obtain this pass. Earlier red logs remain historical evidence; their precise causes are unproven, and broader timing investigation remains deferred.
+
+**Next:** Operator reviews the delivered diff and may explicitly authorize signoff/closure for21fgr,21a5a and21fgy (21fgo also remains implemented/paused). Do not rerun the suite solely for routine ledger/status recording. No package, release, setup or index rebuild requested or performed.
+
+**A7 removed from21fgy:** On2026-10-23 the operator removed A7 because Morning is Anthropic-maintained. Owning scope/requirements narrowed to A6; AC-2/T-2 are explicitly intentionally not met with operator/date/reason. Historical source investigation retained, no upstream fix claimed and no installed skill changed. The only remaining implementation scope is the completed A6 permission cleanup. Narrowed-scope readiness/council and all three specialist delivery approvals are current on receipt be58a3bf7c0a3a1d0d84; close dry-run proves the green receipt and reports only missing operator signoff. Wave paused; A7 is no longer an unfinished project item.
+
+**Live qualification limits:** One actual Claude Code2.1.306/code-modernization1.0.0 read-only worker received the context and returned cited evidence plus an accurate unavailable-tool Gapfill. MCP, command and write tools were deliberately disabled. Worker skipped mandatory overview/map/guru orientation; retain that limitation. Invocation metadata is not tool permission enforcement; selected filesystem checks do not prove universal race resistance or native Windows behavior.
+
+**Evidence:** /private/tmp/wf-audit-remediation contains canonical-requested-requalification.log, two-failures-requested-retry-framework.log, pre/post-requalification-source-check.json, independent review/control reports, resolution-report.html and resolution-status.json. Earlier canonical-initial.log and canonical-final.log are preserved red results; qualification-blockers.json describes the earlier failure observations, superseded for qualification by the new green run. No new memory candidate warranted: current tests, guidance and existing review records carry the bounded lessons.
+
+**Runtime:** Earlier setup assessment requested a full host restart despite matched implementation/runner; host subsequently restarted during conversation recovery. No later ready assessment is claimed. Direct framework tests used fresh processes.
+
+## Prior implementation session
 
 **Delivered:** Profile-derived root bridge and wave scaffold nouns with default bytes preserved; explicit operator-instruction gates in close-change/package skills on all three hosts. Report-only lifecycle/plan baseline comparison, pre-extraction capture and version/pack-bound resume/cleanup replay. Destination templates are preserved. The checkpoint capture runs after existing package-identity refusal.
 

@@ -62,6 +62,8 @@ STATES = {"restart_required", "quiesced", "staged", "validated", "cutover_pendin
           "published", "verified", "cleanup_pending", "complete"}
 READABLE_STATES = {"published", "verified", "cleanup_pending", "complete"}
 SCHEMA_VERSION = "8"
+# The pinned migration-only Lance reader; setup provisions exactly this version.
+LEGACY_READER_VERSION = "0.33.0"
 # Shipped historical formats: schema 4 at a62d612a; schema 5 adds
 # layer_path_state at 2952df8f; schema 6 adds build_state at 6bcac5f1;
 # schema 7 adds canonical chunks/vectors and external-content FTS at
@@ -1306,9 +1308,9 @@ def _legacy_table(index_dir: Path, layer: str):
     try:
         import lancedb
     except ImportError as exc:
-        raise MigrationRequired("storage_legacy_reader_missing: provision pinned migration-only lancedb==0.33.0 through setup") from exc
-    if lancedb.__version__ != "0.33.0":
-        raise MigrationRequired("storage_legacy_reader_version: require migration-only lancedb==0.33.0")
+        raise MigrationRequired(f"storage_legacy_reader_missing: provision pinned migration-only lancedb=={LEGACY_READER_VERSION} through setup") from exc
+    if lancedb.__version__ != LEGACY_READER_VERSION:
+        raise MigrationRequired(f"storage_legacy_reader_version: require migration-only lancedb=={LEGACY_READER_VERSION}")
     try:
         db = lancedb.connect(str(index_dir))
         table = db.open_table(layer)

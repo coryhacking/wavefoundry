@@ -56,6 +56,33 @@ def shifted_pack_path_stat(field='st_ctime_ns', delta=1000):
     return patch.object(os, 'stat', stat_)
 
 
+def shifted_no_follow_stat(name, field, delta=1000):
+    """Shift the named regular file's no-follow path stat at every call site.
+
+    ``Path.lstat()`` calls ``os.lstat`` on Python 3.12 and later but
+    ``os.stat(..., follow_symlinks=False)`` on 3.11, so both are patched for
+    the guard's own path comparison to see the change on every version.
+    """
+    real_lstat = os.lstat
+
+    def shift(target, real):
+        if os.path.basename(os.fspath(target)) == name and stat.S_ISREG(real.st_mode):
+            return _Shifted(real, field, delta)
+        return real
+
+    def lstat_(target, *args, **kwargs):
+        return shift(target, real_lstat(target, *args, **kwargs))
+
+    def stat_(target, *args, **kwargs):
+        real = _REAL_STAT(target, *args, **kwargs)
+        return real if kwargs.get('follow_symlinks', True) else shift(target, real)
+
+    stack = contextlib.ExitStack()
+    stack.enter_context(patch.object(os, 'lstat', lstat_))
+    stack.enter_context(patch.object(os, 'stat', stat_))
+    return stack
+
+
 class VerifiedPackStatKindTests(unittest.TestCase):
     def setUp(self):
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
@@ -190,7 +217,6 @@ class DurableGuardPackStatKindTests(unittest.TestCase):
         helper = hooks._guard_contained_helper()
         hooks._read_guard_pack(self.root, path, helper)
         lock = upgrade_lib.read_upgrade_lock(self.root)
-        real_lstat = os.lstat
         for field in ('st_ino', 'st_size', 'st_mtime_ns'):
             # Handle side: the contained open refuses inode and size changes
             # itself (an OSError); mtime reaches the guard's own comparison.
@@ -198,13 +224,8 @@ class DurableGuardPackStatKindTests(unittest.TestCase):
                     self.assertRaises((ValueError, OSError)):
                 hooks._read_guard_pack(self.root, path, helper)
             # Path side: the handle-derived proof against the path stat.
-            def lstat_(target, *args, _field=field, **kwargs):
-                real = real_lstat(target, *args, **kwargs)
-                if os.path.basename(os.fspath(target)) == path.name and stat.S_ISREG(real.st_mode):
-                    return _Shifted(real, _field, 1000)
-                return real
-            with self.subTest(side='path', field=field), patch.object(os, 'lstat', lstat_), \
-                    self.assertRaisesRegex(ValueError, 'index_guard_durable_pack_invalid'):
+            with self.subTest(side='path', field=field), shifted_no_follow_stat(path.name, field), \
+                    self.assertRaisesRegex(ValueError, 'index_guard_durable_pack_invalid: replaced file identity'):
                 hooks.validate_index_guard_durable_pack(self.root, lock)
 
     def test_real_path_change_refuses_the_publication_recheck(self):
@@ -215,21 +236,15 @@ class DurableGuardPackStatKindTests(unittest.TestCase):
         lock = upgrade_lib.read_upgrade_lock(self.root)
         record = copy.deepcopy(lock['index_guard_handoff'])
         read = hooks._read_guard_pack
-        real_lstat = os.lstat
 
         def fail_read_back(root, path, helper):
             if path == target:
                 raise PermissionError('read-back refused')
             return read(root, path, helper)
 
-        def lstat_(path, *args, **kwargs):
-            real = real_lstat(path, *args, **kwargs)
-            if os.path.basename(os.fspath(path)) == target.name and stat.S_ISREG(real.st_mode):
-                return _Shifted(real, 'st_ino', 1000)
-            return real
         with patch.object(hooks, '_read_guard_pack', side_effect=fail_read_back), \
                 patch.object(contained_files, 'unlink_contained', side_effect=PermissionError('rollback refused')), \
-                patch.object(os, 'lstat', lstat_), \
+                shifted_no_follow_stat(target.name, 'st_ino'), \
                 self.assertRaisesRegex(ValueError, 'index_guard_durable_pack_recovery_required'):
             hooks._retain_index_guard_pack(self.ctx, lock, record)
 

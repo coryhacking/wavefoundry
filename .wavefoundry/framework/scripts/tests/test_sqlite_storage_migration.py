@@ -1087,7 +1087,7 @@ class NativeMigrationTests(unittest.TestCase):
             import lancedb
         except ImportError:
             self.skipTest("migration-only Lance reader unavailable")
-        if lancedb.__version__ != "0.33.0":
+        if lancedb.__version__ != migration.LEGACY_READER_VERSION:
             self.skipTest("requires pinned migration-only Lance reader")
         # The placeholder has no readable Lance manifest. The real reader must
         # fail closed before staging, never claim current setup bypasses it.
@@ -1558,7 +1558,7 @@ class NativeMigrationTests(unittest.TestCase):
             import lancedb
         except ImportError:
             self.skipTest("migration-only Lance reader unavailable")
-        if lancedb.__version__ != "0.33.0":
+        if lancedb.__version__ != migration.LEGACY_READER_VERSION:
             self.skipTest("requires pinned migration-only Lance reader")
         # Replace the initial placeholder before recording the source identity.
         shutil.rmtree(self.index / "docs.lance")

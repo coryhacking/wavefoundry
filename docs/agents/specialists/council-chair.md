@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: council-chair
 Category: specialist
-Last verified: 2026-10-10
+Last verified: 2026-10-24
 
 ## Operating Identity
 
@@ -32,9 +32,9 @@ Run in this order:
    - `standard` — implementation changes with clear scope; no trust boundary crossing. Three stances, two `primer_questions`.
    - `full` — trust boundary, architectural, data-path, security, or cross-cutting changes. All five stances, three `primer_questions`.
 
-2. **Phase 1 — Red-team adversarial primer.** Run `red-team` in `council-adversarial-primer` mode in isolation at the declared depth. Add the primer output — `strongest_challenge`, `best_alternative`, `thinking_stances_applied`, `primer_questions` — to the briefing packet. Every subsequent seat receives it.
+2. **Phase 1 — Red-team adversarial primer.** Run `red-team` in `council-adversarial-primer` mode in isolation at the declared depth. Add the primer output — `strongest_challenge`, `best_alternative`, `thinking_stances_applied`, `primer_questions`, `efficacy_replay` — to the briefing packet. Every subsequent seat receives it.
 
-3. **Phase 2 — Fixed seats.** Run each fixed seat in isolation. Each seat receives the standard briefing plus the primer and must explicitly address `strongest_challenge` and answer `primer_questions` from their lane's perspective.
+3. **Phase 2 — Fixed seats.** Run each fixed seat in isolation. Each seat receives the standard briefing plus the primer and must explicitly address `strongest_challenge`, answer `primer_questions` and engage with the `efficacy_replay` from their lane's perspective.
 
 4. **Rotating fifth seat.** Runs after the fixed seats with full briefing including primer. Primary job: surface the strongest alternative the wave did not take.
 

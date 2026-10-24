@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-19
+Last verified: 2026-10-24
 
 Shortcut: **`Close wave`**
 
@@ -52,7 +52,7 @@ Before final docs validation and the close mutation, tidy only artifacts establi
 
 ## What Goes in Wave Summary
 
-Before closure, explicitly author one concise `Intent outcome:` paragraph in the existing exact `## Review Checkpoints` section: state achieved, partial or not established, cite evidence, and retain material limitations. It may cover changes sharing an outcome. The close-summary composer carries the last such paragraph or list item (optionally dated `YYYY-MM-DD: `) into Wave Summary, preserving its text and qualification; do not infer achievement from titles or checked ACs. Legacy records without this assessment remain closable under existing gates and retain their existing summary behavior; this adds no schema or blocking gate.
+Before closure, explicitly author one concise `Intent outcome:` paragraph in the existing exact `## Review Checkpoints` section: state achieved, partial or not established, cite evidence, and retain material limitations. When the plan states a measure of success, cite it and say whether it can be read yet. It may cover changes sharing an outcome. The close-summary composer carries the last such paragraph or list item (optionally dated `YYYY-MM-DD: `) into Wave Summary, preserving its text and qualification; do not infer achievement from titles or checked ACs. Legacy records without this assessment remain closable under existing gates and retain their existing summary behavior; this adds no schema or blocking gate.
 
 `## Wave Summary` is populated at closure. Include:
 - What was delivered

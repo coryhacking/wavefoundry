@@ -192,5 +192,8 @@
   "design_system_policy": {
     "governance": "evolvable",
     "notes": "Design-system surfaces may evolve within normal implementation scope. Set to 'read-only' to require explicit wf_open_gate(gate='design_system_edit_allowed') before any design-system change, or 'review-governed' to require reviewer-lane approval. When governance is 'evolvable', the design_system_edit_allowed gate is not enforced."
+  },
+  "testing": {
+    "upstream_fixtures_required": true
   }
 }

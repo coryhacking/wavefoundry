@@ -2,11 +2,15 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-10
+Last verified: 2026-10-24
 
 ## Host-neutral orchestration
 
 Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neutral orchestration** for task-fit model allocation, bounded delegation and independent handoff throughout Prepare-to-Close. Host choice is per task or wave; native wrappers remain pointers to shared project guidance. Choose model and effort per assignment using exposed host controls; inheritance is a fallback, not a decision. Keep the rationale in existing work notes and distinguish requested settings from observed runtime identity (unknown when unavailable). Check actual worker capabilities rather than assuming inherited tools.
+
+## Code Modernization assignments
+
+For `code-modernization:` plugin workers, follow seed 180's **Brief Code Modernization workers** guidance: send change/AC references, owned and forbidden paths, read-only or write scope, expected cited evidence and capability limitations. Claude's project `SubagentStart` hook supplies a fixed Wavefoundry briefing; the coordinator still owns the task-specific packet and lifecycle tracking. Other hosts use that coordinator packet without an invented hook. Investigation may precede readiness; implementation requires the repository stage gate. A plugin plan approval or proof verdict grants no Wavefoundry approval or operator authority. Confirm actual worker tools and report the canonical `Gapfill:` fallback when MCP is unavailable.
 
 ## Role Routing
 

@@ -29,6 +29,7 @@ SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from wave_lint_lib import secrets_validators as sv  # noqa: E402
+from upstream_fixture_support import upstream_fixture  # noqa: E402
 
 REPO_ROOT = SCRIPTS_ROOT.parents[2]
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -445,6 +446,10 @@ class FixturesYieldNoFindingsTests(unittest.TestCase):
     def test_scanning_the_fixtures_records_nothing(self):
         ledger = REPO_ROOT / "docs" / "scan-findings.json"
         before = ledger.read_bytes() if ledger.is_file() else None
+        # The ledger's findings name this repository's own record files; the
+        # scan reconciles away a finding whose file is absent (change 21ile).
+        for finding in json.loads(before or b"[]"):
+            upstream_fixture(REPO_ROOT / finding["file"])
         # Wave 1z8ox (1z8ov): the ledger save is recorded, not written, so a
         # regression fails here without dirtying the real ledger.
         with _NoRepoWrites() as recorder:

@@ -940,7 +940,8 @@ def ensure_deps(root: Path | None = None) -> None:
 
 def ensure_migration_deps(root: Path) -> None:
     """Provision the pinned reader only for an explicitly detected legacy index."""
-    requirements = {"lancedb==0.33.0": "lancedb"}
+    from sqlite_storage_migration import LEGACY_READER_VERSION
+    requirements = {f"lancedb=={LEGACY_READER_VERSION}": "lancedb"}
     if _satisfied_without_lock(requirements):
         return
     with _held_install_lock() as lock:

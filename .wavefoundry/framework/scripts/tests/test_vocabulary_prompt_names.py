@@ -765,6 +765,10 @@ class ProfileMigrationTests(unittest.TestCase):
             reused = (skills / "wf-close-parcel" / "SKILL.md").read_text(encoding="utf-8")
             self.assertIn("name: wf-close-parcel", reused)
             self.assertIn("# Close a wave", reused)
+            if host in (".codex", ".agents"):
+                for name in ("wf-close-parcel", "wf-finish-task"):
+                    self.assertEqual((skills / name / "agents/openai.yaml").read_bytes(),
+                                     b"policy:\n  allow_implicit_invocation: false\n")
         # No baseline over a moved prompt: the item prompts keep their moved bytes.
         self.assertEqual((root / "docs/prompts/do-task.prompt.md").read_bytes(), IMPLEMENT_CHANGE_BYTES)
         self.assertEqual((root / "docs/prompts/finish-task.prompt.md").read_bytes(),

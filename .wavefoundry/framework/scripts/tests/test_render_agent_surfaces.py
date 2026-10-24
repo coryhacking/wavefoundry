@@ -28,6 +28,8 @@ import review_policy_reconcile  # noqa: E402
 from wave_lint_lib.core_validators import check_review_policy_carriers  # noqa: E402
 import vocabulary_profile as vp  # noqa: E402
 from record_layout_support import default_profile_only  # noqa: E402
+from upstream_fixture_support import upstream_fixture  # noqa: E402
+import record_paths  # noqa: E402
 from prompt_vocabulary_support import (  # noqa: E402
     assert_clause,
     has_clause,
@@ -594,6 +596,168 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
                     self.assertEqual(target.read_bytes(), expected)
 
 
+class EfficacyCheckCarrierTests(unittest.TestCase):
+    """Distribution pins for the efficacy check (change 21fnf), not a claim that agents follow it."""
+
+    ROOT = PROJECT_ROOT.parent
+    SEED_170 = ".wavefoundry/framework/seeds/170-plan-change.prompt.md"
+    HEADING = 'Code-grounded authoring (required; definition in seed-209, "Code-Grounded Verification"):'
+    EFFICACY_CLAUSES = (
+        "**Mechanism efficacy:** before selecting an approach",
+        "one sentence for a small fix",
+        "replay the motivating case through the mechanism and say whether it would catch or fix it",
+        "controls the outcome or only advises, and what makes someone act on the advice",
+        "name what it would flag wrongly, miss, or what would make it ignored",
+        "check whether existing data or an existing mechanism gives most of the value",
+        "state how success will be measured after release",
+        "Record the answers with the selected approach in `## Decision Log`",
+    )
+    PRE_SELECT_CLAUSE = "apply the Mechanism efficacy questions under Code-grounded authoring before you select"
+    # Every file defining the primer or enumerating its outputs or the seats'
+    # obligations, with the clauses each role must keep: the packet field and
+    # the obligation to engage are pinned separately, since one surviving
+    # token would hide the other's removal. The census keeps this map
+    # complete; pointer-form prompts under docs/prompts/agents/ describe the
+    # primer without enumerating its outputs and stay outside it.
+    PRIMER_CARRIERS = {
+        ".wavefoundry/framework/seeds/007-review-system-overview.md": (
+            "`primer_questions`, `efficacy_replay` — is added to the briefing packet",
+            "answer `primer_questions` and engage with the `efficacy_replay` from its lane's perspective",
+        ),
+        ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": (
+            "`primer_questions` and engage with its `efficacy_replay`",
+        ),
+        ".wavefoundry/framework/seeds/215-council-chair.prompt.md": (
+            "`primer_questions` and `efficacy_replay` — to the briefing packet",
+            "answer the `primer_questions` and engage with the `efficacy_replay` from your lane's perspective",
+        ),
+        ".wavefoundry/framework/seeds/225-red-team.prompt.md": (
+            "replay its motivating case through its mechanism and state whether the mechanism would catch or fix it",
+            "separate from the tiered `primer_questions` count",
+            "- `efficacy_replay`: for each change",
+            "engage with the `efficacy_replay` before producing findings",
+        ),
+        ".wavefoundry/framework/seeds/237-council-review.prompt.md": (
+            "`primer_questions` (count per tier above), `efficacy_replay` (always)",
+            "- Engage with the `efficacy_replay`: confirm or refute it",
+        ),
+        "docs/agents/specialists/council-chair.md": (
+            "`primer_questions`, `efficacy_replay` — to the briefing packet",
+            "answer `primer_questions` and engage with the `efficacy_replay` from their lane's perspective",
+        ),
+        "docs/agents/specialists/red-team.md": (
+            "replay its motivating case through its mechanism and state whether the mechanism would catch or fix it",
+            "separate from the tiered `primer_questions` count",
+            "- `efficacy_replay`: for each change",
+            "engage with the `efficacy_replay` before producing findings",
+        ),
+        "docs/prompts/council-review.prompt.md": (
+            "`primer_questions` (count per tier above), `efficacy_replay` (always)",
+            "- Engage with the `efficacy_replay`: confirm or refute it",
+        ),
+        vp.prompt_doc("prepare-wave"): (
+            "an `efficacy_replay` of each change's motivating case through its mechanism",
+            "engage with the `efficacy_replay` before producing their own findings",
+        ),
+        vp.prompt_doc("review-wave"): (
+            "an `efficacy_replay` of each change's motivating case through its mechanism",
+            "including the `efficacy_replay`, before producing findings",
+        ),
+    }
+    UPGRADE_CARRIERS = (
+        ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
+        "docs/prompts/upgrade-wavefoundry.prompt.md",
+    )
+    UPGRADE_CLAUSES = (
+        "carry the Code-grounded authoring block, including its Mechanism efficacy bullet, with the same text under the same heading",
+        "the council-adversarial-primer's fixed `efficacy_replay` output and each seat's obligation to engage with it",
+        "citing the plan's measure of success when one exists",
+    )
+    CENSUS_ROOTS = (
+        ".wavefoundry/framework/seeds",
+        ".wavefoundry/framework/install",
+        "docs/prompts",
+        "docs/agents/specialists",
+    )
+    CLOSE_CARRIERS = (
+        ".wavefoundry/framework/seeds/190-close-wave.prompt.md",
+        ".wavefoundry/framework/install/lifecycle-prompts/close-wave.prompt.md",
+        vp.prompt_doc("close-wave"),
+    )
+    MEASURE_CLAUSE = "When the plan states a measure of success, cite it and say whether it can be read yet."
+
+    def _read(self, relative: str) -> str:
+        return (self.ROOT / relative).read_text(encoding="utf-8")
+
+    def _block(self, text: str) -> str:
+        lines = text.splitlines()
+        self.assertEqual(lines.count(self.HEADING), 1)
+        start = lines.index(self.HEADING)
+        end = start + 2
+        while end < len(lines) and lines[end].startswith("- "):
+            end += 1
+        return "\n".join(lines[start:end])
+
+    def _census(self, root: Path) -> set[str]:
+        found = set()
+        for base in self.CENSUS_ROOTS:
+            for path in (root / base).rglob("*.md"):
+                if "primer_questions" in path.read_text(encoding="utf-8"):
+                    found.add(path.relative_to(root).as_posix())
+        return found
+
+    def test_plan_change_prompt_carries_the_seed_block_verbatim(self) -> None:
+        seed = self._block(self._read(self.SEED_170))
+        self.assertEqual(self._block(self._read(vp.prompt_doc("plan-change"))), seed)
+        for clause in self.EFFICACY_CLAUSES:
+            self.assertIn(clause, seed)
+
+    def test_efficacy_questions_are_asked_before_selection(self) -> None:
+        for relative in (self.SEED_170, vp.prompt_doc("plan-change")):
+            with self.subTest(carrier=relative):
+                text = self._read(relative)
+                critique = next(line for line in text.splitlines() if "**Critique:**" in line)
+                self.assertIn(self.PRE_SELECT_CLAUSE, critique)
+
+    def test_block_extraction_sees_a_dropped_bullet(self) -> None:
+        text = self._read(self.SEED_170)
+        bullet = next(line for line in text.splitlines() if line.startswith("- **Mechanism efficacy:**"))
+        mutant = text.replace(bullet + "\n", "")
+        self.assertNotEqual(self._block(mutant), self._block(text))
+        self.assertNotIn(self.EFFICACY_CLAUSES[0], self._block(mutant))
+
+    def test_every_primer_carrier_keeps_each_efficacy_replay_role(self) -> None:
+        for relative, clauses in self.PRIMER_CARRIERS.items():
+            text = self._read(relative)
+            for clause in clauses:
+                with self.subTest(carrier=relative, clause=clause):
+                    self.assertIn(clause, text)
+
+    def test_upgrade_carriers_name_the_efficacy_carry_over(self) -> None:
+        for relative in self.UPGRADE_CARRIERS:
+            text = self._read(relative)
+            for clause in self.UPGRADE_CLAUSES:
+                with self.subTest(carrier=relative, clause=clause):
+                    self.assertIn(clause, text)
+
+    def test_primer_carrier_list_matches_the_census(self) -> None:
+        self.assertEqual(self._census(self.ROOT), set(self.PRIMER_CARRIERS))
+
+    def test_census_sees_an_unlisted_carrier(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for relative in (*self.PRIMER_CARRIERS, "docs/agents/specialists/new-seat.md"):
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("answer the `primer_questions`\n", encoding="utf-8")
+            self.assertNotEqual(self._census(root), set(self.PRIMER_CARRIERS))
+
+    def test_close_carriers_cite_the_measure_of_success(self) -> None:
+        for relative in self.CLOSE_CARRIERS:
+            with self.subTest(carrier=relative):
+                self.assertIn(self.MEASURE_CLAUSE, self._read(relative))
+
+
 class MemoryReviewPromptTests(unittest.TestCase):
     def test_prompt_contract_and_known_bad_controls(self) -> None:
         prompt = (
@@ -983,9 +1147,13 @@ class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
         ownership = (repo_root / "docs" / "contributing" / "review-and-evals.md").read_text(
             encoding="utf-8"
         )
-        change = next((repo_root / "docs" / "waves").glob("1skt1*/1siu0*.md")).read_text(
-            encoding="utf-8"
-        )
+        change = next(
+            (repo_root / "docs" / "waves").glob("1skt1*/1siu0*.md"),
+            None,
+        ) or upstream_fixture(repo_root.joinpath(
+            *record_paths.WAVES_ROOT.split("/"), "1skt1 executable-review-evidence",
+            "1siu0-enh executable-review-evidence-protocol.md"))
+        change = change.read_text(encoding="utf-8")
         # The closed 1skt1 change doc is history and names a destination as it
         # was then (wave 200ey, change 200ew: the council role doc's earlier path).
         # It also names lifecycle prompts at their shipped paths, whatever the
@@ -2237,6 +2405,278 @@ class ChangePromptSkillAndContractTests(unittest.TestCase):
                 assert_clause(self, "{shortcut[close-change]}", text[text.index(item):text.index(item) + 600],
                               seed=name == "seed")
                 self.assertIn("optional", text[text.index(item):text.index(item) + 600])
+
+
+class OperatorSkillPolicyTests(unittest.TestCase):
+    """Public render contract; expected policy bytes are independent of the renderer."""
+
+    EXPECTED = b"policy:\n  allow_implicit_invocation: false\n"
+
+    def _repo(self, root, *, gate_docs=True, hosts=(".codex", ".claude", ".agents")):
+        SkillRegistryTests()._repo(root, gate_docs=gate_docs, hosts=hosts)
+
+    def _names(self):
+        return (vp.skill_name("close-wave"), vp.skill_name("close-change"), "wf-package", "wf-upgrade")
+
+    def test_literal_policy_all_operator_skills_and_no_other_outputs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._repo(root)
+            written = ras.render_skills(root)
+            expected = {
+                f"{host}/skills/{name}/agents/openai.yaml"
+                for host in (".codex", ".agents") for name in self._names()
+            }
+            actual = {p.relative_to(root).as_posix() for p in root.rglob("openai.yaml")}
+            self.assertEqual(actual, expected)
+            for rel in expected:
+                self.assertEqual((root / rel).read_bytes(), self.EXPECTED)
+                self.assertIn(rel, written)
+            snapshot = {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+            self.assertEqual(ras.render_skills(root), [])
+            self.assertEqual(snapshot, {p.relative_to(root): p.read_bytes() for p in root.rglob("*") if p.is_file()})
+
+    def test_doc_and_absent_host_gates(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._repo(root, gate_docs=False, hosts=(".agents",))
+            ras.render_skills(root)
+            self.assertFalse((root / ".codex").exists())
+            self.assertFalse((root / ".claude").exists())
+            self.assertFalse((root / ".agents/skills/wf-package").exists())
+            for name in self._names():
+                if name != "wf-package":
+                    self.assertEqual((root / f".agents/skills/{name}/agents/openai.yaml").read_bytes(), self.EXPECTED)
+
+    def test_custom_sidecars_preserved_with_actionable_bounded_notice(self):
+        for custom in (b"policy:\r\n  allow_implicit_invocation: true\r\n", b"# custom\n" + self.EXPECTED, b"\xff\xfe"):
+            with self.subTest(custom=custom), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                self._repo(root)
+                rel = ".agents/skills/wf-upgrade/agents/openai.yaml"
+                target = root / rel
+                target.parent.mkdir(parents=True)
+                target.write_bytes(custom)
+                for _ in range(2):
+                    err = io.StringIO()
+                    with patch("sys.stderr", err):
+                        written = ras.render_skills(root)
+                    self.assertEqual(target.read_bytes(), custom)
+                    self.assertNotIn(rel, written)
+                    notice = err.getvalue()
+                    self.assertIn(rel, notice)
+                    self.assertIn("policy not applied", notice)
+                    self.assertIn("remove or rename", notice)
+                    self.assertNotIn(str(root), notice)
+                    self.assertEqual(len(notice.splitlines()), 1)
+
+    def test_nested_and_leaf_symlinks_refused_before_any_host_write(self):
+        for entry in ("agents", "agents/openai.yaml"):
+            for dangling in (False, True):
+                with self.subTest(entry=entry, dangling=dangling), tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    self._repo(root)
+                    destination = root / f".agents/skills/wf-upgrade/{entry}"
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    target = root / "custom-target"
+                    if not dangling:
+                        if entry == "agents":
+                            target.mkdir()
+                        else:
+                            target.write_bytes(b"preserve")
+                    destination.symlink_to(target, target_is_directory=entry == "agents")
+                    # Full rendering migrates native wrappers before render_skills.
+                    # A late policy refusal must precede even that host mutation.
+                    legacy_rel = next(old for old, _ in ras.COUNCIL_ROLE_RENAMES if old.startswith(".claude/"))
+                    legacy_wrapper = root / legacy_rel
+                    legacy_wrapper.parent.mkdir(parents=True)
+                    legacy_wrapper.write_text(f"---\nname: {Path(legacy_rel).stem}\n---\nCustom review body.\n", encoding="utf-8")
+                    before = set(root.rglob("*"))
+                    for render in (ras.render_skills, ras.render_agent_surfaces):
+                        with self.subTest(render=render.__name__):
+                            with self.assertRaisesRegex(RuntimeError, "symlink|dangling link"):
+                                render(root)
+                            self.assertFalse((root / ".codex/skills").exists())
+                            self.assertFalse((root / ".claude/skills").exists())
+                            self.assertEqual(list(root.rglob("SKILL.md")), [])
+                            self.assertEqual(set(root.rglob("*")), before)
+
+    def test_sidecar_appearing_at_publication_is_not_overwritten(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._repo(root)
+            publish = ras._write_bytes_atomic_exclusive
+            raced = []
+
+            def competing_writer(path, content, *, root):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"concurrent custom metadata\n")
+                raced.append(path)
+                return publish(path, content, root=root)
+
+            with patch.object(ras, "_write_bytes_atomic_exclusive", competing_writer):
+                with self.assertRaisesRegex(RuntimeError, "target exists"):
+                    ras.render_skills(root)
+            self.assertEqual(len(raced), 1)
+            self.assertEqual(raced[0].read_bytes(), b"concurrent custom metadata\n")
+
+    def test_skill_documents_keep_the_existing_host_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._repo(root)
+            ras.render_skills(root)
+            for skill in ras.SKILL_REGISTRY:
+                for host in (".codex", ".claude", ".agents"):
+                    header = f"---\nname: {skill.name}\ndescription: {skill.description}\n"
+                    if host == ".claude" and skill.name in self._names():
+                        header += "disable-model-invocation: true\n"
+                    expected = f"{header}---\n\n{skill.body}"
+                    self.assertEqual((root / host / "skills" / skill.name / "SKILL.md").read_bytes(), expected.encode())
+
+
+class RetiredOperatorPolicyTests(unittest.TestCase):
+    EXPECTED = b"policy:\n  allow_implicit_invocation: false\n"
+
+    def _profile(self, name):
+        original = ras._vp_skill
+        current = original("close-wave")
+        registry = tuple(ras._dataclass_replace(skill, name=name) if skill.name == current else skill
+                         for skill in ras.SKILL_REGISTRY)
+        return patch.multiple(ras, SKILL_REGISTRY=registry,
+                              _vp_skill=lambda key: name if key == "close-wave" else original(key))
+
+    def _repo(self, root):
+        SkillRegistryTests()._repo(root)
+        old = "wf-" + vp.DEFAULT_PROMPT_NAMES["close-wave"]["slug"]
+        with self._profile(old):
+            ras.render_skills(root)
+        return old
+
+    def test_rename_removes_owned_and_stranded_policy_and_converges(self):
+        for stranded in (False, True):
+            with self.subTest(stranded=stranded), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                old = self._repo(root)
+                if stranded:
+                    for host in (".codex", ".agents"):
+                        (root / host / "skills" / old / "SKILL.md").unlink()
+                with self._profile("wf-finish-container"):
+                    written = ras.render_skills(root)
+                    for host in (".codex", ".agents"):
+                        rel = f"{host}/skills/{old}/agents/openai.yaml"
+                        self.assertIn(rel, written)
+                        self.assertFalse((root / host / "skills" / old).exists())
+                        self.assertEqual((root / host / "skills/wf-finish-container/agents/openai.yaml").read_bytes(), self.EXPECTED)
+                    self.assertEqual(ras.render_skills(root), [])
+
+    def test_custom_metadata_and_unknown_files_survive(self):
+        for shape in ("custom", "invalid", "unreadable", "unknown_agents", "unknown_skill"):
+            with self.subTest(shape=shape), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                old = self._repo(root)
+                folder = root / ".agents/skills" / old
+                policy = folder / "agents/openai.yaml"
+                custom = b"policy:\r\n  allow_implicit_invocation: true\r\n" if shape == "custom" else b"\xff\xfe"
+                if shape in ("custom", "invalid"):
+                    policy.write_bytes(custom)
+                if shape.startswith("unknown"):
+                    unknown = (policy.parent if shape == "unknown_agents" else folder) / "operator.txt"
+                    unknown.write_bytes(b"keep me")
+                read = ras._read_move_source_identity
+
+                def guarded_read(repo, rel, **kwargs):
+                    if shape == "unreadable" and Path(rel).as_posix() == policy.relative_to(root).as_posix():
+                        raise PermissionError("fixture")
+                    return read(repo, rel, **kwargs)
+
+                err = io.StringIO()
+                with self._profile("wf-finish-container"), patch.object(ras, "_read_move_source_identity", guarded_read), patch("sys.stderr", err):
+                    ras.render_skills(root)
+                self.assertTrue(folder.exists())
+                if shape in ("custom", "invalid", "unreadable"):
+                    self.assertEqual(policy.read_bytes(), self.EXPECTED if shape == "unreadable" else custom)
+                else:
+                    self.assertEqual(unknown.read_bytes(), b"keep me")
+                    self.assertFalse(policy.exists())
+                self.assertIn("NOTICE", err.getvalue())
+                self.assertIn(f".agents/skills/{old}", err.getvalue())
+                self.assertNotIn(str(root), err.getvalue())
+
+    def test_stale_policy_links_refuse_before_any_render_write(self):
+        for entry in ("agents", "agents/openai.yaml"):
+            for dangling in (False, True):
+                with self.subTest(entry=entry, dangling=dangling), tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    old = self._repo(root)
+                    policy = root / ".agents/skills" / old / "agents/openai.yaml"
+                    policy.unlink()
+                    destination = policy.parent if entry == "agents" else policy
+                    if entry == "agents":
+                        destination.rmdir()
+                    target = root / "link-target"
+                    if not dangling:
+                        if entry == "agents": target.mkdir()
+                        else: target.write_bytes(self.EXPECTED)
+                    destination.symlink_to(target, target_is_directory=entry == "agents")
+                    legacy = root / next(old_rel for old_rel, _ in ras.COUNCIL_ROLE_RENAMES if old_rel.startswith(".claude/"))
+                    legacy.parent.mkdir(parents=True, exist_ok=True)
+                    legacy.write_text(f"---\nname: {legacy.stem}\n---\nKeep body.\n")
+                    before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file() and not p.is_symlink()}
+                    paths = set(root.rglob("*"))
+                    with self._profile("wf-finish-container"):
+                        for render in (ras.render_skills, ras.render_agent_surfaces):
+                            with self.assertRaisesRegex(RuntimeError, "symlink|dangling link"):
+                                render(root)
+                            self.assertEqual(set(root.rglob("*")), paths)
+                            self.assertEqual({p: p.read_bytes() for p in before}, before)
+
+    def test_current_profile_reuses_default_name_without_cleanup(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            old = self._repo(root)
+            with self._profile(old):
+                self.assertEqual(ras.render_skills(root), [])
+            for host in (".codex", ".agents"):
+                self.assertEqual((root / host / "skills" / old / "agents/openai.yaml").read_bytes(), self.EXPECTED)
+
+    def test_removal_boundary_preserves_replacement_parent_and_same_inode_customization(self):
+        branches = (False, True) if ras._descriptor_removal() else (False,)
+        for branch in branches:
+            for shape in ("file", "parent", "same_inode"):
+                with self.subTest(branch=branch, shape=shape), tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    old = self._repo(root)
+                    policy = root / ".agents/skills" / old / "agents/openai.yaml"
+                    custom = b"operator customization\n"
+                    remove = ras._remove_judged_entry
+                    swapped = []
+
+                    def swapping_remove(repo, parent_parts, name, identity, **kwargs):
+                        if name == "openai.yaml" and Path(*parent_parts) == policy.parent.relative_to(root) and not swapped:
+                            swapped.append(True)
+                            if shape == "file":
+                                other = policy.with_name("replacement")
+                                other.write_bytes(custom)
+                                os.replace(other, policy)
+                            elif shape == "parent":
+                                moved = policy.parent.with_name("saved-agents")
+                                policy.parent.rename(moved)
+                                policy.parent.mkdir()
+                                os.link(moved / policy.name, policy)
+                            else:
+                                before = policy.stat().st_ino
+                                policy.write_bytes(custom)
+                                self.assertEqual(policy.stat().st_ino, before)
+                        return remove(repo, parent_parts, name, identity, **kwargs)
+
+                    err = io.StringIO()
+                    with self._profile("wf-finish-container"), patch.object(ras, "_descriptor_removal", return_value=branch), patch.object(ras, "_remove_judged_entry", swapping_remove), patch("sys.stderr", err):
+                        written = ras.render_skills(root)
+                    self.assertEqual(swapped, [True])
+                    self.assertTrue(policy.is_file(), "the changed policy must survive removal")
+                    self.assertEqual(policy.read_bytes(), self.EXPECTED if shape == "parent" else custom)
+                    self.assertNotIn(policy.relative_to(root).as_posix(), written)
+                    self.assertIn("NOTICE", err.getvalue())
 
 
 class SkillRegistryTests(unittest.TestCase):

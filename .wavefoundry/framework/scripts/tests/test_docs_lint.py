@@ -22,6 +22,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
 import context_efficiency as ce
 import record_paths
 import vocabulary_profile
+from upstream_fixture_support import upstream_fixture
 from record_layout_support import (
     SHIPPED_DEFAULTS,
     RecordTreeBuilder,
@@ -6259,6 +6260,10 @@ class ScaffoldDeclaresNothingTests(unittest.TestCase):
             for rel in record_roots
             for path in root.joinpath(*rel.split("/")).glob("1ur6o */1ur6p-bug *.md")
         )
+        if not declaring:
+            upstream_fixture(root.joinpath(*record_paths.WAVES_ROOT.split("/"))
+                             / "1ur6o closure-narrative-digest-boundary"
+                             / "1ur6p-bug scaffold-declaring-targets-has-no-mechanical-gate.md")
         self.assertTrue(declaring, "fixture must find this wave's change doc")
         failures = check_scaffold_declares_nothing(root)
         for path in declaring:
