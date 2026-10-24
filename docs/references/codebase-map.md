@@ -145,7 +145,7 @@ _Grouping: graph communities collapsed to packages/directories. Areas shown: 24 
 - Responsibility: scripts/vendored_integrity 1
 - Size: 184 graph nodes
 - Key entry points (by cross-file fan-in): `offline_problems` (function), `should_exclude` (function), `build_protocol_metadata` (function), `collect_files` (function), `write_report` (function)
-- Key files: `.wavefoundry/framework/scripts/build_pack.py`, `.wavefoundry/framework/scripts/run_tests.py`, `.wavefoundry/framework/scripts/vendored_integrity.py`, `.wavefoundry/framework/scripts/qualification_report.py`, `.wavefoundry/framework/scripts/bytecode_cache.py`, `.wavefoundry/framework/scripts/verify_vendored_scripts.py`
+- Key files: `.wavefoundry/framework/scripts/build_pack.py`, `.wavefoundry/framework/scripts/run_tests.py`, `.wavefoundry/framework/scripts/qualification_report.py`, `.wavefoundry/framework/scripts/vendored_integrity.py`, `.wavefoundry/framework/scripts/bytecode_cache.py`, `.wavefoundry/framework/scripts/verify_vendored_scripts.py`
 - Drill in: `code_graph_community(hub_node_id=".wavefoundry/framework/scripts/build_pack.py")` or `code_outline` on the key files above.
 
 ### memory_records
