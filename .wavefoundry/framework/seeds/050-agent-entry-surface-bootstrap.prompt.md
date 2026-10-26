@@ -337,6 +337,9 @@ Preserve the personal-override carve-out (the framework tree can be tracked, but
 # Wavefoundry runtime caches, including the Python bytecode cache (per-machine; never commit)
 .wavefoundry/cache/
 
+# Wavefoundry disposable wave work (local review aids and scratch — never commit)
+.wavefoundry/work/
+
 # Wavefoundry upgrade recovery assets (generated locally — never commit)
 .wavefoundry/upgrade-assets/
 .wavefoundry/framework.rollback-*/
@@ -345,7 +348,7 @@ Preserve the personal-override carve-out (the framework tree can be tracked, but
 # Wavefoundry framework pack archives (tracked source lives under .wavefoundry/framework/; do not commit zip drops)
 /wavefoundry-*.zip
 ```
-If any of these files are already tracked (e.g. `dashboard-server.json` committed before this rule existed), untrack them without deleting them: `git rm --cached .wavefoundry/dashboard-server.json` (repeat for each tracked file). A gitignored file that remains tracked continues to appear dirty in `git status` and will churn live pid/port/url into history on every dashboard restart until it is removed from the index.
+For `.wavefoundry/work/`, report any tracked scratch and never automatically untrack it. For older runtime entries already tracked (e.g. `dashboard-server.json` committed before this rule existed), untrack them without deleting them: `git rm --cached .wavefoundry/dashboard-server.json` (repeat for each tracked file). A gitignored file that remains tracked continues to appear dirty in `git status` and will churn live pid/port/url into history on every dashboard restart until it is removed from the index.
 - **Operator-owned `git commit` (policy, not hooks)** — document in `AGENTS.md` and `docs/contributing/build-and-verification.md` that **agents must not** run `git commit` unless the operator explicitly instructs them to finalize that commit in the **current** request after review; default is to hand off a suggested message and diff for the operator to commit locally. The policy must also say that agents do **not** infer commit approval from broad phrases like "go ahead", "ship it", or "commit the changes": before any commit, the agent must present or confirm the exact commit scope and receive a clear finalization instruction for that reviewed scope. Do not rely on shell hooks or env-var bypasses for this — keep it as explicit workflow policy.
 - **Project-specific post-edit checks** — when a repository needs additional formatter or validator hooks beyond the generic docs gate, define and render those as repo-local adaptations rather than hard-coding project paths into the shared framework.
 

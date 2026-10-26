@@ -20,6 +20,7 @@ legacy records and are not rewritten by upgrade.
 from __future__ import annotations
 
 import errno
+import difflib
 import json
 import hashlib
 import os
@@ -357,6 +358,59 @@ def canonical_approval_claim_id(claim_id: Any) -> str:
     return "approval:" + canonical_signoff_key(text.removeprefix("approval:"))
 
 
+def requires_intent_fit(signoff_key: Any) -> bool:
+    """True for the two council keys in any recognized spelling.
+
+    Not ``is_council_signoff_key``: a custom ``wave-council-<x>`` key keeps the
+    council actor but is outside the intent verdict (wave 21j63).
+    """
+
+    return canonical_signoff_key(signoff_key) in COUNCIL_SIGNOFF_KEYS
+
+
+def _intent_fit_errors(
+    signoff_key: Any,
+    approval_phase: Any,
+    values: Mapping[str, Any],
+    label: str,
+    *,
+    require_present: bool = True,
+) -> list[str]:
+    """The intent-verdict rules shared by write and ledger.
+
+    ``require_present`` is False on read: approvals recorded before the
+    verdict existed carry no field and stay valid.
+    """
+
+    errors: list[str] = []
+    if requires_intent_fit(signoff_key):
+        allowed = INTENT_FIT_VALUES_BY_PHASE.get(str(approval_phase), INTENT_FIT_VALUES)
+        value = values.get(INTENT_FIT_FIELD)
+        if INTENT_FIT_FIELD not in values:
+            if require_present:
+                errors.append(
+                    f"{label} for `{signoff_key}` requires evidence `{INTENT_FIT_FIELD}`: "
+                    f"one of {', '.join(allowed)} (the worst verdict across every "
+                    "admitted change and the wave Objective)"
+                )
+        elif value == INTENT_FIT_NOT_ESTABLISHED and value not in allowed:
+            errors.append(
+                f"{label} for `{signoff_key}` cannot carry `{INTENT_FIT_FIELD}: "
+                f"{INTENT_FIT_NOT_ESTABLISHED}`: a plan that will not establish its "
+                "intent is not approvable; record a finding instead and repair the plan"
+            )
+        elif value not in allowed:
+            errors.append(
+                f"{label} `{INTENT_FIT_FIELD}` must be one of {', '.join(allowed)}"
+            )
+    elif INTENT_FIT_FIELD in values:
+        errors.append(
+            f"{label} `{INTENT_FIT_FIELD}` is recorded only on council-readiness "
+            "and council-delivery approvals"
+        )
+    return errors
+
+
 def _council_approval_phase(key: Any) -> str:
     """Phase a council-or-other signoff key defaults to when none is given."""
 
@@ -460,7 +514,10 @@ _EVIDENCE_REQUIRED = frozenset(
     }
 )
 _EVIDENCE_OPTIONAL = frozenset(
-    {"approval_phase", "policy_receipt_id", "census", EVENT_IDENTITY_FIELD, REQUEST_DIGEST_FIELD}
+    {
+        "approval_phase", "policy_receipt_id", "census", EVENT_IDENTITY_FIELD, REQUEST_DIGEST_FIELD,
+        "intent_fit",
+    }
 )
 INTEGRITY_CHECK_BOOLEAN_FIELDS = (
     "test_ran_without_unintended_skip",
@@ -473,6 +530,18 @@ INTEGRITY_CHECK_METHOD_FIELD = "known_bad_detection_method"
 INTEGRITY_CHECK_FIELDS = frozenset(
     (*INTEGRITY_CHECK_BOOLEAN_FIELDS, INTEGRITY_CHECK_METHOD_FIELD)
 )
+# Wave 21j63 (change 21kk5): a council approval carries the council-chair's
+# intent verdict, the worst across every admitted change and the wave
+# Objective. Readiness refuses `does_not` (approving a plan that will not
+# establish its intent is contradictory; record a finding); delivery accepts
+# it, and Review and Close then surface the verdict before operator sign-off.
+INTENT_FIT_FIELD = "intent_fit"
+INTENT_FIT_VALUES = ("establishes", "partially", "does_not")
+INTENT_FIT_NOT_ESTABLISHED = "does_not"
+INTENT_FIT_VALUES_BY_PHASE = {
+    "readiness": ("establishes", "partially"),
+    "delivery": INTENT_FIT_VALUES,
+}
 # Wave 1tvbs: one exported vocabulary for guided review actions.  The action
 # model contains only state-derived arguments; every judgment-bearing value
 # remains an explicit caller input to wf_review_event.
@@ -596,6 +665,21 @@ def review_action_input_schema() -> dict[str, Any]:
             "approval": {
                 "required_fields": list(REVIEW_APPROVAL_REQUIRED_EVIDENCE_FIELDS),
                 "field_kind": "non-empty string",
+            },
+            # Wave 21j63: only the two council keys carry the intent verdict.
+            "council_approval": {
+                "signoff_keys": list(COUNCIL_SIGNOFF_KEYS),
+                "required_fields": [
+                    *REVIEW_APPROVAL_REQUIRED_EVIDENCE_FIELDS, INTENT_FIT_FIELD,
+                ],
+                INTENT_FIT_FIELD: {
+                    "kind": "enum",
+                    "allowed_values_by_phase": {
+                        phase: list(values)
+                        for phase, values in INTENT_FIT_VALUES_BY_PHASE.items()
+                    },
+                    "meaning": "worst verdict across every admitted change and the wave Objective",
+                },
             },
         },
         "integrity_checks": {
@@ -1618,6 +1702,20 @@ def _approval_rows(
     }
 
 
+def delivery_intent_not_established(records: Iterable[Mapping[str, Any]]) -> bool:
+    """True when the latest council-delivery verdict is ``does_not``.
+
+    Wave 21j63: Review and Close surface it as an advisory, once that
+    approval is also current, so the operator sees it before signing off;
+    it never blocks.
+    """
+
+    council = _approval_rows(tuple(records), approval_phase="delivery").get(
+        f"approval:{COUNCIL_DELIVERY_SIGNOFF_KEY}"
+    )
+    return council is not None and council[1].get(INTENT_FIT_FIELD) == INTENT_FIT_NOT_ESTABLISHED
+
+
 def stale_readiness_receipt_ids(
     records: Iterable[Mapping[str, Any]],
 ) -> tuple[str, ...]:
@@ -1632,6 +1730,171 @@ def stale_readiness_receipt_ids(
         if approval.get("policy_receipt_id")
         and approval["policy_receipt_id"] != current["receipt_id"]
     ))
+
+
+def _focused_current_documents_valid(root: Path, wave_md: Path, receipt: Mapping[str, Any]) -> bool:
+    """Validate current document hashes without selecting policy or writing."""
+    import contained_files
+
+    inputs = receipt.get("policy_inputs")
+    if not isinstance(inputs, dict) or not isinstance(inputs.get("changes"), list):
+        return False
+    changes = inputs["changes"]
+    if len(changes) > 128:
+        return False
+    try:
+        for entry in changes:
+            change_id = entry.get("change_id") if isinstance(entry, dict) else None
+            if (not isinstance(change_id, str) or not re.fullmatch(r"[^/\\\x00-\x1f]{1,512}", change_id)
+                    or change_id in {".", ".."}):
+                return False
+            path = wave_md.parent / (change_id + ".md")
+            original = path.lstat()
+            if not stat.S_ISREG(original.st_mode):
+                return False
+            raw, opened = contained_files.read_contained(root, path, max_bytes=contained_files.DEFAULT_MAX_BYTES)
+            if ((original.st_dev, original.st_ino) != (opened.st_dev, opened.st_ino)
+                    or hashlib.sha256(review_policy.canonical_review_policy_body(raw)).hexdigest() != entry.get("sha256")):
+                return False
+    except (OSError, RuntimeError, UnicodeError):
+        return False
+    return True
+
+
+def focused_rereview(
+    root: Path,
+    wave_md: Path,
+    records: Iterable[Mapping[str, Any]],
+    required_signoff_keys: Iterable[str],
+    current_inputs_valid: bool = True,
+) -> dict[str, Any]:
+    """Read-only review aid anchored at each lane's own last approval.
+
+    This never determines approval currency or selects reviewers. Callers must
+    supply the existing policy's required keys and current-input validation.
+    """
+    import wave_work
+
+    rows = tuple(records)
+    current = current_policy_receipt(rows)
+    receipts = {str(row.get("receipt_id")): row for row in rows
+                if row.get("record_type") == REVIEW_POLICY_RECEIPT_RECORD_TYPE}
+    approvals = _approval_rows(rows, approval_phase="readiness")
+    result: dict[str, Any] = {
+        "lanes": [], "limitations": [], "truncated": False,
+        "normalization": "Existing canonical review-policy normalization; exact raw text remains in verified snapshots.",
+        "full_plan_directory": str(wave_md.parent),
+        "wave_record_path": str(wave_md),
+        "evidence_path": str(wave_md.with_name("events.jsonl")),
+    }
+    if current is None:
+        result["limitations"].append("No current receipt; use normal full-plan review.")
+        return result
+    current_inputs_valid = bool(current_inputs_valid and _focused_current_documents_valid(root, wave_md, current))
+    snapshot_cache = {}
+
+    def snapshot(receipt):
+        receipt_id = str(receipt.get("receipt_id"))
+        if receipt_id not in snapshot_cache:
+            snapshot_cache[receipt_id] = wave_work.read_snapshot(root, wave_md, receipt)
+        return snapshot_cache[receipt_id]
+
+    seen = set()
+    for supplied_key in required_signoff_keys:
+        key = canonical_signoff_key(str(supplied_key))
+        if key in seen:
+            continue
+        seen.add(key)
+        approved = approvals.get(f"approval:{key}")
+        if approved is None:
+            continue  # Newly required lanes keep their normal initial review.
+        approval = approved[1]
+        baseline_id = str(approval.get("policy_receipt_id", ""))
+        if baseline_id == current.get("receipt_id"):
+            continue
+        baseline = receipts.get(baseline_id)
+        lane: dict[str, Any] = {
+            "signoff_key": key, "baseline_receipt_id": baseline_id,
+            "target_receipt_id": current["receipt_id"],
+            "prior_approval": {field: approval[field] for field in (
+                "evidence_record_id", "review_run_id", "claim_id", "artifact_or_test_id",
+                "command_or_action", "observed_result", "verification_context",
+            ) if field in approval},
+            "section_changes": [], "documents": [], "full_plan_paths": [],
+            "limitations": [], "full_review_required": False,
+            "question": "Does the cumulative change since your last approval alter your verdict? Review the full amended plans and dependency context before recording fresh approval.",
+        }
+        # Preserve access to complete prior evidence without allowing a large
+        # command/result field to exhaust this optional response.
+        if len(json.dumps(lane["prior_approval"], ensure_ascii=False)) > 2000:
+            lane["prior_approval"] = {field: approval.get(field) for field in ("evidence_record_id", "review_run_id", "claim_id")}
+            lane["limitations"].append("Prior evidence excerpt omitted; read the named record in events.jsonl.")
+        if not current_inputs_valid:
+            lane["limitations"].append("Current inputs are stale or unvalidated; re-Prepare and use normal full-plan review.")
+        if baseline is None:
+            lane["limitations"].append("Prior approved receipt is unavailable; use normal full-plan review.")
+        else:
+            comparison = review_policy.compare_receipt_sections(baseline, current)
+            lane["section_changes"] = comparison["documents"]
+            lane["limitations"].extend(comparison["limitations"])
+            if current_inputs_valid:
+                before, after = snapshot(baseline), snapshot(current)
+                for value in (before, after):
+                    if not value.get("available"):
+                        lane["limitations"].append(str(value.get("notice", "Reviewed snapshot unavailable; use normal full-plan review.")))
+                if before.get("available") and after.get("available"):
+                    for change_id in sorted(before["documents"].keys() | after["documents"].keys()):
+                        left, right = before["documents"].get(change_id, b""), after["documents"].get(change_id, b"")
+                        a, b = review_policy.normalized_review_text(left), review_policy.normalized_review_text(right)
+                        if a == b and change_id in before["documents"] and change_id in after["documents"]:
+                            continue
+                        if len(a) + len(b) > 128000 or a.count("\n") + b.count("\n") > 4096:
+                            delta = ""
+                            lane["limitations"].append(f"Diff for {change_id} exceeds review-brief bounds; inspect full plans and raw snapshots.")
+                        else:
+                            delta = "".join(line if line.endswith("\n") else line + "\n\\ No newline at end of file\n"
+                                for line in difflib.unified_diff(a.splitlines(keepends=True), b.splitlines(keepends=True),
+                                    fromfile=f"{baseline_id}/{change_id}", tofile=f"{current['receipt_id']}/{change_id}"))
+                        lane["documents"].append({"change_id": change_id, "normalized_diff": delta,
+                            "before_snapshot_path": before["path"], "after_snapshot_path": after["path"]})
+        context = current.get("review_context", {})
+        if isinstance(context, dict) and not review_policy._review_context_errors(context):
+            lane["full_plan_paths"] = [str(wave_md.parent / (document["change_id"] + ".md"))
+                                       for document in context["documents"]]
+        else:
+            # Earlier receipts may still have document attribution even though
+            # they predate section hints and snapshots.
+            inputs = current.get("policy_inputs", {})
+            entries = inputs.get("changes", []) if isinstance(inputs, dict) else []
+            if isinstance(entries, list):
+                lane["full_plan_paths"] = [str(wave_md.parent / (entry["change_id"] + ".md"))
+                    for entry in entries if isinstance(entry, dict) and isinstance(entry.get("change_id"), str)
+                    and 0 < len(entry["change_id"]) <= 512 and entry["change_id"] not in {".", ".."}
+                    and not any(char in entry["change_id"] for char in "/\\\r\n")]
+        lane["full_review_required"] = bool(lane["limitations"])
+        result["lanes"].append(lane)
+    # One aggregate character budget, including section attribution and evidence,
+    # not a per-document limit that grows without bound with a large wave.
+    while len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > 23400:
+        result["truncated"] = True
+        candidates = [(len(document["normalized_diff"]), document) for lane in result["lanes"] for document in lane["documents"] if document["normalized_diff"]]
+        if candidates:
+            document = max(candidates, key=lambda item: item[0])[1]
+            document["normalized_diff"] = ""
+        else:
+            candidates = [lane for lane in result["lanes"] if lane["section_changes"] or lane["full_plan_paths"] or lane["prior_approval"]]
+            if candidates:
+                lane = max(candidates, key=lambda item: len(json.dumps(item)))
+                lane["section_changes"], lane["full_plan_paths"], lane["prior_approval"] = [], [], {}
+            elif result["lanes"]:
+                result["lanes"].pop()
+            else:
+                break
+    if result["truncated"]:
+        result["limitations"].append("Brief truncated; use full plans, events.jsonl and receipt snapshots for omitted text. Normal full review is required.")
+        for lane in result["lanes"]:
+            lane["full_review_required"] = True
+    return result
 
 
 def _finding_affects_signoff(
@@ -2214,7 +2477,21 @@ def review_authority_projection(
                 "required_caller_inputs": caller_inputs,
                 "input_schema_ref": "review_event_inputs",
                 "judgment_template": None,
-                "blocking_constraint": None,
+                "blocking_constraint": (
+                    {
+                        "required_evidence": {
+                            INTENT_FIT_FIELD: list(INTENT_FIT_VALUES_BY_PHASE.get(
+                                selected_projection_phase, INTENT_FIT_VALUES
+                            )),
+                        },
+                        "reason": (
+                            "A council approval states the intent verdict: the worst "
+                            "across every admitted change and the wave Objective."
+                        ),
+                    }
+                    if requires_intent_fit(fact["signoff_key"])
+                    else None
+                ),
                 "legal_alternatives": [],
                 "reinspect_after_success": dict(continuation),
             }
@@ -3449,6 +3726,10 @@ def build_compact_review_event(
             event.get("integrity_checks"), executed=True, label="approval event"
         )
         errors.extend(integrity_errors)
+        if _nonempty_string(signoff_key):
+            errors.extend(
+                _intent_fit_errors(signoff_key, approval_phase, event, "approval event")
+            )
         for field in REVIEW_APPROVAL_REQUIRED_EVIDENCE_FIELDS:
             if not _nonempty_string(event.get(field)):
                 errors.append(f"approval event requires {field}")
@@ -3471,6 +3752,11 @@ def build_compact_review_event(
                 **(
                     {"policy_receipt_id": event["policy_receipt_id"]}
                     if approval_phase == "readiness"
+                    else {}
+                ),
+                **(
+                    {INTENT_FIT_FIELD: event[INTENT_FIT_FIELD]}
+                    if requires_intent_fit(signoff_key)
                     else {}
                 ),
                 "proposition": str(event.get("proposition") or f"{signoff_key} approves the current affected scope"),
@@ -4162,6 +4448,24 @@ def _validate_evidence_shape(record: Mapping[str, Any], index: int) -> list[str]
             errors.append(f"{label}: approval evidence claim_id must use `approval:<signoff-key>`")
         if record.get("required_for_approval") is not True:
             errors.append(f"{label}: approval evidence must be required_for_approval")
+    # Wave 21j63: optional on read, so every ledger written before the
+    # verdict existed stays valid; when present it follows the write rules.
+    if INTENT_FIT_FIELD in record:
+        claim = str(record.get("claim_id", ""))
+        signoff_key = (
+            claim.removeprefix("approval:")
+            if record.get("claim_kind") == "approval" and claim.startswith("approval:")
+            else ""
+        )
+        errors.extend(
+            _intent_fit_errors(
+                signoff_key or "non-approval evidence",
+                approval_record_phase(record),
+                record,
+                f"{label}:",
+                require_present=False,
+            )
+        )
     integrity_fields = (
         "test_ran_without_unintended_skip",
         "public_path_reached",

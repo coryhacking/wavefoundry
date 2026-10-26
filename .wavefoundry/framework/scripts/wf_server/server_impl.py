@@ -98,6 +98,7 @@ for _wll_key in list(sys.modules):
             "index_source_guard",
             "path_containment",
             "contained_files",  # wave 200ey: contained repository reads and writes
+            "wave_work",  # disposable work/snapshot helpers follow the loaded framework
             "child_tee",  # wave 20b3a: current canonical child-output sanitization
             "advisory_lint_identity",
             "mcp_tool_extensions",
@@ -6706,6 +6707,17 @@ def _wf_current_wave_sort_key(wave: dict) -> tuple[int, str]:
     return (priority.get(wave["status"], 3), wave.get("wave_id", ""))
 
 
+def _wave_work_area(root: Path, wave_md: Path, *, create: bool = False, reopen: bool = False) -> dict[str, Any]:
+    """Disposable work is advisory; it never grants lifecycle authority."""
+    import wave_work
+
+    try:
+        return (wave_work.ensure_work(root, wave_md, reopen=reopen)
+                if create else wave_work.describe_work(root, wave_md))
+    except (OSError, ValueError) as exc:
+        return {"available": False, "notice": "work_area_unavailable", "cause": type(exc).__name__}
+
+
 @_fail_closed_on_record_layout("wf_current_wave")
 def wf_current_wave_response(root: Path, cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
     all_waves, wave_dirs = _waves_and_dirs(root, cache)
@@ -6715,7 +6727,8 @@ def wf_current_wave_response(root: Path, cache: Optional[McpRepoCache] = None) -
     open_waves = [w for w in all_waves if w["status"] != "closed"]
     open_waves.sort(key=_wf_current_wave_sort_key)
     entries = [
-        {**w, "next_action": _WAVE_CURRENT_NEXT_ACTION.get(w["status"], "prepare_wave")}
+        {**w, "next_action": _WAVE_CURRENT_NEXT_ACTION.get(w["status"], "prepare_wave"),
+         "work_area": _wave_work_area(root, root / w["path"])}
         for w in open_waves
     ]
     if not entries:
@@ -8149,6 +8162,7 @@ def _mark_change_item_response(
     review_actions, action_diagnostics = _guided_review_actions(
         (*policy_state["records"], receipt),
         action_keys,
+        root=root, wave_md=wave_md,
         approval_phase="readiness",
         required_run_kind="readiness",
     )
@@ -8607,8 +8621,28 @@ def _publish_prepare_policy_state(
                 )
 
         records = tuple(state["records"])
+        reviewed_documents = dict(state.get("review_documents", {}))
+        receipt = dict(state.get("receipt") or {})
         if state["receipt_append_required"]:
-            records = (*records, dict(state["receipt"]))
+            # Automatic AC deferral publishes the exact newline-preserving
+            # updated bytes, not the normalized read_text override used to plan.
+            for path, _expected, *update in normalized_updates:
+                if path.stem in reviewed_documents:
+                    raw = update[-1].encode("utf-8")
+                    if canonical_review_policy_body(raw) != canonical_review_policy_body(reviewed_documents[path.stem]):
+                        raise ValueError("reviewed change bytes differ during receipt publication; retry")
+                    reviewed_documents[path.stem] = raw
+            if reviewed_documents and "review_context" in receipt:
+                import review_policy
+                context = review_policy.build_review_context(reviewed_documents)
+                if review_policy._review_context_errors(context):
+                    receipt.pop("review_context", None)
+                else:
+                    receipt["review_context"] = context
+                if isinstance(state.get("receipt"), dict):
+                    state["receipt"].pop("review_context", None)
+                    state["receipt"].update(receipt)
+            records = (*records, receipt)
             errors = validate_review_evidence_records(records)
             if errors:
                 raise ValueError("; ".join(errors))
@@ -8631,6 +8665,16 @@ def _publish_prepare_policy_state(
             for path, _expected, *update in normalized_updates
         )
         _replace_artifacts_transactionally(root, replacements)
+        if state["receipt_append_required"] and reviewed_documents:
+            # Scratch is written only after the authoritative transaction
+            # commits. Failure cannot roll back or block a published receipt.
+            import wave_work
+            try:
+                snapshot = wave_work.publish_snapshot(root, wave_md, receipt, reviewed_documents)
+            except (OSError, ValueError) as exc:
+                snapshot = {"available": False, "notice": "receipt_snapshot_unavailable", "cause": type(exc).__name__}
+            if isinstance(state, dict):
+                state["review_snapshot"] = snapshot
         return final
 
 
@@ -8842,7 +8886,10 @@ def create_wave(root: Path, slug: str, mode: str = "dry_run", parent: Optional[s
             "## Dependencies\n\n"
             "- No external wave dependencies. Declare intra-wave dependencies with a "
             "`Depends On:` line containing full backticked change ids in each change's "
-            f"block under `{_vocab.MEMBER_HEADING}`.\n"
+            f"block under `{_vocab.MEMBER_HEADING}`.\n\n"
+            # Wave 21j63: the exact heading the close-summary composer reads.
+            # It stays last; tests cut records at the first occurrence.
+            "## Review Checkpoints\n"
     )
     # Wave 1t3gt (1t3gu): a scaffold must be lint-valid from creation. Render the
     # projection-owned sections through the SAME renderers the validator compares
@@ -8957,6 +9004,9 @@ def wf_create_wave_response(
             next_tools=["wf_help"],
             usage="wf_help()",
         )
+    result["work_area"] = _wave_work_area(
+        root, root / result["path"], create=result["mode"] == "create",
+    )
     if cache and result.get("created"):
         cache.invalidate()
     if result.get("created"):
@@ -11210,9 +11260,13 @@ def _guided_review_actions(
     *,
     approval_phase: str,
     required_run_kind: str,
+    root: Path | None = None,
+    wave_md: Path | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Return the bounded public action payload from the canonical projection."""
 
+    records = tuple(records)
+    required_signoff_keys = tuple(required_signoff_keys)
     projection = review_authority_projection(
         records,
         required_signoff_keys,
@@ -11243,6 +11297,11 @@ def _guided_review_actions(
                 recovery_tools=["wf_review_event"],
                 recovery_usage="wf_review_event(wave_id=..., event='list', actor=..., context_id=...)",
             )
+        )
+    if approval_phase == "readiness" and root is not None and wave_md is not None:
+        import review_evidence
+        payload["focused_rereview"] = review_evidence.focused_rereview(
+            root, wave_md, records, required_signoff_keys,
         )
     return payload, diagnostics
 
@@ -12198,6 +12257,7 @@ def wf_review_event_response(
             review_actions, action_diagnostics = _guided_review_actions(
                 proposed_records,
                 action_keys,
+                root=root, wave_md=wave_md,
                 approval_phase=continuation_phase,
                 required_run_kind=(
                     "readiness"
@@ -12440,6 +12500,7 @@ def _prepare_readiness_envelope(handler):
 def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
     diagnostics: list[dict[str, Any]] = []
     configured_gates: list[dict[str, Any]] = []
+    wave_md = None
 
     def _prepare_envelope(
         status: str,
@@ -12448,6 +12509,10 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         next_tools: list[str] | None = None,
         usage: str = "",
     ) -> dict[str, Any]:
+        if wave_md is not None:
+            data = {**data, "work_area": _wave_work_area(
+                root, wave_md, create=status == "ok" and mode_s in {"ready", "create"},
+            )}
         return _response(
             status,
             {**data, "configured_gates": configured_gates},
@@ -12611,7 +12676,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         {
             key: value
             for key, value in policy_state.items()
-            if key not in {"records", "policy"}
+            if key not in {"records", "policy", "review_documents", "review_snapshot"}
         }
         if policy_state is not None
         else None
@@ -12619,7 +12684,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
     if policy_response is not None:
         policy_response["receipt"] = {
             key: value for key, value in policy_response["receipt"].items()
-            if key != "policy_inputs"
+            if key not in {"policy_inputs", "review_context"}
         }
     if policy_state is not None:
         # The roster is policy input.  Once a receipt exists, a later prose
@@ -12643,6 +12708,8 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
             text = _publish_prepare_policy_state(
                 root, wave_md, text, policy_state
             )
+            if policy_response is not None and "review_snapshot" in policy_state:
+                policy_response["review_snapshot"] = policy_state["review_snapshot"]
             if supersedes:
                 diagnostics.append(_diagnostic(
                     "review_policy_receipt_superseded",
@@ -13115,6 +13182,7 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
             review_actions, action_diagnostics = _guided_review_actions(
                 authority.records,
                 action_keys,
+                root=root, wave_md=wave_md,
                 approval_phase="readiness",
                 required_run_kind="readiness",
             )
@@ -13145,7 +13213,13 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
             if isinstance(recommended, Mapping):
                 prepare_usage = _review_action_usage(wave_id, recommended)
                 prepare_next_tools = ["wf_review_event", *(t for t in prepare_next_tools if t != "wf_review_event")]
-        prepare_data = {"wave_id": wave_id, "phase": phase_s, "required_lanes": required_lanes, "lane_results": lane_results, "lint_passed": lint_result["passed"], "review_actions": review_actions}
+        if "focused_rereview" not in review_actions and authority.typed and not authority.ledger_errors:
+            import review_evidence
+            review_actions["focused_rereview"] = review_evidence.focused_rereview(
+                root, wave_md, authority.records, required_lanes, current_inputs_valid=False,
+            )
+        prepare_data = {"wave_id": wave_id, "phase": phase_s, "required_lanes": required_lanes, "lane_results": lane_results, "lint_passed": lint_result["passed"], "review_actions": review_actions,
+                        "work_area": _wave_work_area(root, wave_md)}
         if status != "ok" and isinstance(review_actions.get("recommended_next_action"), Mapping):
             prepare_data["next_action_note"] = _review_action_note(review_actions["recommended_next_action"])
         return _response(
@@ -13229,6 +13303,7 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
     # verifying claims against the tree should route through the same MCP
     # surface, so the review entry point carries the directive in-band too.
     _review_data["retrieval_posture"] = _RETRIEVAL_POSTURE_DIRECTIVE
+    _review_data["work_area"] = _wave_work_area(root, wave_md)
     _mem_advisories = _memory_advisories_for_wave(
         root, {"wave_id": wave_id, "changes": [{"id": cid} for cid in _extract_change_ids_from_wave_text(wave_text)]}
     )
@@ -13246,6 +13321,7 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
         review_actions, action_diagnostics = _guided_review_actions(
             shared["authority"].records,
             action_keys,
+            root=root, wave_md=wave_md,
             approval_phase="delivery",
             required_run_kind="initial_delivery",
         )
@@ -13516,7 +13592,8 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
     current_status = (status_match.group(1) if status_match else "").lower()
 
     if current_status == "implementing":
-        return _response("ok", {"wave_id": wave_id, "mode": mode_s, "status": "implementing", "already_implementing": True, "transitioned_to_implementing": False}, next_tools=["wf_current_wave", "wf_review_wave"], usage="wf_current_wave()")
+        return _response("ok", {"wave_id": wave_id, "mode": mode_s, "status": "implementing", "already_implementing": True, "transitioned_to_implementing": False,
+            "work_area": _wave_work_area(root, wave_md, create=mode_s == "create")}, next_tools=["wf_current_wave", "wf_review_wave"], usage="wf_current_wave()")
     # Wave 1p45l: implement opens an `active` wave (legacy prepare-and-open) OR a readied
     # `planned` wave.
     if current_status not in ("active", "planned"):
@@ -13755,6 +13832,7 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
         "ordered_changes": ordered_changes,
         "watchpoints": watchpoints_text,
         "serialization_points": serialization_points,
+        "work_area": _wave_work_area(root, wave_md, create=mode_s == "create"),
         # Wave 1t3ek (1t230): the retrieval directive arrives in-band at the
         # exact moment implementation starts, not only in a prompt doc.
         "retrieval_posture": _RETRIEVAL_POSTURE_DIRECTIVE,
@@ -14152,6 +14230,10 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
                 wave_id, unreadable_waves, data={"wave_id": wave_id}
             )
         return _close_envelope("error", {"wave_id": wave_id}, diagnostics=[_refuse_if_archived(root, wave_id, "wave") or _diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
+    # Capture the owned generation before the close, under the registered
+    # lifecycle/publication lock. Never rediscover authority at deletion time.
+    work_before_close = _wave_work_area(root, wave_md)
+    work_cleanup = None
     # Garden only runs on create — dry-run must stay read-only.
     garden_passed = True
     if mode_s == "create":
@@ -14362,6 +14444,14 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
             # the gate, create candidates only; never invent a semantic verdict.
             memory_summary = _auto_populate_memory_for_wave(root, wave_id)
     if mode_s == "create" and (transitioned_to_closed or _already_closed):
+        import wave_work
+        try:
+            work_cleanup = wave_work.cleanup_work(
+                root, wave_md, expected_generation=work_before_close.get("generation"),
+            )
+        except (OSError, ValueError) as exc:
+            work_cleanup = {"outcome": "preserved", "available": False,
+                            "notice": "work_cleanup_failed", "cause": type(exc).__name__}
         # Wave 1seax (1seat AC-2): the handoff is the last-written referencing
         # record, converged on EVERY create-mode close of a closed wave — a
         # retry after an interruption between the wave.md write and this point
@@ -14390,6 +14480,7 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
         "dry_run" if mode_s == "dry_run" else "ok",
         {"wave_id": wave_id, "mode": mode_s, "updated": updated, "transitioned_to_closed": transitioned_to_closed, "handoff_path": handoff_rel, "wave_summary": wave_summary,
          "framework_test_receipt": framework_test_receipt,
+         **({"work_cleanup": work_cleanup} if work_cleanup is not None else {}),
          **({"index_optimize": close_optimize} if close_optimize else {}),
          **({"memory": memory_summary} if memory_summary else {}), **secrets_notice},
         diagnostics=advisory_diagnostics + ([empty_roster_advisory] if empty_roster_advisory else []) + gate_diagnostics or None,
@@ -15081,6 +15172,7 @@ def wf_reopen_wave_response(root: Path, wave_id: str) -> dict[str, Any]:
             "wave_id": wave_id,
             "status": "active",
             "updated": True,
+            "work_area": _wave_work_area(root, wave_md, create=True, reopen=current_status == "closed"),
             # Wave 1t72b (1t67p): reopening activates the wave; serve the
             # posture directive like every other activation path.
             "retrieval_posture": _RETRIEVAL_POSTURE_DIRECTIVE,
@@ -24448,6 +24540,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         ``approval_recheck_lanes``) are top-level parameters. ``approval_recheck_lanes`` names only the approvals affected
         by that finding; unrelated lane approvals remain current. Approval events require the exact
         signoff actor, and non-operator approvals require fresh independent context.
+        A ``council-readiness`` or ``council-delivery`` approval also requires
+        ``evidence.intent_fit``, the worst intent verdict across every admitted
+        change and the wave Objective: ``establishes`` or ``partially`` at
+        readiness (``does_not`` is refused: record a finding instead), and any of
+        ``establishes``, ``partially`` or ``does_not`` at delivery. Other
+        approvals refuse the field. A current ``council-delivery`` verdict of
+        ``does_not`` never blocks: Review and Close report it as an advisory
+        so the operator sees it before signing off.
         A repair cycle may contain several findings and ordered same-finding reverification
         progress as fresh independent actors clear their own required lanes.
         A readiness-born finding opens ``repair_start`` directly from its cycle-0

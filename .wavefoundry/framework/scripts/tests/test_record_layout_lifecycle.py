@@ -57,10 +57,12 @@ class _RepoCase(unittest.TestCase):
         apply_layout(self, modules=(self.srv.record_paths,), **kwargs)
 
     def _all_paths_under(self, payload, prefix: str) -> None:
-        """Every ``path`` string in a response payload starts with ``prefix``."""
+        """Record paths stay under ``prefix``; named runtime work stays separate."""
         if isinstance(payload, dict):
             for key, value in payload.items():
-                if key == "path" and isinstance(value, str):
+                if key == "work_area":
+                    self._assert_work_area(value, payload.get("wave_id"))
+                elif key == "path" and isinstance(value, str):
                     normalized = value.replace("\\", "/")
                     self.assertTrue(
                         normalized.startswith(prefix) or f"/{prefix}" in normalized,
@@ -74,6 +76,25 @@ class _RepoCase(unittest.TestCase):
             for item in payload:
                 self._all_paths_under(item, prefix)
 
+    def _assert_work_area(self, area, wave_id):
+        self.assertIsInstance(area, dict)
+        self.assertIsInstance(wave_id, str)
+        self.assertLessEqual(set(area), {"path", "available", "generation", "notice"})
+        expected = ".wavefoundry/work/" + wave_id.split(" ", 1)[0]
+        self.assertEqual(area["path"], expected)
+        self.assertIs(type(area["available"]), bool)
+        for key in ("generation", "notice"):
+            if key in area:
+                self.assertIsInstance(area[key], str)
+                self.assertTrue(area[key])
+        work = self.root / area["path"]
+        self.assertFalse(work.is_relative_to(self.root / "project/records"))
+        if area["available"]:
+            self.assertTrue(work.is_dir())
+            self.assertIn("generation", area)
+        else:
+            self.assertIn("notice", area)
+
 
 class RelocatedRootsLifecycleTests(_RepoCase):
     """AC-2."""
@@ -86,6 +107,7 @@ class RelocatedRootsLifecycleTests(_RepoCase):
         created = self.srv.wf_create_wave_response(self.root, "relocated-demo", mode="create")
         self.assertEqual(created["status"], "ok", created)
         wave_id = created["data"]["wave_id"]
+        self._assert_work_area(created["data"]["work_area"], wave_id)
         wave_md = self.root / "project" / "records" / "waves" / wave_id / vp.RECORD_FILENAME
         self.assertTrue(wave_md.is_file(), "wave record must be created under the configured waves root")
         self.assertFalse((self.root / SHIPPED_WAVES_ROOT).exists(), "nothing may be written under the default root")
@@ -117,6 +139,8 @@ class RelocatedRootsLifecycleTests(_RepoCase):
         current = self.srv.wf_current_wave_response(self.root)
         self.assertEqual(current["status"], "ok", current)
         self._all_paths_under(current["data"].get("waves", []), "project/records/waves/")
+        current_wave = next(w for w in current["data"]["waves"] if w["wave_id"] == wave_id)
+        self.assertEqual(current_wave["work_area"], created["data"]["work_area"])
 
         prepared = self.srv.wf_prepare_wave_response(self.root, wave_id, mode="dry_run")
         self.assertIn(prepared["status"], ("ok", "error"))
@@ -130,6 +154,27 @@ class RelocatedRootsLifecycleTests(_RepoCase):
         self.assertFalse((wave_md.parent / f"{change_id}.md").exists())
         self.assertTrue((self.root / "project" / "records" / "plans" / f"{change_id}.md").is_file(),
                         "removal returns the doc to the configured plans root")
+
+        other = self.srv.wf_create_wave_response(self.root, "separate-work", mode="create")
+        self.assertEqual(other["status"], "ok", other)
+        self._assert_work_area(other["data"]["work_area"], other["data"]["wave_id"])
+        self.assertNotEqual(other["data"]["work_area"]["path"], created["data"]["work_area"]["path"])
+        # Creating another wave must preserve the first wave's independent area.
+        current_areas = {w["wave_id"]: w["work_area"]
+                         for w in self.srv.wf_current_wave_response(self.root)["data"]["waves"]}
+        self.assertEqual(current_areas[wave_id], created["data"]["work_area"])
+        self.assertEqual(current_areas[other["data"]["wave_id"]], other["data"]["work_area"])
+
+    def test_runtime_work_area_does_not_exempt_arbitrary_record_paths(self):
+        area = {"path": ".wavefoundry/work/abc12", "available": False, "notice": "not created"}
+        payload = {"wave_id": "abc12 example", "path": "project/records/waves/abc12 example/" + vp.RECORD_FILENAME,
+                   "work_area": area}
+        self._all_paths_under(payload, "project/records/waves/")
+        for wrong in ("outside/work/abc12", ".wavefoundry/work/other", ".wavefoundry/work/abc12/../other"):
+            with self.subTest(path=wrong), self.assertRaises(AssertionError):
+                self._all_paths_under({**payload, "work_area": {**area, "path": wrong}}, "project/records/waves/")
+        with self.assertRaises(AssertionError):
+            self._all_paths_under({"path": area["path"]}, "project/records/waves/")
 
     def test_repo_cache_fingerprint_follows_the_configured_root(self):
         cache = self.srv.McpRepoCache(self.root)

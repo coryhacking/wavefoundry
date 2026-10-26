@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-19
+Last verified: 2026-10-26
 
 Shortcut: **`Implement change`**
 
@@ -27,6 +27,10 @@ If any step is missing, stop and route back to **Plan change**, **Create wave**,
 Before the first implementation edit of each change, record a concise `Readback:` in its existing Progress Log and surface its substance to the operator: intended behavior, relevant ACs, important scope boundary, and expected affected files. Include one before/after example for nontrivial behavior changes; keep clear tasks brief. Briefly relate the chosen work to Product Intent (or the wave Objective); name how the mechanism serves the intended outcome. Intent does not authorize broader scope or silent contract changes: preserve existing requirement-amendment, re-Prepare and operator-authorization rules.
 
 Correct an agent-only misreading directly from the established requirement. Route an actual contract contradiction or missing consequential decision back to planning under existing escalation rules, pausing only dependent work. A readback correction is not automatically Level 3 and adds no second approval. Refresh only materially changed understanding after scope changes or handoff; do not repeat an unchanged readback or create another artifact.
+
+## Disposable wave work
+
+Use the lifecycle-reported `.wavefoundry/work/<wave-id>/` and include it in coordinator briefs. Follow seed 180’s **Disposable wave work** lifetime and seed 209’s preservation duties; new durable approvals must not depend solely on scratch paths.
 
 ## Steps
 

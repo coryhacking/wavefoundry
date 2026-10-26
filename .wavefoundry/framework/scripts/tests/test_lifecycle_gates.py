@@ -88,7 +88,7 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
                     ctx.root, ctx.wave_md.parent.name, event, actor,
                     f'gate-unit-{key or "delivery-run"}', mode='create',
                     fresh_context=True, independent=True,
-                    evidence=_approval_evidence(actor),
+                    evidence=_approval_evidence(actor, key),
                     integrity_checks=dict(_APPROVAL_INTEGRITY), **kwargs)
             self.assertNotEqual(response['status'], 'error', response)
         return replace(ctx, wave_text=ctx.wave_md.read_text(encoding='utf-8'))

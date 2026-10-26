@@ -758,6 +758,230 @@ class EfficacyCheckCarrierTests(unittest.TestCase):
                 self.assertIn(self.MEASURE_CLAUSE, self._read(relative))
 
 
+class IntentFitCarrierTests(unittest.TestCase):
+    """21j63: readiness and delivery reviews judge intent fit, and the
+    Intent outcome is drafted before the delivery council."""
+
+    ROOT = PROJECT_ROOT.parent
+    CARRIERS = {
+        ".wavefoundry/framework/seeds/215-council-chair.prompt.md": (
+            "- `intent_fit`: at readiness, for each admitted change and the wave Objective",
+            "whether the coordinator's drafted `Intent outcome:` paragraph in `## Review Checkpoints` is supported by the delivery evidence",
+        ),
+        "docs/agents/specialists/council-chair.md": (
+            "- `intent_fit`: at readiness, for each admitted change and the wave Objective",
+        ),
+        ".wavefoundry/framework/install/lifecycle-prompts/prepare-wave.prompt.md": (
+            "`intent_fit`: for each admitted change and the wave Objective, whether meeting its Requirements and ACs would establish its Product Intent",
+        ),
+        vp.prompt_doc("prepare-wave"): (
+            "`intent_fit` states, for each admitted change and the wave Objective, whether meeting its Requirements and ACs would establish its Product Intent",
+        ),
+        ".wavefoundry/framework/install/lifecycle-prompts/review-wave.prompt.md": (
+            "On every delivery review, the coordinator first drafts one `Intent outcome:` paragraph",
+        ),
+        vp.prompt_doc("review-wave"): (
+            "On every delivery review, the coordinator first drafts one `Intent outcome:` paragraph",
+        ),
+        ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": (
+            "the council-chair's `intent_fit` statement among the readiness verdict conditions",
+            "drafts one dated `Intent outcome:` paragraph in the existing exact `## Review Checkpoints` section",
+        ),
+        "docs/prompts/upgrade-wavefoundry.prompt.md": (
+            "the council-chair's `intent_fit` statement among the readiness verdict conditions",
+            "drafts one dated `Intent outcome:` paragraph in the existing exact `## Review Checkpoints` section",
+        ),
+        ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": (
+            "the council-chair reports `intent_fit` at readiness and delivery",
+            "drafts the dated `Intent outcome:` in the existing `## Review Checkpoints`",
+        ),
+    }
+
+    def test_carriers_state_intent_fit_and_the_pre_delivery_draft(self) -> None:
+        for relative, clauses in self.CARRIERS.items():
+            # Templates wrap prose; compare with whitespace collapsed.
+            text = " ".join((self.ROOT / relative).read_text(encoding="utf-8").split())
+            for clause in clauses:
+                with self.subTest(carrier=relative, clause=clause):
+                    self.assertIn(clause, text)
+
+    def test_edited_carriers_name_the_exact_carrier_heading(self) -> None:
+        for relative in self.CARRIERS:
+            with self.subTest(carrier=relative):
+                text = (self.ROOT / relative).read_text(encoding="utf-8")
+                self.assertNotIn("`## Review checkpoints`", text)
+
+    def _assert_unconditional_delivery_check(self, text: str) -> None:
+        # Each numbered step / top-level bullet is one instruction scope.
+        blocks = re.findall(r"(?ms)^(?:\d+\. |- )(.+?)(?=^\d+\. |^- |^## |\Z)", text)
+        blocks = [" ".join(block.split()) for block in blocks]
+        drafts = [block for block in blocks if "drafts one `Intent outcome:`" in block]
+        self.assertEqual(len(drafts), 1)
+        draft = drafts[0]
+        for clause in (
+            "On every delivery review, the coordinator first drafts",
+            "Assign the independent check to `qa-reviewer` when it is in the current required delivery roster",
+            "otherwise assign one reviewer already in that roster",
+            "If the roster is empty, record `No independent delivery-lane intent check ran`",
+            "do not add a lane or claim an independent check occurred",
+            "The assigned reviewer independently confirms or corrects",
+            "each admitted change's Product Intent and the wave Objective",
+            "whether or not delivery Council is required",
+            "A correction showing unachieved intent is a typed finding under seed 209; a wording-only correction is editorial",
+            "The coordinator incorporates corrections before close",
+        ):
+            self.assertIn(clause, draft)
+        self.assertNotIn("`required_council_signoffs`", draft)
+        text = " ".join(text.split())
+        self.assertLess(text.index("drafts one `Intent outcome:`"), text.index("`required_council_signoffs`"))
+        self.assertIn("judges the same draft using the assigned reviewer's assessment when available", text)
+
+    def test_delivery_intent_check_is_outside_the_conditional_council_step(self) -> None:
+        for relative in (
+            ".wavefoundry/framework/install/lifecycle-prompts/review-wave.prompt.md",
+            vp.prompt_doc("review-wave"),
+        ):
+            text = (self.ROOT / relative).read_text(encoding="utf-8")
+            with self.subTest(carrier=relative):
+                self._assert_unconditional_delivery_check(text)
+            text = "\n".join(" ".join(block.split()) for block in re.split(r"(?m)(?=^\d+\. |^- |^## )", text))
+            for old, new in (
+                ("On every delivery review,", "When `required_council_signoffs` lists `council-delivery`, on every delivery review,"),
+                ("The assigned reviewer independently confirms or corrects", "The assigned reviewer checks AC evidence"),
+                ("otherwise assign one reviewer already in that roster", "otherwise leave the owner unspecified"),
+                ("No independent delivery-lane intent check ran", "Outcome recorded"),
+            ):
+                self.assertIn(old, text)
+                with self.subTest(carrier=relative, removed=old), self.assertRaises(AssertionError):
+                    self._assert_unconditional_delivery_check(text.replace(old, new))
+
+    def test_install_upgrade_and_summary_carriers_cover_the_three_roster_shapes(self) -> None:
+        for path, expected in (
+            ("tests/test_example.py", ("code-reviewer", "qa-reviewer")),
+            ("docs/prompts/example.prompt.md", ("docs-contract-reviewer",)),
+            ("docs/references/example.md", ()),
+        ):
+            lanes, _ = review_policy.select_required_review_lanes(
+                requested_lanes=(), project_lanes=(),
+                change_texts=(f"# Example\n\n## Serialization Points\n\n- `{path}`\n",),
+            )
+            self.assertEqual(lanes, expected)
+        for relative in (
+            ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md",
+            ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
+            "docs/prompts/upgrade-wavefoundry.prompt.md",
+            "docs/contributing/review-and-evals.md",
+            "CHANGELOG.md",
+        ):
+            text = " ".join((self.ROOT / relative).read_text(encoding="utf-8").split())
+            for clause in (
+                "on every delivery review",
+                "Assign the independent check to `qa-reviewer` when it is in the current required delivery roster",
+                "otherwise assign one reviewer already in that roster",
+                "If the roster is empty, record `No independent delivery-lane intent check ran`",
+            ):
+                with self.subTest(carrier=relative, clause=clause):
+                    self.assertIn(clause.lower(), text.lower())
+
+
+class IntentFitApprovalCarrierTests(unittest.TestCase):
+    """21j63 (21kk5): council approvals record `intent_fit`, a delivery
+    `does_not` is shown before sign-off, and QA maps ACs to the intent.
+
+    `review_policy_reconcile.py` and seed 237's typed-authority sentence are
+    excluded on purpose: they are migration pairs for older target prompt
+    text (recorded Deviation), and the prompts carry their own clause.
+    """
+
+    ROOT = PROJECT_ROOT.parent
+    APPROVAL = "`evidence.intent_fit`"
+    ADVISORY = "Review and Close report the `delivery_intent_not_established` advisory; it does not block"
+    QA_DUTY = (
+        "map each required AC to the part of the change's `## Product Intent` (or the wave `## Objective`) it would prove",
+        "At delivery, confirm that the ACs carrying the intent have executed evidence",
+        "When QA is in the current required delivery roster, independently confirm or correct the coordinator's drafted `Intent outcome:` against each admitted change's Product Intent and the wave Objective",
+        "whether or not delivery Council is required",
+        "A correction showing unachieved intent is a typed finding under seed 209; a wording-only correction is editorial",
+        "this adds no specialist `intent_fit` field or new approval type",
+    )
+    CARRIERS = {
+        ".wavefoundry/framework/seeds/209-agent-harness-core.prompt.md": (
+            "| `intent_fit` | Council approvals |",
+            "Council approvals also carry `evidence.intent_fit`",
+        ),
+        ".wavefoundry/framework/seeds/215-council-chair.prompt.md": (
+            "the worst verdict across every admitted change and the wave Objective",
+            "At readiness `does_not` is not approvable and the tool refuses it.",
+        ),
+        "docs/agents/specialists/council-chair.md": (
+            "the worst verdict across every admitted change and the wave Objective",
+            "At readiness `does_not` is not approvable and the tool refuses it.",
+        ),
+        ".wavefoundry/framework/seeds/239-qa-reviewer.prompt.md": QA_DUTY,
+        "docs/agents/qa-reviewer.md": QA_DUTY,
+        ".wavefoundry/framework/install/lifecycle-prompts/prepare-wave.prompt.md": (APPROVAL,),
+        vp.prompt_doc("prepare-wave"): (APPROVAL,),
+        ".wavefoundry/framework/install/lifecycle-prompts/review-wave.prompt.md": (
+            APPROVAL, "a `does_not` verdict does not block",
+        ),
+        vp.prompt_doc("review-wave"): (APPROVAL, "a `does_not` verdict does not block"),
+        ".wavefoundry/framework/seeds/190-close-wave.prompt.md": (ADVISORY,),
+        ".wavefoundry/framework/install/lifecycle-prompts/close-wave.prompt.md": (ADVISORY,),
+        vp.prompt_doc("close-wave"): (ADVISORY,),
+        ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": (APPROVAL,),
+        ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": (
+            "an upgraded server refuses a council approval without it",
+        ),
+        "docs/prompts/upgrade-wavefoundry.prompt.md": (
+            "an upgraded server refuses a council approval without it",
+        ),
+        "docs/specs/mcp-tool-surface.md": (
+            "requires `evidence.intent_fit`",
+            "`delivery_intent_not_established`",
+        ),
+        "docs/contributing/review-and-evals.md": (
+            "records that verdict as `evidence.intent_fit`",
+            "independent intent-coverage map",
+        ),
+    }
+
+    def test_carriers_state_the_approval_field_advisory_and_qa_duty(self) -> None:
+        for relative, clauses in self.CARRIERS.items():
+            text = " ".join((self.ROOT / relative).read_text(encoding="utf-8").split())
+            for clause in clauses:
+                with self.subTest(carrier=relative, clause=clause):
+                    self.assertIn(clause, text)
+
+    # Requirement 11: intent issues use the standard finding flow.
+    TRIAGE = (
+        "triaged under seed 209 like any defect",
+        "the tool derives the disposition (`do_now`, `maybe_later`, `dont_do_later` or `not_issue`)",
+        "keep `intent_fit` on the approval, not the finding",
+    )
+    TRIAGE_CARRIERS = (
+        ".wavefoundry/framework/seeds/215-council-chair.prompt.md",
+        "docs/agents/specialists/council-chair.md",
+        ".wavefoundry/framework/seeds/239-qa-reviewer.prompt.md",
+        "docs/agents/qa-reviewer.md",
+        "docs/contributing/review-and-evals.md",
+    )
+
+    def test_intent_issues_are_triaged_like_defects(self) -> None:
+        for relative in self.TRIAGE_CARRIERS:
+            text = " ".join((self.ROOT / relative).read_text(encoding="utf-8").split())
+            for clause in self.TRIAGE:
+                with self.subTest(carrier=relative, clause=clause):
+                    self.assertIn(clause, text)
+            with self.subTest(carrier=relative, retired="finding, not a note"):
+                self.assertNotIn("unestablished is a finding", text)
+
+    def test_no_carrier_spells_the_not_established_value_with_a_space(self) -> None:
+        for relative in {*self.CARRIERS, *IntentFitCarrierTests.CARRIERS}:
+            with self.subTest(carrier=relative):
+                text = (self.ROOT / relative).read_text(encoding="utf-8")
+                self.assertNotIn("`does not`", text)
+
+
 class MemoryReviewPromptTests(unittest.TestCase):
     def test_prompt_contract_and_known_bad_controls(self) -> None:
         prompt = (

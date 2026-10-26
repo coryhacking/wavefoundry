@@ -281,7 +281,7 @@ FRAMEWORK_SCRIPT_MODULE_NAMES = frozenset({
     'inference_profile', 'inference_provider', 'techdocs_baseline', 'tensorwell_client', 'test_worker_guard', 'tree_sitter_cache', 'upgrade_bridge_bootstrap', 'upgrade_bundle',
     'upgrade_extensions', 'upgrade_lib', 'upgrade_protocol', 'upgrade_wavefoundry',
     'vendored_integrity', 'venv_bootstrap', 'verify_vendored_scripts', 'vocabulary_profile',
-    'wave_gate', 'wf_cli', 'workflow_include_prefixes',
+    'wave_gate', 'wave_work', 'wf_cli', 'workflow_include_prefixes',
 })
 
 

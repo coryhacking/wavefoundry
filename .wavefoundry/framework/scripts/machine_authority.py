@@ -16,6 +16,7 @@ HARDCODED_EXCLUDE_PREFIXES = (
     ".wavefoundry/logs/",
     ".wavefoundry/locks/",
     ".wavefoundry/cache/",  # runtime caches, including the bytecode cache (change 1zyv1)
+    ".wavefoundry/work/",  # disposable per-wave scratch and review aids
 )
 HARDCODED_EXCLUDE_PATHS = frozenset({
     ".wavefoundry/guard-overrides.json",

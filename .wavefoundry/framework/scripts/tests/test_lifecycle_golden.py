@@ -40,7 +40,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from server_tools_support import _make_repo, load_server
-from review_evidence import COUNCIL_ACTOR
+from review_evidence import COUNCIL_ACTOR, requires_intent_fit
 
 TESTS_DIR = Path(__file__).resolve().parent
 GOLDEN_PATH = TESTS_DIR / "fixtures" / "lifecycle-gate-golden.json"
@@ -118,10 +118,12 @@ def _build_one(srv, root: Path, slug: str, *, status: str) -> tuple[Path, str]:
     return wave_md, wave_id
 
 
-def _approval_evidence(actor: str) -> dict:
+def _approval_evidence(actor: str, signoff_key: str | None = None) -> dict:
+    # Wave 21j63: a council approval carries the intent verdict.
     return {
         "observed": f"{actor} verified the fixture scope",
         "artifact_or_test_id": f"lifecycle-golden-fixture:{actor}",
+        **({"intent_fit": "establishes"} if requires_intent_fit(signoff_key) else {}),
     }
 
 
@@ -176,7 +178,7 @@ def seed_state(srv, root: Path, wave_id: str, approvals: tuple[str, ...]) -> Non
                 approval_phase="readiness",
                 fresh_context=True,
                 independent=True,
-                evidence=_approval_evidence(actor),
+                evidence=_approval_evidence(actor, signoff_key),
                 integrity_checks=dict(_APPROVAL_INTEGRITY),
             )
 
@@ -417,6 +419,27 @@ class LifecycleGoldenTests(unittest.TestCase):
     def test_only_declared_observability_additions_since_extraction_golden(self):
         before = json.loads(GOLDEN_PATH.with_name("lifecycle-gate-pre-configured-golden.json").read_text())
         after = json.loads(GOLDEN_PATH.read_text())
+        # 21luf adds only the exact advisory workspace object at these twelve
+        # sites. Fixture copies deliberately retain an owner from their old
+        # repository identity, so reads preserve the unproven directory.
+        work_routes = {"prepare:create", "prepare:dry_run", "prepare:ready", "review:implementation"}
+        work_additions = []
+        for name, responses in after["fixtures"].items():
+            for route, response in responses.items():
+                data = response.get("data", {})
+                if route in work_routes:
+                    old_data = before["fixtures"][name][route]["data"]
+                    self.assertNotIn("work_area", old_data)
+                    self.assertEqual(data.pop("work_area"), {
+                        "path": ".wavefoundry/work/" + old_data["wave_id"].split(" ", 1)[0],
+                        "available": False,
+                        "notice": "work_ownership_unproven; work preserved",
+                    }, f"{name} {route}")
+                    work_additions.append((name, route))
+                else:
+                    self.assertNotIn("work_area", data, f"{name} {route}")
+        self.assertEqual(len(work_additions), 12)
+        self.assertEqual({name for name, _ in work_additions}, set(before["fixtures"]))
         # Readiness-convergence adds Prepare-only observation; preserve every
         # preexisting field, outcome and diagnostic from the extraction oracle.
         for responses in after['fixtures'].values():
@@ -493,6 +516,13 @@ class LifecycleGoldenTests(unittest.TestCase):
                 if isinstance(brief, dict) and isinstance(old_brief, dict):
                     for key in ('instructions', 'verdict_format'):
                         brief[key] = old_brief[key]
+                # Wave 21j63 (21kk5): the guided schema gains one council
+                # entry naming the intent verdict; it is the declared addition.
+                schema = ((response.get('data') or {}).get('review_actions') or {}).get(
+                    'caller_input_schema')
+                if isinstance(schema, dict):
+                    council = schema['evidence'].pop('council_approval')
+                    self.assertIn('intent_fit', council['required_fields'])
                 if route.startswith('close:'):
                     # Wave 1zoju (1zodx): close gains the blocking
                     # `change_status_drift` gate; these fixtures' change

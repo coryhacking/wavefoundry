@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-24
+Last verified: 2026-10-26
 
 ## Review Lane Summary
 
@@ -21,6 +21,8 @@ Last verified: 2026-10-24
 All review lanes follow the **Retrieval Posture (All Lanes)** in `docs/contributing/agent-team-workflow.md` — MCP retrieval tools first, and how-many/blast-radius claims backed by `code_references`/`code_callhierarchy`, never a sampled grep.
 
 In existing readiness and delivery reviews, ask whether meeting Requirements and ACs would establish Product Intent and the wave Objective, and whether added complexity, runtime cost or operator burden undermines that outcome. At delivery, distinguish evidenced outcomes from intended benefits; checked implementation steps alone prove neither benefit nor approval. Use the existing lanes and gates.
+
+The council-chair records this as `intent_fit` in both phases (seed 215). At readiness it states, for each admitted change and the wave Objective, whether the plan `establishes`, `partially` establishes or `does_not` establish the Product Intent, which measure of success the plan cites and whether that measure can be read after release. On every delivery review, the coordinator drafts one dated `Intent outcome:` paragraph in the existing `## Review Checkpoints` section (never a second such section). Assign the independent check to `qa-reviewer` when it is in the current required delivery roster; otherwise assign one reviewer already in that roster. If the roster is empty, record `No independent delivery-lane intent check ran` in `## Review Checkpoints`; do not add a lane or claim an independent check occurred. The assigned reviewer independently confirms or corrects whether the delivered work achieves each admitted change's Product Intent and the wave Objective, citing delivery evidence and material limitations, whether or not delivery Council is required. A correction showing unachieved intent is a typed finding under seed 209; a wording-only correction is editorial. The coordinator incorporates corrections before close; a required delivery Council judges the same draft using the assigned reviewer's assessment when available. Every intent issue, including the gap behind a `partially` verdict and every untested part of the intent, is recorded as a typed finding through `wf_review_event` and triaged under seed 209 like any defect: supply the judgment fields and the tool derives the disposition (`do_now`, `maybe_later`, `dont_do_later` or `not_issue`). Classify a part of the intent that the Product Intent or Objective needs as `contract_relevance: required_ac` and any other part as `important_ac`, so only the existing blocking derivation stops the wave. This covers every intent issue, a deliberate exception to the readiness finding bar; never leave one as prose or settle it by choosing a checkbox state, and keep `intent_fit` on the approval, not the finding. The council approval records that verdict as `evidence.intent_fit`, the worst across every admitted change and the Objective: the tool refuses a council approval without it, refuses `does_not` at readiness, and accepts it at delivery, where Review and Close show it to the operator before sign-off without blocking. The qa-reviewer adds an independent intent-coverage map at readiness: each required AC against the part of the intent it proves, and any part no AC tests.
 
 ## Review Protocol Ownership
 
@@ -86,9 +88,9 @@ Before implementation begins, the wave-coordinator confirms:
 **Closure requires all of the following:**
 
 1. All changes marked `implemented`, `complete`, or `deferred` with explicit rationale for deferral
-2. All required review lanes from readiness are reconciled in `## Review checkpoints` (including deferred with rationale when applicable)
+2. All required review lanes from readiness are reconciled in `## Review Checkpoints` (including deferred with rationale when applicable)
 3. `council-readiness` is present when review is enabled, and `council-delivery` is present when the persisted Prepare receipt says the configured delivery mode requires it (typed, phase-scoped approval events on declared waves; prose lines count only on legacy waves)
-4. Docs-contract review: recorded as performed (findings in `## Review checkpoints`) or `not applicable` with rationale, when any `docs/specs/*.md` changed during the wave
+4. Docs-contract review: recorded as performed (findings in `## Review Checkpoints`) or `not applicable` with rationale, when any `docs/specs/*.md` changed during the wave
 5. Typed memory candidate review complete: review every actual wave-linked pending candidate, including candidates absent from current proposals; record evidence-based dispositions through the memory tools
 6. Promote only justified durable lessons; a wave may correctly yield zero new memories, with the rationale recorded inline in `wave.md`. Routine successful work does not require creating memory
 7. `docs/agents/session-handoff.md` cleared or refreshed to reflect post-closure state
@@ -111,7 +113,7 @@ Fixed Phase 2 seats: `architecture-reviewer`, `security-reviewer`, `qa-reviewer`
 
 The `council-chair` owns the protocol and verdict. The `wave-coordinator` routes lanes and enforces the gate.
 
-Record machine-readable council signoffs as typed approval events through `wf_review_event` on declared waves (they project into `## Review Evidence`); only legacy prose waves record the signoff line in `## Review Evidence` directly. Record the narrative synthesis in `## Review checkpoints`.
+Record machine-readable council signoffs as typed approval events through `wf_review_event` on declared waves (they project into `## Review Evidence`); only legacy prose waves record the signoff line in `## Review Evidence` directly. Record the narrative synthesis in `## Review Checkpoints`.
 
 Prepare is the sole policy authority. It derives the ordered specialist roster from requested lanes, project policy, and admitted change bytes; appends an idempotent, parent-bound `review_policy_receipt`; reprojects status rows; and clears `review-policy-reprepare-required`. Readiness approvals bind the current receipt and use `approval_phase: readiness`; Review/Close consume the persisted roster and receipt without independently selecting lanes. A changed policy input or upgrade marker blocks Implement, Review, and Close until Prepare runs again. Delivery approvals use `approval_phase: delivery`; historical approvals without the field retain their documented compatibility mapping.
 
@@ -421,7 +423,7 @@ Lance/FTS hybrid response-path gate.
 
 ## Docs-Contract Review
 
-At wave closure: if any `docs/specs/*.md` behavioral contract changed during the wave, record a docs-contract review with findings in `## Review checkpoints`. If no specs changed, record `Docs-contract review: not applicable` with a one-line rationale.
+At wave closure: if any `docs/specs/*.md` behavioral contract changed during the wave, record a docs-contract review with findings in `## Review Checkpoints`. If no specs changed, record `Docs-contract review: not applicable` with a one-line rationale.
 
 <!-- wavefoundry:review-policy:begin -->
 ## Review-policy evidence baseline

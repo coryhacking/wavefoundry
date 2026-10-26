@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-16
+Last verified: 2026-10-26
 
 ## What This Document Covers
 
@@ -144,18 +144,28 @@ Wavefoundry neither installs/configures Tensorwell nor stops it on shutdown. Nat
 startup failure cleanup remains Tensorwell's responsibility.
 
 Service selection suppresses unnecessary local session construction and optional
-background downloads. Setup also skips initial local weight provisioning for each
-qualified embedding workload when the indexer's predicted precision is `full`.
-Unqualified models, disabled/unavailable service and INT8 workloads retain local
-provisioning; a mixed model list is evaluated per model. Later native warmup uses
-the same eligibility rule. Local dependencies remain supported.
+background downloads. Setup skips local preparation for each qualified embedding
+workload at the required precision; a mixed model list is assessed per workload.
+Local dependencies remain supported. Preparation messages describe selection,
+not proof that an indexing child executed inference.
 
-Setup's main path also skips the local embedding provider probe when every
-required embedding model is service-covered. With mixed models it probes a model
-that actually needs local execution. An automatic local ONNX CPU fallback does
-not disable service inference for covered work; explicit provider and framework
-policy still apply. Preparation messages describe selection, not proof that an
-indexing child executed inference.
+Before an ordinary existing-index update prepares local models, setup assesses
+recognized stored precision and the proposed fallback. A known precision change
+is refused before local warmup. In default Tensorwell mode, an unselected service
+also causes an early uncertainty refusal when a stored full-precision workload
+would depend on a GPU requiring a native probe whose CPU fallback is INT8.
+Availability alone cannot prove that native execution will succeed. This refusal
+reports unverified compatibility, not a measured GPU failure or proof that the
+service is stopped. Selection reasons belong to the setup process and the exact
+preparation decision; changed selection must be reassessed before local work.
+
+Explicit local/extension policy, fresh setup, unrecognized legacy provenance and
+an explicit full rebuild retain their existing paths. Explicit local preparation
+is an operator choice, not a native-success guarantee. The early assessment does
+not replace the indexer's later all-layer precision guard: direct callers and a
+provider change after assessment remain subject to that guard. Setup neither
+silently rebuilds nor elevates permissions to resolve a refusal. Dependency-only,
+graph-only and migration prewarm-only paths retain their existing semantics.
 
 The provider owns model acquisition and file integrity. Wavefoundry validates its
 supported model/configuration mapping, preprocessing, dimensions, response values

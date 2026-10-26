@@ -44,6 +44,10 @@ For each required AC:
 
 Prompt and seed reachability tests prove contract presence only. They do not prove that a reviewer followed the protocol.
 
+## Intent coverage
+
+At readiness, map each required AC to the part of the change's `## Product Intent` (or the wave `## Objective`) it would prove, and name every part of the intent that no AC tests. Every untested part is recorded as a typed finding through `wf_review_event` and triaged under seed 209 like any defect: supply the judgment fields and the tool derives the disposition (`do_now`, `maybe_later`, `dont_do_later` or `not_issue`). Classify a part of the intent that the Product Intent or Objective needs as `contract_relevance: required_ac` and any other part as `important_ac`, so only the existing blocking derivation stops the wave. This covers every intent issue, a deliberate exception to the readiness finding bar; never leave one as prose or settle it by choosing a checkbox state, and keep `intent_fit` on the approval, not the finding. A part deliberately left to after-release measurement is stated as such. At delivery, confirm that the ACs carrying the intent have executed evidence; checked boxes on the other ACs do not establish it. When QA is in the current required delivery roster, independently confirm or correct the coordinator's drafted `Intent outcome:` against each admitted change's Product Intent and the wave Objective, citing delivery evidence and material limitations, whether or not delivery Council is required. A correction showing unachieved intent is a typed finding under seed 209; a wording-only correction is editorial. Return the assessment to the coordinator for incorporation before close and reuse by Council when required; this adds no specialist `intent_fit` field or new approval type. The Review wave prompt assigns an existing required reviewer when QA is absent and records the absence of an independent lane check when the roster is empty.
+
 ## Evidence-integrity gate
 
 Before accepting a claimed test or fixture, verify the first five conditions and the sixth when claiming a measured delta:

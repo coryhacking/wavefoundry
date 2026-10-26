@@ -471,7 +471,7 @@ class PhaseLaneTests(unittest.TestCase):
         response = self.srv.wf_review_event_response(
             self.root, self.wave, 'approval', key, f'lane-{key}-{phase}', mode='create',
             signoff_key=key, approval_phase=phase, fresh_context=True, independent=True,
-            evidence=_approval_evidence(key), integrity_checks=dict(_APPROVAL_INTEGRITY))
+            evidence=_approval_evidence(key, key), integrity_checks=dict(_APPROVAL_INTEGRITY))
         self.assertNotEqual(response['status'], 'error', response)
 
     def delivery(self):

@@ -213,6 +213,29 @@ class RepoStateSnapshotTests(RepoGuardTestBase):
             self.assertIsNone(run_tests.repo_state_snapshot(plain))
 
 
+class WaveWorkObservationTests(RepoGuardTestBase):
+    def test_scratch_writes_do_not_change_source_observation_or_input_hash(self):
+        work = self.repo / ".wavefoundry/work/21luh/tests/probe.py"
+        work.parent.mkdir(parents=True)
+        work.write_text("before = 1\n", encoding="utf-8")
+        # Even a mistakenly tracked scratch file remains runtime state. Do not
+        # untrack it automatically; genuine source paths must still be observed.
+        _git(self.repo, "add", str(work.relative_to(self.repo)))
+        before = run_tests.repo_state_snapshot(self.repo)
+        digest = run_tests._hash_inputs()
+        work.write_text("after = 200\n", encoding="utf-8")
+        after = run_tests.repo_state_snapshot(self.repo)
+        self.assertNotIn(work.relative_to(self.repo).as_posix(), after)
+        self.assertEqual(run_tests._repo_state_changes(before, after), [])
+        self.assertEqual(run_tests._hash_inputs(), digest)
+        source = run_tests._FRAMEWORK_DIR / "source.py"
+        source.write_text("new = 222\n", encoding="utf-8")
+        changed = run_tests.repo_state_snapshot(self.repo)
+        self.assertIn(".wavefoundry/framework/source.py",
+                      run_tests._repo_state_changes(after, changed))
+        self.assertNotEqual(run_tests._hash_inputs(), digest)
+
+
 class RepoGuardMutantTests(RepoGuardTestBase):
     """AC-3: a scratch mutant that changes repository state fails the run."""
 

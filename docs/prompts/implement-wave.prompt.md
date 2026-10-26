@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-19
+Last verified: 2026-10-26
 
 Shortcut: **`Implement wave`**
 
@@ -45,7 +45,7 @@ Before the first edit, call `memory_brief(context='pre_implementation', targets=
 
 ## Completion
 
-Keep routine briefings, per-seat reports, probe captures, source baselines and green logs in task context or temporary storage outside the repository. Consolidate final outcomes and evidence in the existing wave/change records under seed 209's Review Artifact Discipline; preserve cited and unique proof, explaining retained exceptions inline in `wave.md`.
+Keep routine briefings, per-seat reports, probe captures, source baselines and green logs in task context or the lifecycle-reported disposable wave work area. Consolidate final outcomes and evidence in the existing wave/change records under seed 209's Review Artifact Discipline; preserve cited and unique proof, explaining retained exceptions inline in `wave.md`.
 
 Consume successful typed-write continuation actions and confirm current readiness/delivery authority without repeating unchanged review or list calls. Finish material verification-input edits before the canonical suite; validated routine ledger/projection updates and normalized progress/status/completion may continue under seed 209's Continuation And Qualification Discipline. Use Progress Log during a run and update the standalone session handoff outside it. Routine recording alone does not require another suite or reviewer cycle; reuse only a successful receipt matching current inputs. Required lanes, focused independent repair review and final full docs validation remain unchanged. An operator-authorized close uses one canonical mutation; dry-run resolves uncertain checks and is not a compulsory extra gate.
 
@@ -101,3 +101,7 @@ universal startup instructions or single-change workflows.
 ## Distribution activation scope
 
 Repository-wide single-OPEN activation is the default. Distributions may set `record_paths.OPEN_CONTAINER_SCOPE = "parent"` only with `NESTED = True`: each canonical immediate parent of a wave directory has one OPEN slot, and direct children share the waves root. Prepare activation, Implement and Reopen share this guard; repository publication and lifecycle locks remain global. When several waves are OPEN, implicit current-wave selection reports ambiguity and requires an explicit ID; it never selects the first parent or falls back to a planned wave.
+
+## Disposable wave work
+
+Use the lifecycle-reported `.wavefoundry/work/<wave-id>/`, keyed by the resolved unique prefix, for shared temporary work; include the path and availability notices in coordinator briefs. Follow seed 180’s **Disposable wave work** and seed 209’s **Review Artifact Discipline**. Reads and dry-runs create nothing; unavailable work is advisory and existing host permissions apply.

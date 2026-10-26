@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-24
+Last verified: 2026-10-26
 
 ## Tensorwell qualification
 
@@ -198,7 +198,8 @@ unclassified changes fail with the affected paths and no new green receipt;
 edit-gate content is hashed. A final framework input hash also detects source
 changes even when size and modification time are restored. These are
 in-memory observations of the current checkout, not copied qualification
-checkouts or additional durable evidence.
+checkouts. A complete default run additionally captures bounded reconciliation
+evidence as described below; ordinary guard semantics remain unchanged.
 
 Existing canonical wave/change carriers and declared sibling ledgers are
 recognized through the layout/profile owners. Under the existing publication
@@ -992,9 +993,50 @@ fail for lost rows, missing repair publication or incorrect public IDs/hubs,
 without import errors or unintended skips. A full canonical suite and live setup
 qualification remain separate from these focused tests and from plan readiness.
 
+## Reviewed guard-only qualification acceptance
+
+Wave 21k15 adds one runner-owned `--reconcile REPORT` inspect/accept operation.
+It preserves three distinct facts: complete passing worker execution, the original
+repository-guard refusal, and a later explicit operator acceptance of exact
+non-behavioral differences. `run_tests.py` owns capture, classification, binding,
+locking and receipt publication; `qualification_report.py` owns bounded contained
+report storage. No new MCP tool, lifecycle approval or alternative close/package
+authority is added.
+
+A default full run observes content hashes for guard-covered files and captures
+bounded optional eligible Markdown/gate bytes. Only changed before/after bytes,
+original guard reasons and execution identity need persistence in the existing
+qualification cache. Capture and report limits fail recovery closed without
+failing an otherwise green ordinary run. Existing validated canonical bookkeeping
+retains its normalization; material wave/change/ledger authority cannot be
+accepted as editorial through this exception.
+
+Inspection verifies complete terminal worker coverage, the original unchanged
+framework identity, supported differences and current observations before returning
+a bound token and exact documentation diffs. Acceptance requires that token and
+an explicit operator review attestation; it launches no workers or bytecode warming.
+Known boolean gate closure only classifies eligibility. Markdown location and a
+nonempty attestation never establish semantic equivalence or human authentication.
+Incomplete workers, changed inputs, unknown paths, links, stray artifacts and
+uncaptured changed bytes remain refused.
+
+The runner and existing publication locks protect supported publication; rechecks
+immediately precede writes. The failed original is immutable; a separate annotated
+accepted detail and ordinary receipt preserve execution identity/time and acceptance
+identity. An identical retry may recover partial publication while refusing a newer
+unrelated receipt. Cache/export reuse retains the annotation. These checks do not
+provide isolation against arbitrary same-user native mutations. Historical runs
+without original structured evidence remain ineligible, and this runner change
+cannot qualify its own unexecuted code through reconciliation.
+
+The public success fixture must prove zero worker launches, preserved original
+failure and annotated accepted provenance. Adjacent negative controls isolate each
+refusal; stale inspection, partial publication, retry and existing consumer reuse
+cover the state transitions. See [operator commands](../contributing/build-and-verification.md#reviewed-bookkeeping-reconciliation).
+
 ## Compact qualification and review working material
 
-`run_tests.py --qualification-report .wavefoundry/cache/qualification/<name>.json` exports one bounded report from executed unittest worker callbacks. It includes module-qualified skipped-test identities/reasons and terminal/count/completeness checks; ordinary console lookalikes cannot supply a skip identity. The worker nonce is readable by tests in the same process and provides protocol correlation, not authentication against that process; a matching frame can be forged by that code. Reports and comparisons remain diagnostic observations, not independent execution attestation or canonical receipts. Complete successful default runs automatically retain one bounded `last-default.json` under the ignored qualification cache, replacing the previous success without accumulating history. Optional retention failure is reported separately and does not change receipt authority. Focused/profile reports remain diagnostic/qualification detail, independently of the default complete canonical green receipt; a profile child exports its detail before temporary-tree cleanup and never writes the source receipt. Behind a current green receipt, a cache hit can export the retained complete report at another requested path only when source identity and the discovered worker inventory match exactly. Missing or invalid detail is explicitly unavailable, never fabricated from counts; a cache hit never starts workers. Focused, profile, schedule-control and failed runs cannot replace retained default detail, and the retained path is reserved against explicit report writes. Exact qualification needs an explicitly requested uncached run only when matching detail is unavailable.
+`run_tests.py --qualification-report .wavefoundry/cache/qualification/<name>.json` exports one bounded report from executed unittest worker callbacks. It includes module-qualified skipped-test identities/reasons and terminal/count/completeness checks; ordinary console lookalikes cannot supply a skip identity. The worker nonce is readable by tests in the same process and provides protocol correlation, not authentication against that process; a matching frame can be forged by that code. Reports and comparisons remain diagnostic observations, not independent execution attestation or canonical receipts. Complete successful default runs automatically retain one bounded `last-default.json` under the ignored qualification cache, replacing the previous success without accumulating history. Optional retention failure is reported separately and does not change receipt authority. Focused/profile reports remain diagnostic/qualification detail, independently of the default complete canonical green receipt; a profile child exports its detail before temporary-tree cleanup and never writes the source receipt. Behind a current green receipt, a cache hit can export the retained complete report at another requested path only when source identity and the discovered worker inventory match exactly. Missing or invalid detail is explicitly unavailable, never fabricated from counts; a cache hit never starts workers. Focused, profile, schedule-control and failed runs cannot directly replace retained default detail, and the retained path is reserved against explicit report writes. The reviewed guard-only exception publishes a separately annotated accepted derivative while preserving its original failed attempt. Exact qualification needs an explicitly requested uncached run only when matching detail is unavailable.
 
 The report directory is outside framework input hashes and pack payloads. Linked, special, protected and unowned destinations are refused; an owned report is atomically replaced, including identical-content and mode-only writes. Publication carries the initially owned final identity (or initial absence), rechecks unlinked lexical parent identities against the held descriptor on POSIX, and refuses detected final or parent substitutions while preserving original and alternate targets. Native Windows checks and replaces by path; neither branch excludes all same-user changes in the final check-to-commit interval. Decoder recursion/memory failures become caught refusals. Compare reports with `qualification_report.py --compare <default> <candidate> --profile second|declared`; second-profile extras require execution-associated default-profile-only markers, while declared skips must match exactly. Missing workers, duplicates, contradictory observations and changed reasons refuse qualification. No consumer upgrade invokes this source-release facility.
 

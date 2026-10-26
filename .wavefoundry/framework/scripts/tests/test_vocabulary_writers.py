@@ -59,6 +59,7 @@ sys.modules["server"] = module
 spec.loader.exec_module(module)
 srv = sys.modules["server_impl"]
 import record_paths, vocabulary_profile
+from review_evidence import requires_intent_fit
 INTEGRITY = {"test_ran_without_unintended_skip": True, "public_path_reached": True,
              "boundary_values_realistic": True, "assertions_non_vacuous": True,
              "known_bad_detected": True, "known_bad_detection_method": "fixture control"}
@@ -71,7 +72,8 @@ def ok(step, response):
 def event(step, wave_id, kind, actor, context_id, **kwargs):
     return ok(step, srv.wf_review_event_response(
         root, wave_id, kind, actor, context_id, mode="create", fresh_context=True, independent=True,
-        evidence={"observed": f"{actor} fixture", "artifact_or_test_id": "vocabulary-writers:" + context_id},
+        evidence={"observed": f"{actor} fixture", "artifact_or_test_id": "vocabulary-writers:" + context_id,
+                  **({"intent_fit": "establishes"} if requires_intent_fit(kwargs.get("signoff_key")) else {})},
         integrity_checks=dict(INTEGRITY), **kwargs))
 
 stubs = dict(

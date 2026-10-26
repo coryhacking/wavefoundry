@@ -67,6 +67,25 @@ class BoundedReconciliationTests(unittest.TestCase):
             self.assertEqual(result.findings[0].logical_line, ".wavefoundry/bin/docs-lint")
             self.assertEqual(result.findings[0].heading_context, "# Current")
 
+    def test_wave_work_pruned_in_non_git_root_with_near_miss_control(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            scratch = root / ".wavefoundry/work/21luh/AGENTS.md"
+            control = root / ".wavefoundry/workspace/AGENTS.md"
+            for path in (scratch, control):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(".wavefoundry/bin/docs-lint\n", encoding="utf-8")
+            original = self.scan._scan_directory
+            def guarded(scan_root, directory):
+                self.assertNotEqual(directory, root / ".wavefoundry/work")
+                return original(scan_root, directory)
+            with patch.object(self.scan, "_scan_directory", side_effect=guarded):
+                result = self.scan.scan_repo_result(root)
+            self.assertEqual(result.state, "complete")
+            self.assertEqual({r.file for r in result.findings},
+                             {".wavefoundry/workspace/AGENTS.md"})
+
     def test_root_generated_pruned_nested_and_near_miss_live(self):
         from unittest.mock import patch
         import os

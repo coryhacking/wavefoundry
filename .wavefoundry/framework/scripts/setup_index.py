@@ -2148,19 +2148,95 @@ def _prewarm_required_model(
             ) from exc
 
 
-def _resident_setup_embedder(model_name: str):
+_SETUP_SELECTION_REASONS = frozenset({
+    "qualified_pair", "declared_provider", "unsupported_model", "index_precision_mismatch",
+    "provider_policy", "disabled", "unsupported_host", "discovery_contended", "discovery_backoff",
+    "incompatible_profiles", "client_reloaded", "capabilities_unsupported", "discovery_unavailable",
+    "provider_unavailable", "reranker_disabled", "selection_unknown",
+})
+
+
+def _report_setup_selection(workload: str, diagnostic: dict, resident) -> None:
+    # Only public symbolic vocabulary, never exception text or discovery data.
+    reason = diagnostic.get("reason")
+    diagnostic.clear()
+    diagnostic["reason"] = reason if isinstance(reason, str) and reason in _SETUP_SELECTION_REASONS else "selection_unknown"
+    decision = "qualified service selected (selection only)" if resident is not None else "service not selected by this process"
+    print(f"Setup {workload} selection: {diagnostic['reason']}; {decision}.", flush=True)
+
+
+def _resident_setup_embedder(model_name: str, *, diagnostic=None):
     """Skip local preparation only for the same precision the indexer will use."""
     import inference_provider
-    resident = inference_provider.select_embedder(model_name)
-    if resident is not None and _load_indexer_module()._predicted_precision_class(model_name, []) == "full":
-        return resident
-    return None
+    diagnostic = {} if diagnostic is None else diagnostic
+    try:
+        resident = inference_provider.select_embedder(model_name, diagnostic=diagnostic)
+        if resident is not None and _load_indexer_module()._predicted_precision_class(model_name, []) != "full":
+            diagnostic["reason"] = "index_precision_mismatch"
+            resident = None
+    except inference_provider.ProviderUnavailable:
+        diagnostic["reason"] = "provider_unavailable"
+        _report_setup_selection(f"embedding ({model_name})", diagnostic, None)
+        raise ModelPrewarmError("Declared inference provider is unavailable or incompatible; check its configuration before retrying setup.") from None
+    except Exception:
+        diagnostic["reason"] = "selection_unknown"
+        resident = None
+    _report_setup_selection(f"embedding ({model_name})", diagnostic, resident)
+    return resident
 
 
-def prewarm_models(*, include_code: bool, code_only: bool = False) -> None:
+def _check_setup_precision(root: Path, model_name: str, resident, diagnostic: dict) -> None:
+    """Read-only update check; selection is no proof of native execution."""
+    import inference_provider
+    indexer = _load_indexer_module()
+    index_dir = root / ".wavefoundry" / "index"
+    reason = diagnostic.get("reason", "selection_unknown")
+    if reason == "unsupported_model":
+        recovery = "Choose a compatible local provider configuration for this unsupported service model."
+    elif reason in {"provider_policy", "disabled", "index_precision_mismatch"}:
+        recovery = "Check explicit provider controls and restore a compatible provider configuration."
+    elif reason in {"incompatible_profiles", "capabilities_unsupported", "provider_unavailable"}:
+        recovery = "Restore a service configuration compatible with this release, or explicitly choose a compatible local provider."
+    elif reason == "selection_unknown":
+        recovery = "The selection cause is unknown; check this process's service visibility or choose a compatible provider configuration."
+    else:
+        recovery = "Restore compatible service visibility for this process or explicitly choose a compatible provider configuration and retry."
+    changes = indexer._implicit_precision_changes(index_dir)
+    if changes:
+        detail = "; ".join(f"{item['layer']}: recorded {item['recorded']}, requested {item['requested']}" for item in changes)
+        raise ModelPrewarmError(
+            f"Implicit precision conversion refused before local preparation ({detail}; selection: {reason}). "
+            f"{recovery} A deliberate `wf setup --full` "
+            "is a separate rebuild choice. Existing published index retained.")
+    # Explicit local preparation and non-service policy keep their existing path.
+    if (resident is not None or inference_provider.mode() != "tensorwell"
+            or reason in {"disabled", "provider_policy", "unsupported_host"}
+            or os.environ.get(provider_policy.REQUESTED_PROVIDER_ENV, "auto").strip().lower() not in {"", "auto"}):
+        return
+    accel = indexer.accel_embedder
+    if accel is None or model_name not in accel.CLEAN_ONNX_SOURCES:
+        return
+    affected = [item for item in indexer._recognized_index_precisions(index_dir)
+                if item["model"] == model_name and item["recorded"] == "full"]
+    if not affected:
+        return
+    gpu = accel._available_gpu_providers()
+    if gpu and all(provider_policy._provider_requires_probe(provider) for provider in gpu):
+        layers = ", ".join(item["layer"] for item in affected)
+        raise ModelPrewarmError(
+            f"Local fallback compatibility unverified before native preparation ({layers}: recorded full; "
+            f"possible full/int8; selection: {reason}). GPU availability is not a successful model probe. "
+            f"{recovery} A deliberate `wf setup --full` is a separate rebuild choice. Existing published index retained.")
+
+
+def prewarm_models(*, include_code: bool, code_only: bool = False, precision_check=None) -> None:
     models = _indexer_models(include_code, code_only=code_only)
     for model_name in models:
-        if _resident_setup_embedder(model_name) is not None:
+        diagnostic = {}
+        resident = _resident_setup_embedder(model_name, diagnostic=diagnostic)
+        if precision_check is not None:
+            precision_check(model_name, resident, diagnostic)
+        if resident is not None:
             print(f"Using qualified service for semantic model: {model_name}", flush=True)
             continue
         print(f"Prewarming semantic model cache: {model_name}", flush=True)
@@ -2177,7 +2253,7 @@ def prewarm_models(*, include_code: bool, code_only: bool = False) -> None:
     # (GPU FP16 / CPU INT8); search degrades to vector order only when reranking is explicitly disabled.
 
 
-def _prewarm_gpu_accel(models: list[str]) -> list[tuple[str, str]]:
+def _prewarm_gpu_accel(models: list[str], *, precision_check=None) -> list[tuple[str, str]]:
     """Wave 1p517 (extended 1p935): build each model's static-shape ONNX session once at setup —
     downloads + caches the clean ONNX (offline-ready) and pays the ONNX Runtime compile here (GPU
     CoreML sessions cache via ``ModelCacheDirectory``), so the first index build doesn't. On a GPU
@@ -2191,8 +2267,25 @@ def _prewarm_gpu_accel(models: list[str]) -> list[tuple[str, str]]:
     import inference_provider
     # Match initial provisioning and the indexer's precision decision before
     # skipping native construction for each individual workload.
-    resident_models = {model for model in models if _resident_setup_embedder(model) is not None}
-    resident_reranker = inference_provider.select_reranker(_indexer_reranker_model())
+    resident_models = set()
+    for model in models:
+        diagnostic = {}
+        resident = _resident_setup_embedder(model, diagnostic=diagnostic)
+        if precision_check is not None:
+            precision_check(model, resident, diagnostic)
+        if resident is not None:
+            resident_models.add(model)
+    diagnostic = {}
+    try:
+        resident_reranker = inference_provider.select_reranker(_indexer_reranker_model(), diagnostic=diagnostic)
+    except inference_provider.ProviderUnavailable:
+        diagnostic["reason"] = "provider_unavailable"
+        _report_setup_selection("reranking", diagnostic, None)
+        raise ModelPrewarmError("Declared reranking provider is unavailable or incompatible; check its configuration before retrying setup.") from None
+    except Exception:
+        diagnostic["reason"] = "selection_unknown"
+        resident_reranker = None
+    _report_setup_selection("reranking", diagnostic, resident_reranker)
     if len(resident_models) == len(set(models)) and resident_reranker is not None:
         return []
     try:
@@ -2222,6 +2315,12 @@ def _prewarm_gpu_accel(models: list[str]) -> list[tuple[str, str]]:
     # either — let it decide.
     for model_name in models:
         if model_name in resident_models:
+            continue
+        diagnostic = {}
+        resident = _resident_setup_embedder(model_name, diagnostic=diagnostic)
+        if precision_check is not None:
+            precision_check(model_name, resident, diagnostic)
+        if resident is not None:
             continue
         try:
             embedder = accel_embedder.make_embedder(model_name, providers)
@@ -2846,25 +2945,42 @@ def main(argv: list[str] | None = None) -> int:
             pass
     _code_only = args.code_only or background_docs
     _include_code = not background_code and not args.docs_only
+    precision_check = (None if args.full else
+                       lambda model, resident, diagnostic: _check_setup_precision(root, model, resident, diagnostic))
     try:
+        # Assess every requested semantic layer, including a detached layer,
+        # before any model preparation. Later selections are checked again.
+        if precision_check is not None:
+            requested_models = _indexer_models(
+                include_code=_include_code or background_code, code_only=_code_only and not background_docs)
+            for model in requested_models:
+                diagnostic = {}
+                resident = _resident_setup_embedder(model, diagnostic=diagnostic)
+                precision_check(model, resident, diagnostic)
         # Download/verify the models BEFORE the provider probe — the probe loads with
         # local_files_only and would transiently fail on a fresh/cleared cache (model absent),
         # silently dropping the whole build to CPU. Order: download → probe → GPU accel prewarm.
-        prewarm_models(include_code=_include_code, code_only=_code_only)
+        prewarm_models(include_code=_include_code, code_only=_code_only, precision_check=precision_check)
+        models = _indexer_models(include_code=_include_code, code_only=_code_only)
+        local_models = []
+        for model in models:
+            diagnostic = {}
+            resident = _resident_setup_embedder(model, diagnostic=diagnostic)
+            if precision_check is not None:
+                precision_check(model, resident, diagnostic)
+            if resident is None:
+                local_models.append(model)
+        if local_models:
+            # Probe only a model whose current selection requires local work.
+            report_embedding_provider_decision(model_name=local_models[0])
+        else:
+            print("Embedding preparation: qualified service covers the requested models; "
+                  "local embedding provider probe skipped (selection only).", flush=True)
+        with model_download_root(root):
+            gpu_fallbacks = _prewarm_gpu_accel(models, precision_check=precision_check)
     except ModelPrewarmError as exc:
         print(str(exc), file=sys.stderr)
         return 2
-    models = _indexer_models(include_code=_include_code, code_only=_code_only)
-    local_models = [model for model in models if _resident_setup_embedder(model) is None]
-    if local_models:
-        # Probe an embedding model that actually needs local execution. A
-        # service-covered docs model need not exist in the local cache at all.
-        report_embedding_provider_decision(model_name=local_models[0])
-    else:
-        print("Embedding preparation: qualified service covers the requested models; "
-              "local embedding provider probe skipped (selection only).", flush=True)
-    with model_download_root(root):
-        gpu_fallbacks = _prewarm_gpu_accel(models)
     if model_bundle_path is None and model_bundle.attest_online_cache():
         print("Verified downloaded model cache matches the declared model set.", flush=True)
     try:

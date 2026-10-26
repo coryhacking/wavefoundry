@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-20
+Last verified: 2026-10-26
 
 ## Verification Commands
 
@@ -87,8 +87,10 @@ it. Valid routine recording alone requires neither another test run nor
 another review. Real findings retain their phase/lane effects; material plans
 retain the existing re-Prepare rules.
 
-The existing receipt is written only after the passing full suite, the
-repository guard and the final framework input-hash comparison succeed.
+Ordinary receipt publication requires the passing full suite, the repository
+guard and the final framework input-hash comparison to succeed. The explicit
+reviewed-bookkeeping reconciliation below can accept a preserved guard-only
+refusal without rerunning its passing workers.
 Close and package consume that same matching receipt. Workers and ordinary
 Python descendants get a test-only accidental-write guard; it is not a
 hostile-code sandbox or authenticated writer boundary. See
@@ -159,7 +161,7 @@ Compatibility scope comes from the reviewed `tests/fixtures/profiles/qualificati
 
 ### Compact qualification reports
 
-Use `--qualification-report .wavefoundry/cache/qualification/<name>.json` for an explicit qualifying run. The callback-origin report records actual worker/test/skip identities and reasons, completeness and source/profile identity without verbose transcripts. A complete successful default run automatically retains one bounded `last-default.json` in the ignored qualification cache. Focused/profile/schedule-control and failed runs never replace it or write the canonical source receipt. Profile detail is exported before temporary-tree cleanup. Behind a current matching green receipt, a complete retained report with the exact source and discovered worker inventory can be exported at a new requested path without executing workers. Missing, stale or invalid detail is explicitly unavailable; it is never rebuilt from counts and a cache hit never starts tests. An optional retention failure is reported separately while preserving truthful receipt authority; explicit report publication failures still fail the command.
+Use `--qualification-report .wavefoundry/cache/qualification/<name>.json` for an explicit qualifying run. The callback-origin report records actual worker/test/skip identities and reasons, completeness and source/profile identity without verbose transcripts. A complete successful default run automatically retains one bounded `last-default.json` in the ignored qualification cache. Focused/profile/schedule-control and failed runs never replace it or write the canonical source receipt directly. Explicit reviewed reconciliation publishes a separately annotated accepted derivative as described below. Profile detail is exported before temporary-tree cleanup. Behind a current matching green receipt, a complete retained report with the exact source and discovered worker inventory can be exported at a new requested path without executing workers. Missing, stale or invalid detail is explicitly unavailable; it is never rebuilt from counts and a cache hit never starts tests. An optional retention failure is reported separately while preserving truthful receipt authority; explicit report publication failures still fail the command.
 
 Run `python3 .wavefoundry/framework/scripts/qualification_report.py --compare <default-report> <candidate-report> --profile second|declared` from the repository. Paths are restricted to the qualification cache; report bytes are outside framework hashes and pack payloads. Comparison rejects incomplete, substituted or malformed observations and changed reasons. Second-profile extras must carry actual default-profile-only markers; declared skips must equal default. Export and comparison are opt-in for source qualification and required for release: `build_pack.py --release` and `--release-dry-run` refuse unless `default.json`, `second.json` and `declared.json` under the qualification cache qualify the current tree (see the packaging prompt for named exceptions). Default detail retention is automatic. No consumer upgrade calls this facility.
 
@@ -167,9 +169,54 @@ The worker nonce is visible to code in the test process (including through its c
 
 Before constructing a guarded child environment, `test_worker_guard.worker_environment` refuses a linked/nonregular owned bootstrap or source, and any existing adjacent `__pycache__`, `sitecustomize.pyc` or `sitecustomize.pyo`. It checks inherited directories named `test_worker_bootstrap` too, covering nested runner copies; those names are reserved for owned bootstrap carriers. Refused entries remain untouched and no unguarded fallback runs. The shim still executes its guard from source and chains legitimate customization. This is cooperative prelaunch hygiene: it cannot undo startup imports already executed, authenticate source, or exclude a same-user swap after inspection.
 
-Report reads normalize JSON decoder `RecursionError` and `MemoryError` into a concise caught refusal. Writes retain the 8 MiB cap, complete JSON format and mode `0600`. They carry the identity of the initially owned regular file, or its initial absence, and refuse detected final-file substitutions and lexical parent links or identity changes. Even identical-content and mode-only report writes use atomic replacement so they pass the same publication checks; the retained last-successful report uses the same safe writer and bound; no report history or permanent wave evidence folder is created.
+Report reads normalize JSON decoder `RecursionError` and `MemoryError` into a concise caught refusal. Writes retain the 8 MiB cap, complete JSON format and mode `0600`. They carry the identity of the initially owned regular file, or its initial absence, and refuse detected final-file substitutions and lexical parent links or identity changes. Even identical-content and mode-only report writes use atomic replacement so they pass the same publication checks; the retained last-successful report uses the same safe writer and bound; ordinary success does not accumulate report history or a permanent wave evidence folder. The reconciliation exception below retains its original failed attempt separately.
 
 On POSIX with `dir_fd`/`O_NOFOLLOW`, publication uses an exclusive temporary file relative to a held parent descriptor. Immediately before replacement, the writer rechecks every lexical parent identity, the held parent identity, and the unlinked final entry against the initial ownership judgment; a detected parent rename or substitution refuses and removes the temporary file through the descriptor. Native Windows uses path checks and path replacement, with a wider check-to-commit interval and no descriptor guarantee. A parent renamed after temporary creation can make that temporary unreachable at its original path; refusal preserves targets but cannot guarantee cleanup of the moved temporary. Neither branch excludes every adversarial same-user rename between the final check and replacement. Native-Windows execution remains separately unqualified.
+
+### Reviewed bookkeeping reconciliation
+
+A complete default run whose workers passed but whose repository guard refused
+publication may preserve an original failed-attempt report in the ignored
+qualification cache. Inspect the report path printed by that run:
+
+```bash
+python3 .wavefoundry/framework/scripts/run_tests.py --reconcile <report-path>
+```
+
+Inspection launches no workers. Review its eligibility reasons and complete
+before/after documentation differences. If eligible, the operator may explicitly
+instruct acceptance of that run and those differences as non-behavioral:
+
+```bash
+python3 .wavefoundry/framework/scripts/run_tests.py --reconcile <report-path> --accept <inspection-token> --operator-reviewed "Reviewed the displayed differences and accept them as editorial."
+```
+
+An agent may execute acceptance only on that explicit instruction. The string
+records the judgment; it neither authenticates a human nor proves prose harmless.
+A general instruction to run tests or implement a wave is not acceptance of a
+particular exception. Existing rendered prompt Markdown is eligible for review,
+not automatically harmless. Known gate closure is limited to boolean true-to-false
+changes with all remaining configuration preserved and still requires acceptance.
+Code, configuration, framework changes, new/deleted documents, links, canonical
+authority changes, unknown differences, failed/incomplete workers, stray test
+artifacts and missing evidence cannot qualify through this operation.
+
+The original failed attempt and its exit status remain intact. Accepted detail
+and the ordinary green receipt identify the original execution plus its separate
+reconciliation; reuse retains that annotation. Inspection and acceptance bind the
+original report, exact differences and current observations. A later edit invalidates
+the token; an identical retry can finish partial publication without workers, but
+cannot replace a newer unrelated receipt. Supported runner/publication locks and
+adjacent checks coordinate cooperating writers, not arbitrary same-user filesystem
+mutation. The operation reports success only after publication is verified.
+
+Recovery is prospective. Capture is bounded and may be unavailable; an otherwise
+ordinary green run is unaffected. Missing original bytes or worker observations
+cannot be reconstructed from stdout, Git history or current files. In particular,
+this does not recover the old 21j63 incident. A changed runner changes framework
+inputs and must qualify itself through a complete ordinary run. Preserve ordinary
+qualification discipline: settle edits before running, and use reconciliation only
+for a proven exception.
 
 ### Golden tool-surface fixture (wave 1y0do)
 
@@ -275,7 +322,7 @@ Progress for detached setup builds is written under `.wavefoundry/logs/`. Call `
 
 ### Embedding provider diagnostics
 
-Setup prints one provider line before model prewarm:
+When setup needs local execution, its provider probe reports a line such as:
 
 ```text
 Embedding provider: selected=CPUExecutionProvider; providers=['CPUExecutionProvider']; available=[...]; reason=...
@@ -300,6 +347,29 @@ providers (DirectML/OpenVINO/MIGraphX/ROCm), and CUDA is selected from availabil
 
 Operators can force a provider family for diagnosis with `WAVEFOUNDRY_EMBED_PROVIDER`:
 `cpu`, `cuda`, `coreml`, `directml`, `openvino`, `migraphx`, or `rocm`.
+
+### Setup service selection and early compatibility refusal
+
+A qualified Tensorwell service skips local model preparation for covered workloads.
+The setup child must be able to select that service itself; an MCP process reporting
+Tensorwell available does not establish reachability from a restricted child.
+Selection messages identify the observed reason, not proof that inference ran.
+
+For an ordinary existing-index update, setup refuses before local warmup when the
+proposed fallback would change recognized stored precision. It also refuses an
+implicit Tensorwell fallback as unverified when a stored full-precision index
+would rely on an untested GPU whose CPU fallback is INT8. This is not a report that
+the GPU failed or that Tensorwell stopped. The published index is retained.
+
+Use the reported selection reason to restore compatible service access or
+configuration in the environment running setup, then retry the same command.
+Explicit local configuration remains available under existing provider controls;
+it authorizes local preparation but cannot guarantee native success. A deliberate
+`wf setup --full` may change index precision and remains a separate operator choice,
+not an automatic remedy. Setup does not elevate permissions, disable Tensorwell or
+convert the index to make a routine update succeed. Fresh setup, compatible local
+indexes and legacy-provenance recovery retain their existing behavior; the final
+indexer guard still protects publication if the provider changes later.
 
 ### Upgrade rebuild requirement
 
@@ -436,6 +506,16 @@ python3 -B .wavefoundry/framework/scripts/run_tests.py
 - **Platforms.** macOS, Linux and WSL2 mirror absolute source paths under the prefix (a checkout used from both Windows and WSL2 gets separate mirrors). On native Windows the mirrored path drops the drive letter, a long path past the 260-character limit or a locked `.pyc` only skips caching, a flush blocked by open handles leaves caching off for that process, and a junction or other reparse point is refused like a symlink. The Windows behavior is inferred from CPython's documented behavior and has not been run.
 
 A stray `__pycache__` under `.wavefoundry/framework/` is a defect to report, not routine cleanup. `run_tests.py` still removes any it finds under the framework directory before and after each run.
+
+## Disposable wave work
+
+Use the lifecycle-reported `.wavefoundry/work/<wave-id>/` (resolved unique prefix, without a `waves/` subdirectory) for shared temporary files. Include its path and availability notice in coordinator briefs. Optional `receipts/`, `reviews/`, `tests/` and `scratch/` directories are created only when needed. Successful mutating Create/Prepare/Implement/Reopen calls establish ownership lazily; read-only calls and dry-runs create nothing. Existing host permissions apply. Unavailable work adds no lifecycle gate, and unrelated pre-existing directories are never adopted silently.
+
+The managed `.gitignore` block includes `.wavefoundry/work/` on install and upgrade while preserving unrelated rules; tracked scratch is reported, never automatically untracked. Machine-authority/index and reconciliation exclusions omit the exact work prefix, and repository-state observation omits its files even if tracked. Framework input hashing and packaging traverse only `.wavefoundry/framework/`, a sibling of work; genuine source changes remain detected.
+
+Keep work through planned, ready, active and paused states. Before finalizing evidence, preserve unique proof in maintained records, tests or explicitly retained evidence; new durable approvals must not rely solely on scratch paths. For example, place a trial capture in `.wavefoundry/work/12345/tests/probe.log`, record its command, exact source identity, final result and limitations in that wave’s `wave.md`, and promote a unique reproducer into a maintained test or cited evidence outside work. After closure removes the capture, the final claim still has a durable explanation and reproducible basis. Do not rewrite immutable ledger references or migrate historical evidence automatically.
+
+Only successful operator-authorized whole-wave closure attempts cleanup of the verified owned area, after the lifecycle transition commits. Dry-run, failed close and single-change close preserve work; cleanup failure is advisory and an authorized repeated close may retry. Reopening creates a new generation protected from stale cleanup. Unsupported safe deletion preserves files with a notice; native Windows deletion remains unqualified. No sweeper, expiry, process killing or new approval authority is introduced.
 
 ## Close gate: the framework test receipt
 

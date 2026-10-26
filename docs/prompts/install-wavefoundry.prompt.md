@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-19
+Last verified: 2026-10-26
 
 Shortcut: **`Init Wavefoundry`** | Legacy: **`Install Wavefoundry`** / **`Init wave framework`** / **`Install wave framework`** / **`Init wave context`** / **`Install wave context`**
 
@@ -26,6 +26,10 @@ Initialize a target repository with the Wave Framework operating surface. Detect
 See `.wavefoundry/framework/seeds/010-install-wavefoundry.prompt.md` for the complete required output list.
 
 Phase 2 may pause after verified row 2.8 when session context is low. Leave row 2.9 unchecked and save a handoff. On return, inventory actual prompt files and `docs/prompts/prompt-surface-manifest.json` against seed-100's current public catalog and conditional rules, preserving project-authored content while reconciling missing or stale required outputs. Do not rely on a fixed prompt count. Once required prompt and role sources exist, call `wf_sync_surfaces(mode='run')` over MCP; use `wf render-surfaces` from CLI when MCP is unavailable. Check that owned upgrade-policy marker regions contain rendered content; empty marker pairs do not satisfy row 2.9, and hand-copying `UPGRADE_POLICY_BLOCK` is not the repair. Only mark 2.9 complete after the real `wf_audit_install` accepts the files, manifest and rendered regions. Keep validation errors visible.
+
+## Disposable wave work
+
+Verify the managed `.gitignore` block contains `.wavefoundry/work/` through seed 050’s supported renderer, preserving unrelated rules and reporting tracked runtime files without automatically untracking them. Lifecycle mutations establish owned prefix-keyed work lazily; installation does not migrate historical evidence. Seed 180’s **Disposable wave work** governs use and post-close cleanup.
 
 ## Git Commits
 

@@ -2,11 +2,31 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-24
+Last verified: 2026-10-26
 
 ## Current Session
 
 **Active wave:** *(none)*
+
+**Last closed wave:** `21kbd setup-provider-preflight`, closed 2026-10-26 on explicit operator instruction. Setup now reports bounded provider-selection reasons and refuses incompatible or narrowly unverified implicit local fallback before model preparation, preserving qualified-service, explicit local/extension, fresh/legacy and deliberate rebuild paths and the final indexer publication guard.
+
+**Outcome and qualification:** Intent achieved for the admitted mechanism in controlled execution, independently confirmed by QA. All five ACs/tasks complete; five required delivery lanes, readiness Council and operator approved. QA-21KBD-001 is terminal after independent code/QA reverification of owned-key module cleanup. Closure proved the existing 12,228-test receipt (213 files, 12 existing skips); no suite repeated. Full docs validation passed and all edit gates are closed. Native execution, the exact historical service-selection failure and field time savings remain unproven.
+
+**Cleanup:** Close removed `.wavefoundry/work/21kbd/`. All 30 supporting files were verified and retained at `/private/tmp/wavefoundry-21kbd-retained-ju5_4fk8`, including dirty-tree baselines, historical fingerprints, primer, probes and the qualification log. Durable authority remains in the wave ledger and maintained tests. No new memory candidate was warranted beyond those tests, typed evidence and maintained provider guidance.
+
+**Git scope:** The operator authorized commit and push of all four completed waves: 21j63, 21luh, 21k15 and 21kbd. The unrelated malformed status edit in `docs/waves/1z8tx gardener-test-isolation/wave.md` is excluded and remains untouched. No package or release is authorized.
+
+**Runtime:** Before implementation, authorized host-access setup used qualified Tensorwell with zero accepted embedding inputs after an earlier restricted process prepared INT8 and refused conversion. No new live setup, model preparation or index rebuild ran for this wave. The MCP identity check reports matching runner/implementation identity; cached service availability is not a fresh probe.
+
+**Prior closure:** 21k15 delivered reviewed acceptance of complete passing runs refused solely for verified bookkeeping, without worker reruns. Its original failed evidence remains preserved; its removed scratch area's unique history is retained at `/private/tmp/wavefoundry-21k15-retained-x7y6vr8p`.
+
+## Open questions / Deferred decisions
+
+Later-wave effectiveness and review cost remain unestablished. Optional release-note shortening is non-blocking; existing-roster assignment and the explicit empty-roster limit remain the accepted design.
+
+**Historical incident:** 21lue is now admitted and implemented in 21k15 above. The original 21j63 IR-1 run passed its workers but was invalidated by coordinator gate/prompt-numbering edits; its attempted unchanged repeat was cancelled. That historical failure remains recorded and was not retrospectively accepted. The new operation requires prospective structured proof. No setup/index operation ran.
+
+## Prior audit session
 
 **Implementation/review complete:** A3-A5 documentation corrections in21fgo; A8 scanner exclusions and A9 Codex invocation policy/owned-sidecar migration in21fgr; A2 modernization briefing in21a5a. All required ACs/tasks for21fgr/21a5a are checked and all specialist delivery approvals current. Both close dry-runs prove the current framework receipt and report only missing operator signoff. No operator approval, closure or commit inferred from the status question. A6 removed exactly two obsolete permission entries, preserving114others and all other settings.
 

@@ -66,11 +66,30 @@ Brief each lane using seed 209's **Briefing Packet**, including
   or when the change touches non-trivial product logic. Include branch-complete
   and re-entrant checks for affected per-key mutable state. QA verifies state
   across repeated calls or routine steps, or records deferral and residual risk.
+- On every delivery review, the coordinator first drafts one `Intent outcome:`
+  paragraph, prefixed `YYYY-MM-DD: `, in the existing exact `## Review Checkpoints`
+  section (never a second such section): achieved, partial or not established, citing
+  the delivery evidence, the plan's measure of success when one exists, and material
+  limitations. Assign the independent check to `qa-reviewer` when it is in the current
+  required delivery roster; otherwise assign one reviewer already in that roster. If the
+  roster is empty, record `No independent delivery-lane intent check ran` in `## Review
+  Checkpoints`; do not add a lane or claim an independent check occurred. The assigned
+  reviewer independently confirms or corrects whether the delivered work achieves each
+  admitted change's Product Intent and the wave Objective, citing delivery evidence and
+  material limitations, whether or not delivery Council is required. A correction
+  showing unachieved intent is a typed finding under seed 209; a wording-only correction
+  is editorial. The coordinator incorporates corrections before close.
 - Run delivery Council when the current receipt-derived `required_council_signoffs`
   lists `council-delivery`. The council declares primer depth, runs
   the isolated red-team primer first, briefs fixed seats with it, and synthesizes
   their findings. Record the seat roster, rotating fifth seat when present,
   disagreements and their disposition in the narrative review checkpoint.
+  The council-chair's `intent_fit` judges the same draft using the assigned reviewer's assessment when available
+  (seed 215); the coordinator revises a corrected draft
+  before close. The typed `council-delivery` approval records the confirmed
+  verdict as `evidence.intent_fit` (`establishes`, `partially` or
+  `does_not`); a `does_not` verdict does not block, and Review and Close show
+  it to the operator before sign-off.
 - Perform one bounded AC scope gap check: confirm required ACs are met, surface
   valuable important/nice-to-have items outside admitted scope for operator
   disposition, and confirm not-this-scope deferrals.
@@ -105,3 +124,11 @@ operator explicitly supplies it.
 Review wave ends when every required lane and any receipt-required council
 approval is current in `wf_review_wave`. It does not close the wave, mark
 completion or commit changes.
+
+## Focused readiness re-review
+
+For stale readiness, use the guided review actions and seed 209’s **Focused readiness re-review**. Compare cumulatively from each lane’s last approved receipt, with its prior approval/evidence, changed sections and a verified normalized before/after delta when available; provide the full amended plans and affected dependency context, and ask whether the change alters the verdict. Newly required lanes perform normal initial review. Exact raw receipt snapshots under `.wavefoundry/work/<wave-id>/receipts/` are optional aids, never approval authority. Missing legacy metadata, missing/corrupt/cleaned snapshots, stale inputs, incompatible normalization or truncated output must be explicit; obtain full text or fall back to normal full review. Reads create no snapshots. Receipt identity, required lanes, approval invalidation and deferral rules are unchanged; no approval transfers or measured effort savings are implied.
+
+## Disposable wave work
+
+Use the lifecycle-reported `.wavefoundry/work/<wave-id>/`, keyed by the resolved unique prefix, for shared temporary work; include the path and availability notices in coordinator briefs. Follow seed 180’s **Disposable wave work** and seed 209’s **Review Artifact Discipline**. Reads and dry-runs create nothing; unavailable work is advisory and existing host permissions apply. Receipt copies and review notes are disposable aids; preserve unique proof before final evidence and keep durable approval authority in its existing records.

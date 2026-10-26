@@ -31,6 +31,7 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import datetime
+import difflib
 import hashlib
 import json
 import math
@@ -56,7 +57,7 @@ _CACHE_FILE = _FRAMEWORK_DIR / "test-cache.json"
 _LOCK_FILE = _FRAMEWORK_DIR / "test-run.lock"
 # Wave 1z8ox (1z8ov): the repository the standing repository-state guard
 # snapshots, the edit-gate file it always includes, and the only paths it
-# excludes (the receipt and lock this runner writes itself).
+# excludes (the receipt and lock this runner writes itself, and disposable wave work).
 _REPO_ROOT = _FRAMEWORK_DIR.parent.parent
 _GUARD_OVERRIDES_REL = ".wavefoundry/guard-overrides.json"
 _REPO_GUARD_EXCLUDE = frozenset({
@@ -167,6 +168,12 @@ _BYTECODE_PREFIX_ENV = "PYTHONPYCACHEPREFIX"
 _BYTECODE_CHILD_ENV = "WAVEFOUNDRY_TEST_RUNNER_CHILD"
 _BYTECODE_PREFIX: "str | None" = None
 _QUALIFICATION_REQUESTED = False
+_RECONCILIATION_CAPTURE = False
+_LAST_EXECUTION_EVIDENCE = None
+_RECONCILIATION_DOC_BYTES = 256 * 1024
+_RECONCILIATION_TOTAL_BYTES = 32 * 1024 * 1024
+_RECONCILIATION_REMAINING_BYTES = _RECONCILIATION_TOTAL_BYTES
+_RECONCILIATION_MAX_PATHS = 20000
 _BYTECODE_WARM_TIMEOUT_SECONDS = 900
 # Whether the warm-up also compiles each interpreter's stdlib, purelib and
 # platlib. A prefix makes Python ignore the installation's own ``__pycache__``,
@@ -235,6 +242,12 @@ Run the framework test suite, one subprocess per test file.
                             runs retain last-default.json automatically.
                             Never receipt authority.
   --help                    show this message
+  --reconcile REPORT        inspect a preserved guard-refused complete run;
+                            no workers or bytecode warming
+  --accept TOKEN --operator-reviewed TEXT
+                            accept the inspected exact differences on the
+                            operator's explicit editorial-review instruction;
+                            requires --reconcile; never waives failed tests
 """
 
 
@@ -278,7 +291,7 @@ def _read_cache() -> dict | None:
 
 
 def _write_cache(inputs_hash: str, test_count: int,
-                 durations: dict[str, float] | None = None) -> None:
+                 durations: dict[str, float] | None = None, *, execution=None) -> None:
     """Write a successful test cache entry atomically.  Silent on failure (non-fatal).
 
     ``durations`` (wave 1tmtx): optional advisory per-file elapsed seconds,
@@ -292,6 +305,8 @@ def _write_cache(inputs_hash: str, test_count: int,
         "test_count": test_count,
         "result": "ok",
     }
+    if execution is not None:
+        data.update(execution)
     if durations:
         data["durations_s"] = {
             name: round(min(float(seconds), float(_FILE_TIMEOUT_SECONDS)), 3)
@@ -429,6 +444,55 @@ class _RepoSnapshot(dict):
         super().__init__()
         self.root = root
         self.carriers = carriers
+        self.observation = {}
+        self.editorial = {}
+        self.capture_error = None
+
+
+def _capture_reconciliation(snapshot: _RepoSnapshot) -> None:
+    """Optional recovery proof; failure never changes an ordinary run's result."""
+    global _RECONCILIATION_REMAINING_BYTES
+    try:
+        if len(snapshot) > _RECONCILIATION_MAX_PATHS:
+            raise ValueError("recovery path inventory exceeds bound")
+        budget = _RECONCILIATION_REMAINING_BYTES
+        import contained_files
+        for rel in sorted(snapshot):
+            path = snapshot.root / rel
+            try:
+                st = path.lstat()
+            except FileNotFoundError:
+                snapshot.observation[rel] = None
+                continue
+            if not stat.S_ISREG(st.st_mode) or not _regular_carrier(snapshot.root, path):
+                snapshot.observation[rel] = {"kind": "special", "mode": st.st_mode,
+                                             "digest": _content_digest(path, st) if path.is_symlink() else None}
+                continue
+            digest = hashlib.sha256()
+            # Content hashes cover binary and ordinary source as well as docs.
+            with path.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            final = path.stat()
+            if ((final.st_dev, final.st_ino, final.st_mode, final.st_size, final.st_mtime_ns)
+                    != (st.st_dev, st.st_ino, st.st_mode, st.st_size, st.st_mtime_ns)):
+                raise ValueError("recovery observation changed while reading")
+            snapshot.observation[rel] = {"kind": "regular", "mode": stat.S_IMODE(st.st_mode),
+                                         "digest": digest.hexdigest()}
+            eligible = (rel == _GUARD_OVERRIDES_REL or
+                        (rel.startswith("docs/") and path.suffix == ".md" and rel not in snapshot.carriers))
+            if eligible and st.st_size <= min(_RECONCILIATION_DOC_BYTES, budget):
+                data = contained_files.read_contained_bytes(snapshot.root, path, max_bytes=_RECONCILIATION_DOC_BYTES)
+                if hashlib.sha256(data).hexdigest() != digest.hexdigest():
+                    raise ValueError("recovery document changed while reading")
+                try:
+                    snapshot.editorial[rel] = data.decode("utf-8")
+                except UnicodeError:
+                    continue
+                budget -= len(data)
+                _RECONCILIATION_REMAINING_BYTES = budget
+    except (OSError, ValueError, RuntimeError) as exc:
+        snapshot.capture_error = f"optional recovery capture unavailable ({type(exc).__name__})"
 
 
 def _record_layout(root: Path):
@@ -509,8 +573,9 @@ def repo_state_snapshot(repo_root: Path | None = None) -> "dict[str, tuple | Non
     changes. Ignored runtime paths and ``.git/`` remain outside this guard.
     Supported worker writes to record roots are refused before mutation; this
     is not isolation against arbitrary native or bootstrap-bypassing writes.
-    The runner's own
-    receipt and lock are excluded. Returns ``None`` when git is unavailable,
+    The runner's own receipt and lock, and the designated
+    ``.wavefoundry/work/`` scratch tree, are excluded, including tracked scratch.
+    Returns ``None`` when git is unavailable,
     the root is not a git checkout or the listing timed out, with the cause in
     ``_repo_state_unavailable_reason``, so the caller can state it.
     """
@@ -548,7 +613,7 @@ def repo_state_snapshot(repo_root: Path | None = None) -> "dict[str, tuple | Non
     try:
         with _observation_lock(root) if carriers else contextlib.nullcontext():
             for rel in rels:
-                if rel in _REPO_GUARD_EXCLUDE:
+                if rel in _REPO_GUARD_EXCLUDE or rel.startswith(".wavefoundry/work/"):
                     continue
                 path = root / rel
                 try:
@@ -561,6 +626,8 @@ def repo_state_snapshot(repo_root: Path | None = None) -> "dict[str, tuple | Non
                         snapshot[rel] = (st.st_size, st.st_mtime_ns)
                 except OSError:
                     snapshot[rel] = None
+            if _RECONCILIATION_CAPTURE:
+                _capture_reconciliation(snapshot)
     except (OSError, RuntimeError) as exc:
         _repo_state_unavailable_reason = f"consistent publication observation unavailable ({type(exc).__name__})"
         # A Git checkout that could not be observed is not the legacy no-Git
@@ -732,9 +799,11 @@ def _stray_artifact_failure(preexisting: list[str],
     that cannot be taken (for example a timed-out listing) also fails the run,
     with the cause stated.
     """
+    global _LAST_EXECUTION_EVIDENCE
     created = [p for p in stray_artifact_paths() if p not in preexisting]
     changed: list[str] = []
     unverified = ""
+    repo_after = None
     if repo_before is not None:
         try:
             repo_after = repo_state_snapshot(repo_root)
@@ -744,6 +813,8 @@ def _stray_artifact_failure(preexisting: list[str],
             unverified = _repo_state_unavailable_reason or "the second snapshot failed"
         else:
             changed = _repo_state_changes(repo_before, repo_after)
+    if _RECONCILIATION_CAPTURE:
+        _LAST_EXECUTION_EVIDENCE = (repo_before, repo_after, created, unverified, changed)
     if not created and not changed and not unverified:
         return None
     parts = []
@@ -890,7 +961,8 @@ def _parse_args(argv: list[str]) -> dict:
     or ``--no-cache`` only, so this narrowing strands no caller.
     """
     opts: dict = {"no_cache": False, "files": [], "schedule_control": None, "timings_file": None,
-                  "profile": None, "qualify_profile": None, "help": False, "qualification_report": None}
+                  "profile": None, "qualify_profile": None, "help": False, "qualification_report": None,
+                  "reconcile": None, "accept": None, "operator_reviewed": None}
     args = argv[1:]
     i = 0
     while i < len(args):
@@ -899,6 +971,12 @@ def _parse_args(argv: list[str]) -> dict:
             opts["no_cache"] = True
         elif arg in ("--help", "-h"):
             opts["help"] = True
+        elif arg in ("--reconcile", "--accept", "--operator-reviewed"):
+            key = arg[2:].replace("-", "_")
+            if i + 1 >= len(args) or args[i + 1].startswith("-") or opts[key] is not None:
+                raise _UsageError(f"{arg} requires one value and may be given only once")
+            opts[key] = args[i + 1]
+            i += 1
         elif arg == "--qualification-report":
             if i + 1 >= len(args) or args[i + 1].startswith("-"):
                 raise _UsageError("--qualification-report requires a path")
@@ -942,6 +1020,15 @@ def _parse_args(argv: list[str]) -> dict:
             kind = "unknown option" if arg.startswith("-") else "positional argument"
             raise _UsageError(f"{kind} {arg!r} is not accepted")
         i += 1
+    if opts["reconcile"] is not None:
+        if (opts["files"] or any(opts[k] is not None for k in
+                ("profile", "qualify_profile", "schedule_control", "timings_file", "qualification_report"))
+                or opts["no_cache"] or opts["help"]):
+            raise _UsageError("--reconcile excludes execution/report options")
+        if bool(opts["accept"]) != bool(opts["operator_reviewed"]):
+            raise _UsageError("--accept requires --operator-reviewed and vice versa")
+    elif opts["accept"] is not None or opts["operator_reviewed"] is not None:
+        raise _UsageError("--accept and --operator-reviewed require --reconcile")
     if opts["qualify_profile"] is not None and (
             opts["profile"] is not None or opts["files"] or not opts["qualification_report"]):
         raise _UsageError("--qualify-profile requires --qualification-report and excludes --profile and --file")
@@ -1848,6 +1935,283 @@ def _stray_profile_refusal(environ=None) -> "str | None":
             "--profile NAME (or --file NAME for a focused run).")
 
 
+def _preserve_refused_run(report, after_hash):
+    """Retain the failed execution, never a reconstructed or successful run."""
+    import qualification_report as evidence
+    try:
+        if _LAST_EXECUTION_EVIDENCE is None:
+            return
+        before, after, strays, unverified, changed = _LAST_EXECUTION_EVIDENCE
+        if (not isinstance(before, _RepoSnapshot) or not isinstance(after, _RepoSnapshot)
+                or before.capture_error or after.capture_error):
+            return
+        observed_changes = {rel for rel in set(before.observation) | set(after.observation)
+                            if before.observation.get(rel) != after.observation.get(rel)}
+        # The existing guard has already proved these canonical publications.
+        tolerated = sorted(rel for rel in observed_changes - set(changed)
+                           if rel in before.carriers and before.carriers.get(rel) == after.carriers.get(rel))
+        proof_paths = set(tolerated)
+        matcher = _wave_record_matcher(before.root)
+        for rel in tolerated:
+            if before.carriers[rel] in {"wave", "ledger"} and matcher is not None:
+                proof_paths.update({(Path(rel).parent / matcher[1]).as_posix(),
+                                    (Path(rel).parent / "events.jsonl").as_posix()})
+        paths = sorted(set(changed) | (observed_changes - set(tolerated)))
+        report["recovery"] = {
+            "version": 1, "framework_after": after_hash,
+            "before": before.observation, "after": after.observation,
+            "guard_changed": changed, "strays": strays, "unverified": unverified,
+            "canonical_bookkeeping": tolerated,
+            "canonical_evidence": {rel: {"before": _carrier_bytes(before, rel).decode("utf-8"),
+                                         "after": _carrier_bytes(after, rel).decode("utf-8")}
+                                   for rel in sorted(proof_paths)},
+            "changes": {rel: {"before": before.editorial.get(rel), "after": after.editorial.get(rel),
+                              "authority": rel in before.carriers or rel in after.carriers}
+                        for rel in paths},
+        }
+        path = f".wavefoundry/cache/qualification/refused-{report['run_id']}.json"
+        evidence.write_report(_REPO_ROOT, path, report, immutable=True)
+        print(f"Preserved failed execution for inspection: {path}", flush=True)
+    except (ValueError, OSError, KeyError, TypeError, UnicodeError) as exc:
+        report.pop("recovery", None)
+        print(f"run_tests: optional recovery evidence unavailable: {str(exc)[:256]}", file=sys.stderr)
+
+
+def _publish_default_success(report, inputs_hash, results):
+    """Share receipt publication ownership with reconciliation, after workers."""
+    import qualification_report
+    lock, error = _acquire_run_lock()
+    if error:
+        print(f"run_tests: green receipt publication refused: {error}", file=sys.stderr)
+        return 1
+    try:
+        if _hash_inputs() != inputs_hash:
+            print("FRAMEWORK INPUTS CHANGED BEFORE RECEIPT PUBLICATION: no new green receipt.", file=sys.stderr)
+            return 1
+        _write_cache(inputs_hash, sum(r.test_count for r in results), {r.name: r.elapsed_s for r in results})
+        try:
+            qualification_report.validate(report)
+            qualification_report.write_report(_REPO_ROOT, qualification_report.LAST_DEFAULT, report)
+        except (ValueError, OSError, KeyError, TypeError) as exc:
+            # Optional detail retains its existing nonfatal meaning.
+            print(f"run_tests: default qualification detail unavailable: {str(exc)[:256]}", file=sys.stderr)
+        return 0
+    finally:
+        _release_run_lock(lock)
+
+
+def _closed_gate_delta(old, new):
+    """Only known enabled booleans may change, strictly true to false."""
+    from wf_server.edit_gate_handlers import _VALID_GATES
+    import qualification_report as evidence
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate gate configuration key")
+            result[key] = value
+        return result
+    before, after = (json.loads(value, object_pairs_hook=unique_object) for value in (old, new))
+    if not isinstance(before, dict) or not isinstance(after, dict) or before.keys() != after.keys():
+        return False
+    changed = False
+    for key in before:
+        if evidence.digest(before[key]) == evidence.digest(after[key]):
+            continue
+        left, right = before[key], after[key]
+        if (key not in _VALID_GATES or not isinstance(left, dict) or not isinstance(right, dict)
+                or left.get("enabled") is not True or right.get("enabled") is not False
+                or evidence.digest({k: v for k, v in left.items() if k != "enabled"})
+                != evidence.digest({k: v for k, v in right.items() if k != "enabled"})):
+            return False
+        changed = True
+    return changed
+
+
+def _inspect_reconciliation(path):
+    """Recompute all eligibility and binding facts; never invoke a worker."""
+    import qualification_report as evidence
+    original = evidence.read_report(_REPO_ROOT, path)
+    if original.get("returncode") != 1 or original.get("availability") != "executed":
+        raise ValueError("not a preserved failed execution")
+    # Validate the worker facts separately from the original guard exit.
+    workers = dict(original, returncode=0)
+    evidence.validate(workers)
+    expected = sorted(p.name for p in _TESTS_DIR.glob("test_*.py"))
+    if (not expected or original.get("expected_workers") != expected
+            or original.get("scope") != {"kind": "full", "discovered_workers": expected}):
+        raise ValueError("not a complete current canonical worker inventory")
+    recovery = original.get("recovery")
+    if not isinstance(recovery, dict) or recovery.get("version") != 1:
+        raise ValueError("prospective recovery evidence unavailable")
+    identity = original.get("identity")
+    if (identity != {"source_hash": _hash_inputs(), "profile": "default"}
+            or recovery.get("framework_after") != identity["source_hash"]):
+        raise ValueError("framework inputs changed; this execution cannot qualify current code")
+    if recovery.get("strays") != [] or recovery.get("unverified") != "":
+        raise ValueError("stray artifacts or unverifiable repository observation")
+    before, after = recovery.get("before"), recovery.get("after")
+    if (not isinstance(before, dict) or not isinstance(after, dict)
+            or not before or max(len(before), len(after)) > _RECONCILIATION_MAX_PATHS):
+        raise ValueError("missing or excessive content-hash observation")
+    for manifest in (before, after):
+        for rel, item in manifest.items():
+            if (not isinstance(rel, str) or len(rel) > evidence.MAX_FIELD
+                    or Path(rel).is_absolute() or ".." in Path(rel).parts):
+                raise ValueError("invalid observed path")
+            if item is not None and (not isinstance(item, dict) or item.get("kind") not in ("regular", "special")
+                    or (item["kind"] == "regular" and (type(item.get("mode")) is not int
+                        or not isinstance(item.get("digest"), str)
+                        or not re.fullmatch(r"[0-9a-f]{64}", item["digest"])) )):
+                raise ValueError("missing content-hash proof")
+    guard_changed = recovery.get("guard_changed")
+    if (not isinstance(guard_changed, list) or not guard_changed
+            or any(not isinstance(rel, str) for rel in guard_changed)):
+        raise ValueError("no exact guard-refused paths")
+    tolerated = recovery.get("canonical_bookkeeping")
+    if not isinstance(tolerated, list) or any(not isinstance(rel, str) for rel in tolerated):
+        raise ValueError("missing canonical bookkeeping disposition")
+    proof = recovery.get("canonical_evidence")
+    if not isinstance(proof, dict):
+        raise ValueError("canonical bookkeeping proof unavailable")
+    old_records = _RepoSnapshot(_REPO_ROOT, _carrier_kinds(_REPO_ROOT, set(before)))
+    new_records = _RepoSnapshot(_REPO_ROOT, _carrier_kinds(_REPO_ROOT, set(after)))
+    for rel, pair in proof.items():
+        if not isinstance(pair, dict) or rel not in old_records.carriers or rel not in new_records.carriers:
+            raise ValueError("invalid canonical bookkeeping proof")
+        for snapshot, manifest, endpoint in ((old_records, before, "before"), (new_records, after, "after")):
+            text = pair.get(endpoint)
+            item = manifest.get(rel)
+            if (not isinstance(text, str) or not isinstance(item, dict) or item.get("kind") != "regular"
+                    or hashlib.sha256(text.encode()).hexdigest() != item.get("digest")):
+                raise ValueError("canonical bookkeeping endpoint proof mismatch")
+            snapshot[rel] = (len(text.encode()), 0, text.encode())
+    proved = _bookkeeping_changes(old_records, new_records, set(tolerated))
+    proved.update(rel for rel in tolerated if old_records.carriers.get(rel) == "wave"
+                  and _projection_only_change(old_records.get(rel), new_records.get(rel)))
+    if proved != set(tolerated):
+        raise ValueError("canonical bookkeeping was not proved by existing classifiers")
+    changed = sorted(set(guard_changed) | ({rel for rel in set(before) | set(after)
+                                          if before.get(rel) != after.get(rel)} - set(tolerated)))
+    changes = recovery.get("changes")
+    if not isinstance(changes, dict) or sorted(changes) != changed:
+        raise ValueError("missing exact changed-path evidence")
+    dispositions = {}
+    differences = {}
+    for rel in changed:
+        b, a, delta = before.get(rel), after.get(rel), changes[rel]
+        if (not isinstance(b, dict) or not isinstance(a, dict) or b.get("kind") != "regular"
+                or a.get("kind") != "regular" or b.get("mode") != a.get("mode")
+                or not isinstance(delta, dict) or delta.get("authority") is not False):
+            raise ValueError(f"added/deleted, linked, authority or mode change refused: {rel}")
+        old, new = delta.get("before"), delta.get("after")
+        if (not isinstance(old, str) or not isinstance(new, str)
+                or max(len(old.encode()), len(new.encode())) > _RECONCILIATION_DOC_BYTES
+                or hashlib.sha256(old.encode()).hexdigest() != b["digest"]
+                or hashlib.sha256(new.encode()).hexdigest() != a["digest"]):
+            raise ValueError(f"exact before/after text unavailable: {rel}")
+        if rel == _GUARD_OVERRIDES_REL:
+            if not _closed_gate_delta(old, new):
+                raise ValueError("gate change is not exclusively known boolean gate closure")
+            dispositions[rel] = "known-gate-closure"
+        elif rel.startswith("docs/") and Path(rel).suffix == ".md":
+            dispositions[rel] = "operator-reviewed-editorial"
+        else:
+            raise ValueError(f"not eligible documentation: {rel}")
+        differences[rel] = {"before": old, "after": new, "diff": "".join(difflib.unified_diff(
+            old.splitlines(keepends=True), new.splitlines(keepends=True), fromfile=f"before/{rel}", tofile=f"after/{rel}"))}
+    current = repo_state_snapshot()
+    if (not isinstance(current, _RepoSnapshot) or current.capture_error
+            or current.observation != after):
+        raise ValueError("repository content changed since the preserved observation")
+    # Re-derive authority from the current layout rather than trusting a label.
+    if any(rel in current.carriers for rel in changed):
+        raise ValueError("canonical authority is not editorial documentation")
+    if any(rel not in current.carriers or rel in guard_changed for rel in tolerated):
+        raise ValueError("unproved canonical bookkeeping disposition")
+    ran_at = original.get("ran_at")
+    if not isinstance(ran_at, str) or datetime.datetime.fromisoformat(ran_at).tzinfo is None:
+        raise ValueError("original execution time unavailable")
+    binding = {"original_digest": evidence.digest(original), "run_id": original["run_id"],
+               "observation": current.observation, "dispositions": dispositions}
+    return original, {"eligible": True, "run_id": original["run_id"], "token": evidence.digest(binding),
+                      "differences": differences, "dispositions": dispositions}
+
+
+def _reconcile(opts):
+    """One inspect/accept operation under the existing supported-writer locks."""
+    import qualification_report as evidence
+    global _RECONCILIATION_CAPTURE, _RECONCILIATION_REMAINING_BYTES
+    previous_capture = _RECONCILIATION_CAPTURE
+    previous_budget = _RECONCILIATION_REMAINING_BYTES
+    lock = None
+    try:
+        _RECONCILIATION_CAPTURE = True
+        # Inspection only needs fresh content hashes, not a second text archive.
+        _RECONCILIATION_REMAINING_BYTES = 0
+        lock, error = _acquire_run_lock()
+        if error:
+            raise ValueError(error)
+        with _observation_lock(_REPO_ROOT):
+            original, inspection = _inspect_reconciliation(opts["reconcile"])
+            token, note = opts["accept"], opts["operator_reviewed"]
+            if token is None:
+                print(json.dumps(inspection, sort_keys=True))
+                return 0
+            if token != inspection["token"]:
+                raise ValueError("inspection binding changed or acceptance token does not match")
+            if not isinstance(note, str) or not note.strip() or len(note) > evidence.MAX_FIELD:
+                raise ValueError("explicit bounded operator editorial-review attestation required")
+            acceptance_id = evidence.digest({"token": token, "operator_reviewed": note})
+            annotation = {"acceptance_id": acceptance_id, "token": token, "operator_reviewed": note,
+                          "original_run_id": original["run_id"], "original_returncode": original["returncode"],
+                          "original_report": str(evidence.output_path(_REPO_ROOT, opts["reconcile"]).relative_to(_REPO_ROOT.resolve())),
+                          "original_digest": evidence.digest(original), "dispositions": inspection["dispositions"]}
+            cache = _read_cache()
+            if cache and cache.get("reconciliation") != annotation:
+                timestamp = cache.get("ran_at")
+                if (not isinstance(timestamp, str) or datetime.datetime.fromisoformat(timestamp).tzinfo is None
+                        or datetime.datetime.fromisoformat(timestamp) >= datetime.datetime.fromisoformat(original["ran_at"])):
+                    raise ValueError("newer or ambiguous unrelated receipt must not be replaced")
+            try:
+                retained = evidence.read_report(_REPO_ROOT, evidence.LAST_DEFAULT)
+            except FileNotFoundError:
+                retained = None
+            if retained and retained.get("reconciliation") != annotation and retained.get("ran_at"):
+                retained_at = datetime.datetime.fromisoformat(retained["ran_at"])
+                if retained_at.tzinfo is None or retained_at >= datetime.datetime.fromisoformat(original["ran_at"]):
+                    raise ValueError("newer or ambiguous unrelated detail must not be replaced")
+            accepted = dict(original, returncode=0, reconciliation=annotation)
+            accepted.pop("recovery", None)
+            evidence.validate(accepted)
+            accepted_path = f".wavefoundry/cache/qualification/accepted-{acceptance_id}.json"
+            # Recheck after validation, immediately adjacent to publication.
+            rechecked, latest = _inspect_reconciliation(opts["reconcile"])
+            if latest["token"] != token or rechecked != original:
+                raise ValueError("inspection changed before publication")
+            evidence.write_report(_REPO_ROOT, accepted_path, accepted, immutable=True)
+            evidence.write_report(_REPO_ROOT, evidence.LAST_DEFAULT, accepted)
+            _write_cache(original["identity"]["source_hash"], sum(row["tests"] for row in original["workers"]),
+                         execution={"ran_at": original["ran_at"], "run_id": original["run_id"], "reconciliation": annotation})
+            receipt = _read_cache()
+            if (not receipt or receipt.get("reconciliation") != annotation
+                    or receipt.get("run_id") != original["run_id"] or receipt.get("result") != "ok"
+                    or receipt.get("inputs_hash") != original["identity"]["source_hash"]
+                    or evidence.read_report(_REPO_ROOT, evidence.LAST_DEFAULT) != accepted):
+                raise ValueError("acceptance publication incomplete; retry the same inspected acceptance")
+            print(json.dumps({"accepted": True, "run_id": original["run_id"],
+                              "acceptance_id": acceptance_id, "original_returncode": 1}, sort_keys=True))
+            return 0
+    except (ValueError, OSError, RuntimeError, KeyError, TypeError, AttributeError) as exc:
+        print(json.dumps({"eligible": False, "reason": str(exc)[:512]}, sort_keys=True))
+        return 1
+    finally:
+        _RECONCILIATION_CAPTURE = previous_capture
+        _RECONCILIATION_REMAINING_BYTES = previous_budget
+        if lock is not None:
+            _release_run_lock(lock)
+
+
 def main() -> int:
     global _QUALIFICATION_REQUESTED
     # Strict mode validation first (Requirement 9 of 1tm6d): every flag is
@@ -1861,6 +2225,8 @@ def main() -> int:
     if opts["help"]:
         print(_USAGE, end="")
         return 0
+    if opts["reconcile"] is not None:
+        return _reconcile(opts)
 
     # Change 1zyv1: configure here, never at import (the close gate borrows this
     # module in-process). A top-level run warms the cache and prunes its temp
@@ -1879,7 +2245,7 @@ def main() -> int:
 
 
 def _main(opts: dict) -> int:
-    global _QUALIFICATION_REQUESTED
+    global _QUALIFICATION_REQUESTED, _RECONCILIATION_CAPTURE, _LAST_EXECUTION_EVIDENCE, _RECONCILIATION_REMAINING_BYTES
     qualification_path = opts.get("qualification_report")
     _QUALIFICATION_REQUESTED = bool(qualification_path)
     if qualification_path:
@@ -1985,26 +2351,29 @@ def _main(opts: dict) -> int:
     # Production order: alphabetical until the measured schedule winner is
     # recorded by the counterbalanced control comparison (Requirement 4).
     order = _schedule_order(test_files, durations, "alphabetical")
-    rc, results = _execute_files(order)
-    if rc == 0 and _hash_inputs() != inputs_hash:
+    ran_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    _LAST_EXECUTION_EVIDENCE = None
+    previous_capture = _RECONCILIATION_CAPTURE
+    previous_budget = _RECONCILIATION_REMAINING_BYTES
+    try:
+        _RECONCILIATION_CAPTURE = True
+        _RECONCILIATION_REMAINING_BYTES = _RECONCILIATION_TOTAL_BYTES
+        rc, results = _execute_files(order)
+    finally:
+        _RECONCILIATION_CAPTURE = previous_capture
+        _RECONCILIATION_REMAINING_BYTES = previous_budget
+    after_hash = _hash_inputs()
+    if rc == 0 and after_hash != inputs_hash:
         print("FRAMEWORK INPUTS CHANGED DURING THE TEST RUN: no new green receipt; rerun after material inputs settle.", file=sys.stderr)
         rc = 1
     report = qualification_report.make_report(
         {"source_hash": inputs_hash, "profile": "default"}, [p.name for p in order], results, rc)
+    report["ran_at"] = ran_at
+    if rc != 0:
+        _preserve_refused_run(report, after_hash)
     if rc == 0:
-        _write_cache(
-            inputs_hash,
-            sum(r.test_count for r in results),
-            {r.name: r.elapsed_s for r in results},
-        )
-        try:
-            qualification_report.validate(report)
-            qualification_report.write_report(_REPO_ROOT, qualification_report.LAST_DEFAULT, report)
-        except (ValueError, OSError, KeyError, TypeError) as exc:
-            # Optional detail never turns into a new canonical-suite gate. The
-            # green receipt remains truthful; packaging must refuse unavailable
-            # detail instead of reconstructing it or silently rerunning tests.
-            print(f"run_tests: default qualification detail unavailable: {str(exc)[:256]}", file=sys.stderr)
+        rc = _publish_default_success(report, inputs_hash, results)
+        report["returncode"] = rc
     if qualification_path:
         return _write_qualification_report(qualification_path, report, rc)
     return rc

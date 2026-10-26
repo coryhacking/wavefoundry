@@ -37,6 +37,9 @@ SPAWN_ATTRS = {"run", "Popen", "call", "check_output", "check_call"}
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 SERVER_PATH = SCRIPTS_ROOT / "server.py"
+if str(SCRIPTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_ROOT))
+from review_evidence import requires_intent_fit  # noqa: E402
 
 
 def integrity_checks(**overrides: object) -> dict[str, object]:
@@ -229,7 +232,10 @@ def make_declared_wave(srv, root, slug, *, status="planned", change_ids=(),
                 root, wave_id, event="approval", actor=actor, context_id="fixture-approval-" + key,
                 mode="create", signoff_key=key, approval_phase="readiness",
                 fresh_context=True, independent=True,
-                evidence={"observed": "fixture approval", "artifact_or_test_id": "test:declared-wave"},
+                evidence={
+                    "observed": "fixture approval", "artifact_or_test_id": "test:declared-wave",
+                    **({"intent_fit": "establishes"} if requires_intent_fit(key) else {}),
+                },
                 integrity_checks=integrity_checks()))
         if status != "planned":
             text, count = re.subn(r"(?m)^Status: planned$", f"Status: {status}", wave_md.read_text(), count=1)

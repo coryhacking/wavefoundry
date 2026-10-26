@@ -30,6 +30,7 @@ for extra in (SCRIPTS_DIR, SCRIPTS_DIR / "tests"):
         sys.path.insert(0, str(extra))
 
 import record_paths  # noqa: E402
+from review_evidence import requires_intent_fit  # noqa: E402
 import vocabulary_profile  # noqa: E402
 from record_layout_support import load_profile, patch_layout, run_script_with_layout  # noqa: E402
 from server_tools_support import _make_repo, load_server  # noqa: E402
@@ -302,7 +303,9 @@ class ArchiveUntouchedByLiveLifecycleTests(_ArchiveCase):
         def event(step, wave_id, kind, actor, context, **kwargs):
             return ok(step, srv.wf_review_event_response(
                 root, wave_id, kind, actor, context, mode="create", fresh_context=True, independent=True,
-                evidence={"observed": "fixture", "artifact_or_test_id": "archive:" + context},
+                evidence={"observed": "fixture", "artifact_or_test_id": "archive:" + context,
+                          **({"intent_fit": "establishes"}
+                             if requires_intent_fit(kwargs.get("signoff_key")) else {})},
                 integrity_checks=dict(integrity), **kwargs))
 
         stubs = dict(

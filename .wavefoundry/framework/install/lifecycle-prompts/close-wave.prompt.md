@@ -42,7 +42,7 @@ briefed subagent.
    when telemetry is available.
 8. Run `wf_close_wave(mode='dry_run')` before requesting operator approval.
 
-Before closure, explicitly author one concise `Intent outcome:` paragraph in the existing exact `## Review Checkpoints` section: state achieved, partial or not established, cite evidence, and retain material limitations. When the plan states a measure of success, cite it and say whether it can be read yet. It may cover changes sharing an outcome. The close-summary composer carries the last such paragraph or list item (optionally dated `YYYY-MM-DD: `) into Wave Summary, preserving its text and qualification; do not infer achievement from titles or checked ACs. Legacy records without this assessment remain closable under existing gates and retain their existing summary behavior; this adds no schema or blocking gate.
+Before closure, explicitly author one concise `Intent outcome:` paragraph in the existing exact `## Review Checkpoints` section: state achieved, partial or not established, cite evidence, and retain material limitations. When the plan states a measure of success, cite it and say whether it can be read yet. It may cover changes sharing an outcome. The close-summary composer carries the last such paragraph or list item (optionally dated `YYYY-MM-DD: `) into Wave Summary, preserving its text and qualification; do not infer achievement from titles or checked ACs. Legacy records without this assessment remain closable under existing gates and retain their existing summary behavior; this adds no schema or blocking gate. When the current `council-delivery` approval records `intent_fit: does_not`, Review and Close report the `delivery_intent_not_established` advisory; it does not block, and the operator's sign-off accepts that outcome.
 
 ## Operator authority
 
@@ -50,3 +50,7 @@ Only an explicit operator instruction authorizes `wf_close_wave(mode='create')`
 or equivalent apply mode. Passing dry-run, finishing implementation, or asking
 for review does not imply closure approval. Commit, tag, push, and release
 authority remain separately operator-owned.
+
+## Disposable wave work
+
+Use the lifecycle-reported `.wavefoundry/work/<wave-id>/`, keyed by the resolved unique prefix, for shared temporary work; include the path and availability notices in coordinator briefs. Follow seed 180’s **Disposable wave work** and seed 209’s **Review Artifact Discipline**. Reads and dry-runs create nothing; unavailable work is advisory and existing host permissions apply. Before finalizing evidence, preserve unique long-term proof in maintained wave records, tests or explicitly retained evidence; new durable approvals must not rely solely on disposable paths. Only successful operator-authorized whole-wave closure attempts owned cleanup after its transition. Failure is advisory; unsupported safe deletion preserves files. Dry-run, failed close and single-change close preserve work. Authorized repeated close may retry; stale cleanup cannot remove a reopened generation. Ordinary wave-folder evidence is protected.

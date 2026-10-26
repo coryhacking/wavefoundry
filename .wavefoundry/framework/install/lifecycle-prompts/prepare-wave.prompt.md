@@ -59,7 +59,13 @@ only one wave may be open for implementation.
    and any additional lanes required by local policy, and never read an empty
    automatic roster as evidence that no review is warranted.
 6. Run the configured readiness council when enabled and record its actual
-   seats, evidence, disagreements, and verdict.
+   seats, evidence, disagreements, and verdict, including the council-chair's
+   `intent_fit`: for each admitted change and the wave Objective, whether
+   meeting its Requirements and ACs would establish its Product Intent, citing
+   the measure of success and whether it can be read after release (seed 215).
+   The typed `council-readiness` approval records that verdict as
+   `evidence.intent_fit` (`establishes` or `partially`); a plan that will not
+   establish its intent is a finding, not an approval.
 7. Record product-owner acknowledgment when the change affects product
    behavior or acceptance expectations.
 8. Use `wf_prepare_wave(mode='ready')` to ready without opening, or
@@ -72,3 +78,11 @@ only one wave may be open for implementation.
 Implementation may begin only after readiness is clean and its current approval
 is recorded. The readiness verdict is the single pre-code review decision; it
 confirms admissibility, not delivery approval.
+
+## Focused readiness re-review
+
+For stale readiness, use the guided review actions and seed 209’s **Focused readiness re-review**. Compare cumulatively from each lane’s last approved receipt, with its prior approval/evidence, changed sections and a verified normalized before/after delta when available; provide the full amended plans and affected dependency context, and ask whether the change alters the verdict. Newly required lanes perform normal initial review. Exact raw receipt snapshots under `.wavefoundry/work/<wave-id>/receipts/` are optional aids, never approval authority. Missing legacy metadata, missing/corrupt/cleaned snapshots, stale inputs, incompatible normalization or truncated output must be explicit; obtain full text or fall back to normal full review. Reads create no snapshots. Receipt identity, required lanes, approval invalidation and deferral rules are unchanged; no approval transfers or measured effort savings are implied.
+
+## Disposable wave work
+
+Use the lifecycle-reported `.wavefoundry/work/<wave-id>/`, keyed by the resolved unique prefix, for shared temporary work; include the path and availability notices in coordinator briefs. Follow seed 180’s **Disposable wave work** and seed 209’s **Review Artifact Discipline**. Reads and dry-runs create nothing; unavailable work is advisory and existing host permissions apply. Receipt copies and review notes are disposable aids; preserve unique proof before final evidence and keep durable approval authority in its existing records.

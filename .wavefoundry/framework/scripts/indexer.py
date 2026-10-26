@@ -3410,8 +3410,8 @@ def _precision_class_from_version(value: Optional[str]) -> str:
     return value.split("@", 2)[1]
 
 
-def _implicit_precision_changes(index_dir: Path) -> list[dict[str, str]]:
-    """Recognized precision changes require caller intent, not convergence.
+def _recognized_index_precisions(index_dir: Path) -> list[dict[str, str]]:
+    """Read only precision explicitly recorded for a published semantic layer.
 
     The existing metadata reader accepts only the current store schema. Missing
     or legacy provenance keeps its existing reconstruction path; in particular,
@@ -3419,8 +3419,7 @@ def _implicit_precision_changes(index_dir: Path) -> list[dict[str, str]]:
     """
     meta = _load_meta(index_dir)
     versions = meta.get("model_versions") or {}
-    providers = _onnx_providers()
-    changes = []
+    recognized = []
     for layer, model in (("docs", DOCS_MODEL), ("code", CODE_MODEL)):
         value = versions.get(layer)
         fields = value.split("@", 2) if isinstance(value, str) else []
@@ -3429,9 +3428,19 @@ def _implicit_precision_changes(index_dir: Path) -> list[dict[str, str]]:
             continue
         if layer not in meta.get("content", []) and not vector_store.layer_available(index_dir, layer):
             continue
-        requested = _predicted_precision_class(model, providers)
-        if recorded != requested:
-            changes.append({"layer": layer, "recorded": recorded, "requested": requested})
+        recognized.append({"layer": layer, "model": model, "recorded": recorded})
+    return recognized
+
+
+def _implicit_precision_changes(index_dir: Path) -> list[dict[str, str]]:
+    """Recognized precision changes require caller intent, not convergence."""
+    recognized = _recognized_index_precisions(index_dir)
+    providers = _onnx_providers()
+    changes = []
+    for item in recognized:
+        requested = _predicted_precision_class(item["model"], providers)
+        if item["recorded"] != requested:
+            changes.append({"layer": item["layer"], "recorded": item["recorded"], "requested": requested})
     return changes
 
 

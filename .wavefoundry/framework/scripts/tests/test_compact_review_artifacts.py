@@ -29,7 +29,9 @@ class CompactReviewArtifactContractTests(unittest.TestCase):
     # formatting. Deletion and reversal controls run against the actual seed.
     CONTRACTS = {
         CORE: (
-            "temporary storage outside the repository",
+            "`.wavefoundry/work/<wave-id>/` disposable area",
+            "promote unique long-term proof out of disposable work",
+            "New durable approvals must not rely solely on work-area paths",
             "final outcomes, review disagreements, source/profile identities",
             "memory disposition and the evidence index",
             "unique long-run proof that canonical tests, exact Git history",
@@ -39,6 +41,8 @@ class CompactReviewArtifactContractTests(unittest.TestCase):
             "check containment, file identity, uniqueness and references",
             "keep cited originals unless their consumers are explicitly migrated",
             "keep unreconstructable dirty-tree baselines",
+            "Only the designated owned `.wavefoundry/work/<wave-id>/` is eligible for automatic best-effort cleanup after successful operator-authorized whole-wave closure",
+            "ordinary wave-folder evidence keeps these manual protections",
             "No age expiry, blanket deletion, reference resolver, cleanup sidecar or automatic deletion gate",
             "consume its returned continuation actions and current receipt identity",
             "Finish source, test, configuration, edit-gate and substantive plan edits before the final canonical suite",
@@ -53,6 +57,13 @@ class CompactReviewArtifactContractTests(unittest.TestCase):
             "Reuse a report only while its inputs are unchanged",
         ),
         IMPLEMENT: (
+            "`.wavefoundry/work/<wave-id>/`, keyed by the resolved unique lifecycle prefix",
+            "Before finalizing evidence, preserve unique long-term proof",
+            "new durable approvals must not depend solely on disposable paths",
+            "attempts contained cleanup after the close transition",
+            "Dry-run, failed close and single-change close preserve work",
+            "Unsupported safe deletion preserves files with a notice",
+            "only to the owned work area, never historical wave artifacts",
             "Confirm current readiness and delivery authority",
             "consume successful typed-write continuation actions",
             "Re-Prepare when the receipt is missing or stale",
@@ -132,7 +143,7 @@ class CompactReviewArtifactContractTests(unittest.TestCase):
         template = template_path.read_text(encoding="utf-8")
         completion = template.split("## Completion\n", 1)[1].split("\nImplementation is complete", 1)[0]
         phrases = (
-            "temporary storage outside the repository",
+            "the lifecycle-reported disposable wave work area",
             "preserve cited and unique proof",
             "Consume successful typed-write continuation actions",
             "successful receipt matching current inputs",

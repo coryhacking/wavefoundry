@@ -5695,3 +5695,106 @@ class SignoffCompatibilityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FocusedRereviewTests(unittest.TestCase):
+    CHANGE = "abc12-enh cumulative example"
+
+    def receipt(self, body, parent=None):
+        digest, inputs = review_policy.policy_input_snapshot(
+            wave_review={"enabled": True, "delivery_mode": "targeted"},
+            project_lanes=(), review_policies={},
+            changes=((self.CHANGE, "enh", body),), requested_lanes=())
+        fields = {"schema_version": review_policy.REVIEW_POLICY_SCHEMA_VERSION,
+                  "evaluator_version": review_policy.REVIEW_POLICY_EVALUATOR_VERSION,
+                  "policy_input_digest": digest, "policy_inputs": inputs,
+                  "review_context": review_policy.build_review_context({self.CHANGE: body}),
+                  "delivery_mode": "targeted", "primer_depth": "standard", "council_seats": ["red-team"],
+                  "requested_lanes": [], "required_lanes": ["code-reviewer", "qa-reviewer"],
+                  "delivery_council_required": False}
+        return review_policy.build_policy_receipt(fields, parent)[0]
+
+    def approval(self, lane, receipt):
+        return executable_evidence("evidence-" + lane, "approval:" + lane,
+            claim_kind="approval", actor=lane, required_for_approval=True,
+            approval_phase="readiness", policy_receipt_id=receipt["receipt_id"])
+
+    def test_independent_cumulative_oracle_differs_by_each_last_approval(self):
+        # Oracle is independently stated: Scope changed in R2, Constraints in
+        # R3. A latest-two-only implementation necessarily loses the Scope edit.
+        bodies = [b"## Scope\nalpha\n## Constraints\nloose\n",
+                  b"## Scope\nbeta\n## Constraints\nloose\n",
+                  b"## Scope\nbeta\n## Constraints\nstrict\n"]
+        r1 = self.receipt(bodies[0]); r2 = self.receipt(bodies[1], r1); r3 = self.receipt(bodies[2], r2)
+        rows = [r1, self.approval("code-reviewer", r1), r2, self.approval("qa-reviewer", r2), r3]
+        snapshots = {r["receipt_id"]: {"available": True, "path": "snapshots/" + r["receipt_id"],
+                     "documents": {self.CHANGE: body}} for r, body in zip((r1, r2, r3), bodies)}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wave = waves_dir(root) / "abc12 example" / RECORD
+            wave.parent.mkdir(parents=True)
+            (wave.parent / (self.CHANGE + ".md")).write_bytes(bodies[-1])
+            with patch("wave_work.read_snapshot", side_effect=lambda root, wave, receipt: snapshots[receipt["receipt_id"]]):
+                brief = subject.focused_rereview(root, wave, rows,
+                                                ["code-reviewer", "qa-reviewer", "security-reviewer"])
+        lanes = {lane["signoff_key"]: lane for lane in brief["lanes"]}
+        self.assertEqual(set(lanes), {"code-reviewer", "qa-reviewer"})
+        self.assertEqual(lanes["code-reviewer"]["baseline_receipt_id"], r1["receipt_id"])
+        self.assertEqual(lanes["qa-reviewer"]["baseline_receipt_id"], r2["receipt_id"])
+        self.assertEqual({s["heading"] for s in lanes["code-reviewer"]["section_changes"][0]["sections"]}, {"Scope", "Constraints"})
+        self.assertEqual({s["heading"] for s in lanes["qa-reviewer"]["section_changes"][0]["sections"]}, {"Constraints"})
+        self.assertIn("-alpha", lanes["code-reviewer"]["documents"][0]["normalized_diff"])
+        self.assertNotIn("-alpha", lanes["qa-reviewer"]["documents"][0]["normalized_diff"])
+        self.assertIn("+strict", lanes["code-reviewer"]["documents"][0]["normalized_diff"])
+        self.assertEqual(lanes["code-reviewer"]["prior_approval"]["evidence_record_id"], "evidence-code-reviewer")
+        self.assertTrue(lanes["code-reviewer"]["full_plan_paths"])
+        self.assertFalse(lanes["code-reviewer"]["full_review_required"])
+        states = subject.review_authority_projection(rows, ["code-reviewer", "qa-reviewer"], approval_phase="readiness")
+        self.assertTrue(all(fact["approval_state"] == "stale" for fact in states["approval_facts"]))
+
+    def test_missing_legacy_stale_and_readonly_full_review_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); wave = waves_dir(root) / "abc12 example" / RECORD
+            wave.parent.mkdir(parents=True); wave.write_text("# Wave\n")
+            r1 = self.receipt(b"## Scope\none\n"); r2 = self.receipt(b"## Scope\ntwo\n", r1)
+            rows = [r1, self.approval("code-reviewer", r1), r2]
+            for stale in (True, False):
+                brief = subject.focused_rereview(root, wave, rows, ["code-reviewer"], current_inputs_valid=not stale)
+                self.assertTrue(brief["lanes"][0]["full_review_required"])
+                self.assertTrue(brief["lanes"][0]["limitations"])
+                self.assertFalse((root / ".wavefoundry").exists(), "read-only review must create nothing")
+            del r1["review_context"]
+            brief = subject.focused_rereview(root, wave, rows, ["code-reviewer"])
+            self.assertIn("legacy", " ".join(brief["lanes"][0]["limitations"]))
+
+    def test_aggregate_bound_is_explicit_and_keeps_full_review_route(self):
+        r1 = self.receipt(b"## Scope\nold\n"); r2 = self.receipt(b"## Scope\nnew\n", r1)
+        rows = [r1, self.approval("code-reviewer", r1), r2]
+        # This fits a character-only budget but exceeds the UTF-8 byte budget.
+        bodies = {r1["receipt_id"]: ("雪" * 8000).encode(), r2["receipt_id"]: ("火" * 8000).encode()}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            wave = waves_dir(root) / "abc12 example" / RECORD
+            wave.parent.mkdir(parents=True)
+            (wave.parent / (self.CHANGE + ".md")).write_bytes(b"## Scope\nnew\n")
+            with patch("wave_work.read_snapshot", side_effect=lambda root, wave, receipt: {
+                    "available": True, "path": "raw.json", "documents": {self.CHANGE: bodies[receipt["receipt_id"]]}}):
+                brief = subject.focused_rereview(root, wave, rows, ["code-reviewer"])
+        self.assertLessEqual(len(json.dumps(brief, ensure_ascii=False).encode("utf-8")), 24000)
+        self.assertTrue(brief["truncated"])
+        self.assertTrue(brief["lanes"][0]["full_review_required"])
+        self.assertTrue(brief["full_plan_directory"])
+
+    def test_actual_current_document_change_refuses_diff_despite_default_true(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); wave = waves_dir(root) / "abc12 example" / RECORD
+            wave.parent.mkdir(parents=True)
+            r1 = self.receipt(b"## Scope\none\n"); r2 = self.receipt(b"## Scope\ntwo\n", r1)
+            rows = [r1, self.approval("code-reviewer", r1), r2]
+            (wave.parent / (self.CHANGE + ".md")).write_bytes(b"## Scope\nunprepared edit\n")
+            with patch("wave_work.read_snapshot") as read:
+                brief = subject.focused_rereview(root, wave, rows, ["code-reviewer"])
+            read.assert_not_called()
+            self.assertTrue(brief["lanes"][0]["full_review_required"])
+            self.assertIn("stale", " ".join(brief["lanes"][0]["limitations"]))
+            self.assertFalse(brief["lanes"][0]["documents"])

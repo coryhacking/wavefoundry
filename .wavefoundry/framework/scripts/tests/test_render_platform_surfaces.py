@@ -2683,6 +2683,7 @@ class RenderGitignoreBlockTests(unittest.TestCase):
         ".wavefoundry/logs/",
         ".wavefoundry/**/*.lock",
         ".wavefoundry/locks/",
+        ".wavefoundry/work/",
         ".wavefoundry/dashboard-server.json",
         ".wavefoundry/upgrade-in-progress.json",
         ".wavefoundry/guard-overrides.json",
@@ -2719,6 +2720,52 @@ class RenderGitignoreBlockTests(unittest.TestCase):
         self.assertEqual(once, twice, "render must be idempotent")
         self.assertEqual(twice.count(self.mod._GITIGNORE_BEGIN), 1, "exactly one managed block")
         self.assertEqual(twice.count(".wavefoundry/index/"), 1, "no duplicate entries")
+
+    def test_wave_work_ignored_on_install_and_upgrade_without_hiding_source(self):
+        if shutil.which("git") is None:
+            self.skipTest("git is not available")
+        for existing in ("", "# operator rule\ncustom/\n"):
+            with self.subTest(existing=bool(existing)), tempfile.TemporaryDirectory() as td:
+                root = Path(td).resolve()
+                subprocess.run(["git", "init", "-q", str(root)], check=True)
+                (root / ".gitignore").write_text(existing, encoding="utf-8")
+                self.mod.render_gitignore_block(root)
+                first = (root / ".gitignore").read_bytes()
+                self.mod.render_gitignore_block(root)
+                self.assertEqual((root / ".gitignore").read_bytes(), first)
+                self.assertTrue(first.startswith(existing.encode()))
+                for path, expected in ((".wavefoundry/work/21luh/tests/probe.py", 0),
+                                       (".wavefoundry/work/other/reviews/report.md", 0),
+                                       (".wavefoundry/framework/scripts/source.py", 1),
+                                       (".wavefoundry/workspace/source.py", 1)):
+                    result = subprocess.run(["git", "check-ignore", "--no-index", path],
+                                            cwd=root, capture_output=True)
+                    self.assertEqual(result.returncode, expected, path)
+
+    def test_wave_work_excluded_from_index_and_pack_with_live_source_control(self):
+        import indexer
+        import build_pack
+        from machine_authority import is_machine_authority_path
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            files = (".wavefoundry/work/21luh/scratch/probe.py",
+                     ".wavefoundry/framework/scripts/source.py",
+                     ".wavefoundry/workspace/source.py", "src/source.py")
+            for rel in files:
+                path = root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("value = 1\n", encoding="utf-8")
+            self.assertTrue(is_machine_authority_path(files[0], root))
+            self.assertFalse(is_machine_authority_path(files[1], root))
+            self.assertFalse(is_machine_authority_path(files[2], root))
+            walked = {p.relative_to(root).as_posix()
+                      for p in indexer.walk_repo(root, respect_ignore=False)}
+            self.assertNotIn(files[0], walked)
+            self.assertIn(files[1], walked)
+            self.assertIn(files[3], walked)
+            packed = {p.relative_to(root).as_posix()
+                      for p, _ in build_pack.collect_files(root / ".wavefoundry/framework")}
+            self.assertEqual(packed, {files[1]})
 
     def test_preserves_user_entries(self):
         # AC-3: operator-authored lines outside the managed region are kept verbatim.

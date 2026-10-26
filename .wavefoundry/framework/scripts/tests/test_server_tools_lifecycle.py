@@ -27,6 +27,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 import server_tools_support
+from review_evidence import requires_intent_fit
 from server_tools_support import (  # noqa: F401 — shared server-test fixtures
     SCRIPTS_ROOT,
     SERVER_PATH,
@@ -1167,6 +1168,22 @@ class WaveCreateScaffoldAlignmentTests(unittest.TestCase):
         self.assertIn("## Watchpoints\n", text)
         self.assertNotIn("## Journal Watchpoints", text)
 
+    def test_scaffold_carries_review_checkpoints_for_the_intent_composer(self):
+        """21j63: the exact carrier heading exists once, after Dependencies,
+        and an Intent outcome drafted under it reaches the close summary."""
+        result = self._create_wave("theta-wave")
+        self.assertTrue(result["lint"]["clean"], result["lint"])
+        wave_md = self.root / result["path"]
+        text = wave_md.read_text(encoding="utf-8")
+        self.assertEqual(text.count("\n## Review Checkpoints\n"), 1)
+        self.assertLess(text.find("\n## Dependencies\n"), text.find("\n## Review Checkpoints\n"))
+        outcome = "Intent outcome: partial; the scaffolded carrier reached the composer."
+        drafted = text.replace("\n## Review Checkpoints\n",
+                               "\n## Review Checkpoints\n\n2026-10-24: " + outcome + "\n", 1)
+        summary = self.srv._generate_wf_close_wave_summary(
+            result["wave_id"], drafted, wave_md, self.root)
+        self.assertIn(outcome, summary)
+
 
 
 
@@ -2124,7 +2141,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
             fresh_context=True,
             independent=True,
             integrity_checks=integrity_checks(),
-            evidence={"observed": observed, "artifact_or_test_id": f"test:{signoff_key}"},
+            evidence={**({"intent_fit": "establishes"} if requires_intent_fit(signoff_key) else {}), "observed": observed, "artifact_or_test_id": f"test:{signoff_key}"},
         )
         first = call("same-operation")
         replay = call("same-operation")
@@ -5992,7 +6009,7 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
                 signoff_key="council-readiness",
                 approval_phase=supplied_phase, fresh_context=True, independent=True,
                 integrity_checks=integrity_checks(),
-                evidence={"observed": "invalid phase", "artifact_or_test_id": "phase"},
+                evidence={"intent_fit": "establishes", "observed": "invalid phase", "artifact_or_test_id": "phase"},
             )
             self.assertEqual(rejected["status"], "error", rejected)
             usages = " ".join(
@@ -6943,7 +6960,7 @@ class MarkAcReceiptRefreshTests(unittest.TestCase):
             fresh_context=True,
             independent=True,
             integrity_checks=integrity_checks(),
-            evidence={
+            evidence={"intent_fit": "establishes",
                 "observed": "approved the current receipt before the contract changed",
                 "artifact_or_test_id": "test:receipt-refresh-before-deferral",
             },
@@ -10145,7 +10162,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                     fresh_context=True,
                     independent=True,
                     integrity_checks=integrity_checks(),
-                    evidence={
+                    evidence={"intent_fit": "establishes",
                         "observed": "readiness approved",
                         "artifact_or_test_id": f"test:transition-{state}-approval",
                     },
@@ -10294,7 +10311,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             context_id="close-exit-b-delivery",
             fresh_context=True,
             independent=True,
-            evidence={
+            evidence={"intent_fit": "establishes",
                 "observed": "delivery council approved the delivered scope",
                 "artifact_or_test_id": "test:close-exit-b",
             },
@@ -10374,6 +10391,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             evidence={
                 "observed": "reviewed the admitted scope",
                 "artifact_or_test_id": "test:staleness",
+                **({"intent_fit": "establishes"} if actor == "council-chair" else {}),
             },
             integrity_checks=integrity_checks(),
         )
@@ -10404,7 +10422,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                     signoff_key="council-readiness", approval_phase="readiness",
                     actor="council-chair", context_id=context,
                     fresh_context=True, independent=True,
-                    evidence={"observed": "reviewed scope", "artifact_or_test_id": artifact},
+                    evidence={"intent_fit": "establishes", "observed": "reviewed scope", "artifact_or_test_id": artifact},
                     integrity_checks=integrity_checks(),
                 )
                 self.assertEqual(result["status"], "dry_run" if mode == "dry_run" else "ok", result)
@@ -10455,7 +10473,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             self.root, wave_id, "approval", "council-chair", "delivery-only",
             mode="create", signoff_key="council-delivery", approval_phase="delivery",
             fresh_context=True, independent=True,
-            evidence={"observed": "delivery reviewed", "artifact_or_test_id": "test:delivery-only"},
+            evidence={"intent_fit": "establishes", "observed": "delivery reviewed", "artifact_or_test_id": "test:delivery-only"},
             integrity_checks=integrity_checks(),
         )
         self.assertEqual(result["status"], "ok", result)
@@ -10486,7 +10504,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             signoff_key="council-delivery", approval_phase="delivery",
             actor="council-chair", context_id="metadata-delivery",
             fresh_context=True, independent=True,
-            evidence={"observed": "delivery reviewed", "artifact_or_test_id": "test:metadata"},
+            evidence={"intent_fit": "establishes", "observed": "delivery reviewed", "artifact_or_test_id": "test:metadata"},
             integrity_checks=integrity_checks(),
         )
         self.assertEqual(approval["status"], "ok", approval)
@@ -10501,7 +10519,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             diagnostic = next(d for d in result["diagnostics"] if d["code"] == "review_policy_receipt_superseded")
             self.assertTrue(diagnostic["advisory"])
             self.assertIn("changed change docs: 1abcz-bug sample", diagnostic["message"])
-            self.assertIn("Which section changed is not attributable from persisted data", diagnostic["message"])
+            self.assertIn("changed sections: 1abcz-bug sample: changed Requirements", diagnostic["message"])
             self.assertNotIn("policy_inputs", result["data"]["review_policy"]["receipt"])
             self.assertIn("missing_wave_council_signoff", [d["code"] for d in result["diagnostics"]])
             authority = self.srv.resolve_review_authority(self.root, wave_md)
@@ -10615,6 +10633,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             evidence={
                 "observed": "reviewed the admitted scope",
                 "artifact_or_test_id": "test:staleness",
+                "intent_fit": "establishes",
             },
             integrity_checks=integrity_checks(),
         )
@@ -10673,7 +10692,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             signoff_key="council-delivery", approval_phase="delivery",
             actor="council-chair", context_id="dv",
             fresh_context=True, independent=True,
-            evidence={
+            evidence={"intent_fit": "establishes",
                 "observed": "delivery reviewed",
                 "artifact_or_test_id": "test:neg",
             },
@@ -10727,9 +10746,9 @@ class WaveCouncilPolicyTests(unittest.TestCase):
     def test_the_staleness_refusal_names_what_moved(self):
         """1upba AC-3: attribution, asserted on content rather than code.
 
-        It must also NOT claim per-document attribution, which the persisted
-        data cannot support: the per-change digests are discarded and the
-        receipt validator enforces a closed field set.
+        New receipts carry document and section fingerprints, so the refusal
+        names the changed Requirements section. The separate legacy-metadata
+        case retains the explicit fallback when attribution is unavailable.
         """
         self._write_config(transition_policy="applies-from-next-prepare")
         wave_id, _wave_md, change_path = self._prepared_wave_with_change("stale-attr")
@@ -10746,7 +10765,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self.assertIn("policy_input_digest", message)
         self.assertIn("digested change ids", message)
         self.assertIn("1abcz-bug sample", message)
-        self.assertIn("not attributable from persisted data", message)
+        self.assertIn("changed sections: 1abcz-bug sample: changed Requirements", message)
 
     def test_prepare_dry_run_surfaces_a_pending_mint_and_writes_nothing(self):
         """1upba AC-4: the DOCS-GATE ERROR path.
@@ -10838,11 +10857,11 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self.assertIn("review_policy_receipt_superseded", codes)
         message = " ".join(d["message"] for d in (marked.get("diagnostics") or []))
         self.assertIn("new current receipt", message)
-        # AC-3 also requires the digested change ids and the explicit disclaimer;
+        # AC-3 also requires digested change ids and the changed acceptance section;
         # asserting the label pair alone let a placeholder-attribution mutant
         # ("superseded receipt aaa; new current receipt bbb") pass all 38 tests.
         self.assertIn("digested change ids", message)
-        self.assertIn("not attributable from persisted data", message)
+        self.assertIn("changed sections: 1abcz-bug sample: changed Acceptance Criteria", message)
         self.assertNotIn(
             "pending receipt", message,
             "the receipt is already published at this surface; calling it pending "
@@ -11216,6 +11235,8 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             {
                 ("change_sections_gate", "_diagnostic", "ac_priority_unpopulated"),
                 ("required_sensors_gate", "_diagnostic", "phase_sensor_not_executed"),
+                # Wave 21j63: a delivery that does not establish its intent never blocks.
+                ("_evaluate_shared_delivery_state", "_diagnostic", "delivery_intent_not_established"),
                 ("wf_prepare_wave_response", "_diagnostic", "prepare_council_verdict_missing"),
                 ("wf_prepare_wave_response", "_diagnostic", "review_policy_receipt_superseded"),
                 ("wf_review_wave_response", "_diagnostic", "review_policy_receipt_superseded"),
@@ -11523,7 +11544,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                     signoff_key=key, approval_phase="readiness",
                     actor="council-chair", context_id=f"neg-{key}",
                     fresh_context=True, independent=True,
-                    evidence={
+                    evidence={**({"intent_fit": "establishes"} if requires_intent_fit(key) else {}),
                         "observed": "negative boundary probe",
                         "artifact_or_test_id": "test:neg-boundary",
                     },
@@ -11560,7 +11581,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self.assertIn("current receipt", message)
         self.assertIn("pending receipt", message)
         self.assertIn("digested change ids", message)
-        self.assertIn("not attributable from persisted data", message)
+        self.assertIn("changed sections: 1abcz-bug sample: changed Requirements", message)
 
     def test_a_mark_without_supersession_reports_no_supersession(self):
         """1upba AC-5, absence half.
@@ -11660,7 +11681,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             signoff_key="council-readiness", approval_phase="readiness",
             actor="council-chair", context_id="drywarn",
             fresh_context=True, independent=True,
-            evidence={"observed": "preview", "artifact_or_test_id": "test:dry-warn"},
+            evidence={"intent_fit": "establishes", "observed": "preview", "artifact_or_test_id": "test:dry-warn"},
             integrity_checks=integrity_checks(),
         )
         self.assertIn(
@@ -13555,7 +13576,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
                 fresh_context=True,
                 independent=True,
                 integrity_checks=integrity_checks(),
-                evidence={
+                evidence={**({"intent_fit": "establishes"} if requires_intent_fit(signoff_key) else {}),
                     "observed": "receipt-bound readiness approval passed",
                     "artifact_or_test_id": f"test:{signoff_key}",
                 },
@@ -13610,7 +13631,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
                 fresh_context=True,
                 independent=True,
                 integrity_checks=integrity_checks(),
-                evidence={
+                evidence={**({"intent_fit": "establishes"} if requires_intent_fit(signoff_key) else {}),
                     "observed": "delivery approval passed",
                     "artifact_or_test_id": f"test:delivery-{signoff_key}",
                 },
@@ -13740,7 +13761,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
                 fresh_context=True,
                 independent=True,
                 integrity_checks=integrity_checks(),
-                evidence={
+                evidence={**({"intent_fit": "establishes"} if requires_intent_fit(signoff_key) else {}),
                     "observed": "final change bytes approved",
                     "artifact_or_test_id": f"test:final-{signoff_key}",
                 },
@@ -14104,7 +14125,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
                 fresh_context=True,
                 independent=True,
                 integrity_checks=integrity_checks(),
-                evidence={
+                evidence={**({"intent_fit": "establishes"} if requires_intent_fit(signoff_key) else {}),
                     "observed": "approved the completed pre-midnight change",
                     "artifact_or_test_id": f"test:midnight-{signoff_key}",
                 },
@@ -14197,7 +14218,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
                 fresh_context=True,
                 independent=True,
                 integrity_checks=integrity_checks(),
-                evidence={
+                evidence={**({"intent_fit": "establishes"} if requires_intent_fit(signoff_key) else {}),
                     "observed": "approved the change carrying its Progress Log",
                     "artifact_or_test_id": f"test:repair-note-{signoff_key}",
                 },
@@ -16747,7 +16768,7 @@ def _typed_event_race_worker(
         fresh_context=True,
         independent=True,
         integrity_checks=integrity_checks(),
-        evidence={"observed": "passed", "artifact_or_test_id": f"test:{actor}"},
+        evidence={**({"intent_fit": "establishes"} if requires_intent_fit(actor) else {}), "observed": "passed", "artifact_or_test_id": f"test:{actor}"},
     )
     results.put(
         {
@@ -17307,7 +17328,7 @@ class ImplementDependencyProducerTests(unittest.TestCase):
                 self.root, self.wave_id, event="approval", actor="council-chair" if key.startswith(("wave-council", "council-")) else key,
                 context_id="dependency-approval-" + key, signoff_key=key,
                 approval_phase="readiness", fresh_context=True, independent=True,
-                evidence={"observed": "producer fixture reviewed", "artifact_or_test_id": self.id()},
+                evidence={**({"intent_fit": "establishes"} if requires_intent_fit(key) else {}), "observed": "producer fixture reviewed", "artifact_or_test_id": self.id()},
                 integrity_checks=integrity_checks(), mode="create")
             self.assertEqual(result["status"], "ok", result)
         result = self.srv.wf_prepare_wave_response(self.root, self.wave_id, mode="ready")
@@ -17642,7 +17663,7 @@ class LifecycleHintGapTests(unittest.TestCase):
             result = self.srv.wf_review_event_response(
                 root, wave_id, event, actor, context_id, mode="create",
                 fresh_context=True, independent=True,
-                evidence=self.golden._approval_evidence(actor),
+                evidence=self.golden._approval_evidence(actor, kwargs.get("signoff_key")),
                 integrity_checks=dict(self.golden._APPROVAL_INTEGRITY), **kwargs)
         self.assertEqual(result["status"], "ok", result)
 
@@ -18071,3 +18092,282 @@ class ParentScopedActivationTests(unittest.TestCase):
             self.assertIn("another_wave_active", [d["code"] for d in same["diagnostics"]], same)
             different = tool(candidates[2][0], purpose="implement")
             self.assertEqual(different["status"], "ok", different)
+
+
+class ReceiptSnapshotPublicIntegrationTests(unittest.TestCase):
+    """21lug: registered producers bind disposable aids to reviewed bytes.
+
+    The R1/R2/R3 fixture has an independently specified material delta:
+    Scope alpha -> beta at R2; Constraints loose -> strict at R3. Tracking
+    at R3 must disappear from the normalized brief. No Git history is needed.
+    """
+
+    def setUp(self):
+        from declaration_support import RecordingFastMCP
+
+        self.srv = load_server()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = _make_repo(Path(self.tmp.name)).resolve()
+        config = {"wave_review": server_tools_support.review_policy_config()}
+        (self.root / "docs/workflow-config.json").write_text(json.dumps(config))
+        self.stack = contextlib.ExitStack()
+        self.addCleanup(self.stack.close)
+        self.stack.enter_context(server_tools_support.declared_wave_doc_gates(self.srv, {
+            "run_validate": lambda *a, **k: {"passed": True, "errors": [], "warnings": [], "output": ""},
+            "run_garden": lambda *a, **k: {"passed": True, "files_updated": 0, "updated": [], "output": ""},
+            "_run_post_write_lint": lambda *a, **k: {"mode": "stubbed"},
+            "_trigger_background_index_refresh_for_paths": lambda *a, **k: None,
+        }))
+        self.stack.enter_context(patch.object(self.srv, "_regenerate_codebase_map_safe", return_value=None))
+        telemetry = MagicMock()
+        telemetry.focus = types.SimpleNamespace(wave_id="", stage="general")
+        telemetry.record_workflow.return_value = {}
+        self.handler = types.SimpleNamespace(root=self.root, cache=None, telemetry=telemetry)
+        self.mcp = RecordingFastMCP()
+        self.srv.register_mcp_surface(self.mcp, lambda: self.handler)
+        made = self.ok(self.call("wf_create_wave", slug="snapshot-public", mode="create"))
+        self.wave_id = made["wave_id"]
+        self.wave_md = self.root / made["path"]
+        child = self.ok(self.srv._change_create_response(self.root, "enh", "snapshot-public-child", mode="create"))
+        self.change_id = child["change_id"]
+        (self.root / child["path"]).write_bytes(self.body())
+        self.ok(self.call("wf_add_change", wave_id=self.wave_id, change_id=self.change_id, mode="create"))
+        self.change_path = self.wave_md.parent / (self.change_id + ".md")
+        self.change_path.write_bytes(self.body())
+        self.ok(self.call("wf_review_event", wave_id=self.wave_id, event="run", actor="council-chair",
+                          context_id="snapshot-public-readiness", run_kind="readiness", cycle=0, mode="create"))
+        self.prepare()
+        self.r1 = self.receipt()
+        self.approve("code-reviewer", "r1-code")
+        self.approve("council-readiness", "r1-council")
+
+    def call(self, name, **kwargs):
+        return self.mcp._tool_manager._tools[name].fn(**kwargs)
+
+    def ok(self, response):
+        self.assertEqual(response["status"], "ok", response)
+        return response["data"]
+
+    def body(self, *, scope="alpha", constraints="loose", tracking=False):
+        text = _loc(
+            f"# Snapshot public fixture\n\nChange ID: `{self.change_id}`\nChange Status: `planned`\n"
+            "Owner: Engineering\nStatus: planned\nLast verified: 2026-10-25\n"
+            f"Wave: `{self.wave_id}`\n\n## Rationale\n\nBounded receipt reconstruction.\n\n"
+            "## Requirements\n\n1. Preserve reviewed input.\n\n"
+            f"## Scope\n\n{scope}\n\n## Constraints\n\n{constraints}\n\n"
+            "## Acceptance Criteria\n\n- [ ] AC-1: Exercise explicit deferral.\n"
+            "- [ ] AC-2: Retain routine tracking.\n\n"
+            f"## Tasks\n\n- [{'x' if tracking else ' '}] Record the outcome.\n\n"
+            "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n"
+            "| AC-1 | required | Acceptance decision. |\n| AC-2 | important | Tracking. |\n\n"
+            "## Progress Log\n\n| Date | Update | Evidence |\n| --- | --- | --- |\n"
+            + ("| 2026-10-25 | TRACKING_ONLY_MARKER | test:tracking |\n" if tracking else "")
+        )
+        return text.replace("\n", "\r\n").encode("utf-8")
+
+    def prepare(self):
+        response = self.call("wf_prepare_wave", wave_id=self.wave_id, mode="ready")
+        self.assertIn(response["status"], {"ok", "error"}, response)
+        self.assertIn("review_policy", response["data"], response)
+        self.assertIsNotNone(self.receipt())
+        return response
+
+    def records(self):
+        records, errors = self.srv.read_review_event_ledger(self.wave_md)
+        self.assertEqual(errors, ())
+        return records
+
+    def receipt(self):
+        return sys.modules["review_policy"].current_policy_receipt(self.records())
+
+    def approve(self, key, context):
+        return self.ok(self.call(
+            "wf_review_event", wave_id=self.wave_id, event="approval",
+            actor="council-chair" if key == "council-readiness" else key,
+            context_id=context, signoff_key=key, approval_phase="readiness",
+            fresh_context=True, independent=True, mode="create",
+            evidence={"observed": "reviewed " + context, "artifact_or_test_id": self.id() + ":" + context,
+                      **({"intent_fit": "establishes"} if key == "council-readiness" else {})},
+            integrity_checks=integrity_checks(),
+        ))
+
+    def snapshot(self, receipt):
+        import wave_work
+
+        result = wave_work.read_snapshot(self.root, self.wave_md, receipt)
+        self.assertTrue(result["available"], result)
+        return result
+
+    def scratch_bytes(self):
+        work = self.root / ".wavefoundry/work" / self.wave_id.split()[0]
+        return {str(path.relative_to(work)): path.read_bytes() for path in work.rglob("*") if path.is_file()}
+
+    def focused(self):
+        response = self.call("wf_review_wave", wave_id=self.wave_id, phase="prepare")
+        return response, response["data"]["review_actions"]["focused_rereview"]
+
+    def test_registered_prepare_and_deferral_capture_exact_uncommitted_crlf_bytes(self):
+        initial_bytes = self.body()
+        initial = self.snapshot(self.r1)
+        self.assertEqual(initial["documents"], {self.change_id: initial_bytes})
+        self.assertIn(b"\r\n", initial_bytes)
+        self.assertFalse((self.root / ".git").exists(), "the reviewed text has no Git baseline")
+        original_snapshot = (self.root / initial["path"]).read_bytes()
+        before = self.r1["receipt_id"]
+        result = self.call("wf_mark_ac", wave_id=self.wave_id, change_id=self.change_id,
+                           ac_id="AC-1", state="~", reason="explicit compatibility validation is deferred",
+                           mode="create")
+        self.ok(result)
+        current = self.receipt()
+        self.assertNotEqual(current["receipt_id"], before)
+        after = self.change_path.read_bytes()
+        self.assertIn(b"[~] AC-1", after)
+        self.assertNotIn(b"\n", after.replace(b"\r\n", b""), "deferral must retain CRLF bytes")
+        captured = self.snapshot(current)
+        self.assertEqual(captured["documents"][self.change_id], after)
+        metadata = {row["change_id"]: row for row in current["review_context"]["documents"]}
+        self.assertEqual(metadata[self.change_id]["raw_sha256"], hashlib.sha256(after).hexdigest())
+        self.assertEqual((self.root / initial["path"]).read_bytes(), original_snapshot)
+
+    def test_registered_failed_receipt_transaction_publishes_no_snapshot(self):
+        import wave_work
+
+        before = self.scratch_bytes()
+        ledger = self.wave_md.with_name("events.jsonl")
+        ledger_before, wave_before = ledger.read_bytes(), self.wave_md.read_bytes()
+        self.change_path.write_bytes(self.body(scope="beta"))
+        actual = self.srv._atomic_replace_bytes
+
+        def fail_projection(path, payload, purpose):
+            if purpose == "prepare-projection":
+                raise OSError("injected projection publication failure")
+            return actual(path, payload, purpose)
+
+        with patch.object(self.srv, "_atomic_replace_bytes", side_effect=fail_projection), \
+                patch.object(wave_work, "publish_snapshot", wraps=wave_work.publish_snapshot) as publish:
+            response = self.call("wf_prepare_wave", wave_id=self.wave_id, mode="ready")
+        self.assertEqual(response["status"], "error", response)
+        publish.assert_not_called()
+        self.assertEqual(ledger.read_bytes(), ledger_before)
+        self.assertEqual(self.wave_md.read_bytes(), wave_before)
+        self.assertEqual(self.scratch_bytes(), before)
+
+    def test_registered_concurrent_edit_keeps_captured_bytes_and_review_falls_back(self):
+        captured = self.body(scope="beta")
+        concurrent = self.body(scope="beta", constraints="strict")
+        self.change_path.write_bytes(captured)
+        actual = self.srv._publish_prepare_policy_state
+        seen = []
+
+        def edit_after_prepare(root, wave_md, wave_text, state, **kwargs):
+            seen.append(state["review_documents"][self.change_id])
+            self.change_path.write_bytes(concurrent)
+            return actual(root, wave_md, wave_text, state, **kwargs)
+
+        with patch.object(self.srv, "_publish_prepare_policy_state", side_effect=edit_after_prepare):
+            self.prepare()
+        self.assertEqual(seen, [captured])
+        target = self.receipt()
+        self.assertEqual(self.snapshot(target)["documents"][self.change_id], captured)
+        self.assertEqual(self.change_path.read_bytes(), concurrent)
+        before = self.scratch_bytes()
+        response, focused = self.focused()
+        self.assertEqual(response["status"], "error", response)
+        self.assertTrue(focused["lanes"], focused)
+        for lane in focused["lanes"]:
+            self.assertTrue(lane["full_review_required"], lane)
+            self.assertTrue(any("stale" in text.lower() for text in lane["limitations"]), lane)
+            self.assertEqual(lane["documents"], [], "stale live inputs cannot yield a current verified delta")
+            self.assertIn(str(self.change_path), lane["full_plan_paths"])
+        self.assertEqual(self.scratch_bytes(), before, "read-only review cannot repair snapshots")
+
+    def test_registered_retry_never_recreates_a_deleted_approved_baseline(self):
+        baseline = self.snapshot(self.r1)
+        self.change_path.write_bytes(self.body(scope="beta"))
+        self.prepare()
+        target_id = self.receipt()["receipt_id"]
+        old_path = self.root / baseline["path"]
+        old_path.unlink()
+        ledger = self.wave_md.with_name("events.jsonl")
+        ledger_before = ledger.read_bytes()
+        self.prepare()
+        self.assertEqual(self.receipt()["receipt_id"], target_id)
+        self.assertEqual(ledger.read_bytes(), ledger_before)
+        self.assertFalse(old_path.exists(), "retry must not invent old reviewed bytes from current text")
+        before = self.scratch_bytes()
+        _, focused = self.focused()
+        self.assertTrue(focused["lanes"], focused)
+        for lane in focused["lanes"]:
+            self.assertTrue(lane["full_review_required"], lane)
+            self.assertTrue(lane["limitations"], lane)
+            self.assertEqual(lane["documents"], [])
+            self.assertIn(str(self.change_path), lane["full_plan_paths"])
+        self.assertEqual(self.scratch_bytes(), before)
+        self.assertFalse(old_path.exists())
+
+    def test_registered_three_receipts_use_each_lanes_last_approval_and_full_plan_route(self):
+        self.change_path.write_bytes(self.body(scope="beta"))
+        self.prepare()
+        r2 = self.receipt()
+        self.approve("council-readiness", "r2-council")
+        self.change_path.write_bytes(self.body(scope="beta", constraints="strict", tracking=True))
+        self.prepare()
+        r3 = self.receipt()
+        self.assertEqual(len({self.r1["receipt_id"], r2["receipt_id"], r3["receipt_id"]}), 3)
+        before = self.scratch_bytes()
+        response, focused = self.focused()
+        lanes = {lane["signoff_key"]: lane for lane in focused["lanes"]}
+        expected = {
+            "code-reviewer": (self.r1["receipt_id"], {"Scope", "Constraints"}),
+            "council-readiness": (r2["receipt_id"], {"Constraints"}),
+        }
+        for key, (baseline_id, headings) in expected.items():
+            lane = lanes[key]
+            self.assertEqual(lane["baseline_receipt_id"], baseline_id)
+            self.assertEqual(lane["target_receipt_id"], r3["receipt_id"])
+            changed = {section["heading"] for doc in lane["section_changes"] for section in doc["sections"]}
+            self.assertEqual(changed, headings, lane)
+            self.assertFalse(lane["full_review_required"], lane)
+            self.assertTrue(lane["prior_approval"]["evidence_record_id"])
+            self.assertIn("r1-code" if key == "code-reviewer" else "r2-council",
+                          lane["prior_approval"]["verification_context"]["context_id"])
+            self.assertIn(str(self.change_path), lane["full_plan_paths"])
+            delta = "".join(doc["normalized_diff"] for doc in lane["documents"])
+            self.assertIn("-loose", delta)
+            self.assertIn("+strict", delta)
+            if key == "code-reviewer":
+                self.assertIn("-alpha", delta)
+                self.assertIn("+beta", delta)
+            else:
+                self.assertNotIn("-alpha", delta)
+            self.assertNotIn("TRACKING_ONLY_MARKER", delta)
+            self.assertNotIn("Record the outcome", delta)
+        # Matched reconstruction: the established full-plan route independently
+        # confirms the same final material state. Calls/content are only proxies;
+        # this asserts completeness and access, never effort or token savings.
+        full = self.call("wf_get_change", change_id=self.change_id)
+        self.assertEqual(full["status"], "ok", full)
+        content = json.dumps(full["data"], ensure_ascii=False)
+        self.assertIn("beta", content)
+        self.assertIn("strict", content)
+        self.assertIn("TRACKING_ONLY_MARKER", content)
+        self.assertGreater(len(content), 0)
+        self.assertGreater(len(json.dumps(focused, ensure_ascii=False)), 0)
+        self.assertEqual(self.scratch_bytes(), before)
+        self.assertEqual(response["status"], "error", "new brief must not transfer old approvals")
+
+    def test_registered_snapshot_io_failure_is_advisory_to_receipt_publication(self):
+        import wave_work
+
+        self.change_path.write_bytes(self.body(scope="beta"))
+        with patch.object(wave_work, "publish_snapshot", side_effect=OSError("snapshot storage unavailable")):
+            result = self.prepare()
+        current = self.receipt()
+        self.assertNotEqual(current["receipt_id"], self.r1["receipt_id"])
+        self.assertFalse(wave_work.read_snapshot(self.root, self.wave_md, current)["available"])
+        codes = {d["code"] for d in result["diagnostics"] if not d.get("advisory")}
+        self.assertFalse(any("snapshot" in code for code in codes), result)
+        _, focused = self.focused()
+        self.assertTrue(focused["lanes"], focused)
+        self.assertTrue(all(lane["full_review_required"] for lane in focused["lanes"]))

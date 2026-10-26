@@ -92,6 +92,14 @@ Readiness handoff:
 
 `Prepare wave` owns the single pre-code critique: failure-first analysis, packet completeness, and the current readiness approval. Before editing, consume that approval and the ordered implementation plan. Do not repeat the critique or mint a second approval inside `Implement wave`.
 
+### Disposable wave work
+
+Use the lifecycle-reported `.wavefoundry/work/<wave-id>/`, keyed by the resolved unique lifecycle prefix, for shared temporary work. The coordinator includes this path and any availability notice in briefs. Successful mutating Create/Prepare/Implement/Reopen calls establish an owned area as needed; reads and dry-runs only report it. Worktrees have separate repository-local areas. Do not adopt an unrelated pre-existing directory, migrate old evidence automatically, or treat this path as a sandbox or tool grant. Existing host permissions apply; an unavailable area is advisory, not a new gate.
+
+Create optional `receipts/`, `reviews/`, `tests/` and `scratch/` children only as needed. Keep work through planned, ready, active and paused states. Before finalizing evidence, preserve unique long-term proof in maintained wave records, tests or explicitly retained evidence; new durable approvals must not depend solely on disposable paths. Successful operator-authorized whole-wave closure attempts contained cleanup after the close transition. Dry-run, failed close and single-change close preserve work. Cleanup failure is advisory; an authorized repeated close may retry, and reopening establishes a fresh generation protected from stale cleanup. Unsupported safe deletion preserves files with a notice. This exception applies only to the owned work area, never historical wave artifacts.
+
+For renewed readiness, follow seed 209’s **Focused readiness re-review**: consume each lane’s cumulative delta from its last approved receipt, with prior evidence and full amended-plan access; unavailable snapshots require the normal full-review fallback and never preserve stale approval.
+
 **Readback before editing:**
 
 Before the first implementation edit of each change, record a concise `Readback:` in its existing Progress Log and surface its substance to the operator: intended behavior, relevant ACs, important scope boundary, and expected affected files. Include one before/after example for nontrivial behavior changes; keep clear tasks brief. Briefly relate the chosen work to Product Intent (or the wave Objective); name how the mechanism serves the intended outcome. Intent does not authorize broader scope or silent contract changes: preserve existing requirement-amendment, re-Prepare and operator-authorization rules.

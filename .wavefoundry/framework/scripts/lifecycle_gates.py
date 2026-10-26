@@ -333,10 +333,36 @@ def _evaluate_shared_delivery_state(
         )
     diagnostics.extend(lifecycle_gate_support._docs_lint_warning_diagnostics(lint_result))
     operator_current = authority.operator_signoff_present()
+    # Wave 21j63: an honest not-established delivery stays closable; the
+    # operator sees the verdict here, in Review and Close, before signing off.
+    intent_not_established = (
+        authority.typed
+        and authority.signoff_current(
+            review_evidence.COUNCIL_DELIVERY_SIGNOFF_KEY, approval_phase="delivery"
+        )
+        and review_evidence.delivery_intent_not_established(authority.records)
+    )
+    if intent_not_established:
+        diagnostics.append(
+            lifecycle_gate_support._diagnostic(
+                "delivery_intent_not_established",
+                "The current council-delivery approval records "
+                f"`{review_evidence.INTENT_FIT_FIELD}: {review_evidence.INTENT_FIT_NOT_ESTABLISHED}`: "
+                "the delivered work does not establish its intent. Read the `Intent outcome:` "
+                "in `## Review Checkpoints` before operator sign-off.",
+                advisory=True,
+            )
+        )
     if not operator_current:
         remedy = (
             "Record wf_review_event(event='approval', signoff_key='operator-signoff', "
             "approval_phase='delivery', mode='create')."
+            + (
+                " The council-delivery verdict is "
+                f"`{review_evidence.INTENT_FIT_NOT_ESTABLISHED}`; signing off accepts that outcome."
+                if intent_not_established
+                else ""
+            )
             if authority.typed
             else f"Add `operator-signoff: approved` to `{review_evidence.REVIEW_EVIDENCE_SECTION}` in {_vocab.RECORD_FILENAME}."
         )

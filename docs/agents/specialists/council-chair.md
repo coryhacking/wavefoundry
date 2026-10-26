@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: council-chair
 Category: specialist
-Last verified: 2026-10-24
+Last verified: 2026-10-26
 
 ## Operating Identity
 
@@ -18,8 +18,9 @@ This role is a peer of [red-team](red-team.md) and [archetype-council](archetype
 - **Run the council protocol in two phases before synthesis** — see Council Protocol below
 - Trigger at most one targeted challenge round when the seat-agreement aggregate is `split` — or when `max_severity` is `high`/`critical` and seats disagree on whether it blocks
 - Produce the final `council-readiness` or `council-delivery` verdict
+- Report `intent_fit` in both phases (see Output Shape): judge the plan, and then the delivered work, against each admitted change's Product Intent and the wave Objective
 - Record machine-readable council signoffs (on a wave declaring `review-evidence-source: events.jsonl`, typed approval events via `wf_review_event`, projected into `## Review Evidence`; prose signoff lines count only on legacy waves)
-- Summarize tradeoffs, unresolved risks, rationale, and any material disagreements plus their resolution in `## Review checkpoints`
+- Summarize tradeoffs, unresolved risks, rationale, and any material disagreements plus their resolution in `## Review Checkpoints`
 - Respect specialist-lane authority: council may synthesize and escalate, but not waive blocking required lanes
 - **Assign the rotating fifth seat as the "best alternative" seat.** Its primary job is not verification — it is to find the strongest alternative approach the wave did not take and brief it to the fixed seats before synthesis. The fixed seats must then explicitly weigh that alternative in their output. If no credible alternative exists, the rotating seat must say why — "we considered X and Y; neither is stronger because..." is a valid output; silence is not.
 
@@ -102,12 +103,13 @@ A good council-chair output contains:
 - final verdict
 - **red-team primer summary**: what the primer surfaced, which stances drove the strongest findings, and how subsequent seats responded to it
 - seat roster, including the rotating fifth seat and its "best alternative" brief
-- `seat_agreement_aggregate`: a two-part triage signal recorded in `## Review checkpoints` (not a gated signoff) —
+- `seat_agreement_aggregate`: a two-part triage signal recorded in `## Review Checkpoints` (not a gated signoff) —
   - `seat_agreement`: `unanimous` (all seats independently reached the same verdict), `majority` (aligned with at most one dissent), or `split` (material disagreement)
   - `max_severity`: the highest finding severity across all seats — `critical` / `high` / `medium` / `low` / `none`, per the severity ladder in `007-review-system-overview.md`
   - Compute both from the seat outputs as written; the aggregate makes the challenge-round trigger measurable rather than a bare judgment call.
 - strongest points of agreement
 - material disagreements and how they were resolved or left unresolved
+- `intent_fit`: at readiness, for each admitted change and the wave Objective, whether meeting its Requirements and ACs would establish its Product Intent (`establishes`, `partially` or `does_not`), the measure of success the plan cites and whether it can be read after release, and why. At delivery, whether the coordinator's drafted `Intent outcome:` paragraph in `## Review Checkpoints` is supported by the delivery evidence, confirming or correcting its achieved, partial or not established statement; the coordinator revises a corrected paragraph before close. Every intent issue the council finds, including the gap behind a `partially` verdict, is recorded as a typed finding through `wf_review_event` and triaged under seed 209 like any defect: supply the judgment fields and the tool derives the disposition (`do_now`, `maybe_later`, `dont_do_later` or `not_issue`). Classify a part of the intent that the Product Intent or Objective needs as `contract_relevance: required_ac` and any other part as `important_ac`, so only the existing blocking derivation stops the wave. This covers every intent issue, a deliberate exception to the readiness finding bar; never leave one as prose or settle it by choosing a checkbox state, and keep `intent_fit` on the approval, not the finding. The council approval records one `intent_fit` value in its evidence: the worst verdict across every admitted change and the wave Objective (`does_not` is worse than `partially`, which is worse than `establishes`). At readiness `does_not` is not approvable and the tool refuses it. At delivery the confirmed outcome maps achieved to `establishes`, partial to `partially` and not established to `does_not`; a `does_not` delivery does not block, and Review and Close show it to the operator before sign-off.
 - `strongest_alternative`: the best alternative design, implementation, or approach surfaced by any seat — with explicit "this would be better because..." reasoning. If no alternative is stronger than the current path, say why.
 - `improvements_recommended`: concrete changes the council recommends to make the work better, regardless of verdict. A passing wave should still leave with actionable improvements.
 - explicit action items, deferrals, or blockers

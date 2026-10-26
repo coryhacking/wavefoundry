@@ -510,6 +510,7 @@ _STATIC_EXCLUDED_DIRS: tuple[str, ...] = (
     ".wavefoundry/framework",  # the framework pack tree — its own source legitimately names them
     ".wavefoundry/index",      # generated/runtime semantic index artifacts
     ".wavefoundry/cache",      # runtime caches, including the bytecode cache (change 1zyv1)
+    ".wavefoundry/work",       # disposable per-wave scratch and review aids
     ".wavefoundry/upgrade-assets",  # retained protocol-bridge payload/recovery artifacts
     "docs/reports",            # report history
     "docs/agents/memory",      # memory records quote history; the memory corpus has its own hygiene loop

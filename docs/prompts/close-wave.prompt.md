@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-24
+Last verified: 2026-10-26
 
 Shortcut: **`Close wave`**
 
@@ -43,16 +43,16 @@ Consumer upgrades retain render → docs gate → incremental index ordering, wi
 
 ## Wave-folder cleanup
 
-Before final docs validation and the close mutation, tidy only artifacts established to belong to this wave. Dates and filenames are discovery hints, not proof of ownership.
+Before finalizing evidence, promote unique long-term proof out of disposable work into maintained wave records, tests or explicitly retained evidence. New durable approvals must not depend solely on work-area paths. Before final docs validation and the close mutation, tidy only artifacts established to belong to this wave. Dates and filenames are discovery hints, not proof of ownership.
 
 - Keep `wave.md`, admitted change docs and authoritative `events.jsonl` in place. Routine briefings, per-seat reports, raw probes and green logs belong in task context or temporary storage, not a permanent repository file forest. Preserve unique review evidence, reproducible probes and historical fingerprints needed to substantiate claims. Never rewrite ledger history for cosmetic cleanup.
-- Manually remove only verified wave-owned disposable scratch output or redundant copies with no unique evidence and no live references, using contained I/O and a parent-descriptor identity check before unlink. Keep cited originals and unreconstructable dirty-tree baselines. No automatic deletion, expiry policy, reference resolver or cleanup gate is introduced. If ownership, uniqueness or reference use is uncertain, retain the artifact and note why.
+- Manually remove only verified wave-owned disposable scratch output or redundant copies with no unique evidence and no live references, using contained I/O and a parent-descriptor identity check before unlink. Keep cited originals and unreconstructable dirty-tree baselines. The sole automatic-cleanup exception is the newly designated owned `.wavefoundry/work/<wave-id>/`: after successful operator-authorized whole-wave closure, the tool attempts contained cleanup; failure is advisory and unsupported safe deletion preserves files with a notice. Dry-run, failed close and single-change close retain work; an authorized repeated close may retry, and reopening protects its fresh generation. No other automatic deletion, expiry policy, reference resolver or cleanup gate is introduced. If ownership, uniqueness or reference use is uncertain, retain the artifact and note why.
 - Group movable supporting files under `evidence/` when useful; no fixed layout is required. Keep ledger-cited paths stable. Update mutable links and reproduction commands after any move, and verify they resolve and remain usable. Leave other waves and unrelated files untouched.
 - Consolidate repeated status notes into the final outcome and an evidence index in wave.md; do not erase historical review conclusions. Record the cleanup disposition and retained exceptions there, then run the existing docs gate. No separate cleanup report or new validator is required.
 
 ## What Goes in Wave Summary
 
-Before closure, explicitly author one concise `Intent outcome:` paragraph in the existing exact `## Review Checkpoints` section: state achieved, partial or not established, cite evidence, and retain material limitations. When the plan states a measure of success, cite it and say whether it can be read yet. It may cover changes sharing an outcome. The close-summary composer carries the last such paragraph or list item (optionally dated `YYYY-MM-DD: `) into Wave Summary, preserving its text and qualification; do not infer achievement from titles or checked ACs. Legacy records without this assessment remain closable under existing gates and retain their existing summary behavior; this adds no schema or blocking gate.
+Before closure, explicitly author one concise `Intent outcome:` paragraph in the existing exact `## Review Checkpoints` section: state achieved, partial or not established, cite evidence, and retain material limitations. When the plan states a measure of success, cite it and say whether it can be read yet. It may cover changes sharing an outcome. The close-summary composer carries the last such paragraph or list item (optionally dated `YYYY-MM-DD: `) into Wave Summary, preserving its text and qualification; do not infer achievement from titles or checked ACs. Legacy records without this assessment remain closable under existing gates and retain their existing summary behavior; this adds no schema or blocking gate. When the current `council-delivery` approval records `intent_fit: does_not`, Review and Close report the `delivery_intent_not_established` advisory; it does not block, and the operator's sign-off accepts that outcome.
 
 `## Wave Summary` is populated at closure. Include:
 - What was delivered
@@ -103,3 +103,7 @@ recompute a parallel review policy.
 ## Distribution upgrade preview
 
 Declared compatible Prepare/close overrides may opt in through `EXTENSION_UPGRADE_PREVIEW_TOOLS`. Only supported dry-run modes run during a compatible retained upgrade with current loaded core, launcher, declaration, module and helper provenance. `mcp.upgrade_preview_active()` exposes the inherited no-publication context, including through `core_handler`. Framework publication APIs refuse writes; trusted extension code is responsible for direct I/O. This preview grants no mutation or recovery authority.
+
+## Disposable wave work
+
+Use the lifecycle-reported `.wavefoundry/work/<wave-id>/`, keyed by the resolved unique prefix, for shared temporary work; include the path and availability notices in coordinator briefs. Follow seed 180’s **Disposable wave work** and seed 209’s **Review Artifact Discipline**. Reads and dry-runs create nothing; unavailable work is advisory and existing host permissions apply. Before finalizing evidence, preserve unique long-term proof in maintained wave records, tests or explicitly retained evidence; new durable approvals must not rely solely on disposable paths. Only successful operator-authorized whole-wave closure attempts owned cleanup after its transition. Failure is advisory; unsupported safe deletion preserves files. Dry-run, failed close and single-change close preserve work. Authorized repeated close may retry; stale cleanup cannot remove a reopened generation. Ordinary wave-folder evidence is protected.

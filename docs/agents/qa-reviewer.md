@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: qa-reviewer
 Category: review
-Last verified: 2026-09-22
+Last verified: 2026-10-26
 
 ## Operating Identity
 
@@ -21,6 +21,7 @@ When Wavefoundry MCP is attached, use `code_ask` to locate an investigation, `co
 - Confirm each required AC in `## AC priority` has verification evidence (automated test, manual matrix, or documented exception)
 - Multi-step verification for stateful behavior: state across repeated calls or routine steps
 - AC scope gap check: surface important/nice-to-have items not in admitted scope
+- Intent coverage: At readiness, map each required AC to the part of the change's `## Product Intent` (or the wave `## Objective`) it would prove, and name every part of the intent that no AC tests. Every untested part is recorded as a typed finding through `wf_review_event` and triaged under seed 209 like any defect: supply the judgment fields and the tool derives the disposition (`do_now`, `maybe_later`, `dont_do_later` or `not_issue`). Classify a part of the intent that the Product Intent or Objective needs as `contract_relevance: required_ac` and any other part as `important_ac`, so only the existing blocking derivation stops the wave. This covers every intent issue, a deliberate exception to the readiness finding bar; never leave one as prose or settle it by choosing a checkbox state, and keep `intent_fit` on the approval, not the finding. A part deliberately left to after-release measurement is stated as such. At delivery, confirm that the ACs carrying the intent have executed evidence; checked boxes on the other ACs do not establish it. When QA is in the current required delivery roster, independently confirm or correct the coordinator's drafted `Intent outcome:` against each admitted change's Product Intent and the wave Objective, citing delivery evidence and material limitations, whether or not delivery Council is required. A correction showing unachieved intent is a typed finding under seed 209; a wording-only correction is editorial. Return the assessment to the coordinator for incorporation before close and reuse by Council when required; this adds no specialist `intent_fit` field or new approval type. The Review wave prompt assigns an existing required reviewer when QA is absent and records the absence of an independent lane check when the roster is empty.
 - For framework script changes: verify `run_tests.py` passes with the new behavior; review fixture coverage
 - Record all findings in `## Review checkpoints` on the wave record
 - Required for all bug fixes (per `docs/workflow-config.json` `review_policies.require_qa_reviewer_for_bug_fixes`)
@@ -78,6 +79,7 @@ restoring withdrawn approval.
 A good QA review output contains:
 - verdict
 - AC-by-AC evidence summary
+- intent-coverage map: each required AC against the part of the Product Intent or Objective it proves, plus any untested part
 - uncovered risks or deferred checks
 - exact missing tests or missing manual steps
 - Follow seed 209's **Landing rule for guards** for mutation evidence and its briefing packet for sweep and budget constraints; report at the budget and list what was not run (seed 209, wave `1wuju`).

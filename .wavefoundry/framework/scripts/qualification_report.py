@@ -75,7 +75,7 @@ def _decode_report(data):
     return value
 
 
-def write_report(root, path, report):
+def write_report(root, path, report, *, immutable=False):
     path = output_path(root, path)
     expected_identity = None
     try:
@@ -83,7 +83,11 @@ def write_report(root, path, report):
     except FileNotFoundError:
         pass
     else:
-        _decode_report(existing)
+        previous = _decode_report(existing)
+        if immutable:
+            if previous != report:
+                raise ValueError("immutable execution report already exists")
+            return
         expected_identity = (entry.st_dev, entry.st_ino)
     data = (json.dumps(report, sort_keys=True, ensure_ascii=True, separators=(",", ":")) + "\n").encode()
     if len(data) > MAX_BYTES:

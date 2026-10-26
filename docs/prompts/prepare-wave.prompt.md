@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-24
+Last verified: 2026-10-26
 
 Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
 
@@ -35,11 +35,11 @@ Follow `.wavefoundry/framework/seeds/215-council-chair.prompt.md` **Bounded read
 
 ## Readiness Verdict
 
-Record a readiness verdict in the wave record `## Review checkpoints` (e.g., `Prepare wave — readiness verdict`). The wave is ready when:
+Record a readiness verdict in the wave record `## Review Checkpoints` (e.g., `Prepare wave — readiness verdict`). The wave is ready when:
 - All admitted change docs are complete and wave-owned
 - Any admitted-doc placement drift was repaired or explicitly resolved
 - Every required lane has a current readiness approval bound to the current receipt
-- `council-readiness` is recorded when `wave_review.enabled`
+- `council-readiness` is recorded when `wave_review.enabled`, and the council-chair's `intent_fit` states, for each admitted change and the wave Objective, whether meeting its Requirements and ACs would establish its Product Intent, citing the measure of success and whether it can be read after release (seed 215); the typed `council-readiness` approval records that verdict as `evidence.intent_fit` (`establishes` or `partially`), and a plan that will not establish its intent is a finding, not an approval
 - AC priority is recorded on each change doc
 - Product-owner acknowledgment is recorded (when applicable)
 
@@ -111,3 +111,11 @@ Repository-wide single-OPEN activation is the default. Distributions may set `re
 ## Distribution upgrade preview
 
 Declared compatible Prepare/close overrides may opt in through `EXTENSION_UPGRADE_PREVIEW_TOOLS`. Only supported dry-run modes run during a compatible retained upgrade with current loaded core, launcher, declaration, module and helper provenance. `mcp.upgrade_preview_active()` exposes the inherited no-publication context, including through `core_handler`. Framework publication APIs refuse writes; trusted extension code is responsible for direct I/O. This preview grants no mutation or recovery authority.
+
+## Focused readiness re-review
+
+For stale readiness, use the guided review actions and seed 209’s **Focused readiness re-review**. Compare cumulatively from each lane’s last approved receipt, with its prior approval/evidence, changed sections and a verified normalized before/after delta when available; provide the full amended plans and affected dependency context, and ask whether the change alters the verdict. Newly required lanes perform normal initial review. Exact raw receipt snapshots under `.wavefoundry/work/<wave-id>/receipts/` are optional aids, never approval authority. Missing legacy metadata, missing/corrupt/cleaned snapshots, stale inputs, incompatible normalization or truncated output must be explicit; obtain full text or fall back to normal full review. Reads create no snapshots. Receipt identity, required lanes, approval invalidation and deferral rules are unchanged; no approval transfers or measured effort savings are implied.
+
+## Disposable wave work
+
+Use the lifecycle-reported `.wavefoundry/work/<wave-id>/`, keyed by the resolved unique prefix, for shared temporary work; include the path and availability notices in coordinator briefs. Follow seed 180’s **Disposable wave work** and seed 209’s **Review Artifact Discipline**. Reads and dry-runs create nothing; unavailable work is advisory and existing host permissions apply. Receipt copies and review notes are disposable aids; preserve unique proof before final evidence and keep durable approval authority in its existing records.

@@ -1,0 +1,68 @@
+# Add a --version flag to the tinyfmt CLI
+
+Change ID: 9a1b5-enh add-version-flag
+Change Status: planned
+Owner: platform
+Status: planned
+Last verified: 2026-10-25
+
+## Rationale
+
+Users filing bug reports for `tinyfmt` are asked to state the version they run. Today the only way to learn it is to inspect the installed package metadata by hand, which many reporters skip or get wrong. A built-in flag removes that step.
+
+## Product Intent
+
+- Beneficiary: users who file bug reports and need to state their installed version.
+- Before: they had to inspect package metadata by hand.
+- After: running `tinyfmt --version` prints the installed version and the tool exits.
+- Boundary: the flag only reports the version; it does not check for updates or contact any network service.
+
+## Requirements
+
+1. `tinyfmt --version` prints the installed version string on one line to standard output.
+2. After printing, the process exits with status 0 without doing any other work.
+3. The printed version is read from the same package metadata the release process stamps, so it cannot drift from the published version.
+4. The flag performs no update check and makes no network call.
+5. The `--help` output lists the flag with a one-line description.
+
+## Scope
+
+In scope:
+- Argument parsing for `--version`.
+- A single helper that reads the installed version.
+- Help text and a short README note.
+
+Out of scope:
+- A short `-v` alias.
+- Update checks, build metadata, or commit hashes in the output.
+- Any change to other flags.
+
+## Acceptance Criteria
+
+- [ ] AC-1: Running `tinyfmt --version` prints exactly the installed version string followed by a newline on standard output.
+- [ ] AC-2: Running `tinyfmt --version` exits with status 0 and performs no formatting or other work, even when other arguments are also supplied.
+- [ ] AC-3: The printed value equals the version in the installed package metadata, verified by a test that compares the two.
+- [ ] AC-4: A test with networking disabled confirms `tinyfmt --version` succeeds, opens no sockets, and performs no update check (no update-check code path runs).
+- [ ] AC-5: `tinyfmt --help` lists `--version` with a one-line description.
+- [ ] AC-6: The README states that `tinyfmt --version` gives the version to include in bug reports, replacing the manual metadata instructions.
+
+## Tasks
+
+- [ ] Add `--version` to the argument parser with early exit.
+- [ ] Add the version helper that reads installed package metadata.
+- [ ] Add tests covering output, exit status, metadata match, and no network use.
+- [ ] Update help text and the README bug-report section.
+
+## Decision Log
+
+| Decision | Rationale |
+| --- | --- |
+| Read version from package metadata at runtime | Single source of truth; avoids a second constant to keep in sync |
+| No `-v` alias | Keeps the change minimal; `-v` may later mean verbose |
+
+## Risks
+
+| Risk | Mitigation |
+| --- | --- |
+| Metadata is missing in an editable or source checkout | Helper prints `unknown` and still exits 0; covered by a unit test |
+| Early exit skips config loading that other flags rely on | Handle the flag before config load; AC-2 asserts no other work runs |

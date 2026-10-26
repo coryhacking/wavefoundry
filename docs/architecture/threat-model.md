@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-24
+Last verified: 2026-10-26
 
 ## Trust Boundaries
 
@@ -19,6 +19,12 @@ Last verified: 2026-10-24
 The source qualification worker shim loads `test_worker_guard.py` directly from source; adjacent guard bytecode is not consulted, including under `-B`. Empty inherited Python search-path entries are removed. This does not authenticate source, the shim, standard-library bytecode or deliberately configured customization. Worker protection remains a cooperative accidental-write guard; inherited markers also refuse protected publication in site-disabled descendants. Expected marker refusals use the normal publication-unavailable error before locking or writing.
 
 Review events may record the current local OS process account as separately labeled attribution. Native account lookup ignores username environment overrides; missing or unsafe results remain a nonblocking advisory. Only the bounded account name and a fixed source label are stored, without hostname, home path or email. Shared accounts and agent delegation mean this is not authentication of the human reviewer, owner-separation enforcement or evidence of reviewer independence. Replay retains the original attribution; historical records need no backfill and metadata does not rotate approval identity. POSIX behavior is locally exercised; native Windows execution remains unqualified.
+
+## Disposable wave work
+
+The owned `.wavefoundry/work/<wave-id>/` area is disposable filesystem state, not a sandbox, execution grant or review authority. Its key comes from the resolved unique lifecycle prefix, and ownership binds the configured repository, wave and generation. Existing unrelated directories are not silently adopted. Creation and cleanup reject traversal, links/reparse points, identity substitution and ownership mismatch. Cleanup checks parent and directory identity at the destructive boundary and is coordinated with lifecycle publication so an older close cannot remove a reopened generation. It never follows links to delete their targets. Unsupported safe-I/O paths preserve files with an explicit notice; native Windows deletion is not qualified.
+
+Cleanup is attempted only after successful operator-authorized whole-wave closure, with failure advisory after the committed lifecycle transition. Read-only/dry-run, failed close, pause and single-change close preserve work. Agents must preserve unique long-term proof in maintained records before finalizing evidence; new durable approvals must not rely solely on disposable paths. Ordinary wave-folder evidence and immutable ledger references retain their existing protections. Managed ignores and explicit runtime exclusions keep work outside index and source qualification observation; packaging and framework input hashes traverse only the sibling framework tree. These exclusions do not authenticate scratch content or prevent arbitrary native writes.
 
 ## Optional Tensorwell client
 

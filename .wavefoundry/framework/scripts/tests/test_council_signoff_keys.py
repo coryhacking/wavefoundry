@@ -447,7 +447,7 @@ class LifecycleCompatibilityTests(unittest.TestCase):
         return self.srv.wf_review_event_response(
             root, wave_id, event, actor, context_id,
             fresh_context=True, independent=True,
-            evidence=_approval_evidence(actor),
+            evidence=_approval_evidence(actor, kwargs.get("signoff_key")),
             integrity_checks=dict(_APPROVAL_INTEGRITY), **kwargs)
 
     def _readied(self, name, *, status="planned", approvals=(NEW_READINESS, "code-reviewer")):
@@ -576,9 +576,14 @@ class LifecycleCompatibilityTests(unittest.TestCase):
         mapping = self.srv.canonical_signoff_key.__globals__["LEGACY_COUNCIL_SIGNOFF_KEYS"]
         with patch.dict(mapping, {earlier: NEW_READINESS}):
             for mode in ("dry_run", "create"):
-                response = self._event(root, wave_id, "approval", LEGACY_ACTOR,
-                                       f"declared-{mode}", mode=mode,
-                                       signoff_key=earlier, approval_phase="readiness")
+                # The patched mapping makes `earlier` a council key, so it
+                # needs the intent verdict too (wave 21j63).
+                response = self.srv.wf_review_event_response(
+                    root, wave_id, "approval", LEGACY_ACTOR, f"declared-{mode}",
+                    fresh_context=True, independent=True,
+                    evidence={**_approval_evidence(LEGACY_ACTOR), "intent_fit": "establishes"},
+                    integrity_checks=dict(_APPROVAL_INTEGRITY), mode=mode,
+                    signoff_key=earlier, approval_phase="readiness")
                 self.assertIn(response["status"], {"ok", "dry_run"}, response)
                 notices = {d["code"] for d in response["diagnostics"]}
                 self.assertTrue({"actor_alias", "signoff_key_alias"} <= notices, response)
@@ -731,7 +736,7 @@ class LifecycleCompatibilityTests(unittest.TestCase):
         with _as_earlier_release(self.srv):
             legacy = unwrapped(root, wave_id, "approval", LEGACY_ACTOR, "legacy-ctx",
                                fresh_context=True, independent=True,
-                               evidence=_approval_evidence(LEGACY_ACTOR),
+                               evidence=_approval_evidence(LEGACY_ACTOR, OLD_READINESS),
                                integrity_checks=dict(_APPROVAL_INTEGRITY), mode="create",
                                signoff_key=OLD_READINESS, approval_phase="readiness")
         self.assertEqual(legacy["status"], "ok", legacy)
@@ -750,7 +755,7 @@ class LifecycleCompatibilityTests(unittest.TestCase):
                     retry = self.srv.wf_review_event_response(
                         root, wave_id, "approval", actor, "legacy-ctx",
                         fresh_context=True, independent=True,
-                        evidence=_approval_evidence(LEGACY_ACTOR),
+                        evidence=_approval_evidence(LEGACY_ACTOR, OLD_READINESS),
                         integrity_checks=dict(_APPROVAL_INTEGRITY),
                         mode=mode, signoff_key=given, approval_phase="readiness")
                     self.assertIn(retry["status"], {"ok", "dry_run"}, retry)
@@ -776,13 +781,13 @@ class LifecycleCompatibilityTests(unittest.TestCase):
         with _as_earlier_release(self.srv):
             legacy = unwrapped(root, wave_id, "approval", LEGACY_ACTOR, "legacy-ctx",
                                fresh_context=True, independent=True,
-                               evidence=_approval_evidence(LEGACY_ACTOR),
+                               evidence=_approval_evidence(LEGACY_ACTOR, OLD_READINESS),
                                integrity_checks=dict(_APPROVAL_INTEGRITY), mode="create",
                                signoff_key=OLD_READINESS, approval_phase="readiness")
         self.assertEqual(legacy["status"], "ok", legacy)
         ledger_path = subject.review_event_path(wave_md)
         ledger = ledger_path.read_bytes()
-        changed = _approval_evidence(LEGACY_ACTOR)
+        changed = _approval_evidence(LEGACY_ACTOR, OLD_READINESS)
         changed["observed"] = "wave-council verified a different fixture scope"
         for given in (OLD_READINESS, NEW_READINESS):
             for mode in ("dry_run", "create"):

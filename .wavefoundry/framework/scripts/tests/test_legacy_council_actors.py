@@ -52,7 +52,7 @@ try:
     with patch.object(builder_module, "COUNCIL_ACTOR", alias):
         old = unwrapped(root, wave_id, "approval", alias, "history-context",
                         fresh_context=True, independent=True,
-                        evidence=_approval_evidence(alias), integrity_checks=dict(_APPROVAL_INTEGRITY),
+                        evidence=_approval_evidence(alias, key), integrity_checks=dict(_APPROVAL_INTEGRITY),
                         mode="create", signoff_key=key, approval_phase="readiness")
     assert old["status"] == "ok", old
     ledger_path = subject.review_event_path(wave_md)
@@ -60,12 +60,12 @@ try:
     for actor in (alias, subject.COUNCIL_ACTOR):
         for mode in ("dry_run", "create"):
             retry = srv.wf_review_event_response(root, wave_id, "approval", actor, "history-context",
-                fresh_context=True, independent=True, evidence=_approval_evidence(alias),
+                fresh_context=True, independent=True, evidence=_approval_evidence(alias, key),
                 integrity_checks=dict(_APPROVAL_INTEGRITY), mode=mode,
                 signoff_key=key, approval_phase="readiness")
             assert retry["status"] in ("ok", "dry_run"), retry
             assert ledger_path.read_bytes() == original
-    altered = _approval_evidence(alias)
+    altered = _approval_evidence(alias, key)
     altered["observed"] = "different fixture"
     conflict = srv.wf_review_event_response(root, wave_id, "approval", alias, "history-context",
                 fresh_context=True, independent=True, evidence=altered,

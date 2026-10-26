@@ -15,8 +15,139 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from gardener_metadata import _fenced_line_flags, canonical_review_policy_body
+import gardener_metadata
 import record_paths  # record roots (wave 1y0gz)
 import vocabulary_profile  # lifecycle prompt names (wave 1zyb4)
+
+# Captured with the imported normalizer, rather than re-reading mutable source
+# when an old snapshot is opened later in this process.
+_NORMALIZER_SIGNATURE = hashlib.sha256(Path(gardener_metadata.__file__).read_bytes()).hexdigest()
+_REVIEW_CONTEXT_MAX_DOCUMENTS = 128
+_REVIEW_CONTEXT_MAX_SECTIONS = 512
+
+
+def normalizer_signature() -> str:
+    return _NORMALIZER_SIGNATURE
+
+
+def normalized_review_text(raw: bytes | str) -> str:
+    body = raw.encode("utf-8") if isinstance(raw, str) else raw
+    return canonical_review_policy_body(body).decode("utf-8")
+
+
+def build_review_context(changes: Mapping[str, bytes | str]) -> dict[str, Any]:
+    """Optional fingerprints only: never an input to receipt identity."""
+    documents = []
+    for change_id, body in sorted(changes.items()):
+        raw = body.encode("utf-8") if isinstance(body, str) else body
+        lines = normalized_review_text(raw).splitlines(keepends=True)
+        flags = _fenced_line_flags(lines)
+        starts = [(0, "Preamble", "preamble")]
+        seen = set()
+        ambiguous = False
+        fence = None
+        for index, line in enumerate(lines):
+            fence_match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line.rstrip("\r\n"))
+            if fence_match:
+                marker = fence_match[1]
+                if fence is None:
+                    fence = marker
+                elif marker[0] == fence[0] and len(marker) >= len(fence) and not fence_match[2].strip():
+                    fence = None
+            # Setext boundaries are retained in their containing section, but
+            # cannot safely be presented as independently matched headings.
+            if not flags[index] and re.fullmatch(r" {0,3}(?:=+|-+)[ \t]*[\r\n]*", line) and index and lines[index - 1].strip():
+                ambiguous = True
+            match = re.match(r"^ {0,3}(#{1,6})[ \t]+(.+?)\s*$", line)
+            if not match or flags[index]:
+                continue
+            heading = re.sub(r"[ \t]+#+[ \t]*$", "", match[2]).strip()
+            key = f"h{len(match[1])}:{heading.casefold()}"
+            if key in seen:
+                ambiguous = True
+            seen.add(key)
+            starts.append((index, heading, key))
+        ambiguous = ambiguous or fence is not None
+        sections = []
+        for position, (start, heading, key) in enumerate(starts):
+            end = starts[position + 1][0] if position + 1 < len(starts) else len(lines)
+            sections.append({"heading": heading, "key": key,
+                             "sha256": hashlib.sha256("".join(lines[start:end]).encode("utf-8")).hexdigest()})
+        documents.append({"change_id": change_id, "raw_sha256": hashlib.sha256(raw).hexdigest(),
+                          "sections": sections, "ambiguous": ambiguous})
+    return {"version": 1, "normalizer_sha256": normalizer_signature(), "documents": documents}
+
+
+def _review_context_errors(context: object) -> tuple[str, ...]:
+    bad = ("review_policy_receipt review_context is invalid or exceeds bounds",)
+    sha = lambda value: isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+    if (not isinstance(context, dict) or set(context) != {"version", "normalizer_sha256", "documents"}
+            or type(context.get("version")) is not int or context["version"] != 1
+            or not sha(context.get("normalizer_sha256"))):
+        return bad
+    documents = context["documents"]
+    if not isinstance(documents, list) or len(documents) > _REVIEW_CONTEXT_MAX_DOCUMENTS:
+        return bad
+    seen = set()
+    for document in documents:
+        if (not isinstance(document, dict) or set(document) != {"change_id", "raw_sha256", "sections", "ambiguous"}
+                or not isinstance(document.get("change_id"), str) or not 0 < len(document["change_id"]) <= 512
+                or any(ord(char) < 32 for char in document["change_id"])
+                or any(char in document["change_id"] for char in "/\\") or document["change_id"] in {".", ".."}
+                or document["change_id"] in seen or not sha(document.get("raw_sha256"))
+                or type(document.get("ambiguous")) is not bool):
+            return bad
+        seen.add(document["change_id"])
+        sections = document["sections"]
+        if not isinstance(sections, list) or not 1 <= len(sections) <= _REVIEW_CONTEXT_MAX_SECTIONS:
+            return bad
+        section_keys = set()
+        for section in sections:
+            if (not isinstance(section, dict) or set(section) != {"heading", "key", "sha256"}
+                    or any(not isinstance(section.get(key), str) or not 0 < len(section[key]) <= 512
+                           or any(ord(char) < 32 for char in section[key]) for key in ("heading", "key"))
+                    or not sha(section.get("sha256"))):
+                return bad
+            if section["key"] in section_keys and not document["ambiguous"]:
+                return bad
+            section_keys.add(section["key"])
+    return ()
+
+
+def compare_receipt_sections(old: Mapping[str, Any], new: Mapping[str, Any]) -> dict[str, Any]:
+    """Conservative, cumulative attribution; absent context never means no change."""
+    contexts = [receipt.get("review_context") for receipt in (old, new)]
+    if any(_review_context_errors(context) for context in contexts):
+        return {"available": False, "limitations": ["Missing legacy or invalid section metadata; review full amended plans."], "documents": []}
+    if contexts[0]["normalizer_sha256"] != contexts[1]["normalizer_sha256"] or contexts[1]["normalizer_sha256"] != normalizer_signature():
+        return {"available": False, "limitations": ["Incompatible normalization; review full amended plans."], "documents": []}
+    before, after = [{entry["change_id"]: entry for entry in context["documents"]} for context in contexts]
+    documents = []
+    limitations = []
+    for change_id in sorted(before.keys() | after.keys()):
+        left, right = before.get(change_id), after.get(change_id)
+        status = "added" if left is None else "removed" if right is None else "changed"
+        ambiguous = any(document and document["ambiguous"] for document in (left, right))
+        if ambiguous:
+            limitations.append(f"Ambiguous section boundaries in {change_id}; review full amended plan.")
+            # Do not collapse duplicate keys into a map: every occurrence is
+            # retained, with no claim that its counterpart can be identified.
+            sections = [{"heading": section["heading"], "key": section["key"],
+                         "status": "ambiguous", "side": side}
+                        for side, document in (("before", left), ("after", right))
+                        for section in (document or {}).get("sections", [])]
+            documents.append({"change_id": change_id, "status": status,
+                              "sections": sections, "ambiguous": True})
+            continue
+        a, b = [{section["key"]: section for section in (document or {}).get("sections", [])} for document in (left, right)]
+        sections = []
+        for key in sorted(a.keys() | b.keys()):
+            if key not in a or key not in b or a[key]["sha256"] != b[key]["sha256"] or ambiguous:
+                sections.append({"heading": (b.get(key) or a[key])["heading"], "key": key,
+                                 "status": "added" if key not in a else "removed" if key not in b else "changed"})
+        if sections or status != "changed" or ambiguous:
+            documents.append({"change_id": change_id, "status": status, "sections": sections, "ambiguous": bool(ambiguous)})
+    return {"available": not limitations, "limitations": limitations, "documents": documents}
 
 
 DELIVERY_MODES = ("disabled", "targeted", "universal")
@@ -1289,7 +1420,7 @@ def validate_policy_receipt(record: Mapping[str, Any]) -> tuple[str, ...]:
         "policy_input_digest", "delivery_mode", "primer_depth", "council_seats",
         "requested_lanes", "required_lanes", "delivery_council_required",
     }
-    optional = {"supersedes_receipt_id", "policy_inputs"}
+    optional = {"supersedes_receipt_id", "policy_inputs", "review_context"}
     errors: list[str] = []
     keys = set(record)
     if required - keys:
@@ -1332,6 +1463,8 @@ def validate_policy_receipt(record: Mapping[str, Any]) -> tuple[str, ...]:
                     if entry["change_id"] in seen:
                         errors.append("review_policy_receipt policy_inputs change_id is duplicated")
                     seen.add(entry["change_id"])
+    if "review_context" in record:
+        errors.extend(_review_context_errors(record["review_context"]))
     return tuple(errors)
 
 

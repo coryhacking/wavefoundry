@@ -1,0 +1,72 @@
+# One-Command Local Bootstrap
+
+Change ID: 9a1b3-enh one-command-bootstrap
+Change Status: planned
+Owner: platform
+Status: planned
+Last verified: 2026-10-24
+
+## Rationale
+
+New contributors currently follow a long manual setup page: install a language runtime, create a virtual environment, install pinned dependencies, install git hooks, and run the tests. Steps drift out of date and each contributor hits a different failure. A single scripted entry point keeps the steps in one place and lets CI exercise them.
+
+## Product Intent
+
+First-time contributors on native Windows, macOS and Linux go from a fresh clone to a passing local test run with one command, without prior toolchain setup. Before this change, setup took a page of manual steps and often failed.
+
+## Requirements
+
+1. Provide `make bootstrap` on macOS and Linux and `scripts/bootstrap.ps1` on native Windows, both delegating to shared logic so behaviour stays aligned.
+2. The script installs the required runtime if it is missing, creates the project virtual environment, and installs dependencies from the pinned lockfile.
+3. The script installs the pre-commit hooks and runs the fast test suite as its final step.
+4. Re-running the script on an already bootstrapped checkout is safe and makes no changes beyond refreshing pinned dependencies.
+5. The script prints a short summary of what was installed, where, and the command to run tests again.
+6. `CONTRIBUTING.md` and the README quick-start replace the manual steps with the single command for each platform.
+
+## Scope
+
+In scope:
+
+- `Makefile` target, `scripts/bootstrap` and `scripts/bootstrap.ps1` entry points
+- Runtime installation when no suitable runtime is found
+- Documentation updates to `CONTRIBUTING.md` and the README quick-start
+- CI jobs that run the bootstrap on every pull request
+
+Out of scope:
+
+- Changes to the dependency set or lockfile format
+- Editor or IDE configuration
+- Container-based development environments
+
+## Acceptance Criteria
+
+- [ ] AC-1: `make bootstrap` exits 0 on the ubuntu-latest and macos-latest CI runners and the fast test suite passes as its last step.
+- [ ] AC-2: `scripts/bootstrap.ps1` exits 0 on the windows-latest runner from a default PowerShell session and the fast test suite passes as its last step.
+- [ ] AC-3: On a fresh container image and a fresh Windows VM image with no language runtime or build tools installed, one bootstrap command reaches a passing fast test run.
+- [ ] AC-4: After the script runs, `pip freeze` in the project environment matches the pinned lockfile exactly on every platform above.
+- [ ] AC-5: A second consecutive run exits 0 and leaves `git status` clean and the environment unchanged.
+- [ ] AC-6: The script prints a summary listing the environment path, installed hook names, and the test command.
+- [ ] AC-7: `CONTRIBUTING.md` and the README quick-start reference only the bootstrap command per platform, and the docs link check passes.
+
+## Tasks
+
+- [ ] Write the shared bootstrap logic with environment creation, dependency install, hook install and test run
+- [ ] Add the `bootstrap` Makefile target and the `scripts/bootstrap.ps1` wrapper
+- [ ] Add runtime installation for machines without a suitable runtime
+- [ ] Add CI jobs for the three runners plus the clean container and VM runs
+- [ ] Rewrite the setup sections of `CONTRIBUTING.md` and the README
+- [ ] Remove the superseded manual setup page
+
+## Decision Log
+
+| Decision | Rationale |
+| --- | --- |
+| Provide a PowerShell entry point beside `make bootstrap` | Native Windows contributors do not have `make` installed by default |
+| Run the fast test suite at the end of bootstrap | Gives contributors immediate confirmation that the environment works |
+
+## Risks
+
+| Risk | Mitigation |
+| --- | --- |
+| Pinned dependency versions become unavailable | Mirror wheels in the CI cache and fail with a clear message |
+| Runtime download blocked by a corporate proxy | Honour standard proxy variables and print a clear manual-install hint |

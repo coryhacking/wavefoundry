@@ -982,7 +982,26 @@ def receipt_supersession_attribution(
         parts.append("changed change docs: " + (", ".join(changed) or "none"))
         if old_inputs["project_policy_sha256"] != new_inputs["project_policy_sha256"]:
             parts.append("project policy inputs changed")
-        return " (" + "; ".join(parts) + "). Which section changed is not attributable from persisted data."
+        comparison = review_policy.compare_receipt_sections(current, pending)
+        if comparison["available"]:
+            section_rows = []
+            used = 0
+            for document in comparison["documents"]:
+                for section in document["sections"]:
+                    row = f"{document['change_id']}: {section['status']} {section['heading']}"
+                    used += len(row.encode("utf-8")) + 2
+                    if used > 1800:
+                        break
+                    section_rows.append(row)
+                if used > 1800:
+                    break
+            detail = "; ".join(section_rows)
+            if used > 1800:
+                detail += " [truncated; inspect full amended plans]"
+            parts.append("changed sections: " + (detail or "none"))
+            return " (" + "; ".join(parts) + ")."
+        limits = "; ".join(comparison["limitations"])
+        return " (" + "; ".join(parts) + "). Which section changed is not attributable from persisted data. " + limits
     return (
         " (" + "; ".join(parts) + "). "
         "Which specific document changed is not attributable from persisted data."
@@ -1128,6 +1147,8 @@ def _prepare_policy_state(
         "\n".join(canonical_change_texts)
     )
     seats = ["red-team", *([stable_rotating] if stable_rotating else [])]
+    review_documents = {change_id: body for change_id, _kind, body in change_inputs}
+    review_context = review_policy.build_review_context(review_documents)
     semantic = {
         "schema_version": REVIEW_POLICY_SCHEMA_VERSION,
         "evaluator_version": REVIEW_POLICY_EVALUATOR_VERSION,
@@ -1140,6 +1161,9 @@ def _prepare_policy_state(
         "required_lanes": list(required_lanes),
         "delivery_council_required": delivery_council,
     }
+    # Oversized optional attribution must not become a new readiness gate.
+    if not review_policy._review_context_errors(review_context):
+        semantic["review_context"] = review_context
     receipt, append_required = build_policy_receipt(
         semantic, current_policy_receipt(records)
     )
@@ -1157,6 +1181,7 @@ def _prepare_policy_state(
         "receipt": receipt,
         "receipt_append_required": append_required,
         "records": records,
+        "review_documents": review_documents,
     }, ()
 
 
@@ -1310,7 +1335,11 @@ def _prepare_council_instructions(rotating_seat: str | None, *, typed: bool = Fa
             "wf_review_event(event='approval', signoff_key='council-readiness', "
             "approval_phase='readiness', mode='create', ...), whose evidence names the seats "
             "actually run, each at most once, with per-seat evidence or an explicit no-findings "
-            f"note (e.g. `{_prepare_council_verdict_template(rotating_seat, typed=True)}`). "
+            f"note, and whose `{review_evidence.INTENT_FIT_FIELD}` is the worst intent verdict "
+            "across every admitted change and the wave Objective "
+            f"({', '.join(review_evidence.INTENT_FIT_VALUES_BY_PHASE['readiness'])}; a plan that "
+            "will not establish its intent is a finding, not an approval) "
+            f"(e.g. `{_prepare_council_verdict_template(rotating_seat, typed=True)}`). "
             "A ## Review Checkpoints narrative is optional and is not authority: the gate reads "
             "only the typed approval. Then call wf_prepare_wave(mode='ready'), or mode='create' "
             "to also open the wave."
@@ -1346,7 +1375,10 @@ def _prepare_council_verdict_template(rotating_seat: str | None, *, typed: bool 
             f"seats: <replace with the seats actually run, each at most once, e.g. {seats}>; "
             f"rotating-seat: {rotating_part}; "
             "strongest-challenge: <summary>; strongest-alternative: <summary>)', "
-            "'artifact_or_test_id': <per-seat evidence reference>}, ...)"
+            "'artifact_or_test_id': <per-seat evidence reference>, "
+            # Wave 21j63: the intent verdict the typed approval requires.
+            f"'{review_evidence.INTENT_FIT_FIELD}': "
+            f"<{'|'.join(review_evidence.INTENT_FIT_VALUES_BY_PHASE['readiness'])}>}}, ...)"
         )
     return (
         "- **Prepare-phase Wave Council [prepare-council] — <date>: PASS** "

@@ -3212,3 +3212,76 @@ class ImplementationNarrationRoutingTests(unittest.TestCase):
             # rewriting a historical observation; there is no status-based guard.
             self.assertEqual(self._outputs("Status: closed\n" + history.decode()),
                              self._outputs("Status: active\n" + history.decode()))
+
+
+class ReceiptSectionContextTests(unittest.TestCase):
+    def receipt(self, body, **extra):
+        fields = {
+            "schema_version": review_policy.REVIEW_POLICY_SCHEMA_VERSION,
+            "evaluator_version": review_policy.REVIEW_POLICY_EVALUATOR_VERSION,
+            "policy_input_digest": "unchanged", "delivery_mode": "targeted",
+            "primer_depth": "standard", "council_seats": ["red-team"],
+            "requested_lanes": [], "required_lanes": ["code-reviewer"],
+            "delivery_council_required": False,
+            **extra,
+        }
+        return review_policy.build_policy_receipt(fields, None)[0]
+
+    def test_optional_context_preserves_identity_validation_and_legacy_history(self):
+        legacy = self.receipt(b"")
+        context = review_policy.build_review_context({"abc12-enh example": b"Intro\n## Scope\nKeep\n"})
+        enriched = self.receipt(b"", review_context=context)
+        self.assertEqual(legacy["receipt_id"], enriched["receipt_id"])
+        self.assertEqual(review_evidence.validate_review_evidence_records([legacy]), ())
+        self.assertEqual(review_evidence.validate_review_evidence_records([enriched]), ())
+        same, append = review_policy.build_policy_receipt(enriched, legacy)
+        self.assertFalse(append)
+        self.assertEqual(same, legacy)
+        for malformed in (None, [], {**context, "version": True},
+                          {**context, "documents": context["documents"] * 129}):
+            with self.subTest(malformed=type(malformed).__name__):
+                self.assertTrue(review_policy.validate_policy_receipt({**enriched, "review_context": malformed}))
+
+    def test_preamble_all_levels_fences_added_removed_and_ambiguity(self):
+        old = {"review_context": review_policy.build_review_context({
+            "abc12-enh example": "before\n## Scope\nKeep\n### Detail\nOld\n```\n## fenced\n```\n## Removed\nGone\n",
+            "abc13-enh removed": "old document",
+        })}
+        new = {"review_context": review_policy.build_review_context({
+            "abc12-enh example": "after\n## Scope\nKeep\n### Detail\nNew\n```\n## fenced\n```\n## Added\nNew\n",
+            "abc14-enh added": "new document",
+        })}
+        result = review_policy.compare_receipt_sections(old, new)
+        self.assertTrue(result["available"])
+        changes = {row["change_id"]: row for row in result["documents"]}
+        self.assertEqual(changes["abc13-enh removed"]["status"], "removed")
+        self.assertEqual(changes["abc14-enh added"]["status"], "added")
+        headings = {row["heading"]: row["status"] for row in changes["abc12-enh example"]["sections"]}
+        self.assertEqual(headings, {"Preamble": "changed", "Detail": "changed", "Removed": "removed", "Added": "added"})
+        for body in ("## Scope\na\n## Scope\nb\n", "Title\n=====\ntext\n", "## Scope\n```\nopen\n"):
+            context = review_policy.build_review_context({"abc12-enh example": body})
+            self.assertTrue(context["documents"][0]["ambiguous"])
+            self.assertFalse(review_policy.compare_receipt_sections(old, {"review_context": context})["available"])
+
+    def test_tracking_noise_has_no_normalized_section_delta(self):
+        before = "## Acceptance Criteria\n- [ ] AC-1: Keep label\n## Tasks\n- [ ] Work\n"
+        after = before.replace("[ ]", "[x]")
+        a, b = [review_policy.build_review_context({"abc12-enh example": text}) for text in (before, after)]
+        self.assertNotEqual(a["documents"][0]["raw_sha256"], b["documents"][0]["raw_sha256"])
+        self.assertEqual(review_policy.compare_receipt_sections({"review_context": a}, {"review_context": b})["documents"], [])
+        self.assertEqual(review_policy.normalized_review_text(before), review_policy.normalized_review_text(after))
+        changed = review_policy.build_review_context({"abc12-enh example": before.replace("[ ]", "[~]")})
+        self.assertTrue(review_policy.compare_receipt_sections({"review_context": a}, {"review_context": changed})["documents"])
+
+    def test_supersession_diagnostic_names_sections_with_bounded_fallback(self):
+        import lifecycle_gate_support
+        old = self.receipt(b"", review_context=review_policy.build_review_context({"abc12-enh example": "## Scope\nold\n"}),
+            policy_inputs={"changes": [{"change_id": "abc12-enh example", "kind": "enh", "sha256": "a" * 64}], "project_policy_sha256": "c" * 64})
+        new = self.receipt(b"", review_context=review_policy.build_review_context({"abc12-enh example": "## Scope\nnew\n"}),
+            policy_inputs={"changes": [{"change_id": "abc12-enh example", "kind": "enh", "sha256": "b" * 64}], "project_policy_sha256": "c" * 64})
+        state = {"receipt": new, "records": [old]}
+        detail = lifecycle_gate_support.receipt_supersession_attribution(state, ["abc12-enh example"])
+        self.assertIn("changed Scope", detail)
+        self.assertNotIn("not attributable", detail)
+        del old["review_context"]
+        self.assertIn("not attributable", lifecycle_gate_support.receipt_supersession_attribution(state, ["abc12-enh example"]))

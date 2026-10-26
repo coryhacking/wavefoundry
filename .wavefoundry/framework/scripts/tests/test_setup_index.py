@@ -16,7 +16,7 @@ import types
 import unittest
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import ANY, MagicMock, call, patch
 
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
@@ -911,9 +911,11 @@ class SetupIndexTests(unittest.TestCase):
                  patch.object(self.mod, "ensure_deps"), \
                  patch.object(self.mod, "_reexec_with_venv_if_needed"), \
                  patch.object(self.mod, "_indexer_models", return_value=["model-a"]), \
+                 patch.object(self.mod, "_load_indexer_module", return_value=types.SimpleNamespace(
+                     _implicit_precision_changes=lambda directory: [], accel_embedder=None)), \
                  patch.object(self.mod, "prewarm_models", side_effect=lambda **_kwargs: events.append("models")), \
                  patch.object(self.mod, "report_embedding_provider_decision"), \
-                 patch.object(self.mod, "_prewarm_gpu_accel", side_effect=lambda _models: events.append("accel")), \
+                 patch.object(self.mod, "_prewarm_gpu_accel", side_effect=lambda _models, **_kwargs: events.append("accel")), \
                  patch.object(self.mod, "build_index", side_effect=lambda *_args, **_kwargs: events.append("build")):
                 self.assertEqual(self.mod.main(["--root", tmp]), 0)
         self.assertEqual(events, ["models", "accel", "attest", "build"])
@@ -1046,7 +1048,7 @@ class SetupIndexTests(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         ensure_deps.assert_called_once()
-        prewarm.assert_called_once_with(include_code=True, code_only=False)
+        prewarm.assert_called_once_with(include_code=True, code_only=False, precision_check=ANY)
         build_index.assert_called_once()
         self.assertIn("Done. Project index update complete.", stdout.getvalue())
         self.assertIn("MCP handoff:", stdout.getvalue())
@@ -1255,7 +1257,7 @@ class SetupLayerSchedulingTests(unittest.TestCase):
                         with patch.object(self.mod, "_spawn_background_docs_build") as docs_spawn:
                             with redirect_stdout(io.StringIO()):
                                 self.mod.main(["--root", "/tmp/repo"])
-        prewarm.assert_called_once_with(include_code=True, code_only=False)
+        prewarm.assert_called_once_with(include_code=True, code_only=False, precision_check=ANY)
         _, kwargs = build_index.call_args
         self.assertTrue(kwargs.get("include_code", False))
         self.assertFalse(kwargs.get("code_only", False))
@@ -1270,7 +1272,7 @@ class SetupLayerSchedulingTests(unittest.TestCase):
                     with patch.object(self.mod, "_spawn_background_code_build"):
                         with redirect_stdout(io.StringIO()):
                             self.mod.main(["--root", "/tmp/repo", "--background-code"])
-        prewarm.assert_called_once_with(include_code=False, code_only=False)
+        prewarm.assert_called_once_with(include_code=False, code_only=False, precision_check=ANY)
 
     def test_background_code_builds_docs_only_in_foreground(self):
         """--background-code must call build_index with include_code=False and code_only=False."""
@@ -1333,7 +1335,7 @@ class SetupLayerSchedulingTests(unittest.TestCase):
                     with patch.object(self.mod, "_spawn_background_code_build") as spawn:
                         with redirect_stdout(io.StringIO()):
                             self.mod.main(["--root", "/tmp/repo", "--include-code", "--background-code"])
-        prewarm.assert_called_once_with(include_code=True, code_only=False)
+        prewarm.assert_called_once_with(include_code=True, code_only=False, precision_check=ANY)
         _, kwargs = build_index.call_args
         self.assertTrue(kwargs.get("include_code", False))
         self.assertFalse(kwargs.get("code_only", False))
@@ -1347,7 +1349,7 @@ class SetupLayerSchedulingTests(unittest.TestCase):
                     with patch.object(self.mod, "_spawn_background_docs_build"):
                         with redirect_stdout(io.StringIO()):
                             self.mod.main(["--root", "/tmp/repo", "--background-docs"])
-        prewarm.assert_called_once_with(include_code=True, code_only=True)
+        prewarm.assert_called_once_with(include_code=True, code_only=True, precision_check=ANY)
 
     def test_background_docs_builds_code_only_in_foreground(self):
         """--background-docs must build only the code layer before spawning docs."""

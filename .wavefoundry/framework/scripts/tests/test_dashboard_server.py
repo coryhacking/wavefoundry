@@ -461,6 +461,7 @@ class DashboardSnapshotTests(unittest.TestCase):
                 },
                 "observed": "approved from external authority",
                 "artifact_or_test_id": "dashboard external approval fixture",
+                "intent_fit": "establishes",
             },
         )
         self.assertEqual(errors, ())

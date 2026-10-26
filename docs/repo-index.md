@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-24
+Last verified: 2026-10-26
 
 ## Repository Summary
 
@@ -35,29 +35,29 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 21508 |
-| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1552 |
-| store | `.wavefoundry/framework/scripts` | code | 505 |
-| upgrade | `.wavefoundry/framework/scripts` | code | 433 |
-| graph | `.wavefoundry/framework/scripts` | code | 423 |
-| setup | `.wavefoundry/framework/scripts` | code | 406 |
-| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 400 |
-| scripts/wave_lint_lib — check_hardcoded_secrets | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 391 |
-| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 332 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 21727 |
+| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1525 |
+| upgrade | `.wavefoundry/framework/scripts` | code | 434 |
+| graph | `.wavefoundry/framework/scripts` | code | 424 |
+| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 405 |
+| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 328 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 326 |
+| setup | `.wavefoundry/framework/scripts` | code | 324 |
+| store | `.wavefoundry/framework/scripts` | code | 300 |
+| indexer | `.wavefoundry/framework/scripts` | code | 242 |
 | chunker | `.wavefoundry/framework/scripts` | code | 229 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 225 |
-| dashboard_lib | `.wavefoundry/framework/scripts` | code | 224 |
-| scripts/vendored_integrity | `.wavefoundry/framework/scripts` | code | 184 |
-| memory_records | `.wavefoundry/framework/scripts` | code | 123 |
-| scripts/retrieval_eval | `.wavefoundry/framework/scripts` | code | 110 |
+| dashboard_lib | `.wavefoundry/framework/scripts` | code | 221 |
+| build_pack | `.wavefoundry/framework/scripts` | code | 167 |
+| context_efficiency | `.wavefoundry/framework/scripts` | code | 153 |
+| memory_records | `.wavefoundry/framework/scripts` | code | 146 |
+| scripts/retrieval_eval | `.wavefoundry/framework/scripts` | code | 105 |
+| run_tests | `.wavefoundry/framework/scripts` | code | 103 |
 | tensorwell_client | `.wavefoundry/framework/scripts` | code | 69 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 52 |
 | oracle | `.wavefoundry/framework/scripts/tests/oracle` | code | 52 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 47 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
-| techdocs_audit_lib | `.wavefoundry/framework/scripts` | code | 35 |
-| graph_quality_eval | `.wavefoundry/framework/scripts` | code | 31 |
-| scripts/wave_lint_lib — eval_filter | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 26 |
 | configuration | `(root)` | config | 27 |
 <!-- wave:repo-index-modules end -->
 
