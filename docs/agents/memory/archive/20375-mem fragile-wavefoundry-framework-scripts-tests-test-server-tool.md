@@ -1,14 +1,14 @@
 # Fragile: .wavefoundry/framework/scripts/tests/test_server_tools_lifecycle.py
 
 Owner: Engineering
-Status: rejected
+Status: archived
 Last verified: 2026-10-08
 
 Memory ID: `20375-mem fragile-wavefoundry-framework-scripts-tests-test-server-tool`
 Kind: `fragile_file`
 Confidence: 0.6
 Created: 2026-10-08
-Updated: 2026-10-08
+Updated: 2026-10-26
 Source exploration cost: 1072877
 Source event: `repeated-repairs:200ey:.wavefoundry/framework/scripts/tests/test_server_tools_lifecycle.py`
 Validation: reject
@@ -18,6 +18,9 @@ Validation rationale: Only F-TEST-ACTOR changed this file in cycle 2; other shar
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+Archived: 2026-10-26
+Archive reason: Documents why a shared-finding citation overcount is not file fragility; prevents re-proposal.
+Archive path: `docs/agents/memory/archive/20375-mem fragile-wavefoundry-framework-scripts-tests-test-server-tool.md`
 
 ## Summary
 

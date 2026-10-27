@@ -4,7 +4,7 @@ Owner: Engineering
 Role: memory-archive
 Category: specialist
 Status: active
-Last verified: 2026-09-26
+Last verified: 2026-10-26
 
 Searchable compact register for history-worthy retired memory. Full bodies remain under
 `docs/agents/memory/archive/` and are excluded from ordinary indexing; this register remains indexed.
@@ -152,3 +152,30 @@ Searchable compact register for history-worthy retired memory. Full bodies remai
 - Archived: `2026-09-26`
 - Successor: `none`
 - Archive path: `docs/agents/memory/archive/1xgfv-mem pin-historical-changelog-assertions-to-their-owning-release.md`
+
+## 20375-mem fragile-wavefoundry-framework-scripts-tests-test-server-tool
+
+- Title: `Fragile: .wavefoundry/framework/scripts/tests/test_server_tools_lifecycle.py`
+- Kind: `fragile_file`
+- Targets: `.wavefoundry/framework/scripts/tests/test_server_tools_lifecycle.py`
+- Archived: `2026-10-26`
+- Successor: `none`
+- Archive path: `docs/agents/memory/archive/20375-mem fragile-wavefoundry-framework-scripts-tests-test-server-tool.md`
+
+## 203bs-mem fragile-wavefoundry-framework-scripts-tests-test-distributio
+
+- Title: `Fragile: .wavefoundry/framework/scripts/tests/test_distribution_seams.py`
+- Kind: `fragile_file`
+- Targets: `.wavefoundry/framework/scripts/tests/test_distribution_seams.py`
+- Archived: `2026-10-26`
+- Successor: `none`
+- Archive path: `docs/agents/memory/archive/203bs-mem fragile-wavefoundry-framework-scripts-tests-test-distributio.md`
+
+## 203g4-mem fragile-wavefoundry-framework-scripts-tests-test-profile-lit
+
+- Title: `Fragile: .wavefoundry/framework/scripts/tests/test_profile_literal_census.py`
+- Kind: `fragile_file`
+- Targets: `.wavefoundry/framework/scripts/tests/test_profile_literal_census.py`
+- Archived: `2026-10-26`
+- Successor: `none`
+- Archive path: `docs/agents/memory/archive/203g4-mem fragile-wavefoundry-framework-scripts-tests-test-profile-lit.md`
