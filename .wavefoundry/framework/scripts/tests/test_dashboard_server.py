@@ -4428,7 +4428,7 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
 
     def test_semantic_index_tile_uses_generic_build_status_copy(self):
         source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
-        self.assertIn('const statusText = buildStatus === "running"', source)
+        self.assertIn(': buildStatus === "running"', source)
         self.assertIn('? "Indexing..."', source)
         self.assertNotIn(': isStale', source)
         self.assertNotIn('? "Stale..."', source)
@@ -4534,7 +4534,8 @@ class IndexBuilderSnapshotIntegrationTests(unittest.TestCase):
         js = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
         self.assertIn("_initialLoadDoneRef", js)
         self.assertIn("_graphSigRef", js)
-        self.assertIn("function _graphSignature(g)", js)
+        self.assertIn("function graphPayloadSignature(g)", js)
+        self.assertIn("const _graphSignature = graphPayloadSignature;", js)
         self.assertIn("if (newSig === prevSig)", js)
         self.assertIn("if (isInitial) setLoading(true)", js)
         self.assertIn("const stillExists = (data?.nodes || []).some(n => n.id === selectedNodeId)", js)
@@ -5600,3 +5601,252 @@ class DashboardTaskkillBoundTests(unittest.TestCase):
         self.assertFalse(stopped, 'a hung taskkill with the pid still running is "not stopped"')
         stopped, _ = self._run_windows(hung, running=False)
         self.assertTrue(stopped, 'a hung taskkill whose target is gone is "stopped"')
+
+
+class DashboardStaleRuntimeReportingTests(_HandlerHarnessMixin, unittest.TestCase):
+    """Wave 21s7b: a refused index read is reported as a typed diagnostic (21s79) and a
+    stale loaded index runtime is reported on /api/dashboard at request time (21s7a).
+
+    Staleness is simulated the way it happens in the field: modules are loaded first, then the
+    captured producer hashes stop matching the installed sources."""
+
+    def setUp(self):
+        import index_compatibility
+        self.ic = index_compatibility
+        self.lib, self.srv = load_dashboard_modules()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+        _make_repo(self.root)
+        self.snapshot = {}
+        self._stores: list = []
+        self.addCleanup(lambda: [store.stop() for store in self._stores])
+
+    def _stale(self):
+        return patch.dict(self.ic._SOURCE_HASHES, {"indexer": "0" * 64})
+
+    def _health(self):
+        return self.lib.collect_health(self.root, 0, {"wave": [], "plan": []})
+
+    def _get_dashboard(self, store=None) -> dict:
+        handler = self._make_handler("/api/dashboard")
+        if store is not None:
+            handler.server.snapshot_store = store
+        handler.do_GET()
+        self.assertEqual(handler.response_code, 200)
+        return json.loads(handler.wfile.getvalue().decode("utf-8"))
+
+    # ---- 21s79 ----
+
+    def test_refused_store_read_carries_runtime_stale_diagnostic(self):
+        _write_dashboard_lance_index(self.root, docs_chunks=[], code_chunks=[])
+        with self._stale():
+            health = self._health()
+        project = health["index"]["project"]
+        self.assertFalse(project["present"])
+        self.assertEqual(project["diagnostic"]["code"], "index_runtime_stale")
+        self.assertIn("wf_restart_dashboard", project["diagnostic"]["recovery_usage"])
+        self.assertEqual(health["graph"]["project"]["diagnostic"]["code"], "index_runtime_stale")
+
+    def test_refused_store_read_suppresses_build_stats_age(self):
+        _write_dashboard_lance_index(self.root, docs_chunks=[], code_chunks=[])
+        (self.root / ".wavefoundry" / "index" / "index-build-stats.json").write_text(
+            json.dumps({"built_at": "2026-10-17T05:19:30Z"}), encoding="utf-8")
+        with self._stale():
+            project = self._health()["index"]["project"]
+        self.assertEqual(project["built_at"], "")
+
+    def test_current_store_has_no_diagnostic(self):
+        _write_dashboard_lance_index(self.root, docs_chunks=[], code_chunks=[])
+        project = self._health()["index"]["project"]
+        self.assertTrue(project["present"])
+        self.assertNotIn("diagnostic", project)
+
+    def test_absent_store_is_not_built_with_or_without_a_stale_capture(self):
+        project = self._health()["index"]["project"]
+        self.assertFalse(project["present"])
+        self.assertNotIn("diagnostic", project)
+        with self._stale():
+            project = self._health()["index"]["project"]
+        self.assertNotIn("diagnostic", project, "no store means not built, never restart-required")
+
+    def test_store_read_diagnostic_codes(self):
+        newer = self.ic.IndexCompatibilityError("index_version_newer", "graph_store", 9, 8)
+        self.assertEqual(self.lib._store_read_diagnostic(newer)["code"], "index_version_newer")
+        self.assertEqual(self.lib._store_read_diagnostic(newer)["recovery_usage"], "index_health()")
+        generic = self.lib._store_read_diagnostic(RuntimeError("disk I/O error"))
+        self.assertEqual(generic["code"], "index_read_failed")
+        self.assertEqual(generic["message"], "disk I/O error")
+
+    def test_index_dialog_renders_diagnostics_instead_of_not_built(self):
+        source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
+        for section in ("function IndexSection", "function GraphIndexSection"):
+            body = source[source.index(section):]
+            body = body[:body.index("\n}\n")]
+            self.assertIn("h(MissingIndexSection, { label, diagnostic: idx.diagnostic })", body)
+            self.assertNotIn('"not built"', body)
+        self.assertIn('index_runtime_stale: "Restart required', source)
+
+    # ---- 21s7a ----
+
+    def test_api_dashboard_reports_stale_runtime_per_request(self):
+        self.assertEqual(self._get_dashboard()["runtime"], {"stale": False})
+        with self._stale():
+            runtime = self._get_dashboard()["runtime"]
+        self.assertTrue(runtime["stale"])
+        self.assertEqual(runtime["component"], "indexer")
+        self.assertEqual(runtime["recovery_usage"], "wf_restart_dashboard")
+        self.assertFalse(self._get_dashboard()["runtime"]["stale"])
+
+    def test_stale_runtime_reported_while_collection_is_stalled(self):
+        import threading
+        store = self.srv.SnapshotStore(self.root)
+        self._stores.append(store)
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def blocking_collect(root, skip_git=False):
+            release.wait(5)
+            return {"project": {}, "waves": []}
+
+        with patch.object(self.srv, "_COLLECT_TIMEOUT_SECONDS", 0.2), \
+             patch.object(self.lib, "collect_dashboard_snapshot", side_effect=blocking_collect):
+            self.assertIsNone(store._rebuild(force_git=True), "collection must be stalled")
+            with self._stale():
+                runtime = self._get_dashboard(store)["runtime"]
+        self.assertTrue(runtime["stale"])
+
+    def test_runtime_check_failure_reads_current(self):
+        with patch.object(self.ic, "ensure_runtime_current", side_effect=ValueError("boom")):
+            self.assertEqual(self.srv.runtime_currency(), {"stale": False})
+
+    def test_stale_runtime_notice_renders_on_every_view(self):
+        source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
+        main = source[source.index('h("main", { className: "app-main" },'):]
+        self.assertTrue(main.split("\n")[1].strip().startswith("h(StaleRuntimeNotice, { runtime: snapshot.runtime })"),
+                        "the notice precedes the per-view branch so every view shows it")
+        self.assertIn('if (!runtime || runtime.stale !== true) return null;', source)
+
+    # ---- 21rft ----
+
+    def test_compatibility_code_sets_agree(self):
+        source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
+        declared = re.search(r"const INDEX_COMPATIBILITY_CODES = new Set\(\[([^\]]*)\]\);", source)
+        self.assertIsNotNone(declared, "dashboard.js declares its compatibility set explicitly")
+        self.assertEqual(set(re.findall(r'"([a-z_]+)"', declared.group(1))), set(self.ic.INDEX_COMPATIBILITY_CODES))
+        for name, path in (("dashboard_lib.py", SCRIPTS_ROOT / "dashboard_lib.py"),
+                           ("graph_snapshot.py", SCRIPTS_ROOT / "graph_snapshot.py")):
+            text = path.read_text(encoding="utf-8")
+            self.assertNotRegex(text, r'"index_runtime_stale",\s*"index_version_newer"', name)
+
+    def test_store_read_diagnostic_survives_unimportable_compatibility_module(self):
+        import builtins
+        real_import = builtins.__import__
+
+        def failing_import(name, *args, **kwargs):
+            if name == "index_compatibility":
+                raise ImportError("simulated missing index_compatibility")
+            return real_import(name, *args, **kwargs)
+
+        with patch.dict(sys.modules), patch.object(builtins, "__import__", failing_import):
+            sys.modules.pop("index_compatibility", None)
+            diagnostic = self.lib._store_read_diagnostic(RuntimeError("disk I/O error"))
+        self.assertEqual(diagnostic["code"], "index_read_failed")
+        self.assertEqual(diagnostic["recovery_usage"], "index_health()")
+
+    def test_graph_panel_uses_the_shared_subtitle_and_signature(self):
+        source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
+        panel = source[source.index("function GraphPanel("):]
+        panel = panel[:panel.index("\n}\n")]
+        self.assertIn("const _graphSignature = graphPayloadSignature;", panel)
+        self.assertIn("graphSubtitle(graph, ", panel)
+        self.assertNotIn("Graph index has not been built yet.", panel)
+
+    def test_refused_index_renders_one_explanation_on_every_surface(self):
+        import shutil
+        import subprocess
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("Node is needed to execute dashboard component controls")
+        # A refused store with a build-stats sidecar: the shape collect_health really produces.
+        _write_dashboard_lance_index(self.root, docs_chunks=[], code_chunks=[])
+        (self.root / ".wavefoundry" / "index" / "index-build-stats.json").write_text(
+            json.dumps({"files_indexed": 42, "doc_chunks": 7}), encoding="utf-8")
+        with self._stale():
+            refused = self._health()["index"]["project"]
+        self.assertFalse(refused["present"])
+        self.assertEqual(refused["files_indexed"], 42)
+        script = r"""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const refused = JSON.parse(process.argv[2]);
+const h = (tag, props, ...children) => typeof tag === 'function' ? tag(props) : ({tag, props: props || {}, children: children.flat(Infinity).filter(x => x != null)});
+const context = { h, React: {Fragment: 'fragment'}, activeWaves: () => [], pendingWaves: () => [],
+  acProgressStats: () => ({pending: 0, total: 0}), p: (count, single, plural) => count === 1 ? single : plural };
+vm.createContext(context);
+vm.runInContext(source.slice(source.indexOf('function graphPayloadSignature('), source.indexOf('function IndexSection(')), context);
+vm.runInContext(source.slice(source.indexOf('let terminology ='), source.indexOf('function relativeAge(')), context);
+vm.runInContext(source.slice(source.indexOf('function Metrics('), source.indexOf('// buildFileTree / FileTree')), context);
+const nodes = node => typeof node === 'object' ? [node, ...node.children.flatMap(nodes)] : [];
+const text = node => typeof node === 'object' ? node.children.map(text).join(' ') : String(node);
+const titles = node => nodes(node).map(n => n.props.title).filter(t => typeof t === 'string');
+const tile = project => nodes(context.Metrics({snapshot: {health: {index: {project}}}, scopeChanges: []}))
+  .find(n => /metric--index/.test(n.props.className));
+const dialog = diagnostic => context.MissingIndexSection({label: 'Graph', diagnostic});
+const restart = 'Index preserved. Reload/restart the affected Wavefoundry host. Restart the affected Wavefoundry host, then call index_health().';
+const cases = ['index_runtime_stale', 'index_version_newer', 'index_compatibility_unproven', 'graph_publication_in_flight', 'graph_read_failed', 'index_read_failed']
+  .map(code => ({code, message: `${code}: detail. ${restart}`, recovery_usage: 'index_health()'}));
+
+// AC-1: the real refused shape (sidecar count 42) reads as unreadable, never 42 or Missing.
+const refusedTile = text(tile(refused));
+const refusedView = context.indexDiagnosticView(refused.diagnostic);
+assert.ok(refusedTile.includes(refusedView.label), refusedTile);
+assert.ok(!/\b42\b/.test(refusedTile) && !refusedTile.includes('Missing'), refusedTile);
+assert.ok(text(tile({...refused, build_status: 'running'})).includes(refusedView.label), 'the refusal wins over a running build');
+assert.ok(text(tile({present: false})).includes('Missing'));
+
+// AC-2: the Graph subtitle and the re-render signature.
+for (const diagnostic of cases) {
+  const subtitle = context.graphSubtitle({present: false, diagnostic}, 0, 0);
+  assert.notEqual(subtitle, 'Graph index has not been built yet.');
+}
+assert.equal(context.graphSubtitle({present: false}, 0, 0), 'Graph index has not been built yet.');
+assert.equal(context.graphSubtitle({present: true}, 3, 2), '3 nodes · 2 edges');
+const sigs = [{present: false}, {present: false, diagnostic: cases[3]}, {present: false, diagnostic: cases[1]}].map(context.graphPayloadSignature);
+assert.equal(new Set(sigs).size, 3, sigs.join(','));
+
+// AC-3: in-progress wording; no restart text beside an index_health() action.
+assert.ok(!text(dialog(cases[3])).includes('could not be read'));
+assert.ok(text(dialog(cases[3])).includes('in progress'));
+for (const diagnostic of [cases[1], cases[2]]) {
+  const tree = dialog(diagnostic);
+  assert.ok(!titles(tree).some(t => t.includes('Restart')) && !text(tree).includes('Restart'), text(tree));
+}
+assert.ok(text(dialog(cases[0])).includes('wf_restart_dashboard'));
+
+// AC-4: one label and action across the tile, the Graph subtitle and the dialog.
+// Fixed expectations, so a blanked or swapped label table cannot satisfy the check.
+const expectedLabels = {
+  index_runtime_stale: 'Restart required: this dashboard is running older index code than is installed',
+  index_version_newer: 'The index was written by newer code than is installed',
+  index_compatibility_unproven: 'Index compatibility could not be proven',
+  graph_publication_in_flight: 'Graph publication in progress',
+  graph_read_failed: 'The index could not be read',
+  index_read_failed: 'The index could not be read',
+};
+for (const diagnostic of cases) {
+  const view = context.indexDiagnosticView(diagnostic);
+  assert.equal(view.label, expectedLabels[diagnostic.code]);
+  assert.ok(view.action, `${diagnostic.code}: empty action`);
+  for (const surface of [text(tile({present: false, files_indexed: 42, diagnostic})),
+                         context.graphSubtitle({present: false, diagnostic}, 0, 0), text(dialog(diagnostic))]) {
+    assert.ok(surface.includes(view.label) && surface.includes(view.action), `${diagnostic.code}: ${surface}`);
+  }
+}
+console.log('refusal surfaces agree');
+"""
+        result = subprocess.run([node, "-e", script, str(SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js"),
+                                 json.dumps(refused)], text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

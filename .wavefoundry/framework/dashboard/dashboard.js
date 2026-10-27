@@ -702,19 +702,28 @@ function Metrics({ snapshot, scopeChanges, onWavesClick, onChangesClick, onAcsCl
           ? "failed"
           : null;
       const noSemanticIndex = !projectIdx.present;
+      // Wave 21rft: a refused store still carries the build-stats sidecar's counts, so the
+      // diagnostic wins over counts and over a running build's status text.
+      const refusal = noSemanticIndex && projectIdx.diagnostic ? indexDiagnosticView(projectIdx.diagnostic) : null;
       const state = buildStatus === "running" ? "running" : buildStatus === "failed" ? "failed" : null;
-      const statusText = buildStatus === "running"
-        ? "Indexing..."
-        : buildStatus === "failed"
-          ? "Index build failed"
-          : null;
+      const statusText = refusal
+        ? refusal.label
+        : buildStatus === "running"
+          ? "Indexing..."
+          : buildStatus === "failed"
+            ? "Index build failed"
+            : null;
       const note = h(React.Fragment, null,
-        h("div", { className: "metric-subnote" }, `files, ${totalChunks.toLocaleString()} chunks`),
+        refusal
+          ? h("div", { className: "metric-subnote", title: refusal.tooltip || undefined }, refusal.action)
+          : h("div", { className: "metric-subnote" }, `files, ${totalChunks.toLocaleString()} chunks`),
         h("div", { className: "metric-subnote" }, `${graphNodes.toLocaleString()} nodes · ${graphEdges.toLocaleString()} edges`),
         distinctTerms !== null ? h("div", { className: "metric-subnote" }, `${distinctTerms.toLocaleString()} distinct terms`) : null,
         h("div", { className: "metric-status-line" }, statusText || "\u00A0"),
       );
-      const value = totalFiles ? totalFiles.toLocaleString() : (buildStatus === "running" ? "Indexing…" : "Missing");
+      const value = refusal
+        ? "Unreadable"
+        : totalFiles ? totalFiles.toLocaleString() : (buildStatus === "running" ? "Indexing…" : "Missing");
       return { label: "Index", value, note, state, onClick: onIndexClick, variant: "index" };
     })(),
   ];
@@ -3102,12 +3111,7 @@ function GraphPanel({ snapshot }) {
   //   3) preserves selectedNodeId across reloads when the node is still present.
   const _initialLoadDoneRef = useRef(false);
   const _graphSigRef = useRef("");
-  function _graphSignature(g) {
-    if (!g || !g.present) return "absent";
-    const nodes = g.nodes || [];
-    const edges = g.edges || [];
-    return `${nodes.length}:${edges.length}:${g.builder_version || ""}:${g.counts?.nodes || 0}:${g.counts?.edges || 0}`;
-  }
+  const _graphSignature = graphPayloadSignature;
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
@@ -3577,7 +3581,7 @@ function GraphPanel({ snapshot }) {
       h("div", null,
         h("h2", { className: "panel-heading" }, "Graph"),
         h("p", { className: "graph-subtitle muted" },
-          graph?.present ? `${graphCounts.nodes || nodes.length} nodes · ${graphCounts.edges || edges.length} edges` : "Graph index has not been built yet."
+          graphSubtitle(graph, graphCounts.nodes || nodes.length, graphCounts.edges || edges.length)
         ),
       ),
     ),
@@ -3851,14 +3855,71 @@ function _visibleModelId(value) {
   return provenanceAt > 0 ? full.slice(0, provenanceAt) : full;
 }
 
+// Wave 21rft: the Graph view skips re-rendering when this signature is unchanged, so a
+// not-present payload's diagnostic code is part of it (one refusal to another must show).
+function graphPayloadSignature(g) {
+  if (!g || !g.present) return `absent:${(g && g.diagnostic && g.diagnostic.code) || ""}`;
+  const nodes = g.nodes || [];
+  const edges = g.edges || [];
+  return `${nodes.length}:${edges.length}:${g.builder_version || ""}:${g.counts?.nodes || 0}:${g.counts?.edges || 0}`;
+}
+
+function graphSubtitle(graph, nodeCount, edgeCount) {
+  if (graph?.present) return `${nodeCount} nodes · ${edgeCount} edges`;
+  const view = indexDiagnosticView(graph?.diagnostic);
+  return view ? `${view.label}. ${view.action}` : "Graph index has not been built yet.";
+}
+
+// Wave 21s7b: an absent section WITH a diagnostic was refused, not missing. Only
+// index_runtime_stale is fixed by restarting the dashboard; the other compatibility
+// refusals (e.g. installed sources older than the index) point at index_health instead.
+// Wave 21rft: declared, not derived from the labels, and held equal to
+// index_compatibility.INDEX_COMPATIBILITY_CODES by a test.
+const INDEX_COMPATIBILITY_CODES = new Set(["index_runtime_stale", "index_version_newer", "index_compatibility_unproven"]);
+const INDEX_DIAGNOSTIC_LABELS = {
+  index_runtime_stale: "Restart required: this dashboard is running older index code than is installed",
+  index_version_newer: "The index was written by newer code than is installed",
+  index_compatibility_unproven: "Index compatibility could not be proven",
+  graph_publication_in_flight: "Graph publication in progress",
+};
+
+// Wave 21rft: the one label/action/tooltip for a refused or in-progress read, shared by
+// the Index tile, the Graph view and the Index dialog. Null when there is no diagnostic.
+function indexDiagnosticView(diagnostic) {
+  const code = diagnostic && typeof diagnostic.code === "string" ? diagnostic.code : "";
+  if (!code) return null;
+  const message = typeof diagnostic.message === "string" ? diagnostic.message : "";
+  let action;
+  if (code === "index_runtime_stale") action = "Run Restart dashboard (wf_restart_dashboard).";
+  else if (INDEX_COMPATIBILITY_CODES.has(code)) action = "Run index_health() for the cause and recovery.";
+  else if (code === "graph_publication_in_flight") action = "A graph build is publishing; this updates when it finishes.";
+  else {
+    const usage = typeof diagnostic.recovery_usage === "string" && diagnostic.recovery_usage ? diagnostic.recovery_usage : "index_health()";
+    action = `Recovery: ${usage}`;
+  }
+  // The other compatibility messages carry host-restart recovery text that contradicts the action.
+  const tooltip = INDEX_COMPATIBILITY_CODES.has(code) && code !== "index_runtime_stale" ? "" : message;
+  return { code, label: INDEX_DIAGNOSTIC_LABELS[code] || "The index could not be read", action, tooltip };
+}
+
+function MissingIndexSection({ label, diagnostic }) {
+  const view = indexDiagnosticView(diagnostic);
+  return h("div", { className: "index-section index-section--missing" },
+    h("div", { className: "index-section-label" }, label),
+    view
+      ? h("div", { className: "index-diagnostic", title: view.tooltip || undefined },
+          h("span", { className: "index-stat-missing" }, view.label),
+          h("span", { className: "index-diagnostic-action" }, view.action),
+        )
+      : h("span", { className: "index-stat-missing" }, "not built"),
+  );
+}
+
 function IndexSection({ label, idx }) {
   const staleLocksCleaned = Array.isArray(idx.stale_locks_cleaned) ? idx.stale_locks_cleaned.length : 0;
 
   if (!idx.present) {
-    return h("div", { className: "index-section index-section--missing" },
-      h("div", { className: "index-section-label" }, label),
-      h("span", { className: "index-stat-missing" }, "not built"),
-    );
+    return h(MissingIndexSection, { label, diagnostic: idx.diagnostic });
   }
   const filesIndexed = Number(idx.files_indexed) || 0;
   const docChunks = Number(idx.doc_chunks) || 0;
@@ -3936,10 +3997,7 @@ function LexicalIndexSection({ idx }) {
 function GraphIndexSection({ label, idx }) {
 
   if (!idx.present) {
-    return h("div", { className: "index-section index-section--missing" },
-      h("div", { className: "index-section-label" }, label),
-      h("span", { className: "index-stat-missing" }, "not built"),
-    );
+    return h(MissingIndexSection, { label, diagnostic: idx.diagnostic });
   }
 
   const nodeCount = Number(idx.counts?.nodes) || 0;
@@ -4343,6 +4401,7 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
         frameworkVersion, sseConnected, pollIdx, generatedAt: snapshot.generated_at,
       }),
       h("main", { className: "app-main" },
+        h(StaleRuntimeNotice, { runtime: snapshot.runtime }),
         view === "graph"
           ? h("section", { className: "app-graph", "aria-label": "Graph index" },
               h(GraphPanel, { snapshot }),
@@ -4396,6 +4455,17 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
     showTasks   ? h(TasksDialog,   { snapshot, onClose: () => setShowTasks(false) })   : null,
     showIndex   ? h(IndexDialog,   { health: snapshot.health, onClose: () => setShowIndex(false) }) : null,
     showAllFiles ? h(FilesDialog,  { title: "Changed files", files: snapshot.activity?.files_changed_all || [], emptyMessage: "Working tree is clean.", onClose: () => setShowAllFiles(false) }) : null,
+  );
+}
+
+// Wave 21s7b: the server reports, per /api/dashboard request, whether its loaded index
+// code is older than the installed sources. Shown on every view; never restarts anything.
+function StaleRuntimeNotice({ runtime }) {
+  if (!runtime || runtime.stale !== true) return null;
+  const component = typeof runtime.component === "string" && runtime.component ? ` (changed: ${runtime.component})` : "";
+  return h("div", { className: "runtime-stale-notice", role: "status" },
+    h("strong", null, `This dashboard is running older index code than is installed${component}.`),
+    h("span", null, "Index panels may show the index as unreadable until it restarts. Run Restart dashboard (wf_restart_dashboard)."),
   );
 }
 

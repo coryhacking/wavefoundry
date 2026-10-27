@@ -236,6 +236,7 @@ def _not_ready(layer: str) -> GraphSnapshot:
 def _read_failure(layer: str, exc: Exception) -> GraphSnapshot:
     """Keep actionable causes as data; never retain an exception traceback."""
     import sqlite_storage_migration
+    from index_compatibility import INDEX_COMPATIBILITY_CODES
     code = getattr(exc, "code", "")
     detail = str(exc)
     recovery_tools, recovery_usage = ["index_health"], "index_health()"
@@ -245,7 +246,7 @@ def _read_failure(layer: str, exc: Exception) -> GraphSnapshot:
         recovery_tools, recovery_usage = ["wf_upgrade_status"], "wf_upgrade_status()"
     elif code == "storage_runtime_unavailable":
         recovery = "Run wf setup --root . in the repository to repair the native runtime, then restart the host."
-    elif code in {"index_runtime_stale", "index_version_newer", "index_compatibility_unproven"}:
+    elif code in INDEX_COMPATIBILITY_CODES:
         recovery = "Restart the affected Wavefoundry host; preserve the newer index instead of rebuilding it."
         recovery_usage = "Restart the affected Wavefoundry host, then call index_health()."
     elif code == "storage_recovery_required":

@@ -156,6 +156,29 @@ def _graph_neighbors_payload(root: Path, *, layer: str, symbol: str) -> dict[str
         return {"present": False, "layer": layer, "symbol": symbol, "diagnostic": "error", "message": str(exc)}
 
 
+def runtime_currency() -> dict[str, Any]:
+    """Whether this process's loaded index code is older than the installed sources (wave 21s7b).
+
+    Read per ``/api/dashboard`` request, never inside the bounded collection, so a stalled
+    watcher serving its last good snapshot cannot hide it. Uncached: the guarded index reads
+    already hash the producer sources every cycle. Only an ``index_runtime_stale`` refusal
+    reads as stale; any failure to evaluate reads as current (advisory only). The import is
+    inside the check so a failed import is retried on the next request.
+    """
+    try:
+        import index_compatibility
+        index_compatibility.ensure_runtime_current()
+    except Exception as exc:  # noqa: BLE001 - advisory; never blocks a response
+        if getattr(exc, "code", None) == "index_runtime_stale":
+            return {
+                "stale": True,
+                "component": str(getattr(exc, "component", "") or ""),
+                "recovery": "Restart dashboard",
+                "recovery_usage": "wf_restart_dashboard",
+            }
+    return {"stale": False}
+
+
 def _project_index_inputs_stale(root: Path, meta: dict[str, Any]) -> bool | None:
     # Canonical implementation now lives in indexer.project_index_inputs_stale
     # (moved in wave 1p5xu so the MCP in-session monitor and the dashboard share
@@ -950,7 +973,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             # Wave 1rtju (AC-2): attach the read-time watcher-liveness view additively so a stalled
             # watcher is observable to clients. Computed per request (not stored) so it never churns the
             # snapshot content hash and reflects a wedged watcher even while it is blocked.
-            return self._send_json({**snapshot, "watcher": self._store.watcher_health()})
+            # Wave 21s7b: the stale-runtime view is read the same way, so a stalled collection
+            # serving its last good snapshot cannot hide it.
+            return self._send_json({**snapshot, "watcher": self._store.watcher_health(),
+                                    "runtime": runtime_currency()})
         if path == "/api/health":
             return self._send_json(snapshot.get("health", {}))
         if path == "/api/project":

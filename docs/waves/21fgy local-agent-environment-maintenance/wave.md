@@ -1,8 +1,8 @@
 # Wave Record
 
 Owner: Engineering
-Status: paused
-Last verified: 2026-10-23
+Status: closed
+Last verified: 2026-10-27
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -25,10 +25,15 @@ Change Status: `implemented`
 - Requested review lanes: qa-reviewer, security-reviewer, docs-contract-reviewer
 - Required review lanes: qa-reviewer, docs-contract-reviewer, security-reviewer
 
+Completed At: 2026-10-27
+
 ## Wave Summary
 
-Resolve audit A6 as bounded local maintenance. A7 was removed by the operator on2026-10-23; its historical investigation is retained, and no upstream correction is claimed.
+Wave `21fgy` (Local Agent Environment Maintenance) delivered one change: Correct local agent permissions. Notable adjustments during implementation: Correct local agent permissions: Removed exactly the two named obsolete local permission lines. Parsed JSON equals original with only those entries removed; 114 other allow entries and all other values preserved. Original fails the removal oracle; final passes. Maintained Morning source and T-2/AC-2 remain pending, not deferred or completed.; Correct local agent permissions: Operator did not recognize Morning and explicitly requested origin/source investigation. Scoped sync manifest identifies skillId/name morning, source anthropic-example, updatedAt2026-09-14T19:41:01.990356Z. It is an Anthropic-provided example, correcting the earlier personal-source assumption. Official Claude docs confirm account-to-local download only; cache edits do not upload and can be overwritten. No maintained project/personal source was identified. Source correction remains unapplied and upstream-owned; no removal, disablement, cache edit, upload or external message.; Correct local agent permissions: Operator removed A7 from this wave because Anthropic maintains Morning. Narrowed owning Rationale/Product Intent/Requirements/Scope and A6 review wording; retain A7 AC-2/T-2 as intentionally not met with operator/date/reason rather than claim a source correction. A6 remains independently verified and implemented. No installed skill, permissions or framework source changed in this scope update.
 
+**Changes delivered:**
+
+- **Correct local agent permissions** (`21fgs-ops local-agent-permissions-and-morning-portability`) — 2 ACs completed. Key decisions: Retain local settings ownership; Morning correction belongs to the Anthropic-maintained example; Remove A7 from this wave at the operator’s instruction
 ## Watchpoints
 
 - Watchpoint: Preserve all114other allowlist entries and every other local setting.
@@ -53,7 +58,7 @@ Resolve audit A6 as bounded local maintenance. A7 was removed by the operator on
 | qa-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | docs-contract-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | security-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
-| operator-signoff | pending | no current executed approval | record approval evidence for operator-signoff |
+| operator-signoff | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 <!-- wave:review-status end -->
 
 - operator-signoff: <approved when operator confirms closure>
@@ -70,12 +75,12 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 
 | Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
-| plan | 63 | 30,092 |
+| plan | 64 | 40,173 |
 | implement | 14 | 0 |
-| review | 27 | 700,821 |
-| **Total** | **104** | **730,913** |
+| review | 29 | 702,216 |
+| **Total** | **107** | **742,389** |
 
-<!-- wave:context-efficiency-state {"generation":92,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":14,"content_source_credit":1029,"derived_artifact_credit":0,"direct_net":-3041,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":488,"response_debit":6556,"source_credit_count":3,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2974},"plan":{"calls":63,"content_source_credit":161856,"derived_artifact_credit":2482,"direct_net":30092,"estimated_tokens_saved":30092,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":15562,"response_debit":126222,"source_credit_count":42,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":7538},"review":{"calls":27,"content_source_credit":770726,"derived_artifact_credit":0,"direct_net":700821,"estimated_tokens_saved":700821,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":743,"response_debit":69162,"source_credit_count":11,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":104,"content_source_credit":933611,"derived_artifact_credit":2482,"direct_net":727872,"estimated_tokens_saved":730913,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":16793,"response_debit":201940,"source_credit_count":56,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":10512},"wave_id":"21fgy local-agent-environment-maintenance"} -->
+<!-- wave:context-efficiency-state {"generation":95,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":14,"content_source_credit":1029,"derived_artifact_credit":0,"direct_net":-3041,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":488,"response_debit":6556,"source_credit_count":3,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2974},"plan":{"calls":64,"content_source_credit":173604,"derived_artifact_credit":2736,"direct_net":40173,"estimated_tokens_saved":40173,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":15895,"response_debit":127810,"source_credit_count":44,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":7538},"review":{"calls":29,"content_source_credit":770726,"derived_artifact_credit":0,"direct_net":702216,"estimated_tokens_saved":702216,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":761,"response_debit":71438,"source_credit_count":11,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3689}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":107,"content_source_credit":945359,"derived_artifact_credit":2736,"direct_net":739348,"estimated_tokens_saved":742389,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":17144,"response_debit":205804,"source_credit_count":58,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":14201},"wave_id":"21fgy local-agent-environment-maintenance"} -->
 <!-- wave:context-efficiency end -->
 
 <!-- wave:exploration-avoided begin -->

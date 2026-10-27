@@ -19,6 +19,10 @@ from types import ModuleType
 from sqlite_runtime import StorageRecoveryRequired
 
 INDEX_GUARD_CAPABILITY = 1
+# Wave 21rft: the refusal codes this module raises; dashboard readers test membership here.
+INDEX_COMPATIBILITY_CODES = frozenset({
+    "index_runtime_stale", "index_version_newer", "index_compatibility_unproven",
+})
 _ACTIVE_WRITERS = ContextVar("index_compatibility_writers", default=frozenset())
 _SOURCE_NAMES = ("indexer", "chunker", "graph_indexer", "graph_store",
                  "sqlite_vector_store", "index_state_store", "model_bundle", "marker_namespaces", "operational_evidence")

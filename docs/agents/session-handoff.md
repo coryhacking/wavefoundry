@@ -2,13 +2,15 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-26
+Last verified: 2026-10-27
 
 ## Current Session
 
 **Local test build:** Operator requested a local 1.38.0 build and explicitly approved retaining verified uv 0.12.22 on 2026-10-26 as an exception to the packaging age rule. All 18 wheel hashes match official PyPI metadata; newer eligible uv 0.12.23 is deferred. Default qualification is reused from the exact matching 12,228-test execution. Renamed-profile qualification completed 213 files / 12,220 tests with six failures in three files. Four changelog-wording assertions were corrected and their file independently rerun under that profile: 198 tests passed, one skip. Two source-history checks remain failing: credible-threat carrier census includes old docs/waves records, and the intent ledger census finds zero ledgers under the renamed root. Operator choice between repair/requalification and an explicit local-test exception to packaging step 5 is pending; declared-profile qualification and archive creation have not run. Details and original failed report are retained at `/private/tmp/wavefoundry-local-1.38.0-jo2wrovw`. No release, upload or new commit is authorized.
 
 **Active wave:** *(none)*
+
+**Closed 2026-10-27 on explicit operator instruction:** `21s7b dashboard-stale-runtime-reporting`, `21fgr audit-detector-and-skill-invocation-policy`, `21rft dashboard-refusal-follow-ups` (21s7b delivery-review follow-ups I1/M1/M2: refused or in-flight index reads read consistently on the Index tile, Graph view and Index dialog; two delivery findings repaired and independently reverified) and `21fgy local-agent-environment-maintenance` (A6 only; A7 removed by the operator). Canonical suite after the last framework edit: 12,258 tests, 12 existing skips, green receipt. Open follow-ups outside 21rft: MCP `index_health()` restart wording for all three compatibility codes; a migration-pending semantic store reads as not built (`open_read_only` never calls `require_ready`); `storage_runtime_unavailable` wording on the graph path.
 
 **Last closed wave:** `21kbd setup-provider-preflight`, closed 2026-10-26 on explicit operator instruction. Setup now reports bounded provider-selection reasons and refuses incompatible or narrowly unverified implicit local fallback before model preparation, preserving qualified-service, explicit local/extension, fresh/legacy and deliberate rebuild paths and the final indexer publication guard.
 

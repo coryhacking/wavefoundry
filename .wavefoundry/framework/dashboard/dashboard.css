@@ -323,6 +323,20 @@ html[data-theme="dark"] .nav-item--active:hover {
   flex-direction: column;
 }
 
+/* Wave 21s7b: shown on every view while the server's loaded index code is stale. */
+.runtime-stale-notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+  margin: 1rem 1rem 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  background: var(--warn-soft);
+  color: var(--text, inherit);
+  font-size: 0.9rem;
+}
+
 /* Contained view container: centered, capped width, shared top padding.
    Used by Work and (later) Config/Secrets/Docs. See the View Layout Standard
    in docs/design-system/foundations/dashboard.md. */
@@ -1308,6 +1322,17 @@ html[data-theme="dark"] .metric-diff-removed { color: #f87171; }
   font-size: 0.85rem;
   color: var(--muted);
   font-style: italic;
+}
+
+/* Wave 21s7b: a refused read names its recovery action instead of "not built". */
+.index-diagnostic {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.index-diagnostic-action {
+  font-size: 0.85rem;
 }
 
 .index-stat-grid {

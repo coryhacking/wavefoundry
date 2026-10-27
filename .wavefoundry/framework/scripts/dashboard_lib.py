@@ -129,8 +129,35 @@ def _read_json(path: Path, default: Any) -> Any:
         return default
 
 
-def _read_store_build_meta(index_dir: Path) -> dict:
-    """1sed6: the build-state snapshot from the index-state store (meta.json retired)."""
+# Wave 21s7b: index-compatibility refusals keep their own code so the Index dialog can tell
+# "restart the dashboard" apart from "not built"; any other read failure gets a generic code.
+def _store_read_diagnostic(exc: Exception) -> dict[str, Any]:
+    # Wave 21rft: imported lazily; importing index_compatibility captures producer sources.
+    # This runs inside a read failure's handler, so an unimportable module still yields
+    # index_read_failed rather than escaping collect_health.
+    try:
+        from index_compatibility import INDEX_COMPATIBILITY_CODES
+    except ImportError:
+        INDEX_COMPATIBILITY_CODES = frozenset()
+    code = str(getattr(exc, "code", "") or "")
+    if code not in INDEX_COMPATIBILITY_CODES:
+        code = "index_read_failed"
+    if code == "index_runtime_stale":
+        recovery_usage = "Restart dashboard (wf_restart_dashboard)"
+    else:
+        recovery_usage = "index_health()"
+    return {"code": code, "message": str(exc), "recovery_usage": recovery_usage}
+
+
+def _read_store_build_meta(index_dir: Path) -> tuple[dict, dict[str, Any] | None]:
+    """1sed6: the build-state snapshot from the index-state store (meta.json retired).
+
+    Returns ``(summary, diagnostic)``. An absent store is ``({}, None)``; a store that
+    exists but cannot be read is ``({}, diagnostic)`` (wave 21s7b), never a bare ``{}``.
+    """
+    import index_paths
+    if not (Path(index_dir) / index_paths.RUNTIME_DATABASE_FILENAME).exists():
+        return {}, None
     try:
         import importlib.util as _ilu
         _spec = _ilu.spec_from_file_location(
@@ -139,9 +166,9 @@ def _read_store_build_meta(index_dir: Path) -> dict:
         _mod = _ilu.module_from_spec(_spec)
         _spec.loader.exec_module(_mod)
         # Review fix: bounded summary (scalars + COUNT), never the per-file rows.
-        return _mod.read_build_summary(index_dir) or {}
-    except Exception:
-        return {}
+        return _mod.read_build_summary(index_dir) or {}, None
+    except Exception as exc:  # noqa: BLE001 - reported as a typed diagnostic
+        return {}, _store_read_diagnostic(exc)
 
 
 def _vector_table_stats(index_dir: Path | None) -> tuple[int, int]:
@@ -1620,11 +1647,16 @@ def collect_health(root: Path, wave_count: int, change_sets: dict[str, list[dict
 
     # Wave 1p4ww: single project index — the framework layer is folded in.
     index_dir        = root / ".wavefoundry" / "index"
-    index_meta       = _read_store_build_meta(index_dir)  # 1sed6: bounded store summary (scalars + file_count)
+    index_meta, index_diagnostic = _read_store_build_meta(index_dir)  # 1sed6: bounded store summary (scalars + file_count)
     index_stats      = _read_json(index_dir    / "index-build-stats.json", {})
     project_graph    = read_graph_payload(root, "project")
     project_build    = server.index_build_status_response(root, layer="project").get("data", {})
     project_health   = _index_stats(index_meta,    index_stats,    index_dir)
+    if index_diagnostic is not None:
+        # Wave 21s7b: the store was not read, so the build-stats sidecar's built_at is not
+        # the index's update time.
+        project_health["diagnostic"] = index_diagnostic
+        project_health["built_at"] = ""
     if isinstance(project_build, dict):
         project_state = str(project_build.get("build_status") or project_build.get("state") or "").strip().lower()
         if project_state in {"running", "failed"}:
