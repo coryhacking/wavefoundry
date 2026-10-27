@@ -24523,6 +24523,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         phase (a readiness approval attests to the review of the current tree
         or plan, not unimplemented product behavior; the seed-209 field table
         defines each boolean) plus a non-empty ``known_bad_detection_method``.
+        An ``operator-signoff`` approval is the exception: it runs no check of
+        its own, so ``integrity_checks`` may be omitted (stored as ``false``
+        with a not-applicable method) or supplied with honest ``false`` values.
         The exact caller vocabularies are owned by the exported
         ``review_evidence.py`` registries and contract tests compare this
         description with those registries. Field placement at a glance —
@@ -24634,7 +24637,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 known_bad_detected, and known_bad_detection_method. Affirm each
                 boolean honestly for the recording phase per the seed-209 field
                 table; a claim that cannot affirm one is not recorded as
-                executed.
+                executed. Optional for an operator-signoff approval, which
+                may carry false values.
             record_type: list only — filter rows to one record type
                 (``executable_evidence``, ``review_run``, ``finding_synthesis``).
             verbose: list only — return full records instead of the compact index.

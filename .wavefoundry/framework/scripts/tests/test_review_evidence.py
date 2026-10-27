@@ -1045,8 +1045,8 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
         self.assertIn(
             "executed approval event cannot carry "
             "integrity_checks.assertions_non_vacuous=false: affirm it honestly, "
-            "or do not record the claim as executed (for an approval: do not "
-            "approve; record a finding or repair first)",
+            "or do not record the claim as executed (for a specialist or council "
+            "approval: do not approve; record a finding or repair first)",
             "\n".join(errors),
         )
 
@@ -1061,8 +1061,8 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
         self.assertIn(
             "executed finding event cannot carry "
             "integrity_checks.known_bad_detected=false: affirm it honestly, "
-            "or do not record the claim as executed (for an approval: do not "
-            "approve; record a finding or repair first)",
+            "or do not record the claim as executed (for a specialist or council "
+            "approval: do not approve; record a finding or repair first)",
             "\n".join(errors),
         )
 
@@ -5691,6 +5691,151 @@ class SignoffCompatibilityTests(unittest.TestCase):
                         text, 'qa-reviewer', authorization=value), expected)
         with self.assertRaises(TypeError):
             subject.lane_has_signoff_in_evidence('', 'qa-reviewer', invented=True)
+
+
+class OperatorApprovalHonestAttestationTests(unittest.TestCase):
+    """Wave 21sld (change 21qbb): an operator sign-off asserts no checks it never ran."""
+
+    def approval(self, signoff_key: str = "operator-signoff", actor: str = "operator", **overrides):
+        event = {
+            "event": "approval", "actor": actor, "context_id": f"ctx-{signoff_key}",
+            "signoff_key": signoff_key, "approval_phase": "delivery",
+            "observed": "operator approved the reviewed scope", "artifact_or_test_id": "fixture",
+        }
+        if actor != "operator":
+            event.update(fresh_context=True, independent=True, integrity_checks=integrity_checks())
+        event.update(overrides)
+        return event
+
+    def build(self, event):
+        return subject.build_identified_review_event([], "21sld fixture", event)
+
+    def closure_rows(self, approval_rows):
+        run_rows, errors = subject.build_identified_review_event([], "21sld fixture", {
+            "event": "run", "actor": "council-chair", "context_id": "ctx-run",
+            "run_kind": "initial_delivery", "cycle": 0,
+        })
+        self.assertEqual(errors, ())
+        return [*run_rows, *approval_rows]
+
+    def test_omitted_checks_store_honest_false_and_no_independence_claim(self):
+        rows, errors = self.build(self.approval())
+        self.assertEqual(errors, ())
+        record = rows[0]
+        for field in subject.INTEGRITY_CHECK_BOOLEAN_FIELDS:
+            self.assertIs(record[field], False, field)
+        self.assertIn("not applicable", record["known_bad_detection_method"])
+        self.assertNotIn("independent", record["expected"])
+        self.assertNotIn("independent", record["counterexample_or_failure_condition"])
+        self.assertEqual(record["execution_status"], "executed")
+        self.assertFalse(subject.validate_review_evidence_records(rows))
+
+    def test_supplied_checks_may_be_false_or_true(self):
+        mixed = integrity_checks(known_bad_detected=False, public_path_reached=False)
+        rows, errors = self.build(self.approval(integrity_checks=mixed))
+        self.assertEqual(errors, ())
+        self.assertIs(rows[0]["known_bad_detected"], False)
+        self.assertIs(rows[0]["assertions_non_vacuous"], True)
+        rows, errors = self.build(self.approval(integrity_checks=integrity_checks()))
+        self.assertEqual(errors, ())
+        self.assertIs(rows[0]["known_bad_detected"], True)
+        # The shape is still exact: an extra field is refused even for the operator.
+        _rows, errors = self.build(self.approval(integrity_checks={**integrity_checks(), "extra": True}))
+        self.assertTrue(errors)
+
+    def test_new_and_old_operator_shapes_close_alike(self):
+        new_rows, _ = self.build(self.approval())
+        old_rows, _ = self.build(self.approval(integrity_checks=integrity_checks()))
+        for rows in (new_rows, old_rows):
+            records = self.closure_rows(rows)
+            self.assertFalse(subject.validate_review_evidence_records(records, closure=True))
+            # component-fixture: in-memory typed authority over builder-produced rows.
+            text = ("# Wave\nreview-evidence-source: events.jsonl\n\n"
+                    + subject.empty_external_finding_synthesis_section())
+            authority = subject.ReviewAuthority(typed=True, wave_text=text, records=records)
+            self.assertTrue(authority.signoff_current("operator-signoff"))
+
+    def test_other_executed_records_keep_the_all_true_rule(self):
+        for key in ("qa-reviewer", "council-delivery"):
+            with self.subTest(key=key):
+                actor = subject.COUNCIL_ACTOR if subject.is_council_signoff_key(key) else key
+                event = self.approval(key, actor, integrity_checks=integrity_checks(known_bad_detected=False))
+                if key == "council-delivery":
+                    event["intent_fit"] = "establishes"
+                _rows, errors = self.build(event)
+                self.assertTrue(any("cannot carry integrity_checks.known_bad_detected=false" in e for e in errors), errors)
+                self.assertTrue(any("for a specialist or council approval: do not approve" in e
+                                    for e in errors), errors)
+
+    def test_retry_fingerprint_treats_an_omitted_operator_default_as_spelled_out(self):
+        # Fixed literals, not read back from the code under test.
+        spelled_out = {
+            "expected": "the operator approves the reviewed scope; operator approval runs no check of its own",
+            "failure_condition": "the approval predates an affected repair",
+            "integrity_checks": {
+                **{field: False for field in subject.INTEGRITY_CHECK_BOOLEAN_FIELDS},
+                "known_bad_detection_method": (
+                    "not applicable: operator approval attests the reviewed scope and runs no check"
+                ),
+            },
+        }
+        digest = subject.review_event_request_digest
+        self.assertEqual(digest(self.approval()), digest(self.approval(**spelled_out)))
+        rows, errors = self.build(self.approval())
+        self.assertEqual(errors, ())
+        self.assertEqual(rows[0]["expected"], spelled_out["expected"])
+        self.assertEqual(rows[0]["counterexample_or_failure_condition"], spelled_out["failure_condition"])
+        # A specialist approval keeps its own defaults: the operator text is a real difference.
+        specialist = self.approval("qa-reviewer", "qa-reviewer")
+        self.assertNotEqual(
+            digest(specialist),
+            digest({**specialist, "expected": spelled_out["expected"]}),
+        )
+
+    def _operator_record(self, **changes):
+        rows, _ = self.build(self.approval())
+        record = dict(rows[0])
+        record["verification_context"] = dict(record["verification_context"])
+        for key, value in changes.items():
+            if key == "actor":
+                record["verification_context"]["actor"] = value
+            else:
+                record[key] = value
+        return record
+
+    def test_record_exemption_needs_both_the_operator_actor_and_the_operator_claim(self):
+        self.assertFalse(subject.validate_review_evidence_records([self._operator_record()]))
+        wrong_actor = self._operator_record(actor="qa-reviewer")
+        self.assertTrue(any("false evidence-integrity" in e
+                            for e in subject.validate_review_evidence_records([wrong_actor])))
+        wrong_claim = self._operator_record(claim_id="approval:qa-reviewer")
+        self.assertTrue(any("false evidence-integrity" in e
+                            for e in subject.validate_review_evidence_records([wrong_claim])))
+        finding = self._operator_record(claim_id="operator-finding", claim_kind="finding",
+                                        required_for_approval=False)
+        self.assertTrue(any("false evidence-integrity" in e
+                            for e in subject.validate_review_evidence_records([finding])))
+
+    def test_operator_approval_action_does_not_ask_for_integrity_checks(self):
+        projection = subject.review_authority_projection(
+            (review_run("run-initial", kind="initial_delivery", candidates=[]),),
+            ("qa-reviewer", "operator-signoff"), approval_phase="delivery",
+            required_run_kind="initial_delivery",
+        )
+        actions = {a["action_id"]: a for a in projection["next_actions"]}
+        self.assertNotIn("integrity_checks", actions["approval:operator-signoff"]["required_caller_inputs"])
+        self.assertIn("integrity_checks", actions["approval:qa-reviewer"]["required_caller_inputs"])
+        self.assertIn("integrity_checks", subject.REVIEW_ACTION_CALLER_INPUTS["approval"])
+
+    def test_contract_text_no_longer_demands_operator_affirmation(self):
+        framework = Path(__file__).resolve().parents[2]
+        seed_text = (framework / "seeds" / "209-agent-harness-core.prompt.md").read_text(encoding="utf-8")
+        self.assertNotIn("If any boolean cannot be honestly affirmed, do not approve", seed_text)
+        self.assertIn("For a specialist or council approval, if any boolean cannot be honestly affirmed", seed_text)
+        self.assertIn("`operator-signoff` approval is the one exception", seed_text)
+        server = (framework / "scripts" / "wf_server" / "server_impl.py").read_text(encoding="utf-8")
+        self.assertIn("An ``operator-signoff`` approval is the exception", server)
+        self.assertIn("Optional for an operator-signoff approval", server)
 
 
 if __name__ == "__main__":

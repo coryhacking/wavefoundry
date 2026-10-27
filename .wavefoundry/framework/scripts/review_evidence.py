@@ -530,6 +530,35 @@ INTEGRITY_CHECK_METHOD_FIELD = "known_bad_detection_method"
 INTEGRITY_CHECK_FIELDS = frozenset(
     (*INTEGRITY_CHECK_BOOLEAN_FIELDS, INTEGRITY_CHECK_METHOD_FIELD)
 )
+# Wave 21sld (change 21qbb): an operator sign-off approves the reviewed scope and
+# runs no check of its own, so its integrity checks are optional and may be false.
+# Every other executed record keeps the all-true rule.
+OPERATOR_APPROVAL_CLAIM_ID = "approval:operator-signoff"
+OPERATOR_APPROVAL_INTEGRITY_DEFAULT = {
+    **{field: False for field in INTEGRITY_CHECK_BOOLEAN_FIELDS},
+    INTEGRITY_CHECK_METHOD_FIELD: (
+        "not applicable: operator approval attests the reviewed scope and runs no check"
+    ),
+}
+OPERATOR_APPROVAL_EXPECTED_DEFAULT = (
+    "the operator approves the reviewed scope; operator approval runs no check of its own"
+)
+OPERATOR_APPROVAL_FAILURE_DEFAULT = "the approval predates an affected repair"
+
+
+def is_operator_approval_request(event: Mapping[str, Any]) -> bool:
+    """A compact request for an operator sign-off, before any record is built."""
+    return event.get("signoff_key") == "operator-signoff" and event.get("actor") == "operator"
+
+
+def is_operator_approval_record(record: Mapping[str, Any]) -> bool:
+    """Both halves are required: the operator actor AND the operator sign-off claim."""
+    context = record.get("verification_context")
+    return (
+        record.get("claim_id") == OPERATOR_APPROVAL_CLAIM_ID
+        and isinstance(context, Mapping)
+        and context.get("actor") == "operator"
+    )
 # Wave 21j63 (change 21kk5): a council approval carries the council-chair's
 # intent verdict, the worst across every admitted change and the wave
 # Objective. Readiness refuses `does_not` (approving a plan that will not
@@ -1262,18 +1291,28 @@ def normalize_review_event_request(event: Mapping[str, Any]) -> dict[str, Any]:
     if event_kind == "approval":
         signoff_key = normalized.get("signoff_key")
         artifact = normalized.get("artifact_or_test_id")
+        # Same defaults the builder stores, so an omitted field and its explicit
+        # default fingerprint alike.
+        operator_approval = is_operator_approval_request(normalized)
         normalized.setdefault(
             "proposition", f"{signoff_key} approves the current affected scope"
         )
         normalized.setdefault(
             "failure_condition",
-            "the approval predates an affected repair or is not independently grounded",
+            OPERATOR_APPROVAL_FAILURE_DEFAULT
+            if operator_approval
+            else "the approval predates an affected repair or is not independently grounded",
         )
         normalized.setdefault("public_path", "wf_review_event")
         normalized.setdefault("command_or_fixture", artifact)
         normalized.setdefault(
-            "expected", "the approving actor independently verifies the current affected scope"
+            "expected",
+            OPERATOR_APPROVAL_EXPECTED_DEFAULT
+            if operator_approval
+            else "the approving actor independently verifies the current affected scope",
         )
+        if operator_approval and normalized.get("integrity_checks") is None:
+            normalized["integrity_checks"] = dict(OPERATOR_APPROVAL_INTEGRITY_DEFAULT)
         normalized.setdefault(
             "limitations",
             "Approval remains scoped to the recorded actor and affected review boundary.",
@@ -2461,7 +2500,7 @@ def review_authority_projection(
         if fact["expected_actor"] == "operator":
             caller_inputs = [
                 name for name in caller_inputs
-                if name not in {"fresh_context", "independent"}
+                if name not in {"fresh_context", "independent", "integrity_checks"}
             ]
         actions.append(
             {
@@ -3722,9 +3761,16 @@ def build_compact_review_event(
             event.get("policy_receipt_id")
         ):
             errors.append("readiness approval requires server-derived policy_receipt_id")
-        integrity_checks, integrity_errors = _validated_integrity_checks(
-            event.get("integrity_checks"), executed=True, label="approval event"
-        )
+        operator_approval = is_operator_approval_request(event)
+        if operator_approval and event.get("integrity_checks") is None:
+            integrity_checks, integrity_errors = dict(OPERATOR_APPROVAL_INTEGRITY_DEFAULT), ()
+        else:
+            # An operator approval may honestly carry false checks; every other approval
+            # must affirm all five.
+            integrity_checks, integrity_errors = _validated_integrity_checks(
+                event.get("integrity_checks"), executed=not operator_approval,
+                label="approval event",
+            )
         errors.extend(integrity_errors)
         if _nonempty_string(signoff_key):
             errors.extend(
@@ -3760,11 +3806,19 @@ def build_compact_review_event(
                     else {}
                 ),
                 "proposition": str(event.get("proposition") or f"{signoff_key} approves the current affected scope"),
-                "counterexample_or_failure_condition": str(event.get("failure_condition") or "the approval predates an affected repair or is not independently grounded"),
+                "counterexample_or_failure_condition": str(event.get("failure_condition") or (
+                    OPERATOR_APPROVAL_FAILURE_DEFAULT
+                    if operator_approval
+                    else "the approval predates an affected repair or is not independently grounded"
+                )),
                 "execution_status": "executed",
                 "public_path": str(event.get("public_path") or "wf_review_event"),
                 "command_or_fixture": str(event.get("command_or_fixture") or event["artifact_or_test_id"]),
-                "expected": str(event.get("expected") or "the approving actor independently verifies the current affected scope"),
+                "expected": str(event.get("expected") or (
+                    OPERATOR_APPROVAL_EXPECTED_DEFAULT
+                    if operator_approval
+                    else "the approving actor independently verifies the current affected scope"
+                )),
                 "observed": observed,
                 "artifact_or_test_id": str(event["artifact_or_test_id"]),
                 "adjacent_controls": list(event.get("adjacent_controls") or []),
@@ -4147,8 +4201,8 @@ def _validated_integrity_checks(
     """Validate the exact caller-owned integrity assertion object.
 
     Executed approvals and findings must affirm every boolean.  Non-executed
-    findings still use the same exact, typed shape, but may honestly carry a
-    false check.  The builder copies these values verbatim; it never expands a
+    findings and operator sign-offs (which run no check of their own) still use
+    the same exact, typed shape, but may honestly carry a false check.  The builder copies these values verbatim; it never expands a
     single confirmation into several claims.
     """
 
@@ -4170,7 +4224,8 @@ def _validated_integrity_checks(
             errors.append(
                 f"executed {label} cannot carry integrity_checks.{field}=false: "
                 "affirm it honestly, or do not record the claim as executed "
-                "(for an approval: do not approve; record a finding or repair first)"
+                "(for a specialist or council approval: do not approve; "
+                "record a finding or repair first)"
             )
     method = value.get(INTEGRITY_CHECK_METHOD_FIELD)
     if not _nonempty_string(method):
@@ -4473,14 +4528,14 @@ def _validate_evidence_shape(record: Mapping[str, Any], index: int) -> list[str]
         "assertions_non_vacuous",
         "known_bad_detected",
     )
-    if record.get("execution_status") == "executed" and any(
+    if record.get("execution_status") == "executed" and not is_operator_approval_record(record) and any(
         record.get(field) is not True for field in integrity_fields
     ):
         errors.append(
             f"{label}: executed evidence cannot carry a false evidence-integrity "
             "check: affirm all five honestly, or do not record the claim as "
-            "executed (for an approval: do not approve; record a finding or "
-            "repair first)"
+            "executed (for a specialist or council approval: do not approve; "
+            "record a finding or repair first; an operator sign-off may carry false checks)"
         )
     if record.get("claim_kind") == "lane_reassessment":
         if record.get("execution_status") != "executed":

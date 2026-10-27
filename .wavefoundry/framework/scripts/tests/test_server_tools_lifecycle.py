@@ -5639,9 +5639,12 @@ class ReviewEvidenceListEventTests(unittest.TestCase):
         self.assertEqual(found["status"], "ok", found)
         starting_bytes = self.events_path.read_bytes()
         starting_fingerprint = hashlib.sha256(starting_bytes).hexdigest()
+        # Wave 21sld (change 21qbb): operator approvals store their own default
+        # `expected` and failure text, and the retry fingerprint uses the same
+        # defaults, so the frozen starting ledger moved once.
         self.assertEqual(
             starting_fingerprint,
-            "e3592ff07b5e48f80705a5570b27c9d16a735ad4754523197c530f2e607a81fa",
+            "c4913d0a51415ebd84777ca25faa2adc3da2181a54c5181e6588d768c74b6d20",
         )
 
         candidate_tmp = tempfile.TemporaryDirectory()

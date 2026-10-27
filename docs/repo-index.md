@@ -35,26 +35,26 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 21797 |
-| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1623 |
-| dashboard_lib | `.wavefoundry/framework/scripts` | code | 510 |
-| upgrade | `.wavefoundry/framework/scripts` | code | 447 |
-| graph | `.wavefoundry/framework/scripts` | code | 423 |
-| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 408 |
-| setup | `.wavefoundry/framework/scripts` | code | 370 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 331 |
-| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 324 |
-| indexer | `.wavefoundry/framework/scripts` | code | 289 |
-| store | `.wavefoundry/framework/scripts` | code | 257 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 21810 |
+| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1628 |
+| store | `.wavefoundry/framework/scripts` | code | 445 |
+| upgrade | `.wavefoundry/framework/scripts` | code | 443 |
+| graph | `.wavefoundry/framework/scripts` | code | 424 |
+| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 394 |
+| scripts/wave_validators | `.wavefoundry/framework/scripts` | code | 358 |
+| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 333 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 321 |
+| setup | `.wavefoundry/framework/scripts` | code | 313 |
+| dashboard_lib | `.wavefoundry/framework/scripts` | code | 253 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 229 |
 | chunker | `.wavefoundry/framework/scripts` | code | 229 |
-| run_tests | `.wavefoundry/framework/scripts` | code | 185 |
-| scripts/retrieval_eval | `.wavefoundry/framework/scripts` | code | 105 |
+| build_pack | `.wavefoundry/framework/scripts` | code | 183 |
+| scripts/retrieval_eval | `.wavefoundry/framework/scripts` | code | 110 |
+| run_tests | `.wavefoundry/framework/scripts` | code | 103 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 52 |
 | oracle | `.wavefoundry/framework/scripts/tests/oracle` | code | 52 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 47 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
-| build_pack | `.wavefoundry/framework/scripts` | code | 30 |
 | design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
 | ann_reference_eval | `.wavefoundry/framework/scripts` | code | 19 |
 | repair_ppol_memory_staging | `.wavefoundry/framework/scripts` | code | 13 |
