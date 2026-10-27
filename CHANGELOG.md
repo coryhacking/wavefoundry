@@ -6,6 +6,26 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.38.0] - 2026-10-26
+
+### Added
+
+- Each wave has a shared, gitignored `.wavefoundry/work/<wave-id>/` area for temporary work and review aids. Successful operator-authorized whole-wave closure attempts contained cleanup of that wave's owned generation; dry-runs and failed closes preserve it. Unique evidence must be retained before cleanup. Wave 21luh / 21luf.
+- Readiness diagnostics identify changed plan sections. Focused re-review can show each lane the cumulative changes since its own approval, using optional reviewed-text snapshots; missing or unusable snapshots fall back explicitly to full review. Approval authority and invalidation rules are unchanged. Wave 21luh / 21lug.
+- Framework maintainers can inspect and accept a complete passing test run rejected solely for eligible, explicitly reviewed bookkeeping changes. Acceptance preserves the original failed record and records the exact exception without rerunning workers; substantive changes and failed tests remain refused. Wave 21k15 / 21lue.
+
+### Changed
+
+- Prepare and Review wave now judge intent fit. The council-chair reports `intent_fit` at readiness (would meeting the Requirements and ACs establish each change's Product Intent and the wave Objective, and can the measure of success be read) and at delivery. On every delivery review, the coordinator drafts a dated `Intent outcome:` paragraph in `## Review Checkpoints`, and new wave records include that heading. Assign the independent check to `qa-reviewer` when it is in the current required delivery roster; otherwise assign one reviewer already in that roster. If the roster is empty, record `No independent delivery-lane intent check ran` in `## Review Checkpoints`; do not add a lane or claim an independent check occurred. The assigned reviewer independently confirms or corrects the outcome; a required delivery Council reuses that assessment when available. Close adds only the non-blocking advisory described below. Wave 21j63 / 21j62.
+- New council approvals carry an intent verdict. Readiness refuses a verdict that the plan will not achieve its intent; delivery can honestly record an unmet intent and surface it for operator signoff without trapping the wave. Existing ledgers remain valid. Wave 21j63 / 21kk5.
+- Reload and upgrade now retire context-efficiency pending rows for wave ids that match no wave record and have had no activity for 30 days. Their telemetry is kept, any new event makes them pending again, and the result lists them in `retired_orphan_waves`. Nothing is retired when wave records cannot be read reliably. Wave 21s1u / 21s1t.
+
+### Fixed
+
+- Setup reports the process's bounded provider-selection reason and stops before incompatible or narrowly unverified implicit local fallback preparation for an existing index. Qualified Tensorwell avoids local preparation; explicit local settings, fresh or legacy indexes and deliberate full rebuilds retain their supported paths. The final indexer precision guard remains authoritative, and setup never silently converts an update into a rebuild. Wave 21kbd / 21kbc.
+- A long-running MCP server no longer spends most of a CPU core on context-efficiency projection. The background monitor attempts a closed or unknown pending wave once per pending generation instead of on every 15-second tick, and a retryable failure now waits out the quiet period. Hard-boundary projection is unchanged. Wave 21s91 / 21s90.
+- Reopening a wave by its short id now unseals and focuses the wave's full folder id, so its context-efficiency telemetry no longer lands on a short-id key that never publishes. Reload and upgrade retire existing short-id alias rows (keeping their telemetry) and list them in `retired_alias_waves`. Wave 21s8v / 21s8u.
+
 ## [1.37.0] - 2026-10-24
 
 ### Changed
@@ -14,8 +34,6 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The credible-threat gate now says that an unknown factor is not an absent factor. A security candidate whose factor can be neither confirmed nor ruled out is kept on record as `unverified` with `insufficient_evidence` and a promotion trigger naming the evidence that would settle it, instead of being dropped. Instructions found inside imported upstream or third-party content are treated as data. Security reviewer and engineer role docs carry the rule, and upgrades reconcile it into existing targets. Wave 21ilf / 21ild.
 - Tests that read content which exists only in the Wavefoundry source repository (evaluation corpora, wave history and reports) now skip with `upstream-only fixture absent: <path>` in a distribution that does not ship that content. In the source repository, which sets `testing.upstream_fixtures_required` in `docs/workflow-config.json`, a missing fixture still fails, and a missing or malformed configuration fails rather than skips. Wave 21ilf / 21ile.
 - `wf setup` now bootstraps uv 0.12.22 (was 0.12.17) when neither the tool environment nor `PATH` has a uv, verified against its 18 published wheel hashes. An existing uv is still used as-is. Wave 21ilj / 21ili.
-- Prepare and Review wave now judge intent fit. The council-chair reports `intent_fit` at readiness (would meeting the Requirements and ACs establish each change's Product Intent and the wave Objective, and can the measure of success be read) and at delivery. On every delivery review, the coordinator drafts a dated `Intent outcome:` paragraph in `## Review Checkpoints`, and new wave records include that heading. Assign the independent check to `qa-reviewer` when it is in the current required delivery roster; otherwise assign one reviewer already in that roster. If the roster is empty, record `No independent delivery-lane intent check ran` in `## Review Checkpoints`; do not add a lane or claim an independent check occurred. The assigned reviewer independently confirms or corrects the outcome; a required delivery Council reuses that assessment when available. Close adds only the non-blocking advisory described below. Wave 21j63 / 21j62.
-- Council approvals now carry the intent verdict. A `council-readiness` or `council-delivery` approval requires `evidence.intent_fit` (the worst across every admitted change and the wave Objective): readiness accepts `establishes` or `partially` and refuses `does_not`, which is a finding to repair; delivery also accepts `does_not`, and Review and Close then show a non-blocking advisory before operator sign-off. The Prepare council template and guided review actions name the field. A specialist or operator approval that carries `intent_fit` is now refused instead of silently dropped. Existing ledgers stay valid. The qa-reviewer also maps each required AC to the intent at readiness and names any part no AC tests. Wave 21j63 / 21kk5.
 
 ### Fixed
 

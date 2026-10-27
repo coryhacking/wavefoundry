@@ -2940,6 +2940,60 @@ def compact_published_wave(
             conn.close()
 
 
+# Wave 21s1u (21s1t): idle time after which an unresolvable pending row retires.
+ORPHAN_RETIREMENT_SECONDS = 30 * 24 * 60 * 60
+
+
+def retire_orphan_pending_waves(
+    root: Path,
+    candidates: Mapping[str, int],
+    *,
+    now: float | None = None,
+    min_idle_seconds: float = ORPHAN_RETIREMENT_SECONDS,
+) -> list[str]:
+    """Clear ``pending`` on idle rows for ids that no wave record claims.
+
+    ``candidates`` maps each unresolvable id to the generation its caller
+    observed; a row whose generation moved since is left alone. Telemetry is
+    kept, and the next event for the id makes it pending again.
+    """
+
+    cutoff = (time.time() if now is None else float(now)) - float(min_idle_seconds)
+    retired: list[str] = []
+    conn: sqlite3.Connection | None = None
+    try:
+        conn = _open_write_store(root)
+        conn.execute("BEGIN IMMEDIATE")
+        for wave_id, generation in candidates.items():
+            last_activity = conn.execute(
+                "SELECT MAX(t) FROM ("
+                "SELECT MAX(created_at) AS t FROM telemetry_event WHERE wave_id=? "
+                "UNION ALL SELECT MAX(created_at) FROM phase_state WHERE wave_id=?)",
+                (str(wave_id), str(wave_id)),
+            ).fetchone()[0]
+            if last_activity is not None and float(last_activity) > cutoff:
+                continue
+            changed = conn.execute(
+                "UPDATE wave_state SET pending=0 WHERE wave_id=? AND pending=1 "
+                "AND sealed=0 AND generation=?",
+                (str(wave_id), int(generation)),
+            ).rowcount
+            if changed:
+                retired.append(str(wave_id))
+        conn.commit()
+        return retired
+    except Exception:
+        if conn is not None:
+            try:
+                conn.rollback()
+            except sqlite3.Error:
+                pass
+        return []
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def unseal_wave(root: Path, wave_id: str) -> bool:
     """Allow a reopened wave to accept a new raw phase above its compacted floor."""
 

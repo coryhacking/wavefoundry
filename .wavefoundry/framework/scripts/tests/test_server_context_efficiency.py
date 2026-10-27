@@ -456,6 +456,393 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             self.assertFalse(still_early["triggered"])
             self.assertTrue(projected["triggered"])
 
+    def _drive_monitor(self, root, generations, responses, ticks):
+        """Run monitor ticks over patched pending generations and per-wave results.
+
+        ``generations`` and ``responses`` may be mutated between ticks by a
+        ``ticks`` entry of ``(now, callback)``; returns the attempted wave ids
+        per tick. A response that is an exception is raised by the attempt.
+        """
+        observed: dict[str, tuple[int, float]] = {}
+        attempts: list[list[str]] = []
+
+        def project(_root, wave_id, **_kwargs):
+            attempts[-1].append(wave_id)
+            response = responses[wave_id]
+            if isinstance(response, BaseException):
+                raise response
+            return response
+
+        with patch.object(
+            srv.context_efficiency,
+            "pending_wave_ids",
+            side_effect=lambda _root: {"ok": True, "pending": list(generations)},
+        ), patch.object(
+            srv.context_efficiency,
+            "read_wave_snapshot",
+            side_effect=lambda _root, wave_id: {"generation": generations[wave_id]},
+        ), patch(
+            "wf_server.context_efficiency_handlers._project_context_efficiency_wave",
+            side_effect=project,
+        ):
+            for now, before in ticks:
+                if before is not None:
+                    before()
+                attempts.append([])
+                try:
+                    srv._maybe_project_context_efficiency(root, observed, now=now)
+                except Exception:  # noqa: BLE001 - the monitor loop records monitor_error
+                    pass
+        return attempts
+
+    _CLOSED = {
+        "persistence": "durable",
+        "projection": "pending",
+        "reason": "closed_wave_requires_hard_boundary",
+    }
+    _UNKNOWN = {"persistence": "failed", "projection": "wave_not_found"}
+    _BUSY = {"persistence": "durable", "projection": "pending", "reason": "index_source_busy"}
+
+    def test_terminal_waves_are_attempted_once_per_generation(self):
+        # Wave 21s91 (21s90) AC-1: closed and unknown waves park after one attempt.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            generations = {"1aaaa closed": 4, "1zzzz-phantom": 2}
+            responses = {"1aaaa closed": self._CLOSED, "1zzzz-phantom": self._UNKNOWN}
+            attempts = self._drive_monitor(
+                root, generations, responses,
+                [(0.0, None), (120.0, None), (135.0, None), (300.0, None), (900.0, None)],
+            )
+            self.assertEqual(attempts[0], [])
+            self.assertEqual(sorted(attempts[1]), ["1aaaa closed", "1zzzz-phantom"])
+            self.assertEqual(attempts[2:], [[], [], []])
+
+    def test_mixed_pass_parks_only_the_terminal_wave(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            generations = {"1aaaa closed": 4, "1aaab busy": 7}
+            responses = {"1aaaa closed": self._CLOSED, "1aaab busy": self._BUSY}
+            attempts = self._drive_monitor(
+                root, generations, responses,
+                [(0.0, None), (120.0, None), (135.0, None), (240.0, None), (360.0, None)],
+            )
+            self.assertEqual(sorted(attempts[1]), ["1aaaa closed", "1aaab busy"])
+            self.assertEqual(attempts[2], [])
+            self.assertEqual(attempts[3], ["1aaab busy"])
+            self.assertEqual(attempts[4], ["1aaab busy"])
+
+    def test_parked_wave_rearms_when_its_generation_changes(self):
+        # AC-2 (regression guard): new telemetry re-arms a parked wave once.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            generations = {"1aaaa closed": 4}
+            responses = {"1aaaa closed": self._CLOSED}
+
+            def new_event():
+                generations["1aaaa closed"] = 5
+
+            attempts = self._drive_monitor(
+                root, generations, responses,
+                [(0.0, None), (120.0, None), (200.0, new_event), (319.0, None),
+                 (320.0, None), (600.0, None)],
+            )
+            self.assertEqual(attempts[1], ["1aaaa closed"])
+            self.assertEqual(attempts[2:4], [[], []])
+            self.assertEqual(attempts[4], ["1aaaa closed"])
+            self.assertEqual(attempts[5], [])
+
+    def test_retryable_failure_and_raise_wait_out_the_quiet_period(self):
+        # AC-3: neither a non-terminal failure nor a raised pass retries next tick.
+        for response in (self._BUSY, ValueError("Multiple wave records match '1aaaa'")):
+            with self.subTest(response=type(response).__name__), \
+                    tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                _repo(root)
+                generations = {"1aaaa": 3}
+                responses = {"1aaaa": response}
+                attempts = self._drive_monitor(
+                    root, generations, responses,
+                    [(0.0, None), (120.0, None), (135.0, None), (239.0, None), (240.0, None)],
+                )
+                self.assertEqual(attempts[1], ["1aaaa"])
+                self.assertEqual(attempts[2:4], [[], []])
+                self.assertEqual(attempts[4], ["1aaaa"])
+
+    def test_parked_closed_wave_stays_pending_for_the_hard_boundary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            wave_id = "1aaaa parked-closed"
+            wave_md = _waves_dir(root) / wave_id / _RECORD
+            wave_md.parent.mkdir(parents=True)
+            wave_md.write_text(
+                f"{_TITLE}\n\nStatus: closed\n\n{_ID_KEY}: `{wave_id}`\n",
+                encoding="utf-8",
+            )
+            telemetry = ce.ProcessTelemetry(root)
+            telemetry.set_focus(wave_id, "implement", new_phase=True)
+            telemetry.record_retrieval(
+                {
+                    "estimated_request_tokens": 1,
+                    "estimated_returned_tokens": 1,
+                    "estimated_source_tokens": 0,
+                    "estimated_avoided_tokens": 0,
+                    "source_files_counted": 0,
+                    "source_files_verified": 0,
+                    "source_files_estimated": 0,
+                    "captured": True,
+                    "persistence": "pending",
+                    "method": ce.RETRIEVAL_METHOD,
+                },
+                event_id="parked-seed",
+            )
+            observed: dict[str, tuple[int, float]] = {}
+            srv._maybe_project_context_efficiency(root, observed, now=0.0)
+            srv._maybe_project_context_efficiency(root, observed, now=120.0)
+            from wf_server import server_impl as impl
+            with patch.object(impl, "_find_wave_md", wraps=impl._find_wave_md) as lookup:
+                parked = srv._maybe_project_context_efficiency(root, observed, now=300.0)
+            self.assertEqual(lookup.call_count, 0)
+            self.assertFalse(parked["triggered"])
+            self.assertTrue(ce.read_wave_snapshot(root, wave_id)["pending"])
+
+            hard_boundary = srv.project_pending_context_efficiency_root(root)
+            self.assertTrue(hard_boundary["ok"], hard_boundary)
+            self.assertEqual(hard_boundary["projected"], [wave_id])
+            self.assertFalse(ce.read_wave_snapshot(root, wave_id)["pending"])
+
+    _DAY = 24 * 60 * 60
+
+    def _orphan_fixture(self, root, *, stale=(), recent=(), real=True):
+        """Wave 21s1u (21s1t): unknown ids with backdated telemetry, plus one real wave."""
+        _repo(root)
+        if real:
+            wave_md = _waves_dir(root) / "1aaaa real" / _RECORD
+            wave_md.parent.mkdir(parents=True)
+            wave_md.write_text(
+                f"{_TITLE}\n\nStatus: implementing\n\n{_ID_KEY}: `1aaaa real`\n",
+                encoding="utf-8",
+            )
+        telemetry = ce.ProcessTelemetry(root)
+        now = time.time()
+
+        def record(wave_id: str, at: float) -> None:
+            with patch.object(ce.time, "time", return_value=at):
+                telemetry.set_focus(wave_id, "review", new_phase=True)
+                telemetry.record_retrieval(
+                    {
+                        "estimated_request_tokens": 1,
+                        "estimated_returned_tokens": 1,
+                        "estimated_source_tokens": 0,
+                        "estimated_avoided_tokens": 0,
+                        "source_files_counted": 0,
+                        "source_files_verified": 0,
+                        "source_files_estimated": 0,
+                        "captured": True,
+                        "persistence": "pending",
+                        "method": ce.RETRIEVAL_METHOD,
+                    },
+                    event_id=f"orphan-{wave_id}-{at}",
+                )
+
+        if real:
+            record("1aaaa real", now)
+        for wave_id in stale:
+            record(wave_id, now - 40 * self._DAY)
+        for wave_id in recent:
+            record(wave_id, now - 5 * self._DAY)
+        return record
+
+    def _event_count(self, root, wave_id):
+        conn = sqlite3.connect(ce.store_path(root))
+        try:
+            return conn.execute(
+                "SELECT COUNT(*) FROM telemetry_event WHERE wave_id=?", (wave_id,)
+            ).fetchone()[0]
+        finally:
+            conn.close()
+
+    def test_hard_boundary_retires_idle_unknown_rows_and_keeps_telemetry(self):
+        # AC-1: an idle unknown id leaves the pending census; its events stay.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._orphan_fixture(root, stale=["1zzzz-gone"])
+            result = srv.project_pending_context_efficiency_root(root)
+            self.assertTrue(result["ok"], result)
+            self.assertEqual(result["projected"], ["1aaaa real"])
+            self.assertEqual(result["retired_orphan_waves"], ["1zzzz-gone"])
+            self.assertNotIn("skipped_unknown_waves", result)
+            self.assertNotIn("1zzzz-gone", ce.pending_wave_ids(root)["pending"])
+            self.assertEqual(self._event_count(root, "1zzzz-gone"), 1)
+
+    def test_retirement_spares_recent_existing_sealed_and_moved_rows(self):
+        # AC-2: each negative sits in a pass where a stale unknown row retires.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._orphan_fixture(
+                root, stale=["1zzzz-gone", "1zzzx-sealed"], recent=["1zzzy-recent"]
+            )
+            conn = sqlite3.connect(ce.store_path(root))
+            try:
+                conn.execute("UPDATE wave_state SET sealed=1 WHERE wave_id='1zzzx-sealed'")
+                conn.commit()
+            finally:
+                conn.close()
+            result = srv.project_pending_context_efficiency_root(root)
+            self.assertEqual(result["retired_orphan_waves"], ["1zzzz-gone"])
+            self.assertEqual(
+                sorted(entry["wave_id"] for entry in result["skipped_unknown_waves"]),
+                ["1zzzx-sealed", "1zzzy-recent"],
+            )
+            self.assertEqual(result["projected"], ["1aaaa real"])
+            pending = ce.pending_wave_ids(root)["pending"]
+            self.assertIn("1zzzx-sealed", pending)
+            self.assertIn("1zzzy-recent", pending)
+
+    def test_retirement_skips_a_row_whose_generation_moved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._orphan_fixture(root, stale=["1zzzz-gone", "1zzzw-moved"], real=False)
+            observed = {
+                wave_id: int(ce.read_wave_snapshot(root, wave_id)["generation"])
+                for wave_id in ("1zzzz-gone", "1zzzw-moved")
+            }
+            observed["1zzzw-moved"] -= 1
+            self.assertEqual(ce.retire_orphan_pending_waves(root, observed), ["1zzzz-gone"])
+            self.assertIn("1zzzw-moved", ce.pending_wave_ids(root)["pending"])
+
+    def test_recent_phase_activity_keeps_an_unknown_row(self):
+        # 21S1U-DEL-PHASE-ACTIVITY: a recent phase_state row counts as activity.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._orphan_fixture(root, stale=["1zzzz-gone", "1zzzu-phase"], real=False)
+            conn = sqlite3.connect(ce.store_path(root))
+            try:
+                conn.execute(
+                    "INSERT INTO phase_state(wave_id,phase_id,stage,ordinal,created_at) "
+                    "VALUES(?,?,?,(SELECT COALESCE(MAX(ordinal),0)+1 FROM phase_state "
+                    "WHERE wave_id=?),?)",
+                    ("1zzzu-phase", "review-recent", "review", "1zzzu-phase",
+                     time.time() - 5 * self._DAY),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            observed = {
+                wave_id: int(ce.read_wave_snapshot(root, wave_id)["generation"])
+                for wave_id in ("1zzzz-gone", "1zzzu-phase")
+            }
+            self.assertEqual(ce.retire_orphan_pending_waves(root, observed), ["1zzzz-gone"])
+            self.assertIn("1zzzu-phase", ce.pending_wave_ids(root)["pending"])
+
+    def test_unreliable_resolution_retires_nothing(self):
+        from wf_server import server_impl as impl
+
+        original = impl._find_wave_md_detailed
+
+        def unreadable_for_orphan(root, wave_id, wave_dirs=None):
+            if wave_id == "1zzzz-gone":
+                broken = (_waves_dir(root) / "1bbbb broken" / _RECORD).relative_to(root)
+                return None, None, [{"path": broken.as_posix()}]
+            return original(root, wave_id, wave_dirs)
+
+        def raising(root, wave_id, wave_dirs=None):
+            # Only the retirement pass supplies its discovered wave_dirs.
+            if wave_id == "1zzzz-gone" and wave_dirs is not None:
+                raise ValueError("Multiple wave records match '1zzzz-gone'")
+            return original(root, wave_id, wave_dirs)
+
+        for label, real, side_effect in (
+            ("unreadable record", True, unreadable_for_orphan),
+            ("resolution raises", True, raising),
+            ("no wave folders", False, None),
+        ):
+            with self.subTest(label), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self._orphan_fixture(root, stale=["1zzzz-gone", "1zzzv-gone"], real=real)
+                if side_effect is None:
+                    result = srv.project_pending_context_efficiency_root(root)
+                else:
+                    with patch.object(impl, "_find_wave_md_detailed", side_effect=side_effect):
+                        result = srv.project_pending_context_efficiency_root(root)
+                self.assertNotIn("retired_orphan_waves", result)
+                pending = ce.pending_wave_ids(root)["pending"]
+                self.assertIn("1zzzz-gone", pending)
+                self.assertIn("1zzzv-gone", pending)
+
+    def test_hard_boundary_retires_a_short_id_alias_row(self):
+        # Wave 21s8v (21s8u) AC-2: a recent alias retires; the canonical row does not.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record = self._orphan_fixture(root)
+            record("1aaaa", time.time())
+            result = srv.project_pending_context_efficiency_root(root)
+            self.assertTrue(result["ok"], result)
+            self.assertEqual(result["retired_alias_waves"], ["1aaaa"])
+            self.assertNotIn("retired_orphan_waves", result)
+            self.assertIn("1aaaa real", result["projected"])
+            pending = ce.pending_wave_ids(root)["pending"]
+            self.assertNotIn("1aaaa", pending)
+            self.assertEqual(self._event_count(root, "1aaaa"), 1)
+            self.assertEqual(self._event_count(root, "1aaaa real"), 1)
+
+    def test_alias_retirement_guards_with_positive_controls(self):
+        # AC-3: each guarded pass retires nothing; the same fixture unguarded retires.
+        from wf_server import server_impl as impl
+
+        original = impl._find_wave_md_detailed
+
+        def unreadable(root, wave_id, wave_dirs=None):
+            # The alias still resolves; only the unreadable sibling may stop it.
+            wave_md, read_error, siblings = original(root, wave_id, wave_dirs)
+            if wave_id == "1aaaa" and wave_dirs is not None:
+                broken = (_waves_dir(root) / "1bbbb broken" / _RECORD).relative_to(root)
+                return wave_md, read_error, [*siblings, {"path": broken.as_posix()}]
+            return wave_md, read_error, siblings
+
+        def raising(root, wave_id, wave_dirs=None):
+            if wave_id == "1aaaa" and wave_dirs is not None:
+                raise ValueError("Multiple wave records match '1aaaa'")
+            return original(root, wave_id, wave_dirs)
+
+        for label in ("unreadable record", "resolution raises", "automatic path"):
+            with self.subTest(label), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                record = self._orphan_fixture(root)
+                record("1aaaa", time.time())
+                if label == "automatic path":
+                    guarded = srv.project_pending_context_efficiency_root(root, automatic=True)
+                else:
+                    side_effect = unreadable if label == "unreadable record" else raising
+                    with patch.object(impl, "_find_wave_md_detailed", side_effect=side_effect):
+                        guarded = srv.project_pending_context_efficiency_root(root)
+                self.assertNotIn("retired_alias_waves", guarded)
+                self.assertIn("1aaaa", ce.pending_wave_ids(root)["pending"])
+                unguarded = srv.project_pending_context_efficiency_root(root)
+                self.assertEqual(unguarded.get("retired_alias_waves"), ["1aaaa"])
+
+    def test_automatic_pass_never_retires(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._orphan_fixture(root, stale=["1zzzz-gone"])
+            result = srv.project_pending_context_efficiency_root(root, automatic=True)
+            self.assertNotIn("retired_orphan_waves", result)
+            self.assertIn("1zzzz-gone", ce.pending_wave_ids(root)["pending"])
+
+    def test_retired_id_is_pending_again_after_new_telemetry(self):
+        # AC-3 (regression guard): retirement never hides later activity.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record = self._orphan_fixture(root, stale=["1zzzz-gone"])
+            retired = srv.project_pending_context_efficiency_root(root)
+            self.assertEqual(retired["retired_orphan_waves"], ["1zzzz-gone"])
+            record("1zzzz-gone", time.time())
+            self.assertIn("1zzzz-gone", ce.pending_wave_ids(root)["pending"])
+            self.assertEqual(self._event_count(root, "1zzzz-gone"), 2)
+
     def test_automatic_projector_is_accounting_and_focus_neutral(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -4191,6 +4578,99 @@ class LifecycleFocusReportingTests(unittest.TestCase):
             self.assertIn("The wave was reopened", diag["message"])
             self.assertIn("attributed to the previous stage", diag["message"])
             self.assertIsNone(result["data"]["focus_stage"])
+            handler.telemetry.close()
+
+    def _wave_state(self, root: Path, wave_id: str):
+        conn = sqlite3.connect(ce.store_path(root))
+        try:
+            return conn.execute(
+                "SELECT generation,pending,sealed FROM wave_state WHERE wave_id=?",
+                (wave_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+
+    def test_reopen_by_short_id_focuses_and_unseals_the_folder_id(self) -> None:
+        # Wave 21s8v (21s8u) AC-1: no alias key is created by a short-id reopen.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            canonical = "1bbbb reopen-wave"
+            self._wave(root, canonical, status="closed")
+            handler = self._handler(root)
+            handler.telemetry.set_focus(canonical, "review", new_phase=True)
+            handler.telemetry.record_retrieval(
+                {
+                    "estimated_request_tokens": 1,
+                    "estimated_returned_tokens": 1,
+                    "estimated_source_tokens": 0,
+                    "estimated_avoided_tokens": 0,
+                    "source_files_counted": 0,
+                    "source_files_verified": 0,
+                    "source_files_estimated": 0,
+                    "captured": True,
+                    "persistence": "pending",
+                    "method": ce.RETRIEVAL_METHOD,
+                },
+                event_id="before-close",
+            )
+            conn = sqlite3.connect(ce.store_path(root))
+            try:
+                conn.execute("UPDATE wave_state SET sealed=1 WHERE wave_id=?", (canonical,))
+                conn.commit()
+            finally:
+                conn.close()
+            handler.telemetry.clear_focus()
+            self._reset_open_wave_caches()
+            mcp = self._registered(handler)
+            result = mcp.tools["wf_reopen_wave"]("1bbbb", purpose="review")
+            self.assertEqual(result["status"], "ok", result)
+            self.assertEqual(result["data"]["focus_stage"], "review")
+            self.assertEqual(handler.telemetry.focus.wave_id, canonical)
+            self.assertEqual(self._wave_state(root, canonical)[2], 0)
+            handler.telemetry.record_retrieval(
+                {
+                    "estimated_request_tokens": 1,
+                    "estimated_returned_tokens": 1,
+                    "estimated_source_tokens": 0,
+                    "estimated_avoided_tokens": 0,
+                    "source_files_counted": 0,
+                    "source_files_verified": 0,
+                    "source_files_estimated": 0,
+                    "captured": True,
+                    "persistence": "pending",
+                    "method": ce.RETRIEVAL_METHOD,
+                },
+                event_id="after-reopen",
+            )
+            self.assertIsNone(self._wave_state(root, "1bbbb"))
+            self.assertEqual(self._wave_state(root, canonical)[1], 1)
+            handler.telemetry.close()
+
+    def test_reopen_leaves_focus_when_the_record_is_not_resolved(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            self._wave(root, "1aaaa other-wave", status="paused")
+            self._wave(root, "1bbbb reopen-wave", status="closed")
+            handler = self._handler(root)
+            handler.telemetry.set_focus("1aaaa other-wave", "implement", new_phase=True)
+            mcp = self._registered(handler)
+            reopen_core = {
+                "status": "ok",
+                "data": {"wave_id": "1bbbb", "reopened": True},
+                "diagnostics": [],
+            }
+            with (
+                patch.object(srv, "wf_reopen_wave_response", return_value=reopen_core),
+                patch.object(srv, "_find_wave_md", return_value=None),
+            ):
+                result = mcp.tools["wf_reopen_wave"]("1bbbb", purpose="review")
+            self.assertEqual(result["status"], "ok")
+            self.assertIn("focus_stage_not_applied", self._codes(result))
+            self.assertIsNone(result["data"]["focus_stage"])
+            self.assertEqual(handler.telemetry.focus.wave_id, "1aaaa other-wave")
+            self.assertEqual(handler.telemetry.focus.stage, "implement")
             handler.telemetry.close()
 
     def test_three_diagnostic_codes_carry_distinct_recovery_paths(self) -> None:

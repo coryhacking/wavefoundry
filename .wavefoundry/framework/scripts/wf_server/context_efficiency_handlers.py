@@ -4,6 +4,7 @@ from __future__ import annotations
 from wave_lint_lib.constants import OPEN_CONTAINER_STATUSES
 
 import json
+import math
 import time
 from contextlib import nullcontext
 from pathlib import Path
@@ -102,12 +103,29 @@ def _maybe_project_context_efficiency(
                 "pending_count": len(pending)}
     projected: list[str] = []
     failure: dict[str, Any] | None = None
+    # Wave 21s91 (21s90): restart every eligible wave's quiet period before the
+    # pass, so a raise or a wave absent from every result list waits out the
+    # quiet period instead of being retried on the next tick.
+    for wave_id in eligible:
+        observed[wave_id] = (pending[wave_id], checked_at)
     result = project_pending_context_efficiency_root(
         root, automatic=True, wave_ids=eligible
     )
     projected = list(result.get("projected", []))
     for wave_id in projected:
         observed.pop(wave_id, None)
+    # A closed or unknown wave cannot project automatically until new telemetry
+    # changes its generation: park it, and the generation-change branch above
+    # re-arms it.
+    terminal = {str(entry.get("wave_id")) for entry in result.get("skipped_unknown_waves") or []}
+    terminal.update(
+        str(entry.get("wave_id"))
+        for entry in result.get("automatic_failures") or []
+        if (entry.get("detail") or {}).get("reason") == "closed_wave_requires_hard_boundary"
+    )
+    for wave_id in terminal:
+        if wave_id in observed:
+            observed[wave_id] = (observed[wave_id][0], math.inf)
     if not result.get("ok"):
         failure = {
             "wave_id": result.get("failed_wave"),
@@ -461,14 +479,88 @@ def project_pending_context_efficiency_root(
                 "detail": result,
             }
         projected.append(wave_id)
+    retired: list[str] = []
+    retired_aliases: list[str] = []
+    if not automatic:
+        # Wave 21s8v (21s8u): an alias projects its canonical wave and lands in
+        # ``projected``, so the step runs on every completed pass.
+        retired, retired_aliases = _retire_orphan_waves(
+            root,
+            [entry["wave_id"] for entry in skipped_unknown],
+            alias_candidates=projected,
+        )
+        skipped_unknown = [entry for entry in skipped_unknown if entry["wave_id"] not in retired]
     out: dict[str, Any] = {"ok": not automatic_failures, "projected": projected}
     if skipped_unknown:
         out["skipped_unknown_waves"] = skipped_unknown
+    if retired:
+        out["retired_orphan_waves"] = retired
+    if retired_aliases:
+        out["retired_alias_waves"] = retired_aliases
     if automatic_failures:
         out["failed_wave"] = automatic_failures[0]["wave_id"]
         out["detail"] = automatic_failures[0]["detail"]
         out["automatic_failures"] = automatic_failures
     return out
+
+
+def _retire_orphan_waves(
+    root: Path,
+    wave_ids: Iterable[str],
+    *,
+    alias_candidates: Iterable[str] = (),
+    now: float | None = None,
+) -> tuple[list[str], list[str]]:
+    """Retire pending rows that can never publish: ``(orphans, aliases)``.
+
+    An orphan (wave 21s1u) is an idle id that no readable wave record claims.
+    An alias (wave 21s8v) is a key that resolves to a record under a different
+    folder name; projection publishes only under the folder name, so it
+    retires with no idle wait. One discovery pass backs every decision, and
+    nothing retires when discovery finds no wave folders, when any record is
+    unreadable, or when resolution raises, so a partial or misconfigured
+    checkout never retires a live row.
+    """
+    from wf_server import server_impl
+    try:
+        wave_dirs = record_paths.discover_wave_dirs(root)
+        if not wave_dirs:
+            return [], []
+        orphans: dict[str, int] = {}
+        aliases: dict[str, int] = {}
+        # A key equal to a folder name is canonical; only the rest need the
+        # per-key resolution, which reads every record.
+        folder_names = {wave_dir.name for wave_dir in wave_dirs}
+        for wave_id, is_alias_candidate in (
+            [(wave_id, False) for wave_id in wave_ids]
+            + [(wave_id, True) for wave_id in alias_candidates if wave_id not in folder_names]
+        ):
+            wave_md, _read_error, unreadable = server_impl._find_wave_md_detailed(
+                root, wave_id, wave_dirs
+            )
+            if unreadable:
+                return [], []
+            if wave_md is None and not is_alias_candidate:
+                orphans[wave_id] = int(
+                    context_efficiency.read_wave_snapshot(root, wave_id).get("generation", 0)
+                )
+            elif wave_md is not None and is_alias_candidate and wave_md.parent.name != wave_id:
+                aliases[wave_id] = int(
+                    context_efficiency.read_wave_snapshot(root, wave_id).get("generation", 0)
+                )
+    except Exception:  # noqa: BLE001 - an unresolved pass retires nothing
+        return [], []
+    retired = (
+        context_efficiency.retire_orphan_pending_waves(root, orphans, now=now)
+        if orphans else []
+    )
+    retired_aliases = (
+        context_efficiency.retire_orphan_pending_waves(
+            root, aliases, now=now, min_idle_seconds=0
+        )
+        if aliases else []
+    )
+    return retired, retired_aliases
 
 
 def _context_efficiency_state(

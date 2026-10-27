@@ -24807,9 +24807,13 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 # this tool exists to prevent. Surface it instead of swallowing it.
                 focus_error = ""
                 try:
-                    canonical = str(
-                        _context_data(result).get("wave_id") or wave_id
-                    )
+                    # Wave 21s8v (21s8u): data.wave_id echoes the argument, so a
+                    # short id would unseal and focus a key that never publishes.
+                    # Use the record's folder name, as projection does.
+                    reopened_md = _find_wave_md(handler.root, wave_id)
+                    if reopened_md is None:
+                        raise LookupError(f"wave record for {wave_id!r} not resolved")
+                    canonical = reopened_md.parent.name
                     context_efficiency.unseal_wave(handler.root, canonical)
                 except Exception as exc:
                     focus_error = f"{type(exc).__name__}: {exc}"
