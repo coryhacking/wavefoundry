@@ -81,12 +81,23 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 | --- | ---: | ---: |
 | plan | 62 | 348,389 |
 | implement | 52 | 0 |
-| review | 10 | 3,820 |
-| **Total** | **124** | **352,209** |
+| review | 13 | 18,269 |
+| **Total** | **127** | **366,658** |
 
-<!-- wave:context-efficiency-state {"generation":81,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":52,"content_source_credit":21445,"derived_artifact_credit":515,"direct_net":-33926,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3104,"response_debit":55702,"source_credit_count":8,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2920},"plan":{"calls":62,"content_source_credit":483353,"derived_artifact_credit":2107,"direct_net":348389,"estimated_tokens_saved":348389,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3665,"response_debit":138459,"source_credit_count":27,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":5053},"review":{"calls":10,"content_source_credit":12127,"derived_artifact_credit":303,"direct_net":3820,"estimated_tokens_saved":3820,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":643,"response_debit":7967,"source_credit_count":4,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":124,"content_source_credit":516925,"derived_artifact_credit":2925,"direct_net":318283,"estimated_tokens_saved":352209,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":7412,"response_debit":202128,"source_credit_count":39,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":7973},"wave_id":"21u6x profile-source-history-censuses"} -->
+<!-- wave:context-efficiency-state {"generation":85,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":52,"content_source_credit":21445,"derived_artifact_credit":515,"direct_net":-33926,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3104,"response_debit":55702,"source_credit_count":8,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2920},"plan":{"calls":62,"content_source_credit":483353,"derived_artifact_credit":2107,"direct_net":348389,"estimated_tokens_saved":348389,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3665,"response_debit":138459,"source_credit_count":27,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":5053},"review":{"calls":13,"content_source_credit":32320,"derived_artifact_credit":303,"direct_net":18269,"estimated_tokens_saved":18269,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":686,"response_debit":13668,"source_credit_count":5,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":127,"content_source_credit":537118,"derived_artifact_credit":2925,"direct_net":332732,"estimated_tokens_saved":366658,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":7455,"response_debit":207829,"source_credit_count":40,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":7973},"wave_id":"21u6x profile-source-history-censuses"} -->
 <!-- wave:context-efficiency end -->
 
+## Estimated Exploration Avoided
+
 <!-- wave:exploration-avoided begin -->
-<!-- wave:exploration-avoided-state {"cited_events":0,"credited_records":0,"estimated_exploration_avoided":0,"surfaced_events":0} -->
+
+This is a bounded estimate from exact-match memory advisories. It is not added to measured Context Efficiency.
+
+| Advisory surfaces | Citations | Records credited | Estimated tokens avoided |
+| ---: | ---: | ---: | ---: |
+| 3 | 0 | 3 | 2,975,886 |
+
+estimated: a surfaced (or cited) advisory does not prove a re-exploration was avoided; this is grounded in the measured cost of the original exploration, scaled by a bounded exact-match attribution, and is NEVER summed into the measured Context Efficiency token total.
+
+<!-- wave:exploration-avoided-state {"cited_events":0,"credited_records":3,"estimated_exploration_avoided":2975886,"surfaced_events":3} -->
 <!-- wave:exploration-avoided end -->
