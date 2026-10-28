@@ -41,6 +41,12 @@ ADVISORY = "delivery_intent_not_established"
 REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
+def repository_ledgers(root: Path) -> list[Path]:
+    roots = (record_paths.WAVES_ROOT, record_paths.ARCHIVE_ROOT)
+    return sorted({path for rel in roots if rel
+                   for path in (root / rel).glob(f"**/{subject.EVENTS_FILENAME}")})
+
+
 def _evidence(**extra: object) -> dict[str, object]:
     return {"observed": "intent fixture", "artifact_or_test_id": "test:intent-fit", **extra}
 
@@ -294,13 +300,41 @@ class IntentFitLedgerTests(unittest.TestCase):
             required_for_approval=True, approval_phase=phase, **extra)
 
     def test_every_repository_ledger_still_validates(self):
-        ledgers = sorted((REPO_ROOT / record_paths.WAVES_ROOT).glob(f"**/{subject.EVENTS_FILENAME}"))
+        ledgers = repository_ledgers(REPO_ROOT)
         self.assertGreater(len(ledgers), 100)
         for path in ledgers:
             with self.subTest(ledger=path.parent.name):
                 records, parse_errors = subject.parse_review_event_bytes(path.read_bytes())
                 self.assertEqual(parse_errors, ())
                 self.assertEqual(subject.validate_review_evidence_records(records), ())
+
+    def test_live_and_archive_corpus_keeps_corruption_detection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = []
+            for index in range(101):
+                rel = "docs/live" if index == 0 else "docs/old"
+                path = root / rel / str(index) / subject.EVENTS_FILENAME
+                path.parent.mkdir(parents=True)
+                path.write_bytes(b"")
+                paths.append(path)
+            with patch.multiple(record_paths, WAVES_ROOT="docs/live", ARCHIVE_ROOT="docs/old"):
+                self.assertEqual(repository_ledgers(root), sorted(paths))
+                with patch.dict(self.test_every_repository_ledger_still_validates.__func__.__globals__, REPO_ROOT=root):
+                    self.test_every_repository_ledger_still_validates()
+                    paths[-1].write_bytes(b"not json\n")
+                    # Use a separate TestCase so its subtest failures are caught
+                    # as assertions rather than written to this test's result.
+                    check = IntentFitLedgerTests("test_every_repository_ledger_still_validates")
+                    result = unittest.TestResult()
+                    check.run(result)
+                    self.assertEqual(len(result.failures), 1)
+                    self.assertEqual(result.errors, [])
+                    self.assertIn("ledger=", result.failures[0][0].id())
+                with patch.object(record_paths, "ARCHIVE_ROOT", "docs/live"):
+                    self.assertEqual(repository_ledgers(root), [paths[0]])
+                with patch.object(record_paths, "ARCHIVE_ROOT", None):
+                    self.assertEqual(repository_ledgers(root), [paths[0]])
 
     def test_present_values_follow_the_write_rules(self):
         cases = (

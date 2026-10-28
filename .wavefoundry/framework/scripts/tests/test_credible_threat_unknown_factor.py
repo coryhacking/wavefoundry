@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS_ROOT))
@@ -47,7 +48,6 @@ HOST_SURFACES = (".claude", ".codex", ".agents", ".cursor", ".github", ".junie",
 ROOT_FILES = ("AGENTS.md", "CLAUDE.md", "WARP.md")
 # Files that reference the gate without applying it, plus records and memory.
 EXCLUDED_FILES = {"CHANGELOG.md", "docs/SECURITY.md", "docs/index.md"}
-EXCLUDED_PREFIXES = (f"{record_paths.WAVES_ROOT}/", f"{record_paths.PLANS_ROOT}/")
 EXCLUDED_SEGMENTS = ("memory",)
 
 UPGRADE_MAPPING = (
@@ -102,7 +102,8 @@ def census_candidates(root: Path, *, include_project: bool) -> list[Path]:
 
 
 def excluded(rel: str) -> bool:
-    if rel in EXCLUDED_FILES or rel.startswith(EXCLUDED_PREFIXES):
+    record_roots = (record_paths.WAVES_ROOT, record_paths.PLANS_ROOT, record_paths.ARCHIVE_ROOT)
+    if rel in EXCLUDED_FILES or any(root and rel.startswith(f"{root}/") for root in record_roots):
         return True
     if "/scripts/tests/" in f"/{rel}" or rel.endswith("review_evidence.py"):
         return True
@@ -197,6 +198,25 @@ class CarrierCensusTests(unittest.TestCase):
                 "docs/agents/role.md",
             ])
             self.assertEqual(lacking, [".wavefoundry/framework/seeds/002-bad.md", "docs/agents/role.md"])
+
+    def test_archive_exclusion_keeps_active_and_prefix_sibling_carriers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for rel in ("docs/live/w/record.md", "docs/planned/p.md", "docs/old/w/record.md",
+                        "docs/old-active/role.md", "docs/agents/role.md"):
+                path = root / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("Apply the credible-threat gate.\n", encoding="utf-8")
+            with patch.multiple(record_paths, WAVES_ROOT="docs/live", PLANS_ROOT="docs/planned",
+                                ARCHIVE_ROOT="docs/old"):
+                carriers, lacking = carriers_lacking_marker(root, include_project=True)
+                self.assertEqual(carriers, ["docs/agents/role.md", "docs/old-active/role.md"])
+                self.assertEqual(lacking, carriers)
+            with patch.multiple(record_paths, WAVES_ROOT="docs/live", PLANS_ROOT="docs/planned",
+                                ARCHIVE_ROOT=None):
+                carriers, lacking = carriers_lacking_marker(root, include_project=True)
+                self.assertIn("docs/old/w/record.md", lacking)
+                self.assertEqual(lacking, carriers)
 
 
 class UpgradeCarrierMappingTests(unittest.TestCase):
