@@ -531,11 +531,13 @@ INTEGRITY_CHECK_FIELDS = frozenset(
     (*INTEGRITY_CHECK_BOOLEAN_FIELDS, INTEGRITY_CHECK_METHOD_FIELD)
 )
 # Wave 21sld (change 21qbb): an operator sign-off approves the reviewed scope and
-# runs no check of its own, so its integrity checks are optional and may be false.
-# Every other executed record keeps the all-true rule.
+# runs no check of its own, so its integrity checks are optional.
+# Wave 21s6f (change 21s53): omitted checks store null (not applicable), and an
+# operator who did check may state true, false or null per check. Null is accepted
+# nowhere else; every other executed record keeps the all-true rule.
 OPERATOR_APPROVAL_CLAIM_ID = "approval:operator-signoff"
 OPERATOR_APPROVAL_INTEGRITY_DEFAULT = {
-    **{field: False for field in INTEGRITY_CHECK_BOOLEAN_FIELDS},
+    **{field: None for field in INTEGRITY_CHECK_BOOLEAN_FIELDS},
     INTEGRITY_CHECK_METHOD_FIELD: (
         "not applicable: operator approval attests the reviewed scope and runs no check"
     ),
@@ -559,6 +561,13 @@ def is_operator_approval_record(record: Mapping[str, Any]) -> bool:
         and isinstance(context, Mapping)
         and context.get("actor") == "operator"
     )
+
+
+def _accepts_not_applicable_integrity(record: Mapping[str, Any]) -> bool:
+    """Null integrity checks are legal only on an operator sign-off approval record."""
+    return record.get("claim_kind") == "approval" and is_operator_approval_record(record)
+
+
 # Wave 21j63 (change 21kk5): a council approval carries the council-chair's
 # intent verdict, the worst across every admitted change and the wave
 # Objective. Readiness refuses `does_not` (approving a plan that will not
@@ -712,7 +721,14 @@ def review_action_input_schema() -> dict[str, Any]:
             },
         },
         "integrity_checks": {
-            **{field: {"kind": "boolean"} for field in INTEGRITY_CHECK_BOOLEAN_FIELDS},
+            **{
+                field: {
+                    "kind": "boolean",
+                    "null_allowed_for": ["operator-signoff"],
+                    "null_meaning": "not applicable",
+                }
+                for field in INTEGRITY_CHECK_BOOLEAN_FIELDS
+            },
             INTEGRITY_CHECK_METHOD_FIELD: {"kind": "string"},
         },
     }
@@ -3765,11 +3781,11 @@ def build_compact_review_event(
         if operator_approval and event.get("integrity_checks") is None:
             integrity_checks, integrity_errors = dict(OPERATOR_APPROVAL_INTEGRITY_DEFAULT), ()
         else:
-            # An operator approval may honestly carry false checks; every other approval
-            # must affirm all five.
+            # An operator approval may state true, false or null (not applicable) per
+            # check; every other approval must affirm all five.
             integrity_checks, integrity_errors = _validated_integrity_checks(
                 event.get("integrity_checks"), executed=not operator_approval,
-                label="approval event",
+                label="approval event", allow_not_applicable=operator_approval,
             )
         errors.extend(integrity_errors)
         if _nonempty_string(signoff_key):
@@ -4197,13 +4213,16 @@ def _validated_integrity_checks(
     *,
     executed: bool,
     label: str,
+    allow_not_applicable: bool = False,
 ) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
     """Validate the exact caller-owned integrity assertion object.
 
     Executed approvals and findings must affirm every boolean.  Non-executed
-    findings and operator sign-offs (which run no check of their own) still use
-    the same exact, typed shape, but may honestly carry a false check.  The builder copies these values verbatim; it never expands a
-    single confirmation into several claims.
+    findings still use the same exact, typed shape, but may honestly carry a
+    false check.  Operator sign-offs (which run no check of their own) pass
+    ``allow_not_applicable`` and may also carry null, meaning not applicable.
+    The builder copies these values verbatim; it never expands a single
+    confirmation into several claims.
     """
 
     if not isinstance(value, dict):
@@ -4218,8 +4237,18 @@ def _validated_integrity_checks(
         errors.append(f"{label} integrity_checks has unsupported fields: " + ", ".join(extra))
     for field in INTEGRITY_CHECK_BOOLEAN_FIELDS:
         field_value = value.get(field)
-        if not isinstance(field_value, bool):
-            errors.append(f"{label} integrity_checks.{field} must be boolean")
+        if field_value is None and allow_not_applicable:
+            continue
+        if field_value is None and field in value:
+            errors.append(
+                f"{label} integrity_checks.{field} must be boolean: null (not "
+                "applicable) is accepted only on an operator-signoff approval"
+            )
+        elif not isinstance(field_value, bool):
+            errors.append(
+                f"{label} integrity_checks.{field} must be boolean"
+                + (" or null" if allow_not_applicable else "")
+            )
         elif executed and field_value is not True:
             errors.append(
                 f"executed {label} cannot carry integrity_checks.{field}=false: "
@@ -4462,13 +4491,18 @@ def _validate_evidence_shape(record: Mapping[str, Any], index: int) -> list[str]
         "safe_boundary",
         "unexecuted_remainder_prohibited",
         "universal_claim",
-        "test_ran_without_unintended_skip",
-        "public_path_reached",
-        "boundary_values_realistic",
-        "assertions_non_vacuous",
-        "known_bad_detected",
     ):
         if not isinstance(record.get(field), bool):
+            errors.append(f"{label}: `{field}` must be boolean")
+    not_applicable_allowed = _accepts_not_applicable_integrity(record)
+    for field in INTEGRITY_CHECK_BOOLEAN_FIELDS:
+        value = record.get(field)
+        if value is None and field in record and not not_applicable_allowed:
+            errors.append(
+                f"{label}: `{field}` must be boolean: null (not applicable) is "
+                "accepted only on an operator sign-off approval"
+            )
+        elif not (isinstance(value, bool) or (value is None and field in record)):
             errors.append(f"{label}: `{field}` must be boolean")
     if not _string_list(record.get("adjacent_controls")):
         errors.append(f"{label}: `adjacent_controls` must be a duplicate-free string list")
@@ -4535,7 +4569,8 @@ def _validate_evidence_shape(record: Mapping[str, Any], index: int) -> list[str]
             f"{label}: executed evidence cannot carry a false evidence-integrity "
             "check: affirm all five honestly, or do not record the claim as "
             "executed (for a specialist or council approval: do not approve; "
-            "record a finding or repair first; an operator sign-off may carry false checks)"
+            "record a finding or repair first; an operator sign-off may carry false "
+            "or null (not applicable) checks)"
         )
     if record.get("claim_kind") == "lane_reassessment":
         if record.get("execution_status") != "executed":

@@ -429,22 +429,42 @@
               },
               "integrity_checks": {
                 "assertions_non_vacuous": {
-                  "kind": "boolean"
+                  "kind": "boolean",
+                  "null_allowed_for": [
+                    "operator-signoff"
+                  ],
+                  "null_meaning": "not applicable"
                 },
                 "boundary_values_realistic": {
-                  "kind": "boolean"
+                  "kind": "boolean",
+                  "null_allowed_for": [
+                    "operator-signoff"
+                  ],
+                  "null_meaning": "not applicable"
                 },
                 "known_bad_detected": {
-                  "kind": "boolean"
+                  "kind": "boolean",
+                  "null_allowed_for": [
+                    "operator-signoff"
+                  ],
+                  "null_meaning": "not applicable"
                 },
                 "known_bad_detection_method": {
                   "kind": "string"
                 },
                 "public_path_reached": {
-                  "kind": "boolean"
+                  "kind": "boolean",
+                  "null_allowed_for": [
+                    "operator-signoff"
+                  ],
+                  "null_meaning": "not applicable"
                 },
                 "test_ran_without_unintended_skip": {
-                  "kind": "boolean"
+                  "kind": "boolean",
+                  "null_allowed_for": [
+                    "operator-signoff"
+                  ],
+                  "null_meaning": "not applicable"
                 }
               },
               "judgment": {
@@ -1108,22 +1128,42 @@
               },
               "integrity_checks": {
                 "assertions_non_vacuous": {
-                  "kind": "boolean"
+                  "kind": "boolean",
+                  "null_allowed_for": [
+                    "operator-signoff"
+                  ],
+                  "null_meaning": "not applicable"
                 },
                 "boundary_values_realistic": {
-                  "kind": "boolean"
+                  "kind": "boolean",
+                  "null_allowed_for": [
+                    "operator-signoff"
+                  ],
+                  "null_meaning": "not applicable"
                 },
                 "known_bad_detected": {
-                  "kind": "boolean"
+                  "kind": "boolean",
+                  "null_allowed_for": [
+                    "operator-signoff"
+                  ],
+                  "null_meaning": "not applicable"
                 },
                 "known_bad_detection_method": {
                   "kind": "string"
                 },
                 "public_path_reached": {
-                  "kind": "boolean"
+                  "kind": "boolean",
+                  "null_allowed_for": [
+                    "operator-signoff"
+                  ],
+                  "null_meaning": "not applicable"
                 },
                 "test_ran_without_unintended_skip": {
-                  "kind": "boolean"
+                  "kind": "boolean",
+                  "null_allowed_for": [
+                    "operator-signoff"
+                  ],
+                  "null_meaning": "not applicable"
                 }
               },
               "judgment": {
@@ -1758,22 +1798,42 @@
               },
               "integrity_checks": {
                 "assertions_non_vacuous": {
-                  "kind": "boolean"
+                  "kind": "boolean",
+                  "null_allowed_for": [
+                    "operator-signoff"
+                  ],
+                  "null_meaning": "not applicable"
                 },
                 "boundary_values_realistic": {
-                  "kind": "boolean"
+                  "kind": "boolean",
+                  "null_allowed_for": [
+                    "operator-signoff"
+                  ],
+                  "null_meaning": "not applicable"
                 },
                 "known_bad_detected": {
-                  "kind": "boolean"
+                  "kind": "boolean",
+                  "null_allowed_for": [
+                    "operator-signoff"
+                  ],
+                  "null_meaning": "not applicable"
                 },
                 "known_bad_detection_method": {
                   "kind": "string"
                 },
                 "public_path_reached": {
-                  "kind": "boolean"
+                  "kind": "boolean",
+                  "null_allowed_for": [
+                    "operator-signoff"
+                  ],
+                  "null_meaning": "not applicable"
                 },
                 "test_ran_without_unintended_skip": {
-                  "kind": "boolean"
+                  "kind": "boolean",
+                  "null_allowed_for": [
+                    "operator-signoff"
+                  ],
+                  "null_meaning": "not applicable"
                 }
               },
               "judgment": {

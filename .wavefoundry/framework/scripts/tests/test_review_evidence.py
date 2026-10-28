@@ -5718,12 +5718,15 @@ class OperatorApprovalHonestAttestationTests(unittest.TestCase):
         self.assertEqual(errors, ())
         return [*run_rows, *approval_rows]
 
-    def test_omitted_checks_store_honest_false_and_no_independence_claim(self):
+    def test_omitted_checks_store_not_applicable_null_and_no_independence_claim(self):
+        # Wave 21s6f (change 21s53) AC-1: omitted means not applicable (null), not false.
         rows, errors = self.build(self.approval())
         self.assertEqual(errors, ())
         record = rows[0]
-        for field in subject.INTEGRITY_CHECK_BOOLEAN_FIELDS:
-            self.assertIs(record[field], False, field)
+        for field in ("test_ran_without_unintended_skip", "public_path_reached",
+                      "boundary_values_realistic", "assertions_non_vacuous", "known_bad_detected"):
+            self.assertIn(field, record)
+            self.assertIsNone(record[field], field)
         self.assertIn("not applicable", record["known_bad_detection_method"])
         self.assertNotIn("independent", record["expected"])
         self.assertNotIn("independent", record["counterexample_or_failure_condition"])
@@ -5773,7 +5776,7 @@ class OperatorApprovalHonestAttestationTests(unittest.TestCase):
             "expected": "the operator approves the reviewed scope; operator approval runs no check of its own",
             "failure_condition": "the approval predates an affected repair",
             "integrity_checks": {
-                **{field: False for field in subject.INTEGRITY_CHECK_BOOLEAN_FIELDS},
+                **{field: None for field in subject.INTEGRITY_CHECK_BOOLEAN_FIELDS},
                 "known_bad_detection_method": (
                     "not applicable: operator approval attests the reviewed scope and runs no check"
                 ),
@@ -5791,6 +5794,71 @@ class OperatorApprovalHonestAttestationTests(unittest.TestCase):
             digest(specialist),
             digest({**specialist, "expected": spelled_out["expected"]}),
         )
+
+    def test_stated_operator_values_may_be_true_false_or_null(self):
+        # AC-2: an operator who did check states each value; stored verbatim.
+        stated = integrity_checks(public_path_reached=False, known_bad_detected=None,
+                                  known_bad_detection_method="operator replayed the fixture")
+        rows, errors = self.build(self.approval(integrity_checks=stated))
+        self.assertEqual(errors, ())
+        record = rows[0]
+        self.assertIs(record["test_ran_without_unintended_skip"], True)
+        self.assertIs(record["public_path_reached"], False)
+        self.assertIsNone(record["known_bad_detected"])
+        self.assertEqual(record["known_bad_detection_method"], "operator replayed the fixture")
+        self.assertFalse(subject.validate_review_evidence_records(rows))
+        # A non-boolean, non-null value and a missing field are still refused.
+        _rows, errors = self.build(self.approval(integrity_checks=integrity_checks(known_bad_detected="n/a")))
+        self.assertTrue(any("known_bad_detected must be boolean or null" in e for e in errors), errors)
+        missing = integrity_checks()
+        del missing["public_path_reached"]
+        _rows, errors = self.build(self.approval(integrity_checks=missing))
+        self.assertTrue(any("missing fields: public_path_reached" in e for e in errors), errors)
+
+    def test_null_is_refused_on_every_non_operator_write(self):
+        # AC-3 (write time): the null-specific diagnostic, not some other refusal.
+        null_message = "integrity_checks.known_bad_detected must be boolean: null (not applicable)"
+        nulled = integrity_checks(known_bad_detected=None)
+        for key in ("qa-reviewer", "council-delivery"):
+            with self.subTest(key=key):
+                actor = subject.COUNCIL_ACTOR if subject.is_council_signoff_key(key) else key
+                event = self.approval(key, actor, integrity_checks=nulled)
+                if key == "council-delivery":
+                    event["intent_fit"] = "establishes"
+                _rows, errors = self.build(event)
+                self.assertTrue(any(null_message in e for e in errors), errors)
+        finding = ReviewEvidenceStateMachineTests._compact_integrity_finding_event(
+            self, actor="operator", integrity_checks=nulled)
+        _rows, errors = subject.build_compact_review_event([], finding)
+        self.assertTrue(any(null_message in e for e in errors), errors)
+        # An operator-signoff key from a non-operator actor gets the null refusal too
+        # (alongside the exact-actor refusal).
+        wrong_actor = self.approval("operator-signoff", "operator", integrity_checks=nulled)
+        wrong_actor["actor"] = "qa-reviewer"
+        _rows, errors = self.build(wrong_actor)
+        self.assertTrue(any(null_message in e for e in errors), errors)
+
+    def test_null_is_refused_on_every_non_operator_record(self):
+        # AC-3 (read time): each half of the record predicate, and claim_kind alone.
+        self.assertFalse(subject.validate_review_evidence_records([self._operator_record()]))
+        null_message = "`known_bad_detected` must be boolean: null (not applicable)"
+        for name, record in (
+            ("actor", self._operator_record(actor="qa-reviewer")),
+            ("claim", self._operator_record(claim_id="approval:qa-reviewer")),
+            ("claim_kind", self._operator_record(claim_kind="finding")),
+        ):
+            with self.subTest(half=name):
+                errors = subject.validate_review_evidence_records([record])
+                self.assertTrue(any(null_message in e for e in errors), errors)
+
+    def test_historical_operator_values_stay_valid(self):
+        # AC-4 (regression guard): 21sld-style false and older all-true records.
+        for values in (False, True):
+            with self.subTest(values=values):
+                record = self._operator_record(**{field: values for field in (
+                    "test_ran_without_unintended_skip", "public_path_reached",
+                    "boundary_values_realistic", "assertions_non_vacuous", "known_bad_detected")})
+                self.assertFalse(subject.validate_review_evidence_records([record]))
 
     def _operator_record(self, **changes):
         rows, _ = self.build(self.approval())
@@ -5831,11 +5899,21 @@ class OperatorApprovalHonestAttestationTests(unittest.TestCase):
         framework = Path(__file__).resolve().parents[2]
         seed_text = (framework / "seeds" / "209-agent-harness-core.prompt.md").read_text(encoding="utf-8")
         self.assertNotIn("If any boolean cannot be honestly affirmed, do not approve", seed_text)
+        # Wave 21s6f AC-6: null means not applicable, agents do not ask, no "may carry false".
+        self.assertEqual(seed_text.count(
+            "| Yes | Boolean, or `null` (not applicable) on an `operator-signoff` approval;"), 5)
+        self.assertIn("Do not ask the operator for check values: omit `integrity_checks`", seed_text)
+        self.assertIn("stores all five booleans as `null` (not applicable)", seed_text)
+        self.assertNotIn("may carry `false` integrity checks", seed_text)
+        self.assertNotIn("supplied with honest `false` values", seed_text)
         self.assertIn("For a specialist or council approval, if any boolean cannot be honestly affirmed", seed_text)
         self.assertIn("`operator-signoff` approval is the one exception", seed_text)
         server = (framework / "scripts" / "wf_server" / "server_impl.py").read_text(encoding="utf-8")
         self.assertIn("An ``operator-signoff`` approval is the exception", server)
         self.assertIn("Optional for an operator-signoff approval", server)
+        self.assertIn("so do not ask the operator for values", server)
+        self.assertIn("omitted\n                means null (not applicable)", server)
+        self.assertNotIn("may carry false values", server)
 
 
 if __name__ == "__main__":
