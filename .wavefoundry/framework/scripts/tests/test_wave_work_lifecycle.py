@@ -221,6 +221,81 @@ class WaveWorkLifecycleTests(unittest.TestCase):
         self.assertEqual(external.read_text(), "outside owned area")
         self.assertEqual(ledger.read_bytes(), ledger_before)
 
+    def test_registered_device_drift_reports_available_and_closes_owned_area(self):
+        wid, wave_md, cid = self.wave()
+        self.finish(wid, cid)
+        marker = self.work(wid) / ".owner.json"
+        owner = json.loads(marker.read_text())
+        original_generation = owner["generation"]
+        owner["directory"][0] += 1
+        marker.write_text(json.dumps(owner))
+        before = marker.read_bytes()
+        scratch = self.scratch(wid)
+        entries = self.ok(self.call("wf_current_wave"))["waves"]
+        current = next(entry for entry in entries if entry["wave_id"] == wid)
+        self.assertTrue(current["work_area"]["available"], current)
+        self.assertEqual(current["work_area"]["generation"], original_generation)
+        self.assertEqual(marker.read_bytes(), before)
+        result = self.call("wf_close_wave", wave_id=wid, mode="create")
+        self.ok(result)
+        self.assertEqual(result["data"]["work_cleanup"]["outcome"], "removed", result)
+        self.assertIn("Status: closed", wave_md.read_text())
+        self.assertFalse(scratch.exists())
+        self.assertFalse(self.work(wid).exists())
+
+    def test_registered_closed_reopen_adopts_device_drift_and_rotates_generation(self):
+        import wave_work
+
+        wid, _, cid = self.wave()
+        self.finish(wid, cid)
+        scratch = self.scratch(wid, "retained after close")
+        marker = self.work(wid) / wave_work.OWNER_FILE
+        owner = json.loads(marker.read_text())
+        original_generation = owner["generation"]
+        with patch.object(wave_work, "cleanup_work", side_effect=OSError("retain fixture")):
+            self.ok(self.call("wf_close_wave", wave_id=wid, mode="create"))
+        owner["directory"][0] += 1
+        marker.write_text(json.dumps(owner))
+        reopened = self.call("wf_reopen_wave", wave_id=wid, purpose="implement")
+        self.ok(reopened)
+        self.assertTrue(self.area(reopened)["available"], reopened)
+        self.assertNotEqual(self.area(reopened)["generation"], original_generation)
+        self.assertEqual(scratch.read_text(), "retained after close")
+        after = json.loads(marker.read_text())
+        self.assertEqual(after, dict(owner, generation=self.area(reopened)["generation"]))
+
+    def test_registered_close_preserves_each_invalid_directory_record(self):
+        for case in range(15):
+            with self.subTest(case=case):
+                # Every case exercises the initial close transition, rather
+                # than retrying an already-closed wave.
+                wid, wave_md, cid = self.wave(slug=f"invalid-{case}")
+                self.finish(wid, cid)
+                scratch = self.scratch(wid, "must survive")
+                marker = self.work(wid) / ".owner.json"
+                owner = json.loads(marker.read_text())
+                device, inode = owner["directory"]
+                invalid = ([device, inode + 1], [device, 0], [0, 0], [], [device],
+                           [device, inode, 1], None, {}, "directory", [True, inode],
+                           [device, True], [-1, inode], [device, -1], [1.0, inode],
+                           [device, str(inode)])
+                value = invalid[case]
+                owner["directory"] = value
+                marker.write_text(json.dumps(owner))
+                before = marker.read_bytes()
+                entries = self.ok(self.call("wf_current_wave"))["waves"]
+                current = next(entry for entry in entries if entry["wave_id"] == wid)
+                self.assertFalse(current["work_area"]["available"], current)
+                self.assertIn("work_ownership_unproven", current["work_area"]["notice"])
+                result = self.call("wf_close_wave", wave_id=wid, mode="create")
+                self.ok(result)
+                cleanup = result["data"]["work_cleanup"]
+                self.assertEqual(cleanup["outcome"], "preserved", result)
+                self.assertIn("work_ownership_unproven", cleanup["notice"])
+                self.assertIn("Status: closed", wave_md.read_text())
+                self.assertEqual(marker.read_bytes(), before)
+                self.assertEqual(scratch.read_text(), "must survive")
+
     def test_cleanup_io_failure_keeps_closed_status_and_authorized_retry_cleans(self):
         import wave_work
 

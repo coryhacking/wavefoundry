@@ -98,6 +98,53 @@ class WaveWorkTests(unittest.TestCase):
         self.assertEqual(self.cleanup("0" * 32)["outcome"], "preserved")
         self.assertEqual(work.describe_work(self.root, self.wave)["generation"], generation)
 
+    def test_device_drift_keeps_adoption_available_without_restamping(self):
+        generation = self.ensure()
+        marker = self.path / work.OWNER_FILE
+        owner = json.loads(marker.read_text())
+        owner["directory"][0] += 1
+        marker.write_text(json.dumps(owner))
+        before = marker.read_bytes()
+        for result in (work.describe_work(self.root, self.wave),
+                       work.ensure_work(self.root, self.wave)):
+            self.assertTrue(result["available"], result)
+            self.assertEqual(result["generation"], generation)
+            self.assertEqual(marker.read_bytes(), before)
+
+    def test_invalid_directory_records_refuse_reads_and_cleanup_without_mutation(self):
+        generation = self.ensure()
+        marker = self.path / work.OWNER_FILE
+        owner = json.loads(marker.read_text())
+        device, inode = owner["directory"]
+        scratch = self.path / "keep.txt"
+        scratch.write_bytes(b"retained scratch")
+        invalid = ([device, inode + 1], [device, 0], [0, 0], [], [device],
+                   [device, inode, 1], None, {}, "directory", [True, inode],
+                   [device, True], [-1, inode], [device, -1], [1.0, inode],
+                   [device, str(inode)])
+        for value in invalid:
+            with self.subTest(directory=value):
+                owner["directory"] = value
+                marker.write_text(json.dumps(owner))
+                before = marker.read_bytes()
+                read = work.describe_work(self.root, self.wave)
+                self.assertFalse(read["available"], read)
+                self.assertIn("work_ownership_unproven", read["notice"])
+                cleanup = self.cleanup(generation)
+                self.assertEqual(cleanup["outcome"], "preserved", cleanup)
+                self.assertIn("work_ownership_unproven", cleanup["notice"])
+                self.assertEqual(marker.read_bytes(), before)
+                self.assertEqual(scratch.read_bytes(), b"retained scratch")
+
+    def test_zero_live_inode_is_never_path_only_ownership(self):
+        self.ensure()
+        fd = os.open(self.path, work._FLAGS)
+        self.addCleanup(os.close, fd)
+        directory = os.fstat(fd)
+        unavailable = mock.Mock(st_dev=directory.st_dev, st_ino=0)
+        with self.assertRaisesRegex(work._Refused, "work_ownership_unproven"):
+            work._read_owner(fd, self.root, self.wave.relative_to(self.root).as_posix(), unavailable)
+
     def test_reopen_rotates_generation_retains_files_and_refuses_stale_cleanup(self):
         old = self.ensure()
         (self.path / "retained").write_text("retained")
@@ -350,6 +397,20 @@ class SnapshotTests(unittest.TestCase):
         self.assertTrue(result["available"], result)
         self.assertEqual(result["documents"], documents)
         self.assertIn(b"\r\n", result["documents"]["abc99-enh example"])
+
+    def test_snapshot_written_before_device_drift_still_loads_without_restamping(self):
+        self.assertTrue(self.publish()["available"])
+        marker = self.path / work.OWNER_FILE
+        owner = json.loads(marker.read_text())
+        owner["directory"][0] += 1
+        marker.write_text(json.dumps(owner))
+        before = marker.read_bytes()
+        snapshot_before = self.snapshot.read_bytes()
+        result = self.read()
+        self.assertTrue(result["available"], result)
+        self.assertEqual(result["documents"], self.documents)
+        self.assertEqual(marker.read_bytes(), before)
+        self.assertEqual(self.snapshot.read_bytes(), snapshot_before)
 
     def test_missing_or_legacy_baseline_never_creates_work(self):
         result = self.read()

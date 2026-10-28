@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Mapping
 
 from contained_files import open_contained_dir, relative_parts, _is_link_metadata
+from storage_identity import compare_identity
 import vocabulary_profile
 
 WORK_ROOT = Path(".wavefoundry/work")
@@ -135,9 +136,21 @@ def _read_owner(fd: int, root: Path, wave: str, directory) -> dict:
         os.close(owner_fd)
     if (not isinstance(owner, dict) or owner.get("schema") != 1
             or owner.get("repository") != str(root) or owner.get("wave") != wave
-            or owner.get("directory") != _identity(directory)
             or not isinstance(owner.get("generation"), str)
             or not re.fullmatch(r"[0-9a-f]{32}", owner["generation"])):
+        raise _Refused("work_ownership_unproven; work preserved")
+    recorded = owner.get("directory")
+    if (not isinstance(recorded, list) or len(recorded) != 2
+            or not all(type(value) is int and value >= 0 for value in recorded)
+            or recorded[1] <= 0 or directory.st_ino <= 0):
+        raise _Refused("work_ownership_unproven; work preserved")
+    # The pinned walk and repository/wave fields bind the path. Only this
+    # persisted identity tolerates device renumbering; fresh stats stay strict.
+    comparison = compare_identity(
+        {"device": recorded[0], "inode": recorded[1]},
+        {"device": directory.st_dev, "inode": directory.st_ino},
+    )
+    if not comparison["matches"] or comparison["basis"] != "path+inode":
         raise _Refused("work_ownership_unproven; work preserved")
     return owner
 

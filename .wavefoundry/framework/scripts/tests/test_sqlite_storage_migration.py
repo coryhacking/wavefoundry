@@ -229,7 +229,7 @@ class ReceiptTests(unittest.TestCase):
         # snapshot owner must still fail this guard.
         import ast
         modules = ("sqlite_storage_migration", "setup_readiness", "setup_reconciliation",
-                   "upgrade_extensions", "retrieval_eval")
+                   "upgrade_extensions", "retrieval_eval", "wave_work")
         sources = {name: source_path(name).read_text() for name in modules}
         def scan(name, source):
             found = set()
@@ -241,7 +241,7 @@ class ReceiptTests(unittest.TestCase):
                             isinstance(op, (ast.Eq, ast.NotEq)) for op in node.ops):
                         continue
                     expression = ast.unparse(node)
-                    if any(key in expression for key in ("identity", "st_dev", "st_ino")) or any(
+                    if any(key in expression for key in ("identity", "identities", "st_dev", "st_ino")) or any(
                             isinstance(part, ast.Name) and part.id in {"stored", "live", "retained", "published"}
                             for part in ast.walk(node)):
                         found.add((name, owner.name, expression))
@@ -317,6 +317,13 @@ class ReceiptTests(unittest.TestCase):
             ('sqlite_storage_migration', '_plan_captured_graph', 'files[name] != _graph_identity((graph / name).lstat())'),
             ('sqlite_storage_migration', '_plan_captured_graph', "evidence['directory'] != _graph_identity(graph.lstat(), directory=True)"),
         })
+        # Work identities below compare fresh stats within one operation. The
+        # persisted owner record must use the portable comparison instead.
+        allowed.update({
+            ('wave_work', '_same', '_identity(left) == _identity(right)'),
+            ('wave_work', '_anchor', 'current != identities'),
+            ('wave_work', '_empty_directory', 'info.st_dev != os.fstat(fd).st_dev'),
+        })
         observed = set().union(*(scan(name, source) for name, source in sources.items()))
         self.assertEqual(observed, allowed)
         mutations = (
@@ -324,6 +331,7 @@ class ReceiptTests(unittest.TestCase):
              "if source_identity is None or not source.exists() or source_identity != _identity(source):"),
             ("setup_readiness", "matches(receipt.get('root_identity'), 'receipt')", "receipt.get('root_identity') == identity"),
             ("retrieval_eval", 'comparison["matches"]', 'stored == live'),
+            ("wave_work", 'not comparison["matches"]', 'owner["directory"] != _identity(directory)'),
         )
         for name, old, replacement in mutations:
             with self.subTest(module=name):
