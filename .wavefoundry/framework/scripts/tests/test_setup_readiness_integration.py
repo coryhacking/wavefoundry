@@ -227,6 +227,9 @@ class SharedAssessmentTests(unittest.TestCase):
         from unittest.mock import Mock
 
         handler = server_impl.ImplHandler.__new__(server_impl.ImplHandler)
+        handler._monitor_condition = server_impl.threading.Condition()
+        handler._monitors_paused = False
+        handler._active_monitors = set()
         handler.root = Path.cwd()
         handler.assess_setup = Mock(return_value=result("action_required"))
         stop = Mock()
@@ -330,6 +333,9 @@ class SharedAssessmentTests(unittest.TestCase):
         import server_impl
         import setup_readiness
         handler = server_impl.ImplHandler.__new__(server_impl.ImplHandler)
+        handler._monitor_condition = server_impl.threading.Condition()
+        handler._monitors_paused = False
+        handler._active_monitors = set()
         handler.root = Path.cwd()
         handler._setup_assessment_lock = threading.Lock()
         handler._setup_loaded_identity = {"launch": "original"}

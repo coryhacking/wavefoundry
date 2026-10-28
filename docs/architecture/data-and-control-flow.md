@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-26
+Last verified: 2026-10-27
 
 ## Runtime advisory boundary
 
@@ -49,6 +49,48 @@ locks, startup-once flag and any existing startup worker. It invalidates the qua
 pair cache; discovery or inference from the previous client generation cannot publish
 new cached state or return service output. The existing worker keeps its original
 deadline, and reload never schedules another start or stops the shared service.
+
+### MCP process lifetime and cleanup
+
+The agent host owns each stdio connection and its server process lifetime.
+`wf_reload_mcp` updates the implementation and handler inside that same process;
+it does not replace Python or disconnect another session. `wf_server_info` and
+reload expose `data.process` with PID, parent PID, project root and monotonic
+uptime since the first server implementation import. Uptime survives reload.
+The explicit reload result says whether the implementation changed and that the
+process was not restarted. Runner changes still require a host restart.
+
+Reload first pauses monitor callback admission under a shared condition and waits
+up to one second for active callbacks to drain. Admission and active bookkeeping
+use the same condition; callback bodies execute outside it, and their active
+interval includes status/error processing. If preparation times out or raises,
+the pause is released without stopping workers or disposing handler resources.
+The blocked callback continues; ordinary scheduling resumes without a reload.
+Preparation refusal reports phase `prepare` and `handler_preserved: true`.
+Successful preparation keeps admission paused until cleanup stops the workers.
+This budget covers preparation waiting, not the existing public reload tool's
+telemetry projection work. It does not quiesce arbitrary foreground tool calls.
+
+The serving lifespan finalizer resolves and closes the current handler, including
+a handler installed by reload, on normal exit or serving exception/cancellation.
+`ImplHandler.close` attempts the two monitor stops, telemetry close and cache
+invalidation independently, clears index references and reports named failures.
+Each monitor join waits at most one second; a surviving worker retains its
+thread and stop-event references for retry. Reload refuses before module
+re-execution or handler replacement when cleanup is incomplete, leaving the same
+handler installed. Other independent resources may already have been released;
+this is a retryable cleanup failure (phase `cleanup`, `handler_preserved: false`),
+not a promise of uninterrupted service. Failures after destructive cleanup begins
+are not rolled back; the preservation guarantee applies only to preparation.
+Shutdown failures are reported on stderr without replacing the serving error.
+
+EOF regression coverage includes idle serving, repeated reload and finite active
+work. It does not promise immediate interruption of arbitrary blocking/native
+work or graceful cleanup after SIGKILL. A quiet host-held connection is not proof
+of abandonment: Wavefoundry adds no idle killer or cross-session process sweep.
+Cleanup never stops Tensorwell's shared daemon or menu application. If cleanup
+continues to fail, restart the MCP connection through its host when other work
+on that host can be interrupted.
 
 ### Lifecycle response completion
 

@@ -30,6 +30,10 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Collection, Iterable, Literal, Mapping, Optional, Sequence
 
+# importlib.reload retains this module dictionary. Server uptime must not reset
+# when the implementation is re-executed; no process inspection dependency needed.
+_SERVER_STARTED_MONOTONIC = globals().get("_SERVER_STARTED_MONOTONIC", time.monotonic())
+
 # Change 1zyv1: bytecode goes only to the project cache (``bytecode_cache``),
 # never beside the sources; writes stay off until configure() enables the cache.
 if __name__ == "__main__" or sys.pycache_prefix is None:
@@ -19748,6 +19752,9 @@ class ImplHandler:
             "triggered": False, "reason": "not_checked",
         }
         self._ce_projection_observed: dict[str, tuple[int, float]] = {}
+        self._monitor_condition = threading.Condition()
+        self._monitors_paused = False
+        self._active_monitors: set[str] = set()
         # Wave 1p5xu: in-session index-staleness monitor. Fail-safe + daemon;
         # never blocks __init__/close, swallows all errors, config-gated.
         self._monitor_stop: Any | None = None
@@ -19801,6 +19808,10 @@ class ImplHandler:
 
         def _loop() -> None:
             while not stop_event.wait(interval):
+                with self._monitor_condition:
+                    if self._monitors_paused:
+                        continue
+                    self._active_monitors.add("index_monitor")
                 try:
                     self.assess_setup()
                     _maybe_refresh_if_stale(
@@ -19816,6 +19827,10 @@ class ImplHandler:
                         "stale": None, "triggered": False,
                         "reason": "monitor_error",
                     }
+                finally:
+                    with self._monitor_condition:
+                        self._active_monitors.remove("index_monitor")
+                        self._monitor_condition.notify_all()
 
         thread = threading.Thread(
             target=_loop, name="wavefoundry-index-monitor", daemon=True
@@ -19834,6 +19849,10 @@ class ImplHandler:
 
         def _loop() -> None:
             while not stop_event.wait(interval):
+                with self._monitor_condition:
+                    if self._monitors_paused:
+                        continue
+                    self._active_monitors.add("ce_projection_monitor")
                 try:
                     self._ce_projection_status = {
                         "configured": True,
@@ -19850,6 +19869,10 @@ class ImplHandler:
                         # Wave 1zls7 (1zodv): path-free, like the other index_health rows.
                         "error": _lifecycle_lock_authority.path_free_exception_text(exc, root),
                     }
+                finally:
+                    with self._monitor_condition:
+                        self._active_monitors.remove("ce_projection_monitor")
+                        self._monitor_condition.notify_all()
 
         thread = threading.Thread(
             target=_loop, name="wavefoundry-ce-projection-monitor", daemon=True
@@ -19876,52 +19899,75 @@ class ImplHandler:
             },
         }
 
+    def prepare_reload(self) -> dict[str, Any]:
+        """Pause callback admission; preserve resources if active work cannot drain.
+
+        Entry and drain use one condition, held only for bookkeeping, never for
+        callback execution. Successful preparation keeps admission paused until
+        close stops the workers; every unsuccessful exit resumes scheduling.
+        The one-second budget covers this wait, not the caller's projection work.
+        """
+        with self._monitor_condition:
+            self._monitors_paused = True
+            complete = False
+            try:
+                complete = self._monitor_condition.wait_for(
+                    lambda: not self._active_monitors, timeout=1.0,
+                )
+                return {
+                    "complete": complete,
+                    "warnings": [
+                        {"resource": name, "reason": "TimeoutError"}
+                        for name in sorted(self._active_monitors)
+                    ],
+                }
+            finally:
+                if not complete:
+                    self._monitors_paused = False
+                    self._monitor_condition.notify_all()
+
     def _stop_staleness_monitor(self) -> None:
         stop_event = self._monitor_stop
         thread = self._monitor_thread
+        if stop_event is not None:
+            stop_event.set()
+        if thread is not None:
+            thread.join(timeout=1.0)
+            if thread.is_alive():
+                raise TimeoutError("index monitor did not stop")
         self._monitor_stop = None
         self._monitor_thread = None
-        if stop_event is not None:
-            try:
-                stop_event.set()
-            except Exception:  # noqa: BLE001
-                pass
-        if thread is not None:
-            try:
-                thread.join(timeout=1.0)
-            except Exception:  # noqa: BLE001
-                pass
 
     def _stop_ce_projection_monitor(self) -> None:
         stop_event = self._ce_projection_stop
         thread = self._ce_projection_thread
+        if stop_event is not None:
+            stop_event.set()
+        if thread is not None:
+            thread.join(timeout=1.0)
+            if thread.is_alive():
+                raise TimeoutError("context-efficiency monitor did not stop")
         self._ce_projection_stop = None
         self._ce_projection_thread = None
-        if stop_event is not None:
-            try:
-                stop_event.set()
-            except Exception:  # noqa: BLE001
-                pass
-        if thread is not None:
-            try:
-                thread.join(timeout=1.0)
-            except Exception:  # noqa: BLE001
-                pass
 
-    def close(self) -> None:
-        try:
-            self._stop_ce_projection_monitor()
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            self._stop_staleness_monitor()
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            self.telemetry.close()
-        except Exception:  # noqa: BLE001
-            pass
-        self.cache.invalidate()
+    def close(self) -> dict[str, Any]:
+        """Release owned resources; retain surviving monitors for a later retry.
+
+        Monitor loops use root/assessment/projection state, not these cache/index
+        handles. Independent cleanup can continue without replacing their handler
+        or reloading the module globals under a still-running worker.
+        """
+        warnings: list[dict[str, str]] = []
+        for resource, cleanup in (
+            ("ce_projection_monitor", self._stop_ce_projection_monitor),
+            ("index_monitor", self._stop_staleness_monitor),
+            ("telemetry", self.telemetry.close),
+            ("cache", self.cache.invalidate),
+        ):
+            try:
+                cleanup()
+            except Exception as exc:  # best effort; each resource gets an attempt
+                warnings.append({"resource": resource, "reason": type(exc).__name__})
         self.index._loaded = False
         self.index._docs_vector_layer = None
         self.index._code_vector_layer = None
@@ -19933,6 +19979,7 @@ class ImplHandler:
         self.index._model_downloads_started = False
         self.index._loaded_meta_signature = {}
         self.index._vector_available = set()
+        return {"complete": not warnings, "warnings": warnings}
 
 
 def build_handler(root: Path) -> ImplHandler:
@@ -20051,8 +20098,19 @@ def _process_info_status() -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
     )
 
 
+def server_process_identity(root: Path) -> dict[str, Any]:
+    """Cheap serving-process identity; uptime starts at first implementation import."""
+    return {
+        "pid": os.getpid(),
+        "parent_pid": os.getppid(),
+        "repo_root": str(root.resolve()),
+        "uptime_seconds": round(max(0.0, time.monotonic() - _SERVER_STARTED_MONOTONIC), 3),
+    }
+
+
 def wf_server_info_response(root: Path, *, server_runner_version: str | None = None) -> dict[str, Any]:
     data = server_identity(root, server_runner_version=server_runner_version)
+    data["process"] = server_process_identity(root)
     import tensorwell_client
     data.update(tensorwell_client.status_bundle_snapshot())
     data["extensions"] = _extension_provenance_for_response(root)

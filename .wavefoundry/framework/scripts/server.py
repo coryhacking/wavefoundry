@@ -670,13 +670,67 @@ def perform_mcp_reload(*, notify: str = "schedule") -> dict[str, Any]:
                 {},
                 diagnostics=[server_impl._diagnostic("handler_not_ready", "MCP handler not initialized")],
             )
+        try:
+            preparation = old.prepare_reload()
+        except Exception as exc:
+            cause = _reload_exception_text(exc, "reload preparation failed", old.root)
+            preparation = {"complete": False, "warnings": [{"resource": "monitor_preparation", "reason": cause}]}
+        if not preparation["complete"]:
+            return server_impl._response(
+                "error",
+                {
+                    "ok": False,
+                    "process": server_impl.server_process_identity(old.root),
+                    "reload": {
+                        "mode": "in_process", "process_restarted": False,
+                        "phase": "prepare", "handler_preserved": True,
+                        "message": "Implementation unchanged; preparation failed. "
+                        "Handler resources preserved and monitor scheduling resumed.",
+                    },
+                },
+                diagnostics=[server_impl._diagnostic(
+                    "handler_preparation_incomplete",
+                    f"Monitor preparation incomplete: {item['resource']} ({item['reason']}). "
+                    "Retry after active work finishes; restart the MCP host if it remains blocked.",
+                ) for item in preparation["warnings"]],
+                usage="wf_reload_mcp()",
+            )
         close_warnings: list[dict] = []
         try:
-            old.close()
+            cleanup = old.close()
+            if isinstance(cleanup, dict) and not cleanup.get("complete", False):
+                close_warnings.extend(
+                    server_impl._diagnostic(
+                        "handler_cleanup_warning",
+                        f"Old handler cleanup incomplete: {item['resource']} ({item['reason']}).",
+                    )
+                    for item in cleanup.get("warnings", [])
+                )
+                # Even a malformed/empty failure report must not authorize a new
+                # handler while cleanup has explicitly said it is incomplete.
+                close_warnings.append(server_impl._diagnostic(
+                    "handler_cleanup_incomplete",
+                    "Implementation unchanged: old handler cleanup is incomplete. "
+                    "Retry reload after its workers stop; restart the MCP host if cleanup remains blocked.",
+                ))
         except Exception as exc:
             cause = _reload_exception_text(exc, "old handler close raised", old.root)
             close_warnings.append(
                 server_impl._diagnostic("handler_close_warning", f"Old handler close raised: {cause}")
+            )
+        if close_warnings:
+            return server_impl._response(
+                "error",
+                {
+                    "ok": False,
+                    "process": server_impl.server_process_identity(old.root),
+                    "reload": {
+                        "mode": "in_process", "process_restarted": False,
+                        "phase": "cleanup", "handler_preserved": False,
+                        "message": "Implementation unchanged; cleanup incomplete.",
+                    },
+                },
+                diagnostics=close_warnings, usage="wf_reload_mcp()",
             )
         server_impl._script_cache.clear()
         # Evict wave_lint_lib submodules so lazy imports in server_impl
@@ -765,6 +819,11 @@ def perform_mcp_reload(*, notify: str = "schedule") -> dict[str, Any]:
             old.root, server_runner_version=SERVER_RUNNER_VERSION
         )
         payload["ok"] = True
+        payload["process"] = server_impl.server_process_identity(old.root)
+        payload["reload"] = {
+            "mode": "in_process", "process_restarted": False,
+            "message": "Implementation reloaded; process unchanged.",
+        }
         payload["tools_reregistered"] = tools_reregistered
         payload["description_changed_tools"] = description_changed
         payload["added_tools"] = added_tools
@@ -906,9 +965,20 @@ def build_server(root: Path):
     async def inference_lifespan(app):
         # FastMCP enters this after stdio transport initialization. Building a
         # server (including --dry-run) and implementation reload never enter it.
-        import inference_provider
-        inference_provider.start_background(root)
-        yield {}
+        try:
+            import inference_provider
+            inference_provider.start_background(root)
+            yield {}
+        finally:
+            # Reload replaces the handler, so resolve it at exit rather than
+            # capturing the startup handler. Serialize with the reload boundary.
+            with _reload_lock:
+                try:
+                    cleanup = _get_handler().close()
+                    if isinstance(cleanup, dict) and not cleanup.get("complete", False):
+                        print(f"wavefoundry: shutdown cleanup incomplete: {cleanup['warnings']}", file=sys.stderr)
+                except Exception as exc:  # preserve a serving exception/cancellation
+                    _reload_exception_text(exc, "shutdown handler cleanup failed", root)
 
     global _root
     _root = root  # Wave 1p8kz: enable _get_handler lazy-build before/after the explicit _set_handler.
@@ -927,6 +997,14 @@ def build_server(root: Path):
     @mcp.tool(annotations=_MUTATING_TOOL)
     async def wf_reload_mcp(**kwargs: Any) -> dict[str, Any]:
         """Reload MCP implementation module without restarting the stdio server.
+
+        data.process identifies the retained process and its uptime; data.reload
+        explicitly reports in_process and process_restarted=false. Monitor
+        preparation pauses callback admission before cleanup; preparation failure
+        resumes scheduling and preserves handler resources. data.reload.phase and
+        handler_preserved distinguish preparation refusal from destructive cleanup
+        failure. Retry after work finishes or restart the host if it remains
+        blocked. Tensorwell's shared daemon is unaffected.
 
         Returns ``framework_version``, ``server_runner_version`` (the capture-at-launch
         runner identity, which a reload never changes), ``runner_disk_identity``,

@@ -4834,6 +4834,9 @@ class PathFreeMonitorRowTests(unittest.TestCase):
 
     def _tick(self, patches):
         handler = srv.ImplHandler.__new__(srv.ImplHandler)
+        handler._monitor_condition = srv.threading.Condition()
+        handler._monitors_paused = False
+        handler._active_monitors = set()
         handler.root = self.root
         handler._ce_projection_observed = {}
         handler._ce_projection_status = {}

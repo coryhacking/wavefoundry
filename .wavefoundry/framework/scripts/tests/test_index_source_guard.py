@@ -64,6 +64,9 @@ class SourceGuardTests(unittest.TestCase):
     @contextmanager
     def monitor(self):
         handler = server.ImplHandler.__new__(server.ImplHandler)
+        handler._monitor_condition = server.threading.Condition()
+        handler._monitors_paused = False
+        handler._active_monitors = set()
         handler.root = self.root
         handler._ce_projection_observed = {}
         handler._ce_projection_status = {}

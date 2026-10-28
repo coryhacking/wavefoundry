@@ -2483,6 +2483,39 @@ Python runtime advice is available under `index_health().data.setup_readiness.ad
 
 `wf_reload_mcp()`
 
+- `data.process` (also on `wf_server_info`) reports `pid`, `parent_pid`,
+  `repo_root` and `uptime_seconds`. Uptime is monotonic elapsed time since the
+  first server implementation import and does not reset on implementation
+  reload; it is not an OS process creation timestamp. These fields require no
+  process scan, inference or service probe.
+- Successful reload includes `data.reload = {mode: "in_process",
+  process_restarted: false, message: "Implementation reloaded; process unchanged."}`.
+  Existing version and `runner_stale` diagnostics retain their meaning.
+- Before destructive cleanup, reload pauses admission to both monitor callbacks
+  and waits up to one second for active callbacks to finish. The shared condition
+  covers callback entry through status/error processing. On timeout or preparation
+  exception, scheduling resumes with the same workers, unset stop events and
+  handler resources intact. `handler_preparation_incomplete` names the blocked
+  resource; `data.reload.phase: "prepare"` and `handler_preserved: true` identify
+  this refusal. Active work is not cancelled or duplicated. The deadline bounds
+  preparation waiting, not the tool's pre-existing telemetry projection barrier.
+- After successful preparation, old-handler cleanup must complete before implementation re-execution or
+  replacement. A monitor that survives its one-second join retains its thread
+  and event references; its resource name and exception type are reported with
+  `handler_cleanup_warning`, followed by `handler_cleanup_incomplete`.
+  An unexpected exception escaping close retains the path-free
+  `handler_close_warning` diagnostic. Either condition returns `status: "error"`,
+  `data.ok: false`, `data.reload.phase: "cleanup"`, `handler_preserved: false`
+  and a reload message saying the implementation is unchanged.
+  The same handler remains installed; retry after its worker stops, or restart
+  the host if cleanup stays blocked. Independent resource cleanup may already
+  have happened, so continued full service after refusal is not guaranteed.
+- On serving teardown, the lifespan closes the current handler, including after
+  reload, and reports incomplete cleanup on stderr while preserving serving
+  exceptions/cancellation. The host owns connection lifetime. Quiet connections
+  are not automatically terminated, and Tensorwell's shared daemon is never
+  stopped by this cleanup. Bounded monitor joins do not imply bounded shutdown
+  of arbitrary native work; SIGKILL cannot run the finalizer.
 - Reloads `wf_server/server_impl.py`, rebuilds the handler, and refreshes the FastMCP
   tool registry without replacing the runner process. The tool is async so a
   changed tool list's `notifications/tools/list_changed` send is awaited
