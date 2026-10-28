@@ -875,6 +875,20 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
         requires_doc="docs/prompts/codebase-cleanup-review.prompt.md",
     ),
     Skill(
+        name="wf-envision",
+        description="Establish or revise a project's long-term vision and technical horizons, grounded in its current architecture, with architecture, red-team, and Archetype Council reviews. The Envision project workflow authors VISION.md; it does not initiate implementation.",
+        body=_thin_pointer_body(
+            "Envision project",
+            "docs/prompts/envision-project.prompt.md",
+            (
+                "Reuse the brief and ground the vision in the target project's current capabilities; author the existing canonical vision or VISION.md.",
+                "Coordinate architecture, red-team, and Archetype Council reviews through the canonical protocols, reconcile findings, and disclose unavailable independent reviews.",
+                "These are advisory artifact reviews; envisioning grants no implementation or lifecycle approval. An explicit read-only request writes nothing.",
+            ),
+        ),
+        requires_doc="docs/prompts/envision-project.prompt.md",
+    ),
+    Skill(
         name="wf-techdocs",
         description="Generate the missing-only Backstage catalog and TechDocs baseline with the wf_techdocs_baseline MCP tool (CLI fallback wf techdocs-baseline), then have the technical-writer specialist author the published pages with Guru, architecture, security, qa, and docs-contract collaboration (Refresh TechDocs / Author TechDocs). An explicit read-only request selects the review-only branch, which runs the wf_techdocs_audit publication audit (CLI fallback wf techdocs-audit) and returns findings and proposed edits without writing. Renders once docs/prompts/refresh-techdocs.prompt.md exists (every target after seed-100 reconciliation).",
         body=_thin_pointer_body(

@@ -2911,7 +2911,42 @@ class SkillRegistryTests(unittest.TestCase):
         "wf-package": "docs/prompts/package-wavefoundry.prompt.md",
         "wf-code-cleanup": "docs/prompts/codebase-cleanup-review.prompt.md",
         "wf-techdocs": "docs/prompts/refresh-techdocs.prompt.md",
+        "wf-envision": "docs/prompts/envision-project.prompt.md",
     }
+
+    def test_envision_appears_after_prompt_authoring_and_preserves_project_content(self) -> None:
+        for hosts in ((".codex", ".claude", ".agents"), (".codex",)):
+            with self.subTest(hosts=hosts), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                self._repo(root, guru=False, gate_docs=False, hosts=hosts)
+                prompt = root / "docs/prompts/envision-project.prompt.md"
+                vision = root / "VISION.md"
+                vision_bytes = b"# Existing project vision\r\nKeep the operator's decisions.\r\n"
+                vision.write_bytes(vision_bytes)
+
+                # Setup/render alone does not invent a project vision or a
+                # dangling skill before seed 100 has authored its backing doc.
+                ras.render_agent_surfaces(root)
+                self.assertFalse(prompt.exists())
+                self.assertEqual(list(root.glob("*/skills/wf-envision/SKILL.md")), [])
+
+                prompt_bytes = b"# Envision project\r\nProject-specific instructions survive.\r\n"
+                prompt.parent.mkdir(parents=True, exist_ok=True)
+                prompt.write_bytes(prompt_bytes)
+                written = ras.render_agent_surfaces(root)
+                for host in hosts:
+                    rel = f"{host}/skills/wf-envision/SKILL.md"
+                    self.assertIn(rel, written)
+                    skill_text = (root / rel).read_text(encoding="utf-8")
+                    self.assertTrue(skill_text.startswith("---\nname: wf-envision\n"))
+                    self.assertIn("docs/prompts/envision-project.prompt.md", skill_text)
+                for host in set((".codex", ".claude", ".agents")) - set(hosts):
+                    self.assertFalse((root / host).exists(), "inactive hosts stay absent")
+                self.assertEqual(prompt.read_bytes(), prompt_bytes)
+                self.assertEqual(vision.read_bytes(), vision_bytes)
+                self.assertEqual(ras.render_agent_surfaces(root), [])
+                self.assertEqual(prompt.read_bytes(), prompt_bytes)
+                self.assertEqual(vision.read_bytes(), vision_bytes)
 
     def test_operator_instruction_gates_render_on_each_host(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -5281,7 +5316,7 @@ class TechdocsCarrierLiteralPinTests(unittest.TestCase):
         seed_050 = (self.SEEDS / "050-agent-entry-surface-bootstrap.prompt.md").read_text(encoding="utf-8")
         self.assertIn("**Refresh TechDocs shortcut**", seed_050)
         self.assertIn("**`Author TechDocs`**", seed_050)
-        self.assertIn("`wf-techdocs` on their prompt docs", seed_050)
+        self.assertIn("`wf-techdocs`, and `wf-envision` on their prompt docs", seed_050)
 
     def test_install_seeds_state_the_no_generation_and_pointer_rules(self) -> None:
         seed_011 = (self.SEEDS / "011-install-wavefoundry-phase-1.prompt.md").read_text(encoding="utf-8")

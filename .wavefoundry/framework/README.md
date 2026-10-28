@@ -156,6 +156,7 @@ Use these public phrases in a target project's repository:
 
 - `Init Wavefoundry` (legacy: `Init wave framework` / `Init wave context`)
 - `Upgrade Wavefoundry` (legacy: `Upgrade wave framework` / `Upgrade wave context`)
+- `Envision project` (vision and technical horizons with advisory architecture, red-team and Archetype Council reviews)
 - `Plan change`
 - `Create wave`
 - `Add change to wave`
@@ -171,6 +172,8 @@ Use these public phrases in a target project's repository:
 - `Review plan` (natural-language aliases: `Interrogate this plan` / `Stress-test this plan`; optional and no-signoff, before implementation)
 
 In hosts that support skills (Claude Code, Codex, Antigravity), the core lifecycle commands are also rendered as project-local `SKILL.md` files under a `wf-` prefix (`/wf-plan-change`, `/wf-prepare-wave`, `/wf-implement-wave`, `/wf-review-wave`, `/wf-close-wave`, `/wf-close-change`, `/wf-review-plan`, `/wf-pause-wave`, `/wf-council`, `/wf-evaluate-decision`, `/wf-memory-review`, `/wf-guru`, `/wf-upgrade`), so typing `/wf` filters the host's command menu to the family. Each skill is a thin pointer to the same `docs/prompts/*.prompt.md` workflow as its phrase; the two never drift. `wf-review-plan` is the only plan-review skill; the old wording remains phrase-level compatibility only. It is distinct from `wf-review-wave`, which runs required delivery-review lanes and records typed evidence. The registry lives in `scripts/render_agent_surfaces.py` (`SKILL_REGISTRY`, `render_skills`) and renders on `wf setup` and every upgrade; a skill with a `requires_doc` gate renders only where its backing prompt exists.
+
+`wf-envision` is available in every target after seed 100 authors `docs/prompts/envision-project.prompt.md` and surfaces are rendered again. Its generic workflow is seed 179; installation does not create a vision. The skill and phrase author the same advisory artifact without starting implementation.
 
 Packaging (maintainer / cross-repo distribution) uses **`Package Wavefoundry`** — the wavefoundry-repo-only operator entry lives at `docs/prompts/package-wavefoundry.prompt.md` in the wavefoundry source tree and is intentionally not shipped to consumer projects (consumers run **`Upgrade Wavefoundry`** instead). From the Wavefoundry repository root, run `python3 .wavefoundry/framework/scripts/build_pack.py --version MAJOR.MINOR.PATCH`. The script writes exactly one `wavefoundry-MAJOR.MINOR.PATCH.<build>.zip` to `~/.wavefoundry/dist/` by default, where `<build>` is the 4-character pure-time build suffix. It stamps `.wavefoundry/framework/VERSION` to `MAJOR.MINOR.PATCH+<build>` before writing the package. Extracting at a repository root restores the canonical framework source layout; executing that same zip supplies the verified one-command protocol-1→2 bridge. Internal bridge components are payloads inside the package, not release assets. Legacy phrases such as **`Package wave framework`** and **`Package wave context`** remain accepted only as migration aliases.
 
@@ -246,6 +249,7 @@ This leaves room to insert prompts later without renumbering the whole pack.
 - `160-upgrade-wavefoundry.prompt.md` — public upgrade and legacy-to-Wavefoundry migration entrypoint
 - `170-plan-change.prompt.md` — wave-aware change planning
 - `175-review-plan.prompt.md` — optional plan review and unresolved-branch stress-test helper
+- `179-envision-project.prompt.md` — grounded project vision, technical horizons and independent advisory reviews
 - `180-implement-change.prompt.md` — wave execution and coordination
 - `190-close-wave.prompt.md` — wave closure, promotion, and archival, plus Close change
 - `200-wave-reconciliation.prompt.md` — internal helper for starting, updating, and completing waves

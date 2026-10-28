@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-24
+Last verified: 2026-10-28
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
@@ -70,8 +70,9 @@ When an existing profile migration retires a default operator-skill path, the re
 | `wf-package` | `docs/prompts/package-wavefoundry.prompt.md` | backing prompt present (seed 100 public-only/when-present, so normally the framework source repo only) |
 | `wf-code-cleanup` | `docs/prompts/codebase-cleanup-review.prompt.md` | backing prompt present (repo-local surface; no seed provisions it to targets) |
 | `wf-techdocs` | `docs/prompts/refresh-techdocs.prompt.md` | backing prompt present (seed 178 renders it into every target through seed 100, so the skill renders wherever that reconciliation has run; on the upgrade that first ships seed 178, re-run `wf render-surfaces` after the prompt backfill) |
+| `wf-envision` | `docs/prompts/envision-project.prompt.md` | backing prompt present (seed 179 authors it in every target through seed 100; render surfaces after prompt reconciliation) |
 
-Every skill emits to each active host dir among `.codex/skills/`, `.claude/skills/`, `.agents/skills/` (all three active here; 16 skill directories in each as of 2026-10-06). Skills render on `wf setup` and **Upgrade Wavefoundry**; rendering is independent of `enabled_agent_roles`, which gates agent-role wrappers, not skills. A skill with a `requires_doc` gate (wave `1ve3a`) emits only where that repo-relative doc exists, so the skill follows the capability rather than a repo identity. Bodies are thin pointers; workflow content stays in the backing prompt docs. Stale-cleaned legacy paths: `.claude/skills/upgrade-wave.md` (flat, frontmatter-less), `.codex/skills/auto-guru/` (pre-namespace), the retired interrogate-plan skill (renamed `wf-review-plan`) and the feature-named planning skill (renamed `wf-plan-change`, wave 1zyc5).
+Every skill emits to each active host dir among `.codex/skills/`, `.claude/skills/`, `.agents/skills/` (all three active here; 17 skill directories in each as of 2026-10-28). Skills render on `wf setup` and **Upgrade Wavefoundry**; rendering is independent of `enabled_agent_roles`, which gates agent-role wrappers, not skills. A skill with a `requires_doc` gate (wave `1ve3a`) emits only where that repo-relative doc exists, so the skill follows the capability rather than a repo identity. Bodies are thin pointers; workflow content stays in the backing prompt docs. Stale-cleaned legacy paths: `.claude/skills/upgrade-wave.md` (flat, frontmatter-less), `.codex/skills/auto-guru/` (pre-namespace), the retired interrogate-plan skill (renamed `wf-review-plan`) and the feature-named planning skill (renamed `wf-plan-change`, wave 1zyc5).
 
 ## Host launcher contracts
 

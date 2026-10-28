@@ -6,6 +6,12 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Envision project / `wf-envision` authors a grounded vision and technical horizons, with architecture, red-team and Archetype Council reviews. The workflow is delivered to all targets through prompt reconciliation and skill rendering; reviews remain advisory and authoring does not start implementation. Wave 21u1e / 21tpc.
+
 ## [1.38.0] - 2026-10-26
 
 ### Added

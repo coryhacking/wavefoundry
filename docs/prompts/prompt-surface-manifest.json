@@ -104,6 +104,10 @@
     {
       "doc": "docs/prompts/refresh-techdocs.prompt.md",
       "shortcut": "Refresh TechDocs"
+    },
+    {
+      "doc": "docs/prompts/envision-project.prompt.md",
+      "shortcut": "Envision project"
     }
   ],
   "schema_version": "1.0",

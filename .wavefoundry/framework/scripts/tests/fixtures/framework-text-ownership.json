@@ -519,6 +519,7 @@
     "seeds/176-evaluate-decision.prompt.md",
     "seeds/177-red-team-review.prompt.md",
     "seeds/178-refresh-techdocs.prompt.md",
+    "seeds/179-envision-project.prompt.md",
     "seeds/180-implement-change.prompt.md",
     "seeds/190-close-wave.prompt.md",
     "seeds/200-wave-reconciliation.prompt.md",

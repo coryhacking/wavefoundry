@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-07
+Last verified: 2026-10-28
 
 The public catalog of shortcut phrases you can say to your agent. Each phrase routes to the documented prompt body for that command. See `AGENTS.md` for the agent-side routing table.
 
@@ -28,6 +28,7 @@ The behavioral rules below apply to every command in this catalog. They are summ
 | **Restart dashboard** | Restart the local repository dashboard for the current checkout | `docs/prompts/restart-dashboard.prompt.md` |
 | **Enable Wavefoundry MCP** | Register the local MCP server in Claude Code, Cursor, Junie, Copilot, Codex, or Air | `docs/prompts/install-wavefoundry.prompt.md#mcp--wavefoundry-server` |
 | **Upgrade Wavefoundry** | Upgrade Wave Framework in a target repository | `docs/prompts/upgrade-wavefoundry.prompt.md` |
+| **Envision project** | Author a grounded long-term vision and technical horizons with advisory architecture, red-team and Archetype Council reviews | `docs/prompts/envision-project.prompt.md` |
 | **Plan change** | Author a consolidated change document | `docs/prompts/plan-change.prompt.md` |
 | **Create wave** | Create a wave record | `docs/prompts/create-wave.prompt.md` |
 | **Add change to wave** | Admit a change doc into the active wave | `docs/prompts/add-change-to-wave.prompt.md` |
@@ -81,6 +82,7 @@ The following phrases are accepted for backwards compatibility but redirect to p
 - **Concurrency and protected surfaces:** See `docs/prompts/agent-routing-concurrency.prompt.md` for read-only vs write-owning lane rules.
 - **Review plan vs Review wave:** After **Plan change**, use optional **Review plan** to walk unresolved branches before or after admission and before implementation; it records no typed signoff and satisfies no gate. **Review wave** is the later lifecycle command that runs the open wave's required lanes and records typed evidence.
 - **Skills (`/wf-…`):** In Claude Code, Codex, and Antigravity, every core lifecycle command above is also a project-local skill under the `wf-` prefix (`/wf-plan-change`, `/wf-prepare-wave`, `/wf-implement-wave`, `/wf-review-wave`, `/wf-close-wave`, `/wf-close-change`, `/wf-review-plan`, `/wf-pause-wave`, `/wf-council`, `/wf-evaluate-decision`, `/wf-memory-review`, plus `/wf-guru` and `/wf-upgrade`); typing `/wf` filters the host's command menu to the family. Each skill is a thin pointer to the same prompt doc as its phrase, so either invocation runs the identical workflow. The legacy phrases remain accepted, but no retired skill alias is rendered. Skills render on `wf setup` and **Upgrade Wavefoundry**; the phrase interface works on every host. Rendering and gating detail: `docs/agents/platform-mapping.md` § Skills.
+- **Envision project (`wf-envision`):** Author a project vision with technical horizons and advisory architecture, red-team and Archetype Council reviews. Seed 100 delivers the backing prompt to every target; the skill appears after prompt reconciliation and surface rendering. Installation does not write a vision.
 - **MCP freshness workflow:** Use `wf_audit` for a combined read-only post-change check; `wf_validate_docs` for docs lint; `wf_garden_docs` for metadata-only refresh; `index_health` to decide whether search is ready, stale, missing, or degraded; `index_build_status` only to poll a detached refresh; `index_build` when you need a deterministic update or rebuild.
 - **Codebase map (MCP surface):** Read the generated orientation map via the resource `wavefoundry://codebase-map`. An existing map is served without a freshness check or write; if it is missing, the fail-safe fallback may write the map, its graph fingerprint, and the marker-bounded modules block in `docs/repo-index.md`. Force a map-only render with `index_build(content="map")`; the direct `wf codebase-map` / generator CLI remains change-only. Create-mode prepare-and-open/close and upgrade also refresh it. Ordinary index builds and ready-only/dry-run lifecycle modes do not. **Adoption caveat:** a newly registered MCP resource such as `wavefoundry://codebase-map` is startup-bound and requires reconnect/restart. For a new tool or option such as `content="map"`, start a fresh turn first; if it is still absent, reconnect the MCP client, then restart the host only if reconnect does not refresh it.
 - **Guru output:** `code_ask` citations preserve the reranker `score`, but `final_rank` reflects the post-partition order. When `demoted: true` is present, the citation was intentionally pushed behind stronger implementation evidence. Do not treat score order and output order as the same thing.

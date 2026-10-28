@@ -1,0 +1,535 @@
+{
+  "purpose": "Unique behavioral evaluation evidence retained for AC-3; synthetic fixture, not a product vision or measured field outcome.",
+  "date": "2026-10-28",
+  "author_context": "/root/envision_trial",
+  "inputs": {
+    "AGENTS.md": "# Pantry Map evaluation workspace\n\nThis isolated fixture is the target repository. Read README.md and pantry.py to establish current behavior; run python3 pantry.py stock.csv as a local smoke check. No MCP/index is configured for this fixture; tools attached to the parent Wavefoundry repository do not retrieve this target. Use targeted local reads here and disclose that retrieval limitation.\n\nOnly the requested vision artifact may be authored. Preserve source and stock data. Do not create waves, install software, access network, publish, or commit. Reviewers are read-only. Use independent subagents for the authoring workflow reviews if available; use the installed role/seed instructions. No fixed planning horizon or architecture has been chosen.\n",
+    "README.md": "# Pantry Map\n\nA local command-line inventory summary for volunteer food cooperatives.\n\nCurrent use: python3 pantry.py stock.csv. The CSV has item, quantity, location columns. The program prints totals by item as JSON. Volunteers maintain the CSV themselves.\n\nThe cooperative wants a long-term direction: help volunteers prevent food waste and reliably share stock between sites while keeping local operation possible. No cloud vendor or commercial model has been chosen.\n",
+    "pantry.py": "\"\"\"Summarize manually maintained food stock by item.\"\"\"\nimport csv\nimport json\nimport sys\n\ndef summarize(path):\n    totals = {}\n    with open(path, newline=\"\", encoding=\"utf-8\") as stream:\n        for row in csv.DictReader(stream):\n            totals[row[\"item\"]] = totals.get(row[\"item\"], 0) + int(row[\"quantity\"])\n    return totals\n\nif __name__ == \"__main__\":\n    print(json.dumps(summarize(sys.argv[1]), sort_keys=True))\n",
+    "stock.csv": "item,quantity,location\nrice,10,north\nbeans,6,north\nrice,5,south\n"
+  },
+  "shipped_prompt_delta": "Fixture prompt differs from final only by corrected default architecture-role path; fixture followed permitted actual-role alternative.",
+  "fixture_prompt_sha256": "27f235c09e60f32c7627869447a8d76e7c92a02935f863f275bd658860e04561",
+  "final_vision": "# Pantry Map: Vision and Technical Horizons\n\nOwner: Pantry Map cooperative stewards\nStatus: proposed vision\nLast verified: 2026-10-28\n\n## A dependable shared pantry\n\nPantry Map should let volunteer cooperatives turn food that would be wasted into food people can use. A volunteer should know what is physically present, what needs using soon, what another site can actually promise, and who will complete a handover. Each cooperative must remain able to receive, distribute and reconcile food when its internet connection, a partner site or a hosting provider is unavailable.\n\nThe ambition is a network of locally governed pantries that can coordinate reliable transfers without surrendering their records or depending on a central operator. Success means less edible food discarded and fewer fruitless journeys, achieved with volunteer effort a small cooperative can sustain. More transactions or a more elaborate system do not establish success.\n\nConsider a volunteer receiving surplus vegetables at North. They record the lot, quantity, unit and handling deadline locally. South can accept part of it and has a volunteer who can collect. North confirms a specific allocation; both sites can see its age and status. During an outage, South can still distribute its own stock. A delayed acceptance does not silently become a promise: the sites resolve uncertain transfers by phone or in person, then reconcile the record. The receiving volunteer confirms the actual amount and condition. A coordinator sees the remaining food needing attention and an intelligible history of differences. Humans judge suitability, dietary needs, equitable allocation and whether a journey is worthwhile. Pantry Map supplies evidence and coordination; it does not certify food safety or decide who deserves food.\n\nLocal operation and understandable records are durable principles. The present practice of maintaining a CSV by hand is a useful starting contract, not an eternal interface constraint. No commercial model, cloud vendor, calendar deadline or autonomous decision maker is assumed. Cooperative consent, connectivity, device availability and training capacity remain strategic inputs to test.\n\n## What exists today\n\n[README.md](README.md) describes a local command-line summary and manually maintained `item,quantity,location` CSV. [pantry.py](pantry.py) reads that CSV, converts quantity to an integer and adds quantities by item. The executable smoke check `python3 pantry.py stock.csv` returned `{\"beans\": 6, \"rice\": 15}` on 2026-10-28. The example [stock.csv](stock.csv) contains rice at two locations; the summary combines those locations. The code offers no lot or unit model, expiry tracking, durable edit history, reservation, transfer coordination, authentication, synchronization or recovery mechanism. Malformed or missing inputs are not handled as volunteer-facing errors. This is a verified tiny baseline, not evidence of a deployed multi-site service.\n\nTarget-scoped MCP/index retrieval is unavailable in this fixture; evidence comes from targeted local reads and this one safe smoke check. No volunteer observation or production outcome data was supplied. Everything below is proposed engineering or explicitly named research, not shipped capability. The manual CSV workflow can remain available for migration and export while a new operational store is explored.\n\n## Foundations and ownership\n\nThe proposed system separates what a site knows from what the network has heard. Each site owns its inventory and allocations. A local durable store records receipts, corrections, distribution and transfer events, with stable IDs, explicit units, lot identity, provenance and an audit trail. The stock view is derived from those records; imports are staged and reconciled rather than overwriting trusted state. A small local application provides understandable forms, searches and printable/exportable views. A phone or paper fallback remains an operational procedure.\n\nBetween sites, versioned messages carry offers, reservation requests, source confirmations, dispatches, receipts and cancellations. The source site is authoritative for allocating its own stock. Every local distribution and allocation must share an atomic availability check that respects outstanding commitments. A count correction that invalidates a commitment creates a visible exception rather than silently cancelling or fulfilling the promise. A receiver's cached availability is an observation with a timestamp, never permission to spend stock. Offline cross-site requests remain tentative until the source confirms. Duplicate and delayed messages must be harmless, acknowledgements explicit, and contradictory states visible for human resolution. A relay may help delivery but is replaceable; a relay does not own inventory. Direct exchange, removable exports and a hosted relay are options to compare, not decisions already made.\n\n```mermaid\nflowchart LR\n  V[Volunteer] --> A[Proposed local application]\n  A --> L[Proposed site-owned durable records]\n  L --> S[Stock and deadline views]\n  L --> X[Versioned exchange adapter]\n  X <-->|Untrusted delayed messages| R[Optional replaceable relay or direct exchange]\n  R <--> P[Partner site and its own records]\n```\n\nAll diagram components are proposed. The existing CLI remains a separate import/export compatibility path until migration is demonstrated. Trust boundaries are volunteer/device access, imported files and partner messages. Proposed controls include site identity, role-limited corrections and allocations, validated message schemas, authenticated exchange, minimal shared personal data, and key revocation/recovery. These need specialist design before implementation; this vision provides no security approval. Keep beneficiary names out of network inventory messages unless a separately justified, consented use requires them. Backup, restore, schema migration and exit exports belong to the first durable store, not a later polish phase.\n\nThe unresolved offline boundary is deliberate: local distribution can continue while disconnected, but global instantaneous allocation cannot be guaranteed across independent disconnected writers. Start with one allocating authority per site; disconnected secondary devices queue observations or requests. Multi-device offline write authority is a separate research decision. Failure to find an operable authority model would limit the network ambition, not justify hidden overbooking.\n\n## Capability horizons\n\nThese are thresholds in useful behavior, not dates. Every numerical exit below is a proposed pilot target to agree with participating cooperatives before a trial; none is a measured result. An evaluator who did not build the capability must collect evidence and may reject a threshold.\n\n### 1. A local record volunteers can trust\n\nA volunteer can receive a lot, correct a mistake, see stock by site and unit, record distribution, and identify food nearing its handling deadline without internet. Foundations are a validated lot/unit schema, explicit corrections, a durable local event history, accessible input and stock views, import/export contracts, and tested backup/restore. Record entry time, reconciliation discrepancies, rejected inputs and recovery failures. Prerequisites are observing actual receiving/distribution work and agreeing what \u201cquantity,\u201d \u201cusable\u201d and a deadline mean; the present integer totals cannot answer those questions.\n\nDemonstration: two volunteers receive and distribute mixed units, import a CSV with a bad row, correct a count, lose a device copy and restore from backup while disconnected. The unchanged CLI fails because it has no edits, lots, deadline view or recovery history. A cooperative steward independent of implementation checks all 30 scripted stock movements against physical counts and requires zero unexplained differences or silent invalid rows, complete correction attribution, a successful restore, and at least 90% of ten representative tasks completed without developer rescue. Observe two operating weeks; record all rescues and abandoned tasks. Fail if the record looks correct while food has vanished, corrections destroy history, or maintenance exceeds a volunteer's agreed weekly budget. The uncertain bet is that better records repay entry effort; stop adding features if they do not. This horizon is useful as a single-site tool even if networking never arrives, and supplies the stable identities and corrections required for exchange.\n\n### 2. A handover that becomes a fulfilled promise\n\nTwo sites can make and complete a specific transfer with intelligible exceptions. Build offers tied to lots, source-authorized allocations, reservation/dispatch/receipt state transitions, partial quantities, cancellation, expiry and reconciliation. Define which actor can advance each state and when a held amount is released. Begin with supervised exchange or a deliberately simple local export/import adapter, before solving automated delivery. Instrument stale offers, allocation conflicts, unacknowledged handovers, quantity differences and time to resolve them. Prerequisites are horizon 1 records and agreement on collection responsibilities and exception contacts.\n\nDemonstration: North offers food, South requests it, North confirms, a second request and a local distribution compete for the same stock, only part is collected and the receiver reports a discrepancy. A site steward verifies 20 scripted transfers including duplicate requests, cancellation and expired offers, with no source allocation beyond usable stock and every item accounted for as retained, reserved, dispatched, received or explicitly unresolved. A transfer coordinator who did not build it then compares four weeks of real handovers with deadline-list plus phone coordination. Before the trial, cooperatives agree meaningful minimum floors for on-time fulfilled handovers and promised quantity actually received, using observed current practice; advancement requires meeting both floors without degrading fulfillment against the comparator. Separately, at least 95% of exceptions must be explicitly resolved within the agreed operating window, with zero undisclosed failed collections. Count cancellations, partial receipts and phone rescues separately; a resolved cancellation is not a fulfilled promise. Baseline CSV totals cannot represent a promise or its fulfillment. Fail if reservations strand food past usability, uncertain transfers look complete, or staff resolve discrepancies by deleting evidence. The research question is whether the reservation burden prevents more failed journeys than it causes. A successful two-site manual exchange is already valuable even if a larger network is unjustified; it establishes the protocol that automated transport must preserve.\n\n### 3. Cooperative exchange through interruption\n\nSeveral sites coordinate while each keeps operating independently. Implement an outbox/inbox (remember unsent and received messages), idempotent handling (repeats have no extra effect), version negotiation (detect incompatible partner message formats), durable acknowledgements, stale-state display and an exception queue. Choose transport by comparing direct exchange and an optional relay against actual connectivity and support cost. Sites retain authoritative records, export formats and a tested path to replace the relay. An offline request cannot reserve remote food; the UI must show tentative versus source-confirmed state. Prerequisites are the proven transfer protocol, partner identity/revocation design and agreed data-sharing governance.\n\nDemonstration: three sites exchange messages that are reordered, duplicated or unavailable for 48 hours, revoke one partner, restore a site from an older backup missing acknowledged transfers, and resume coordination. Restored stock cannot support new allocations or distributions until prior confirmed or dispatched transfers have been recovered or explicitly reconciled; affected lots may need a temporary pause. No confirmed allocation is created twice, no unconfirmed request is presented as a promise, local distributions continue, and every unresolved discrepancy is visible. An independent reliability tester checks all scripted transitions and a cooperative steward witnesses relay replacement using exported records. A replacement steward then inherits recovery authority, operating instructions and unresolved transfers without the predecessor, and completes one routine operating cycle; record any rescue or authority gap. In a six-week pilot require recovery without developer intervention in at least 90% of rehearsed incidents, no unexplained stock loss, and no more than the support time budget agreed before trial. Baseline CSV has no message or reconciliation behavior and fails this demonstration. Fail if reconnecting corrupts local truth, revoked credentials retain unintended access, or only the original developer can recover the network. Useful intermediate value is resilient coordination for a small federation; it does not depend on prediction or nationwide scale. The open research is the cost and safety of identity recovery and multiple disconnected devices; further expansion waits on evidence.\n\n### 4. Waste prevention as a cooperative capability\n\nThe network helps volunteers see preventable waste early, assemble feasible transfer options and learn which interventions actually help. Build explainable deadline views, consented aggregate outcome reports, capacity/transport constraints and optional suggestions based on observed demand. Suggestion ranking, forecasting and route optimization are research bets; compare them with simple deadline ordering and a shared call list before investing. Humans accept transfers and manage food suitability; no recommendation commits stock. Prerequisites are trustworthy operational history, meaningful waste/distribution categories and enough representative observations to evaluate them.\n\nDemonstration: during a seasonal surplus and transport disruption, sites identify edible at-risk food, arrange human-approved transfers and distribute it before its handling deadline, then show both prevented waste and the effort spent. An evaluator selected jointly by cooperatives compares at least eight weeks before and eight after, using a matched site or staggered rollout where feasible; adjust for donations, food mix, closures and seasonality and state causal limits. Proposed success targets are 20% lower edible discard per unit received, no increase in missed confirmed collections, and no increase in median weekly administrative time. Report uncertainty and reject claims unsupported by sample size. CSV totals fail because they cannot connect lots, deadlines, interventions and outcomes. Fail if food is merely moved before being discarded elsewhere, recipient access worsens, or improved reporting is mistaken for improved outcomes. Even a negative forecasting result is valuable if simple deadline coordination works; advanced prediction is optional, reliable cooperation is not.\n\n## Investment, evaluation and decisions\n\nThe critical path is understanding volunteer work \u2192 trustworthy local state \u2192 accountable promises \u2192 resilient exchange \u2192 demonstrated prevention. Accessibility trials, governance interviews and transport experiments can run alongside schema work; federation cannot repair unreliable stock, and prediction cannot repair missing outcomes. Expand participants only after the previous threshold is independently witnessed. More specialists would buy parallel field studies, recovery experiments and alternative transport prototypes, not remove physical counting, volunteer consent or seasonal observation bottlenecks. No resource assumption is supplied and no fixed completion date is promised.\n\nAcross pilots, establish baseline discard, unfulfilled confirmed transfers, count discrepancies, time spent entering and repairing records, training time, support hours and full device/hosting/backup costs. Use agreed units by food category rather than adding kilograms to item counts. Include low-connectivity sites, first-time and returning volunteers, mixed units, partial handovers, damaged stock and personnel turnover. Count failures, abandonment, paper/phone rescues and later regressions. Recheck four weeks after a pilot ends to see whether volunteers still use and maintain it. Publish results back to participating cooperatives in plain language; no live data publication is authorized by this vision. An implementation team cannot grade its own outcome claim alone.\n\nThe most fragile assumptions are that volunteers will record events in time; that source-controlled allocation fits real cooperative practice; that shared availability produces feasible transport rather than more work; and that sites can sustain recovery and stewardship. The cheapest meaningful next investment is a bounded field investigation at two willing sites: observe one receiving/distribution cycle, replay ten recent handovers on paper, agree quantity/deadline vocabulary and support budgets, and compare a deadline list plus phone coordination against current practice. Deliver an evidence-backed schema and a go/no-go recommendation for horizon 1, not a federation build. Open operator decisions include participating sites, acceptable data sharing, identity and authoritative-state recovery authority, accessibility/language needs, transport responsibilities and acceptable support cost.\n\nThe ultimate demonstration is an independently witnessed surplus season in which participating cooperatives prevent measurable edible waste, fulfill accepted handovers and recover through a prolonged connectivity loss, while a newly trained volunteer can inspect, restore and leave the system with usable records. The destination is durable cooperative capability, supported by software that earns its upkeep.\n\n## Review record\n\nD1, reviewed on 2026-10-28, SHA256 `380fa35b898f916a8fc8bd457b5d917965d9e18a51155a7ebd95bb914842465e`. All initial workers read this same frozen draft and the target brief; local source evidence was available. The author performed one bounded repair pass to produce D2. These are advisory artifact reviews, with no lifecycle approval or implementation authority.\n\n- Architecture: independent worker `/root/envision_trial/architecture`, advisory support with ARCH-01 and ARCH-02 clarifications. Repairs add atomic stock consumption across distribution and allocation, visible exceptions when corrections invalidate promises, and an older-backup recovery demonstration that reconciles prior obligations before using restored stock.\n- Standalone red-team: independent worker `/root/envision_trial/redteam`, `feature-definition-challenge`, all five thinking stances. RT-01 found that documented cancellations could satisfy the handover exit criterion. The repair separates real fulfillment and received quantities from exception resolution, requires agreed fulfillment floors and a phone-coordination comparison, and counts cancellations, partial receipts and rescues.\n- Archetype Council: independent chair `/root/envision_trial/council_chair`, canonical five seats with no swap, optional primer skipped. Fresh isolated seat contexts were instructed to declare axes before reading: Sun Tzu (strategic positioning), Yoda (reader readiness), Spock (testable claims), Marcus Aurelius (durability/control), Feynman (simplicity). Seats received no other seat findings or the standalone red-team output before judging. All individual seat verdicts were `ready`; the initial aggregate was held `NOT READY` pending the acceptance-criterion repair. Spock independently reproduced RT-01 as SP-1; Marcus MA-1 sharpened succession testing; Feynman F-1 requested short messaging-term explanations. The red-team closing pass held SP-1 and F-1, narrowed MA-1 to inherited authority and obligations, and introduced no new findings.\n\n| Finding | Disposition | Incorporated change |\n| --- | --- | --- |\n| ARCH-01 | do_now | Shared atomic availability invariant and competing local distribution demonstration. |\n| ARCH-02 | do_now | Restore acknowledged obligations before stock is reused; recovery authority remains a design decision. |\n| RT-01 / SP-1 | do_now | Separate fulfillment from resolution and compare actual handovers with simple coordination. |\n| MA-1 | maybe_later | Completed in the bounded repair: a successor steward inherits authority and obligations without the predecessor. |\n| F-1 | maybe_later | Completed in the bounded repair: inline explanations of three messaging concepts. |\n\n`maybe_later` here means optional improvement worth completing now, not deferred work. Independent focused verification of D2 (`cc158e2d1966fc7f8c4b83d1b6b93a8c9d4f6382b9303ec0ea9ad78721435008`) closed ARCH-01/02 and RT-01/SP-1; the chair and red-team also confirmed MA-1/F-1. No actionable finding remains within this bounded review scope. **Archetype Council \u2014 PASS WITH IN-SESSION FIXES** (independent chair; all five canonical seats; strongest axis: Spock; one moderator-derived required repair and two advisory improvements completed). Five axes were exercised, with partial overlap between strategic positioning and simplicity. The strongest alternative is deadline-list plus phone coordination; it remains the comparison that the proposed workflow must earn its place against.\n\n### Falsification Check\n\nThe working verdict is PASS WITH IN-SESSION FIXES. The strongest opposing argument is that orderly exception handling can coexist with failed food delivery. It does not overturn this document verdict: D2 separates physical fulfillment floors and comparator outcomes from exception closure. Whether the system achieves those outcomes remains unproven and belongs to the pilots.\n\nReview provenance: the five isolated workers were `/root/envision_trial/council_chair/{sun_tzu,yoda,spock,marcus,feynman}`. Three final outputs retained explicit axis declarations; Sun Tzu and Yoda subsequently attested from retained context that declarations preceded their first tool call. The coordinator could not independently inspect that original commentary timing. Sun Tzu's original explicit null finding omitted the protocol's exact null phrase, which was confirmed afterward without rereading or rerunning the review. These process evidence limits are retained rather than represented as mechanically verified protocol compliance. Architecture, red-team and chair performed focused verification in their existing independent reviewer contexts; the author alone made repairs. No automatic second repair cycle ran.\n\nStrategic uncertainty remains about volunteer entry burden, transport value, recovery governance and affordable support. No field trial or future capability has been verified; no security specialist review was performed. Target-scoped MCP and a supported documentation checker are unavailable; local checks confirmed all three citation targets, the four ordered horizon sections and the corrected outcome criterion. Manual review checked prerequisites and each horizon\u2019s content; these checks do not establish operational capability.\n",
+  "reviews": {
+    "final-report.txt": "Final artifact: pantry-map/VISION.md\nFinal SHA256: 1a793e04e51ab98eee8735a8627d771e055c51adfee0d99fad68c41c938254a6\nD2 reviewed-body SHA256: cc158e2d1966fc7f8c4b83d1b6b93a8c9d4f6382b9303ec0ea9ad78721435008\nOnly review record changed after D2 focused reviews; operational vision body identical.\nValidation: one baseline python3 pantry.py stock.csv smoke (independent architecture also repeated), target citation/heading/criterion checks, manual horizon-content/prerequisite review, source/data/prompt hashes unchanged. No supported fixture docs checker; no parent MCP used, no network/setup/lifecycle/implementation/commit/publication.\nOne author validation assertion was initially overbroad (matched intended separate exception-resolution wording); corrected check tests absence of original combined criterion and positive separate fulfillment conditions. Artifact not changed in response to that validation-script mistake.\nActual reviewers: architecture /root/envision_trial/architecture; standalone redteam/closing/focused /root/envision_trial/redteam; separate chair /root/envision_trial/council_chair; five fresh worker contexts beneath chair: sun_tzu,yoda,spock,marcus,feynman. All review workers requested gpt-6.1-sol medium per delegation instruction, author/parent model inherited. No author self-review substituted for a seat.\nActual initial verdicts: architecture advisory support with2 clarifications; redteam amend criterion; five seats each ready; chair NOT READY pending1 moderator-derived required repair +2 bounded advisory improvements. One author repair pass. Focused architecture/redteam/chair checks closed all findings. Chair final PASS WITH IN-SESSION FIXES.\nEvidence limits: pre-read declaration timing for SunTzu/Yoda subsequently worker-attested, not independently visible in original final outputs; SunTzu canonical exact null phrase confirmed after original semantically explicit null. No extra artifact reread/review rerun. Other three final outputs retain declaration, but coordinator does not claim mechanically verified execution timing. Five axes with partial strategy/simplicity overlap. Same independent reviewer contexts used for focused verification, not fresh-context protocol claims. No future mechanism or field outcome executed. No security review or signoff claimed.\nExact accepted author edits: D1-D2.diff (body and provisional reviewrecord); D1-final.diff (including final provenance/reviewrecord). Snapshots D1, D2, final retained. Raw outputs in architecture/redteam/council files.\nNo shipped-prompt defect observed; parent independently corrected default architecture-role pointer after fixture created. Trial uses original fixture prompt hash as recorded, actual local alternative role followed.\n",
+    "run-metadata.txt": "Author: /root/envision_trial (independent child of /root)\nFixture installed prompt SHA256: 27f235c09e60f32c7627869447a8d76e7c92a02935f863f275bd658860e04561\nFixture seed179 SHA256: b6af41a9dd1dc1b0373a455830809b39ea55179ad557649ef8b4a44f0792c068\nD1 VISION SHA256: 380fa35b898f916a8fc8bd457b5d917965d9e18a51155a7ebd95bb914842465e\nTarget-scoped MCP unavailable by target AGENTS; local targeted reads used. No network/setup/lifecycle/commit/publication.\nBaseline smoke: python3 pantry.py stock.csv => {\"beans\": 6, \"rice\": 15}\nOriginal evidence hashes:\nREADME.md 1d6f39056d73c6ca3028713f46f0478fa24c50f020ba1459ba7d7bc2344a883f\npantry.py 0ba463c1cbf03403fd3224d5aeddfb3518b31eb16b247362af879b16ba4c7ecd\nstock.csv 7b2ce174e33f966c4f50d141ad84e0da6fba470f7abaa3d3ebb95fbde1d6b3cc\nAGENTS.md f6d54cb4ab0e450ee7f34fa708a9596d4264595d7b3feb47bce39f06de7fb4ca\nParent notified author after D1: shipped seed/prompt architecture-role default pointer corrected to actual docs/agents/architecture-reviewer.md; fixture remains original and permits actual-project role alternative. No midtrial prompt edits.\n",
+    "D1-final.diff": "--- ../pantry-map-review/VISION-D1.md\t2026-10-28 10:49:35\n+++ VISION.md\t2026-10-28 10:56:48\n@@ -24,7 +24,7 @@\n \n The proposed system separates what a site knows from what the network has heard. Each site owns its inventory and allocations. A local durable store records receipts, corrections, distribution and transfer events, with stable IDs, explicit units, lot identity, provenance and an audit trail. The stock view is derived from those records; imports are staged and reconciled rather than overwriting trusted state. A small local application provides understandable forms, searches and printable/exportable views. A phone or paper fallback remains an operational procedure.\n \n-Between sites, versioned messages carry offers, reservation requests, source confirmations, dispatches, receipts and cancellations. The source site is authoritative for allocating its own stock. A receiver's cached availability is an observation with a timestamp, never permission to spend stock. Offline cross-site requests remain tentative until the source confirms. Duplicate and delayed messages must be harmless, acknowledgements explicit, and contradictory states visible for human resolution. A relay may help delivery but is replaceable; a relay does not own inventory. Direct exchange, removable exports and a hosted relay are options to compare, not decisions already made.\n+Between sites, versioned messages carry offers, reservation requests, source confirmations, dispatches, receipts and cancellations. The source site is authoritative for allocating its own stock. Every local distribution and allocation must share an atomic availability check that respects outstanding commitments. A count correction that invalidates a commitment creates a visible exception rather than silently cancelling or fulfilling the promise. A receiver's cached availability is an observation with a timestamp, never permission to spend stock. Offline cross-site requests remain tentative until the source confirms. Duplicate and delayed messages must be harmless, acknowledgements explicit, and contradictory states visible for human resolution. A relay may help delivery but is replaceable; a relay does not own inventory. Direct exchange, removable exports and a hosted relay are options to compare, not decisions already made.\n \n ```mermaid\n flowchart LR\n@@ -54,13 +54,13 @@\n \n Two sites can make and complete a specific transfer with intelligible exceptions. Build offers tied to lots, source-authorized allocations, reservation/dispatch/receipt state transitions, partial quantities, cancellation, expiry and reconciliation. Define which actor can advance each state and when a held amount is released. Begin with supervised exchange or a deliberately simple local export/import adapter, before solving automated delivery. Instrument stale offers, allocation conflicts, unacknowledged handovers, quantity differences and time to resolve them. Prerequisites are horizon 1 records and agreement on collection responsibilities and exception contacts.\n \n-Demonstration: North offers food, South requests it, North confirms, a second request competes, only part is collected and the receiver reports a discrepancy. A site steward verifies 20 scripted transfers including duplicate requests, cancellation and expired offers, with no source allocation beyond usable stock and every item accounted for as retained, reserved, dispatched, received or explicitly unresolved. A transfer coordinator who did not build it then observes four weeks of real handovers and requires at least 95% of confirmed handovers to end fulfilled or explicitly resolved within the agreed operating window, and zero undisclosed failed collections. Baseline CSV totals cannot represent a promise or its fulfillment. Fail if reservations strand food past usability, uncertain transfers look complete, or staff resolve discrepancies by deleting evidence. The research question is whether the reservation burden prevents more failed journeys than it causes. A successful two-site manual exchange is already valuable even if a larger network is unjustified; it establishes the protocol that automated transport must preserve.\n+Demonstration: North offers food, South requests it, North confirms, a second request and a local distribution compete for the same stock, only part is collected and the receiver reports a discrepancy. A site steward verifies 20 scripted transfers including duplicate requests, cancellation and expired offers, with no source allocation beyond usable stock and every item accounted for as retained, reserved, dispatched, received or explicitly unresolved. A transfer coordinator who did not build it then compares four weeks of real handovers with deadline-list plus phone coordination. Before the trial, cooperatives agree meaningful minimum floors for on-time fulfilled handovers and promised quantity actually received, using observed current practice; advancement requires meeting both floors without degrading fulfillment against the comparator. Separately, at least 95% of exceptions must be explicitly resolved within the agreed operating window, with zero undisclosed failed collections. Count cancellations, partial receipts and phone rescues separately; a resolved cancellation is not a fulfilled promise. Baseline CSV totals cannot represent a promise or its fulfillment. Fail if reservations strand food past usability, uncertain transfers look complete, or staff resolve discrepancies by deleting evidence. The research question is whether the reservation burden prevents more failed journeys than it causes. A successful two-site manual exchange is already valuable even if a larger network is unjustified; it establishes the protocol that automated transport must preserve.\n \n ### 3. Cooperative exchange through interruption\n \n-Several sites coordinate while each keeps operating independently. Implement an outbox/inbox, idempotent message handling, version negotiation, durable acknowledgements, stale-state display and an exception queue. Choose transport by comparing direct exchange and an optional relay against actual connectivity and support cost. Sites retain authoritative records, export formats and a tested path to replace the relay. An offline request cannot reserve remote food; the UI must show tentative versus source-confirmed state. Prerequisites are the proven transfer protocol, partner identity/revocation design and agreed data-sharing governance.\n+Several sites coordinate while each keeps operating independently. Implement an outbox/inbox (remember unsent and received messages), idempotent handling (repeats have no extra effect), version negotiation (detect incompatible partner message formats), durable acknowledgements, stale-state display and an exception queue. Choose transport by comparing direct exchange and an optional relay against actual connectivity and support cost. Sites retain authoritative records, export formats and a tested path to replace the relay. An offline request cannot reserve remote food; the UI must show tentative versus source-confirmed state. Prerequisites are the proven transfer protocol, partner identity/revocation design and agreed data-sharing governance.\n \n-Demonstration: three sites exchange messages that are reordered, duplicated or unavailable for 48 hours, revoke one partner, restore a site, and resume coordination. No confirmed allocation is created twice, no unconfirmed request is presented as a promise, local distributions continue, and every unresolved discrepancy is visible. An independent reliability tester checks all scripted transitions and a cooperative steward witnesses relay replacement using exported records. In a six-week pilot require recovery without developer intervention in at least 90% of rehearsed incidents, no unexplained stock loss, and no more than the support time budget agreed before trial. Baseline CSV has no message or reconciliation behavior and fails this demonstration. Fail if reconnecting corrupts local truth, revoked credentials retain unintended access, or only the original developer can recover the network. Useful intermediate value is resilient coordination for a small federation; it does not depend on prediction or nationwide scale. The open research is the cost and safety of identity recovery and multiple disconnected devices; further expansion waits on evidence.\n+Demonstration: three sites exchange messages that are reordered, duplicated or unavailable for 48 hours, revoke one partner, restore a site from an older backup missing acknowledged transfers, and resume coordination. Restored stock cannot support new allocations or distributions until prior confirmed or dispatched transfers have been recovered or explicitly reconciled; affected lots may need a temporary pause. No confirmed allocation is created twice, no unconfirmed request is presented as a promise, local distributions continue, and every unresolved discrepancy is visible. An independent reliability tester checks all scripted transitions and a cooperative steward witnesses relay replacement using exported records. A replacement steward then inherits recovery authority, operating instructions and unresolved transfers without the predecessor, and completes one routine operating cycle; record any rescue or authority gap. In a six-week pilot require recovery without developer intervention in at least 90% of rehearsed incidents, no unexplained stock loss, and no more than the support time budget agreed before trial. Baseline CSV has no message or reconciliation behavior and fails this demonstration. Fail if reconnecting corrupts local truth, revoked credentials retain unintended access, or only the original developer can recover the network. Useful intermediate value is resilient coordination for a small federation; it does not depend on prediction or nationwide scale. The open research is the cost and safety of identity recovery and multiple disconnected devices; further expansion waits on evidence.\n \n ### 4. Waste prevention as a cooperative capability\n \n@@ -74,10 +74,32 @@\n \n Across pilots, establish baseline discard, unfulfilled confirmed transfers, count discrepancies, time spent entering and repairing records, training time, support hours and full device/hosting/backup costs. Use agreed units by food category rather than adding kilograms to item counts. Include low-connectivity sites, first-time and returning volunteers, mixed units, partial handovers, damaged stock and personnel turnover. Count failures, abandonment, paper/phone rescues and later regressions. Recheck four weeks after a pilot ends to see whether volunteers still use and maintain it. Publish results back to participating cooperatives in plain language; no live data publication is authorized by this vision. An implementation team cannot grade its own outcome claim alone.\n \n-The most fragile assumptions are that volunteers will record events in time; that source-controlled allocation fits real cooperative practice; that shared availability produces feasible transport rather than more work; and that sites can sustain recovery and stewardship. The cheapest meaningful next investment is a bounded field investigation at two willing sites: observe one receiving/distribution cycle, replay ten recent handovers on paper, agree quantity/deadline vocabulary and support budgets, and compare a deadline list plus phone coordination against current practice. Deliver an evidence-backed schema and a go/no-go recommendation for horizon 1, not a federation build. Open operator decisions include participating sites, acceptable data sharing, identity recovery authority, accessibility/language needs, transport responsibilities and acceptable support cost.\n+The most fragile assumptions are that volunteers will record events in time; that source-controlled allocation fits real cooperative practice; that shared availability produces feasible transport rather than more work; and that sites can sustain recovery and stewardship. The cheapest meaningful next investment is a bounded field investigation at two willing sites: observe one receiving/distribution cycle, replay ten recent handovers on paper, agree quantity/deadline vocabulary and support budgets, and compare a deadline list plus phone coordination against current practice. Deliver an evidence-backed schema and a go/no-go recommendation for horizon 1, not a federation build. Open operator decisions include participating sites, acceptable data sharing, identity and authoritative-state recovery authority, accessibility/language needs, transport responsibilities and acceptable support cost.\n \n The ultimate demonstration is an independently witnessed surplus season in which participating cooperatives prevent measurable edible waste, fulfill accepted handovers and recover through a prolonged connectivity loss, while a newly trained volunteer can inspect, restore and leave the system with usable records. The destination is durable cooperative capability, supported by software that earns its upkeep.\n \n ## Review record\n \n-Draft D1 \u2014 2026-10-28: initial authoring complete; source/fixture constraints checked and baseline smoke test passed. Architecture, standalone red-team and five isolated Archetype Council axes are pending. This draft carries no lifecycle approval or implementation authority. Review evidence and dispositions will be recorded here after the actual passes.\n+D1, reviewed on 2026-10-28, SHA256 `380fa35b898f916a8fc8bd457b5d917965d9e18a51155a7ebd95bb914842465e`. All initial workers read this same frozen draft and the target brief; local source evidence was available. The author performed one bounded repair pass to produce D2. These are advisory artifact reviews, with no lifecycle approval or implementation authority.\n+\n+- Architecture: independent worker `/root/envision_trial/architecture`, advisory support with ARCH-01 and ARCH-02 clarifications. Repairs add atomic stock consumption across distribution and allocation, visible exceptions when corrections invalidate promises, and an older-backup recovery demonstration that reconciles prior obligations before using restored stock.\n+- Standalone red-team: independent worker `/root/envision_trial/redteam`, `feature-definition-challenge`, all five thinking stances. RT-01 found that documented cancellations could satisfy the handover exit criterion. The repair separates real fulfillment and received quantities from exception resolution, requires agreed fulfillment floors and a phone-coordination comparison, and counts cancellations, partial receipts and rescues.\n+- Archetype Council: independent chair `/root/envision_trial/council_chair`, canonical five seats with no swap, optional primer skipped. Fresh isolated seat contexts were instructed to declare axes before reading: Sun Tzu (strategic positioning), Yoda (reader readiness), Spock (testable claims), Marcus Aurelius (durability/control), Feynman (simplicity). Seats received no other seat findings or the standalone red-team output before judging. All individual seat verdicts were `ready`; the initial aggregate was held `NOT READY` pending the acceptance-criterion repair. Spock independently reproduced RT-01 as SP-1; Marcus MA-1 sharpened succession testing; Feynman F-1 requested short messaging-term explanations. The red-team closing pass held SP-1 and F-1, narrowed MA-1 to inherited authority and obligations, and introduced no new findings.\n+\n+| Finding | Disposition | Incorporated change |\n+| --- | --- | --- |\n+| ARCH-01 | do_now | Shared atomic availability invariant and competing local distribution demonstration. |\n+| ARCH-02 | do_now | Restore acknowledged obligations before stock is reused; recovery authority remains a design decision. |\n+| RT-01 / SP-1 | do_now | Separate fulfillment from resolution and compare actual handovers with simple coordination. |\n+| MA-1 | maybe_later | Completed in the bounded repair: a successor steward inherits authority and obligations without the predecessor. |\n+| F-1 | maybe_later | Completed in the bounded repair: inline explanations of three messaging concepts. |\n+\n+`maybe_later` here means optional improvement worth completing now, not deferred work. Independent focused verification of D2 (`cc158e2d1966fc7f8c4b83d1b6b93a8c9d4f6382b9303ec0ea9ad78721435008`) closed ARCH-01/02 and RT-01/SP-1; the chair and red-team also confirmed MA-1/F-1. No actionable finding remains within this bounded review scope. **Archetype Council \u2014 PASS WITH IN-SESSION FIXES** (independent chair; all five canonical seats; strongest axis: Spock; one moderator-derived required repair and two advisory improvements completed). Five axes were exercised, with partial overlap between strategic positioning and simplicity. The strongest alternative is deadline-list plus phone coordination; it remains the comparison that the proposed workflow must earn its place against.\n+\n+### Falsification Check\n+\n+The working verdict is PASS WITH IN-SESSION FIXES. The strongest opposing argument is that orderly exception handling can coexist with failed food delivery. It does not overturn this document verdict: D2 separates physical fulfillment floors and comparator outcomes from exception closure. Whether the system achieves those outcomes remains unproven and belongs to the pilots.\n+\n+Review provenance: the five isolated workers were `/root/envision_trial/council_chair/{sun_tzu,yoda,spock,marcus,feynman}`. Three final outputs retained explicit axis declarations; Sun Tzu and Yoda subsequently attested from retained context that declarations preceded their first tool call. The coordinator could not independently inspect that original commentary timing. Sun Tzu's original explicit null finding omitted the protocol's exact null phrase, which was confirmed afterward without rereading or rerunning the review. These process evidence limits are retained rather than represented as mechanically verified protocol compliance. Architecture, red-team and chair performed focused verification in their existing independent reviewer contexts; the author alone made repairs. No automatic second repair cycle ran.\n+\n+Strategic uncertainty remains about volunteer entry burden, transport value, recovery governance and affordable support. No field trial or future capability has been verified; no security specialist review was performed. Target-scoped MCP and a supported documentation checker are unavailable; local checks confirmed all three citation targets, the four ordered horizon sections and the corrected outcome criterion. Manual review checked prerequisites and each horizon\u2019s content; these checks do not establish operational capability.\n",
+    "architecture.txt": "Worker: /root/envision_trial/architecture\nModel: gpt-6.1-sol, medium; fresh context; source and vision read-only.\nDraft D1 SHA256 380fa35b898f916a8fc8bd457b5d917965d9e18a51155a7ebd95bb914842465e\n\nVerdict: architecturally coherent long-term vision; advisory support with two clarifications. No implementation or lifecycle approval.\n\nReviewed D1 SHA256 `380fa35b898f916a8fc8bd457b5d917965d9e18a51155a7ebd95bb914842465e`. Target-scoped MCP/index is unavailable; used targeted reads of the six requested files. Safe smoke check reproduced `{\"beans\": 6, \"rice\": 15}`. No files changed, network, setup or lifecycle tools used.\n\nBoundaries are well separated: volunteer/device access, site-owned inventory, imported files, partner exchange and optional transport relay. Source-controlled allocation, tentative offline requests, visible uncertainty and independent local operation are consistent. Current-state claims match the tiny CSV implementation; proposed storage and messaging components are clearly labeled.\n\n- ARCH-01 \u2014 medium, clarify stock conservation. \u201cFoundations and ownership\u201d and horizon 2 establish source allocation authority, but do not explicitly require local distributions, corrections and reservations to share one atomic availability check. Inference: a site could retain single-writer authority yet overpromise through separate local operations. Action: add the invariant that all stock-consuming operations respect outstanding commitments; corrections that invalidate commitments create visible exceptions rather than silently releasing or fulfilling them. Specify transaction and transfer-state rules in later design work.\n- ARCH-02 \u2014 medium, clarify restored authority. Horizon 3 tests restoring a site and resuming exchange, but its demonstrated invariants do not explicitly prevent an older backup from forgetting acknowledged reservations and allocating the same stock again. Idempotent message handling alone does not establish that protection. Action: add a restoration demonstration where previously confirmed or dispatched transfers survive or are reconciled before new commitments are accepted. Leave the recovery mechanism to later architecture/security decisions.\n\nBoth are bounded vision clarifications, not requests to choose a database or protocol now. Existing follow-on decisions appropriately include transfer-state ownership/release rules, identity and revocation, transport selection and offline device authority. Add authoritative-state restoration to that list.\n\nNo observed baseline invariant violations. No architecture implementation, message transport, recovery system or field outcomes exist to verify; no such operational verification was attempted.\n",
+    "architecture-focused.txt": "Worker: /root/envision_trial/architecture (same independent reviewer context, author made all repairs)\nFocused D2 verification completed; SHA256 matches cc158e2d1966fc7f8c4b83d1b6b93a8c9d4f6382b9303ec0ea9ad78721435008.\n\n- ARCH-01 closed: shared atomic availability checks explicitly cover local distributions and allocations; corrections expose invalidated commitments; horizon 2 now tests competing local distribution and remote reservation.\n- ARCH-02 closed: horizon 3 explicitly restores an older backup missing acknowledged transfers and prohibits new allocation or distribution from restored stock until prior confirmed/dispatched obligations are recovered or reconciled.\n\nAdjacent changes preserve source authority and human exception handling. \u201cLocal distributions continue\u201d is consistent with the preceding temporary pause for affected lots; it describes general outage operation, not unconditional use of unreconciled stock.\n\nNo material remaining architecture issues in the focused repair scope. Recovery mechanism and transaction/state rules remain legitimate later design decisions. This verifies vision wording only; it provides no implementation approval or evidence of functioning recovery.\n",
+    "redteam.txt": "Worker: /root/envision_trial/redteam\nModel: gpt-6.1-sol, medium; fresh context; source and vision read-only.\nDraft D1 SHA256 380fa35b898f916a8fc8bd457b5d917965d9e18a51155a7ebd95bb914842465e\n\nmode: feature-definition-challenge\n\nthinking_stances_applied:\n- Adversarial: a pilot could cancel every confirmed transfer, record each cancellation correctly, and satisfy the \u201cfulfilled or explicitly resolved\u201d threshold.\n- Constructive: separate reconciliation completeness from actual handover reliability.\n- Simplicity: retain the proposed deadline-list/phone comparison as the practical competing intervention.\n- First-principles: success requires food reaching people, alongside accurate records.\n- Analogical: distinguish successful delivery from closed support tickets; closing an exception does not fulfill the original promise.\n\nstrongest_challenge:\n- RT-01 \u2014 Resolution can masquerade as reliable sharing. Evidence: horizon 2 allows at least 95% of confirmed handovers to end \u201cfulfilled or explicitly resolved.\u201d Inference: all transfers could fail yet satisfy that numerical target if their failures are documented. The wider vision clearly wants fulfilled promises, but this advancement criterion does not enforce that outcome.\n- Paired fix: measure two separate outcomes: timely resolution of all exceptions, and actual fulfillment of confirmed transfers. Agree a fulfillment floor against current practice before the pilot; count cancellations, partial receipts and phone rescues explicitly.\n\nbest_alternative:\nKeep the staged local-first vision, but make the two-site pilot an outcome comparison: deadline list plus phone coordination versus proposed transfer records. Track promised quantities, quantities received within the agreed window, failed journeys, cancellation reasons and volunteer time. Require independent evidence that the proposed workflow maintains or improves fulfillment while making exceptions accountable. This would be better because transparent failure remains valuable without being counted as successful sharing. Cost: additional observation and a potentially slower expansion decision.\n\nconsequence_of_current_path:\nAn orderly exception ledger could qualify the project for federation even when accepted promises rarely deliver food. Later automation would reproduce a workflow whose operational value remains unproven.\n\nrecommendation:\nAmend horizon 2\u2019s advancement criterion before accepting D1; retain its exception-resolution target as a separate measure.\n\nevidence_basis:\n- Reviewed VISION.md D1; verified SHA256 380fa35b898f916a8fc8bd457b5d917965d9e18a51155a7ebd95bb914842465e.\n- VISION.md horizon 2 supplies the contested threshold; lines 75\u201379 establish baseline unfulfilled transfers, the simple comparison and fulfilled handovers as intended outcomes.\n- README.md and pantry.py confirm the current tool only aggregates manually maintained CSV quantities; it supplies no transfer-outcome evidence.\n- Target MCP/index unavailable as declared in AGENTS.md; used targeted local reads only. No writes, network, setup or lifecycle actions. No specialist approval or gate authority asserted.\n\nconfidence: high for the criterion ambiguity; medium for its operational consequence, which is a plausible failure scenario rather than an observed pilot result.\n",
+    "redteam-closing.txt": "Worker: /root/envision_trial/redteam\nExisting independent reviewer context; closing reconciliation after five isolated council seats on D1.\n\n- SP-1 / RT-01 \u2014 held; do_now supported. Challenge to the finding: D1 already counts failed collections and names fulfillment as its purpose. That does not repair the advancement test: 100% documented cancellations still satisfy \u201cfulfilled or explicitly resolved.\u201d Strongest surviving alternative: separate timely exception resolution from actual fulfilled quantity/handovers, with a fulfillment floor agreed against baseline before trial. Cost: additional observation; no invented universal numerical floor needed.\n\n- MA-1 \u2014 updated; maybe_later supported. Calling succession wholly absent overstates the evidence: lines 75 and 79 already require personnel turnover and a newly trained volunteer\u2019s ability to inspect, restore and exit. The narrower gap is whether replacement stewards can inherit authority and outstanding obligations without predecessors. Strongest alternative: make the existing turnover exercise explicitly transfer recovery authority, operating instructions and unresolved transfers, followed by one routine cycle. Useful operational detail, but D1\u2019s existing commitments support advisory deferral to pilot design.\n\n- F-1 \u2014 held; maybe_later supported. The terms at line 61 are unexplained, but lines 61\u201363 already translate much of their effect into observable behavior. This is a readability improvement, not a demonstrated architectural failure. Strongest alternative: add one short parenthetical gloss covering remembered unsent messages, harmless repeats and detection of incompatible partner software. Cost is a slightly longer sentence; no new glossary or architecture section needed.\n\nStrongest surviving challenge: SP-1 permits failure documentation to substitute for reliable sharing at the expansion threshold. Repair that criterion now; preserve MA-1 and F-1 as bounded advisory improvements.\n\nNew findings: none. Targeted local reads only; no writes or approval authority asserted.\n",
+    "redteam-focused.txt": "Worker: /root/envision_trial/redteam (same independent reviewer context, author made all repairs)\nVerified D2 SHA256 cc158e2d1966fc7f8c4b83d1b6b93a8c9d4f6382b9303ec0ea9ad78721435008 and the supplied D1\u2013D2 diff.\n\n- RT-01 / SP-1 closed: horizon 2 now requires pretrial floors for both on-time fulfilled handovers and promised quantity received, informed by baseline practice, without degrading fulfillment against phone coordination. The 95% exception-resolution target is separate. Cancellations, partial receipts and phone rescues are counted explicitly; resolved cancellations cannot count as fulfilled promises.\n- MA-1 closed: the successor must inherit recovery authority, operating instructions and unresolved transfers without the predecessor, then complete a routine cycle with rescues or authority gaps recorded.\n- F-1 closed: the three inline explanations convey remembered messages, harmless repeats and incompatible partner formats without expanding the proposed architecture.\n\nNo surviving actionable issue within this focused verification. These are verified document repairs, not evidence of operational outcomes or specialist approval. Read-only local verification; target MCP/index remains unavailable.\n",
+    "council-seats.txt": "Archetype Council D1; roster declared before execution: Sun Tzu, Yoda, Spock, Marcus Aurelius, Feynman. No swaps. Optional seed236 primer skipped; closing red-team reconciliation follows seats. All fresh fork_turns=none, gpt-6.1-sol medium, serialized. Each instructed to declare axis before artifact read. No seat received other seat, architecture or standalone red-team findings. Target MCP unavailable: local reads only. Source and vision read-only.\n\nProcess-only follow-up attestations, after focused verification; no artifact reread or review rerun. Chair cannot independently observe original worker commentary/timing from delivered final messages; the following are retained-context worker attestations, not independently inspected transcripts.\nSun Tzu: Yes. Before my first tool call, I declared in commentary: \u201cAxis: strategic positioning / unforced losses \u2014 I\u2019ll assess whether the vision builds on the project\u2019s strengths and avoids commitments that could undermine reliable local operation.\u201d\nSun Tzu: \u201cNo findings under strategic positioning / unforced losses\u201d. That exact null phrase did not appear in my original final response; it confirms the same null outcome.\nYoda: Confirmed: I declared this commentary before the first tool call or artifact read: \u201cAxis: cognitive readiness / commitment threshold / reader orientation \u2014 I\u2019ll check whether the vision helps readers understand the ambition, its boundaries, and what commitment it asks of them.\u201d The next action was the targeted local read of AGENTS.md, README.md, pantry.py and VISION.md.\n\nWorker /root/envision_trial/council_chair/sun_tzu \u2014 raw final\narchetype: Sun Tzu\nstance: Strategic positioning / unforced losses.\nfindings: null \u2014 no actionable findings on this axis.\ndistinct_contribution: The vision preserves useful fallback positions: single-site value survives abandoning networking (VISION.md:51); supervised two-site exchange precedes automated delivery (VISION.md:55\u201357); federation expansion waits on recovery evidence (VISION.md:63); forecasting must outperform simpler coordination before investment (VISION.md:67). The next investment tests volunteer practice and transport feasibility before committing to federation (VISION.md:77). These choices reduce avoidable investment and operational dependence while preserving ambition.\nverdict: ready\n\nWorker /root/envision_trial/council_chair/feynman \u2014 raw final\narchetype: Feynman\nAxis: essentiality / simplicity from understanding / curse-of-knowledge \u2014 I will test whether the vision explains the core problem plainly and keeps its ambitions grounded in a simple, understandable model.\nstance: Preserve the understandable volunteer story as the test for every technical ambition.\nfindings:\nid: F-1\nseverity: recommended\ntext: Horizon 3 introduces \u201coutbox/inbox,\u201d \u201cidempotent message handling,\u201d and \u201cversion negotiation\u201d without explaining them where they appear. Cooperative stewards can understand the preceding handover story but may struggle to assess these proposed investments. VISION.md:61.\npaired_action: Add a brief plain-language explanation: remember unsent messages, ensure repeated messages cannot repeat a transfer, and detect incompatible partner software.\ndistinct_contribution: The essential model is unusually clear: local stock is owned locally; another site's information is an observation; a promise requires source confirmation. The vegetable handover example makes that model understandable (VISION.md:13,25\u201327). Simple deadline ordering and phone coordination remain explicit comparison points before sophisticated suggestions (VISION.md:67,77), so technical ambition retains a practical simplicity test.\nverdict: ready\nEvidence: Read-only local review of AGENTS.md, README.md, pantry.py and VISION.md; target MCP unavailable. D1 SHA256 verified: 380fa35b898f916a8fc8bd457b5d917965d9e18a51155a7ebd95bb914842465e.\nEvidence: Reviewed AGENTS.md, README.md, pantry.py and VISION.md using local reads only; target MCP unavailable. D1 SHA256 matches 380fa35b898f916a8fc8bd457b5d917965d9e18a51155a7ebd95bb914842465e. No writes.\n\nWorker /root/envision_trial/council_chair/yoda \u2014 raw final\narchetype: Yoda\nstance: cognitive readiness / commitment threshold / reader orientation\nfindings: No findings under cognitive readiness / commitment threshold / reader orientation.\nChecked VISION.md D1 against the supplied SHA256; it matches. The opening gives a clear cooperative purpose and concrete volunteer scenario (lines 9\u201315). Current capability and proposed capability are distinguishable (19\u201321). Horizons explain dependencies, useful stopping points and evidence thresholds (45\u201369). The next investment is bounded field investigation, with explicit unresolved decisions and no implementation authority (77\u201383).\ndistinct_contribution: Assessed whether readers can understand the destination without mistaking its ambition for an immediate commitment. The draft makes that distinction clear.\nverdict: ready\nRetrieval limitation: target MCP/index unavailable; assessment used targeted local reads of AGENTS.md, README.md, pantry.py and VISION.md only.\n\nWorker /root/envision_trial/council_chair/spock \u2014 raw final\nAxis: logical precision / testable propositions / falsification \u2014 I will check whether the vision\u2019s claims have clear meanings, coherent assumptions, and observable conditions that could disprove them.\nArchetype: Spock\nStance: Require measurable claims and distinguish operational correctness from useful outcomes.\nReviewed D1; SHA256 matches 380fa35b898f916a8fc8bd457b5d917965d9e18a51155a7ebd95bb914842465e. Evidence: targeted local reads only; target MCP unavailable.\nSP-1 \u2014 recommended. VISION.md:57 combines \u201cfulfilled\u201d and \u201cexplicitly resolved\u201d into the 95% success threshold. Every confirmed handover could be cancelled and recorded as resolved while satisfying that threshold. This tests exception accounting but does not establish reliable sharing.\npaired_action: Retain the resolution threshold and separately measure fulfilled confirmed handovers, including partial fulfillment and cancellation reasons. Agree a minimum fulfillment criterion before the pilot; report physical fulfillment separately from administrative resolution.\nDistinct contribution: Exposes a measurable counterexample in which the proposed acceptance rule passes despite failing the intended outcome. The remaining horizons distinguish proposed targets from observations and name credible falsification conditions.\nVerdict: ready \u2014 one recommended refinement; no must-fix findings.\n\nWorker /root/envision_trial/council_chair/marcus \u2014 raw final\narchetype: Marcus Aurelius\nstance: durability / dichotomy of control / time-axis\nAxis: durability / dichotomy of control / time-axis \u2014 I will examine whether the vision remains useful as participation, resources, and outside conditions change, and whether its promises stay within the project\u2019s control.\nartifact: D1; SHA256 verified: 380fa35b898f916a8fc8bd457b5d917965d9e18a51155a7ebd95bb914842465e\nretrieval: Target MCP unavailable; targeted local reads only. No mutations.\nfindings:\nid: MA-1\nseverity: advisory\ntext: The vision tests personnel turnover, post-pilot use and developer-independent recovery, but does not explicitly test succession of the cooperative stewards themselves. A system can survive connectivity failure yet become unmaintainable when its key custodians leave. References: VISION.md:63, VISION.md:75, VISION.md:79.\npaired_action: Add a stewardship handover demonstration: replacement stewards inherit recovery authority, maintenance instructions and outstanding transfer responsibilities, then complete a routine operating cycle without their predecessors.\ndistinct_contribution: The vision already distinguishes controllable commitments from external outcomes: tentative requests cannot promise stock, forecasting remains optional, and each horizon retains value if expansion stops (VISION.md:41, VISION.md:51, VISION.md:57, VISION.md:69). My contribution is testing continuity across generations of custodians, beyond incident recovery.\nverdict: ready\n",
+    "council-focused.md": "# D2 focused council verification\n\nD2 SHA256 verified: cc158e2d1966fc7f8c4b83d1b6b93a8c9d4f6382b9303ec0ea9ad78721435008. Read exact D1-D2.diff and checked affected contracts only. Chair /root/envision_trial/council_chair did not author or repair the vision; retained initial review context, so this is independent nonauthor review, not a fresh-context lifecycle approval. No seat re-run or unrelated sweep claimed.\n\nSP-1 / RT-01 do_now completed: every cancelled promise no longer passes both actual fulfillment floors and comparator nondegradation. Exception closure is measured separately. MA-1 maybe_later completed: successor steward inherits authority, instructions and unresolved transfers without predecessor, then completes a routine cycle. F-1 maybe_later completed: messaging concepts each have an inline operational explanation. Atomic availability across distribution/allocation and old-backup reconciliation preserve source authority and prevent reuse of committed stock in the affected text; architecture lane owns its findings' final assessment. No new actionable council findings.\n\n### Falsification Check\n\nWorking verdict: PASS WITH IN-SESSION FIXES. Strongest argument against it is that accurately closed exceptions can still coexist with failed food delivery. It does not change the verdict: D2 now requires independently observed physical fulfillment and received-quantity floors against a simple comparator, separately from exception resolution. These are proposed tests, not measured success; field feasibility remains unproved.\n\n**Archetype Council [archetype-review] \u2014 2026-10-28: PASS WITH IN-SESSION FIXES** (moderator: council-chair; seats: sun-tzu, yoda, spock, marcus-aurelius, feynman; rotating-seat: feynman; strongest-axis: spock; must-fix-count: 1 completed; advisory-count: 2 completed).\n\nCoverage: five actual isolated initial seats, canonical roster, no swap, optional primer skipped, actual red-team closing reconciliation, one author repair and one chair-focused verification. Routine transcripts/identities in council-seats.txt; structured artifact-only records in council-records.json; no wave or lifecycle signoffs. Strongest residual uncertainty: whether accurate coordination repays volunteer effort and transport costs. Next investment remains the two-site field investigation already in the vision.\n"
+  },
+  "council_records": {
+    "scope": "Artifact-only structured records; no wave/event/approval tools or lifecycle records. Readiness field labels are schema vocabulary, not lifecycle readiness approval. D1-dedup: SP-1 and standalone RT-01 same proposition; MA-1 and F-1 distinct. No future implementation or operational outcomes executed.",
+    "records": [
+      {
+        "record_type": "executable_evidence",
+        "evidence_record_id": "D1-E-SP-1",
+        "claim_id": "SP-1",
+        "claim_kind": "finding",
+        "required_for_approval": false,
+        "phase": "readiness",
+        "proposition": "Horizon 2 success can be satisfied by all documented cancellations.",
+        "counterexample_or_failure_condition": "Existing text explicitly binds this missing distinction or explanation.",
+        "execution_status": "executed",
+        "public_path": "VISION.md D1 textual artifact boundary; no future product execution claimed",
+        "command_or_fixture": "nl -ba VISION.md; D1 SHA256 380fa35b898f916a8fc8bd457b5d917965d9e18a51155a7ebd95bb914842465e",
+        "expected": "Artifact states the distinction or marks it open.",
+        "observed": "Horizon 2 success can be satisfied by all documented cancellations.",
+        "artifact_or_test_id": "VISION-D1.md",
+        "adjacent_controls": [
+          "Horizon 4 requires actual edible discard outcome; existing personnel turnover and restore commitments; horizon 3 observable behavior checked."
+        ],
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "verification_context": {
+          "actor": "council-chair",
+          "context_id": "/root/envision_trial/council_chair",
+          "fresh_context": true,
+          "independent": true
+        }
+      },
+      {
+        "record_type": "executable_evidence",
+        "evidence_record_id": "D1-E-MA-1",
+        "claim_id": "MA-1",
+        "claim_kind": "finding",
+        "required_for_approval": false,
+        "phase": "readiness",
+        "proposition": "Replacement stewards inheriting authority without predecessors is not explicit.",
+        "counterexample_or_failure_condition": "Existing text explicitly binds this missing distinction or explanation.",
+        "execution_status": "executed",
+        "public_path": "VISION.md D1 textual artifact boundary; no future product execution claimed",
+        "command_or_fixture": "nl -ba VISION.md; D1 SHA256 380fa35b898f916a8fc8bd457b5d917965d9e18a51155a7ebd95bb914842465e",
+        "expected": "Artifact states the distinction or marks it open.",
+        "observed": "Replacement stewards inheriting authority without predecessors is not explicit.",
+        "artifact_or_test_id": "VISION-D1.md",
+        "adjacent_controls": [
+          "Horizon 4 requires actual edible discard outcome; existing personnel turnover and restore commitments; horizon 3 observable behavior checked."
+        ],
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "verification_context": {
+          "actor": "council-chair",
+          "context_id": "/root/envision_trial/council_chair",
+          "fresh_context": true,
+          "independent": true
+        }
+      },
+      {
+        "record_type": "executable_evidence",
+        "evidence_record_id": "D1-E-F-1",
+        "claim_id": "F-1",
+        "claim_kind": "finding",
+        "required_for_approval": false,
+        "phase": "readiness",
+        "proposition": "Horizon 3 technical terms are not explained where introduced.",
+        "counterexample_or_failure_condition": "Existing text explicitly binds this missing distinction or explanation.",
+        "execution_status": "executed",
+        "public_path": "VISION.md D1 textual artifact boundary; no future product execution claimed",
+        "command_or_fixture": "nl -ba VISION.md; D1 SHA256 380fa35b898f916a8fc8bd457b5d917965d9e18a51155a7ebd95bb914842465e",
+        "expected": "Artifact states the distinction or marks it open.",
+        "observed": "Horizon 3 technical terms are not explained where introduced.",
+        "artifact_or_test_id": "VISION-D1.md",
+        "adjacent_controls": [
+          "Horizon 4 requires actual edible discard outcome; existing personnel turnover and restore commitments; horizon 3 observable behavior checked."
+        ],
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "verification_context": {
+          "actor": "council-chair",
+          "context_id": "/root/envision_trial/council_chair",
+          "fresh_context": true,
+          "independent": true
+        }
+      },
+      {
+        "record_type": "executable_evidence",
+        "evidence_record_id": "D1-dedup",
+        "claim_id": "D1-dedup",
+        "claim_kind": "dedup",
+        "required_for_approval": false,
+        "phase": "readiness",
+        "proposition": "SP-1 and RT-01 concern the same fulfillment-or-resolution loophole; MA-1 and F-1 distinct.",
+        "counterexample_or_failure_condition": "Different acceptance obligation or different proposed repair.",
+        "execution_status": "executed",
+        "public_path": "VISION.md D1 textual artifact boundary; no future product execution claimed",
+        "command_or_fixture": "nl -ba VISION.md; D1 SHA256 380fa35b898f916a8fc8bd457b5d917965d9e18a51155a7ebd95bb914842465e",
+        "expected": "Artifact states the distinction or marks it open.",
+        "observed": "SP-1/RT-01 same VISION57 clause and same cancellation counterexample; MA-1 authority succession and F-1 terminology distinct.",
+        "artifact_or_test_id": "VISION-D1.md",
+        "adjacent_controls": [
+          "Horizon 4 requires actual edible discard outcome; existing personnel turnover and restore commitments; horizon 3 observable behavior checked."
+        ],
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "verification_context": {
+          "actor": "council-chair",
+          "context_id": "/root/envision_trial/council_chair",
+          "fresh_context": true,
+          "independent": true
+        }
+      },
+      {
+        "record_type": "review_run",
+        "review_run_id": "D1-council-initial",
+        "run_kind": "readiness",
+        "cycle": 0,
+        "candidate_finding_ids": [
+          "SP-1",
+          "MA-1",
+          "F-1"
+        ],
+        "source_record_ids": [
+          "D1-E-SP-1",
+          "D1-E-MA-1",
+          "D1-E-F-1"
+        ],
+        "dedup_evidence_id": "D1-dedup",
+        "verification_context": {
+          "actor": "council-chair",
+          "context_id": "/root/envision_trial/council_chair",
+          "fresh_context": true,
+          "independent": true
+        }
+      },
+      {
+        "record_type": "finding_synthesis",
+        "record_id": "D1-S-SP-1",
+        "review_run_id": "D1-council-initial",
+        "cycle": 0,
+        "finding_id": "SP-1",
+        "validation_status": "real",
+        "scope_relation": "admitted",
+        "introduced_or_worsened_by_wave": false,
+        "contract_relevance": "required_ac",
+        "supported_reachability": true,
+        "attacker_reachability": false,
+        "authority_domain": "none",
+        "authority_delta": "none",
+        "observable_impact": "material",
+        "containment": "detect_only",
+        "fix_risk": "lower",
+        "optional_value": "positive",
+        "repair_scope_bounded": true,
+        "repair_safety": "safe",
+        "benefit_vs_fix_risk": "greater",
+        "rejection_basis": "none",
+        "disposition": "do_now",
+        "blocking": true,
+        "source_lanes": [
+          "spock"
+        ],
+        "blocking_required_lanes": [],
+        "approval_recheck_lanes": [
+          "archetype-council"
+        ],
+        "contract_or_required_ac_semantics_changed": true,
+        "trust_boundary_changed": false,
+        "architecture_or_ownership_changed": false,
+        "cross_component_protocol_or_state_changed": false,
+        "failure_or_readiness_semantics_changed": true,
+        "review_depth": "full",
+        "repair_execution_state": "pending",
+        "evidence_record_id": "D1-E-SP-1",
+        "decision_authority": "moderator",
+        "disposition_rationale": "Horizon 2 success can be satisfied by all documented cancellations. Separate actual physical fulfillment floor from timely exception resolution. Artifact-only semantic adaptation; blocking denotes unresolved vision-contract repair, no lifecycle authority."
+      },
+      {
+        "record_type": "finding_synthesis",
+        "record_id": "D1-S-MA-1",
+        "review_run_id": "D1-council-initial",
+        "cycle": 0,
+        "finding_id": "MA-1",
+        "validation_status": "real",
+        "scope_relation": "admitted",
+        "introduced_or_worsened_by_wave": false,
+        "contract_relevance": "none",
+        "supported_reachability": true,
+        "attacker_reachability": false,
+        "authority_domain": "none",
+        "authority_delta": "none",
+        "observable_impact": "low",
+        "containment": "impact_bounding",
+        "fix_risk": "lower",
+        "optional_value": "positive",
+        "repair_scope_bounded": true,
+        "repair_safety": "safe",
+        "benefit_vs_fix_risk": "greater",
+        "rejection_basis": "none",
+        "disposition": "maybe_later",
+        "blocking": false,
+        "source_lanes": [
+          "marcus-aurelius"
+        ],
+        "blocking_required_lanes": [],
+        "approval_recheck_lanes": [
+          "archetype-council"
+        ],
+        "contract_or_required_ac_semantics_changed": false,
+        "trust_boundary_changed": false,
+        "architecture_or_ownership_changed": false,
+        "cross_component_protocol_or_state_changed": false,
+        "failure_or_readiness_semantics_changed": false,
+        "review_depth": "focused",
+        "repair_execution_state": "pending",
+        "evidence_record_id": "D1-E-MA-1",
+        "decision_authority": "moderator",
+        "disposition_rationale": "Replacement stewards inheriting authority without predecessors is not explicit. Extend existing turnover exercise to inherited authority and unresolved obligations. Artifact-only semantic adaptation; blocking denotes unresolved vision-contract repair, no lifecycle authority."
+      },
+      {
+        "record_type": "finding_synthesis",
+        "record_id": "D1-S-F-1",
+        "review_run_id": "D1-council-initial",
+        "cycle": 0,
+        "finding_id": "F-1",
+        "validation_status": "real",
+        "scope_relation": "admitted",
+        "introduced_or_worsened_by_wave": false,
+        "contract_relevance": "none",
+        "supported_reachability": true,
+        "attacker_reachability": false,
+        "authority_domain": "none",
+        "authority_delta": "none",
+        "observable_impact": "low",
+        "containment": "impact_bounding",
+        "fix_risk": "lower",
+        "optional_value": "positive",
+        "repair_scope_bounded": true,
+        "repair_safety": "safe",
+        "benefit_vs_fix_risk": "greater",
+        "rejection_basis": "none",
+        "disposition": "maybe_later",
+        "blocking": false,
+        "source_lanes": [
+          "feynman"
+        ],
+        "blocking_required_lanes": [],
+        "approval_recheck_lanes": [
+          "archetype-council"
+        ],
+        "contract_or_required_ac_semantics_changed": false,
+        "trust_boundary_changed": false,
+        "architecture_or_ownership_changed": false,
+        "cross_component_protocol_or_state_changed": false,
+        "failure_or_readiness_semantics_changed": false,
+        "review_depth": "focused",
+        "repair_execution_state": "pending",
+        "evidence_record_id": "D1-E-F-1",
+        "decision_authority": "moderator",
+        "disposition_rationale": "Horizon 3 technical terms are not explained where introduced. Add one plain-language parenthetical gloss. Artifact-only semantic adaptation; blocking denotes unresolved vision-contract repair, no lifecycle authority."
+      },
+      {
+        "record_type": "executable_evidence",
+        "evidence_record_id": "D2-E-SP-1",
+        "claim_id": "SP-1",
+        "claim_kind": "finding",
+        "required_for_approval": false,
+        "phase": "readiness",
+        "proposition": "Horizon 2 success can be satisfied by all documented cancellations.",
+        "counterexample_or_failure_condition": "Existing text explicitly binds this missing distinction or explanation.",
+        "execution_status": "executed",
+        "public_path": "VISION.md D1 textual artifact boundary; no future product execution claimed",
+        "command_or_fixture": "cat D1-D2.diff; shasum -a 256 VISION.md",
+        "expected": "Original counterexample closed and adjacent ownership/failure contracts preserved.",
+        "observed": "D2 requires both physical fulfillment floors, nondegradation versus comparator, and separate exception resolution; all cancellations no longer pass.",
+        "artifact_or_test_id": "D2 SHA256 cc158e2d1966fc7f8c4b83d1b6b93a8c9d4f6382b9303ec0ea9ad78721435008; D1-D2.diff",
+        "adjacent_controls": [
+          "Horizon 4 requires actual edible discard outcome; existing personnel turnover and restore commitments; horizon 3 observable behavior checked."
+        ],
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "verification_context": {
+          "actor": "council-chair",
+          "context_id": "/root/envision_trial/council_chair",
+          "fresh_context": false,
+          "independent": true
+        }
+      },
+      {
+        "record_type": "executable_evidence",
+        "evidence_record_id": "D2-E-MA-1",
+        "claim_id": "MA-1",
+        "claim_kind": "finding",
+        "required_for_approval": false,
+        "phase": "readiness",
+        "proposition": "Replacement stewards inheriting authority without predecessors is not explicit.",
+        "counterexample_or_failure_condition": "Existing text explicitly binds this missing distinction or explanation.",
+        "execution_status": "executed",
+        "public_path": "VISION.md D1 textual artifact boundary; no future product execution claimed",
+        "command_or_fixture": "cat D1-D2.diff; shasum -a 256 VISION.md",
+        "expected": "Original counterexample closed and adjacent ownership/failure contracts preserved.",
+        "observed": "D2 explicitly transfers authority, operating instructions and unresolved transfers without predecessor, then tests a routine cycle.",
+        "artifact_or_test_id": "D2 SHA256 cc158e2d1966fc7f8c4b83d1b6b93a8c9d4f6382b9303ec0ea9ad78721435008; D1-D2.diff",
+        "adjacent_controls": [
+          "Horizon 4 requires actual edible discard outcome; existing personnel turnover and restore commitments; horizon 3 observable behavior checked."
+        ],
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "verification_context": {
+          "actor": "council-chair",
+          "context_id": "/root/envision_trial/council_chair",
+          "fresh_context": false,
+          "independent": true
+        }
+      },
+      {
+        "record_type": "executable_evidence",
+        "evidence_record_id": "D2-E-F-1",
+        "claim_id": "F-1",
+        "claim_kind": "finding",
+        "required_for_approval": false,
+        "phase": "readiness",
+        "proposition": "Horizon 3 technical terms are not explained where introduced.",
+        "counterexample_or_failure_condition": "Existing text explicitly binds this missing distinction or explanation.",
+        "execution_status": "executed",
+        "public_path": "VISION.md D1 textual artifact boundary; no future product execution claimed",
+        "command_or_fixture": "cat D1-D2.diff; shasum -a 256 VISION.md",
+        "expected": "Original counterexample closed and adjacent ownership/failure contracts preserved.",
+        "observed": "D2 glosses remembered messages, harmless repeats and incompatible formats inline.",
+        "artifact_or_test_id": "D2 SHA256 cc158e2d1966fc7f8c4b83d1b6b93a8c9d4f6382b9303ec0ea9ad78721435008; D1-D2.diff",
+        "adjacent_controls": [
+          "Horizon 4 requires actual edible discard outcome; existing personnel turnover and restore commitments; horizon 3 observable behavior checked."
+        ],
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "verification_context": {
+          "actor": "council-chair",
+          "context_id": "/root/envision_trial/council_chair",
+          "fresh_context": false,
+          "independent": true
+        }
+      },
+      {
+        "record_type": "review_run",
+        "review_run_id": "D2-council-focused",
+        "run_kind": "reverification",
+        "cycle": 1,
+        "candidate_finding_ids": [
+          "SP-1",
+          "MA-1",
+          "F-1"
+        ],
+        "source_record_ids": [
+          "D2-E-SP-1",
+          "D2-E-MA-1",
+          "D2-E-F-1"
+        ],
+        "dedup_evidence_id": "D1-dedup",
+        "verification_context": {
+          "actor": "council-chair",
+          "context_id": "/root/envision_trial/council_chair",
+          "fresh_context": false,
+          "independent": true
+        }
+      },
+      {
+        "record_type": "finding_synthesis",
+        "record_id": "D2-S-SP-1",
+        "review_run_id": "D2-council-focused",
+        "cycle": 1,
+        "finding_id": "SP-1",
+        "validation_status": "real",
+        "scope_relation": "admitted",
+        "introduced_or_worsened_by_wave": false,
+        "contract_relevance": "required_ac",
+        "supported_reachability": true,
+        "attacker_reachability": false,
+        "authority_domain": "none",
+        "authority_delta": "none",
+        "observable_impact": "material",
+        "containment": "detect_only",
+        "fix_risk": "lower",
+        "optional_value": "positive",
+        "repair_scope_bounded": true,
+        "repair_safety": "safe",
+        "benefit_vs_fix_risk": "greater",
+        "rejection_basis": "none",
+        "disposition": "do_now",
+        "blocking": true,
+        "source_lanes": [
+          "spock"
+        ],
+        "blocking_required_lanes": [],
+        "approval_recheck_lanes": [
+          "archetype-council"
+        ],
+        "contract_or_required_ac_semantics_changed": true,
+        "trust_boundary_changed": false,
+        "architecture_or_ownership_changed": false,
+        "cross_component_protocol_or_state_changed": false,
+        "failure_or_readiness_semantics_changed": true,
+        "review_depth": "full",
+        "repair_execution_state": "completed",
+        "evidence_record_id": "D2-E-SP-1",
+        "decision_authority": "moderator",
+        "disposition_rationale": "D2 requires both physical fulfillment floors, nondegradation versus comparator, and separate exception resolution; all cancellations no longer pass. Focused text verification by nonauthor chair; retained initial-review context openly declared. No specialist/lifecycle approval is issued.",
+        "supersedes_record_id": "D1-S-SP-1"
+      },
+      {
+        "record_type": "finding_synthesis",
+        "record_id": "D2-S-MA-1",
+        "review_run_id": "D2-council-focused",
+        "cycle": 1,
+        "finding_id": "MA-1",
+        "validation_status": "real",
+        "scope_relation": "admitted",
+        "introduced_or_worsened_by_wave": false,
+        "contract_relevance": "none",
+        "supported_reachability": true,
+        "attacker_reachability": false,
+        "authority_domain": "none",
+        "authority_delta": "none",
+        "observable_impact": "low",
+        "containment": "impact_bounding",
+        "fix_risk": "lower",
+        "optional_value": "positive",
+        "repair_scope_bounded": true,
+        "repair_safety": "safe",
+        "benefit_vs_fix_risk": "greater",
+        "rejection_basis": "none",
+        "disposition": "maybe_later",
+        "blocking": false,
+        "source_lanes": [
+          "marcus-aurelius"
+        ],
+        "blocking_required_lanes": [],
+        "approval_recheck_lanes": [
+          "archetype-council"
+        ],
+        "contract_or_required_ac_semantics_changed": false,
+        "trust_boundary_changed": false,
+        "architecture_or_ownership_changed": false,
+        "cross_component_protocol_or_state_changed": false,
+        "failure_or_readiness_semantics_changed": false,
+        "review_depth": "focused",
+        "repair_execution_state": "completed",
+        "evidence_record_id": "D2-E-MA-1",
+        "decision_authority": "moderator",
+        "disposition_rationale": "D2 explicitly transfers authority, operating instructions and unresolved transfers without predecessor, then tests a routine cycle. Focused text verification by nonauthor chair; retained initial-review context openly declared. No specialist/lifecycle approval is issued.",
+        "supersedes_record_id": "D1-S-MA-1"
+      },
+      {
+        "record_type": "finding_synthesis",
+        "record_id": "D2-S-F-1",
+        "review_run_id": "D2-council-focused",
+        "cycle": 1,
+        "finding_id": "F-1",
+        "validation_status": "real",
+        "scope_relation": "admitted",
+        "introduced_or_worsened_by_wave": false,
+        "contract_relevance": "none",
+        "supported_reachability": true,
+        "attacker_reachability": false,
+        "authority_domain": "none",
+        "authority_delta": "none",
+        "observable_impact": "low",
+        "containment": "impact_bounding",
+        "fix_risk": "lower",
+        "optional_value": "positive",
+        "repair_scope_bounded": true,
+        "repair_safety": "safe",
+        "benefit_vs_fix_risk": "greater",
+        "rejection_basis": "none",
+        "disposition": "maybe_later",
+        "blocking": false,
+        "source_lanes": [
+          "feynman"
+        ],
+        "blocking_required_lanes": [],
+        "approval_recheck_lanes": [
+          "archetype-council"
+        ],
+        "contract_or_required_ac_semantics_changed": false,
+        "trust_boundary_changed": false,
+        "architecture_or_ownership_changed": false,
+        "cross_component_protocol_or_state_changed": false,
+        "failure_or_readiness_semantics_changed": false,
+        "review_depth": "focused",
+        "repair_execution_state": "completed",
+        "evidence_record_id": "D2-E-F-1",
+        "decision_authority": "moderator",
+        "disposition_rationale": "D2 glosses remembered messages, harmless repeats and incompatible formats inline. Focused text verification by nonauthor chair; retained initial-review context openly declared. No specialist/lifecycle approval is issued.",
+        "supersedes_record_id": "D1-S-F-1"
+      }
+    ]
+  },
+  "read_only_trial": {
+    "context": "/root/envision_readonly_trial",
+    "request": "Discuss Pantry Map vision read-only; independent reviewers unavailable; no delegation.",
+    "observed": "Correctly reported item-only CSV aggregation, beans6/rice15, proposed local stock/accountable handoff/disconnected sharing horizons; all independent reviews pending and self-check labeled; no lifecycle actions.",
+    "file_verification": "Root compared exact file set and SHA256 of all17 before/after files; identical, no additions.",
+    "limitations": "Controlled no-delegation capability scenario; not native host absence qualification."
+  }
+}

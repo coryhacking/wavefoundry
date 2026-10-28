@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-27
+Last verified: 2026-10-28
 
 ## Runtime advisory boundary
 
@@ -167,6 +167,12 @@ exclusions. See [configuration and examples](../contributing/build-and-verificat
 **State read:** `.wavefoundry/framework/scripts/` (templates), `.wavefoundry/framework/install/` (missing-only baseline templates), registered carrier seeds and enabled target files
 **State written:** `.claude/`, `.cursor/`, `.github/hooks/`, `.junie/mcp/mcp.json`, `.mcp.json`, framework-marked regions in registered review carriers under `docs/` plus explicitly enabled native role carriers under `.claude/agents/` and `.codex/skills/`, controlled role-file moves and exact local Markdown link destination repairs in current docs, and the missing-only whole-file baselines it materializes when absent (`docs/plans/plan-template.md`, the lifecycle prompt baselines under `docs/prompts/`, the pointer-form review carriers), each stamped `Last verified` on write and never rewritten afterwards
 **Must not touch:** `.github/workflows/`, `.git/hooks/`, and the Backstage/TechDocs trio (`catalog-info.yaml`, `mkdocs.yml`, `docs/index.md`), which only Path 3a writes
+
+### Envision authoring and advisory reviews (wave 21u1e)
+
+Seed 179 owns the generic vision workflow. During install/upgrade, seed 100 authors or merge-safely reconciles `docs/prompts/envision-project.prompt.md` and its public catalog entry; the subsequent surface render emits `wf-envision` through `render_agent_surfaces.SKILL_REGISTRY` and `render_skills`, gated on that prompt and each active skill host. Setup alone does not author this prompt. No new MCP endpoint or runtime orchestration state is introduced.
+
+On an authoring request, the agent grounds the current state, drafts the existing canonical vision (default root VISION.md), obtains independent architecture and red-team input, then invokes the council-chair's Archetype Council protocol. The author owns revisions; reviewers read one identified draft. Findings and actual coverage are summarized in the vision, with unresolved decisions and missing reviews explicit. Read-only requests write nothing. This artifact flow never writes lifecycle approval events or starts implementation; later work follows the existing plan/admit/prepare path. Prompt guidance and one representative evaluation do not establish universal host adherence.
 
 ### Claude modernization worker briefing
 

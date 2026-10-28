@@ -214,7 +214,7 @@ DEFAULT_PROMPT_NAMES: "dict[str, dict[str, object]]" = {
 # names and the prompt index.
 FIXED_PROMPT_SLUGS: tuple[str, ...] = (
     "review-plan", "memory-review", "council-review", "archetype-council", "red-team-review",
-    "evaluate-decision", "refresh-techdocs", "codebase-cleanup-review", "package-wavefoundry",
+    "evaluate-decision", "envision-project", "refresh-techdocs", "codebase-cleanup-review", "package-wavefoundry",
     "install-wavefoundry", "upgrade-wavefoundry", "framework-config-review",
     "agent-routing-concurrency", "start-dashboard", "stop-dashboard", "restart-dashboard",
     "init-wave-context", "upgrade-wave-context", "performance-reviewer", "security-reviewer",
@@ -225,14 +225,14 @@ FIXED_PROMPT_SLUGS: tuple[str, ...] = (
 # folder names the renderer removes on every render.
 FIXED_SKILL_NAMES: tuple[str, ...] = (
     "wf-review-plan", "wf-evaluate-decision", "wf-memory-review", "wf-council", "wf-guru",
-    "wf-upgrade", "wf-package", "wf-code-cleanup", "wf-techdocs",
+    "wf-upgrade", "wf-package", "wf-code-cleanup", "wf-techdocs", "wf-envision",
 )
 FIXED_STALE_SKILL_NAMES: tuple[str, ...] = ("auto-guru", "wf-interrogate-plan", "wf-plan-feature")
 # The framework's untiered public shortcuts (a test pins them to the manifest).
 FIXED_PROMPT_SHORTCUTS: tuple[str, ...] = (
     "Init Wavefoundry", "Start dashboard", "Stop dashboard", "Restart dashboard",
     "Upgrade Wavefoundry", "Package Wavefoundry", "Review memories", "Review plan",
-    "Red-team review", "Refresh TechDocs",
+    "Red-team review", "Refresh TechDocs", "Envision project",
 )
 _PROMPT_SLUG_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
 _PROMPT_NAME_MAX = 64
