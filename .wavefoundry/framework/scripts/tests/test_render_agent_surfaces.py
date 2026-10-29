@@ -2939,7 +2939,25 @@ class SkillRegistryTests(unittest.TestCase):
                     self.assertIn(rel, written)
                     skill_text = (root / rel).read_text(encoding="utf-8")
                     self.assertTrue(skill_text.startswith("---\nname: wf-envision\n"))
-                    self.assertIn("docs/prompts/envision-project.prompt.md", skill_text)
+                    header, body = skill_text[4:].split("\n---\n", 1)
+                    self.assertIn(
+                        "description: Define an ambitious product vision and an adaptable long-horizon "
+                        "roadmap, with beneficiary value and useful technical and nontechnical advances.",
+                        header,
+                    )
+                    self.assertNotIn("disable-model-invocation", header)
+                    self.assertIn("docs/prompts/envision-project.prompt.md", body)
+                    for literal in (
+                        "product destination and beneficiary value",
+                        "adaptable roadmap with useful technical and nontechnical advances",
+                        "dependencies and value at each horizon",
+                        "advisory review scope by stakes, maturity and uncertainty",
+                        "disclose missing coverage",
+                        "no implementation or lifecycle approval",
+                        "an explicit read-only request writes nothing",
+                    ):
+                        self.assertIn(literal, body)
+                    self.assertEqual(sum(line.startswith("- ") for line in body.splitlines()), 3)
                 for host in set((".codex", ".claude", ".agents")) - set(hosts):
                     self.assertFalse((root / host).exists(), "inactive hosts stay absent")
                 self.assertEqual(prompt.read_bytes(), prompt_bytes)
@@ -3000,9 +3018,11 @@ class SkillRegistryTests(unittest.TestCase):
             self.assertTrue(skill.description.strip())
             self.assertTrue(skill.body.strip())
             # Frontmatter descriptions render as single-line YAML plain
-            # scalars: a newline or ": " would break strict parsers.
+            # scalars: a newline or ": " would break strict parsers;
+            # " #" would silently truncate the value as a YAML comment.
             self.assertNotIn("\n", skill.description)
             self.assertNotIn(": ", skill.description, skill.name)
+            self.assertNotIn(" #", skill.description, skill.name)
 
     def test_registry_descriptions_are_pairwise_distinct(self) -> None:
         descriptions = [skill.description for skill in ras.SKILL_REGISTRY]

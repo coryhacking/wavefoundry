@@ -6,13 +6,13 @@ Last verified: 2026-10-28
 
 ## Current Session
 
-**Envision integration completed (2026-10-28):** Wave `21u1e distributed-envision-workflow`, change `21tpc-enh distributed-envision-workflow`, closed on explicit operator instruction after implementation and independent review. Canonical seed179, seed100/050 reconciliation, doc-gated wf-envision registry entry, vocabulary reservations and all three generated skill-host surfaces are present. Envision project authors a grounded VISION.md with technical horizons and independent architecture, standalone red-team and Archetype Council reviews; advice has no implementation/lifecycle authority. Available in this checkout; other projects receive it through the next released install/upgrade, not setup alone. Personal skill and existing vision drafts are unchanged.
+**Current — idle (2026-10-28):** Wave `21y6d envision-adaptive-roadmap` is closed. It delivered ambitious product vision and adaptable technical/nontechnical roadmap guidance, adoption instructions, a request-preserving Plan change bridge, and matching upgrade/discovery surfaces. Required reviews and current 12,291-test receipt passed closure; no active wave or remaining authorized implementation work.
 
-**Verification:** Final canonical run passed 12,291 tests / 214 files / 12 skips / 558.329s on macOS; result=ok receipt inputs_hash `9c19c7d213ae0b974614373817c2ecb83b8bcbb250fcd0c67ef92a5d47715fa6`, ran_at `2026-10-28T21:23:29.624364+00:00`. Full docs validation clean. All required independent delivery approvals recorded, no findings; generic Pantry Map authoring and read-only trials retained in the wave-owned envision-evaluation.json with explicit limits. No native Windows/Linux or universal agent-adherence claim. No new memory candidates.
+**Accepted limitation:** AC-5 selective-reading verification is intentionally deferred. A and A2 read the complete adopted vision; substantive adoption/request outcomes passed in the retained original cases, but selective reading remains unproven. No product harm or meaningful overhead was measured. Council intent is partially. The operator explicitly accepted this scope and authorized the exact independently validated three-row waiver append as a one-time exception to the missing MCP writer capability. All prior ledger bytes were preserved; this grants no future writer exception.
 
-**Current state:** Idle; wave 21u1e closed on 2026-10-28. Closure proved the current green receipt and all approvals; the owned disposable work area was removed, while unique evaluation evidence remains in the wave directory. Both edit gates are closed. Changes remain uncommitted and unreleased.
+**Evidence and qualification:** Durable records and four evidence bundles are in `docs/waves/21y6d envision-adaptive-roadmap/`. Original roadmap/adoption evidence and the 12 protected vision/personal-skill/prior-wave artifacts remained unchanged. Owned disposable work was removed by successful close; reconstruct cited work artifacts through each retained bundle's artifact map and joined blob chunks. Current framework receipt: result ok, 12,291 tests / 214 files / 12 existing skips, inputs_hash `e709674253263ac4cdc37c6589b545d0c3d7dd9f2969f92e845093c42410fb9a`, ran_at `2026-10-29T05:34:25.440947+00:00`. Native macOS only. No suite rerun during closure, source change, commit, push or release. Final memory dry-run proposed zero candidates.
 
-**Follow-up:** Staged plan `21ux4-enh envision-product-vision` captures stronger product vision, financial and nonfinancial value, staged value delivery, endurance and adaptability. It includes an Archetype Council review of the prompt itself; 21u1e's Archetype Council reviewed the trial vision only. No follow-up wave is admitted or active.
+**Follow-up boundaries:** Selective-reading efficacy remains deferred; recording operator waivers through the compact MCP writer remains a separate tooling gap. No repair or further trial is authorized. Previously reported MCP loaded-code/setup-input drift was not addressed by this closure; do not infer runtime/index readiness from the source receipt. Historical change-internal Session Handoff text remains planning-time evidence; this standalone handoff and the wave's final summary govern current state.
 
 **Official 1.38.0 published:** Operator approved retaining verified uv 0.12.22 for this release on 2026-10-28. Published https://github.com/coryhacking/wavefoundry/releases/tag/v1.38.0, build 1.38.0+pzql, tag/stamp commit 0ce0fff2. GitHub confirms non-draft/non-prerelease and all three assets uploaded. Feature 10,908,869 bytes, SHA-256 ca6304787f042bae28bd05d8889a32ac0d7dfffa8284102c8d064b6f830dd6a3; model-set 3 companion 351,495,236 bytes, SHA-256 022bce58d8b1615d6d6691eaf16878e4c4e008096a13fe2c5541b911cfa6d1b1. GitHub digests match local verification. Outer and nested CRC/path/digest/source/changelog/version/provenance checks passed; 254 framework files match disk. Model manifest exactly matches canonical; all 15 model file hashes, revisions and licenses verified. SHA256SUMS uploaded. All three qualifications green without qualification exceptions. Vision drafts restored with exact hashes. Repair wave 21u6x closed on explicit operator instruction on 2026-10-28; all closure gates passed and its owned disposable work area was removed. No downstream install qualification claimed.
 
@@ -20,7 +20,11 @@ Last verified: 2026-10-28
 
 **Active wave:** *(none)*
 
-**Last closed wave:** `21u1e distributed-envision-workflow` — closed 2026-10-28; distributed wf-envision with three advisory review forms, qualified by 12,291 tests and independent delivery reviews. No new memory warranted beyond canonical guidance, maintained tests and retained trial evidence.
+**Last closed wave:** `21y6d envision-adaptive-roadmap` — closed 2026-10-28 with selective-reading verification explicitly deferred; all remaining reviews, qualification and evidence retention complete.
+
+**Prior closed wave:** `21tpp envision-product-vision` — closed 2026-10-28; stronger product-vision/horizon guidance and upgrade/discovery delivery, all eight ACs and required reviews complete.
+
+**Prior closed wave:** `21u1e distributed-envision-workflow` — closed 2026-10-28; distributed wf-envision with three advisory review forms, qualified by 12,291 tests and independent delivery reviews. No new memory warranted beyond canonical guidance, maintained tests and retained trial evidence.
 
 **Prior closed wave:** `21u6x profile-source-history-censuses`, closed 2026-10-28 on explicit operator instruction. Source-history tests honor configured live/archive roots without weakening corruption detection. Four ACs/tasks complete; current code/QA/Council and operator approvals, 12,290-test receipt and full docs validation passed. Owned work removed; no new memory needed beyond maintained tests and durable wave evidence. Closure changes are uncommitted because this request authorized closure only.
 
@@ -47,6 +51,10 @@ Last verified: 2026-10-28
 **Prior closure:** 21k15 delivered reviewed acceptance of complete passing runs refused solely for verified bookkeeping, without worker reruns. Its original failed evidence remains preserved; its removed scratch area's unique history is retained at `/private/tmp/wavefoundry-21k15-retained-x7y6vr8p`.
 
 ## Open questions / Deferred decisions
+
+- 21y6d: selective-reading verification is explicitly deferred; the compact MCP operator-waiver writer gap remains separate. Any new trial or tool repair requires its own authorized scope.
+
+Envision roadmap refinements and before-next-release timing are captured in staged plan `docs/plans/21xpg-enh envision-adaptive-roadmap.md`; no uncaptured Envision implementation decision remains. No follow-up wave has opened.
 
 Later-wave effectiveness and review cost remain unestablished. Optional release-note shortening is non-blocking; existing-roster assignment and the explicit empty-roster limit remain the accepted design.
 

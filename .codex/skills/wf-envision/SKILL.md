@@ -1,12 +1,12 @@
 ---
 name: wf-envision
-description: Establish or revise a project's long-term vision and technical horizons, grounded in its current architecture, with architecture, red-team, and Archetype Council reviews. The Envision project workflow authors VISION.md; it does not initiate implementation.
+description: Define an ambitious product vision and an adaptable long-horizon roadmap, with beneficiary value and useful technical and nontechnical advances. The Envision project workflow grounds the vision in current reality, authors VISION.md and uses proportionate advisory reviews; it grants no implementation authority.
 ---
 
 # Envision project (Wavefoundry skill)
 
 This skill is a thin pointer: the workflow lives in `docs/prompts/envision-project.prompt.md`. Read that document and follow it; do not improvise the steps from this summary.
 
-- Reuse the brief and ground the vision in the target project's current capabilities; author the existing canonical vision or VISION.md.
-- Coordinate architecture, red-team, and Archetype Council reviews through the canonical protocols, reconcile findings, and disclose unavailable independent reviews.
-- These are advisory artifact reviews; envisioning grants no implementation or lifecycle approval. An explicit read-only request writes nothing.
+- Lead with the product destination and beneficiary value, grounded in the brief and current capabilities; author the existing canonical vision or VISION.md.
+- Build an adaptable roadmap with useful technical and nontechnical advances, dependencies and value at each horizon; select advisory review scope by stakes, maturity and uncertainty, and disclose missing coverage.
+- Follow the backing prompt for authoring and review artifacts. Envisioning grants no implementation or lifecycle approval; an explicit read-only request writes nothing.

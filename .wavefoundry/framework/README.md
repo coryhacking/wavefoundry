@@ -156,7 +156,7 @@ Use these public phrases in a target project's repository:
 
 - `Init Wavefoundry` (legacy: `Init wave framework` / `Init wave context`)
 - `Upgrade Wavefoundry` (legacy: `Upgrade wave framework` / `Upgrade wave context`)
-- `Envision project` (vision and technical horizons with advisory architecture, red-team and Archetype Council reviews)
+- `Envision project` (ambitious product vision and an adaptable roadmap through useful technical and nontechnical advances; advisory architecture, red-team and Archetype Council reviews, no implementation authority)
 - `Plan change`
 - `Create wave`
 - `Add change to wave`
@@ -249,7 +249,7 @@ This leaves room to insert prompts later without renumbering the whole pack.
 - `160-upgrade-wavefoundry.prompt.md` — public upgrade and legacy-to-Wavefoundry migration entrypoint
 - `170-plan-change.prompt.md` — wave-aware change planning
 - `175-review-plan.prompt.md` — optional plan review and unresolved-branch stress-test helper
-- `179-envision-project.prompt.md` — grounded project vision, technical horizons and independent advisory reviews
+- `179-envision-project.prompt.md` — grounded product vision, technical and nontechnical roadmap, and proportionate independent advisory reviews
 - `180-implement-change.prompt.md` — wave execution and coordination
 - `190-close-wave.prompt.md` — wave closure, promotion, and archival, plus Close change
 - `200-wave-reconciliation.prompt.md` — internal helper for starting, updating, and completing waves

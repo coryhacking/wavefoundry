@@ -1,8 +1,8 @@
 # Wave Record
 
 Owner: Engineering
-Status: implementing
-Last verified: 2026-10-27
+Status: closed
+Last verified: 2026-10-28
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -27,10 +27,17 @@ Change Status: `implemented`
 - Requested review lanes: none
 - Required review lanes: code-reviewer, qa-reviewer
 
+Completed At: 2026-10-28
+
 ## Wave Summary
 
-<Describe the purpose and scope of this wave in 1–3 sentences.>
+Wave `21u6x` (Profile Source History Censuses) delivered one change: Profile Source History Censuses.
 
+Intent outcome: achieved in controlled default and renamed-profile execution. Carrier census excludes configured record/archive trees and still detects malformed active and prefix-sibling carriers; ledger census validates334real histories and catches archived corruption without weakening its >100 threshold. Focused20default/20renamed pass0skips/errors; old-assumption mutants each fail meaningful assertion. Canonical12,290tests/214files/12skips/554.293s passed. QA independently checks this outcome at delivery. Full compatibility matrices remain a separate packaging gate; no nativeWindows execution claimed.
+
+**Changes delivered:**
+
+- **Profile Source History Censuses** (`21szl-bug profile-source-history-censuses`) — 4 ACs completed. Key decisions: Use configured live plus archive roots in the existing local censuses
 ## Watchpoints
 
 - <Add watchpoint, follow-up, or blocking notes here — coordination constraints, sequencing, or guard requirements.>
@@ -54,16 +61,18 @@ Change Status: `implemented`
 | council-delivery | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | code-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | qa-reviewer | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
-| operator-signoff | pending | no current executed approval | record approval evidence for operator-signoff |
+| operator-signoff | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 <!-- wave:review-status end -->
 
-- operator-signoff: <approved when operator confirms closure>
+- Operator explicitly authorized closure on 2026-10-28; typed operator-signoff recorded.
 
 ## Dependencies
 
 - No external wave dependencies. Declare intra-wave dependencies with a `Depends On:` line containing full backticked change ids in each change's block under `## Changes`.
 
 ## Review Checkpoints
+
+2026-10-28: Closure retrospective: source-history checks must account for the configured archive root while retaining active-carrier boundaries, corpus non-vacuity and parse/schema validation. These lessons are captured in the two maintained regression suites and the change Decision Log; memory_propose returned no candidates, and no duplicate memory is warranted. All four ACs/tasks are complete, with no intentional deferrals or unresolved findings. Required independent code/QA/Council delivery approvals remain current. Default qualification passed 12,290 tests / 214 files / 12 skips; renamed and declared compatibility comparisons passed, and official v1.38.0 is published. Unique readiness/delivery probe recipes and source fingerprints are retained in the change and this wave; routine logs and probe scripts in .wavefoundry/work/21u6x are disposable and eligible for owned close cleanup. Current request authorizes closure only, not another commit.
 
 2026-10-27: Delivery complete: required code/QA and Council approved, no findings, intent establishes, unanimous/maxseveritynone. Standard3stance2question isolated primer, fixedarchitecture/code sharedcontext, separateQA/security/reality, rotatingdocs, explicit alternativeweigh, anonymous-first synthesis, redteamclosing all performed. Chair positive2tests/0.048s, QApositive2/0.042s; chair/code/QA independently detected both old-root mutants (each1assertionfailure/0errors/skips). Security/reality/docs source-only; sharedprimer concerns correlated. Localhelpers preferred because carrier excludes plans/live/archive while ledger unionslive/archive. Falsification: emptyfixtures could hidevacuity, but real334ledger corpus threshold/parser/schema retained and archivedcorruption caught. AllACs/tasks complete, no intentionaldeferrals. Scopegapcheck none; fullcompatibility matrices belong packaging, not this change. Operatorclosure/commit unrequested.
 
@@ -79,12 +88,12 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 
 | Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
-| plan | 62 | 348,389 |
+| plan | 97 | 437,303 |
 | implement | 52 | 0 |
-| review | 14 | 18,216 |
-| **Total** | **128** | **366,605** |
+| review | 23 | 41,786 |
+| **Total** | **172** | **479,089** |
 
-<!-- wave:context-efficiency-state {"generation":86,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":52,"content_source_credit":21445,"derived_artifact_credit":515,"direct_net":-33926,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3104,"response_debit":55702,"source_credit_count":8,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2920},"plan":{"calls":62,"content_source_credit":483353,"derived_artifact_credit":2107,"direct_net":348389,"estimated_tokens_saved":348389,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3665,"response_debit":138459,"source_credit_count":27,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":5053},"review":{"calls":14,"content_source_credit":32320,"derived_artifact_credit":303,"direct_net":18216,"estimated_tokens_saved":18216,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":687,"response_debit":13720,"source_credit_count":5,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":128,"content_source_credit":537118,"derived_artifact_credit":2925,"direct_net":332679,"estimated_tokens_saved":366605,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":7456,"response_debit":207881,"source_credit_count":40,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":7973},"wave_id":"21u6x profile-source-history-censuses"} -->
+<!-- wave:context-efficiency-state {"generation":96,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":52,"content_source_credit":21445,"derived_artifact_credit":515,"direct_net":-33926,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3104,"response_debit":55702,"source_credit_count":8,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":2920},"plan":{"calls":97,"content_source_credit":627653,"derived_artifact_credit":2107,"direct_net":437303,"estimated_tokens_saved":437303,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":4778,"response_debit":192732,"source_credit_count":35,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":5053},"review":{"calls":23,"content_source_credit":65794,"derived_artifact_credit":618,"direct_net":41786,"estimated_tokens_saved":41786,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":1051,"response_debit":27264,"source_credit_count":14,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":3689}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":172,"content_source_credit":714892,"derived_artifact_credit":3240,"direct_net":445163,"estimated_tokens_saved":479089,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":8933,"response_debit":275698,"source_credit_count":57,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":11662},"wave_id":"21u6x profile-source-history-censuses"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided
