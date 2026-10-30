@@ -8,9 +8,11 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.39.0] - 2026-10-29
+
 ### Added
 
-- Envision project / `wf-envision` defines an ambitious product vision and an adaptable long-horizon roadmap, with useful technical and nontechnical advances and proportionate advisory reviews. Its opening makes the destination clear; distant horizons retain advancement conditions without invented precision. Plan change conditionally carries an explicitly adopted vision’s relevant outcomes and prerequisites without editing it. Seed 100 authors missing prompts; seed 160 guides changed-seed179 and seed170 reconciliation into existing prompts, preserving project additions and stopping conflicts. Subsequent rendering emits the skill for active hosts. Authoring grants no implementation authority. Waves 21u1e / 21tpc, 21tpp / 21vpo and 21y6d / 21xpg; authoring evidence is case-specific, and the 21ux4 comparison did not establish superiority.
+- Envision project / `wf-envision` defines an ambitious product vision and an adaptable long-horizon roadmap, with useful technical and nontechnical advances and proportionate advisory reviews. Its opening makes the destination clear; distant horizons retain advancement conditions without invented precision. Decision-relevant research and validation of existing capabilities ground ordered immediate advances, including enabling technical changes where justified; technical shifts require causal evidence and alternatives rather than assumed technology benefits. It distinguishes transformative destination, unresolved breakthroughs and useful stages without silently shrinking earlier ambition. Advisory coverage uses product strategy, domain/application workflow, senior architecture and independent challenge, with consequential specialties and optional archetype techniques or an explicitly requested Council. Plan change conditionally carries an explicitly adopted vision’s relevant outcomes and prerequisites without editing it. Seed 100 authors missing prompts; seed 160 guides changed-seed179 and seed170 reconciliation into existing prompts, preserving project additions and stopping conflicts. Subsequent rendering emits the skill for active hosts. Authoring grants no implementation authority. Waves 21u1e / 21tpc, 21tpp / 21vpo, 21y6d / 21xpg and 21xq1 / 21xq0; authoring evidence is case-specific, and the 21ux4 comparison did not establish superiority.
 
 ## [1.38.0] - 2026-10-26
 

@@ -98,5 +98,845 @@
         "confirmed_at": "2026-10-10T00:41:40.551624+00:00"
       }
     ]
+  },
+  {
+    "id": "22216-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1068,
+    "line_hash": "8e7b8bae595d",
+    "context_hash": "6d4d802af2a5",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\"source_commit\": \"3e53****12a\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "21zsm-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1131,
+    "line_hash": "0cf244d26c28",
+    "context_hash": "b37cd5af8c99",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md\": \"20f5****9a4\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "21zsn-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1132,
+    "line_hash": "4f0c880c87c9",
+    "context_hash": "294c71086cff",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md\": \"ef5f****2f4\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "221cg-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1133,
+    "line_hash": "55b8eecb975f",
+    "context_hash": "542d905829c5",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\".wavefoundry/framework/seeds/179-envision-project.prompt.md\": \"05e3****fa9\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "221sf-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1134,
+    "line_hash": "3401c546484f",
+    "context_hash": "a41b06d77964",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\".wavefoundry/framework/scripts/render_agent_surfaces.py\": \"1c06****158\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "221uv-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1135,
+    "line_hash": "1f0a80db1ec6",
+    "context_hash": "c71c62b17d7a",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\"docs/prompts/envision-project.prompt.md\": \"8f2f****47e\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "221uw-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1136,
+    "line_hash": "4a918a55aa7b",
+    "context_hash": "73502587e549",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\"docs/prompts/index.md\": \"bd2d****c59\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "221ux-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1137,
+    "line_hash": "fb6e30a87682",
+    "context_hash": "5e1399c240a2",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\"docs/architecture/data-and-control-flow.md\": \"8e88****fe9\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "221uy-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1138,
+    "line_hash": "4e0f3dfbd452",
+    "context_hash": "bd1a632844c7",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\".agents/skills/wf-envision/SKILL.md\": \"52a4****152\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "221uz-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1139,
+    "line_hash": "9080aa604a16",
+    "context_hash": "e4caa5e243b8",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\".claude/skills/wf-envision/SKILL.md\": \"52a4****152\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "221v0-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1140,
+    "line_hash": "483241752971",
+    "context_hash": "3a5a54f11cd5",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\".codex/skills/wf-envision/SKILL.md\": \"52a4****152\"",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "221v1-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1560,
+    "line_hash": "77c82a1b9dfa",
+    "context_hash": "06aeca0f8fc4",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\"hash\": \"20f5****9a4\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220a-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1564,
+    "line_hash": "9fd09e32ca55",
+    "context_hash": "04011319356b",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\"hash\": \"ef5f****2f4\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220b-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1568,
+    "line_hash": "1ee87de7f1de",
+    "context_hash": "4fee30eb9ebb",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\"hash\": \"05e3****fa9\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220c-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1572,
+    "line_hash": "3e3c771a4693",
+    "context_hash": "721a0ea2c88b",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\"hash\": \"1c06****158\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220d-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1576,
+    "line_hash": "761831db24b5",
+    "context_hash": "6020d76be2cb",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\"hash\": \"8f2f****47e\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220e-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1580,
+    "line_hash": "9971704d1b45",
+    "context_hash": "0c302929d6f3",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\"hash\": \"bd2d****c59\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220f-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1584,
+    "line_hash": "f1da84ba9268",
+    "context_hash": "4618b6664443",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\"hash\": \"8e88****fe9\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220g-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1588,
+    "line_hash": "8ab15d6208af",
+    "context_hash": "6ea6272b13d8",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\"hash\": \"52a4****152\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220h-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1592,
+    "line_hash": "8ab15d6208af",
+    "context_hash": "6ff884229ea4",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\"hash\": \"52a4****152\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220i-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1596,
+    "line_hash": "8ab15d6208af",
+    "context_hash": "87f07ec7d794",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\"hash\": \"52a4****152\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220j-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1752,
+    "line_hash": "0cf244d26c28",
+    "context_hash": "a831834689fe",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md\": \"20f5****9a4\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220k-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1753,
+    "line_hash": "4f0c880c87c9",
+    "context_hash": "294c71086cff",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md\": \"ef5f****2f4\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220l-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1754,
+    "line_hash": "55b8eecb975f",
+    "context_hash": "542d905829c5",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\".wavefoundry/framework/seeds/179-envision-project.prompt.md\": \"05e3****fa9\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220m-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1755,
+    "line_hash": "3401c546484f",
+    "context_hash": "a41b06d77964",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\".wavefoundry/framework/scripts/render_agent_surfaces.py\": \"1c06****158\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220n-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1756,
+    "line_hash": "1f0a80db1ec6",
+    "context_hash": "c71c62b17d7a",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\"docs/prompts/envision-project.prompt.md\": \"8f2f****47e\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220o-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1757,
+    "line_hash": "4a918a55aa7b",
+    "context_hash": "73502587e549",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\"docs/prompts/index.md\": \"bd2d****c59\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220p-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1758,
+    "line_hash": "fb6e30a87682",
+    "context_hash": "5e1399c240a2",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\"docs/architecture/data-and-control-flow.md\": \"8e88****fe9\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220q-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1759,
+    "line_hash": "4e0f3dfbd452",
+    "context_hash": "bd1a632844c7",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\".agents/skills/wf-envision/SKILL.md\": \"52a4****152\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220r-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1760,
+    "line_hash": "9080aa604a16",
+    "context_hash": "e4caa5e243b8",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\".claude/skills/wf-envision/SKILL.md\": \"52a4****152\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220s-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1761,
+    "line_hash": "483241752971",
+    "context_hash": "3a5a54f11cd5",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\".codex/skills/wf-envision/SKILL.md\": \"52a4****152\"",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220t-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1764,
+    "line_hash": "0cf244d26c28",
+    "context_hash": "3f25ef74d514",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md\": \"20f5****9a4\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220u-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1765,
+    "line_hash": "4f0c880c87c9",
+    "context_hash": "294c71086cff",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md\": \"ef5f****2f4\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220v-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1766,
+    "line_hash": "55b8eecb975f",
+    "context_hash": "542d905829c5",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\".wavefoundry/framework/seeds/179-envision-project.prompt.md\": \"05e3****fa9\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220w-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1767,
+    "line_hash": "3401c546484f",
+    "context_hash": "a41b06d77964",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\".wavefoundry/framework/scripts/render_agent_surfaces.py\": \"1c06****158\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220x-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1768,
+    "line_hash": "1f0a80db1ec6",
+    "context_hash": "c71c62b17d7a",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\"docs/prompts/envision-project.prompt.md\": \"8f2f****47e\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220y-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1769,
+    "line_hash": "4a918a55aa7b",
+    "context_hash": "73502587e549",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\"docs/prompts/index.md\": \"bd2d****c59\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "2220z-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1770,
+    "line_hash": "fb6e30a87682",
+    "context_hash": "5e1399c240a2",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\"docs/architecture/data-and-control-flow.md\": \"8e88****fe9\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22210-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1771,
+    "line_hash": "4e0f3dfbd452",
+    "context_hash": "bd1a632844c7",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\".agents/skills/wf-envision/SKILL.md\": \"52a4****152\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22211-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1772,
+    "line_hash": "9080aa604a16",
+    "context_hash": "e4caa5e243b8",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\".claude/skills/wf-envision/SKILL.md\": \"52a4****152\",",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22212-sec",
+    "file": "docs/waves/21xq1 envision-grounded-priorities/evaluation-evidence.json",
+    "line": 1773,
+    "line_hash": "483241752971",
+    "context_hash": "dd4a5f01a3fc",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "\".codex/skills/wf-envision/SKILL.md\": \"52a4****152\"",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed these are definitely not credentials after viewing all flagged lines. Values independently match Git HEAD or git hash-object for the named source files; sourcegraph rule matches bare SHA-1 hashes when its keyword occurs elsewhere in the evidence file.",
+        "confirmed_at": "2026-10-30T08:59:49.045260+00:00"
+      }
+    ]
+  },
+  {
+    "id": "221a4-sec",
+    "file": "docs/agents/session-handoff.md",
+    "line": 177,
+    "line_hash": "fdfcfdbd54cf",
+    "context_hash": "c8a464591bfb",
+    "rule_id": "sourcegraph-access-token",
+    "matched_text": "**Official release:** [v1.30.0](https://github.com/coryhacking/wavefoundry/releases/tag/v1.30.0), build `1.30.0+pwgi`, tagged at `624c****84a`. GitHub confirms a published, non-prerelease release with both assets uploaded. `wavefoundry-1.30.0.pwgi.zip`: 10,538,661 bytes, SHA-256 `f60cd13394bd352b3a06433e4f20aa4aa19686d3982a0957437a38b498004f2b`. `wavefoundry-models-3.zip`: 351,495,236 bytes, SHA-256 `10727d5324507acffa2a6c4459b1bdbc01e65252581dd8000d18fca92f65f291`. GitHub asset sizes and digests match the verified local archives. Feature CRC, safe paths, source parity, nested feature/bridge integrity, and model manifests, file digests, revisions and licenses passed; docs validation passed. This verifies archive contents and publication, not a downstream installation of this exact release.",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Additional occurrence of the operator-confirmed non-credential Git-hash class. Handoff release provenance exactly matches local v1.30.0 commit tag and git cat-file reports commit. Surfaced to operator as the same file-wide keyword-trigger defect; no token or credential.",
+        "confirmed_at": "2026-10-30T12:25:35.553597+00:00"
+      }
+    ]
   }
 ]
