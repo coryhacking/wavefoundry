@@ -2,9 +2,35 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-28
+Last verified: 2026-10-30
 
 ## Current Session
+
+**Idle. Last closed wave:** `220a9 envision-future-exploration`, closed 2026-10-30 on explicit operator direction. Delivered phased Envision guidance, fair alternatives-first exploration, one coherent vision by default, and honest revision-specific review coverage. All six ACs and tasks are complete; required approvals and operator signoff passed closure. Owned disposable wave work was removed; unique proof remains in the maintained wave evidence containers.
+
+The final frozen-tree qualification passed 12,291 tests across 214 files, with 12 skips, in 544.878s. Green framework receipt inputs_hash: `f65f5c79cc4a05a1451c8c804f09b4a72bd4517a09552552580523c1d7a541b5`; ran_at: `2026-10-31T03:07:59.351149+00:00`. The first closure attempt passed every test file but was refused for concurrent coordinator documentation/evidence writes; it remains recorded as a qualification failure. The retry made no concurrent repository writes. Docs validation passed and all edit gates are closed.
+
+Original isolated delivery reviews and trial evidence are preserved. One fresh independent context subsequently covered QA, architecture and docs-contract for the four-file status-definition relocation; exact delta, parity and three negative controls passed. Both original matched visions passed, so the result remains preventive guidance, not demonstrated superiority or isolated phased-loading efficacy. Current delta checks establish preserved contracts, not new author adherence. No new memory was selected because canonical guidance owns the reusable behavior. No further source work, authoring trial, commit, push, package or release was performed or authorized by closure.
+
+## Open questions / Deferred decisions
+
+Root VISION.md and VISION-research.md were separately revised after the implementation and remain outside this wave's review/closure scope. Their strategic decisions and pending findings are not resolved by closing this guidance wave. Preserve those edits, the historical VISION-review.md and unrelated Relay draft. Baseline commit 8a351d49 contains earlier work; no new commit, push, package or release is requested. No further authoring trial or source change is planned for closure.
+
+## Prior completed work — 21xq1 local 1.39 build
+
+Wave `21xq1 envision-grounded-priorities` is CLOSED as of 2026-10-30 under the operator's explicit request to build 1.39 then finish the wave. Closure passed with the current green framework receipt and clean docs validation; owned disposable wave work was removed. No remaining implementation work is authorized. All six ACs have scoped supporting evidence. Canonical/local Envision, catalogs, architecture and three generated skills deliver research, current-capability validation, immediate advances, ambition/breakthrough/stage distinction and role-based advisory review. Required implementation Council remains unchanged. Both source edit gates are closed.
+
+Local package: `~/.wavefoundry/dist/wavefoundry-1.39.0.q02v.zip`, version `1.39.0+q02v`, 10,948,066 bytes, SHA-256 `0ab1ad419dea2f24926ee6724201948d2ed12f67fcb9ff247ce4362cc1d60d98`. Outer/nested ZIP integrity, nested digests, 255-file source parity, VERSION/manifest/changelog and excluded root visions are verified. Dirty local source provenance is explicit; no commit, push, public release or downstream installation occurred. uv remains 0.12.22; official wheel digests and three vendored dashboard dependency copies were verified.
+
+Current canonical framework receipt: 12,291 tests / 214 files / 12 skips, inputs hash `6c38dbcb1f36eaafd53fe92bf55b630e85ba17c3bac7ca00cd3588939530d53e`, reused after packaging stamp. Second compatibility profile passed 12,283 tests / 214 files / 29 skips (17 declared default-only); declared profile passed 12,291 / 214 / 12. Exact skip-set comparisons passed. Earlier failed suite attempts remain recorded.
+
+One authorized isolated current-candidate AC-3 repeat passed with complete eight-file before/after bytes and a fresh staged reader rejecting the bad control. Original inconclusive live-wave observation remains. Fresh code, QA, architecture and docs-contract lanes, full delivery Council and operator approvals are typed in events.jsonl. Unique evidence, reproducible probes and packaging proof are retained in evaluation-evidence.json. No causal superiority, universal adherence, global filesystem/network enforcement, alternate native OS or downstream installation claim. Three oversized retained-evidence lines were skipped by the secrets scanner; no complete coverage claim. The operator confirmed the 41 displayed Git hashes are non-credentials. One later handoff occurrence was independently verified against the local v1.30.0 tag and classified under that same confirmed hash category; 42 findings total are recorded in docs/scan-findings.json. The overly broad bare-hex Sourcegraph rule is a recommended separate fix, not implemented or admitted in this wave.
+
+VISION.md was separately revised and adopted by operator direction on 2026-10-29; docs/references/project-overview.md names it as canonical product vision and roadmap. Historical trial copies retain their original proposed status and are not the current adopted text. Root vision/research/review files and docs/visions remain outside this local package. No commit is authorized; a future framework-only commit must also account for historical vision copies retained as evaluation proof.
+
+No new memory was selected: close-capture dry-run returned zero candidates; the bounded observation lesson is retained in wave Review Checkpoints. MCP loaded-code/setup-input drift remains an operational advisory; no setup/reload was performed or runtime-readiness claim made.
+
+## Prior Session — 2026-10-28
 
 **Current — idle (2026-10-28):** Wave `21y6d envision-adaptive-roadmap` is closed. It delivered ambitious product vision and adaptable technical/nontechnical roadmap guidance, adoption instructions, a request-preserving Plan change bridge, and matching upgrade/discovery surfaces. Required reviews and current 12,291-test receipt passed closure; no active wave or remaining authorized implementation work.
 

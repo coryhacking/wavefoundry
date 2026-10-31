@@ -8,6 +8,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Envision develops concrete product futures before recommending an open destination and delivers one coherent vision by default, with research in the argument and detailed review accounting in the response. A compact saved status distinguishes reviewed revisions, pending findings and later edits. A shorter strategic core loads four local phase companions at their point of use; install/upgrade guidance carries the complete set, preserving customizations and stopping conflicts. Advisory review sharpens scope and evidence challenges while retaining its bounded repair/verification rule and operator-owned strategy. Wave 220a9 / change 220a8; these are instruction changes, not a claim of general authoring superiority.
+
 ## [1.39.0] - 2026-10-29
 
 ### Added

@@ -1,0 +1,21 @@
+# Envision — Research and evidence
+
+Owner: Engineering
+Status: active
+Last verified: 2026-10-30
+
+Internal phase guidance for Envision project. Apply the core's authority and output boundaries.
+
+Follow the target's investigation instructions. With target-scoped Wavefoundry retrieval, use Guru and indexed retrieval, then validate load-bearing claims against current source. Confirm delegated workers' actual tools. If target-scoped MCP is unavailable, use targeted local inspection and disclose the evidence gap; another repository's index is not evidence for this target.
+
+Inspect relevant orientation, architecture, operating constraints and implementation. Ground capability classifications in current source, operating artifacts and attributed experience. Focused safe checks can establish consequential executable claims; plans, record validation and confident prose cannot prove shipped behavior. Do not repeat installation inventories, broad audits, unrelated suites, setup or environment changes without a decision-relevant reason and existing authority. Explain tensions between current contracts and the proposed destination, including the transition and future decision needed.
+
+Use supplied interviews, observations, usage/support evidence and adequate recent research. Invent no urgency, customers or testimony. An enduring need or provisional timing hypothesis is legitimate. Identify the cheapest useful primary research for the most consequential uncertain need; this workflow substitutes for neither stakeholder alignment nor customer validation.
+
+Research consequential choices using available products, approaches and industry practices, including successes, failures and their conditions. Scale investigation to stakes, uncertainty and decisions it could change. Record sources and dates; distinguish vendor claims, practitioner accounts and comparative evidence. Public research is not customer validation, and one outcome is not universal. Explain stale/missing evidence and implications for this product. Put decision-relevant conclusions and citations beside the argument they support, with enduring assumptions and contrary evidence visible. Do not create a source dump to satisfy a research heading.
+
+For substantial technical shifts, separate reported burden from established cause. Use relevant workload, latency, memory, failure, deployment and maintenance evidence to compare retaining/tuning the current design, targeted replacement/integration and broader migration where credible. Assess compatibility, support, operational complexity, migration cost and a useful incremental path. Technology change alone establishes no improvement. Tie expected benefits to constraints and evidence; recommend a discriminating benchmark/prototype when evidence is insufficient, or a bounded migration when supported. Neither presume a rewrite nor rule out ambitious change.
+
+For consequential evaluation claims, explain observation windows and limits, including reliability, total cost, maintenance, failures, abandonment, human rescues and delayed regressions where relevant. Use independent evaluation, repeated attempts and held-out cases when credibility requires them. For agentic systems, specifically examine evidence quality and separation of evaluator from evaluated system. State what cannot yet be justified, simulated, measured or guaranteed; do not force elaborate measurement onto a simple demonstration.
+
+An optional imagined future announcement and hard customer questions can test narrative clarity. Keep this temporary unless requested, label it imagined and never present it as testimony or validation.

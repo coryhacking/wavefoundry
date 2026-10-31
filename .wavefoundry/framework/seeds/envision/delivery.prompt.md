@@ -1,0 +1,15 @@
+# Envision — Delivery and adoption
+
+Internal phase guidance before final validation, status and adoption handoff. Apply the core's authority and output boundaries, including when review was omitted.
+
+Keep the core's compact status current. Finalize the label/status before hashing each exact-byte version, and map reviewed and delivered labels to their full SHA-256 values in the response. Never embed a document's own hash in its bytes. A status-only update also creates a new delivered revision: identify it as an unreviewed metadata change, preserving the earlier substantive coverage without claiming reviewers saw the new bytes. For later authorized edits, update the status and identify which earlier findings/checks still support the result and which changes remain unverified. A usable provisional document may have pending findings.
+
+In the response, account for selected versus executed roles, identified drafts, optional forms/lenses, actual findings/verdicts, material dispositions and changes, verification contributions, open operator decisions and unavailable/omitted coverage. Disclose shared context, model and evidence limits; earlier approval does not cover later edits by implication. Retain material evidence, not routine transcripts. An explicit evidence-location instruction can move this accounting; otherwise create no review sibling. Report historical siblings left unchanged.
+
+Check citations, links, capability classifications, dependency order and horizon content. Run applicable docs validation: target-scoped `wf_validate_docs`, otherwise the supported project check (Wavefoundry CLI: POSIX `./.wavefoundry/bin/wf docs-lint`; native Windows `.\.wavefoundry\bin\wf.cmd docs-lint`). Fix introduced document defects within the authorized repair boundary; after verification disclose remaining substantive defects rather than repairing again. Report unrelated failures without widening scope. Lint proves document consistency, not future capabilities.
+
+State adoption explicitly: authoring, review and Git tracking do not adopt the vision. Preserve existing designation. Otherwise explain the actual-path pointer the operator can authorize in `AGENTS.md` or project overview, for example `Canonical product vision and roadmap: VISION.md`; do not write it without direction.
+
+Once adopted, Plan change identifies relevant horizon/outcome and consequential prerequisites without selecting different work to manufacture alignment. Designated uncommitted visions count; committed drafts do not. Delivery evidence informs horizon progress, but recording it in the vision requires Envision revision or explicit operator edit. Planning leaves vision/review artifacts unchanged, adds no tracker, mandatory section or vision prerequisite, and accepts legitimate changes without direct fit.
+
+Return the path or requested read-only advice, central direction/value, horizons and ordered immediate advances, research/capability limits, actual review outcome and material decisions. Explain how the result meets the brief, what to inspect first and any directional change and reason. Start no subsequent work automatically.

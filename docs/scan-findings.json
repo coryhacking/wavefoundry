@@ -922,7 +922,7 @@
   {
     "id": "221a4-sec",
     "file": "docs/agents/session-handoff.md",
-    "line": 177,
+    "line": 183,
     "line_hash": "fdfcfdbd54cf",
     "context_hash": "c8a464591bfb",
     "rule_id": "sourcegraph-access-token",
