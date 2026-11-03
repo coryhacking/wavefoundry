@@ -39,6 +39,7 @@ These are the durable shortcut entry points that seeded repositories expose to u
 
 - `Init Wavefoundry` (legacy aliases: `Init wave framework` / `Install wave framework` / `Init wave context` / `Install wave context`)
 - `Upgrade Wavefoundry` (legacy aliases: `Upgrade wave framework` / `Upgrade wave context`)
+- `Plan initiative` (optional advisory planning across waves)
 - `Plan change`
 - `Create wave`
 - `Add change to wave`
@@ -55,6 +56,7 @@ In the shared pack, those map to:
 
 - `010-install-wavefoundry.prompt.md`
 - `160-upgrade-wavefoundry.prompt.md`
+- `171-plan-initiative.prompt.md`
 - `170-plan-change.prompt.md`
 - `180-implement-change.prompt.md` for `Prepare wave`, `Implement wave`, `Pause wave`, and `Review wave`
 - `180-implement-change.prompt.md`

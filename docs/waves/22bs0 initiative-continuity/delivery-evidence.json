@@ -1,0 +1,152 @@
+{
+  "scope": "Bounded workflow and delivery checks, not comparative productivity or human comprehension.",
+  "walkthrough": {
+    "case.md": "# Synthetic case: replace the weekly export\n\nOperator request: Plan the next useful advance toward replacing our manual weekly export. Priya owns the outcome: coordinators can deliver a complete export without manual repair. Keep the old export available until the receiving system accepts the replacement. Planning only; write no project files. No adopted vision exists.\n\nStart with [wave A](wave-a.md), [wave B](wave-b.md) and the [handoff](handoff.md); follow relevant references. These are isolated fixture records, not facts about Wavefoundry. Ask a focused choice if needed; do not invent an answer or execute lifecycle commands.\n",
+    "continuation-output.md": "# Continuation response\n\nPrioritize a bounded proposal for a dry-run report that helps coordinators find likely bad records while continuing to use the old export. This gives coordinators a useful improvement while receiver access is unavailable this month; it does not establish receiving-system acceptance or eliminate manual repair. Retirement stays deferred. Source: continuation.md:3.\n\nBefore switching defaults, receiver access must become available, a representative import must run, and Priya must approve it. Beneficiary confirmation also remains outstanding. The dry-run report complements those obligations; it does not satisfy them. No further access-owner choice is needed now. Sources: receiver.md:3, wave-b.md:3.\n\n# Separate response: README typo\n\nNo initiative or vision is required first. Use the ordinary Plan change workflow for the small README correction, with scope limited to correcting and checking the example command, then follow the applicable change process. Plan initiative is optional and ordinary changes need no initiative. Sources: ordinary.md:3, docs/prompts/plan-initiative.prompt.md:9.\n\nAdditional files read: fixture continuation.md and ordinary.md, via MCP code_read. No files written, lifecycle actions executed, or scoring materials read. Coordinator capture from /root/initiative_walkthrough; links shortened, substantive response retained.\n",
+    "continuation.md": "# Continuation input (synthetic operator message)\n\nThe receiver owner cannot provide access this month. Keep retirement deferred. Prioritize adding a dry-run report that lets coordinators find likely bad records while still using the old export. This is a planning choice only. Explain what this changes and what remains necessary before switching defaults.\n",
+    "facts.md": "# Prepared check facts\n\nThe outcome is usable export without manual repair, owned by Priya. Writer and Unicode tests passed; receiving-system acceptance did not. The linked receiver prerequisite requires representative import and owner approval; unavailable credentials have no promised date. The stale handoff cannot authorize retirement. Planning produces a recommendation/choice, not a readiness receipt or execution. After the supplied choice, propose the dry-run increment while retaining receiver validation and old export. No vision is needed; unrelated typo work must not acquire a mandatory initiative. These are source-fact checks, not a comparison or human productivity claim. One repair/recheck allowance; no extra batch automatically.\n",
+    "handoff.md": "# Synthetic handoff.md\n\nOlder handoff, before wave B and receiver.md: retire the old exporter next. This proposal has no separate authorization.\n",
+    "initial-output.md": "# Initial walkthrough output\n\nCaptured by the coordinator from /root/initiative_walkthrough; no product edits.\n\nPriya’s outcome is a complete weekly export that coordinators can deliver without manual repair. The next useful advance is to arrange receiver access, then run one representative import and obtain Priya’s approval before proposing a default change. Keep the old export available. Sources: case.md:3, receiver.md:3.\n\nWriter-format tests passed in Wave A, and Unicode correction tests passed in Wave B. These establish tested capabilities; receiving-system acceptance and beneficiary confirmation remain unproven. The older handoff’s retirement proposal conflicts with these later obligations and carries no separate authorization. Sources: wave-a.md:3, wave-b.md:3, handoff.md:3.\n\nThe immediate dependency is unavailable test credentials; no completion date is supported. I recommend assigning access arrangements to the receiving-system owner, with Priya retaining outcome ownership and approval. Having Priya coordinate access is another option but adds coordination work to her role. **Who should own arranging access: the receiving-system owner or Priya?** The assignment remains open; the acceptance prerequisite and old-export retention remain settled.\n\nThis is a planning proposal. No files were written or lifecycle actions executed.\n\nFiles read: .codex/skills/wf-plan-initiative/SKILL.md; docs/prompts/plan-initiative.prompt.md; .wavefoundry/framework/docs/writing-guide.md; fixture case.md, wave-a.md, wave-b.md, handoff.md, receiver.md. Fixture sources were read at mtime 2026-11-02T19:53:58Z.\n\nMCP reported setup_inputs_changed; no setup action was taken. Links shortened to relative source names in this capture; substantive response retained.\n",
+    "ordinary.md": "# Separate small request\n\nThere is no vision or initiative in this repository. Fix a typo in the README's example command. Do we need to plan an initiative first? Explain the next appropriate workflow only; do not edit anything.\n",
+    "receiver.md": "# Synthetic receiver.md\n\nPriya and the receiving-system owner require one representative import with her approval before changing the default. Test credentials are unavailable; someone must arrange access. No date is promised.\n",
+    "wave-a.md": "# Synthetic wave-a.md\n\nWave A is closed. CSV writer format tests passed. Two consumers rejected accented names. This verifies writer formatting, not end-to-end receipt. Before changing the default, follow the release prerequisite in [receiver](receiver.md).\n",
+    "wave-b.md": "# Synthetic wave-b.md\n\nWave B is closed. Unicode correction tests passed. Beneficiary confirmation remains pending. Retirement of the old export is not authorized.\n"
+  },
+  "reconciliation": {
+    "checks": {
+      "fresh_vision_unchanged": true,
+      "custom_vision_unchanged": true,
+      "conflict_vision_unchanged": true,
+      "conflict_unchanged": true,
+      "custom_only_canonical_delta": true
+    },
+    "changed_seeds": {
+      "added": [],
+      "modified": [
+        "179-envision-project.prompt.md",
+        "171-plan-initiative.prompt.md"
+      ],
+      "removed": []
+    },
+    "canonical_delta": "Return a planning brief by default. -> Return a short planning brief by default.",
+    "custom_policy": "Local metadata and coordinator terminology survive exactly.",
+    "conflict_policy": "every invocation must create a new initiative tracker file; entire conflicting prompt remains unchanged; reconciliation incomplete.",
+    "repeat": "Author inspected newly current fresh/custom, no further writes.",
+    "fixture_before_hashes": {
+      "old-171.md": "19dfc5c313d91991acae1cfdd697a22f1699328d58518116306f88ea86ef45cc",
+      "changed-seeds.json": "1a29b6262e2101e372e2b0ca87fcc9d93ee11069c480906dfb30c76cd7d5e4a5",
+      "fresh/VISION.md": "4e2e73086924603cd53f403c0eae6889b809de90652bf4f08402498379704f08",
+      "conflict/VISION.md": "4e2e73086924603cd53f403c0eae6889b809de90652bf4f08402498379704f08",
+      "custom/VISION.md": "4e2e73086924603cd53f403c0eae6889b809de90652bf4f08402498379704f08",
+      "custom/docs/prompts/plan-initiative.prompt.md": "bf8278ef96da5b801c55c5cfae6351bb5efa9d229cd9806b826cd9ae1015266e",
+      "conflict/docs/prompts/plan-initiative.prompt.md": "2c5fd1a79e4abd9a3bb9520244fade227183f8bdd74ace00329483b2100385c8"
+    }
+  },
+  "protected_artifacts": {
+    "VISION.md": true,
+    "VISION-research.md": true,
+    "VISION-review.md": true,
+    "docs/visions/relay.md": true
+  },
+  "name_reservation_controls": "FIXED_PROMPT_SLUGS deleted in process only: named collision test FAILED as expected; failures 1 errors 0\nFIXED_SKILL_NAMES deleted in process only: named collision test FAILED as expected; failures 1 errors 0\nFIXED_PROMPT_SHORTCUTS deleted in process only: named collision test FAILED as expected; failures 2 errors 0\nRestored production constants: test PASS. No source edits.\n",
+  "focused_tests": {
+    "tests": 239,
+    "seconds": 54.15,
+    "skips": 0,
+    "result": "pass"
+  },
+  "reviewed_path_hashes": {
+    ".wavefoundry/framework/seeds/008-framework-map.md": "1f1be010478a4c4900319ca02300dc8ed9e81af8",
+    ".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md": "840ace06761138049e839645c724fb1f5467bf4f",
+    ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": "b9f97a697d92cb0bf27f85aea65a1d0617a8c6c4",
+    ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "68f263ffb806a384195e6e70010e0e021e0f711c",
+    ".wavefoundry/framework/seeds/170-plan-change.prompt.md": "b63f9cd913f971b7b42f65d0804c332843237b4b",
+    ".wavefoundry/framework/seeds/171-plan-initiative.prompt.md": "7afd217bacd8cdb3e6587f88024d41bd87618a30",
+    ".wavefoundry/framework/seeds/179-envision-project.prompt.md": "7888bd1d909c43e37c038d7d2e3f141f917cf4d8",
+    ".wavefoundry/framework/seeds/envision/delivery.prompt.md": "c3d7bbadc6044a7e342ff7ca67970d430bd069d8",
+    ".wavefoundry/framework/README.md": "92e872e09d50aecf28a8ec626d71f7cb5de20eae",
+    ".wavefoundry/framework/scripts/render_agent_surfaces.py": "60adb476122f2be00dedce6bba8ad88931f2466d",
+    ".wavefoundry/framework/scripts/vocabulary_profile.py": "11a09bad03fd9d7ddea624c48e606047fa368ade",
+    ".wavefoundry/framework/scripts/tests/test_render_agent_surfaces.py": "853361c02fe1c9f1503fc6d5d712abf3595e7545",
+    ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "f80e336b56ad84ab39cf920e6d865a5e3dc599a9",
+    ".wavefoundry/framework/scripts/tests/test_initiative_planning_delivery.py": "6b7c34d3eb553ba346a015887d14143822ce2024",
+    ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "2937a1999d2cf75be809e0a2505f275fa34d9941",
+    "docs/prompts/plan-initiative.prompt.md": "5999e6f897ee2439de265a1026f880089b01b29d",
+    "docs/prompts/plan-change.prompt.md": "4fa9a20a101da7695fe5f92e9464652007a952b3",
+    "docs/prompts/envision-project.prompt.md": "f248bab0048dce395861e1b15bf17bf4631896b0",
+    "docs/prompts/agents/envision/delivery.prompt.md": "9fc916d8d1410486f59949d95d0d02706c75874f",
+    "docs/prompts/upgrade-wavefoundry.prompt.md": "19f911ce94dff428576b6031a1b8964ab79dca2a",
+    "docs/prompts/index.md": "80090a1c56c01c2f49bfc690876a3dec31aefd47",
+    "docs/prompts/prompt-surface-manifest.json": "9c0c4cdc6be4947e6d985d577afb1f4504ec397a",
+    "AGENTS.md": "cd8f19d9d602306817735da756d2d211afec4a3d",
+    "CHANGELOG.md": "2443c449771b31d85d24a2b9e5dd84f79036a2a5",
+    "docs/agents/platform-mapping.md": "7bcf1a3cba825ced41eb0dada5770c3a719b6b83",
+    "docs/architecture/data-and-control-flow.md": "fb39d2c3e65076460f0a9be8ec06f585b7a25f12",
+    ".agents/skills/wf-plan-initiative/SKILL.md": "cd872776769036296fb8e2c000f68ce71c65dd26",
+    ".claude/skills/wf-plan-initiative/SKILL.md": "cd872776769036296fb8e2c000f68ce71c65dd26",
+    ".codex/skills/wf-plan-initiative/SKILL.md": "cd872776769036296fb8e2c000f68ce71c65dd26"
+  },
+  "framework_suite": {
+    "result": "pass",
+    "tests": 12300,
+    "files": 216,
+    "skips": 12,
+    "seconds": 593.852,
+    "command": "/Users/coryhacking/.wavefoundry/venv/bin/python3 .wavefoundry/framework/scripts/run_tests.py",
+    "environment": "Host access; source unchanged after sandbox refusal.",
+    "prior_run": {
+      "result": "fail",
+      "tests": 12300,
+      "files": 216,
+      "skips": 12,
+      "seconds": 558.647,
+      "cause": "Sandbox denied local sockets/process inspection, uv-bootstrap temporary file and pip cache access. All six failed modules pass with host access.",
+      "refused_execution": "183172efe0134099a009c8f58b7693c9"
+    }
+  },
+  "framework_receipt": {
+    "result": "ok",
+    "inputs_hash": "3d4096b5b1c2caed05f17c251aa450dc7dc72e3acd9b4c81bff7488fac48cf4b",
+    "test_count": 12300
+  },
+  "post_review_metadata": {
+    "plan_handoff": "Corrected stale preimplementation state. Requirements, ACs and source behavior unchanged.",
+    "ready_receipt": "review-policy-fe518e1fbb78e02a6045",
+    "verification_dates": {
+      "docs/prompts/plan-change.prompt.md": "2026-10-28 -> 2026-11-02",
+      "docs/agents/platform-mapping.md": "2026-10-28 -> 2026-11-02"
+    },
+    "verification": "Independent chair reversed each date and git hash-object reproduced original reviewed-path hash exactly."
+  },
+  "final_reviewed_path_hashes": {
+    ".wavefoundry/framework/seeds/008-framework-map.md": "1f1be010478a4c4900319ca02300dc8ed9e81af8",
+    ".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md": "840ace06761138049e839645c724fb1f5467bf4f",
+    ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": "b9f97a697d92cb0bf27f85aea65a1d0617a8c6c4",
+    ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "68f263ffb806a384195e6e70010e0e021e0f711c",
+    ".wavefoundry/framework/seeds/170-plan-change.prompt.md": "b63f9cd913f971b7b42f65d0804c332843237b4b",
+    ".wavefoundry/framework/seeds/171-plan-initiative.prompt.md": "7afd217bacd8cdb3e6587f88024d41bd87618a30",
+    ".wavefoundry/framework/seeds/179-envision-project.prompt.md": "7888bd1d909c43e37c038d7d2e3f141f917cf4d8",
+    ".wavefoundry/framework/seeds/envision/delivery.prompt.md": "c3d7bbadc6044a7e342ff7ca67970d430bd069d8",
+    ".wavefoundry/framework/README.md": "92e872e09d50aecf28a8ec626d71f7cb5de20eae",
+    ".wavefoundry/framework/scripts/render_agent_surfaces.py": "60adb476122f2be00dedce6bba8ad88931f2466d",
+    ".wavefoundry/framework/scripts/vocabulary_profile.py": "11a09bad03fd9d7ddea624c48e606047fa368ade",
+    ".wavefoundry/framework/scripts/tests/test_render_agent_surfaces.py": "853361c02fe1c9f1503fc6d5d712abf3595e7545",
+    ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "f80e336b56ad84ab39cf920e6d865a5e3dc599a9",
+    ".wavefoundry/framework/scripts/tests/test_initiative_planning_delivery.py": "6b7c34d3eb553ba346a015887d14143822ce2024",
+    ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "2937a1999d2cf75be809e0a2505f275fa34d9941",
+    "docs/prompts/plan-initiative.prompt.md": "5999e6f897ee2439de265a1026f880089b01b29d",
+    "docs/prompts/plan-change.prompt.md": "babca045ebd5dd99204f912586061d61806b8f82",
+    "docs/prompts/envision-project.prompt.md": "f248bab0048dce395861e1b15bf17bf4631896b0",
+    "docs/prompts/agents/envision/delivery.prompt.md": "9fc916d8d1410486f59949d95d0d02706c75874f",
+    "docs/prompts/upgrade-wavefoundry.prompt.md": "19f911ce94dff428576b6031a1b8964ab79dca2a",
+    "docs/prompts/index.md": "80090a1c56c01c2f49bfc690876a3dec31aefd47",
+    "docs/prompts/prompt-surface-manifest.json": "9c0c4cdc6be4947e6d985d577afb1f4504ec397a",
+    "AGENTS.md": "cd8f19d9d602306817735da756d2d211afec4a3d",
+    "CHANGELOG.md": "2443c449771b31d85d24a2b9e5dd84f79036a2a5",
+    "docs/agents/platform-mapping.md": "270c6e82ada70935ac84345bb325c603ca3227bd",
+    "docs/architecture/data-and-control-flow.md": "fb39d2c3e65076460f0a9be8ec06f585b7a25f12",
+    ".agents/skills/wf-plan-initiative/SKILL.md": "cd872776769036296fb8e2c000f68ce71c65dd26",
+    ".claude/skills/wf-plan-initiative/SKILL.md": "cd872776769036296fb8e2c000f68ce71c65dd26",
+    ".codex/skills/wf-plan-initiative/SKILL.md": "cd872776769036296fb8e2c000f68ce71c65dd26"
+  }
+}

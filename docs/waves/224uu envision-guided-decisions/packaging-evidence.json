@@ -1,0 +1,38 @@
+{
+  "version": "1.39.0+q0fz",
+  "archive": "/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.39.0.q0fz.zip",
+  "bytes": 10963236,
+  "sha256": "2faf25a65c463419408caeeea48a9c97cd2c1608043ba0edf38eaa46ccae2596",
+  "checks": {
+    "matching_source_files": 260,
+    "changelog_exact": true,
+    "envision_core_and_companions_exact": true,
+    "guided_decision_and_unified_statement_present": true,
+    "writing_guide_not_included": true,
+    "nested_hashes_and_feature_bytes_match": true,
+    "zip_integrity": "ok",
+    "uv_pin": "uv==0.12.22"
+  },
+  "provenance": {
+    "build_id": "q0fz",
+    "release_tag": null,
+    "release_version": "1.39.0+q0fz",
+    "schema_version": 1,
+    "source_commit": "bee6fd9335e8b4c175567d1b4c603d6da00cf2ce",
+    "source_tree_clean": false
+  },
+  "qualification": {
+    "default": "12,291 tests / 214 files / 12 skips; matching executed detail reused",
+    "second": "12,283 tests / 214 files / 29 skips; 17 marked default-profile-only",
+    "declared": "12,291 tests / 214 files / 12 skips",
+    "comparisons": "both equal",
+    "reports_prefix": ".wavefoundry/cache/qualification/envision-package-"
+  },
+  "limits": [
+    "Local build from uncommitted source, not a public release.",
+    "No target upgrade or native Windows qualification performed.",
+    "Optional online vendored-script verification not run; existing vendored bytes unchanged.",
+    "Model bundle not rebuilt; selected uv pin retained by operator direction.",
+    "Separate writing-guide wave224i4 is planning only and is not shipped."
+  ]
+}

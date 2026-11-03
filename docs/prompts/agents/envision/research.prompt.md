@@ -2,13 +2,17 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-30
+Last verified: 2026-11-03
 
 Internal phase guidance for Envision project. Apply the core's authority and output boundaries.
 
 Follow the target's investigation instructions. With target-scoped Wavefoundry retrieval, use Guru and indexed retrieval, then validate load-bearing claims against current source. Confirm delegated workers' actual tools. If target-scoped MCP is unavailable, use targeted local inspection and disclose the evidence gap; another repository's index is not evidence for this target.
 
 Inspect relevant orientation, architecture, operating constraints and implementation. Ground capability classifications in current source, operating artifacts and attributed experience. Focused safe checks can establish consequential executable claims; plans, record validation and confident prose cannot prove shipped behavior. Do not repeat installation inventories, broad audits, unrelated suites, setup or environment changes without a decision-relevant reason and existing authority. Explain tensions between current contracts and the proposed destination, including the transition and future decision needed.
+
+For a product within an organization, use authorized supplied/internal material and current official public sources where access is permitted. Follow consequential references about mission, offerings, customer/use-case evidence, positioning, channels, partnerships and operating obligations; examine only what could change the recommendation. Reuse known answers and disclose unavailable internal context. Public marketing establishes published claims, not validated demand, customer outcomes, internal strategy or binding commitments by itself. Distinguish documented commitments, stated mission, current choices and hypotheses; surface conflicts rather than silently choosing a source as authority.
+
+Consider how the product complements, extends, integrates with or replaces offerings, and the value for beneficiaries and the organization. Connect consequential shared capabilities, ownership, dependencies and adoption channels to the roadmap without presuming participation. Changes to company commitments or product responsibility remain operator decisions. Integrate evidence that changes the direction and remaining assumptions into the argument, not a company dossier.
 
 Use supplied interviews, observations, usage/support evidence and adequate recent research. Invent no urgency, customers or testimony. An enduring need or provisional timing hypothesis is legitimate. Identify the cheapest useful primary research for the most consequential uncertain need; this workflow substitutes for neither stakeholder alignment nor customer validation.
 

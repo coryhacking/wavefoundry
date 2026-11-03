@@ -1,0 +1,478 @@
+{
+  "wave": "224uu",
+  "date": "2026-10-31",
+  "scope": "Independent delivery review of frozen final source and retained bounded evidence; no new behavioral trial.",
+  "artifacts": {
+    "delivery-packet.json": {
+      "sha256": "9856b1ed00cf08eb947b46098fe4b87cb1cee399a9b26bcdc5eb300e37e0e8ac",
+      "content": {
+        "tree_fingerprint": {
+          ".wavefoundry/framework/seeds/179-envision-project.prompt.md": "8429b142ea02bcb1cd91167ffc311c6fb2f42988",
+          ".wavefoundry/framework/seeds/envision/review.prompt.md": "40d661b1ed5d7a9b79cef36117421c3f9f8577b4",
+          ".wavefoundry/framework/seeds/envision/delivery.prompt.md": "052d4e9990436b8343e7487bb53f63cb8c65d359",
+          "docs/prompts/envision-project.prompt.md": "02081f44a2043abad1476f425b7c01c03810fbe7",
+          "docs/prompts/agents/envision/review.prompt.md": "9846c9dc2702cbdd59f2193e09f7cdc53909be55",
+          "docs/prompts/agents/envision/delivery.prompt.md": "083ea58a40b7db44a6c133c16b3622cbab1e4ea2",
+          "docs/architecture/data-and-control-flow.md": "8249f46ee9c7ed3dc9a746e62c09bad49e0a0f01",
+          "CHANGELOG.md": "e7f325a57bd0ba81dceabdd494cc88233c73d24e",
+          "docs/waves/224uu envision-guided-decisions/224ut-enh envision-guided-decisions.md": "f78248f005c83a2135fad5b51adc214ac711d89c",
+          "docs/waves/224uu envision-guided-decisions/evaluation-evidence.json": "8808fbe67bddc2d5d503d8010ba2a5aa77854106"
+        },
+        "time_budget": "6 minutes per lane; return current evidence and omissions; no new authoring batches",
+        "sweep_rule": "Targeted checks against retained frozen bad controls; no broad tests or new mutants unless a survivor requires them. Include mutation/control table.",
+        "scope": "Source-only guided choices plus unified opening. Source-before.json is true224uu baseline; git diff includes earlier224us company changes. No package build/upgrade or real visions altered.",
+        "evidence": "docs/waves/224uu envision-guided-decisions/evaluation-evidence.json",
+        "test_receipt": {
+          "inputs_hash": "e16ce391848e53be93a7ef273df398da4684b8c66db93e7195acbb4169d38dba",
+          "ran_at": "2026-10-31T23:25:44.363082+00:00",
+          "test_count": 12291,
+          "result": "ok",
+          "file_count": 214,
+          "skipped": 12,
+          "wall_seconds": 552.279,
+          "report": ".wavefoundry/cache/qualification/224uu-default.json"
+        },
+        "candidate_boundary": "Original interaction probes used earlier candidate retained in evidence. Opening probes use final candidate; verify added source clauses do not invalidate prior decision behavior. Cut rule timing disclosed.",
+        "intent_check": "QA must independently confirm/correct Intent outcome in wave Review Checkpoints. All4requiredACs need evidence."
+      }
+    },
+    "delivery-qa.json": {
+      "sha256": "8ba2d98d4e21490a7dcc7e534cbc21212cbfa9fe0d726386aaa276825c3887bf",
+      "content": {
+        "lane": "qa-reviewer",
+        "wave": "224uu",
+        "change": "224ut",
+        "verdict": "pass_with_stated_limits",
+        "findings": [],
+        "review_context": {
+          "actor": "qa-reviewer",
+          "context_id": "224uu-decision-delivery-qa",
+          "fresh_context": true,
+          "independent": true,
+          "basis": "Fresh context; no source implementation, earlier review, authoring run or repair. Independently read admitted ACs and final guidance before inspecting retained judgments. Reused exact executed probe evidence rather than claiming another behavioral replication."
+        },
+        "scope": "Required AC-1 through AC-4; final source and retained bounded synthetic evaluation. No adoption, operator approval or lifecycle mutation.",
+        "intent_outcome": {
+          "assessment": "confirm",
+          "text": "Achieved within the bounded source and synthetic-evaluation scope. The actual scripted combination changes responsibilities and next learning step; selected and no-interview branches preserve their boundaries. Final-guidance openings independently communicate purpose, future and value. Original interaction evidence remains limited to its retained earlier candidate. Human understanding, field efficacy, universal adherence and comparative improvement are unproven."
+        },
+        "ac_evidence": [
+          {
+            "ac": "AC-1",
+            "result": "verified",
+            "evidence": "Direct final core lines43-51, review lines7/24-30 and delivery lines9/15; independently normalized all five canonical/local bodies: equal. Final retained candidate equals all three changed canonical files. Core1897/family3929 words, documented growth supplies guided choice and unified meaning. Existing no-interview, authority, phase loading and bounded repair remain explicit."
+          },
+          {
+            "ac": "AC-2",
+            "result": "verified_for_original_candidate",
+            "evidence": "Retained interactive-turn1 develops three beneficiary experiences/obligations, calls its recommendation tentative and asks one direction question. turn1-frozen hash matches exact response. turn2 reflects continuity plus individual notebook, preserves team assignment/authorization, defers hosted storage and proposes an offline trial. Independent reconstruction identifies these changes. Frozen silence and ignored_reply controls rejected again in this review."
+          },
+          {
+            "ac": "AC-3",
+            "result": "verified_for_original_candidate_with_final_compatibility_review",
+            "evidence": "Lantern preserves chosen continuity and proposes timeline/index observation without strategic reopening. Mosaic gives provisional personal-work direction and cheap critique test without a question or assumed adoption. Rote_interview control contradicts both and is rejected. Canonical qualification214 complete workers,12291 tests,12 explained environment/fixture skips,no failed workers; current receipt hash matches source. Family mapping/protected-source preservation is retained contract evidence, not a newly executed upgrade."
+          },
+          {
+            "ac": "AC-4",
+            "result": "verified_for_final_candidate_openings",
+            "evidence": "Opening A conveys group continuity through source-linked history independent of former leaders; B conveys cumulative individual creative growth with explicit provisional status. Opening-only reconstruction recovers these before brief/anchor assessment. Generic slogan and feature inventory fail specific connected meaning. Selected opening omits adoption status but does not claim adoption; bounded AC concerns opening meaning, not complete delivery status."
+          }
+        ],
+        "control_mutation_table": [
+          {
+            "id": "silence",
+            "expected": "reject invented selection and dependent review",
+            "observed": "reject; no answer cannot select coordination",
+            "method": "retained frozen bad response; independently reassessed"
+          },
+          {
+            "id": "ignored_reply",
+            "expected": "reject substituted destination, resolved storage and implementation",
+            "observed": "reject; directly contradicts frozen operator reply",
+            "method": "retained frozen bad response; independently reassessed"
+          },
+          {
+            "id": "rote_interview",
+            "expected": "reject forced interview and settled-strategy reopening",
+            "observed": "reject; violates Mosaic form and Lantern selected destination",
+            "method": "retained frozen bad response; independently reassessed"
+          },
+          {
+            "id": "generic_slogan",
+            "expected": "reject missing specific purpose/future/value",
+            "observed": "reject; generic innovation could describe unrelated projects",
+            "method": "retained frozen bad opening; independently reassessed"
+          },
+          {
+            "id": "feature_inventory",
+            "expected": "reject capabilities without coherent beneficiary outcome",
+            "observed": "reject; neither continuity nor cumulative creative growth is conveyed",
+            "method": "retained frozen bad opening; independently reassessed"
+          }
+        ],
+        "candidate_compatibility": "Exact original-to-final diff changes only core opening paragraph and opening checks in existing review/delivery guidance. It retains the decision paragraphs unchanged; the new paragraph explicitly preserves selected destination, labels exploratory recommendation provisional and scopes guided choices to requested interview scope. No conflict found with observed earlier interaction behavior. This is source compatibility review, not final-candidate rerun of AC-2/3.",
+        "staging": "Author packets exclude scoring anchors, controls and the frozen scripted reply. Reader reconstruction packet has questions/transcripts but no scoring; opening reader receives only labels and first prose paragraphs. Scoring packets are separate and reference frozen reconstruction. All31 retained sha256/content pairs verified. Exact packet structure and hash linkage verified; historical access chronology is retained provenance, not independently observable from hashes alone. Post-generation/pre-inspection first-paragraph cut rule is disclosed and was mechanical, not a selected best paragraph.",
+        "qualification": {
+          "receipt_matches_current_hash": true,
+          "inputs_hash": "e16ce391848e53be93a7ef273df398da4684b8c66db93e7195acbb4169d38dba",
+          "test_count": 12291,
+          "worker_count": 214,
+          "skipped": 12,
+          "failed_or_incomplete_workers": 0,
+          "method": "Read canonical test-cache and complete qualification report; independently invoked read-only run_tests._hash_inputs; no suite rerun."
+        },
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "closest-safe-method: independently reassessed five retained frozen contradictory-output controls, with adjacent valid synthetic outputs; no source mutant or new authoring batch"
+        },
+        "integrity_scope": "Booleans apply to selected bounded prompt/excerpt evaluation and this complete retained-evidence review. The named faithful boundary is fresh authors consuming Envision guidance for synthetic excerpts, not completed real-project Envision or real-human comprehension. Canonical suite has12 explained skips and does not prove conversational adherence.",
+        "independent_reference": "Independently read admitted Product Intent/R1-R7/AC1-4 and exact operator briefs; falsifiers are invented direction/authority, ignored combination/deferral, forced interview, or missing project-specific connected meaning. Common mode: synthetic authors/readers and selected conspicuous controls, no model diversity or human sample.",
+        "evidence": "docs/waves/224uu envision-guided-decisions/evaluation-evidence.json plus final source paths in delivery packet; qualification report .wavefoundry/cache/qualification/224uu-default.json",
+        "limitations": [
+          "No new authoring, full vision, installation/upgrade, external research, field observation or suite run.",
+          "Interaction candidate predates opening change; compatibility inferred from exact source delta, not behaviorally replicated.",
+          "Retained probe context chronology is self-reported provenance; packet hashes prove integrity, not authenticated isolation.",
+          "Opening-cut rule fixed after generation but before inspection, so not fully preregistered extraction.",
+          "Controls are conspicuous invalid outputs; rejection is not evidence of improved reliability or comparative benefit.",
+          "Final full docs validation remains coordinator handoff responsibility; QA changed only this disposable report."
+        ],
+        "time_budget": "6 minutes per lane; return current evidence and omissions; no new authoring batches",
+        "sweep_rule": "Targeted checks against retained frozen bad controls; no broad tests or new mutants unless a survivor requires them. Include mutation/control table.",
+        "fingerprint_recheck": {
+          ".wavefoundry/framework/seeds/179-envision-project.prompt.md": {
+            "expected": "8429b142ea02bcb1cd91167ffc311c6fb2f42988",
+            "actual": "8429b142ea02bcb1cd91167ffc311c6fb2f42988",
+            "matches": true
+          },
+          ".wavefoundry/framework/seeds/envision/review.prompt.md": {
+            "expected": "40d661b1ed5d7a9b79cef36117421c3f9f8577b4",
+            "actual": "40d661b1ed5d7a9b79cef36117421c3f9f8577b4",
+            "matches": true
+          },
+          ".wavefoundry/framework/seeds/envision/delivery.prompt.md": {
+            "expected": "052d4e9990436b8343e7487bb53f63cb8c65d359",
+            "actual": "052d4e9990436b8343e7487bb53f63cb8c65d359",
+            "matches": true
+          },
+          "docs/prompts/envision-project.prompt.md": {
+            "expected": "02081f44a2043abad1476f425b7c01c03810fbe7",
+            "actual": "02081f44a2043abad1476f425b7c01c03810fbe7",
+            "matches": true
+          },
+          "docs/prompts/agents/envision/review.prompt.md": {
+            "expected": "9846c9dc2702cbdd59f2193e09f7cdc53909be55",
+            "actual": "9846c9dc2702cbdd59f2193e09f7cdc53909be55",
+            "matches": true
+          },
+          "docs/prompts/agents/envision/delivery.prompt.md": {
+            "expected": "083ea58a40b7db44a6c133c16b3622cbab1e4ea2",
+            "actual": "083ea58a40b7db44a6c133c16b3622cbab1e4ea2",
+            "matches": true
+          },
+          "docs/architecture/data-and-control-flow.md": {
+            "expected": "8249f46ee9c7ed3dc9a746e62c09bad49e0a0f01",
+            "actual": "8249f46ee9c7ed3dc9a746e62c09bad49e0a0f01",
+            "matches": true
+          },
+          "CHANGELOG.md": {
+            "expected": "e7f325a57bd0ba81dceabdd494cc88233c73d24e",
+            "actual": "e7f325a57bd0ba81dceabdd494cc88233c73d24e",
+            "matches": true
+          },
+          "docs/waves/224uu envision-guided-decisions/224ut-enh envision-guided-decisions.md": {
+            "expected": "f78248f005c83a2135fad5b51adc214ac711d89c",
+            "actual": "f78248f005c83a2135fad5b51adc214ac711d89c",
+            "matches": true
+          },
+          "docs/waves/224uu envision-guided-decisions/evaluation-evidence.json": {
+            "expected": "8808fbe67bddc2d5d503d8010ba2a5aa77854106",
+            "actual": "8808fbe67bddc2d5d503d8010ba2a5aa77854106",
+            "matches": true
+          }
+        },
+        "fingerprint_all_match": true,
+        "finished_at": "2026-10-31T23:27:58.031472+00:00"
+      }
+    },
+    "delivery-arch.json": {
+      "sha256": "9cf411c5174895a32bfff24d46f13b9bfcebfc5bb1f9d38bb13d723fc65d13bd",
+      "content": {
+        "wave": "224uu",
+        "change": "224ut",
+        "lane": "architecture-reviewer",
+        "verdict": "approve",
+        "findings": [],
+        "boundaries_touched": [
+          "Canonical Envision strategy core -> project-local guidance",
+          "Author -> operator strategic selection -> separate adoption/implementation",
+          "Core -> existing review/delivery phases"
+        ],
+        "invariants": [
+          {
+            "claim": "Conditional pause only blocks dependent recommendation/review; concrete alternatives precede choice; one actual answer propagates before next dependent action. Chosen and explicit no-interview branches remain useful.",
+            "source": ".wavefoundry/framework/seeds/179-envision-project.prompt.md:39-47"
+          },
+          {
+            "claim": "Unified paragraph is presentation guidance, not permission to resolve incompatible strategy; provisional recommendation is allowed within requested interview scope.",
+            "source": ".wavefoundry/framework/seeds/179-envision-project.prompt.md:51-53"
+          },
+          {
+            "claim": "Advisory reviewer agreement cannot select strategy, adopt vision, or grant lifecycle/implementation authority. Delivery preserves bounded repair and later revision coverage.",
+            "source": ".wavefoundry/framework/seeds/envision/review.prompt.md:24-30; .wavefoundry/framework/seeds/envision/delivery.prompt.md:11-15"
+          },
+          {
+            "claim": "Architecture flow accurately describes changed transition, scoped pause, paragraph, and existing phase/adoption ownership. Existing explicit seed160 family mappings cover all changed members; no new runtime edge, protocol or ADR is needed.",
+            "source": "docs/architecture/data-and-control-flow.md:171-183; .wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md:495-505"
+          }
+        ],
+        "command_or_fixture": "Independent current-source/baseline comparison and retained-output evaluation; evaluation-evidence.json original_batch and statement_extension; local SHA-256/Git-blob hash/parity verification",
+        "expected": "Source preserves operator authority and phase ownership; actual outputs respect combination/defer/chosen/no-interview cases; five bad controls rejected; frozen source and local mirrors match.",
+        "observed": "All 10 packet Git-blob fingerprints match. Every retained artifact SHA-256 matches its content. Final candidate matches current source; all five canonical/local bodies match. Source-before baseline diff confines behavior to decision transition and opening/readback reminders. Retained Trailbook turns concretize three futures, ask one consequential question without selection, then reflect team continuity plus individual utility while leaving assignment/authorization to humans and storage deferred with offline trial. Lantern preserves chosen direction; Mosaic remains provisional without interview. Opening paragraphs convey continuity and personal creative growth respectively; subsequent roadmap is distinct. All five controls independently rejected below.",
+        "control_mutation_table": [
+          {
+            "control": "silence",
+            "expected": "reject",
+            "observed": "Rejected: nonresponse cannot select team coordination or authorize reviewers to finalize it; violates core43-45.",
+            "adjacent_control": "interactive-turn1 remains tentative and ends in one focused question"
+          },
+          {
+            "control": "ignored_reply",
+            "expected": "reject",
+            "observed": "Rejected: hosted personal journal contradicts selected team continuity and deferred storage, and implementation exceeds authority.",
+            "adjacent_control": "interactive-turn2 retains human work authority and proposes cheap offline handoff test"
+          },
+          {
+            "control": "rote_interview",
+            "expected": "reject",
+            "observed": "Rejected: forces prohibited Mosaic interview and reopens chosen Lantern strategy.",
+            "adjacent_control": "chosen-output and draft-output honor distinct supplied requests"
+          },
+          {
+            "control": "generic_slogan",
+            "expected": "reject",
+            "observed": "Rejected: no project-specific purpose, beneficiary experience or intended future can be recovered.",
+            "adjacent_control": "selected opening explains source-linked continuity for incoming coordinators"
+          },
+          {
+            "control": "feature_inventory",
+            "expected": "reject",
+            "observed": "Rejected: feature list mixes projects and omits enduring beneficiary outcome.",
+            "adjacent_control": "provisional opening identifies cumulative personal creative growth and retains provisional status"
+          }
+        ],
+        "artifact_or_test_id": "docs/waves/224uu envision-guided-decisions/evaluation-evidence.json; .wavefoundry/framework/test-cache.json",
+        "adjacent_controls": [
+          "original interactive first/second turns",
+          "chosen and no-interview outputs",
+          "selected and provisional opening paragraphs"
+        ],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true
+        },
+        "known_bad_detection_method": "Independent evaluation of frozen injected-bad response controls at the retained author-output boundary; not a new author-generation or source-mutation run.",
+        "fingerprint_check": {
+          "all_packet_paths_match": true,
+          "count": 10,
+          "canonical_local_body_parity": true,
+          "retained_artifact_hashes_match": true,
+          "final_candidate_matches_source": true
+        },
+        "candidate_boundary": "Original staged interaction used retained earlier candidate. Final diff adds unified paragraph and its review/delivery checks; no decision-transition edits after that batch. Opening probes use final candidate. Compatibility of the two is source-reviewed, not newly re-executed interaction evidence.",
+        "qualification": {
+          "receipt_result": "ok",
+          "inputs_hash": "e16ce391848e53be93a7ef273df398da4684b8c66db93e7195acbb4169d38dba",
+          "test_count": 12291,
+          "reported_skips": 12,
+          "assessment": "Existing green receipt matches delivery packet. Suite not rerun; skipped tests are not claimed as exercised by this lane."
+        },
+        "limitations": [
+          "Synthetic excerpts only: no observed human comprehension, comparative superiority, complete-vision generation, or Plan change carry-through.",
+          "No target upgrade/install/package run; mapping compatibility is source-level.",
+          "First-paragraph cut rule was recorded after generation and before coordinator inspection, as disclosed; no preregistration claim.",
+          "No new author batch, source mutant, broad test or environment change. Startup reads were output-truncated; relevant affected sources, architecture section, control artifacts and actual baseline/final diff were read directly afterward.",
+          "MCP code_read was callable and used for affected sources; reports setup_inputs_changed. No setup/index operation performed.",
+          "Independent reviewer did not implement changes; shared project framing and retained author evidence are disclosed. Model diversity was not established."
+        ],
+        "safety_and_authorization": "Authorized read-only architecture review plus one disposable verdict artifact; no source/docs/ledger edits.",
+        "probe_class": "local_safe",
+        "authorization_status": "authorized",
+        "safe_boundary": false,
+        "unexecuted_remainder_prohibited": false,
+        "universal_claim": false,
+        "verification_context": {
+          "actor": "architecture-reviewer",
+          "context_id": "224uu-decision-delivery-arch",
+          "fresh_context": true,
+          "independent": true
+        }
+      }
+    },
+    "delivery-docs.json": {
+      "sha256": "d93f54f3bf6a23375fd53c587b3bcf5fc15be3e5372c652ec466398d149b7a66",
+      "content": {
+        "role": "docs-contract-reviewer",
+        "wave": "224uu",
+        "change": "224ut",
+        "verdict": "approved",
+        "findings": [],
+        "proposition": "The frozen final core and companions deliver the admitted guided-choice and unified-opening contracts, with exact local parity and accurately bounded retained evidence.",
+        "counterexample_or_failure_condition": "Mandatory interviews, assumed selection/adoption, missing coherent opening, contradictory phase guidance, source/local drift, or evidence falsely attributed to the final candidate.",
+        "execution_status": "executed",
+        "public_path": "Envision canonical and project-local instruction surfaces; retained synthetic conversation and opening artifacts are the closest faithful authoring-output boundary, re-evaluated directly without new authoring.",
+        "command_or_fixture": "MCP code_read/code_keyword of core/review/delivery, seed160 family mapping, architecture and changelog; Python exact-byte Git-blob/SHA256/parity assertions; direct semantic evaluation of retained outputs and five frozen controls.",
+        "expected": "Five family bodies equal after title/local metadata; ten packet fingerprints unchanged; retained hashes valid; legitimate cases satisfy conditional choice and opening meaning; known-bad responses fail.",
+        "observed": "Five body parity assertions and ten fingerprint checks passed; 31 retained content/hash records verified. Final three candidate bytes equal current source. Earlier-to-final diff contains only opening requirement and matching review/delivery reminders. Selected opening preserves group continuity; provisional opening coherently recommends personal creative continuity without claiming selection. Architecture and changelog state corresponding behavior; seed160 explicitly maps all five family members and reconciles companion-only changes.",
+        "affected_contract_surfaces": [
+          ".wavefoundry/framework/seeds/179-envision-project.prompt.md",
+          ".wavefoundry/framework/seeds/envision/review.prompt.md",
+          ".wavefoundry/framework/seeds/envision/delivery.prompt.md",
+          "docs/prompts/envision-project.prompt.md",
+          "docs/prompts/agents/envision/review.prompt.md",
+          "docs/prompts/agents/envision/delivery.prompt.md",
+          "docs/architecture/data-and-control-flow.md",
+          "CHANGELOG.md",
+          "docs/waves/224uu envision-guided-decisions/224ut-enh envision-guided-decisions.md",
+          "docs/waves/224uu envision-guided-decisions/evaluation-evidence.json"
+        ],
+        "requirements": {
+          "R1-R4": "Core Explore then recommend: consequence trigger, dependency-order question, actual answer propagation, independent work, explicit no-interview and deferral branches, selection distinct from adoption/implementation.",
+          "R5": "Review checks guided choice or honored deferral; delivery returns material choices within scope and preserves bounded repair.",
+          "R6": "Five canonical/local bodies match; company-context, research/revision phase-loading and authority text preserved. Family mapping covers current files; no new command or role.",
+          "R7": "Core Write section explicitly requires one meaningful standalone paragraph before roadmap; review checks opening alone and strategic status; delivery repeats meaning/status check."
+        },
+        "control_mutation_table": [
+          {
+            "control": "interactive-turn1/turn2",
+            "expected": "Provisional options before answer; actual combination and hosting deferral after it",
+            "observed": "Three futures, one focused choice; continuation preserves team continuity plus individual value, excludes assigning/authorizing work, proposes cheap offline handoff test",
+            "result": "accepted"
+          },
+          {
+            "control": "chosen-output and draft-output",
+            "expected": "No rote reopening or imposed interview",
+            "observed": "Chosen continuity preserved; Mosaic draft asks no question, keeps recommendation provisional and proposes critique observation",
+            "result": "accepted"
+          },
+          {
+            "control": "selected/provisional opening excerpts",
+            "expected": "Purpose, future and value reconstructable alone with faithful status",
+            "observed": "Incoming coordinators recover decision context without prior leaders; creators carry ideas forward cumulatively. Provisional label explicit",
+            "result": "accepted"
+          },
+          {
+            "control": "silence",
+            "expected": "Reject selecting on nonresponse",
+            "observed": "Selects coordination and dependent review on silence, contrary to core; rejected by this reviewer",
+            "result": "rejected"
+          },
+          {
+            "control": "ignored_reply",
+            "expected": "Reject reply override and invented authority",
+            "observed": "Hosted personal roadmap contradicts selected team continuity and hosting deferral; implementation invented; rejected",
+            "result": "rejected"
+          },
+          {
+            "control": "rote_interview",
+            "expected": "Reject compulsory questions/reopened strategy",
+            "observed": "Mosaic interview violates no-question request; Lantern commercial reopening violates chosen destination; rejected",
+            "result": "rejected"
+          },
+          {
+            "control": "generic_slogan",
+            "expected": "Reject generic opening",
+            "observed": "Innovation/empowerment names no distinctive purpose, beneficiary or future; cannot reconstruct project meaning; rejected",
+            "result": "rejected"
+          },
+          {
+            "control": "feature_inventory",
+            "expected": "Reject feature list as vision",
+            "observed": "Lists interfaces/formats without enduring purpose or beneficiary outcome; rejected",
+            "result": "rejected"
+          }
+        ],
+        "evidence_boundary": "Original interaction candidate predates opening addition and is retained exactly. Final diff adds presentation and meaning/status review only; it preserves choice/no-interview behavior. Opening probes exercise final guidance separately. Mechanical cut rule timing is disclosed as after generation before inspection, not falsely preregistered. Compatibility is source assessment, not a rerun of interaction under final guidance.",
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true
+        },
+        "known_bad_detection_method": "Independent direct semantic re-evaluation of five retained frozen bad-response controls against actual contract and briefs; no new mutant or authoring trial.",
+        "limitations": [
+          "Synthetic excerpts establish these cases only, not actual human comprehension, field usefulness, comparative superiority, full visions, later Plan change or downstream upgrade execution.",
+          "Original reply confirms favored beneficiary with responsibility constraints; no reversal-of-recommendation test.",
+          "No package build, install, suite rerun or new authoring batch. Existing canonical receipt is coordinator evidence, not my test execution.",
+          "MCP setup_inputs_changed warning observed; direct live-file reads used, no setup/index mutation or readiness claim.",
+          "Initial bulk orientation output truncated; targeted contract/source evidence fully read. Model identity diversity unobserved."
+        ],
+        "safety_and_authorization": "Read-only independent review authorized by coordinator; only this disposable report written. No source, docs or ledger mutation.",
+        "probe_class": "local_safe",
+        "authorization_status": "authorized",
+        "safe_boundary": false,
+        "unexecuted_remainder_prohibited": false,
+        "universal_claim": false,
+        "verification_context": {
+          "actor": "docs-contract-reviewer",
+          "context_id": "/root/decision_delivery_docs",
+          "fresh_context": true,
+          "independent": true
+        },
+        "fingerprint_recheck": {
+          "all_match": true,
+          "actual": {
+            ".wavefoundry/framework/seeds/179-envision-project.prompt.md": "8429b142ea02bcb1cd91167ffc311c6fb2f42988",
+            ".wavefoundry/framework/seeds/envision/review.prompt.md": "40d661b1ed5d7a9b79cef36117421c3f9f8577b4",
+            ".wavefoundry/framework/seeds/envision/delivery.prompt.md": "052d4e9990436b8343e7487bb53f63cb8c65d359",
+            "docs/prompts/envision-project.prompt.md": "02081f44a2043abad1476f425b7c01c03810fbe7",
+            "docs/prompts/agents/envision/review.prompt.md": "9846c9dc2702cbdd59f2193e09f7cdc53909be55",
+            "docs/prompts/agents/envision/delivery.prompt.md": "083ea58a40b7db44a6c133c16b3622cbab1e4ea2",
+            "docs/architecture/data-and-control-flow.md": "8249f46ee9c7ed3dc9a746e62c09bad49e0a0f01",
+            "CHANGELOG.md": "e7f325a57bd0ba81dceabdd494cc88233c73d24e",
+            "docs/waves/224uu envision-guided-decisions/224ut-enh envision-guided-decisions.md": "f78248f005c83a2135fad5b51adc214ac711d89c",
+            "docs/waves/224uu envision-guided-decisions/evaluation-evidence.json": "8808fbe67bddc2d5d503d8010ba2a5aa77854106"
+          }
+        },
+        "required_followup": "None for docs contract; coordinator retains lifecycle and final validation responsibility."
+      }
+    }
+  },
+  "retained_readiness_notes": {
+    "architecture-readiness.json": {
+      "sha256": "5ae3c0a0d7a59cba4914bcb4e5469db8075afd56188ec127dd6bd92f4f6dbc36",
+      "content": "{\n  \"actor\": \"architecture-reviewer\",\n  \"context_id\": \"/root/decision_readiness/architecture_lane\",\n  \"phase\": \"readiness\",\n  \"receipt\": \"review-policy-0b75b437df860a67a112\",\n  \"verdict\": \"approve\",\n  \"fresh_context\": true,\n  \"independent\": true,\n  \"findings\": [],\n  \"declaration\": \"No findings in my lane: the plan extends existing prompt-owned transitions and preserves operator authority, phase loading and bounded review without introducing runtime ownership or integration edges.\",\n  \"boundaries_touched\": [\n    \"Framework Seeds remain canonical textual source; self-hosted prompt bodies are exact local counterparts, not renderer-owned whole-file output.\",\n    \"Core section 3 owns alternatives-to-decision facilitation; existing review/delivery companions own answer-fidelity and late-choice reminders.\",\n    \"Strategic selection is distinct from vision adoption and implementation authority; no lifecycle records or new review workflow follow from Envision.\",\n    \"Pending choices suspend dependent settlement only; no-interview drafting remains conditional and research work can continue.\"\n  ],\n  \"invariants\": [\n    \"Domain map lines11/18 and23-25 plus layering rules lines9-14 retain textual seed/doc ownership; plan excludes runtime scripts, manifests, registry and new companions.\",\n    \"Seed179 lines13-15 preserve authority and exact local phase loading; R4/R6 explicitly preserve these.\",\n    \"Seed179 lines39-43 supplies current alternatives/chosen-destination owners; R1-R3 adds answer propagation without creating a separate decision state store.\",\n    \"Review lines24-28 and delivery lines5-13 preserve operator-only strategy/adoption and stop substantive repairs after verification; R5 expressly retains this boundary.\",\n    \"Seed160 lines495-509 already maps all three changed canonical sources to local destinations and preserves customized local policy; no loader/reconciliation algorithm change is needed.\"\n  ],\n  \"primer_responses\": {\n    \"question_1\": \"AC2 requires the reply's team-continuity/individual-notebook combination, observation/handoff responsibility and deferred hosting to change recommendation/dependencies. The frozen ignored_reply response would fail these concrete responsibility/state constraints, not merely a style judgment.\",\n    \"question_2\": \"R5 is compatible with the existing one-repair limit: late conversation may establish or defer direction, but it does not itself authorize post-verification substantive repair or claim revised bytes were reviewed. Place the reminder beside that limit when implementing.\",\n    \"efficacy_replay\": \"Moving from concrete alternatives to focused selection/deferral and actual answer propagation addresses the reported omission using current owners. Predicted behavioral efficacy remains for the bounded delivery probe; it is not demonstrated at readiness.\"\n  },\n  \"implementation_notes\": [\n    \"Keep conditional pause and no-interview exception adjacent.\",\n    \"Ensure a late strategic answer does not silently imply a second author repair or transfer earlier revision coverage.\",\n    \"Update the existing architecture Envision section; no separate ADR or runtime topology update is required by this bounded scope.\"\n  ],\n  \"controls_observed\": {\n    \"silence\": \"Rejected: the absence of an operator answer cannot transfer strategic authority to author/reviewers; violates R3 and AC2 and core silence rule.\",\n    \"ignored_reply\": \"Rejected: hosted personal journal contradicts selected team continuity and deferred hosting, and begin implementation crosses R4/core authority boundary.\",\n    \"rote_interview\": \"Rejected: forces a questionnaire despite draft-only instruction and reopens the fixed Lantern destination; violates R1/R3 and AC3.\"\n  },\n  \"evidence\": {\n    \"observed\": \"Independently read current admitted224ut, canonical core/review/delivery, local boundary paragraphs, domain/layering rules and architecture Envision flow through MCP. Verified all three canonical/local body pairs equal after documented title/metadata offset and verified frozen fixture SHA256. Direct seed160 family read confirms existing destinations. Manually rejected all three frozen controls against the actual requirements and authority boundaries. No readiness defect found.\",\n    \"artifact_or_test_id\": \"224uu architecture readiness: admitted224ut R1-R6/AC1-3; seed179 and existing review/delivery; seed160 lines495-509; data-and-control-flow lines171-183; fixture SHA256 bb3865b3daa67b93ec965f50c046fb152b4c91924f521670dda01d8fb384e7dc; wave Review Checkpoints\",\n    \"public_path\": \"Envision public core and its required project-local phase guidance; plan/source/fixture readiness boundary\",\n    \"command_or_fixture\": \"MCP wf_get_change(224ut), targeted code_read; read-only Python three body-parity assertions and fixture SHA256; manual frozen-control rejection\",\n    \"expected\": \"Feasible existing owners and no new integration/authority edge; proposed behavior preserves explicit selection, deferral and bounded revision; bad controls fail named contracts.\",\n    \"known_bad_detection_method\": \"readiness-safe-control: manual rejection of frozen silence, ignored_reply and rote_interview at concrete strategic-authority/dependency boundaries\",\n    \"limitations\": \"Readiness feasibility only. No future author response, runtime enforcement, target upgrade, real human comprehension, comparative superiority or field carry-through demonstrated. Inherited context included primer and other review summaries; this lane independently inspected source and formed its verdict but claims no blind prior or model diversity. An initial guessed seed160 filename failed; exact path was resolved via MCP keyword and full relevant range then read.\",\n    \"safety_and_authorization\": \"Authorized local read-only source/plan/fixture inspection. Only disposable reviewer JSON written; no source, plan, ledger, setup or environment mutation.\"\n  },\n  \"integrity_checks\": {\n    \"test_ran_without_unintended_skip\": true,\n    \"public_path_reached\": true,\n    \"boundary_values_realistic\": true,\n    \"assertions_non_vacuous\": true,\n    \"known_bad_detected\": true,\n    \"known_bad_detection_method\": \"readiness-safe-control: manual frozen-control rejection against operator authority, selected responsibilities, deferred hosting and no-interview/settled-destination contracts\"\n  }\n}\n"
+    },
+    "docs-readiness.json": {
+      "sha256": "3fd9f9d1304fcbf35eafd5226adf59fbce4b83152a190f58e05b258fdc81722a",
+      "content": "{\n  \"pre_primer_read\": \"The plan assigns the new conversation trigger to the existing core and answer-fidelity checks to existing review/delivery owners, preserving local phase loading and strategic authority if implemented as written.\",\n  \"isolation_disclosure\": \"Full inherited context already contained the primer; this artifact-first statement is independently formed from current source and plan but is not a blind pre-primer prior.\",\n  \"actor\": \"docs-contract-reviewer\",\n  \"context_id\": \"/root/decision_readiness/docs_seat\",\n  \"receipt\": \"review-policy-0b75b437df860a67a112\",\n  \"phase\": \"readiness\",\n  \"verdict\": \"approve\",\n  \"findings\": [],\n  \"primer_effect\": \"Confirmed: current contract ownership already supports the proposed insertion; the primer sharpened the need to test changed responsibilities/dependencies rather than polite answer acknowledgment and to preserve late-stage repair limits.\",\n  \"strongest_challenge_response\": \"R1-R4 explicitly distinguish consequential unsettled choices from research details, retain settled choices and no-interview drafts, prohibit silence/consensus selection and separate selection from adoption or implementation. This is implementable in current core section3 without changing phase ownership.\",\n  \"primer_answers\": [\n    \"Yes at bounded scripted scope: AC2 and frozen continuation require team continuity plus individual usefulness, observation/handoff responsibility, no job/activity authority, and storage deferral with a cheap test. Reader questions require reconstructing effects. Merely acknowledging the reply without changing direction/dependencies fails the stated requirement.\",\n    \"Yes as planned: R5 explicitly applies existing revision/coverage and bounded-repair rules to late material choices; current review paragraph26 and delivery paragraph9 stop substantive repairs after verification. Implementation should place late-choice handling beside those limits so focused conversation cannot imply a second repair authorization.\"\n  ],\n  \"efficacy_replay\": \"The reported author could previously list unresolved choices after comparing alternatives; R1-R3 now requires a focused explanation/question and answer propagation before dependent recommendation or review treats the choice as settled. R4-R5 prevent acknowledgment or reviewer consensus from substituting for selection and cover late discoveries. This addresses the reported mechanism but predicts rather than demonstrates delivered behavior.\",\n  \"strongest_alternative\": \"Consolidate current inferred-choice paragraph in Explore, then recommend and add small checks to existing review/delivery owners. It is better than a new workflow because the decision follows concrete alternatives and avoids duplicate procedural ownership; it is already consistent with the admitted design. No stronger different design found.\",\n  \"lane_declaration\": \"No findings in my lane: all six current canonical/local surfaces match after local title/metadata normalization; planned changes have named owners and preserve authority, company context, phased loading and bounded review contracts. Upgrade seed160 lines495-509 already maps all affected sources, so no loader/registry change is needed.\",\n  \"implementation_notes\": [\n    \"Keep no-interview exception adjacent to conditional pause.\",\n    \"Place delivery conversation reminder beside post-verification substantive-repair limit.\",\n    \"Maintain exact local body parity and explain word growth; do not introduce a new decision artifact.\"\n  ],\n  \"evidence\": {\n    \"observed\": \"Direct MCP reads of admitted224ut and all six current canonical/local core/review/delivery surfaces establish feasible existing ownership. Programmatic header-normalized comparisons are equal for all three pairs. Seed160 lines495-509 maps every changed family member and preserves local policy. Manual readiness evaluation rejected frozen silence, ignored_reply and rote_interview controls against R1-R4 and AC2/3; no future behavior probe was run.\",\n    \"artifact_or_test_id\": \"224uu docs readiness: source/plan review; header-normalized three-pair comparison; frozen fixture SHA256 bb3865b3daa67b93ec965f50c046fb152b4c91924f521670dda01d8fb384e7dc; wave Review Checkpoints\",\n    \"public_path\": \"Envision public core and its actual local phase companions; readiness plan/fixture boundary\",\n    \"command_or_fixture\": \"MCP wf_get_change(224ut), code_read six canonical/local surfaces, code_keyword/read seed160 lines495-509; fixture.json controls\",\n    \"expected\": \"Plan has consistent source/local owners; current surfaces agree; controls contradict actual acceptance contracts and are rejected.\",\n    \"known_bad_detection_method\": \"readiness-safe-control: manual rejection of frozen silence, ignored_reply and rote_interview responses against actual source/plan contracts\",\n    \"limitations\": \"Readiness feasibility only. No future author behavior, human comprehension, superiority, field value, upgrade execution or later Plan change carry-through established. Full inherited context contained the primer: artifact-first statement is not a blind pre-primer prior. No implementation/repair was performed by this reviewer.\",\n    \"safety_and_authorization\": \"Authorized local read-only source/plan review; only disposable reviewer notes written.\"\n  },\n  \"integrity_checks\": {\n    \"test_ran_without_unintended_skip\": true,\n    \"public_path_reached\": true,\n    \"boundary_values_realistic\": true,\n    \"assertions_non_vacuous\": true,\n    \"known_bad_detected\": true,\n    \"known_bad_detection_method\": \"readiness-safe-control: manually rejected silence selection (R3/AC2), ignored answer plus implementation (R2-R4/AC2), and mandatory draft interview/settled reopening (R1/R3/AC3)\"\n  },\n  \"fresh_context\": true,\n  \"independent\": true,\n  \"negative_control_observations\": {\n    \"silence\": \"Rejected: selects team coordination without response and invents job/activity authority; violates R3 and AC2.\",\n    \"ignored_reply\": \"Rejected: substitutes hosted personal journal, resolves expressly deferred storage, and begins implementation; violates R2-R4 and AC2.\",\n    \"rote_interview\": \"Rejected: forces Mosaic interview and reopens Lantern destination; violates R1/R3 and AC3.\"\n  }\n}\n"
+    },
+    "qa-readiness.json": {
+      "sha256": "607d2b523dfa4bde144c64ac558a5cccaae4341c3884836662c5963a12470bc8",
+      "content": "{\n  \"actor\": \"qa-reviewer\",\n  \"context_id\": \"/root/decision_readiness/qa_lane\",\n  \"phase\": \"readiness\",\n  \"receipt\": \"review-policy-0b75b437df860a67a112\",\n  \"verdict\": \"approve\",\n  \"fresh_context\": true,\n  \"independent\": true,\n  \"findings\": [],\n  \"declaration\": \"No findings in my lane: current source, admitted requirements and frozen probe support feasible, falsifiable acceptance within the stated scripted-evidence limit.\",\n  \"intent_coverage\": {\n    \"AC-1\": \"Required source/parity and preservation checks establish delivery of the guided-choice mechanism and its selection/adoption/implementation distinctions. They cannot prove author adherence; AC-2/3 provide bounded adherence evidence.\",\n    \"AC-2\": \"The persisted first turn can expose premature settlement; the withheld reply specifies team continuity plus individual notebook utility, excludes operational authority, and defers hosted storage. The continuation and independent reconstruction can distinguish actual answer propagation and changed dependencies from polite acknowledgment.\",\n    \"AC-3\": \"Separate fresh Lantern and Mosaic contexts can falsify rote strategic reopening and forced interview behavior; selected versus provisional direction, useful research, and authority limits are explicit. Source checks separately cover upgrade mapping and existing contract preservation.\",\n    \"after_release\": \"Actual human comprehension and later Plan change carry-through are expressly reserved for natural field observation in Product Intent and Evaluation Budget. Scripted reconstruction is not promoted into those outcomes. No additional in-scope intent part lacks an acceptance route.\"\n  },\n  \"primer_responses\": {\n    \"question_1\": \"Yes at readiness: reader questions ask what changed, what remained open and whether authority/form was exceeded. Frozen anchors require concrete team-continuity/individual-notebook combination, observation/handoff responsibility, no activity authority, deferred hosting and cheap offline test. Acknowledgment without these consequences fails. Preserve the exact initial answer before supplying the reply.\",\n    \"question_2\": \"R5 and AC-1 require late decisions to respect existing review and revision coverage and the one-repair boundary. Current review lines24-26 and delivery lines5-11 provide the preservation baseline. Delivery source review must verify the added conversation language does not authorize another substantive repair; the short author probe alone does not test that lifecycle.\",\n    \"efficacy\": \"The mechanism addresses the reported handoff of unresolved choices by making alternatives intelligible and applying an actual answer. Feasible behavioral evidence remains narrow; no comparative efficacy or human understanding claim is supported.\"\n  },\n  \"controls_observed\": {\n    \"silence\": \"Rejected manually against R3/AC-2: absence of an answer cannot select team coordination or authorize dependent review settlement; response also invents activity authority.\",\n    \"ignored_reply\": \"Rejected manually against R2/R3/AC-2 and R4: hosted personal journal contradicts selected team continuity and deferred storage, and implementation is unauthorized.\",\n    \"rote_interview\": \"Rejected manually against R1/R3/AC-3: Mosaic explicitly prohibits questions in this response and Lantern explicitly fixes the destination; both forced interview and strategic reopening violate concrete inputs.\"\n  },\n  \"fixture_checks\": {\n    \"sha256\": \"bb3865b3daa67b93ec965f50c046fb152b4c91924f521670dda01d8fb384e7dc\",\n    \"observed\": \"Executed Python read-only assertion verified fixture digest, all three filtered packets equal their selected scenario plus scope, and packet top-level fields exclude reply, reader questions, anchors and controls.\",\n    \"limits\": \"Staging instructions and filtered files are verified now; future coordinator/context isolation and reader reconstruction order still require honest execution evidence. One shared reader is not independent multi-reader confirmation.\"\n  },\n  \"evidence\": {\n    \"proposition\": \"The current admitted plan and frozen probes support feasible and falsifiable required acceptance while bounding their outcome claims.\",\n    \"failure_condition\": \"A required outcome has no discriminatory check, an author packet leaks reply/scoring, or the plan forces unauthorized selection/interview behavior.\",\n    \"public_path\": \"Current Envision seed179 and existing review/delivery phase guidance, admitted224ut plan, frozen author-facing scenario packets; readiness faithful boundary, not future delivery behavior.\",\n    \"command_or_fixture\": \"MCP code_read of seed179 and envision review/delivery companions; wf_get_change224ut; read-only Python SHA256 and filtered-packet assertions; manual three-control comparison against independently read R1-R5/AC2-3.\",\n    \"expected\": \"Feasible source locations, falsifiable interaction and boundary cases, no author packet reply/scoring leakage, all three known-bad responses rejected for named contract violations.\",\n    \"observed\": \"Source already owns concrete alternatives and explicit authority/bounded repair, leaving a clear transition to extend. All three packet/digest assertions passed. Each frozen bad response was rejected against its specific contract; the chosen combination/deferral is distinguishable from acknowledgment. Required ACs remain unchecked pending implementation and delivery evidence.\",\n    \"artifact_or_test_id\": \"docs/waves/224uu envision-guided-decisions/224ut-enh envision-guided-decisions.md AC1-3 and Evaluation Budget; frozen fixture SHA256 bb3865b3daa67b93ec965f50c046fb152b4c91924f521670dda01d8fb384e7dc; .wavefoundry/work/224uu/qa-readiness.json\",\n    \"known_bad_detection_method\": \"readiness-safe-control: independent manual rejection of the three actual frozen bad responses against current plan and scenario requirements\",\n    \"limitations\": \"Readiness review only. No new author outputs, runtime tests, human comprehension, superiority, field value, or Plan change carry-through proved. Late-review handling remains a future source-contract check, not exercised by the short author probe.\",\n    \"safety_and_authorization\": \"Read-only source and fixture inspection; only disposable reviewer note written. No product behavior, environment, plan, or ledger mutations.\"\n  },\n  \"integrity_checks\": {\n    \"test_ran_without_unintended_skip\": true,\n    \"public_path_reached\": true,\n    \"boundary_values_realistic\": true,\n    \"assertions_non_vacuous\": true,\n    \"known_bad_detected\": true,\n    \"known_bad_detection_method\": \"readiness-safe-control: independent manual rejection of the three actual frozen bad responses against current plan and scenario requirements\"\n  }\n}\n"
+    },
+    "red-team-readiness.md": {
+      "sha256": "3f747bb334988815ac4e8a214e0afb8080e5e9002332eb1ed88ac0287ef2e5e0",
+      "content": "# 224uu readiness adversarial primer\n\nMode: council-adversarial-primer. Tier: standard. Receipt: review-policy-0b75b437df860a67a112. Context: /root/decision_readiness/primer. Source read-only; this is a primer, not lane approval or delivered-behavior proof.\n\n## Evidence basis\n\nRead current admitted224ut through wf_get_change; source directly through MCP code_read: seed179 lines13,23,39\u201343,61\u201363; envision/review lines11,14,24\u201330; envision/delivery lines5\u201315. seed_get returned only preamble, so full code_read completed it. Consulted red-team role and seed209 readiness bar lines234\u2013240. Only area AGENTS found in design-system, outside scope. MCP reported setup_inputs_changed; no setup performed and no indexed freshness claim needed for direct reads.\n\n## Thinking stances applied\n\n- Adversarial: the most plausible regression is coercive choice disguised as helpful facilitation, or an author saying it respected an answer while retaining the old recommendation. Requirements1\u20134 and AC2\u20133 explicitly make these falsifiable.\n- Constructive: use concrete futures followed by a short choice/readback transition; propagate selected combination and deferral into dependencies. Existing sections already own alternatives, review and delivery, so no standalone decision mechanism is needed.\n- Simplicity: consolidate the existing inferred-choice paragraph into that transition and add narrow checks in existing review/delivery owners. Avoid a new question inventory, standalone decision document or duplicated role protocol.\n\n## Strongest challenge\n\nThe plan must close the original omission without making every open uncertainty a mandatory interview or mistaking an attractive recommendation for operator selection. Current179 lines39\u201343 already develop alternatives but permit merely listing inferred choices; line23 defers nonblocking questions. A superficially compliant implementation could add a question and still settle the recommendation before any answer, or reopen an explicitly chosen direction. The requirements address this, but delivery must inspect the initial waiting posture and the changed recommendation/dependencies after the actual frozen answer, not count question marks or favorable reader comments.\n\n## Best alternative\n\nReplace/consolidate the current inferred-choice paragraph with a small decision transition within Explore, then recommend: identify consequential unsettled choice, illustrate credible futures, recommend provisionally, ask one focused question, and reflect the actual answer before dependent work. Preserve no-interview drafting as visibly conditional work and name useful research for deferred uncertainty. Add only answer-fidelity checks to existing product/challenge review and delivery handling. This would be better than a new section/process because the trigger remains adjacent to concrete alternatives and authority boundaries while limiting prompt growth. It is consistent with the admitted design, not a reason to reopen it. Cost: compressed prose needs careful authority and no-interview wording; a larger checklist would be easier to mechanically scan but more ceremonial.\n\n## Primer questions\n\n1. Can the frozen transcript and reader distinguish actual answer propagation from a merely polite acknowledgment\u2014specifically show what changed in the recommended combination, deferred choice, and dependent work\u2014while a response selecting on silence or ignoring the answer fails?\n2. Will the core and both existing companions preserve the same boundary when a material choice appears late: discuss or visibly defer it, honor no-interview/settled choices, and avoid silently making new substantive revisions after the existing bounded verification ends?\n\n## Efficacy replay\n\n224ut motivating case: an Envision author produced substantial alternatives and advisory review but handed the operator unresolved consequential choices. Under R1\u20133, after alternatives become concrete the author explains the next material choice, its consequences and provisional preference, then invites choose/combine/defer/evidence. The actual answer controls the recommendation and dependent work. R5 checks answer fidelity and routes late discoveries back into focused conversation; R4 prevents document acceptance or consensus from selecting strategy. This mechanism would address the reported omission if implemented as specified. It can still fail through rote questions, premature settlement, ignored answers or ceremony; AC2/3 and source contract checks target those mechanisms. No observed real-human comprehension, comparative superiority or field carry-through follows from the scripted batch.\n\n## Findings and recommendation\n\nNo readiness finding under seed209's bar: the plan as written is implementable, the acceptance tests can fail, and its explicit exceptions prevent the concrete regressions above. There is no claim that planned future checks already passed. Keep these as implementation/review notes, not plan repairs. Required QA, architecture and docs-contract lanes retain their own authority.\n\nConfidence: high for source gap and plan feasibility; medium for predicted behavioral efficacy. Consequence of mishandling current path: increased operator burden or invented strategic consent. Recommendation: proceed to required lanes, retaining staged interaction isolation, answer-propagation assertions, honest evidence limits and concise consolidation.\n\n## Readiness-safe negative control\n\nRead frozen fixture.json (declared SHA-256 bb3865b3daa67b93ec965f50c046fb152b4c91924f521670dda01d8fb384e7dc). Manually evaluated its three controls against the actual plan, not an author output. Expected all to be inadmissible. Observed rejection: `silence` explicitly selects on no response, violating R3 and AC2, and invents responsibility/authority; `ignored_reply` discards selected continuity and deferred storage, violating R2/R3 and AC2, and authorizes implementation against R4; `rote_interview` contradicts the no-interview brief and explicitly settled destination, violating R1/R3 and AC3. The positive scripted reply is coherent and supplies a real direction combination and a research-dependent storage deferral, making AC2 answer-propagation falsifiable. This is executed manual readiness review of source/plan/fixture; no product behavior has executed or passed.\n"
+    },
+    "statement-architecture-readiness.json": {
+      "sha256": "c0b8043f97bc978d770e06d6210ca488e24dc36dedd845fbed33891ad0f7a779",
+      "content": "{\n  \"actor\": \"architecture-reviewer\",\n  \"context_id\": \"/root/decision_readiness/statement_architecture\",\n  \"phase\": \"readiness\",\n  \"receipt\": \"review-policy-66c066998b3a32f32d20\",\n  \"supersedes_receipt\": \"review-policy-0b75b437df860a67a112\",\n  \"verdict\": \"approve\",\n  \"findings\": [],\n  \"fresh_context\": true,\n  \"independent\": true,\n  \"declaration\": \"No findings in my lane. Full amended-plan review within the affected contract scope finds R1\\u2013R7 feasible in existing textual owners; this approves readiness, not unimplemented R7 behavior.\",\n  \"boundaries_touched\": [\n    \"Canonical seed179 owns always-read strategy and opening direction; existing review/delivery companions retain phase-specific verification and handoff.\",\n    \"Exact local prompt counterparts remain project operating instructions; no runtime owner, new loader, command, protocol or artifact surface is introduced.\",\n    \"Operator selection, provisional recommendation, vision adoption and implementation authority remain distinct.\"\n  ],\n  \"invariants\": [\n    \"Domain-map Framework Seeds/Self-Hosted Docs and dependency direction rules1\\u20133; layering-rules Allowed Dependencies seed/docs rows: textual source ownership remains unchanged.\",\n    \"Core Scope and working method lines13\\u201315: authority and exact local phase-loading preserve independent work while stopping a missing/conflicting dependent step.\",\n    \"Core Explore, then recommend lines41\\u201347: preserve selected destination; choices and actual answers govern dependent settlement; no-interview permits provisional drafting. R7 explicitly retains these constraints.\",\n    \"Review lines24\\u201328: reviewers cannot select strategy; bounded repair ends after verification. Delivery lines5\\u201315 preserves reviewed-byte coverage and late-choice handling without a second repair authorization.\"\n  ],\n  \"required_doc_updates\": [\n    \"Existing data-and-control-flow Envision section must describe the unified opening and selected/provisional fidelity once R7 is implemented, alongside its current guided-choice flow. No new ADR or topology document is needed for this bounded textual change.\"\n  ],\n  \"primer_responses\": {\n    \"question_1\": \"Yes at the plan contract level: R7 asks one purpose/future/value statement while preserving selected direction or expressly marking a coherent exploratory recommendation provisional. AC4 makes the reader reconstruct before receiving brief/anchors, then checks fidelity; it cannot obtain authority by producing fluent prose. The current core summary-first instruction is not yet R7 implementation.\",\n    \"question_2\": \"The added evaluation-budget paragraph expressly retains original candidate/results and assigns only the two openings to final guidance. Review and delivery retain exact revision coverage and bounded repair. Late material choices return to scoped conversation; answering one does not silently authorize another substantive repair or transfer previous review coverage.\",\n    \"efficacy_replay\": \"Original guided choices address unresolved decision lists; R7 addresses unclear ultimate meaning using the existing opening owner. Reader reconstruction and brief fidelity can discriminate these supplied cases. Whether final source produces them is still unverified.\"\n  },\n  \"controls_observed\": {\n    \"generic_slogan\": \"Rejected actual frozen text: revolutionize/innovation/everyone identifies no concrete intended future, beneficiaries or explanatory purpose/value. It fails R7 and AC4 despite a Vision label.\",\n    \"feature_inventory\": \"Rejected actual frozen text: timeline/index/dashboard/export and folder/comment/sharing inventories say neither what coherent future each project exists to enable nor why that future matters. Naming features/projects is insufficient under R7.\",\n    \"legitimate_inputs\": \"Selected volunteer brief provides explicit continuity direction without adoption/implementation; provisional Mosaic brief leaves personal-versus-collaborative direction unselected and forbids an interview. Both permit the planned opening-only fidelity check without inventing authority.\"\n  },\n  \"evidence\": {\n    \"execution_status\": \"executed\",\n    \"observed\": \"Independently read full amended224ut via wf_get_change, complete cumulative normalized diff, prior lane report and statement primer; read actual canonical core/review/delivery through MCP, local delivery and architecture scope. Manually rejected both actual frozen controls. Python verified the frozen fixture hash, exact current-source equality to all three retained interaction-candidate texts and canonical body containment in each local counterpart.\",\n    \"artifact_or_test_id\": \"224ut R1\\u2013R7 and AC1\\u20134; statement-plan-normalized.diff; seed179 Scope / Explore / Write / Review sections; envision review bounded repair and delivery revision coverage; data-and-control-flow Envision section lines171\\u2013183 (hand-authored prose); statement-fixture.json\",\n    \"public_path\": \"Existing public Envision core and required local review/delivery transitions, reviewed as textual readiness inputs.\",\n    \"command_or_fixture\": \"MCP wf_get_change(224ut), code_read(actual canonical sources, local delivery, domain/layering and Envision architecture); read-only Python fixture SHA256/current candidate equality/local body checks; manual semantic rejection of generic_slogan and feature_inventory.\",\n    \"expected\": \"Existing owners can carry R7 without changing selection/adoption authority, phase-loading, runtime boundaries or repair limits; supplied invalid openings fail the stated meaning requirement.\",\n    \"known_bad_detection_method\": \"readiness-safe-control\",\n    \"limitations\": \"Full amended-plan review used because guided briefing was truncated. Broad startup/layering output included truncation; relied-on affected clauses and full core/review/delivery, plan, diff, primer and controls were visible. Prior review and primer were supplied context, not proof or a blind assessment. No author output, new opening probe, future final-source compatibility result, human comprehension, universal generation adherence, comparative superiority, runtime enforcement, target upgrade or field carry-through is established. MCP reported setup_inputs_changed; no setup/index action or freshness claim.\",\n    \"safety_and_authorization\": \"Authorized read-only source/plan/fixture inspection and one disposable reviewer JSON; no source, plan, ledger, environment or future probe writes.\",\n    \"probe_class\": \"local_safe\",\n    \"authorization_status\": \"authorized\",\n    \"safe_boundary\": false,\n    \"unexecuted_remainder_prohibited\": false,\n    \"universal_claim\": false,\n    \"verification_context\": {\n      \"actor\": \"architecture-reviewer\",\n      \"context_id\": \"/root/decision_readiness/statement_architecture\",\n      \"fresh_context\": true,\n      \"independent\": true\n    }\n  },\n  \"integrity_checks\": {\n    \"test_ran_without_unintended_skip\": true,\n    \"public_path_reached\": true,\n    \"boundary_values_realistic\": true,\n    \"assertions_non_vacuous\": true,\n    \"known_bad_detected\": true,\n    \"known_bad_detection_method\": \"readiness-safe-control\"\n  },\n  \"source_boundary\": {\n    \"r7_implemented\": false,\n    \"current_three_canonical_sources_equal_retained_interaction_candidate\": true,\n    \"canonical_bodies_present_in_three_local_counterparts\": true,\n    \"statement_fixture_sha256\": \"e0c6c8bb58bd0d561ee2dcba9a3694e6014114ac52c1d8dc704f03711c82a08a\",\n    \"evidence_scope\": \"Original AC2/3 evidence belongs to its retained candidate. Final R7 source and AC4 outputs require planned delivery verification; this approval does not transfer that evidence.\"\n  }\n}\n"
+    },
+    "statement-docs-readiness.json": {
+      "sha256": "eb9a00563737113e3f1278100dd3402f47ab2d067eefa75805dbfcfd82fb4f7b",
+      "content": "{\n  \"actor\": \"docs-contract-reviewer\",\n  \"context_id\": \"/root/decision_readiness/statement_docs\",\n  \"receipt\": \"review-policy-66c066998b3a32f32d20\",\n  \"phase\": \"readiness\",\n  \"pre_primer_read\": \"Full amended R1-R7 plan places opening meaning in existing core section4 and existing review/delivery ownership. R7 is consistent with chosen destinations, provisional no-interview drafting and authority limits, provided coherent provisional recommendation never becomes selection and unresolved incompatibility does not force an interview. AC4 has reader reconstruction before fidelity scoring and frozen bad controls; original AC2/3 evidence remains candidate-scoped. Current source implements original decision guidance but not R7; readiness approves feasible scope, not delivered behavior.\",\n  \"pre_primer_disclosure\": \"Formed and persisted before opening statement-primer.md in this fresh delegated context. Prior docs readiness was read as historical evidence, not transferred approval.\",\n  \"verdict\": \"approve\",\n  \"findings\": [],\n  \"fresh_context\": true,\n  \"independent\": true,\n  \"lane_declaration\": \"No findings in my lane. Full amended-plan readiness review, not blind transfer: R1-R7 and AC1-4 are compatible with current six prompt surfaces and existing authority, company-context, phase-loading and bounded-review contracts. R7 remains to be implemented; this is no delivery approval.\",\n  \"primer_effect\": \"Confirmed independent assessment. Primer sharpened the risk that fluent coherent prose could conceal selection or incompatible responsibilities; plan R7/AC4 explicitly distinguish provisional recommendation from selected strategy and test meaning plus fidelity.\",\n  \"strongest_challenge_response\": \"A single paragraph could erase uncertainty. R7 requires one coherent provisional recommendation for exploratory drafting, preserves chosen direction and limits any guided conversation to the requested interview scope; AC4 forbids implied selection or a new interview. Current core section3 separately preserves actual-answer authority. No readiness conflict remains; final source must retain these protections beside the opening rule.\",\n  \"primer_answers\": [\n    \"Yes as a feasible contract, not yet an observed output: R7 supplies purpose, intended future and beneficiary value before roadmap detail; AC4 first asks reconstruction from the opening alone, then fidelity against the brief. Selected and provisional branches are both explicit.\",\n    \"Yes as planned: the evaluation-budget amendment confines original AC2/3 results to their original candidate, authorizes only one distinct opening check, and requires final reviewers to check compatibility rather than reattribute older execution. Existing review paragraph26 and delivery paragraph9 preserve the substantive repair stop; R5/R6 preserve these contracts.\"\n  ],\n  \"efficacy_replay\": \"Original failure lists choices without facilitation: current core paragraphs43-45 and review/delivery reminders now target explanation, conditional waiting and answer propagation. Added failure is unclear ultimate meaning: replacing summary-first opening with R7 meaning requirements plus AC4 independent reconstruction targets that gap. This is mechanism-based feasibility, not proof an author followed final R7.\",\n  \"strongest_alternative\": \"Replace/consolidate existing core summary-first instruction rather than add another section or template; add small meaning/fidelity checks to current review/delivery. This is already permitted by R6 and avoids duplicate authority or extra artifacts.\",\n  \"negative_control_observations\": {\n    \"generic_slogan\": \"Rejected on actual frozen text: innovation/empower everyone does not identify a concrete project purpose, intended beneficiary future or why this future matters; cannot reconstruct either brief from it. It fails R7 and AC4 despite a Vision label.\",\n    \"feature_inventory\": \"Rejected on actual frozen text: lists timelines/indexes/dashboards and folders/comments for two products, without connected purpose/future/value or one coherent direction. A feature list cannot establish volunteer continuity or provisional creative-work value; fails R7/AC4.\",\n    \"adjacent_legitimate_inputs\": \"Selected brief identifies incoming volunteer coordinators and independence from past leaders; provisional brief supplies personal creative work/collaborative critique with explicit no-interview and unselected destination. Both are realistic inputs capable of a faithful statement without invented adoption/implementation.\"\n  },\n  \"evidence\": {\n    \"proposition\": \"The full amended plan has coherent existing prompt owners and a readiness-executable opening-clarity evaluation that distinguishes generic slogans and feature lists from the required meaning while preserving authority and old-candidate limits.\",\n    \"counterexample_or_failure_condition\": \"Contradictory selected/provisional rules, missing local ownership, inherited evidence asserted for R7, or accepting either frozen bad opening as sufficient.\",\n    \"execution_status\": \"executed\",\n    \"public_path\": \"Current Envision public core and actual local phase companions; admitted wf_get_change224ut and frozen opening-fixture readiness boundary.\",\n    \"command_or_fixture\": \"MCP wf_get_change(change_id=224ut); code_read six named canonical/local core/review/delivery surfaces; complete statement-plan-normalized.diff and old docs-readiness.json; header/metadata-normalized three-pair comparison; manual semantic rejection of both statement-fixture controls.\",\n    \"expected\": \"Three current canonical/local bodies match; full amended plan preserves existing owners/contracts; bad slogan and feature inventory are rejected without executing future author behavior.\",\n    \"observed\": \"All three pairs equal. Current core section4 has summary-first destination sentence but not new R7, correctly left for implementation. R7/AC4 integrate within existing ownership; both actual frozen controls rejected for missing reconstructable unified purpose/future/value.\",\n    \"artifact_or_test_id\": \".wavefoundry/work/224uu/statement-docs-readiness.json; statement-fixture SHA256 e0c6c8bb58bd0d561ee2dcba9a3694e6014114ac52c1d8dc704f03711c82a08a\",\n    \"adjacent_controls\": [\n      \"Actual selected volunteer-continuity brief\",\n      \"Actual provisional Mosaic no-interview brief\"\n    ],\n    \"known_bad_detection_method\": \"readiness-safe-control: reviewer manually rejects actual frozen generic_slogan and feature_inventory against R7/AC4 and opening-reader reconstruction requirements.\",\n    \"limitations\": \"Readiness only. No final-guidance author probe, actual human comprehension, superiority, universal generation, target upgrade or later Plan change carry-through was demonstrated. Prior verdicts were historical context, not approval evidence. Initial oversized outputs truncated; complete amended plan, diff and six current prompt bodies were read, with focused re-reads of truncated surfaces. MCP reports setup_inputs_changed; direct source reads were used and no freshness/setup claim or environment operation was made.\",\n    \"safety_and_authorization\": \"Read-only source/plan/ledger; only assigned disposable review note written. No future evaluation, source edits or ledger mutations.\",\n    \"probe_class\": \"local_safe\",\n    \"authorization_status\": \"authorized\",\n    \"safe_boundary\": false,\n    \"unexecuted_remainder_prohibited\": false,\n    \"universal_claim\": false\n  },\n  \"integrity_checks\": {\n    \"test_ran_without_unintended_skip\": true,\n    \"public_path_reached\": true,\n    \"boundary_values_realistic\": true,\n    \"assertions_non_vacuous\": true,\n    \"known_bad_detected\": true,\n    \"known_bad_detection_method\": \"readiness-safe-control\"\n  },\n  \"reviewed_source_hashes\": {\n    \".wavefoundry/framework/seeds/179-envision-project.prompt.md\": \"b1f57540a5a1fefab52d82bef7bcfde87b8008ca449f6884c5d813aed02b2870\",\n    \".wavefoundry/framework/seeds/envision/review.prompt.md\": \"97f294dcce264268acb5b063a9f63082193af09e36badebdd538e68b91c5c5df\",\n    \".wavefoundry/framework/seeds/envision/delivery.prompt.md\": \"fe2e5fef77fc6ce19c06a81e7834f57f61c1b251ed98deb1459393cf6522b32c\",\n    \"docs/prompts/envision-project.prompt.md\": \"3142c4d611497517661654fd8ca01f17a921f783cbc8a018bd2b5af279cfa0c2\",\n    \"docs/prompts/agents/envision/review.prompt.md\": \"f9e02c8941bddf6c83af939493e222ef809f19abbbcfb6437c2590dbfebfb793\",\n    \"docs/prompts/agents/envision/delivery.prompt.md\": \"a69847dd2aea438f897582b0f2a1ac1ecbfe32b756eb0d93f5534cc586e14981\"\n  }\n}\n"
+    },
+    "statement-qa-readiness.json": {
+      "sha256": "528966bbe8e3985c64b85f113616d402ec33ebec5a1329ff318dfd19c979b253",
+      "content": "{\n  \"actor\": \"qa-reviewer\",\n  \"context_id\": \"/root/decision_readiness/statement_qa\",\n  \"phase\": \"readiness\",\n  \"receipt\": \"review-policy-66c066998b3a32f32d20\",\n  \"verdict\": \"approve\",\n  \"fresh_context\": true,\n  \"independent\": true,\n  \"findings\": [],\n  \"declaration\": \"No concrete readiness findings in this lane. The full amended plan gives R7 a bounded, discriminatory acceptance route without promoting prior interaction evidence into final-guidance proof.\",\n  \"context_disclosure\": \"New reviewer context; no implementation or prior recheck participation. Parent task, required orientation, statement primer and prior qa-readiness verdict were visible. Those prior conclusions were not used as proof: independently read current complete amended plan, cumulative diff and actual source, evaluated actual controls, and ran current byte/digest/packet assertions. This is one QA judgment, not additional model diversity or an independent human reader study.\",\n  \"intent_coverage\": {\n    \"AC-1\": \"Required source/local parity and preserved contracts cover delivery of R1-R7. R7 remains unimplemented and AC-1 correctly open; source checks cannot prove author adherence.\",\n    \"AC-2\": \"Original staged interaction covers guided alternatives, actual combination/deferral propagation and reader reconstruction only for interaction-candidate.json. The existing reader verdict explicitly excludes later statement changes; no new interaction or claim of final-guidance execution is made.\",\n    \"AC-3\": \"Original selected/no-interview branches cover the original candidate boundary. Final source-contract review must preserve choices, no-interview, authority, phase loading, upgrade mappings and repair limits. Old output evidence is not extended to revised source by implication.\",\n    \"AC-4\": \"Two selected/provisional opening excerpts plus opening-only reader reconstruction test purpose, intended future and beneficiary value without briefing leakage. Subsequent brief/anchor checks distinguish clarity from fidelity and authority. Actual slogan and feature-list controls provide readiness-safe discrimination.\",\n    \"untested_intent\": \"Real human comprehension and later Plan change continuity are explicitly after-release natural-use observations. Universal generation compliance, comparative superiority and field value are outside the stated acceptance claim; no additional required intent part lacks a route.\"\n  },\n  \"primer_responses\": {\n    \"question_1\": \"R7 preserves selected direction and requires visibly provisional recommendation when destination is unselected; AC-4 tests meaning from openings alone before fidelity context. This permits useful coherent drafting without interpreting coherence as operator selection. The actual selected brief fixes volunteer continuity, while Mosaic expressly withholds selection and prohibits questions. Future outputs must still demonstrate this.\",\n    \"question_2\": \"The amended Evaluation Budget explicitly limits original evidence to its retained candidate and reserves final compatibility review. Current core Review and deliver, review companion bounded author repair paragraph, and delivery revision-coverage/bounded-repair paragraphs provide the unchanged baseline. R7 implementation must add opening checks within those owners; it does not authorize another automatic repair or repeat interaction.\",\n    \"efficacy\": \"The two-stage procedure targets unclear ultimate meaning while retaining the original guided-choice mechanism. It can show textual reconstruction in two synthetic cases; it cannot show human comprehension or improved success rates.\"\n  },\n  \"controls_observed\": [\n    {\n      \"id\": \"generic_slogan\",\n      \"verdict\": \"reject\",\n      \"reason\": \"The actual frozen text promises innovation for everyone but supplies no identifiable concrete beneficiary future or enduring purpose/value; reader reconstruction would require invention.\"\n    },\n    {\n      \"id\": \"feature_inventory\",\n      \"verdict\": \"reject\",\n      \"reason\": \"The actual frozen text lists timeline/index/dashboard/export and folder/comment/sharing capabilities for two projects. Features do not state a unified project purpose, intended beneficiary future or why it matters.\"\n    }\n  ],\n  \"fixture_checks\": {\n    \"sha256\": \"e0c6c8bb58bd0d561ee2dcba9a3694e6014114ac52c1d8dc704f03711c82a08a\",\n    \"observed\": \"Python assertions completed: frozen fixture digest matches; statement-author-packet equals exactly scope, author_instruction and cases from fixture; every interaction-candidate path still has exact retained content. Author packet excludes reader instruction, anchors, controls and stop/scoring metadata.\",\n    \"limitations\": \"Coordinator must actually supply final guidance and isolate fresh author/reader contexts; reader must persist reconstruction before briefs/anchors/controls. File filtering now does not establish that future execution order.\"\n  },\n  \"evidence\": {\n    \"proposition\": \"The amended plan and frozen opening fixture support feasible, falsifiable readiness for R7 while preserving original candidate-scoped evidence and authority limits.\",\n    \"counterexample_or_failure_condition\": \"Required meaning has no opening-only check; author packet leaks scoring; coherent provisional wording is treated as selected strategy; frozen bad controls pass; or earlier candidate evidence is claimed as final R7 execution.\",\n    \"execution_status\": \"executed\",\n    \"public_path\": \"Current admitted 224ut through wf_get_change; canonical179 Write the vision and roadmap and Explore, then recommend; existing envision review/delivery companions through code_read; actual frozen author-facing packet. This is the real readiness contract boundary, not a future author-output test.\",\n    \"command_or_fixture\": \"Read complete statement-plan-normalized.diff and statement-fixture.json; independently reject both actual controls against R7/AC-4; python3 -B assertions of SHA256, exact author filtering and interaction-candidate equality.\",\n    \"expected\": \"Usable selected and provisional cases, no scoring leakage, bad controls rejected for missing meaning, current candidate preserved, prospective acceptance clearly distinct from delivery proof.\",\n    \"observed\": \"All three executable assertion groups completed without errors. Both actual bad controls were rejected for contract-specific omissions. Chosen/provisional briefs supply concrete usable boundary inputs. R7/AC-4 remain open and the plan expressly requires one final-guidance batch and staged independent reading.\",\n    \"artifact_or_test_id\": \".wavefoundry/work/224uu/statement-qa-readiness.json; statement-fixture.json SHA256 e0c6c8bb58bd0d561ee2dcba9a3694e6014114ac52c1d8dc704f03711c82a08a; docs/waves/224uu envision-guided-decisions/224ut-enh envision-guided-decisions.md R7, AC-4 and Evaluation Budget; canonical179 sections Explore, then recommend / Write the vision and roadmap; envision review/delivery companions.\",\n    \"adjacent_controls\": [\n      \"Selected brief names volunteer coordinators, continuity, existing local search and withheld adoption/implementation; these support a faithful chosen opening without strategy reopening.\",\n      \"Provisional brief explicitly requests no questions, withholds destination selection and permits a recommendation; one coherent provisional opening is a legitimate boundary case.\"\n    ],\n    \"known_bad_detection_method\": \"readiness-safe-control: independent semantic rejection of actual frozen generic_slogan and feature_inventory inputs against R7/AC-4\",\n    \"limitations\": \"Full amended-plan review substituted for truncated guided brief; no new output probe, runtime tests, suite, universal claim or delivery approval. Prior reviewer artifacts were inspected as claims and evidence boundaries, not transferred approvals. Snapshot digest authority was not independently certified. MCP reported setup_inputs_changed; current source read directly, no index freshness/setup readiness claim or environment operation.\",\n    \"safety_and_authorization\": \"Read-only source, plan and ledger; only the requested disposable QA record written. No future author/reader batch or source edits.\",\n    \"probe_class\": \"local_safe\",\n    \"authorization_status\": \"authorized\",\n    \"safe_boundary\": false,\n    \"unexecuted_remainder_prohibited\": false,\n    \"universal_claim\": false,\n    \"verification_context\": {\n      \"actor\": \"qa-reviewer\",\n      \"context_id\": \"/root/decision_readiness/statement_qa\",\n      \"fresh_context\": true,\n      \"independent\": true\n    }\n  },\n  \"integrity_checks\": {\n    \"test_ran_without_unintended_skip\": true,\n    \"public_path_reached\": true,\n    \"boundary_values_realistic\": true,\n    \"assertions_non_vacuous\": true,\n    \"known_bad_detected\": true,\n    \"known_bad_detection_method\": \"readiness-safe-control: rejected actual frozen slogan and feature-list controls against independently read R7/AC-4\"\n  }\n}\n"
+    }
+  }
+}

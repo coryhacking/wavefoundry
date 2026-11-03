@@ -177,10 +177,11 @@ SHIPPED_DEFAULTS: "dict[str, dict[str, Any]]" = {
                            # keys and the council protocol's display name.
                            "EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS": {},
                            "EXTRA_LEGACY_COUNCIL_ACTORS": (),
-                           "COUNCIL_DISPLAY_NAME": "Wave Council"},
+                           "COUNCIL_DISPLAY_NAME": "Wave Council", "ARC_NAME": "Arc", "ARC_KIND": "arc"},
     "record_paths": {
         "WAVES_ROOT": "docs/waves",
         "PLANS_ROOT": "docs/plans",
+        "ARCS_ROOT": "docs/arcs",
         "NESTED": False,
         "MAX_DEPTH": 4,
         "ARCHIVE_ROOT": None,

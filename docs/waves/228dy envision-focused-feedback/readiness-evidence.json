@@ -1,0 +1,311 @@
+{
+  "wave": "228dy",
+  "purpose": "Retained independent readiness conclusions and source identities; unique proof supporting typed approvals.",
+  "lanes": {
+    "wave_id": "228dy",
+    "change_id": "226i1",
+    "review_policy_receipt": "review-policy-0938e94e97cf51e25b56",
+    "context_id": "228dy-readiness-qa-architecture-independent-20261031",
+    "phase": "readiness",
+    "verdict": "approve readiness; delivery remains unverified",
+    "independence": {
+      "fresh_context": true,
+      "independent_of_implementation": true,
+      "shared_lanes": [
+        "qa-reviewer",
+        "architecture-reviewer"
+      ],
+      "runtime_model_identity": "unverified"
+    },
+    "fingerprints": {
+      "docs/waves/228dy envision-focused-feedback/226i1-enh envision-focused-feedback-loops.md": "45ca63f9bc728e784b8ec92eec1575b0fdfac38d8f7b24d0692dcd61df2b1381",
+      "docs/waves/228dy envision-focused-feedback/wave.md": "ef6b031a99a19c3eba8996eb167209040ca27cec7fcd71535713f7aa5a1f0e9e",
+      ".wavefoundry/framework/seeds/179-envision-project.prompt.md": "a18051bf81e1eb481fdaa26ead999e358b348ac680ca0150909c7f9518857a87",
+      ".wavefoundry/framework/seeds/envision/review.prompt.md": "74e6beca9304996c2cb7ea2a33f0cd9301e1ac9cc766f05c00a35b0971b91f3b",
+      ".wavefoundry/framework/seeds/envision/delivery.prompt.md": "fcfafa88465eba93cea93b1bc56dd06eb9162ef121292218477f7fa84ab7d499",
+      "docs/prompts/envision-project.prompt.md": "904ac3f29589d615d3a119579a0bc0bc55f65a5055543143ff638f299999801d",
+      "docs/prompts/agents/envision/review.prompt.md": "8d402716717afaa683fd8b7286b4501c079c0ee5e511bbb883e958cbf881158c",
+      "docs/prompts/agents/envision/delivery.prompt.md": "70a64886cfd7f0bf85ac92dd9095468d99da91fb45b5e6b6deae582c57733d72",
+      ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "eea998a2c310d3d04d93a3de18bf19e3ec59dc7729c9ecdeb4a6c3d62d0574d0",
+      "docs/architecture/data-and-control-flow.md": "7a65c70611a1d5608ea83d7896e8116c460a3a2df3e99ec411a9164acd6f5177",
+      "docs/agents/qa-reviewer.md": "ccca372f210bab0586c639f039dc9e8c5aab7fce17ab87a68e84533065560bec",
+      "docs/agents/architecture-reviewer.md": "b856576319b3c53550a24988a5c99f33c5710030c765e493f50238d61bfd71fb"
+    },
+    "intent_coverage": {
+      "clear purpose, ambitious destination and beneficiary value": [
+        "AC-1",
+        "AC-2",
+        "AC-3"
+      ],
+      "useful stages survive consequential feedback": [
+        "AC-2"
+      ],
+      "next advance understandable without author explanation": [
+        "AC-3"
+      ],
+      "earlier correction carried through without full restart": [
+        "AC-2",
+        "AC-4"
+      ],
+      "authority and economical review": [
+        "AC-1",
+        "AC-4"
+      ],
+      "existing target receives behavior safely": [
+        "AC-5"
+      ]
+    },
+    "untested_intent_at_readiness": [],
+    "deferred_measurement": "Human comprehension, real-world usefulness and causal superiority are explicitly not established by synthetic evidence; naturally authorized later field observation is prospective.",
+    "findings": [],
+    "architecture": {
+      "boundaries_touched": [
+        "Author/operator consequential decision exchange",
+        "Selected product-strategy or domain reviewer staged input then full role review",
+        "Shared initial findings -> one author repair -> affected verification",
+        "Canonical/local prompt reconciliation"
+      ],
+      "invariants_preserved": [
+        "Operator owns strategy/adoption/implementation",
+        "Local policy retained and conflicts surfaced",
+        "No fifth reviewer or extra Council",
+        "Review procedural owner remains review companion",
+        "Actual vision/evidence unaffected by upgrade"
+      ],
+      "delivery_reuse": "Seed160 lines 495-509 already enumerate core and all companions, companion-only changes, customization, conflict refusal and retry idempotence. No loader/runtime change required. AC-5 must execute agent reconciliation on retained old/new/local fixtures; a copying script or token census alone cannot establish this semantic merge contract.",
+      "required_doc_update": "docs/architecture/data-and-control-flow.md Envision section is explicitly in scope."
+    },
+    "finite_eval_feasibility": "Feasible with one frozen synthetic author trace, a fresh selected staged reader, one deliberately misleading meaning case and its shared repair verification, plus short isolated AC-4 branches. Freeze exact batch, controls, input order and oracle before candidate authoring. No guarantee of passing; required failed recheck must stop for operator options, not add trials.",
+    "implementation_watchpoints": [
+      "Replace current review full-context-first line 5 for the selected staged reader; keep full role protocol after reconstruction. Do not give expected meanings in its initial prompt.",
+      "Later role verification can inspect full context; it proves targeted repair, not a second blind reading or human comprehension.",
+      "Keep exact reader first answers and revision hashes; controls must test meaningful false interpretation, not only wording presence.",
+      "No counterpart role file exists for product-strategy/domain; use explicit responsibility and preserve any target-local protocol when present.",
+      "Source-to-local normalization/parity and semantic merge are different claims."
+    ],
+    "known_bad_readiness_checks": [
+      {
+        "claim": "Current review already guarantees an uncoached opening-only reconstruction",
+        "result": "rejected",
+        "reason": "review.prompt.md line 5 supplies full draft/brief/sources before line 7 opening inspection; this is contextual reading, not the proposed blinded staging."
+      },
+      {
+        "claim": "Each of three feedback opportunities can receive its own automatic repair/verification round",
+        "result": "rejected",
+        "reason": "Plan Requirement 5 and AC-1/AC-4 prohibit it; existing review line 26 already stops substantive repair after verification."
+      }
+    ],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "Readiness-safe semantic counterexample: refuted the claim that existing review already guarantees uncoached reconstruction. Current review line 5 gives the full draft, brief and sources before line 7 asks to read the opening alone. Also rejected a hypothetical second automatic repair after verification against current line 26 and planned Requirement 5/AC-4. These are plan/source checks, not executed candidate behavior."
+    },
+    "proposed_wf_review_event_findings": [],
+    "proposed_wf_review_event_approval": {
+      "wave_id": "228dy",
+      "event": "approval",
+      "actor": "council-chair",
+      "context_id": "CHAIR_MUST_USE_OWN_CONTEXT",
+      "mode": "dry_run",
+      "signoff_key": "council-readiness",
+      "approval_phase": "readiness",
+      "fresh_context": true,
+      "independent": true,
+      "evidence": {
+        "proposition": "The admitted requirements and ACs establish the intended early correction, dependent-roadmap propagation and uncoached comprehension check without changing authority or multiplying repair rounds.",
+        "failure_condition": "A required intent has no AC, staged reading requires prior explanatory context, or a separate automatic repair is permitted after verification.",
+        "public_path": "Admitted 226i1 plan and 228dy Objective; canonical Envision core/review/delivery instructions; seed160 changed-family reconciliation boundary.",
+        "command_or_fixture": "Independent live MCP code_read inspection, intent-to-AC map and readiness-safe counterexample review.",
+        "expected": "All intended behavioral outcomes have finite falsifiable evaluation obligations; protocol order and upgrade ownership remain coherent.",
+        "observed": "AC-2 covers actual early correction and capability-dependent roadmap changes; AC-3 covers uncoached reconstruction and meaning repair; AC-4 covers settled choice/no-interview/unavailable-review/post-verification stop. AC-1 guards coherent ownership and AC-5 guards delivery preservation. Existing review full-context-first order is the concrete gap Requirement 4 must replace. One repair remains owned by review companion. No readiness blocker found.",
+        "artifact_or_test_id": ".wavefoundry/work/228dy/readiness-lanes.json",
+        "known_bad_detection_method": "Readiness-safe semantic counterexample: refuted the claim that existing review already guarantees uncoached reconstruction. Current review line 5 gives the full draft, brief and sources before line 7 asks to read the opening alone. Also rejected a hypothetical second automatic repair after verification against current line 26 and planned Requirement 5/AC-4. These are plan/source checks, not executed candidate behavior.",
+        "limitations": "Readiness review only; no authoring trial, reconciliation run or product behavior executed. QA and architecture share one fresh worker context, independent of implementation; actual model identity unverified. Semantic expectations remain vulnerable to shared model/framing. Missing product-strategy/domain role files were checked against the role inventory; generic responsibilities come from Envision review table. Setup inputs changed advisory observed; direct live reads used, no environment repair.",
+        "safety_and_authorization": "Read-only authorized readiness assessment; only disposable report written. No source, plan, ledger, actual vision or environment mutation.",
+        "intent_fit": "establishes"
+      },
+      "integrity_checks": {
+        "test_ran_without_unintended_skip": true,
+        "public_path_reached": true,
+        "boundary_values_realistic": true,
+        "assertions_non_vacuous": true,
+        "known_bad_detected": true,
+        "known_bad_detection_method": "Readiness-safe semantic counterexample: refuted the claim that existing review already guarantees uncoached reconstruction. Current review line 5 gives the full draft, brief and sources before line 7 asks to read the opening alone. Also rejected a hypothetical second automatic repair after verification against current line 26 and planned Requirement 5/AC-4. These are plan/source checks, not executed candidate behavior."
+      }
+    },
+    "proposal_note": "Council approval is an input proposal for the independently assessing chair, not a recorded approval or an impersonation of the chair. Chair must combine all lanes and use its own context/integrity attestation. This worker makes no delivery approval.",
+    "controlled_defect_feasibility": {
+      "verdict": "feasible within admitted AC-3 and evaluation approach",
+      "protocol": "Before candidate edits, freeze source meaning, exact mutation rule or intentionally ambiguous excerpt, reader questions and semantic rejection criteria. Apply a predeclared mutation only to an isolated derivative review fixture if the natural draft is clear. Label this diagnostic injection in evidence, not in the reader opening as an explanation of intended meaning. The fresh reader receives opening alone, then overview; retain answers before full brief or criteria. Feed resulting meaning defect into the same one-pass author repair; restore frozen source meaning, retain exact before/after bytes, and have the affected reviewer verify that identified revision.",
+      "claim_limit": "This demonstrates diagnosis and repair of a controlled meaning defect. It does not establish that the natural author made that defect, or that the injected defect frequency reflects ordinary authoring. A clean natural candidate is preserved; no coached answer is counted.",
+      "why_no_plan_change_needed": "The admitted evaluation approach explicitly requires a specific misunderstanding, allows exact controls to be designed during implementation and requires them frozen before authoring. A labelled diagnostic derivative is a faithful bounded method, not extra workflow repair or a new trial batch.",
+      "stop": "If the predeclared control fails to produce the expected semantic evidence, retain the outcome and return options before adding trials; do not tune until it passes."
+    }
+  },
+  "council": {
+    "phase": "readiness",
+    "receipt_id": "review-policy-0938e94e97cf51e25b56",
+    "council_mode": "targeted",
+    "primer_depth": "standard",
+    "status": "complete",
+    "roster": {
+      "chair": "/root/feedback_readiness_council",
+      "red_team": "/root/feedback_readiness_council/primer",
+      "docs_contract_reviewer": "/root/feedback_readiness_council/docs_seat",
+      "runtime_models": "unverified"
+    },
+    "findings": [],
+    "intent_fit": "establishes",
+    "intent_reason": "Meeting AC2 through AC4 would demonstrate operator correction and consequential evidence changing dependent reasoning, uncoached staged understanding and bounded meaning repair. The wave Objective and sole change Product Intent align with those observations. Field effectiveness and human comprehension remain explicitly unclaimed.",
+    "strongest_challenge": "A naturally clean draft cannot demonstrate actual meaning repair; coaching a false misunderstanding would invalidate evidence.",
+    "implementation_note": "Freeze a clearly attributed defective-draft fixture prospectively with the finite batch, preserve uncoached reader responses before judging context, distinguish injected-defect repair from natural authoring, and stop on missing proof rather than add trials.",
+    "strongest_alternative": "A small controlled-defect fixture is more reliable than hoping natural author output contains a meaning defect; no new reviewer or retry mechanism is needed.",
+    "controls": {
+      "chair": {
+        "kind": "readiness-safe rejected invalid review input",
+        "path": "wf_review_event(mode='dry_run')",
+        "observed": "Rejected all five false integrity fields and council-readiness intent_fit does_not with invalid_review_event. Nothing written.",
+        "context_id": "228dy-council-invalid-control"
+      },
+      "docs": {
+        "kind": "readiness-safe refuted mechanism claim",
+        "bad": "wf_sync_surfaces alone delivers changed companion prose",
+        "observed": "Rejected against seed160:505\u2013509; same-run agent family merge is required.",
+        "adjacent": "Companion-only changed family enters reconciliation even when seed179 is unchanged."
+      }
+    },
+    "limitations": [
+      "Readiness only; no candidate behavior, actual vision, field/human comprehension, native Windows, or upgrade execution tested.",
+      "Setup_inputs_changed diagnostic reported; no setup/index operation performed. Current file reads establish inspected source.",
+      "Sequential isolated contexts share project framing and unverified runtime model identities; agreement is not multiplied as independent empirical confirmation.",
+      "Plan/source exact fingerprints must remain unchanged when root records approval."
+    ],
+    "proposed_review_events": [
+      {
+        "wave_id": "228dy",
+        "event": "run",
+        "actor": "council-chair",
+        "context_id": "/root/feedback_readiness_council",
+        "mode": "dry_run",
+        "run_kind": "readiness",
+        "cycle": 0,
+        "evidence": {
+          "observed": "Targeted standard readiness council complete; empty finding set after isolated red-team primer, docs-contract seat and closing reconciliation.",
+          "artifact_or_test_id": "docs/waves/228dy envision-focused-feedback/wave.md#review-checkpoints"
+        }
+      },
+      {
+        "wave_id": "228dy",
+        "event": "approval",
+        "actor": "docs-contract-reviewer",
+        "context_id": "/root/feedback_readiness_council/docs_seat",
+        "mode": "dry_run",
+        "signoff_key": "docs-contract-reviewer",
+        "approval_phase": "readiness",
+        "fresh_context": true,
+        "independent": true,
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "readiness-safe refutation of invalid sync-surfaces-alone delivery claim against seed160:505\u2013509"
+        },
+        "evidence": {
+          "proposition": "The admitted plan is implementable without contradicting the inspected Envision or upgrade contracts.",
+          "public_path": "Admitted plan and current canonical Envision/upgrade instructions; readiness document-contract boundary",
+          "command_or_fixture": "Independent MCP code_read of 226i1, seed179, envision/review+delivery, seed160:495\u2013509; manually reject sync-surfaces-alone delivery claim and accept companion-only reconciliation.",
+          "expected": "One staged selected reader, one repair boundary, operator strategic authority, preserved existing-target reconciliation.",
+          "observed": "No findings in docs-contract lane; selected-reader staging requires replacing current review:5 full-draft-first wording as already scoped. Known-bad delivery claim rejected; legitimate companion-only merge accepted.",
+          "artifact_or_test_id": "docs/waves/228dy envision-focused-feedback/wave.md#review-checkpoints; 226i1 SHA256 45ca63f9bc728e784b8ec92eec1575b0fdfac38d8f7b24d0692dcd61df2b1381; seed160 changed Envision instruction set",
+          "limitations": "Readiness feasibility only; no implemented authoring/upgrade/human-comprehension claim. Fresh isolated seat; runtime model unverified."
+        }
+      },
+      {
+        "wave_id": "228dy",
+        "event": "approval",
+        "actor": "council-chair",
+        "context_id": "/root/feedback_readiness_council",
+        "mode": "dry_run",
+        "signoff_key": "council-readiness",
+        "approval_phase": "readiness",
+        "fresh_context": true,
+        "independent": true,
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "readiness-safe rejected invalid wf_review_event dry-run approval: false integrity fields and does_not intent_fit rejected without writes"
+        },
+        "evidence": {
+          "proposition": "Meeting the admitted requirements and ACs can establish the change Product Intent and wave Objective within the existing authority and bounded review contracts.",
+          "intent_fit": "establishes",
+          "public_path": "Admitted plan/current instruction contracts and registered wf_review_event dry-run",
+          "command_or_fixture": "Targeted standard council with isolated red-team primer, isolated docs-contract pre-primer read and response, red-team closing reconciliation; invalid dry-run approval control.",
+          "expected": "No infeasible required AC or altered operator authority; invalid approval rejected.",
+          "observed": "No concrete readiness findings. AC2\u20134 discriminate correction propagation, uncoached meaning repair and bounded stopping. Invalid approval rejected on all five false integrity fields and does_not intent_fit. Controlled-defect fixture provenance is an implementation note.",
+          "artifact_or_test_id": "docs/waves/228dy envision-focused-feedback/wave.md#review-checkpoints; receipt review-policy-0938e94e97cf51e25b56; 226i1 SHA256 45ca63f9bc728e784b8ec92eec1575b0fdfac38d8f7b24d0692dcd61df2b1381",
+          "limitations": "Readiness only. Field efficacy and human comprehension unproven; shared project framing and runtime models unverified. Preserve exact reviewed fingerprints; promote compact outcome and controls into wave.md before recording."
+        }
+      }
+    ],
+    "verdict": "approved",
+    "seat_agreement_aggregate": {
+      "seat_agreement": "unanimous",
+      "max_severity": "none"
+    },
+    "pre_primer_read": "The plan proposes early destination discussion, evidence-driven roadmap correction and staged independent understanding inside one shared repair while retaining operator strategy/adoption authority.",
+    "primer_effect": "Confirmed and sharpened the evaluation distinction: freeze controlled-defect provenance and withhold the oracle rather than force natural author failure.",
+    "anonymized_synthesis": "Merit-weighted the one non-primer seat as Seat1; no concrete contract contradiction found. Reattached docs-contract identity. No blocking lane authority was anonymized or diluted.",
+    "closing_reconciliation": "Red-team held the empty candidate set; no new finding. Revise current review:5 and :7 together within scope; controlled-defect provenance remains an implementation note.",
+    "falsification_check": "Approve readiness. Strongest counterargument is that a planted defect could game AC3; frozen provenance, retained uncoached reconstruction, withheld oracle, meaningful misleading controls and finite stop distinguish a bounded valid repair probe. A clean natural draft alone leaves repair unproven. Counterargument does not change verdict.",
+    "fingerprints": {
+      "docs/waves/228dy envision-focused-feedback/226i1-enh envision-focused-feedback-loops.md": {
+        "git_blob": "c1d64aa6c3d406f47c7b07a6099a0da16c60f222",
+        "sha256": "45ca63f9bc728e784b8ec92eec1575b0fdfac38d8f7b24d0692dcd61df2b1381"
+      },
+      ".wavefoundry/framework/seeds/179-envision-project.prompt.md": {
+        "git_blob": "8429b142ea02bcb1cd91167ffc311c6fb2f42988",
+        "sha256": "a18051bf81e1eb481fdaa26ead999e358b348ac680ca0150909c7f9518857a87"
+      },
+      ".wavefoundry/framework/seeds/envision/review.prompt.md": {
+        "git_blob": "40d661b1ed5d7a9b79cef36117421c3f9f8577b4",
+        "sha256": "74e6beca9304996c2cb7ea2a33f0cd9301e1ac9cc766f05c00a35b0971b91f3b"
+      },
+      ".wavefoundry/framework/seeds/envision/delivery.prompt.md": {
+        "git_blob": "052d4e9990436b8343e7487bb53f63cb8c65d359",
+        "sha256": "fcfafa88465eba93cea93b1bc56dd06eb9162ef121292218477f7fa84ab7d499"
+      },
+      "docs/prompts/envision-project.prompt.md": {
+        "git_blob": "02081f44a2043abad1476f425b7c01c03810fbe7",
+        "sha256": "904ac3f29589d615d3a119579a0bc0bc55f65a5055543143ff638f299999801d"
+      },
+      "docs/prompts/agents/envision/review.prompt.md": {
+        "git_blob": "9846c9dc2702cbdd59f2193e09f7cdc53909be55",
+        "sha256": "8d402716717afaa683fd8b7286b4501c079c0ee5e511bbb883e958cbf881158c"
+      },
+      "docs/prompts/agents/envision/delivery.prompt.md": {
+        "git_blob": "083ea58a40b7db44a6c133c16b3622cbab1e4ea2",
+        "sha256": "70a64886cfd7f0bf85ac92dd9095468d99da91fb45b5e6b6deae582c57733d72"
+      },
+      "docs/architecture/data-and-control-flow.md": {
+        "git_blob": "94e4821fa2474013acebd3d8c61d6ee23b909f33",
+        "sha256": "7a65c70611a1d5608ea83d7896e8116c460a3a2df3e99ec411a9164acd6f5177"
+      },
+      "CHANGELOG.md": {
+        "git_blob": "cb431078b5555126c70d730c07281a6ca50f78d0",
+        "sha256": "93e19a42dac97b875b7c3ca4141080488db72fc427fe725bc1da7f850d273b14"
+      },
+      ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": {
+        "git_blob": "0a6576b2c49b57de0dbe1f6c833adf1bd8e2eec7",
+        "sha256": "eea998a2c310d3d04d93a3de18bf19e3ec59dc7729c9ecdeb4a6c3d62d0574d0"
+      }
+    }
+  }
+}

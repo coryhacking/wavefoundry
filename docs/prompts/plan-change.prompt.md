@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-28
+Last verified: 2026-11-03
 
 Shortcut: **`Plan change`**
 
@@ -19,6 +19,8 @@ Ask only questions whose answers materially change the result: at most three for
 **Vision-to-plan bridge (when adopted):** Look first for a vision explicitly designated by the project (for example in `AGENTS.md` or the project overview) or directed by the operator. Git tracking is neither necessary nor sufficient: a designated uncommitted vision counts; a committed draft does not. Exclude unadopted, personal and draft visions. With no designation, root `VISION.md` is discovery-only: report it as available only when the request and already available project context make it plausibly relevant. Do not read it to decide relevance; consult it only if the operator directs. No vision means normal planning, without a new prerequisite or routine approval exchange.
 
 For an adopted vision, start with its opening, roadmap overview and relevant horizon; follow only references needed for consequential dependencies, constraints or conflicts, rather than reading the whole document by default. Identify which horizon and outcome the requested change advances, with relevant prerequisites and assumptions, in existing Product Intent or requirements. Do not select work or redirect the request to manufacture alignment. State legitimate nonalignment briefly; expose conflicts for operator decision before dependent drafting. **Delivery evidence informs horizon progress; recording it in the vision is an Envision revision or an explicit operator edit.** Met/missed exit evidence informs that revision; it does not authorize a changed destination or subsequent work. Plan change leaves vision/review artifacts unchanged and adds no tracker, mandatory section or automatic write.
+
+**Arc context (when supplied):** Use the relevant arc record (or its distribution name, such as Epic) to identify how the requested change contributes and which consequential prerequisites apply, in existing Product Intent or requirements. Link to that record and recheck mutable facts against their current owners. It is not readiness authority. Do not redirect the request, rewrite arc progress or require Plan arc for ordinary changes.
 
 ## Steps
 

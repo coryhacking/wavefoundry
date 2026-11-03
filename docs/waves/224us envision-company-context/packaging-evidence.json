@@ -1,0 +1,200 @@
+{
+  "wave": "224us",
+  "artifact": {
+    "version": "1.39.0+q0f4",
+    "path": "/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.39.0.q0f4.zip",
+    "bytes": 10960233,
+    "sha256": "b03d2a915c80e0f414e3b081db37cc8bfd96c87d3581c5f46086c499eaad6a16",
+    "source_files_verified": 259,
+    "envision_family_exact": true,
+    "manifest_exact": true,
+    "changelog_exact": true,
+    "outer_crc_paths_unique_ok": true,
+    "actual_visions_excluded": true,
+    "nested": {
+      "bridge": {
+        "sha256": "326f4d0de8ec4c9db7629a1a0390a0006e3e9fe1facb0826d845a0c4d248ba54",
+        "members": 262,
+        "crc_paths_unique_ok": true
+      },
+      "feature": {
+        "sha256": "30c6bfe3d790960c3083d95a7d98bba1bc47ca973e4245bd8bbb6ca92a99a135",
+        "members": 265,
+        "crc_paths_unique_ok": true
+      }
+    },
+    "provenance": {
+      "build_id": "q0f4",
+      "release_tag": null,
+      "release_version": "1.39.0+q0f4",
+      "schema_version": 1,
+      "source_commit": "bee6fd9335e8b4c175567d1b4c603d6da00cf2ce",
+      "source_tree_clean": false
+    },
+    "limits": "Local feature package; no target upgrade or native Windows execution. Generated metadata validated separately; nested ZIPs need not be executable."
+  },
+  "qualification": {
+    "default": {
+      "path": ".wavefoundry/cache/qualification/224us-default.json",
+      "sha256": "02a93d422e3890fc795a2c20fb96a2132041936314abfb0d675c65510fbe7ec8",
+      "returncode": 0,
+      "complete": true,
+      "run_id": "0aab0ec6938c4f739f7eb4046c821501",
+      "identity": {
+        "profile": "default",
+        "source_hash": "90d82718a8e226b423b877dee31bbb337551946af7d218daafd123ce45465575"
+      },
+      "tests": 12291,
+      "files": 214,
+      "skips": 12,
+      "elapsed_s": 551.007
+    },
+    "second": {
+      "path": ".wavefoundry/cache/qualification/224us-second.json",
+      "sha256": "6fb0629cd082f2a762a56eaec3f5740ec8f67d08931231eeaa3f2b394a0e1ad2",
+      "returncode": 0,
+      "complete": true,
+      "run_id": "12ae7ed542dd4b1d8c9ba41cdb3daecd",
+      "identity": {
+        "applied_profile_hash": "1eed932e9fb9c0ad3d1ca6b7ddde388ea97d9e273accf59489ba45fc4d80f6b1",
+        "profile": "second",
+        "profile_input_hash": "1a2b09ef7c94d5b24055edb0ebefd01ff04afebacc4c1c56ed7e24a57fc7d3b4",
+        "source_hash": "90d82718a8e226b423b877dee31bbb337551946af7d218daafd123ce45465575"
+      },
+      "tests": 12283,
+      "files": 214,
+      "skips": 29,
+      "elapsed_s": 539.263
+    },
+    "declared": {
+      "path": ".wavefoundry/cache/qualification/224us-declared.json",
+      "sha256": "7b492c5aad4573386a8178510b77142644ef151e55ca1d063484d2d51fa7434c",
+      "returncode": 0,
+      "complete": true,
+      "run_id": "a312ed21c6ae4296a3d3d287fdc144f6",
+      "identity": {
+        "applied_profile_hash": "f16024eb381e8450f4c96f021fd71137a97406f0996941e0dba58821d5acea8c",
+        "profile": "declared",
+        "profile_input_hash": "a75246ede0f84ca1790a91cca394d5b8eb7b0937dc5c7ad04732212cc1cbe303",
+        "source_hash": "90d82718a8e226b423b877dee31bbb337551946af7d218daafd123ce45465575"
+      },
+      "tests": 12291,
+      "files": 214,
+      "skips": 12,
+      "elapsed_s": 539.36
+    }
+  },
+  "comparisons": {
+    "second": {
+      "baseline_skips": 12,
+      "default_only": 17,
+      "equal": true,
+      "profile_skips": 29
+    },
+    "declared": {
+      "baseline_skips": 12,
+      "default_only": 0,
+      "equal": true,
+      "profile_skips": 12
+    }
+  },
+  "provenance_notes": [
+    "Normal local build stamps VERSION and prompt manifest after successful qualification; revised canonical guidance bytes match the reviewed/tested candidate.",
+    "Docs gardener refreshed architecture metadata only during packaging.",
+    "Local feature-only build; model-set3 unchanged, verified uv0.12.22 and dependencies retained by operator preference. Existing same-day registry verification remains applicable to unchanged dependency bytes.",
+    "No target upgrade, official release, native Windows/Linux run, commit or push.",
+    "Previous q02v and q0c1 archives retained; select the exact q0f4 archive for testing."
+  ],
+  "final_qa_review": {
+    "role": "qa-reviewer",
+    "phase": "delivery",
+    "context_id": "/root/company_delivery_qa",
+    "verdict": "approve",
+    "findings": [],
+    "ac_assessment": {
+      "AC-1": "Supported: inspected shipped core and research/review/delivery phases against R1-R5; independently normalized and compared all5canonical/local bodies; exact parity, core1656/family3575 words. Conditional company cue, source distinction, portfolio implications, existing role checks and delivery accounting preserve authority and ambition.",
+      "AC-2": "Supported for admitted bounded claim: inspected exact fictional briefs, author results and neutral reconstruction; C3 selected-support evidence causally changes Fieldnote destination and first experiment, C2 commitments remain binding, marketing is not demand or a ceiling, partner participation stays contingent. Looplist uses personal usefulness without company or commercial prerequisites. Independently executed all9artifact hash checks, authorpacket allowedsubset equality, reader-output equality, stage1 noanchors/controls, stage2 frozen-input equality and reconstructionhash stability. Controls X/Y independently rejected: X promotes marketing into mandate and overrides controller/product authority; Y invents company/commercial gates.",
+      "AC-3": "Supported: independently opened exact 1.39.0+q0f4 artifact and verified SHA256/size, all259on-disk source bytes, five Envision members against original reviewed candidate hashes, source manifest exactness, changelog/VERSION/localpromptstamp, executable outer entry, archive paths/CRC/uniqueness, nested hashes/CRC and feature parity. Seed160 still names changed family members. Independently validated all3report hashes, full worker coverage/results/counts and reran both exact qualification comparisons; second29skips=12baseline+17declareddefault-only, declared12=baseline. No target upgrade performed. Normal post-qualification version stamp is disclosed."
+    },
+    "intent_outcome": "The shipped guidance and the admitted two synthetic excerpts establish the bounded company-grounding and standalone-proportionality intent; the exact rebuilt local package now establishes delivery. Company support evidence causally shaped a choice/path without making marketing binding, while the standalone case added no company work. No superiority, field efficacy, actual customer/company validation or universal agent-adherence claim is established.",
+    "executed_checks": [
+      "Exact retained artifact SHA256 validation",
+      "Author/reader/scoring packet composition and frozen reconstruction checks",
+      "Independent canonical-local parity across all5Envision members",
+      "Default report inventory214/214, allworkerscomplete/terminal/returncode0/noissues, sum12291tests and12explicit skips; receipt/source identitymatch",
+      "Finalarchive independently opened and checked: SHA256 b03d2a915c80e0f414e3b081db37cc8bfd96c87d3581c5f46086c499eaad6a16;10960233bytes;259sourcefileparity;all5Envision candidate hashes stable",
+      "All3execution-report hashes and identities, completed/terminal/zero-return workers, tests/skips totals and expected/observed worker sets independently checked",
+      "Reran qualification_report.py exact comparisons for second and declared; both equal:true,12/29/12skips with17explicitdefault-only"
+    ],
+    "suite_reexecuted": false,
+    "evidence_refs": [
+      "docs/waves/224us envision-company-context/evaluation-evidence.json",
+      ".wavefoundry/cache/qualification/224us-default.json",
+      ".wavefoundry/framework/test-cache.json",
+      "docs/waves/224us envision-company-context/packaging-evidence.json"
+    ],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "Independently rejected the two frozen adverse outputs against the fictional operator/source reference: marketing-as-mandate/demand plus unauthorized product/safety takeover, and invented company/commercial prerequisites for the standalone brief. Verified staged reader also rejected both. Exact byte/hash/parity checks would reject stale or missing shipped guidance; comparisons verify permitted skip differences. No broad efficacy or subtle-error discrimination claim."
+    },
+    "limitations": [
+      "No new author trial or suite rerun by reviewer.",
+      "One shared author context across2cases, one stagedreader; no cross-model comparison.",
+      "Controls are conspicuous; subtle-boundary detection unproven.",
+      "Alternative authoring chronology is reported, not independently witnessed; not a new acceptance claim.",
+      "No public/internal organization research was performed; all source evidence supplied and fictional."
+    ],
+    "next": "Root may record final QA delivery approval using this unchanged delivery context. No product changes, additional trial or full suite rerun requested.",
+    "final_package": {
+      "version": "1.39.0+q0f4",
+      "sha256": "b03d2a915c80e0f414e3b081db37cc8bfd96c87d3581c5f46086c499eaad6a16",
+      "path": "/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.39.0.q0f4.zip"
+    },
+    "fresh_context": true,
+    "independent": true
+  },
+  "final_release_review": {
+    "actor": "release-reviewer",
+    "phase": "delivery",
+    "context_id": "/root/company_delivery_release",
+    "fresh_context": true,
+    "independent": true,
+    "verdict": "approve",
+    "findings": [],
+    "observed": "Local 1.39.0+q0f4 package satisfies AC-3 delivery integrity. Actual archive SHA256 b03d2a915c80e0f414e3b081db37cc8bfd96c87d3581c5f46086c499eaad6a16; 10,960,233 bytes. All 259 present source files match disk; canonical Envision family hashes match retained reviewed contract and all five normalized local bodies. Seed160 explicitly names all companions and requires same-run reconciliation, including companion-only changes. Changelog has the scoped company-context entry. No blocking finding.",
+    "checks": [
+      "Inspected actual outer ZIP: 272 unique safe nonsymlink members, CRC clean, no actual visions/work/qualification reports. Exact changelog and VERSION; local prompt manifest revision 1.39.0+q0f4.",
+      "Inspected both actual nested payloads: bridge 262 members and feature 265, CRC/paths/uniqueness valid, descriptor SHA256 values match. Nested feature matches shared outer content; bridge differs only in UPGRADE-PROTOCOL.json and VERSION as build_pack.py:1246-1311 requires (protocol-bridge-2 and bridge-q0f4-p2).",
+      "Actual execution reports match retained SHA256/run identities and common source hash 90d82718a8e226b423b877dee31bbb337551946af7d218daafd123ce45465575. Every worker complete, zero return code, no issues; expected/observed inventories equal. Default 12291/214/12 skips, second 12283/214/29, declared 12291/214/12.",
+      "Executed canonical qualification_report.py comparisons independently: second equal with 17 marked default-only extra skips; declared exact equality with no extra skips. No suite rerun.",
+      "Actual provenance source_commit matches HEAD bee6fd9335e8b4c175567d1b4c603d6da00cf2ce, source_tree_clean=false and release_tag=null. VERSION/local manifest are normal postqualification builder stamps. Single q0f4 output remains; transient source provenance removed; root package name is gitignored.",
+      "Protected vision/seed160 hashes unchanged; no script diff. Actual uv pin is 0.12.22. Consumed durable prior registry verification and explicit pin-retention direction; no dependency/model changes or registry freshness claim from this reviewer."
+    ],
+    "integrity_checks": {
+      "test_ran_without_unintended_skip": true,
+      "public_path_reached": true,
+      "boundary_values_realistic": true,
+      "assertions_non_vacuous": true,
+      "known_bad_detected": true,
+      "known_bad_detection_method": "Independent checks consumed the actual operator-facing ZIP and execution-origin reports, reran both public qualification comparison commands, and flipped one byte in an in-memory copy of the actual archive; the same expected-SHA256 oracle rejected the corrupted copy. No source or real archive mutation."
+    },
+    "limitations": [
+      "Approval is for this local package and declared instruction delivery, not an official release, downstream installation or universal Envision effectiveness.",
+      "No target upgrade, native Windows/Linux execution, new authoring trial, full-suite rerun, close, commit, push or publication performed.",
+      "Test execution is evidenced by retained complete execution-origin reports; independent reviewer reran their deterministic comparisons rather than claiming to have run the suites.",
+      "Qualification precedes normal VERSION/manifest stamping; no claim that the poststamp tree has an identical framework test-receipt hash. Canonical guidance bytes are exact; gardener architecture metadata is documented separately."
+    ],
+    "evidence_refs": [
+      "docs/waves/224us envision-company-context/packaging-evidence.json",
+      ".wavefoundry/cache/qualification/224us-default.json",
+      ".wavefoundry/cache/qualification/224us-second.json",
+      ".wavefoundry/cache/qualification/224us-declared.json",
+      ".wavefoundry/work/224us/contract-check.json",
+      "/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.39.0.q0f4.zip"
+    ]
+  }
+}

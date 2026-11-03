@@ -2,9 +2,13 @@
 
 Internal phase guidance before reviewer briefing or findings repair. Apply the core's authority and selected coverage.
 
-The author coordinates but does not impersonate independent reviewers. Identify the draft with a dated revision label; retain its exact bytes and SHA-256 after its label/status are present. Give each worker that same draft, brief, sources, relevant uncertainties, write boundaries and applicable remit. Reviewers read source and vision without writing them. Parallel reads are useful; serialize author revisions. Supply only relevant authoring guidance alongside the selected role's required protocol.
+The author coordinates but never impersonates reviewers. Label each draft with a dated revision and retain exact bytes and SHA-256 after label/status are present. Selected roles review that same revision read-only; serialize author revisions. Supply the applicable role protocol and write boundaries, then use this input order:
 
-Use project role instructions where present. Assignments are analytical responsibilities, not credentials, stakeholder representation or customer validation. Ground findings in the identified brief/evidence and separate observation from hypothesis. Test whether readers can explain the destination, serious alternatives and recommendation, useful horizons and connection of immediate advances to the larger future.
+- Within one selected product-strategy or domain/workflow review, use a fresh context for understanding. Give the opening alone; ask what purpose, future and beneficiary value it conveys. Retain that answer, then supply the roadmap overview and ask what advance comes next, how it serves the destination and which uncertainty matters most. Retain both reconstructions before supplying the full draft, brief, sources, explanations or judging criteria. Do not coach the answers.
+- That reader then continues its ordinary role review with the full packet. Other reviewers receive the full packet directly. Compare reconstructed meaning with the brief and selected/provisional status; collect consequential misunderstandings alongside other initial findings. Understanding is neither strategic endorsement nor customer validation.
+- This adds no reviewer or council. If scope excludes an appropriate independent reader or capability is unavailable, disclose the omission and any author self-check; do not enlarge agreed scope or imply independence.
+
+Use project role instructions where present; assignments are responsibilities, not credentials or stakeholder representation. Ground findings in evidence and distinguish hypotheses. Test alternatives, recommendation, horizons and immediate advances. Product strategy and challenge also check that consequential choices received guided discussion or honored deferral/no-interview scope, and actual operator answers shaped the result.
 
 | Responsibility | Examine |
 | --- | --- |
@@ -12,6 +16,8 @@ Use project role instructions where present. Assignments are analytical responsi
 | Domain/application workflow | End-to-end fit, obligations, constraints and adoption. Distinguish operating experience from imagined workflows and identify missing beneficiary evidence. |
 | Senior architecture | Current-capability accuracy, breakthroughs versus foundations, dependency order, ownership, interfaces, trust boundaries, credible transition and adaptability. |
 | Independent challenge | Failure modes, unsupported certainty, contrary evidence and stronger alternatives; challenge unequal exploration, conflated scope and asymmetric demands for proof without choosing the operator's strategy. |
+
+For company-backed products, product strategy and domain reviewers also challenge organizational fit, beneficiary evidence and whether existing positioning constrained ambition without justification. Architecture examines consequential portfolio dependencies and ownership boundaries. Distinguish strategic proposals from authority to change company commitments; add no separate review ceremony.
 
 Add finance/economics when funding, cost to serve or sustainability shapes choices; security when trust/authority matters; reliability when recovery determines value; UX for consequential interaction uncertainty. Explain consequential omissions. Counts and role labels do not prove these questions were answered.
 
@@ -21,7 +27,7 @@ Archetypes can be internal thinking techniques; they add no default roster, chai
 
 Correct false capability claims, broken reasoning, unsupported certainty and dependencies while preserving ambition and genuine contrary evidence. Proposed destination reductions remain operator decisions; reviewer hypotheses do not become adopted strategy. Continue within selected scope without routine reapproval; material scope/authority or unresolved strategic changes return to the operator. Synthesis, majority opinion and consensus grant no strategic authority.
 
-Collect initial findings before editing, apply canonical dispositions with reasons and make one bounded author repair. Affected reviewers then verify the identified revised draft against prior findings and actual changes, supplied as claims to check rather than predetermined resolved verdicts. A no-new-finding follow-up is verification, not proof of uselessness, convergence or efficacy. After verification, stop substantive author repairs and report pending actionable findings/decisions. Later explicit operator direction can authorize another revision; identify its changed coverage and any focused follow-up actually performed. Updating honest delivery-status metadata does not authorize another substantive repair.
+Collect all initial findings, including understanding, before one bounded author repair with reasoned dispositions. Affected reviewers verify the identified revision and changed passages against findings, not predetermined resolved verdicts. The reader checks its meaning repairs; this contextual verification is not another blind reading. Early drafting/conversation precedes this shared boundary; each feedback opportunity does not earn another repair allowance. After verification, stop substantive repairs and report remaining findings/decisions. Later explicit operator direction can authorize another revision with honest coverage. Status metadata grants no extra repair; a no-new-finding check establishes neither convergence nor efficacy.
 
 Generic role instructions about delivery-wave records apply only in that lifecycle. Here, create no wave records or `council-readiness`/`council-delivery` approvals and call no Prepare, Review wave or review-approval tools. Vision review replaces no implementation gate. Credible security issues go to a specialist; red-team issues no security signoff.
 

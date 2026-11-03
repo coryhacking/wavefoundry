@@ -1,0 +1,827 @@
+{
+  "retention_reason": "Unique agent-assisted merge evidence and exact synthetic before/after surfaces establish AC-4 beyond archive membership.",
+  "mechanical_command": "env -u PYTHONPYCACHEPREFIX /Users/coryhacking/.wavefoundry/venv/bin/python -B .wavefoundry/framework/scripts/tests/test_writing_guide_delivery.py",
+  "mechanical_result": "5 tests pass; actual production collection/extraction, guide-only payload update, preserved local/history, readable references and missing/stale controls. No full install or native Windows qualification.",
+  "reconciliation": {
+    "kind": "bounded_agent_assisted_writing_reconciliation",
+    "wave": "224i4",
+    "scope": [
+      "AGENTS.md",
+      "docs/prompts/index.md",
+      "docs/prompts/upgrade-wavefoundry.prompt.md",
+      "docs/agents/specialists/technical-writer.md"
+    ],
+    "old_seed233_sha256": "6068b17e9f2b93b40c72fe97b6b68bf35ebe2082bef84c4442993fa8abfcf1f5",
+    "targets": {
+      "fresh": {
+        "input_source_hashes": {
+          ".wavefoundry/framework/docs/writing-guide.md": "cd9904b56148ede22241e14d05474145f00a6a692b04ecf5277198e8879ba514",
+          ".wavefoundry/framework/seeds/209-agent-harness-core.prompt.md": "02d55ff365b34d5a227693486dd9d17070af7f0f485c81601e837069aa5b8d06",
+          ".wavefoundry/framework/seeds/020-run-contract.prompt.md": "baa90b2f70937e190b125218633e28154ce1c7785902ad0fc012198eea35e007",
+          ".wavefoundry/framework/seeds/233-technical-writer.prompt.md": "15641b2b1a3592f6706bc695c26d876ab21d830f917b2cf1712ff363e40a247a",
+          ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": "77fb2cc5e6d2fdac535a8b6719988ce67aac05f560eee0b589343bcd09b37367",
+          ".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md": "d3cbe8c7595b7a6974edd220475d496c12517fa9141d994813a2867c2c2ac388",
+          ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "eea998a2c310d3d04d93a3de18bf19e3ec59dc7729c9ecdeb4a6c3d62d0574d0"
+        },
+        "pre_hashes": {
+          "VISION.md": "1fb61f58bfd028ff671951e856d25223968c538a9d2fd3618eae108cde17986e",
+          ".wavefoundry/framework/docs/writing-guide.md": "cd9904b56148ede22241e14d05474145f00a6a692b04ecf5277198e8879ba514",
+          ".wavefoundry/framework/seeds/209-agent-harness-core.prompt.md": "02d55ff365b34d5a227693486dd9d17070af7f0f485c81601e837069aa5b8d06",
+          ".wavefoundry/framework/seeds/020-run-contract.prompt.md": "baa90b2f70937e190b125218633e28154ce1c7785902ad0fc012198eea35e007",
+          ".wavefoundry/framework/seeds/233-technical-writer.prompt.md": "15641b2b1a3592f6706bc695c26d876ab21d830f917b2cf1712ff363e40a247a",
+          ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": "77fb2cc5e6d2fdac535a8b6719988ce67aac05f560eee0b589343bcd09b37367",
+          ".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md": "d3cbe8c7595b7a6974edd220475d496c12517fa9141d994813a2867c2c2ac388",
+          ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "eea998a2c310d3d04d93a3de18bf19e3ec59dc7729c9ecdeb4a6c3d62d0574d0",
+          "docs/waves/old/wave.md": "2d4fd2cba7ce00c35ef08f8a8c8a49e51780cac8efb771a3cdc7a77765b7743c",
+          "docs/waves/old/events.jsonl": "6ca91fd6bc324eb85712dca33a28e70da90fa61d2d743e799cec8ad7e1478221"
+        },
+        "post_hashes": {
+          "VISION.md": "1fb61f58bfd028ff671951e856d25223968c538a9d2fd3618eae108cde17986e",
+          "AGENTS.md": "71596a7b6fe87f164c5d8ab7b1211d5b48c7fbf2a2495395e23aa2cd4ce8aa49",
+          ".wavefoundry/framework/docs/writing-guide.md": "cd9904b56148ede22241e14d05474145f00a6a692b04ecf5277198e8879ba514",
+          ".wavefoundry/framework/seeds/209-agent-harness-core.prompt.md": "02d55ff365b34d5a227693486dd9d17070af7f0f485c81601e837069aa5b8d06",
+          ".wavefoundry/framework/seeds/020-run-contract.prompt.md": "baa90b2f70937e190b125218633e28154ce1c7785902ad0fc012198eea35e007",
+          ".wavefoundry/framework/seeds/233-technical-writer.prompt.md": "15641b2b1a3592f6706bc695c26d876ab21d830f917b2cf1712ff363e40a247a",
+          ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": "77fb2cc5e6d2fdac535a8b6719988ce67aac05f560eee0b589343bcd09b37367",
+          ".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md": "d3cbe8c7595b7a6974edd220475d496c12517fa9141d994813a2867c2c2ac388",
+          ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "eea998a2c310d3d04d93a3de18bf19e3ec59dc7729c9ecdeb4a6c3d62d0574d0",
+          "docs/prompts/upgrade-wavefoundry.prompt.md": "5877128d9cd3ab469bd614c5593e36f4c4dced86803c78a2e558b413843cdfe1",
+          "docs/prompts/index.md": "8bfa34fd9cb0d68d5dd599c6e704d37d0e2fe291157b35a28b54e2ab3e7c803f",
+          "docs/waves/old/wave.md": "2d4fd2cba7ce00c35ef08f8a8c8a49e51780cac8efb771a3cdc7a77765b7743c",
+          "docs/waves/old/events.jsonl": "6ca91fd6bc324eb85712dca33a28e70da90fa61d2d743e799cec8ad7e1478221",
+          "docs/agents/specialists/technical-writer.md": "080aa25a0d2a0339d6fd4f36c694f77dc5cbdfe0dc067d21702a84850695ae9d"
+        },
+        "changes": {
+          "AGENTS.md": {
+            "pre_sha256": null,
+            "post_sha256": "71596a7b6fe87f164c5d8ab7b1211d5b48c7fbf2a2495395e23aa2cd4ce8aa49",
+            "diff": "--- before/AGENTS.md\n+++ after/AGENTS.md\n@@ -0,0 +1,3 @@\n+# Agent Guide\n+\n+**Writing:** For newly authored or substantially revised prose, read `.wavefoundry/framework/docs/writing-guide.md` at the point of work. Lead replies and progress reports with the answer, result or next action. Preserve meaning and machine contracts; explicit user format and project writing policy take precedence. Surface consequential conflicts.\n"
+          },
+          "docs/prompts/index.md": {
+            "pre_sha256": null,
+            "post_sha256": "8bfa34fd9cb0d68d5dd599c6e704d37d0e2fe291157b35a28b54e2ab3e7c803f",
+            "diff": "--- before/docs/prompts/index.md\n+++ after/docs/prompts/index.md\n@@ -0,0 +1,9 @@\n+# Prompt Index\n+\n+Owner: Engineering\n+Status: active\n+Last verified: 2026-10-31\n+\n+## Operating Rules\n+\n+**Writing:** For newly authored or substantially revised prose, read `.wavefoundry/framework/docs/writing-guide.md` at the point of work. Lead replies and progress reports with the answer, result or next action. Preserve meaning and machine contracts; explicit user format and project writing policy take precedence. Surface consequential conflicts.\n"
+          },
+          "docs/prompts/upgrade-wavefoundry.prompt.md": {
+            "pre_sha256": null,
+            "post_sha256": "5877128d9cd3ab469bd614c5593e36f4c4dced86803c78a2e558b413843cdfe1",
+            "diff": "--- before/docs/prompts/upgrade-wavefoundry.prompt.md\n+++ after/docs/prompts/upgrade-wavefoundry.prompt.md\n@@ -0,0 +1,9 @@\n+# Upgrade Wavefoundry\n+\n+Owner: Engineering\n+Status: active\n+Last verified: 2026-10-31\n+\n+## Reader-centered writing reconciliation\n+\n+During this upgrade, read and execute the **Reader-centered writing reconciliation** section of `.wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md` in the same run. Keep the instruction outside renderer-owned regions; inspect actual destinations on retries even when prior changed-seed evidence is empty.\n"
+          },
+          "docs/agents/specialists/technical-writer.md": {
+            "pre_sha256": null,
+            "post_sha256": "080aa25a0d2a0339d6fd4f36c694f77dc5cbdfe0dc067d21702a84850695ae9d",
+            "diff": "--- before/docs/agents/specialists/technical-writer.md\n+++ after/docs/agents/specialists/technical-writer.md\n@@ -0,0 +1,11 @@\n+# Technical Writer\n+\n+Owner: Engineering\n+Status: active\n+Role: technical-writer\n+Category: specialist\n+Last verified: 2026-10-31\n+\n+## Operating Identity\n+\n+Produces and maintains documentation that helps its intended readers understand, decide and act accurately. Priorities: reader purpose, precision, findability, sufficient detail and freshness. Read `.wavefoundry/framework/docs/writing-guide.md` when authoring or substantially revising prose, honoring explicit user format and project writing policy. Success: readers can recover the needed meaning and action; documents retain explicit owners and verifiable claims.\n"
+          }
+        },
+        "preserved_files": {
+          "VISION.md": {
+            "pre_sha256": "1fb61f58bfd028ff671951e856d25223968c538a9d2fd3618eae108cde17986e",
+            "post_sha256": "1fb61f58bfd028ff671951e856d25223968c538a9d2fd3618eae108cde17986e",
+            "unchanged": true
+          },
+          ".wavefoundry/framework/docs/writing-guide.md": {
+            "pre_sha256": "cd9904b56148ede22241e14d05474145f00a6a692b04ecf5277198e8879ba514",
+            "post_sha256": "cd9904b56148ede22241e14d05474145f00a6a692b04ecf5277198e8879ba514",
+            "unchanged": true
+          },
+          ".wavefoundry/framework/seeds/209-agent-harness-core.prompt.md": {
+            "pre_sha256": "02d55ff365b34d5a227693486dd9d17070af7f0f485c81601e837069aa5b8d06",
+            "post_sha256": "02d55ff365b34d5a227693486dd9d17070af7f0f485c81601e837069aa5b8d06",
+            "unchanged": true
+          },
+          ".wavefoundry/framework/seeds/020-run-contract.prompt.md": {
+            "pre_sha256": "baa90b2f70937e190b125218633e28154ce1c7785902ad0fc012198eea35e007",
+            "post_sha256": "baa90b2f70937e190b125218633e28154ce1c7785902ad0fc012198eea35e007",
+            "unchanged": true
+          },
+          ".wavefoundry/framework/seeds/233-technical-writer.prompt.md": {
+            "pre_sha256": "15641b2b1a3592f6706bc695c26d876ab21d830f917b2cf1712ff363e40a247a",
+            "post_sha256": "15641b2b1a3592f6706bc695c26d876ab21d830f917b2cf1712ff363e40a247a",
+            "unchanged": true
+          },
+          ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": {
+            "pre_sha256": "77fb2cc5e6d2fdac535a8b6719988ce67aac05f560eee0b589343bcd09b37367",
+            "post_sha256": "77fb2cc5e6d2fdac535a8b6719988ce67aac05f560eee0b589343bcd09b37367",
+            "unchanged": true
+          },
+          ".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md": {
+            "pre_sha256": "d3cbe8c7595b7a6974edd220475d496c12517fa9141d994813a2867c2c2ac388",
+            "post_sha256": "d3cbe8c7595b7a6974edd220475d496c12517fa9141d994813a2867c2c2ac388",
+            "unchanged": true
+          },
+          ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": {
+            "pre_sha256": "eea998a2c310d3d04d93a3de18bf19e3ec59dc7729c9ecdeb4a6c3d62d0574d0",
+            "post_sha256": "eea998a2c310d3d04d93a3de18bf19e3ec59dc7729c9ecdeb4a6c3d62d0574d0",
+            "unchanged": true
+          },
+          "docs/waves/old/wave.md": {
+            "pre_sha256": "2d4fd2cba7ce00c35ef08f8a8c8a49e51780cac8efb771a3cdc7a77765b7743c",
+            "post_sha256": "2d4fd2cba7ce00c35ef08f8a8c8a49e51780cac8efb771a3cdc7a77765b7743c",
+            "unchanged": true
+          },
+          "docs/waves/old/events.jsonl": {
+            "pre_sha256": "6ca91fd6bc324eb85712dca33a28e70da90fa61d2d743e799cec8ad7e1478221",
+            "post_sha256": "6ca91fd6bc324eb85712dca33a28e70da90fa61d2d743e799cec8ad7e1478221",
+            "unchanged": true
+          }
+        },
+        "same_run_merge_complete": true,
+        "conflicts": [],
+        "retry": {
+          "status": "complete",
+          "prior_changed_seed_list": [],
+          "prior_diff": "",
+          "method": "Agent reread all four current destinations, compared required clauses to installed seeds, followed all reference chains, and found no required edit. No writes to fixture files on this second pass.",
+          "hashes": {
+            "VISION.md": "1fb61f58bfd028ff671951e856d25223968c538a9d2fd3618eae108cde17986e",
+            "AGENTS.md": "71596a7b6fe87f164c5d8ab7b1211d5b48c7fbf2a2495395e23aa2cd4ce8aa49",
+            ".wavefoundry/framework/docs/writing-guide.md": "cd9904b56148ede22241e14d05474145f00a6a692b04ecf5277198e8879ba514",
+            ".wavefoundry/framework/seeds/209-agent-harness-core.prompt.md": "02d55ff365b34d5a227693486dd9d17070af7f0f485c81601e837069aa5b8d06",
+            ".wavefoundry/framework/seeds/020-run-contract.prompt.md": "baa90b2f70937e190b125218633e28154ce1c7785902ad0fc012198eea35e007",
+            ".wavefoundry/framework/seeds/233-technical-writer.prompt.md": "15641b2b1a3592f6706bc695c26d876ab21d830f917b2cf1712ff363e40a247a",
+            ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": "77fb2cc5e6d2fdac535a8b6719988ce67aac05f560eee0b589343bcd09b37367",
+            ".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md": "d3cbe8c7595b7a6974edd220475d496c12517fa9141d994813a2867c2c2ac388",
+            ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "eea998a2c310d3d04d93a3de18bf19e3ec59dc7729c9ecdeb4a6c3d62d0574d0",
+            "docs/prompts/upgrade-wavefoundry.prompt.md": "5877128d9cd3ab469bd614c5593e36f4c4dced86803c78a2e558b413843cdfe1",
+            "docs/prompts/index.md": "8bfa34fd9cb0d68d5dd599c6e704d37d0e2fe291157b35a28b54e2ab3e7c803f",
+            "docs/waves/old/wave.md": "2d4fd2cba7ce00c35ef08f8a8c8a49e51780cac8efb771a3cdc7a77765b7743c",
+            "docs/waves/old/events.jsonl": "6ca91fd6bc324eb85712dca33a28e70da90fa61d2d743e799cec8ad7e1478221",
+            "docs/agents/specialists/technical-writer.md": "080aa25a0d2a0339d6fd4f36c694f77dc5cbdfe0dc067d21702a84850695ae9d"
+          },
+          "changed_paths": [],
+          "all_hashes_match_first_pass": true
+        },
+        "verification": {
+          "guide_readable": true,
+          "selected_reference_chains": [
+            {
+              "source": "AGENTS.md",
+              "chain": [
+                ".wavefoundry/framework/docs/writing-guide.md"
+              ],
+              "readable": true
+            },
+            {
+              "source": "docs/prompts/index.md",
+              "chain": [
+                ".wavefoundry/framework/docs/writing-guide.md"
+              ],
+              "readable": true
+            },
+            {
+              "source": "docs/agents/specialists/technical-writer.md",
+              "chain": [
+                ".wavefoundry/framework/docs/writing-guide.md"
+              ],
+              "readable": true
+            },
+            {
+              "source": "docs/prompts/upgrade-wavefoundry.prompt.md",
+              "chain": [
+                ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md#reader-centered-writing-reconciliation",
+                ".wavefoundry/framework/docs/writing-guide.md"
+              ],
+              "readable": true
+            }
+          ],
+          "writer_identity_current": true,
+          "historical_wave_ledger_and_vision_byte_preserved": true,
+          "source_inputs_byte_preserved": true
+        }
+      },
+      "customized": {
+        "input_source_hashes": {
+          ".wavefoundry/framework/docs/writing-guide.md": "cd9904b56148ede22241e14d05474145f00a6a692b04ecf5277198e8879ba514",
+          ".wavefoundry/framework/seeds/209-agent-harness-core.prompt.md": "02d55ff365b34d5a227693486dd9d17070af7f0f485c81601e837069aa5b8d06",
+          ".wavefoundry/framework/seeds/020-run-contract.prompt.md": "baa90b2f70937e190b125218633e28154ce1c7785902ad0fc012198eea35e007",
+          ".wavefoundry/framework/seeds/233-technical-writer.prompt.md": "15641b2b1a3592f6706bc695c26d876ab21d830f917b2cf1712ff363e40a247a",
+          ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": "77fb2cc5e6d2fdac535a8b6719988ce67aac05f560eee0b589343bcd09b37367",
+          ".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md": "d3cbe8c7595b7a6974edd220475d496c12517fa9141d994813a2867c2c2ac388",
+          ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "eea998a2c310d3d04d93a3de18bf19e3ec59dc7729c9ecdeb4a6c3d62d0574d0"
+        },
+        "pre_hashes": {
+          "VISION.md": "1fb61f58bfd028ff671951e856d25223968c538a9d2fd3618eae108cde17986e",
+          "AGENTS.md": "9075e2003ba26c643c510376fd82ba976cbb2cc0db971aad30dc16ccc4d26d95",
+          ".wavefoundry/framework/docs/writing-guide.md": "cd9904b56148ede22241e14d05474145f00a6a692b04ecf5277198e8879ba514",
+          ".wavefoundry/framework/seeds/209-agent-harness-core.prompt.md": "02d55ff365b34d5a227693486dd9d17070af7f0f485c81601e837069aa5b8d06",
+          ".wavefoundry/framework/seeds/020-run-contract.prompt.md": "baa90b2f70937e190b125218633e28154ce1c7785902ad0fc012198eea35e007",
+          ".wavefoundry/framework/seeds/233-technical-writer.prompt.md": "15641b2b1a3592f6706bc695c26d876ab21d830f917b2cf1712ff363e40a247a",
+          ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": "77fb2cc5e6d2fdac535a8b6719988ce67aac05f560eee0b589343bcd09b37367",
+          ".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md": "d3cbe8c7595b7a6974edd220475d496c12517fa9141d994813a2867c2c2ac388",
+          ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "eea998a2c310d3d04d93a3de18bf19e3ec59dc7729c9ecdeb4a6c3d62d0574d0",
+          "docs/prompts/upgrade-wavefoundry.prompt.md": "fb80308346b6762e26724f8c60f5dba17713d455dac7d06b5e009b569d3d137c",
+          "docs/prompts/index.md": "baacc0519f5d70fad3eae25fa5d2b31ba7a101faaabd90abfe3abe4ea334b11d",
+          "docs/waves/old/wave.md": "2d4fd2cba7ce00c35ef08f8a8c8a49e51780cac8efb771a3cdc7a77765b7743c",
+          "docs/waves/old/events.jsonl": "6ca91fd6bc324eb85712dca33a28e70da90fa61d2d743e799cec8ad7e1478221",
+          "docs/agents/specialists/technical-writer.md": "72cda38ac02b8799b9420728d0324342ee8c0402d912e56b2b2f58934e9f55c6"
+        },
+        "post_hashes": {
+          "VISION.md": "1fb61f58bfd028ff671951e856d25223968c538a9d2fd3618eae108cde17986e",
+          "AGENTS.md": "24c3aa5c1a249cf2c9646d6f72acff3cdd21451fe295d497e6cd572b535ce451",
+          ".wavefoundry/framework/docs/writing-guide.md": "cd9904b56148ede22241e14d05474145f00a6a692b04ecf5277198e8879ba514",
+          ".wavefoundry/framework/seeds/209-agent-harness-core.prompt.md": "02d55ff365b34d5a227693486dd9d17070af7f0f485c81601e837069aa5b8d06",
+          ".wavefoundry/framework/seeds/020-run-contract.prompt.md": "baa90b2f70937e190b125218633e28154ce1c7785902ad0fc012198eea35e007",
+          ".wavefoundry/framework/seeds/233-technical-writer.prompt.md": "15641b2b1a3592f6706bc695c26d876ab21d830f917b2cf1712ff363e40a247a",
+          ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": "77fb2cc5e6d2fdac535a8b6719988ce67aac05f560eee0b589343bcd09b37367",
+          ".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md": "d3cbe8c7595b7a6974edd220475d496c12517fa9141d994813a2867c2c2ac388",
+          ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "eea998a2c310d3d04d93a3de18bf19e3ec59dc7729c9ecdeb4a6c3d62d0574d0",
+          "docs/prompts/upgrade-wavefoundry.prompt.md": "47b3dba42866023f2a996cd8fccb3ea0427de7887f4e43d207a86f3f69967b84",
+          "docs/prompts/index.md": "f420f394cfb0d1f3e8b9fc29edcc6846846ed252e18ebcec2f4f32b72ca6c885",
+          "docs/waves/old/wave.md": "2d4fd2cba7ce00c35ef08f8a8c8a49e51780cac8efb771a3cdc7a77765b7743c",
+          "docs/waves/old/events.jsonl": "6ca91fd6bc324eb85712dca33a28e70da90fa61d2d743e799cec8ad7e1478221",
+          "docs/agents/specialists/technical-writer.md": "812eb92864197ebb8bfb9dd32987592098b84e96d20851db718b371985f47dd1"
+        },
+        "changes": {
+          "AGENTS.md": {
+            "pre_sha256": "9075e2003ba26c643c510376fd82ba976cbb2cc0db971aad30dc16ccc4d26d95",
+            "post_sha256": "24c3aa5c1a249cf2c9646d6f72acff3cdd21451fe295d497e6cd572b535ce451",
+            "diff": "--- before/AGENTS.md\n+++ after/AGENTS.md\n@@ -2,3 +2,5 @@\n \n ## Project writing policy\n Use \u201cwork order\u201d for the customer record. Keep legal notices verbatim.\n+\n+**Writing:** For newly authored or substantially revised prose, read `.wavefoundry/framework/docs/writing-guide.md` at the point of work. Lead replies and progress reports with the answer, result or next action. Preserve meaning and machine contracts; explicit user format and project writing policy take precedence. Surface consequential conflicts.\n"
+          },
+          "docs/prompts/index.md": {
+            "pre_sha256": "baacc0519f5d70fad3eae25fa5d2b31ba7a101faaabd90abfe3abe4ea334b11d",
+            "post_sha256": "f420f394cfb0d1f3e8b9fc29edcc6846846ed252e18ebcec2f4f32b72ca6c885",
+            "diff": "--- before/docs/prompts/index.md\n+++ after/docs/prompts/index.md\n@@ -1,6 +1,8 @@\n # Prompt Index\n \n ## Operating principles\n+\n+**Writing:** For newly authored or substantially revised prose, read `.wavefoundry/framework/docs/writing-guide.md` at the point of work. Lead replies and progress reports with the answer, result or next action. Preserve meaning and machine contracts; explicit user format and project writing policy take precedence. Surface consequential conflicts.\n \n Keep customer terminology.\n \n"
+          },
+          "docs/prompts/upgrade-wavefoundry.prompt.md": {
+            "pre_sha256": "fb80308346b6762e26724f8c60f5dba17713d455dac7d06b5e009b569d3d137c",
+            "post_sha256": "47b3dba42866023f2a996cd8fccb3ea0427de7887f4e43d207a86f3f69967b84",
+            "diff": "--- before/docs/prompts/upgrade-wavefoundry.prompt.md\n+++ after/docs/prompts/upgrade-wavefoundry.prompt.md\n@@ -5,3 +5,7 @@\n \n ## Local policy\n Never rewrite historical records. Preserve our legal notices.\n+\n+## Reader-centered writing reconciliation\n+\n+During this upgrade, read and execute the **Reader-centered writing reconciliation** section of `.wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md` in the same run. Keep the instruction outside renderer-owned regions; inspect actual destinations on retries even when prior changed-seed evidence is empty.\n"
+          },
+          "docs/agents/specialists/technical-writer.md": {
+            "pre_sha256": "72cda38ac02b8799b9420728d0324342ee8c0402d912e56b2b2f58934e9f55c6",
+            "post_sha256": "812eb92864197ebb8bfb9dd32987592098b84e96d20851db718b371985f47dd1",
+            "diff": "--- before/docs/agents/specialists/technical-writer.md\n+++ after/docs/agents/specialists/technical-writer.md\n@@ -5,7 +5,7 @@\n \n ## Operating Identity\n \n-Produces and maintains clear, accurate, and operator-facing documentation. Stance: favor precision and findability over completeness; a short doc that is accurate and linked beats a long doc that is stale and buried. Priorities: accuracy, audience clarity, discoverability, and doc freshness. Success: operators and agents can act on documentation without asking follow-up questions; docs age gracefully and have explicit owners.\n+Produces and maintains documentation that helps its intended readers understand, decide and act accurately. Priorities: reader purpose, precision, findability, sufficient detail and freshness. Read `.wavefoundry/framework/docs/writing-guide.md` when authoring or substantially revising prose, honoring explicit user format and project writing policy. Success: readers can recover the needed meaning and action; documents retain explicit owners and verifiable claims.\n \n ## Local policy\n Use \u201cwork order\u201d for the customer record. Keep legal notices verbatim.\n"
+          }
+        },
+        "preserved_files": {
+          "VISION.md": {
+            "pre_sha256": "1fb61f58bfd028ff671951e856d25223968c538a9d2fd3618eae108cde17986e",
+            "post_sha256": "1fb61f58bfd028ff671951e856d25223968c538a9d2fd3618eae108cde17986e",
+            "unchanged": true
+          },
+          ".wavefoundry/framework/docs/writing-guide.md": {
+            "pre_sha256": "cd9904b56148ede22241e14d05474145f00a6a692b04ecf5277198e8879ba514",
+            "post_sha256": "cd9904b56148ede22241e14d05474145f00a6a692b04ecf5277198e8879ba514",
+            "unchanged": true
+          },
+          ".wavefoundry/framework/seeds/209-agent-harness-core.prompt.md": {
+            "pre_sha256": "02d55ff365b34d5a227693486dd9d17070af7f0f485c81601e837069aa5b8d06",
+            "post_sha256": "02d55ff365b34d5a227693486dd9d17070af7f0f485c81601e837069aa5b8d06",
+            "unchanged": true
+          },
+          ".wavefoundry/framework/seeds/020-run-contract.prompt.md": {
+            "pre_sha256": "baa90b2f70937e190b125218633e28154ce1c7785902ad0fc012198eea35e007",
+            "post_sha256": "baa90b2f70937e190b125218633e28154ce1c7785902ad0fc012198eea35e007",
+            "unchanged": true
+          },
+          ".wavefoundry/framework/seeds/233-technical-writer.prompt.md": {
+            "pre_sha256": "15641b2b1a3592f6706bc695c26d876ab21d830f917b2cf1712ff363e40a247a",
+            "post_sha256": "15641b2b1a3592f6706bc695c26d876ab21d830f917b2cf1712ff363e40a247a",
+            "unchanged": true
+          },
+          ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": {
+            "pre_sha256": "77fb2cc5e6d2fdac535a8b6719988ce67aac05f560eee0b589343bcd09b37367",
+            "post_sha256": "77fb2cc5e6d2fdac535a8b6719988ce67aac05f560eee0b589343bcd09b37367",
+            "unchanged": true
+          },
+          ".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md": {
+            "pre_sha256": "d3cbe8c7595b7a6974edd220475d496c12517fa9141d994813a2867c2c2ac388",
+            "post_sha256": "d3cbe8c7595b7a6974edd220475d496c12517fa9141d994813a2867c2c2ac388",
+            "unchanged": true
+          },
+          ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": {
+            "pre_sha256": "eea998a2c310d3d04d93a3de18bf19e3ec59dc7729c9ecdeb4a6c3d62d0574d0",
+            "post_sha256": "eea998a2c310d3d04d93a3de18bf19e3ec59dc7729c9ecdeb4a6c3d62d0574d0",
+            "unchanged": true
+          },
+          "docs/waves/old/wave.md": {
+            "pre_sha256": "2d4fd2cba7ce00c35ef08f8a8c8a49e51780cac8efb771a3cdc7a77765b7743c",
+            "post_sha256": "2d4fd2cba7ce00c35ef08f8a8c8a49e51780cac8efb771a3cdc7a77765b7743c",
+            "unchanged": true
+          },
+          "docs/waves/old/events.jsonl": {
+            "pre_sha256": "6ca91fd6bc324eb85712dca33a28e70da90fa61d2d743e799cec8ad7e1478221",
+            "post_sha256": "6ca91fd6bc324eb85712dca33a28e70da90fa61d2d743e799cec8ad7e1478221",
+            "unchanged": true
+          }
+        },
+        "same_run_merge_complete": true,
+        "conflicts": [],
+        "retry": {
+          "status": "complete",
+          "prior_changed_seed_list": [],
+          "prior_diff": "",
+          "method": "Agent reread all four current destinations, compared required clauses to installed seeds, followed all reference chains, and found no required edit. No writes to fixture files on this second pass.",
+          "hashes": {
+            "VISION.md": "1fb61f58bfd028ff671951e856d25223968c538a9d2fd3618eae108cde17986e",
+            "AGENTS.md": "24c3aa5c1a249cf2c9646d6f72acff3cdd21451fe295d497e6cd572b535ce451",
+            ".wavefoundry/framework/docs/writing-guide.md": "cd9904b56148ede22241e14d05474145f00a6a692b04ecf5277198e8879ba514",
+            ".wavefoundry/framework/seeds/209-agent-harness-core.prompt.md": "02d55ff365b34d5a227693486dd9d17070af7f0f485c81601e837069aa5b8d06",
+            ".wavefoundry/framework/seeds/020-run-contract.prompt.md": "baa90b2f70937e190b125218633e28154ce1c7785902ad0fc012198eea35e007",
+            ".wavefoundry/framework/seeds/233-technical-writer.prompt.md": "15641b2b1a3592f6706bc695c26d876ab21d830f917b2cf1712ff363e40a247a",
+            ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": "77fb2cc5e6d2fdac535a8b6719988ce67aac05f560eee0b589343bcd09b37367",
+            ".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md": "d3cbe8c7595b7a6974edd220475d496c12517fa9141d994813a2867c2c2ac388",
+            ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "eea998a2c310d3d04d93a3de18bf19e3ec59dc7729c9ecdeb4a6c3d62d0574d0",
+            "docs/prompts/upgrade-wavefoundry.prompt.md": "47b3dba42866023f2a996cd8fccb3ea0427de7887f4e43d207a86f3f69967b84",
+            "docs/prompts/index.md": "f420f394cfb0d1f3e8b9fc29edcc6846846ed252e18ebcec2f4f32b72ca6c885",
+            "docs/waves/old/wave.md": "2d4fd2cba7ce00c35ef08f8a8c8a49e51780cac8efb771a3cdc7a77765b7743c",
+            "docs/waves/old/events.jsonl": "6ca91fd6bc324eb85712dca33a28e70da90fa61d2d743e799cec8ad7e1478221",
+            "docs/agents/specialists/technical-writer.md": "812eb92864197ebb8bfb9dd32987592098b84e96d20851db718b371985f47dd1"
+          },
+          "changed_paths": [],
+          "all_hashes_match_first_pass": true
+        },
+        "verification": {
+          "guide_readable": true,
+          "selected_reference_chains": [
+            {
+              "source": "AGENTS.md",
+              "chain": [
+                ".wavefoundry/framework/docs/writing-guide.md"
+              ],
+              "readable": true
+            },
+            {
+              "source": "docs/prompts/index.md",
+              "chain": [
+                ".wavefoundry/framework/docs/writing-guide.md"
+              ],
+              "readable": true
+            },
+            {
+              "source": "docs/agents/specialists/technical-writer.md",
+              "chain": [
+                ".wavefoundry/framework/docs/writing-guide.md"
+              ],
+              "readable": true
+            },
+            {
+              "source": "docs/prompts/upgrade-wavefoundry.prompt.md",
+              "chain": [
+                ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md#reader-centered-writing-reconciliation",
+                ".wavefoundry/framework/docs/writing-guide.md"
+              ],
+              "readable": true
+            }
+          ],
+          "writer_identity_current": true,
+          "historical_wave_ledger_and_vision_byte_preserved": true,
+          "source_inputs_byte_preserved": true,
+          "local_preservation": {
+            "AGENTS.md": {
+              "Use \u201cwork order\u201d for the customer record. Keep legal notices verbatim.": true
+            },
+            "docs/prompts/index.md": {
+              "Keep customer terminology.": true,
+              "Inspect fleet \u2014 project-only command.": true
+            },
+            "docs/prompts/upgrade-wavefoundry.prompt.md": {
+              "Owner: Local maintainers\nStatus: active": true,
+              "Never rewrite historical records. Preserve our legal notices.": true
+            },
+            "docs/agents/specialists/technical-writer.md": {
+              "Owner: Local maintainers\nStatus: active": true,
+              "Use \u201cwork order\u201d for the customer record. Keep legal notices verbatim.": true
+            }
+          }
+        }
+      }
+    },
+    "limits": [
+      "Four local authored component carriers per fixture only; this is not a complete installation or full upgrade.",
+      "No setup, surface rendering, network, model, approval, AC, lifecycle, or historical mutation.",
+      "No existing reviewer carriers are part of these fixtures; seed209 was delivered but reviewer-route behavior was not exercised here.",
+      "Missing/stale-reference negative controls are assigned to the parent and are not claimed by this report.",
+      "No conflict fixture exercised; no intent conflict found in these two targets.",
+      "MCP reported setup_inputs_changed; no setup/index operation undertaken."
+    ],
+    "result": "Both bounded component reconciliations complete; empty-evidence retries required no edits."
+  },
+  "fixture_before": {
+    "cases": {
+      "fresh": {},
+      "customized": {
+        "AGENTS.md": "# Agent Guide\n\n## Project writing policy\nUse \u201cwork order\u201d for the customer record. Keep legal notices verbatim.\n",
+        "docs/prompts/index.md": "# Prompt Index\n\n## Operating principles\n\nKeep customer terminology.\n\n## Local Commands\n\nInspect fleet \u2014 project-only command.\n",
+        "docs/prompts/upgrade-wavefoundry.prompt.md": "# Upgrade Wavefoundry\n\nOwner: Local maintainers\nStatus: active\n\n## Local policy\nNever rewrite historical records. Preserve our legal notices.\n",
+        "docs/agents/specialists/technical-writer.md": "# Technical Writer\n\nOwner: Local maintainers\nStatus: active\n\n## Operating Identity\n\nProduces and maintains clear, accurate, and operator-facing documentation. Stance: favor precision and findability over completeness; a short doc that is accurate and linked beats a long doc that is stale and buried. Priorities: accuracy, audience clarity, discoverability, and doc freshness. Success: operators and agents can act on documentation without asking follow-up questions; docs age gracefully and have explicit owners.\n\n## Local policy\nUse \u201cwork order\u201d for the customer record. Keep legal notices verbatim.\n"
+      }
+    },
+    "protected": {
+      "docs/waves/old/wave.md": "# Wave Record\n\nStatus: closed\nHistorical decisions remain unchanged.\n",
+      "docs/waves/old/events.jsonl": "{\"retained\":\"historical evidence\"}\n",
+      "VISION.md": "# Vision\nA project-owned adopted statement.\n"
+    }
+  },
+  "source_counts": {
+    ".wavefoundry/framework/docs/writing-guide.md": {
+      "git_blob": null,
+      "sha256": "cd9904b56148ede22241e14d05474145f00a6a692b04ecf5277198e8879ba514",
+      "before_words": 0,
+      "after_words": 980,
+      "delta_words": 980
+    },
+    ".wavefoundry/framework/seeds/020-run-contract.prompt.md": {
+      "git_blob": null,
+      "sha256": "baa90b2f70937e190b125218633e28154ce1c7785902ad0fc012198eea35e007",
+      "before_words": 2761,
+      "after_words": 2816,
+      "delta_words": 55
+    },
+    ".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md": {
+      "git_blob": null,
+      "sha256": "d3cbe8c7595b7a6974edd220475d496c12517fa9141d994813a2867c2c2ac388",
+      "before_words": 13269,
+      "after_words": 13331,
+      "delta_words": 62
+    },
+    ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": {
+      "git_blob": null,
+      "sha256": "77fb2cc5e6d2fdac535a8b6719988ce67aac05f560eee0b589343bcd09b37367",
+      "before_words": 7255,
+      "after_words": 7332,
+      "delta_words": 77
+    },
+    ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": {
+      "git_blob": null,
+      "sha256": "eea998a2c310d3d04d93a3de18bf19e3ec59dc7729c9ecdeb4a6c3d62d0574d0",
+      "before_words": 27076,
+      "after_words": 27371,
+      "delta_words": 295
+    },
+    ".wavefoundry/framework/seeds/209-agent-harness-core.prompt.md": {
+      "git_blob": null,
+      "sha256": "02d55ff365b34d5a227693486dd9d17070af7f0f485c81601e837069aa5b8d06",
+      "before_words": 9948,
+      "after_words": 10007,
+      "delta_words": 59
+    },
+    ".wavefoundry/framework/seeds/233-technical-writer.prompt.md": {
+      "git_blob": null,
+      "sha256": "15641b2b1a3592f6706bc695c26d876ab21d830f917b2cf1712ff363e40a247a",
+      "before_words": 650,
+      "after_words": 646,
+      "delta_words": -4
+    },
+    ".wavefoundry/framework/scripts/tests/test_writing_guide_delivery.py": {
+      "git_blob": null,
+      "sha256": "af5501d834da92411c44c94cbdc8ac322c964c0fed7837009687509390120e04",
+      "before_words": 0,
+      "after_words": 453,
+      "delta_words": 453
+    },
+    "docs/prompts/index.md": {
+      "git_blob": null,
+      "sha256": "edea407fe08ba55c5c0af18bacd50ca880d98ea183c82eaa2922f3102bb4c9ec",
+      "before_words": 1878,
+      "after_words": 1920,
+      "delta_words": 42
+    },
+    "docs/prompts/upgrade-wavefoundry.prompt.md": {
+      "git_blob": null,
+      "sha256": "081e0907ff8076aff65aa248d4021921be002eb9edccf7e861c696d9cb3f2532",
+      "before_words": 14367,
+      "after_words": 14414,
+      "delta_words": 47
+    },
+    "docs/agents/specialists/technical-writer.md": {
+      "git_blob": null,
+      "sha256": "051db2035cf2948258208347e70f82457cea379f7bbf47b5f0d0d8846452882e",
+      "before_words": 479,
+      "after_words": 475,
+      "delta_words": -4
+    },
+    "docs/architecture/data-and-control-flow.md": {
+      "git_blob": null,
+      "sha256": "7a65c70611a1d5608ea83d7896e8116c460a3a2df3e99ec411a9164acd6f5177",
+      "before_words": 18426,
+      "after_words": 18586,
+      "delta_words": 160
+    },
+    "AGENTS.md": {
+      "git_blob": null,
+      "sha256": "b686aeed0e5b0de81752a1e9476d0d3a7e651434c029723114b163910f94a1e2",
+      "before_words": 4769,
+      "after_words": 4813,
+      "delta_words": 44
+    },
+    "CHANGELOG.md": {
+      "git_blob": null,
+      "sha256": "93e19a42dac97b875b7c3ca4141080488db72fc427fe725bc1da7f850d273b14",
+      "before_words": 55581,
+      "after_words": 55639,
+      "delta_words": 58
+    }
+  },
+  "verification_attempts": [
+    {
+      "kind": "canonical suite initial",
+      "result": "failed",
+      "tests": 12296,
+      "files": 215,
+      "skips": 12,
+      "elapsed_seconds": 533.21,
+      "failure": "test_profile_literal_census: two default-layout literals in new test_writing_guide_delivery.py",
+      "retained_report": ".wavefoundry/cache/qualification/refused-fc8b64063e704b11907688a3e582bb39.json"
+    },
+    {
+      "kind": "repair",
+      "change": "Use record_paths.WAVES_ROOT and vocabulary_profile.RECORD_FILENAME for historical preservation fixture; no guide or authored-output change.",
+      "focused_result": "13 tests in writing-guide delivery plus literal census pass; separate alternate directory/filename preservation probe passes."
+    }
+  ],
+  "canonical_suite": {
+    "command": "env -u PYTHONPYCACHEPREFIX /Users/coryhacking/.wavefoundry/venv/bin/python -B .wavefoundry/framework/scripts/run_tests.py --qualification-report .wavefoundry/cache/qualification/224i4-default.json",
+    "result": "ok",
+    "tests": 12296,
+    "files": 215,
+    "skips": 12,
+    "elapsed_seconds": 547.411,
+    "log": "/private/tmp/224i4-default-r2.log",
+    "inputs_hash": "7f4994337ac58f5bfb7383675f7b07267cec0861b4cf7c044657991e7b247555",
+    "report": ".wavefoundry/cache/qualification/224i4-default.json"
+  },
+  "source_fingerprint": {
+    ".wavefoundry/framework/docs/writing-guide.md": "f28baa49c597701fc21eb7b4f323fb9783cb9443",
+    ".wavefoundry/framework/seeds/020-run-contract.prompt.md": "d9a4f4b012d116d17007781364f3522014c45381",
+    ".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md": "dbbce8891287078ac883e0590bceaa8fb2b37378",
+    ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": "8e9048c165bc3baa8f37747b6eccb725cc027c30",
+    ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "0a6576b2c49b57de0dbe1f6c833adf1bd8e2eec7",
+    ".wavefoundry/framework/seeds/209-agent-harness-core.prompt.md": "7498fa57a7b8add31fb48df4c43322c9d03b92b0",
+    ".wavefoundry/framework/seeds/233-technical-writer.prompt.md": "0796081a42cf524885042375048b5b174a0f65a7",
+    ".wavefoundry/framework/scripts/tests/test_writing_guide_delivery.py": "1b1abc322d05c35a7d7e86321bbd42c58555ed76",
+    "docs/prompts/index.md": "3a452f57854a8a222b3c05d206f7166ac00fe848",
+    "docs/prompts/upgrade-wavefoundry.prompt.md": "97a61fb90e3b9e73e2f606d2e1ab4faf48e450ae",
+    "docs/agents/specialists/technical-writer.md": "2a7ff25b23683f4f39ed0ae09c204c351b69fda4",
+    "docs/architecture/data-and-control-flow.md": "94e4821fa2474013acebd3d8c61d6ee23b909f33",
+    "AGENTS.md": "5b1ef1570f5366c133b3fa4fbea62d09e5886833",
+    "CHANGELOG.md": "cb431078b5555126c70d730c07281a6ca50f78d0"
+  },
+  "independent_delivery_review": {
+    "date": "2026-10-31",
+    "allocation": "Three fresh independent contexts for four lanes; code and architecture share one context, QA separate, docs-contract separate. No model-diversity claim.",
+    "reports": {
+      "docs_contract": {
+        "lane": "docs-contract-reviewer",
+        "context_id": "224i4-docs-delivery-independent-20261031",
+        "verdict": "approve",
+        "findings": [],
+        "tree_fingerprint": {
+          ".wavefoundry/framework/docs/writing-guide.md": "f28baa49c597701fc21eb7b4f323fb9783cb9443",
+          ".wavefoundry/framework/seeds/020-run-contract.prompt.md": "d9a4f4b012d116d17007781364f3522014c45381",
+          ".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md": "dbbce8891287078ac883e0590bceaa8fb2b37378",
+          ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": "8e9048c165bc3baa8f37747b6eccb725cc027c30",
+          ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "0a6576b2c49b57de0dbe1f6c833adf1bd8e2eec7",
+          ".wavefoundry/framework/seeds/209-agent-harness-core.prompt.md": "7498fa57a7b8add31fb48df4c43322c9d03b92b0",
+          ".wavefoundry/framework/seeds/233-technical-writer.prompt.md": "0796081a42cf524885042375048b5b174a0f65a7",
+          ".wavefoundry/framework/scripts/tests/test_writing_guide_delivery.py": "1b1abc322d05c35a7d7e86321bbd42c58555ed76",
+          "docs/prompts/index.md": "3a452f57854a8a222b3c05d206f7166ac00fe848",
+          "docs/prompts/upgrade-wavefoundry.prompt.md": "97a61fb90e3b9e73e2f606d2e1ab4faf48e450ae",
+          "docs/agents/specialists/technical-writer.md": "2a7ff25b23683f4f39ed0ae09c204c351b69fda4",
+          "docs/architecture/data-and-control-flow.md": "94e4821fa2474013acebd3d8c61d6ee23b909f33",
+          "AGENTS.md": "5b1ef1570f5366c133b3fa4fbea62d09e5886833",
+          "CHANGELOG.md": "cb431078b5555126c70d730c07281a6ca50f78d0"
+        },
+        "tree_unchanged": true,
+        "time_budget": "8 minutes coordinator, focused docs-contract probes",
+        "sweep_rule": "targeted probes per mutant, whole-file only survivors",
+        "observed": "Six seed instructions and four local counterpart routes preserve local precedence, meaning and current authority. Guide gives reader tasks by artifact, retains long technical detail and explicitly disclaims standards certification. Two selected live-route/control tests passed with zero skips; guide missing/stale controls rejected. Review carrier loads the canonical seed209 protocol. No automatic prose merge claim. Source hashes unchanged.",
+        "mutation_table": [
+          {
+            "mutant": "missing-guide payload",
+            "target": "test_missing_guide_and_stale_reference_controls_are_rejected",
+            "expected": "FileNotFoundError",
+            "observed": "rejected; test passed",
+            "killed": true
+          },
+          {
+            "mutant": "stale guide reference",
+            "target": "same test",
+            "expected": "stale or noncanonical AssertionError",
+            "observed": "rejected; test passed",
+            "killed": true
+          },
+          {
+            "mutant": "weaken must to should in in-memory guide copy",
+            "target": "explicit obligation-preservation source check",
+            "expected": "preservation assertion fails",
+            "observed": "required preservation clause absent; detected",
+            "killed": true
+          }
+        ],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "Production collection/extraction missing-guide and stale-reference negative controls plus in-memory obligation weakening control; current live local routes are positive control."
+        },
+        "limitations": [
+          "Bounded mechanical/reference and source-semantic review; no human comprehension, complete downstream installation, Windows or standards compliance validation.",
+          "No source mutation; the obligation weakening mutant is an in-memory faithful prose boundary check.",
+          "MCP live reads succeeded; semantic setup remains unready and was not repaired."
+        ]
+      },
+      "code_architecture": {
+        "context_id": "224i4-independent-code-architecture-20261031",
+        "roles": [
+          "code-reviewer",
+          "architecture-reviewer"
+        ],
+        "shared_context_disclosure": "One fresh independent worker assessed both lanes; no implementation or repair participation. Two lane judgments share one context, not two independent reviewers.",
+        "verdict": {
+          "code-reviewer": "approved",
+          "architecture-reviewer": "approved"
+        },
+        "findings": [],
+        "tree_fingerprint": {
+          ".wavefoundry/framework/docs/writing-guide.md": "f28baa49c597701fc21eb7b4f323fb9783cb9443",
+          ".wavefoundry/framework/seeds/020-run-contract.prompt.md": "d9a4f4b012d116d17007781364f3522014c45381",
+          ".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md": "dbbce8891287078ac883e0590bceaa8fb2b37378",
+          ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": "8e9048c165bc3baa8f37747b6eccb725cc027c30",
+          ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "0a6576b2c49b57de0dbe1f6c833adf1bd8e2eec7",
+          ".wavefoundry/framework/seeds/209-agent-harness-core.prompt.md": "7498fa57a7b8add31fb48df4c43322c9d03b92b0",
+          ".wavefoundry/framework/seeds/233-technical-writer.prompt.md": "0796081a42cf524885042375048b5b174a0f65a7",
+          ".wavefoundry/framework/scripts/tests/test_writing_guide_delivery.py": "1b1abc322d05c35a7d7e86321bbd42c58555ed76",
+          "docs/prompts/index.md": "3a452f57854a8a222b3c05d206f7166ac00fe848",
+          "docs/prompts/upgrade-wavefoundry.prompt.md": "97a61fb90e3b9e73e2f606d2e1ab4faf48e450ae",
+          "docs/agents/specialists/technical-writer.md": "2a7ff25b23683f4f39ed0ae09c204c351b69fda4",
+          "docs/architecture/data-and-control-flow.md": "94e4821fa2474013acebd3d8c61d6ee23b909f33",
+          "AGENTS.md": "5b1ef1570f5366c133b3fa4fbea62d09e5886833",
+          "CHANGELOG.md": "cb431078b5555126c70d730c07281a6ca50f78d0"
+        },
+        "tree_verified_before_and_after": true,
+        "time_budget": "approximately 3 minutes",
+        "sweep_rule": "Targeted test per mutant; whole-file runs only for survivors. No survivors and no whole-file/full-suite rerun.",
+        "source_assessment": "The six canonical seed changes and four local mirrors load one guide conditionally; explicit local-policy precedence, preserved machine contracts, existing review authority, and historical preservation are maintained. Seed160 makes guide-only delivery and actual-destination retry inspection explicit without claiming renderer prose merging. Tests call production collection/extraction and separate mechanical delivery from observed agent-authored reconciliation. Architecture describes this boundary accurately. No shipped runtime code changes in this wave.",
+        "independent_reference": "Independently read plan Requirements 4-6 and AC-4. Expected properties: canonical guide bytes arrive; unchanged seeds cannot prevent a guide-only update; local policy and history remain byte-identical. Current code inspected before accepting earlier results.",
+        "public_path": "build_pack.collect_files -> ZIP bytes -> upgrade_wavefoundry._extract_feature_members; closest faithful producer/extraction boundary expressly scoped by plan, not full install/CLI/network setup.",
+        "mutation_table": [
+          {
+            "case": "baseline fresh",
+            "result": {
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0,
+              "details": ""
+            }
+          },
+          {
+            "case": "drop guide from producer",
+            "result": {
+              "tests": 1,
+              "failures": 1,
+              "errors": 0,
+              "skips": 0,
+              "details": "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_writing_guide_delivery.py\", line 74, in test_fresh_extraction_delivers_guide_and_all_seed_routes\n    self.assertEqual(set(archive.namelist()), self.members)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Items in the second set but not the first:\n'.wavefoundry/framework/docs/writing-guide.md'\n"
+            }
+          },
+          {
+            "case": "baseline guide-only update",
+            "result": {
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0,
+              "details": ""
+            }
+          },
+          {
+            "case": "ignore subsequent extraction simulating changed-seed-only delivery",
+            "result": {
+              "tests": 1,
+              "failures": 1,
+              "errors": 0,
+              "skips": 0,
+              "details": "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_writing_guide_delivery.py\", line 118, in test_guide_only_payload_update_needs_no_seed_change\n    self.assertEqual((target / GUIDE).read_bytes(), revision)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b\"# W[6891 chars]le without fetching those sources.\\n\" != b\"# W[6891 chars]le without fetching those sources.\\n\\nFixture-only revision.\\n\"\n"
+            }
+          },
+          {
+            "case": "baseline preservation",
+            "result": {
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0,
+              "details": ""
+            }
+          },
+          {
+            "case": "overwrite local policy during extraction",
+            "result": {
+              "tests": 1,
+              "failures": 2,
+              "errors": 0,
+              "skips": 0,
+              "details": "Traceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_writing_guide_delivery.py\", line 103, in test_existing_policy_and_history_survive_repeated_extraction\n    self.assertEqual((self.root / name).read_bytes(), data)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: b'replaced local policy' != b'# Local policy\\nUse our established domain terminology.\\n'\n"
+            }
+          },
+          {
+            "case": "missing guide and stale-reference controls",
+            "result": {
+              "tests": 1,
+              "failures": 0,
+              "errors": 0,
+              "skips": 0,
+              "details": ""
+            }
+          }
+        ],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "In-memory focused mutants dropped guide from producer, suppressed second extraction, and overwrote local policy. Each targeted test failed at its contract assertion; matching unmutated tests and missing-guide/stale-reference controls completed with zero skips."
+        },
+        "limitations": [
+          "Component producer/extraction verification only; no end-to-end downstream installation, native Windows, network/model setup or release archive qualification.",
+          "Three selected mutants; no claim of exhaustive mutation coverage.",
+          "Prompt presence establishes propagation, not universal agent adherence; actual bounded agent reconciliation evidence reviewed separately.",
+          "No comparative writing superiority or human comprehension claim; QA owns detailed reader-evaluation assessment.",
+          "Required initial startup docs were available through inherited orientation, whose broad command output was truncated; review relied on exact current plan, guide, changed sources and protocol."
+        ]
+      },
+      "qa": {
+        "context_id": "224i4-delivery-qa-fresh-20261031",
+        "actor": "qa-reviewer",
+        "verdict": "approve",
+        "independent": true,
+        "fresh_context": true,
+        "tree_fingerprint": {
+          ".wavefoundry/framework/docs/writing-guide.md": "f28baa49c597701fc21eb7b4f323fb9783cb9443",
+          ".wavefoundry/framework/seeds/020-run-contract.prompt.md": "d9a4f4b012d116d17007781364f3522014c45381",
+          ".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md": "dbbce8891287078ac883e0590bceaa8fb2b37378",
+          ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": "8e9048c165bc3baa8f37747b6eccb725cc027c30",
+          ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "0a6576b2c49b57de0dbe1f6c833adf1bd8e2eec7",
+          ".wavefoundry/framework/seeds/209-agent-harness-core.prompt.md": "7498fa57a7b8add31fb48df4c43322c9d03b92b0",
+          ".wavefoundry/framework/seeds/233-technical-writer.prompt.md": "0796081a42cf524885042375048b5b174a0f65a7",
+          ".wavefoundry/framework/scripts/tests/test_writing_guide_delivery.py": "1b1abc322d05c35a7d7e86321bbd42c58555ed76",
+          "docs/prompts/index.md": "3a452f57854a8a222b3c05d206f7166ac00fe848",
+          "docs/prompts/upgrade-wavefoundry.prompt.md": "97a61fb90e3b9e73e2f606d2e1ab4faf48e450ae",
+          "docs/agents/specialists/technical-writer.md": "2a7ff25b23683f4f39ed0ae09c204c351b69fda4",
+          "docs/architecture/data-and-control-flow.md": "94e4821fa2474013acebd3d8c61d6ee23b909f33",
+          "AGENTS.md": "5b1ef1570f5366c133b3fa4fbea62d09e5886833",
+          "CHANGELOG.md": "cb431078b5555126c70d730c07281a6ca50f78d0"
+        },
+        "fingerprint_before_and_after": "all 14 git hash-object values match",
+        "time_budget": "approximately 3 minutes",
+        "sweep_rule": "targeted tests per mutant; no survivors or whole-file reruns",
+        "findings": [],
+        "intent_outcome": "Confirmed achieved within the admitted bounded examples; all 32 frozen atoms recover from the unchanged candidate in the authorized focused reader check, all four controls classify correctly. Initial four candidate omissions remain visible. Offline operation was omitted outside the frozen oracle. No comparative superiority, human comprehension, full downstream install or native Windows qualification is established.",
+        "ac_coverage": {
+          "AC-1": "Read current common guide: reader task, precision, authority, sufficient detail and local precedence preserved. Integration and burden evidence retained; docs-contract lane owns complete route census.",
+          "AC-2": "Independently read focused T reconstruction and all 17 technical atom citations; actor, eligibility, exception, policy/record responsibility and additive staging cost recover. Fluent wrong technical control contradicts publication/checksum/preservation/authority contract.",
+          "AC-3": "Independently read focused P reconstruction and all 15 planning atoms; status and permitted synthetic comparison distinguished from implementation/pilot authority, unresolved contact tradeoffs and selected future recover. Generic vision and invented completion controls rejected; long technical control accepted.",
+          "AC-4": "Production collection/extraction in targeted current test reached; missing guide and stale canonical reference both rejected. Retained fresh/customized actual agent merge results separately establish pointer authoring/preservation/retry, without claiming mechanical extraction authors prose."
+        },
+        "executed_checks": [
+          {
+            "command": "env -u PYTHONPYCACHEPREFIX /Users/coryhacking/.wavefoundry/venv/bin/python -B .wavefoundry/framework/scripts/tests/test_writing_guide_delivery.py WritingGuideDeliveryTests.test_missing_guide_and_stale_reference_controls_are_rejected",
+            "observed": "1 test passed in 0.007s; no skips; both missing-guide and stale-reference negative controls detected"
+          },
+          {
+            "command": "Python retained evidence verification",
+            "observed": "All retained evaluation content SHA256 hashes match; all 32 recovered atom reconstruction quotes occur in frozen reconstruction after terminal-period normalization; original/focused stage boundaries retained; 14 source fingerprints match before and after"
+          }
+        ],
+        "mutation_table": [
+          {
+            "mutant": "Archive excludes canonical writing guide",
+            "targeted_probe": "test_missing_guide_and_stale_reference_controls_are_rejected",
+            "expected": "Readable-reference access raises FileNotFoundError",
+            "observed": "Caught expected FileNotFoundError; test passes",
+            "result": "detected"
+          },
+          {
+            "mutant": "Carrier points to docs/old-writing-guide.md",
+            "targeted_probe": "same targeted test",
+            "expected": "Canonical reference assertion rejects stale path",
+            "observed": "Caught AssertionError matching stale or noncanonical; valid reference succeeds between controls",
+            "result": "detected"
+          }
+        ],
+        "integrity_checks": {
+          "test_ran_without_unintended_skip": true,
+          "public_path_reached": true,
+          "boundary_values_realistic": true,
+          "assertions_non_vacuous": true,
+          "known_bad_detected": true,
+          "known_bad_detection_method": "focused-mutation: missing archive guide and stale reference exercised through production collect/extract and readable carrier boundary"
+        },
+        "limitations": [
+          "Same inherited host/model family; no claim of model diversity or independently authenticated model identity.",
+          "No new author/reader trial, full suite rerun, downstream installation, setup, index build or native Windows execution.",
+          "Full suite result reused from current receipt, not executed by this QA context.",
+          "Review evaluated synthetic reader reconstruction, not human or field usefulness.",
+          "Other delivery lanes assess complete source-route and architecture contract census."
+        ]
+      }
+    },
+    "typed_approvals": "events.jsonl records current code-reviewer, architecture-reviewer, qa-reviewer and docs-contract-reviewer delivery approvals; operator-signoff remains pending.",
+    "findings": []
+  }
+}

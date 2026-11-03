@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-16
+Last verified: 2026-11-03
 
 ## Allowed Dependencies
 
@@ -153,7 +153,7 @@ message, frozen oracle and retired-name sites. When the waves root holds folders
 but none contains the profile's record file, docs-lint, `wf_list_waves` and
 `wf_current_wave` report the advisory `record_file_not_found`.
 
-It also owns the names of the eleven tier-named lifecycle prompts (wave 1zyb4):
+It also owns the names of the tier-named lifecycle prompts and optional Plan arc command (wave 1zyb4):
 a fixed `DEFAULT_PROMPT_NAMES` table (slug, shortcut and aliases per prompt)
 overlaid with the fork-edited `PROMPT_NAME_OVERRIDES` into `PROMPT_NAMES`, read
 through its helpers (`prompt_doc`, `agent_prompt_doc`, `skill_name`, `shortcut`,
@@ -168,6 +168,22 @@ valid. The renderer migrates already-rendered prompts: it records the names it
 applied under `prompt_names` in the prompt-surface manifest, moves prompts
 byte-for-byte in dependency order before skills and baselines render, and
 docs-lint reports a pending migration while that record differs from the profile.
+
+Optional arc planning uses separate `ARC_NAME` and `ARC_KIND` vocabulary and `record_paths.ARCS_ROOT`; it is not a third admitted lifecycle tier. The `plan-arc` prompt joins the existing mapped prompt names. `lifecycle_id` accepts the configured arc kind without adding it to `CHANGE_KINDS`, and collision discovery includes its record root. A validated path helper resolves the ID-and-slug folder and lifecycle-named document without writing it. Normal document authoring owns the content.
+
+For an Epic distribution, set `ARC_NAME = "Epic"`, `ARC_KIND = "epic"`, `ARCS_ROOT = "docs/epics"`, and the existing prompt override:
+
+```python
+PROMPT_NAME_OVERRIDES = {
+    "plan-arc": {
+        "slug": "plan-epic",
+        "shortcut": "Plan epic",
+        "aliases": ["Plan initiative"],
+    },
+}
+```
+
+Merge this entry with other overrides; do not replace unrelated profile choices. The default arc file is `docs/arcs/<id> <slug>/<id>-arc <slug>.md`; the example emits `docs/epics/<id> <slug>/<id>-epic <slug>.md`. These are distribution declarations, not per-invocation settings. Seed100/160 adapt local prose and catalogs to the active names; renderer-owned skill pointers follow the profile mechanically. Keep the stable seed171 filename across distributions. Existing arc documents do not move when constants change. Before changing a populated root or kind, explicitly migrate the records with the same IDs and update their links, retaining any old records until preservation is verified. Waves remain at their existing root.
 
 It also names the role-based council review protocol (wave 200ey, change
 200ew): `COUNCIL_DISPLAY_NAME` (default "Wave Council", validated at import like

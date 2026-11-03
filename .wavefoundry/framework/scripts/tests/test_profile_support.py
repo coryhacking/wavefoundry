@@ -467,7 +467,7 @@ class DefaultProfileOnlyMarkerTests(unittest.TestCase):
         self.assertEqual(set(SHIPPED_DEFAULTS["vocabulary_profile"]),
                          set(vocabulary_profile.FIELD_NAMES)
                          | {"ARCHIVE_PROFILE", "EXTRA_CHANGE_KINDS", "PROMPT_NAME_OVERRIDES",
-                            "EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS", "EXTRA_LEGACY_COUNCIL_ACTORS", "COUNCIL_DISPLAY_NAME"})
+                            "EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS", "EXTRA_LEGACY_COUNCIL_ACTORS", "COUNCIL_DISPLAY_NAME", "ARC_NAME", "ARC_KIND"})
         self.assertEqual(set(SHIPPED_DEFAULTS["record_paths"]),
                          set(record_paths.CONSTANT_NAMES) | {"ARCHIVE_ROOT"})
 

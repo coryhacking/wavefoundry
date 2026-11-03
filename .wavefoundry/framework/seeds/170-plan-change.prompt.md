@@ -45,6 +45,8 @@ Ask only questions whose answers materially change the result: at most three for
 
 For an adopted vision, start with its opening, roadmap overview and relevant horizon; follow only references needed for consequential dependencies, constraints or conflicts, rather than reading the whole document by default. Identify which horizon and outcome the requested change advances, with relevant prerequisites and assumptions, in existing Product Intent or requirements. Do not select work or redirect the request to manufacture alignment. State legitimate nonalignment briefly; expose conflicts for operator decision before dependent drafting. **Delivery evidence informs horizon progress; recording it in the vision is an Envision revision or an explicit operator edit.** Met/missed exit evidence informs that revision; it does not authorize a changed destination or subsequent work. Plan change leaves vision/review artifacts unchanged and adds no tracker, mandatory section or automatic write.
 
+**Arc context (when supplied):** Use the relevant arc record (or its distribution name, such as Epic) to identify how the requested change contributes and which consequential prerequisites apply, in existing Product Intent or requirements. Link to that record and recheck mutable facts against their current owners. It is not readiness authority. Do not redirect the request, rewrite arc progress or require Plan arc for ordinary changes.
+
 Divergent Pre-Plan (required before drafting):
 
 Before writing the plan, execute a structured diverge → critique → select pass:

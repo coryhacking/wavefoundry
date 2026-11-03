@@ -7382,7 +7382,7 @@ class PostExtractStaleLeafRefreshTests(unittest.TestCase):
         import lifecycle_id
 
         self.assertIs(sys.modules["vocabulary_profile"], stale)
-        self.assertEqual(lifecycle_id.KIND_CHOICES, stale.CHANGE_KINDS + ("wave",))
+        self.assertEqual(lifecycle_id.KIND_CHOICES, stale.CHANGE_KINDS + ("wave", stale.ARC_KIND))
 
     def test_ac1_control_without_the_refresh_the_import_names_change_kinds(self):
         # The pre-fix condition this change removes: Phase 2c's fresh

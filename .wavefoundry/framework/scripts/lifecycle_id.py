@@ -442,6 +442,11 @@ def _existing_prefixes(repo_root: Path) -> set[str]:
             add(wave_dir.name)
             for stem in list_folder(wave_dir, roots.archive, roots.archive_rel or ""):
                 add(stem)
+    arc_root, arc_rel = record_paths.load_arc_root(repo_root)
+    for arc_dir in record_paths.walk_arc_candidates(repo_root):
+        add(arc_dir.name)
+        for stem in list_folder(arc_dir, arc_root, arc_rel):
+            add(stem)
     # Wave 1p45b — also dedup against ADR stems so a new mint never collides with
     # an existing architecture-decision record. A prefix-source root like the
     # plans root: it refuses as ``record_root_unreadable`` (wave 1zrak, 1zu4y).
@@ -653,7 +658,7 @@ def build_id(
 
 # The --kind choices: every change kind (core plus a distribution's declared
 # extra kinds, vocabulary_profile.CHANGE_KINDS) and the wave kind (wave 1zimf).
-KIND_CHOICES = _vocab.CHANGE_KINDS + ("wave",)
+KIND_CHOICES = _vocab.CHANGE_KINDS + ("wave", _vocab.ARC_KIND)
 
 
 def build_timestamp(unix_seconds: int | None) -> datetime | None:
@@ -666,7 +671,7 @@ def build_timestamp(unix_seconds: int | None) -> datetime | None:
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate shared lifecycle IDs for waves and changes.",
+        description="Generate shared lifecycle IDs for delivery and optional outcome records.",
     )
     parser.add_argument("--kind", choices=KIND_CHOICES, help="Lifecycle artifact type to generate.")
     parser.add_argument("--slug", help="Kebab-case topic slug to append to the generated ID.")

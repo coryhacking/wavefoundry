@@ -58,6 +58,7 @@ DEFAULT_TABLE = {
     "review-wave": ("review-wave", "Review wave", ()),
     "close-wave": ("close-wave", "Close wave", ()),
     "close-change": ("close-change", "Close change", ()),
+    "plan-arc": ("plan-arc", "Plan arc", ("Plan initiative",)),
 }
 
 
@@ -397,6 +398,7 @@ class DefaultNamePinTests(unittest.TestCase):
             "wf-plan-change", "wf-prepare-wave", "wf-implement-wave", "wf-review-wave", "wf-close-wave",
             "wf-close-change", "wf-review-plan", "wf-evaluate-decision", "wf-memory-review", "wf-pause-wave",
             "wf-council", "wf-guru", "wf-upgrade", "wf-package", "wf-code-cleanup", "wf-envision", "wf-techdocs",
+            "wf-plan-arc",
         ])
         self.assertEqual(ras.stale_skill_paths(), ras.STALE_SKILL_PATHS)
         self.assertIn("The Prepare wave / Ready wave workflow.", ras.SKILL_REGISTRY[1].description)
@@ -584,7 +586,7 @@ class ValidationTests(unittest.TestCase):
             {e["shortcut"] for e in manifest["public_prompt_surface"] if e["doc"] not in mapped_docs})
         stems = {p.name[: -len(".prompt.md")] for d in ("docs/prompts", "docs/prompts/agents")
                  for p in (REPO_ROOT / d).glob("*.prompt.md")}
-        retired = {"interrogate-plan", "plan-feature", "implement-feature", "finalize-feature", "index"}
+        retired = {"interrogate-plan", "plan-feature", "implement-feature", "finalize-feature", "index", "plan-initiative"}
         self.assertEqual(set(vocabulary_profile.FIXED_PROMPT_SLUGS) - retired,
                          stems - set(vocabulary_profile.DEFAULT_PROMPT_NAMES))
 

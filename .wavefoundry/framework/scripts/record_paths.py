@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import errno
 import os
+import re
 import stat
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
@@ -43,6 +44,7 @@ import vocabulary_profile
 # ---------------------------------------------------------------------------
 WAVES_ROOT = "docs/waves"
 PLANS_ROOT = "docs/plans"
+ARCS_ROOT = "docs/arcs"
 NESTED = False
 # Repository-wide by default; parent scope requires NESTED.
 OPEN_CONTAINER_SCOPE = "repository"
@@ -53,7 +55,7 @@ MAX_DEPTH = 4
 ARCHIVE_ROOT: "str | None" = None
 
 MAX_DEPTH_RANGE = (1, 8)
-CONSTANT_NAMES = ("WAVES_ROOT", "PLANS_ROOT", "NESTED", "MAX_DEPTH")
+CONSTANT_NAMES = ("WAVES_ROOT", "PLANS_ROOT", "ARCS_ROOT", "NESTED", "MAX_DEPTH")
 
 AMBIGUOUS_WAVE_ID_CODE = "ambiguous_wave_id"
 DIAGNOSTIC_CODE = "record_layout_invalid"
@@ -550,6 +552,54 @@ def load_record_roots(root: Path) -> RecordRoots:
         archive_rel=archive_rel,
         archive=_join_rel(root, archive_rel) if archive_rel else None,
     )
+
+
+def load_arc_root(root: Path) -> tuple[Path, str]:
+    """The optional outcome root; it is not a delivery lifecycle container."""
+    root = Path(root)
+    roots = load_record_roots(root)
+    rel, errors = _check_root("ARCS_ROOT", ARCS_ROOT, root)
+    if rel is not None:
+        for name, other in (("WAVES_ROOT", roots.waves_rel), ("PLANS_ROOT", roots.plans_rel),
+                            ("ARCHIVE_ROOT", roots.archive_rel)):
+            if other is not None and _root_overlap(root, rel, other):
+                errors.append(f"{DIAGNOSTIC_CODE}: ARCS_ROOT and {name} must differ and must not nest")
+    if errors:
+        raise RecordLayoutInvalid(errors)
+    return _join_rel(root, rel), rel
+
+
+def arc_record_path(root: Path, record_id: str) -> Path:
+    """Resolve ``<id> <slug>/<id>-<kind> <slug>.md`` without creating it.
+
+    Callers keep the document's existing ID on revision. Changing the profile
+    never relocates a document or edits its links.
+    """
+    vocabulary_profile.validate()
+    kind = re.escape(vocabulary_profile.ARC_KIND)
+    match = re.fullmatch(rf"([0-9a-z]{{5,6}})-{kind} ([a-z0-9][a-z0-9-]*)", record_id)
+    if match is None:
+        raise RecordLayoutInvalid([f"{DIAGNOSTIC_CODE}: invalid {vocabulary_profile.ARC_NAME} record ID"])
+    top, rel = load_arc_root(root)
+    prefix, slug = match.groups()
+    folder = f"{prefix} {slug}"
+    _checked, errors = _check_root("arc folder", f"{rel}/{folder}", Path(root))
+    result = top / folder / f"{record_id}.md"
+    if os.path.lexists(result):
+        metadata = os.lstat(result)
+        if _is_link_metadata(metadata) or not stat.S_ISREG(metadata.st_mode):
+            errors.append(f"{DIAGNOSTIC_CODE}: arc record must be a regular file")
+    if errors:
+        raise RecordLayoutInvalid(errors)
+    return result
+
+
+def walk_arc_candidates(root: Path) -> list[Path]:
+    """Immediate ordinary directories, through the same refusing listing seam."""
+    top, rel = load_arc_root(root)
+    if not record_root_is_dir(top, rel):
+        return []
+    return _list_subdirs(top, walk=_Walk(top, rel))
 
 
 def open_container_scope(root: Path, wave_path: Path, *, wave_dirs: list[Path] | None = None) -> Path:

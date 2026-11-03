@@ -568,6 +568,9 @@ STALE_SKILL_PATHS: "tuple[str, ...]" = (
     ".codex/skills/wf-plan-feature/SKILL.md",
     ".claude/skills/wf-plan-feature/SKILL.md",
     ".agents/skills/wf-plan-feature/SKILL.md",
+    ".codex/skills/wf-plan-initiative/SKILL.md",
+    ".claude/skills/wf-plan-initiative/SKILL.md",
+    ".agents/skills/wf-plan-initiative/SKILL.md",
 )
 
 
@@ -901,6 +904,19 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
             ),
         ),
         requires_doc="docs/prompts/refresh-techdocs.prompt.md",
+    ),
+    Skill(
+        name=_vp_skill("plan-arc"),
+        description=f"Plan or resume a bounded outcome across waves in a concise {vocabulary_profile.ARC_NAME.lower()} record, explaining evidence, remaining obligations and the next useful advance. The optional {_vp_shortcut('plan-arc')} workflow grants no implementation authority.",
+        body=_thin_pointer_body(
+            _vp_shortcut("plan-arc"),
+            _vp_doc("plan-arc"),
+            (
+                "Recover the outcome, evidence, remaining obligations and next useful wave from relevant records; preserve operator edits and link to authoritative wave evidence.",
+                "Follow the backing prompt to create or revise one concise record, or honor a read-only request. This optional planning step adds no lifecycle gate or implementation authority.",
+            ),
+        ),
+        requires_doc=_vp_doc("plan-arc"),
     ),
 )
 
@@ -3915,6 +3931,7 @@ def migrate_role_and_lifecycle_documents(repo_root: Path, *, apply: bool = True)
 SKILL_PROMPT_KEYS: "tuple[str, ...]" = (
     "plan-change", "prepare-wave", "implement-wave", "review-wave", "close-wave",
     "close-change", "pause-wave",
+    "plan-arc",
 )
 
 
@@ -4192,6 +4209,16 @@ def migrate_profile_prompt_names(repo_root: Path) -> ProfilePromptMigration:
         _path, _original, data = _read_prompt_manifest(repo_root)
         record_invalid = True
         applied = vocabulary_profile.applied_prompt_slugs(data.get("prompt_names"))
+        # Plan initiative was a fixed public prompt before the optional Arc
+        # record. Its manifest registration supplies rename authority; a file
+        # with that name alone is left to the preservation-aware agent merge.
+        names = data.get("prompt_names") or {}
+        entries = data.get("public_prompt_surface")
+        if "plan-arc" not in names and isinstance(entries, list) and any(
+            isinstance(entry, dict) and entry.get("doc") == "docs/prompts/plan-initiative.prompt.md"
+            for entry in entries
+        ):
+            applied["plan-arc"] = "plan-initiative"
     except ValueError as exc:
         # Silent under the default profile with an absent or unreadable
         # manifest (docs-lint requires and checks it); reported otherwise.

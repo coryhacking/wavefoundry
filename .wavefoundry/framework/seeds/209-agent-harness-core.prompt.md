@@ -119,6 +119,8 @@ Phase seeds carry their own short obligations and point back here for the defini
 
 This protocol is the canonical contract for material approval claims and blocking findings. Role seeds carry short obligations back to this section; they must not invent a second evidence schema or a different disposition rule.
 
+For prose within the assigned review, read `.wavefoundry/framework/docs/writing-guide.md` and check the intended reader's task: reconstruct the meaning, obligations, consequential limits and next action from the artifact, then verify fidelity to its sources. Distinguish factual or contractual defects from editorial preferences. Use existing lane authority, evidence rules and stop conditions; this direction adds no reviewer, approval gate or compliance score.
+
 The protocol is **prospective and additive**. Existing finding and approval records remain valid. After a project or wave adopts this protocol, every material approval claim or blocking finding adds an Executable Evidence Record linked to the original record; it does not replace the Finding Record Schema. `inferred`, `unverified`, and `not_applicable` evidence cannot satisfy a required delivery approval claim.
 
 ### Executable Evidence Record

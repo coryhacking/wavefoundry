@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-30
+Last verified: 2026-11-03
 
 The public catalog of shortcut phrases you can say to your agent. Each phrase routes to the documented prompt body for that command. See `AGENTS.md` for the agent-side routing table.
 
@@ -11,6 +11,8 @@ If you're new to Wavefoundry, the repository `README.md` walks the install path 
 ## Operating principles
 
 The behavioral rules below apply to every command in this catalog. They are summarized here so an agent reading this index has the contract in scope before invoking any phrase.
+
+- **Write for the reader's task.** Read `.wavefoundry/framework/docs/writing-guide.md` when authoring or substantially revising prose. Lead replies and progress reports with the answer, result or next action; preserve meaning and machine contracts. Honor explicit user format and project writing policy; surface consequential conflicts.
 
 - **Triage by risk and blast radius before acting.** Compact output is fine for low-stakes work; full lifecycle gates still apply when the work crosses them.
 - **Detect existing patterns before introducing new ones.** Surface a divergence with rationale rather than silently changing convention.
@@ -29,6 +31,7 @@ The behavioral rules below apply to every command in this catalog. They are summ
 | **Enable Wavefoundry MCP** | Register the local MCP server in Claude Code, Cursor, Junie, Copilot, Codex, or Air | `docs/prompts/install-wavefoundry.prompt.md#mcp--wavefoundry-server` |
 | **Upgrade Wavefoundry** | Upgrade Wave Framework in a target repository | `docs/prompts/upgrade-wavefoundry.prompt.md` |
 | **Envision project** | Define an ambitious product vision and an adaptable roadmap through useful technical and nontechnical advances; reviews are advisory | `docs/prompts/envision-project.prompt.md` |
+| **Plan arc** | Plan or resume a bounded outcome in one concise arc record linked to waves; alias Plan initiative; no new approval gate | `docs/prompts/plan-arc.prompt.md` |
 | **Plan change** | Author a consolidated change document | `docs/prompts/plan-change.prompt.md` |
 | **Create wave** | Create a wave record | `docs/prompts/create-wave.prompt.md` |
 | **Add change to wave** | Admit a change doc into the active wave | `docs/prompts/add-change-to-wave.prompt.md` |

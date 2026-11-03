@@ -1,0 +1,380 @@
+{
+  "wave": "22bs0",
+  "change": "22euo",
+  "date": "2026-11-03",
+  "scope": "Bounded Arc delivery and continuation evidence; earlier initiative evidence remains in delivery-evidence.json.",
+  "walkthrough": {
+    "attempts": 1,
+    "author_context": "arc_walkthrough",
+    "initial": "# Arc: Complete weekly export\n\nOwner: Priya\nStatus: draft\nLast verified: 2026-11-03\nRecord ID: 22czj-arc weekly-export\n\n## Outcome\n\nCoordinators can deliver a complete weekly export without manual repair. Priya owns the outcome. Success requires a representative import in the receiving system and Priya\u2019s acceptance; writer tests alone do not establish that result. Preserve the old CSV export until that acceptance. This is fixture planning, with no adopted vision or supported completion date. [Brief](../../../brief.md), [receiver obligations](../../../receiver.md).\n\n## Progress and remaining path\n\nThe [writer wave](../../waves/10001%20writer/wave.md) is completed: CSV format and record-ordering tests pass, but no receiving-system import ran. The [Unicode wave](../../waves/10002%20unicode/wave.md) is completed: Unicode regression tests pass, receiver test access is unavailable, the old export remains in use, and Priya has not accepted the new workflow. These increments establish writer behavior and preserve a usable existing export; beneficiary acceptance remains unproven.\n\nThe receiver team must provide test access before representative import validation can proceed. The useful next increment is to exercise the new export in the receiver, record any repairs required, and obtain Priya\u2019s acceptance. Propose preparing representative data covering ordering and Unicode while access is pending; the exact representative sample and acceptance evidence remain to be agreed with Priya. A default switch follows representative import and acceptance, never wave closure alone.\n\nThe [older handoff](../../../handoff.md) proposed retiring the old export after both waves closed. That proposal was never approved and predates the receiver obligations; it supplies no retirement authority. Keep the old export available while validation and acceptance remain outstanding. Retirement is a separate unresolved choice.\n\n## Next step\n\nSeek receiver-team test access and prepare a bounded receiving-system validation wave/change proposal. Record import results, any manual repair, and Priya\u2019s decision before proposing a default switch. Access timing and the eventual acceptance date are unknown; no completion date is promised. This arc recommends work but grants no implementation, readiness, lifecycle or retirement authority.\n",
+    "resumed": "# Arc: Complete weekly export\n\nOwner: Priya\nStatus: draft\nLast verified: 2026-11-03\nRecord ID: 22czj-arc weekly-export\n\n## Outcome\n\nCoordinators can deliver a complete weekly export without manual repair. Priya owns the outcome. Success requires a representative import in the receiving system and Priya\u2019s acceptance; writer tests alone do not establish that result. Preserve the old CSV export until that acceptance. This is fixture planning, with no adopted vision or supported completion date. [Brief](../../../brief.md), [receiver obligations](../../../receiver.md).\n\n## Progress and remaining path\n\nThe [writer wave](../../waves/10001%20writer/wave.md) is completed: CSV format and record-ordering tests pass, but no receiving-system import ran. The [Unicode wave](../../waves/10002%20unicode/wave.md) is completed: Unicode regression tests pass, receiver test access is unavailable, the old export remains in use, and Priya has not accepted the new workflow. These increments establish writer behavior and preserve a usable existing export; beneficiary acceptance remains unproven.\n\nThe [updated operator direction](../../../resume.md) confirms receiver access is unavailable this month and prioritizes a bounded dry-run report identifying likely bad records. That report could help coordinators prepare for validation while preserving the existing export; it would not prove receiving-system compatibility or beneficiary acceptance. No dry-run report or results exist in the supplied evidence. Its proposed checks must distinguish known export requirements from unverified receiver assumptions.\n\nThe receiver team still owns test access. Once access becomes available, representative import validation must establish whether manual repair is needed and obtain Priya\u2019s acceptance. The exact representative sample and acceptance evidence remain unresolved, and no import date is supported. A default switch requires representative import and acceptance; neither completed waves nor a dry-run report supplies those prerequisites or authorizes a switch.\n\nThe [older handoff](../../../handoff.md) proposed retiring the old export after both waves closed. That proposal was never approved and predates the receiver obligations; it supplies no retirement authority. Keep the old export available while validation and acceptance remain outstanding. Retirement is a separate unresolved choice.\n\n## Next step\n\nPrepare a bounded wave/change proposal for a dry-run report identifying likely bad records, with the existing export preserved. This advances preparation during the receiver-access delay; import validation remains a later obligation. Make the proposed report\u2019s checks, reasons for flagging records, and unverified assumptions explicit so its limits are visible. No report implementation, default switch or retirement is authorized by the updated direction or this arc; ordinary readiness and lifecycle actions remain separate.\n\nOperator note: Keep the legacy CSV export available for regional teams.\n",
+    "fixtures": {
+      "resume.md": "# Updated operator direction\n\nReceiver access is unavailable this month. Prioritize a bounded dry-run report identifying likely bad records, while preserving the existing export. This does not authorize retirement, defaults switching or implementation. Keep the operator note in the arc verbatim and revise the next step using the same arc ID. No date is supported for the import.\n\nSeparately: fix a README command typo. Explain whether an arc is required for that unrelated request; do not implement it.\n",
+      "brief.md": "# Brief\n\nPlan an arc for Priya: coordinators can deliver a complete weekly export without manual repair. Preserve the old CSV export until Priya accepts a representative import in the receiving system. Outcome ownership is Priya; the receiver team owns test access. Use the default Arc naming. No adopted vision exists. Draft without further interview and preserve explicit unknowns. This is fixture planning only.\n",
+      "receiver.md": "# Receiver obligations\n\nReceiver team must provide test access. A representative import and Priya\u2019s acceptance precede a default switch. No supported completion date exists.\n",
+      "handoff.md": "# Older handoff\n\nBefore the Unicode wave completed, an author proposed retiring the old export after both waves closed. This proposal was never approved and predates receiver.md.\n",
+      "docs/waves/10001 writer/wave.md": "# Writer delivery\n\nStatus: completed\n\nCSV format tests pass, including record ordering. No receiving-system import ran. Evidence establishes writer output, not beneficiary acceptance.\n",
+      "docs/waves/10002 unicode/wave.md": "# Unicode delivery\n\nStatus: completed\n\nUnicode regression tests pass. Receiver test access is still unavailable. The old export remains in use. Priya has not accepted the new workflow.\n"
+    },
+    "predeclared_checks": {
+      "initial": [
+        "outcome completeweeklyexportwithoutmanualrepair",
+        "two closedwaves are not beneficiaryacceptance",
+        "receiver access before representativeimport before Priyaacceptance before defaultswitch",
+        "oldCSV kept",
+        "actualgeneratedmatchingidfolderfile",
+        "no additional lifecycle records"
+      ],
+      "resume": [
+        "preserveexactoperatorline",
+        "dryrunbadrecordreport nextusefuladvance whileaccess unavailable",
+        "receiverobligations remain",
+        "no silent retiredCSV",
+        "READMEtypo noarc prerequisite"
+      ]
+    },
+    "coordinator_assessment": "Pass: same generated ID, matched folder/file, operator note unchanged, dry-run report reprioritized, receiver/import/Priya obligations retained, old CSV retained. Author explicitly bypassed arc for the unrelated README typo.",
+    "ordinary_response": "The unrelated README command typo requires no arc. It was not implemented."
+  },
+  "reconciliation": {
+    "wave": "22bs0",
+    "change": "22euo",
+    "kind": "agent-authored reconciliation fixture",
+    "attempts_per_case": 1,
+    "retrieval": {
+      "seed_get": "index_not_ready",
+      "code_read": "succeeded for current seed171 and writing guide",
+      "gapfill": "Read exact supplied old canonical and fixture files from filesystem; no setup/index mutation."
+    },
+    "cases": {
+      "fresh": {
+        "status": "prose_reconciled",
+        "complete": true,
+        "active_prompt": "docs/prompts/plan-arc.prompt.md",
+        "preserved_local_additions": [],
+        "metadata": "fresh normal metadata",
+        "renderer_performed_merge": false,
+        "affected_paths": [
+          "AGENTS.md",
+          "docs/prompts/index.md",
+          "docs/prompts/plan-arc.prompt.md",
+          "docs/prompts/prompt-surface-manifest.json"
+        ],
+        "protected_files": {
+          "VISION.md": {
+            "before": "e6a2e4e7f27654c1cc8c0ce3279f87f7cf60760333ad78049fe6df488e38ce86",
+            "after": "e6a2e4e7f27654c1cc8c0ce3279f87f7cf60760333ad78049fe6df488e38ce86",
+            "unchanged": true
+          }
+        },
+        "before_hashes": {
+          "VISION.md": "e6a2e4e7f27654c1cc8c0ce3279f87f7cf60760333ad78049fe6df488e38ce86",
+          "docs/prompts/prompt-surface-manifest.json": "b42d56e6674bd02d20abbb464b12e30123af6a89794d40d03b21aa3824aaf149"
+        },
+        "after_hashes": {
+          "VISION.md": "e6a2e4e7f27654c1cc8c0ce3279f87f7cf60760333ad78049fe6df488e38ce86",
+          "AGENTS.md": "07f1ee54e430d5388244b45cdd6170f9ec195f5e02db904a8e9fb7578e5de73d",
+          "docs/prompts/plan-arc.prompt.md": "b84747777e19466b5775a6f65cc907e24d1500f4ae06250c87de9de7ef702506",
+          "docs/prompts/index.md": "15aa7e128d71965e51568f50ceae77ed5a2c4741ba9b902cef5ce3e3f08c4235",
+          "docs/prompts/prompt-surface-manifest.json": "d4f91634f75a88fc0c83b9baba8f4018f965e17b349a95c24b6c0c1830331bab"
+        }
+      },
+      "custom": {
+        "status": "prose_reconciled",
+        "complete": true,
+        "active_prompt": "docs/prompts/plan-arc.prompt.md",
+        "preserved_local_additions": [
+          "Local addition: Name the responsible owner beside the proposed next step."
+        ],
+        "metadata": "preserved verbatim",
+        "renderer_performed_merge": false,
+        "affected_paths": [
+          "AGENTS.md",
+          "docs/prompts/index.md",
+          "docs/prompts/plan-arc.prompt.md",
+          "docs/prompts/plan-initiative.prompt.md",
+          "docs/prompts/prompt-surface-manifest.json"
+        ],
+        "protected_files": {
+          "VISION.md": {
+            "before": "e6a2e4e7f27654c1cc8c0ce3279f87f7cf60760333ad78049fe6df488e38ce86",
+            "after": "e6a2e4e7f27654c1cc8c0ce3279f87f7cf60760333ad78049fe6df488e38ce86",
+            "unchanged": true
+          }
+        },
+        "before_hashes": {
+          "VISION.md": "e6a2e4e7f27654c1cc8c0ce3279f87f7cf60760333ad78049fe6df488e38ce86",
+          "docs/prompts/plan-initiative.prompt.md": "4a944cbc470e009526fbffd1fa44f2f41737296b5f701ad19b94383c3a553043",
+          "docs/prompts/prompt-surface-manifest.json": "3e7543e6220c606ecce14fba8575efb125a7bde6ccc4ae4145e1fb75771f0df6"
+        },
+        "after_hashes": {
+          "VISION.md": "e6a2e4e7f27654c1cc8c0ce3279f87f7cf60760333ad78049fe6df488e38ce86",
+          "AGENTS.md": "07f1ee54e430d5388244b45cdd6170f9ec195f5e02db904a8e9fb7578e5de73d",
+          "docs/prompts/plan-arc.prompt.md": "e9f5fd242d72877bd9321e63da4efbf7377024adbad884c7c73c56df90e12c5e",
+          "docs/prompts/index.md": "15aa7e128d71965e51568f50ceae77ed5a2c4741ba9b902cef5ce3e3f08c4235",
+          "docs/prompts/prompt-surface-manifest.json": "d4f91634f75a88fc0c83b9baba8f4018f965e17b349a95c24b6c0c1830331bab"
+        }
+      },
+      "conflict": {
+        "status": "unresolved_conflict",
+        "complete": false,
+        "preserved_local_additions": [
+          "owner beside proposed next step",
+          "explicit response-only policy"
+        ],
+        "conflict_report": "reconciliation-conflict.json",
+        "affected_paths": [
+          "reconciliation-conflict.json"
+        ],
+        "protected_files": {
+          "VISION.md": {
+            "before": "e6a2e4e7f27654c1cc8c0ce3279f87f7cf60760333ad78049fe6df488e38ce86",
+            "after": "e6a2e4e7f27654c1cc8c0ce3279f87f7cf60760333ad78049fe6df488e38ce86",
+            "unchanged": true
+          }
+        },
+        "original_files_unchanged": true,
+        "before_hashes": {
+          "VISION.md": "e6a2e4e7f27654c1cc8c0ce3279f87f7cf60760333ad78049fe6df488e38ce86",
+          "docs/prompts/plan-initiative.prompt.md": "df332e83bbd12d5e80ad9d5e4f9cee9e9a402b92e028b1d874351c5d972d96a2",
+          "docs/prompts/prompt-surface-manifest.json": "3e7543e6220c606ecce14fba8575efb125a7bde6ccc4ae4145e1fb75771f0df6"
+        },
+        "after_hashes": {
+          "reconciliation-conflict.json": "6c4575c0a5d90f88512241c7b276cbdf09b193a06b13a7ff8ad7191c27d4f4d4",
+          "VISION.md": "e6a2e4e7f27654c1cc8c0ce3279f87f7cf60760333ad78049fe6df488e38ce86",
+          "docs/prompts/plan-initiative.prompt.md": "df332e83bbd12d5e80ad9d5e4f9cee9e9a402b92e028b1d874351c5d972d96a2",
+          "docs/prompts/prompt-surface-manifest.json": "3e7543e6220c606ecce14fba8575efb125a7bde6ccc4ae4145e1fb75771f0df6"
+        }
+      },
+      "epic": {
+        "status": "prose_reconciled",
+        "complete": true,
+        "active_prompt": "docs/prompts/plan-epic.prompt.md",
+        "preserved_local_additions": [
+          "Local addition: Name the responsible owner beside the proposed next step."
+        ],
+        "metadata": "preserved verbatim",
+        "renderer_performed_merge": false,
+        "affected_paths": [
+          "AGENTS.md",
+          "docs/prompts/index.md",
+          "docs/prompts/plan-epic.prompt.md",
+          "docs/prompts/plan-initiative.prompt.md",
+          "docs/prompts/prompt-surface-manifest.json"
+        ],
+        "protected_files": {
+          "VISION.md": {
+            "before": "e6a2e4e7f27654c1cc8c0ce3279f87f7cf60760333ad78049fe6df488e38ce86",
+            "after": "e6a2e4e7f27654c1cc8c0ce3279f87f7cf60760333ad78049fe6df488e38ce86",
+            "unchanged": true
+          },
+          "profile-instructions.txt": {
+            "before": "4ea2098e00528012007fe1b2f742587f12b4bc818dde1c6d802750a9be06c54e",
+            "after": "4ea2098e00528012007fe1b2f742587f12b4bc818dde1c6d802750a9be06c54e",
+            "unchanged": true
+          }
+        },
+        "before_hashes": {
+          "profile-instructions.txt": "4ea2098e00528012007fe1b2f742587f12b4bc818dde1c6d802750a9be06c54e",
+          "VISION.md": "e6a2e4e7f27654c1cc8c0ce3279f87f7cf60760333ad78049fe6df488e38ce86",
+          "docs/prompts/plan-initiative.prompt.md": "4a944cbc470e009526fbffd1fa44f2f41737296b5f701ad19b94383c3a553043",
+          "docs/prompts/prompt-surface-manifest.json": "3e7543e6220c606ecce14fba8575efb125a7bde6ccc4ae4145e1fb75771f0df6"
+        },
+        "after_hashes": {
+          "profile-instructions.txt": "4ea2098e00528012007fe1b2f742587f12b4bc818dde1c6d802750a9be06c54e",
+          "VISION.md": "e6a2e4e7f27654c1cc8c0ce3279f87f7cf60760333ad78049fe6df488e38ce86",
+          "AGENTS.md": "b3e41640ababe94001a7c1548a5b74829a5c70121e2fa9d8eff8dabfdc9ab60a",
+          "docs/prompts/plan-epic.prompt.md": "7dd4693357785c3d756f0456ed199709e61c5a91bfcb7e121dc7ecbc22b02ed9",
+          "docs/prompts/index.md": "13abeaa0bcd614d4a8df3e39ddcb5f90940b2e30256260f14ce1391baa49802a",
+          "docs/prompts/prompt-surface-manifest.json": "6e1b48521c598648b6cdebf55d546bc96d8a74a8cfbf92ef09a9ef71273ea201"
+        }
+      }
+    },
+    "limitations": [
+      "Bounded prose reconciliation only; fixture profile instructions are declared input, not runtime configuration.",
+      "No renderer invocation or docs gate: mechanical migration/render qualification belongs to the separate core worker; these partial fixture repositories do not establish full installation completion.",
+      "No arc/epic/vision/wave records created and no lifecycle action performed."
+    ]
+  },
+  "reconciliation_outputs": {
+    "fresh/docs/prompts/plan-arc.prompt.md": "# Plan Arc\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-11-03\n\n**Shortcut:** `Plan arc` \u00b7 **Alias:** `Plan initiative` \u00b7 **Skill:** `wf-plan-arc`\n\nPlan a bounded outcome across useful waves, or resume that work from its records. Keep one concise arc document so another contributor can recover the outcome, evidence and next useful step. This optional workflow adds no approval gate; ordinary changes need no arc. Honor a read-only or response-only request without writing.\n\n## 1. Recover the outcome and current position\n\nReuse the request, prior choices and relevant project records. Establish who benefits, the outcome, its owner, boundaries and what would count as success. Reuse the existing arc when resuming. If equivalent project-owned planning already exists, preserve its ownership and use it rather than duplicate it.\n\nWhere useful, distinguish **Vision \u2192 Horizon \u2192 Arc \u2192 Wave \u2192 Change**: the vision describes the destination; a horizon marks a stage of progress; an arc pursues a bounded outcome; a wave delivers an increment and contains changes. A horizon may have several arcs and an arc several waves. Features can describe capabilities without becoming another required layer. Preserve legitimate work outside this hierarchy.\n\nFor vision context, use the project's Plan change **Vision-to-plan bridge**: explicit designation or operator direction counts as adoption, not Git tracking or file presence. An undesignated root `VISION.md` is discovery-only; do not read it to decide relevance. No adopted vision means ordinary planning. Start small and follow consequential references.\n\nRead the identified relevant waves, changes, decisions and handoff, following references needed for dependencies or conflicts. Prefer target-scoped MCP retrieval and typed lifecycle records when available; verify consequential claims against current sources. Distinguish delivered capabilities, accepted evidence, intended benefit and remaining obligations. Closure alone proves neither benefit nor authority for the next action. Check stale summaries against their sources; expose contradictions and missing evidence without inventing a dependency or reading all history. Cite available sources and revisions for consequential claims.\n\n## 2. Recommend the next useful advance\n\nExplain the remaining path at the detail needed now, then recommend a bounded wave/change proposal or a decision that must come first. Preserve intermediate value, significant prerequisites and unaffected work. Distinguish facts, interpretations, proposals and uncertainty; no detailed backlog or fixed questionnaire is required.\n\nIf a missing choice would materially change outcome, scope, priority or responsibility, explain the credible options, consequences and your recommendation, then ask one focused question. Reuse earlier answers; after an answer, briefly say how it changes priorities. Honor deferral, draft-first and no-interview requests with explicit provisional choices. Silence is not selection. Pause only the dependent recommendation and continue useful independent investigation. When an assumption changes, revise the affected path rather than reopen settled direction.\n\n## 3. Keep one concise record and hand back the next step\n\nUse the distribution's declared naming: `vocabulary_profile.ARC_NAME`, `ARC_KIND`, the `plan-arc` prompt-name entry and `record_paths.ARCS_ROOT`. Defaults are Arc, arc, Plan arc and `docs/arcs`. Resolve these from the installed framework; do not hardcode Arc when the distribution uses Epic or another name.\n\nFor a new arc, use the existing `wf lifecycle-id --kind arc --slug <arc-slug>` producer with the active kind substituted for `arc`. Use that generated prefix and slug for both folder and filename:\n\n```text\ndocs/arcs/<lifecycle-id> <arc-slug>/<lifecycle-id>-arc <arc-slug>.md\n```\n\nThe Epic example is `docs/epics/<id> <slug>/<id>-epic <slug>.md`. `record_paths.arc_record_path` resolves and validates the active convention. Do not invent IDs, overwrite an existing record or silently rename records when vocabulary changes. An explicit migration preserves IDs and content and repairs references. Keep waves at their configured root and link to them; do not nest, move or duplicate them under arcs.\n\nUse ordinary document metadata (owner, status and last verified) and a `Record ID` matching the filename. Metadata describes the document; it is not a lifecycle state machine. A short record should let its reader recover:\n\n- **Outcome:** beneficiary, intended result, success evidence, boundaries and relevant horizon, if any.\n- **Path:** useful increments, important dependencies and unresolved decisions.\n- **Progress:** linked waves and the evidence for delivered outcomes and remaining obligations.\n- **Next step:** the next useful wave/change proposal or decision, with its rationale.\n\nAdapt headings to the project. Preserve operator edits and unrelated content when revising. Summarize progress from authoritative records rather than copy their task lists or acceptance checks. Supporting files are optional when they help; create no empty folder hierarchy or second tracker. If evidence is missing, name the gap and useful next test.\n\nApply `.wavefoundry/framework/docs/writing-guide.md`; read the record against its sources and the reader's task. No routine council, independent reader or scoring exercise is part of Plan arc. Return the record path, what changed and the next useful step.\n\nThe record grants no readiness, implementation or other lifecycle authority. A separately requested Plan change or wave action follows its existing workflow and rechecks mutable facts. Do not create, admit, open, close, implement or commit a wave/change merely because the arc recommends it. Leave visions and their review records unchanged. Installing or rendering this workflow never runs it or creates arc records.\n",
+    "custom/docs/prompts/plan-arc.prompt.md": "# Plan Arc\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-11-02\n\n**Shortcut:** `Plan arc` \u00b7 **Alias:** `Plan initiative` \u00b7 **Skill:** `wf-plan-arc`\n\nPlan a bounded outcome across useful waves, or resume that work from its records. Keep one concise arc document so another contributor can recover the outcome, evidence and next useful step. This optional workflow adds no approval gate; ordinary changes need no arc. Honor a read-only or response-only request without writing.\n\n## 1. Recover the outcome and current position\n\nReuse the request, prior choices and relevant project records. Establish who benefits, the outcome, its owner, boundaries and what would count as success. Reuse the existing arc when resuming. If equivalent project-owned planning already exists, preserve its ownership and use it rather than duplicate it.\n\nWhere useful, distinguish **Vision \u2192 Horizon \u2192 Arc \u2192 Wave \u2192 Change**: the vision describes the destination; a horizon marks a stage of progress; an arc pursues a bounded outcome; a wave delivers an increment and contains changes. A horizon may have several arcs and an arc several waves. Features can describe capabilities without becoming another required layer. Preserve legitimate work outside this hierarchy.\n\nFor vision context, use the project's Plan change **Vision-to-plan bridge**: explicit designation or operator direction counts as adoption, not Git tracking or file presence. An undesignated root `VISION.md` is discovery-only; do not read it to decide relevance. No adopted vision means ordinary planning. Start small and follow consequential references.\n\nRead the identified relevant waves, changes, decisions and handoff, following references needed for dependencies or conflicts. Prefer target-scoped MCP retrieval and typed lifecycle records when available; verify consequential claims against current sources. Distinguish delivered capabilities, accepted evidence, intended benefit and remaining obligations. Closure alone proves neither benefit nor authority for the next action. Check stale summaries against their sources; expose contradictions and missing evidence without inventing a dependency or reading all history. Cite available sources and revisions for consequential claims.\n\n## 2. Recommend the next useful advance\n\nExplain the remaining path at the detail needed now, then recommend a bounded wave/change proposal or a decision that must come first. Preserve intermediate value, significant prerequisites and unaffected work. Distinguish facts, interpretations, proposals and uncertainty; no detailed backlog or fixed questionnaire is required.\n\nIf a missing choice would materially change outcome, scope, priority or responsibility, explain the credible options, consequences and your recommendation, then ask one focused question. Reuse earlier answers; after an answer, briefly say how it changes priorities. Honor deferral, draft-first and no-interview requests with explicit provisional choices. Silence is not selection. Pause only the dependent recommendation and continue useful independent investigation. When an assumption changes, revise the affected path rather than reopen settled direction.\n\n## 3. Keep one concise record and hand back the next step\n\nUse the distribution's declared naming: `vocabulary_profile.ARC_NAME`, `ARC_KIND`, the `plan-arc` prompt-name entry and `record_paths.ARCS_ROOT`. Defaults are Arc, arc, Plan arc and `docs/arcs`. Resolve these from the installed framework; do not hardcode Arc when the distribution uses Epic or another name.\n\nFor a new arc, use the existing `wf lifecycle-id --kind arc --slug <arc-slug>` producer with the active kind substituted for `arc`. Use that generated prefix and slug for both folder and filename:\n\n```text\ndocs/arcs/<lifecycle-id> <arc-slug>/<lifecycle-id>-arc <arc-slug>.md\n```\n\nThe Epic example is `docs/epics/<id> <slug>/<id>-epic <slug>.md`. `record_paths.arc_record_path` resolves and validates the active convention. Do not invent IDs, overwrite an existing record or silently rename records when vocabulary changes. An explicit migration preserves IDs and content and repairs references. Keep waves at their configured root and link to them; do not nest, move or duplicate them under arcs.\n\nUse ordinary document metadata (owner, status and last verified) and a `Record ID` matching the filename. Metadata describes the document; it is not a lifecycle state machine. A short record should let its reader recover:\n\n- **Outcome:** beneficiary, intended result, success evidence, boundaries and relevant horizon, if any.\n- **Path:** useful increments, important dependencies and unresolved decisions.\n- **Progress:** linked waves and the evidence for delivered outcomes and remaining obligations.\n- **Next step:** the next useful wave/change proposal or decision, with its rationale.\n\nAdapt headings to the project. Preserve operator edits and unrelated content when revising. Summarize progress from authoritative records rather than copy their task lists or acceptance checks. Supporting files are optional when they help; create no empty folder hierarchy or second tracker. If evidence is missing, name the gap and useful next test.\n\nApply `.wavefoundry/framework/docs/writing-guide.md`; read the record against its sources and the reader's task. No routine council, independent reader or scoring exercise is part of Plan arc. Return the record path, what changed and the next useful step.\n\nThe record grants no readiness, implementation or other lifecycle authority. A separately requested Plan change or wave action follows its existing workflow and rechecks mutable facts. Do not create, admit, open, close, implement or commit a wave/change merely because the arc recommends it. Leave visions and their review records unchanged. Installing or rendering this workflow never runs it or creates arc records.\n\nLocal addition: Name the responsible owner beside the proposed next step.\n",
+    "conflict/reconciliation-conflict.json": "{\n  \"status\": \"unresolved_conflict\",\n  \"complete\": false,\n  \"local_policy\": \"Local operator policy: never write persistent planning records; return responses only, including when Plan arc is invoked.\",\n  \"canonical_difference\": \"Seed171 replaces the response-only default with one optional durable arc record while preserving explicit read-only requests. The local policy forbids persistence for all invocations.\",\n  \"action\": \"Stopped the affected merge; preserve legacy prompt, metadata, local owner addition and manifest. Operator must resolve the policy difference before this case can be reconciled.\",\n  \"protected_before\": {\n    \"VISION.md\": \"e6a2e4e7f27654c1cc8c0ce3279f87f7cf60760333ad78049fe6df488e38ce86\"\n  }\n}\n",
+    "conflict/docs/prompts/plan-initiative.prompt.md": "# Plan Initiative\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-11-02\n\n**Shortcut:** `Plan initiative` \u00b7 **Skill:** `wf-plan-initiative`\n\nHelp the operator turn a substantial outcome into useful waves, or pick up that work from existing records. Return a short planning brief by default. This is optional advice, not a new tracker or lifecycle gate; ordinary changes need no initiative.\n\n## 1. Recover the outcome and current position\n\nReuse the request, prior choices and relevant project records. Establish who benefits, the outcome, its owner, boundaries and what would count as success. If the outcome has an authoritative home, keep that owner; otherwise use the operator's stated intent without inventing a file or treating the conversation as durable state.\n\nWhere useful, distinguish **Vision \u2192 Horizon \u2192 Initiative \u2192 Wave \u2192 Change**: the vision describes the destination; a horizon marks a stage of progress; an initiative pursues a coherent outcome; a wave delivers a bounded increment and contains changes. A horizon may have several initiatives and an initiative several waves. Features can describe capabilities without becoming another required layer. Use the target project's direction, not Wavefoundry's roadmap, and preserve legitimate work outside this hierarchy.\n\nFor vision context, use the project's Plan change **Vision-to-plan bridge**: explicit designation or operator direction counts as adoption, not Git tracking or file presence. An undesignated root `VISION.md` is discovery-only; do not read it to decide relevance. No adopted vision means ordinary planning. Start small and follow only consequential references.\n\nRead the identified relevant waves, changes, decisions and handoff, following references needed for dependencies or conflicts. Prefer target-scoped MCP retrieval and typed lifecycle records when available; verify consequential claims against current sources. Distinguish delivered capabilities, accepted evidence, intended benefit and outstanding obligations. Closure alone proves neither benefit nor authority for the next action. Check a stale summary against the records it summarizes; expose contradictions and missing evidence without inventing a dependency or reading all project history. Cite the sources and revisions available for consequential claims.\n\n## 2. Recommend the next useful advance\n\nExplain the remaining path at the detail needed now, then recommend a bounded next wave/change proposal or a decision that must come first. Preserve intermediate value, consequential prerequisites and unaffected work. Distinguish facts, interpretations, proposals and uncertainty; no detailed backlog or fixed questionnaire is required.\n\nIf a missing choice would materially change outcome, scope, priority or responsibility, explain the credible options, consequences and your recommendation, then ask one focused question. Reuse earlier answers; after an answer, briefly say how it changes the priorities. Honor deferral, draft-first and no-interview requests with explicit provisional choices. Silence is not selection. Pause only the dependent recommendation and continue useful independent investigation. When an assumption changes, revise the affected proposed path rather than reopen settled direction.\n\n## 3. Hand back a concise brief\n\nLead with the outcome and next useful step. Include the evidence that supports it, remaining obligations/dependencies and any decision the operator needs to make. Scale depth to the work. Read it once against the sources and the reader's task, applying `.wavefoundry/framework/docs/writing-guide.md`; no routine council, independent reader, scoring exercise or extra approval is part of this workflow.\n\nDefault to a response, writing no project artifacts. Save only when directed to a named existing planning or handoff surface, preserving its ownership and unrelated content. Do not create an initiative store, identifiers or statuses. If existing records cannot support a useful continuation, name the information gap and a small follow-up option instead of building a tracker.\n\nThe brief grants no readiness, implementation or other lifecycle authority. A separately requested Plan change or wave action uses its existing workflow and rechecks consequential mutable facts; do not create, admit, open, close, implement or commit work merely because it is recommended here. Leave visions and their review records unchanged. Installation or rendering of this workflow never runs it.\n\nLocal addition: Name the responsible owner beside the proposed next step.\nLocal operator policy: never write persistent planning records; return responses only, including when Plan arc is invoked.\n",
+    "epic/docs/prompts/plan-epic.prompt.md": "# Plan Epic\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-11-02\n\n**Shortcut:** `Plan epic` \u00b7 **Alias:** `Plan initiative` \u00b7 **Skill:** `wf-plan-epic`\n\nPlan a bounded outcome across useful waves, or resume that work from its records. Keep one concise epic document so another contributor can recover the outcome, evidence and next useful step. This optional workflow adds no approval gate; ordinary changes need no epic. Honor a read-only or response-only request without writing.\n\n## 1. Recover the outcome and current position\n\nReuse the request, prior choices and relevant project records. Establish who benefits, the outcome, its owner, boundaries and what would count as success. Reuse the existing epic when resuming. If equivalent project-owned planning already exists, preserve its ownership and use it rather than duplicate it.\n\nWhere useful, distinguish **Vision \u2192 Horizon \u2192 Epic \u2192 Wave \u2192 Change**: the vision describes the destination; a horizon marks a stage of progress; an epic pursues a bounded outcome; a wave delivers an increment and contains changes. A horizon may have several epics and an epic several waves. Features can describe capabilities without becoming another required layer. Preserve legitimate work outside this hierarchy.\n\nFor vision context, use the project's Plan change **Vision-to-plan bridge**: explicit designation or operator direction counts as adoption, not Git tracking or file presence. An undesignated root `VISION.md` is discovery-only; do not read it to decide relevance. No adopted vision means ordinary planning. Start small and follow consequential references.\n\nRead the identified relevant waves, changes, decisions and handoff, following references needed for dependencies or conflicts. Prefer target-scoped MCP retrieval and typed lifecycle records when available; verify consequential claims against current sources. Distinguish delivered capabilities, accepted evidence, intended benefit and remaining obligations. Closure alone proves neither benefit nor authority for the next action. Check stale summaries against their sources; expose contradictions and missing evidence without inventing a dependency or reading all history. Cite available sources and revisions for consequential claims.\n\n## 2. Recommend the next useful advance\n\nExplain the remaining path at the detail needed now, then recommend a bounded wave/change proposal or a decision that must come first. Preserve intermediate value, significant prerequisites and unaffected work. Distinguish facts, interpretations, proposals and uncertainty; no detailed backlog or fixed questionnaire is required.\n\nIf a missing choice would materially change outcome, scope, priority or responsibility, explain the credible options, consequences and your recommendation, then ask one focused question. Reuse earlier answers; after an answer, briefly say how it changes priorities. Honor deferral, draft-first and no-interview requests with explicit provisional choices. Silence is not selection. Pause only the dependent recommendation and continue useful independent investigation. When an assumption changes, revise the affected path rather than reopen settled direction.\n\n## 3. Keep one concise record and hand back the next step\n\nUse this distribution's declared naming: `vocabulary_profile.ARC_NAME` is Epic, `ARC_KIND` is `epic`, the `plan-arc` prompt-name entry resolves to `plan-epic` / Plan epic, and `record_paths.ARCS_ROOT` is `docs/epics`. These are installed-framework declarations; do not treat fixture instructions as runtime configuration.\n\nFor a new epic, use the existing `wf lifecycle-id --kind epic --slug <epic-slug>` producer. Use that generated prefix and slug for both folder and filename:\n\n```text\ndocs/epics/<lifecycle-id> <epic-slug>/<lifecycle-id>-epic <epic-slug>.md\n```\n\n`record_paths.arc_record_path` resolves and validates the active convention. Do not invent IDs, overwrite an existing record or silently rename records when vocabulary changes. An explicit migration preserves IDs and content and repairs references. Keep waves at their configured root and link to them; do not nest, move or duplicate them under epics.\n\nUse ordinary document metadata (owner, status and last verified) and a `Record ID` matching the filename. Metadata describes the document; it is not a lifecycle state machine. A short record should let its reader recover:\n\n- **Outcome:** beneficiary, intended result, success evidence, boundaries and relevant horizon, if any.\n- **Path:** useful increments, important dependencies and unresolved decisions.\n- **Progress:** linked waves and the evidence for delivered outcomes and remaining obligations.\n- **Next step:** the next useful wave/change proposal or decision, with its rationale.\n\nAdapt headings to the project. Preserve operator edits and unrelated content when revising. Summarize progress from authoritative records rather than copy their task lists or acceptance checks. Supporting files are optional when they help; create no empty folder hierarchy or second tracker. If evidence is missing, name the gap and useful next test.\n\nApply `.wavefoundry/framework/docs/writing-guide.md`; read the record against its sources and the reader's task. No routine council, independent reader or scoring exercise is part of Plan epic. Return the record path, what changed and the next useful step.\n\nThe record grants no readiness, implementation or other lifecycle authority. A separately requested Plan change or wave action follows its existing workflow and rechecks mutable facts. Do not create, admit, open, close, implement or commit a wave/change merely because the epic recommends it. Leave visions and their review records unchanged. Installing or rendering this workflow never runs it or creates epic records.\n\nLocal addition: Name the responsible owner beside the proposed next step.\n"
+  },
+  "protected_vision_sha256": {
+    "VISION.md": "22c4e1a6a5654153ce67371d4339400459c7f23e184b6810cdea8fd30879a59e",
+    "VISION-research.md": "bacc5a3195896a7bb512013c1d91c9253bf921b69ea86c70ee2037c1051214f3",
+    "VISION-review.md": "50a17c902bc3e1702bc5b1cf1ba31da6405650dee8dd3c612b1fc04d092407e7"
+  },
+  "limitations": [
+    "One synthetic author context across create/resume, not independent samples or demonstrated human productivity.",
+    "One reconciliation context across four small fixtures; renderer/packaging claims require separate mechanical tests.",
+    "No native Windows/Linux execution or real downstream upgrade performed.",
+    "No actual arc or vision created by installation/rendering."
+  ],
+  "mechanical_checks": {
+    "reported_by": "arc_core implementer",
+    "arc_and_stale_leaf": 11,
+    "prompt_name_profile_migration": 36,
+    "lifecycle": 82,
+    "profile_support": 82,
+    "delivery_extraction": 3,
+    "additional_combined_check": "55 tests passed before final optional-prompt test",
+    "full_suite": {
+      "status": "pass",
+      "tests": 12310,
+      "files": 217,
+      "skips": 12,
+      "duration_seconds": 599.529,
+      "inputs_hash": "8ab092cfa28ac8d410dc63ad344622f522af6d28c5df3fd4bb227f9f5370f7ac",
+      "ran_at": "2026-11-03T21:37:11.020170+00:00",
+      "log": ".wavefoundry/work/22bs0/arc-framework-tests-final.log",
+      "receipt": ".wavefoundry/framework/test-cache.json",
+      "execution_limit": "Native macOS execution; no native Windows/Linux qualification."
+    },
+    "mutations": {
+      "mutants": [
+        {
+          "mutant": "omit arc ID sources",
+          "test": "test_arc_folder_and_document_ids_both_reserve_prefixes",
+          "detected": true,
+          "failures": 1,
+          "errors": 0
+        },
+        {
+          "mutant": "allow overlapping roots",
+          "test": "test_record_path_rejects_unsafe_names_roots_and_links",
+          "detected": true,
+          "failures": 2,
+          "errors": 0
+        },
+        {
+          "mutant": "remove arc kind/name validation",
+          "test": "test_arc_vocabulary_collisions",
+          "detected": true,
+          "failures": 6,
+          "errors": 0
+        },
+        {
+          "mutant": "treat unreadable arc root as empty",
+          "test": "test_unreadable_arc_listing_refuses_id_mint",
+          "detected": true,
+          "failures": 1,
+          "errors": 0
+        },
+        {
+          "mutant": "adopt legacy filename without registered origin",
+          "test": "test_unregistered_legacy_file_is_not_adopted_by_renderer",
+          "detected": true,
+          "failures": 0,
+          "errors": 1
+        }
+      ],
+      "restored_controls_pass": true
+    },
+    "limitation": "Combined-process profile reload contamination avoided by file-isolated test execution; native macOS only.",
+    "import_expectation_repair": {
+      "finding": "22euo-record-paths-import-expectation",
+      "change": "Add re to exact allowed stdlib import census; retain equality assertion.",
+      "focused_tests": 46,
+      "skips": 0,
+      "status": "passed; independently reverified by QA and code reviewers",
+      "negative_controls": "Fresh reviewers rejected unexpected third-party import/from-import text mutants; exact import equality retained."
+    },
+    "earlier_full_suite_attempt": {
+      "status": "failed; superseded by the recorded green final full-suite run",
+      "tests": 12310,
+      "files": 217,
+      "skips": 12,
+      "duration_seconds": 550.225,
+      "failed_modules": [
+        "test_record_paths.py",
+        "test_wf_cli.py"
+      ],
+      "causes": {
+        "test_record_paths.py": "Fixed stdlib import expectation omitted newly used re; typed repair underway.",
+        "test_wf_cli.py": "Owned baseline CHANGELOG copy was scanned as live documentation. Renamed only backup to CHANGELOG.md.snapshot; bytes preserved; isolated CLI rerun passes54tests."
+      },
+      "log": ".wavefoundry/work/22bs0/arc-framework-tests.log",
+      "receipt": ".wavefoundry/cache/qualification/refused-1923271f44dc4018a2be281e095097fe.json",
+      "execution_limit": "Review bookkeeping changed during execution; final rerun will hold repository edits until completion."
+    }
+  },
+  "reviewed_paths": {
+    ".agents/skills/wf-plan-arc/SKILL.md": "1de9cb2c7657944b25986fc886db89fc09e2ee64",
+    ".agents/skills/wf-plan-initiative/SKILL.md": null,
+    ".claude/skills/wf-plan-arc/SKILL.md": "1de9cb2c7657944b25986fc886db89fc09e2ee64",
+    ".claude/skills/wf-plan-initiative/SKILL.md": null,
+    ".codex/skills/wf-plan-arc/SKILL.md": "1de9cb2c7657944b25986fc886db89fc09e2ee64",
+    ".codex/skills/wf-plan-initiative/SKILL.md": null,
+    ".wavefoundry/framework/README.md": "1681cacb2a6a5d6582e2550c97c0ac6a4aefafcf",
+    ".wavefoundry/framework/scripts/lifecycle_id.py": "5b99fcebba8cb9de3a5387c72948d1487fd3fcda",
+    ".wavefoundry/framework/scripts/record_paths.py": "2e6bce921969d162a7b78bc712d2ab996cab53a5",
+    ".wavefoundry/framework/scripts/render_agent_surfaces.py": "ca8da77c784c938e4f42b4ba434032f087709f2f",
+    ".wavefoundry/framework/scripts/tests/fixtures/framework-text-ownership.json": "c059d3559fc40d01a8bad25bb402ddf389406806",
+    ".wavefoundry/framework/scripts/tests/fixtures/profiles/prompt-names.json": "dd668d89402fa90bad206db302e035a47854c36e",
+    ".wavefoundry/framework/scripts/tests/record_layout_support.py": "1646b5133708b50f3b7b83d1d59680016fabb3f1",
+    ".wavefoundry/framework/scripts/tests/test_arc_records.py": "0abba194ee8d36bdad70c4a99e6de9ddf36e8ef8",
+    ".wavefoundry/framework/scripts/tests/test_change_kinds.py": "b31875957dc7913c6c3f42134458bd29eebcde7b",
+    ".wavefoundry/framework/scripts/tests/test_initiative_planning_delivery.py": "c8b60eb7bf7a3baaa1b01e58544771b92ee030ac",
+    ".wavefoundry/framework/scripts/tests/test_profile_support.py": "84ecabe7c4289d3d7600dbb8e2a56d94db019d81",
+    ".wavefoundry/framework/scripts/tests/test_record_paths.py": "c9c53b04981cc975e369282132a3e9fb70e42337",
+    ".wavefoundry/framework/scripts/tests/test_render_agent_surfaces.py": "a52e6c3f50aa352bdb0e3bbe9067dcb0df3f72ed",
+    ".wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py": "28ec0ab1f9dd0a7f14689c959584ba0b3d782bf5",
+    ".wavefoundry/framework/scripts/tests/test_vocabulary_prompt_names.py": "e85fa512d1543b2a7b8491de7910389f682e587c",
+    ".wavefoundry/framework/scripts/vocabulary_profile.py": "3bc310083364af77d854fd5f361b86d19dd5ce3a",
+    ".wavefoundry/framework/seeds/008-framework-map.md": "1f1be010478a4c4900319ca02300dc8ed9e81af8",
+    ".wavefoundry/framework/seeds/050-agent-entry-surface-bootstrap.prompt.md": "2b29bbb21e2c4fe68620f0bd85214f870f2a5303",
+    ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": "2936bd7d89eddeb00d2598c67bea97f730ac7095",
+    ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": "9757373ad7f2ce3e307f8e68aa42e98e4300414a",
+    ".wavefoundry/framework/seeds/170-plan-change.prompt.md": "ab1e8e9361003e1b1779bfbd5a0129462e50b2d9",
+    ".wavefoundry/framework/seeds/171-plan-initiative.prompt.md": "c7c43d5b1e1cfd8a196a68e6e77fe96ac5937318",
+    ".wavefoundry/framework/seeds/179-envision-project.prompt.md": "7888bd1d909c43e37c038d7d2e3f141f917cf4d8",
+    ".wavefoundry/framework/seeds/envision/delivery.prompt.md": "0015d65592c39d8cc206002854b8d75d74f820ad",
+    "AGENTS.md": "0c75db33a5c3baedbb2916d8e82c39708248ba37",
+    "CHANGELOG.md": "e0b5647c171ec1a0d278f0f944e2423c2a61dc27",
+    "docs/agents/platform-mapping.md": "d8a123e9c34a82c0a07b6e020e4fec7ea7048db5",
+    "docs/architecture/data-and-control-flow.md": "8395c40a0dafcebb35b0b049c0e352a64e26d9ea",
+    "docs/architecture/layering-rules.md": "7aa7d5063c7570828602ac7c0e1bcb338e536091",
+    "docs/prompts/agents/envision/delivery.prompt.md": "534cf41582331d459db0798e3ba3b3167bda1cf1",
+    "docs/prompts/envision-project.prompt.md": "ba02aea2b14834d1b4fb0bb285a4f201e48cc23b",
+    "docs/prompts/index.md": "8d9f5bad5e6606acd4adae0f222749ebb0ef7437",
+    "docs/prompts/plan-arc.prompt.md": "5e716e090f87894242ed0600422a0258e602f547",
+    "docs/prompts/plan-change.prompt.md": "e95d2257e09250ba8867486e479ea57703a9e63b",
+    "docs/prompts/plan-initiative.prompt.md": null,
+    "docs/prompts/prompt-surface-manifest.json": "2d2f473574c20b1bcc5acc5ef4b6dd6023f1fe99",
+    "docs/prompts/upgrade-wavefoundry.prompt.md": "b2f8e8440d52c0d1670364f77735b353a73fd70c"
+  },
+  "review_map_sha256": "a516c0b045e161c3daeb38dad02eca0cbb5b8c84f7aa23203ca0dcc7be73f271",
+  "delivery_review": {
+    "status": "approved",
+    "lanes": [
+      "code-reviewer",
+      "qa-reviewer",
+      "architecture-reviewer",
+      "docs-contract-reviewer"
+    ],
+    "council": {
+      "mode": "targeted",
+      "seats": [
+        "red-team",
+        "docs-contract-reviewer"
+      ],
+      "chair": "independent council-chair",
+      "closing": "red-team",
+      "intent_fit": "establishes"
+    },
+    "finding": "22euo-record-paths-import-expectation: repaired, cycle1 terminal, no unresolved lanes",
+    "approval_ids": {
+      "code": "ev-approval-code-reviewer-6",
+      "qa": "ev-approval-qa-reviewer-5",
+      "architecture": "ev-approval-architecture-reviewer-5",
+      "docs": "ev-approval-docs-contract-reviewer-5",
+      "council": "ev-approval-council-delivery-2"
+    },
+    "authority_limit": "Operator closure and commit direction recorded on 2026-11-03; implementation approval does not authorize release or target upgrades."
+  },
+  "baseline_preservation": "evidence/baseline-overrides.json.gz retains dirty source overrides for both snapshots against its named Git commit; unchanged files are reconstructable from that commit."
+}

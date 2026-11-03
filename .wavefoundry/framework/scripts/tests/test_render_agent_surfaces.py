@@ -2912,7 +2912,44 @@ class SkillRegistryTests(unittest.TestCase):
         "wf-code-cleanup": "docs/prompts/codebase-cleanup-review.prompt.md",
         "wf-techdocs": "docs/prompts/refresh-techdocs.prompt.md",
         "wf-envision": "docs/prompts/envision-project.prompt.md",
+        "wf-plan-arc": "docs/prompts/plan-arc.prompt.md",
     }
+
+    def test_plan_initiative_is_doc_gated_and_preserves_project_content(self) -> None:
+        for hosts in ((".codex", ".claude", ".agents"), (".codex",)):
+            with self.subTest(hosts=hosts), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                self._repo(root, guru=False, gate_docs=False, hosts=hosts)
+                prompt = root / "docs/prompts/plan-arc.prompt.md"
+                vision = root / "VISION.md"
+                vision_bytes = b"# Adopted vision\r\nExisting project direction.\r\n"
+                vision.write_bytes(vision_bytes)
+                ras.render_agent_surfaces(root)
+                self.assertFalse(prompt.exists())
+                for host in hosts:
+                    self.assertFalse((root / host / "skills/wf-plan-arc").exists())
+
+                prompt_bytes = b"# Plan initiative\r\nProject-specific guidance survives.\r\n"
+                prompt.parent.mkdir(parents=True, exist_ok=True)
+                prompt.write_bytes(prompt_bytes)
+                written = ras.render_agent_surfaces(root)
+                skill = next(s for s in ras.SKILL_REGISTRY if s.name == "wf-plan-arc")
+                for host in hosts:
+                    rel = f"{host}/skills/wf-plan-arc/SKILL.md"
+                    self.assertIn(rel, written)
+                    text = (root / rel).read_text(encoding="utf-8")
+                    header, body = text[4:].split("\n---\n", 1)
+                    self.assertEqual(header, f"name: {skill.name}\ndescription: {skill.description}")
+                    self.assertNotIn("disable-model-invocation", header)
+                    self.assertIn("docs/prompts/plan-arc.prompt.md", body)
+                    self.assertIn("create or revise one concise record", body)
+                    self.assertIn("no lifecycle gate or implementation authority", body)
+                    self.assertEqual(sum(line.startswith("- ") for line in body.splitlines()), 2)
+                for host in set((".codex", ".claude", ".agents")) - set(hosts):
+                    self.assertFalse((root / host).exists())
+                self.assertEqual(ras.render_agent_surfaces(root), [])
+                self.assertEqual(prompt.read_bytes(), prompt_bytes)
+                self.assertEqual(vision.read_bytes(), vision_bytes)
 
     def test_envision_appears_after_prompt_authoring_and_preserves_project_content(self) -> None:
         for hosts in ((".codex", ".claude", ".agents"), (".codex",)):
@@ -5336,7 +5373,7 @@ class TechdocsCarrierLiteralPinTests(unittest.TestCase):
         seed_050 = (self.SEEDS / "050-agent-entry-surface-bootstrap.prompt.md").read_text(encoding="utf-8")
         self.assertIn("**Refresh TechDocs shortcut**", seed_050)
         self.assertIn("**`Author TechDocs`**", seed_050)
-        self.assertIn("`wf-techdocs`, and `wf-envision` on their prompt docs", seed_050)
+        self.assertIn("`wf-techdocs`, `wf-envision`, and `wf-plan-arc` on their prompt docs", seed_050)
 
     def test_install_seeds_state_the_no_generation_and_pointer_rules(self) -> None:
         seed_011 = (self.SEEDS / "011-install-wavefoundry-phase-1.prompt.md").read_text(encoding="utf-8")

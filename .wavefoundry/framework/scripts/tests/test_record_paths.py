@@ -75,7 +75,7 @@ class ShippedLayoutTests(_TempRoot):
         # Wave 1zrak (1zu4y): ``errno`` and ``stat`` (stdlib) decide a record
         # root's state under the errno rule and name the cause path-free.
         self.assertEqual(
-            names, {"__future__", "errno", "os", "stat", "dataclasses", "pathlib", "vocabulary_profile"}
+            names, {"__future__", "errno", "os", "re", "stat", "dataclasses", "pathlib", "vocabulary_profile"}
         )
 
     def test_vocabulary_profile_is_stdlib_only(self):

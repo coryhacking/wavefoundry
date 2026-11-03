@@ -51,6 +51,10 @@ CONTAINER_NAME_PLURAL = "Waves"
 ITEM_NAME = "Change"
 ITEM_NAME_PLURAL = "Changes"
 
+# Optional outcome record, separate from the two delivery lifecycle tiers.
+ARC_NAME = "Arc"
+ARC_KIND = "arc"
+
 # Container record.
 RECORD_FILENAME = "wave.md"
 ID_KEY = "wave-id"  # written as ``wave-id: `<id>` ``
@@ -163,7 +167,8 @@ CORE_CHANGE_KINDS = ("bug", "feat", "enh", "change", "doc", "debt", "ref", "task
 # Tokens that already name other lifecycle ids, so never a change kind: the
 # lifecycle-id CLI's wave kind, memory ids, scanner finding ids, decision records,
 # and the migrated journal files the upgrade writes into wave folders.
-RESERVED_KIND_TOKENS = frozenset({"wave", "mem", "sec", "adr", "jrnl"})
+RESERVED_KIND_TOKENS = frozenset({"wave", "mem", "sec", "adr", "jrnl", "arc"}
+                                 | ({ARC_KIND} if isinstance(ARC_KIND, str) else set()))
 _EXTRA_CHANGE_KIND_RE = re.compile(r"[a-z][a-z0-9]{1,15}")
 # Derived only from a valid tuple; an invalid declaration is reported by
 # validate() below, at import, rather than raised here.
@@ -208,13 +213,14 @@ DEFAULT_PROMPT_NAMES: "dict[str, dict[str, object]]" = {
     "review-wave": {"slug": "review-wave", "shortcut": "Review wave", "aliases": ()},
     "close-wave": {"slug": "close-wave", "shortcut": "Close wave", "aliases": ()},
     "close-change": {"slug": "close-change", "shortcut": "Close change", "aliases": ()},
+    "plan-arc": {"slug": "plan-arc", "shortcut": "Plan arc", "aliases": ("Plan initiative",)},
 }
 # Framework prompt slugs a renamed prompt may not take: the untiered and
 # product-named prompts, the agent bodies without a public twin, the retired
 # names and the prompt index.
 FIXED_PROMPT_SLUGS: tuple[str, ...] = (
     "review-plan", "memory-review", "council-review", "archetype-council", "red-team-review",
-    "evaluate-decision", "envision-project", "refresh-techdocs", "codebase-cleanup-review", "package-wavefoundry",
+    "evaluate-decision", "envision-project", "refresh-techdocs", "plan-initiative", "codebase-cleanup-review", "package-wavefoundry",
     "install-wavefoundry", "upgrade-wavefoundry", "framework-config-review",
     "agent-routing-concurrency", "start-dashboard", "stop-dashboard", "restart-dashboard",
     "init-wave-context", "upgrade-wave-context", "performance-reviewer", "security-reviewer",
@@ -227,7 +233,7 @@ FIXED_SKILL_NAMES: tuple[str, ...] = (
     "wf-review-plan", "wf-evaluate-decision", "wf-memory-review", "wf-council", "wf-guru",
     "wf-upgrade", "wf-package", "wf-code-cleanup", "wf-techdocs", "wf-envision",
 )
-FIXED_STALE_SKILL_NAMES: tuple[str, ...] = ("auto-guru", "wf-interrogate-plan", "wf-plan-feature")
+FIXED_STALE_SKILL_NAMES: tuple[str, ...] = ("auto-guru", "wf-interrogate-plan", "wf-plan-feature", "wf-plan-initiative")
 # The framework's untiered public shortcuts (a test pins them to the manifest).
 FIXED_PROMPT_SHORTCUTS: tuple[str, ...] = (
     "Init Wavefoundry", "Start dashboard", "Stop dashboard", "Restart dashboard",
@@ -772,11 +778,26 @@ def validate() -> None:
     """Raise :class:`VocabularyProfileInvalid` when the constants are unusable."""
     errors = (validation_errors() + prompt_name_errors() + legacy_council_key_errors()
               + legacy_council_actor_errors() + council_display_name_errors()
-              + tier_article_errors())
+              + tier_article_errors() + arc_vocabulary_errors())
     if ARCHIVE_PROFILE is not None:
         errors += [f"ARCHIVE_PROFILE: {e}" for e in validation_errors(ARCHIVE_PROFILE)]
     if errors:
         raise VocabularyProfileInvalid("vocabulary_profile_invalid: " + "; ".join(errors))
+
+
+def arc_vocabulary_errors() -> list[str]:
+    """Validate the optional planning record without making it a change kind."""
+    errors: list[str] = []
+    if not isinstance(ARC_KIND, str) or not _EXTRA_CHANGE_KIND_RE.fullmatch(ARC_KIND):
+        errors.append("ARC_KIND must be 2 to 16 lowercase ASCII letters/digits, starting with a letter")
+    elif ARC_KIND in CHANGE_KINDS or ARC_KIND in {"wave", "mem", "sec", "adr", "jrnl"}:
+        errors.append("ARC_KIND collides with an existing lifecycle artifact kind")
+    problem = _shortcut_problem(ARC_NAME)
+    if problem:
+        errors.append(f"ARC_NAME {problem}")
+    elif ARC_NAME.casefold() in {CONTAINER_NAME.casefold(), ITEM_NAME.casefold()}:
+        errors.append("ARC_NAME must differ from the delivery lifecycle tier names")
+    return errors
 
 
 def record_file(directory):

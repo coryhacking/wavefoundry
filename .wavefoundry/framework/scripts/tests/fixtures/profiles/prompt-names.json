@@ -49,6 +49,10 @@
         "close-change": {
           "slug": "finish-task",
           "shortcut": "Finish task"
+        },
+        "plan-arc": {
+          "slug": "plan-outcome",
+          "shortcut": "Plan outcome"
         }
       },
       "COUNCIL_DISPLAY_NAME": "Review Board"

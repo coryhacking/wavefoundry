@@ -192,7 +192,7 @@ corpus = [f"{v.MEMBER_ID_LABEL}: `{body}`" for body in (
 def accepts(pattern):
     return [bool(pattern.match(line)) for line in corpus]
 choices = []
-for kind in list(v.CORE_CHANGE_KINDS) + ["wave", "decision"]:
+for kind in list(v.CORE_CHANGE_KINDS) + ["wave", "arc", "decision"]:
     try:
         lifecycle_id.parse_args(["--kind", kind, "--slug", "s"])
         choices.append(kind)
@@ -225,8 +225,8 @@ print(json.dumps({
         self.assertEqual(self.out["kind_re"], FROZEN_KIND_PATTERN)
         self.assertEqual(self.out["valid"], sorted(FROZEN_KINDS))
         self.assertEqual(self.out["valid_type"], "frozenset")
-        self.assertEqual(self.out["cli_choices"], list(FROZEN_KINDS) + ["wave"])
-        self.assertEqual(self.out["cli_accepts"], list(FROZEN_KINDS) + ["wave"])
+        self.assertEqual(self.out["cli_choices"], list(FROZEN_KINDS) + ["wave", "arc"])
+        self.assertEqual(self.out["cli_accepts"], list(FROZEN_KINDS) + ["wave", "arc"])
 
     def test_the_retired_kinds_are_frozen_and_stay_in_the_grammar(self):
         self.assertEqual(self.out["retired"], list(FROZEN_RETIRED))

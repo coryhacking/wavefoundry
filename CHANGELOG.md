@@ -8,15 +8,25 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed
+### Added
 
-- Envision develops concrete product futures before recommending an open destination and delivers one coherent vision by default, with research in the argument and detailed review accounting in the response. A compact saved status distinguishes reviewed revisions, pending findings and later edits. A shorter strategic core loads four local phase companions at their point of use; install/upgrade guidance carries the complete set, preserving customizations and stopping conflicts. Advisory review sharpens scope and evidence challenges while retaining its bounded repair/verification rule and operator-owned strategy. Wave 220a9 / change 220a8; these are instruction changes, not a claim of general authoring superiority.
+- Plan arc / `wf-plan-arc` keeps a bounded outcome, linked wave evidence and the next useful step in one optional lifecycle-named document. Downstream distributions can use Epic terminology through the existing profile mechanisms. Plan initiative remains a compatibility phrase; upgrading preserves customized guidance. No additional lifecycle gate or routine review is required. Wave 22bs0 / changes 22brz and 22euo.
 
 ## [1.39.0] - 2026-10-29
 
 ### Added
 
+- A shared reader-centered writing guide connects document purpose, findability, precise meaning and usable next actions. Short authoring and review references use existing workflows; agent-assisted upgrade guidance preserves local writing policies and historical artifacts. Informed by ISO plain-language principles and selected STE practices, without a compliance claim or additional review gate. Wave 224i4 / change 223hp.
+
 - Envision project / `wf-envision` defines an ambitious product vision and an adaptable long-horizon roadmap, with useful technical and nontechnical advances and proportionate advisory reviews. Its opening makes the destination clear; distant horizons retain advancement conditions without invented precision. Decision-relevant research and validation of existing capabilities ground ordered immediate advances, including enabling technical changes where justified; technical shifts require causal evidence and alternatives rather than assumed technology benefits. It distinguishes transformative destination, unresolved breakthroughs and useful stages without silently shrinking earlier ambition. Advisory coverage uses product strategy, domain/application workflow, senior architecture and independent challenge, with consequential specialties and optional archetype techniques or an explicitly requested Council. Plan change conditionally carries an explicitly adopted vision’s relevant outcomes and prerequisites without editing it. Seed 100 authors missing prompts; seed 160 guides changed-seed179 and seed170 reconciliation into existing prompts, preserving project additions and stopping conflicts. Subsequent rendering emits the skill for active hosts. Authoring grants no implementation authority. Waves 21u1e / 21tpc, 21tpp / 21vpo, 21y6d / 21xpg and 21xq1 / 21xq0; authoring evidence is case-specific, and the 21ux4 comparison did not establish superiority.
+
+### Changed
+
+- Envision discusses its unified vision paragraph before polishing the roadmap, propagates consequential evidence into affected stages, and stages a selected reader’s reconstruction before the full review brief. Feedback shares one bounded repair and verification pass; settled choices, deferrals and operator authority remain intact. Wave 228dy / change 226i1; instruction changes do not establish general authoring superiority or human comprehension.
+
+- Envision guides consequential strategic choices after concrete alternatives, reflects operator answers in the roadmap and respects deferrals, chosen destinations and draft-only requests. Each vision leads with one unified statement of purpose, intended future and beneficiary value. Strategic selection remains separate from adoption and implementation. Wave 224uu / 224ut.
+- Envision uses relevant company mission, portfolio and customer context for products within organizations, distinguishing commitments from marketing and preserving ambition; standalone projects need no company discovery. Wave 224us / 222fi.
+- Envision develops concrete product futures before recommending an open destination and delivers one coherent vision by default, with research in the argument and detailed review accounting in the response. A compact saved status distinguishes reviewed revisions, pending findings and later edits. A shorter strategic core loads four local phase companions at their point of use; install/upgrade guidance carries the complete set, preserving customizations and stopping conflicts. Advisory review sharpens scope and evidence challenges while retaining its bounded repair/verification rule and operator-owned strategy. Wave 220a9 / change 220a8; these are instruction changes, not a claim of general authoring superiority.
 
 ## [1.38.0] - 2026-10-26
 
