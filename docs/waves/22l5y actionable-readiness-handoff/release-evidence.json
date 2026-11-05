@@ -1,0 +1,55 @@
+{
+  "version": "1.39.0+q1do",
+  "feature": {
+    "name": "wavefoundry-1.39.0.q1do.zip",
+    "size": 11010580,
+    "sha256": "2a5bb70bf15f87a622c6df64dde25360df512da45dcf0160a5aee8351952fa04"
+  },
+  "source_files_compared": 261,
+  "provenance": {
+    "build_id": "q1do",
+    "release_tag": "v1.39.0",
+    "release_version": "1.39.0+q1do",
+    "schema_version": 1,
+    "source_commit": "29f64bb45d5debbfb3c13f3aa57a95c0c57ddda1",
+    "source_tree_clean": true
+  },
+  "model": {
+    "name": "wavefoundry-models-3.zip",
+    "size": 351495236,
+    "sha256": "ba293b51cb22caab00d184bff0b50ab564aac61f2f98721847015f34fc9cf8f4",
+    "members": 18
+  },
+  "record_kind": "post-close release verification",
+  "verified_date_utc": "2026-11-05",
+  "release_url": "https://github.com/coryhacking/wavefoundry/releases/tag/v1.39.0",
+  "release_stamp_commit": "568f605a",
+  "published_at": "2026-11-05T05:06:03Z",
+  "is_draft": false,
+  "is_prerelease": false,
+  "github_uploaded_asset_digests_match": true,
+  "published_checksum_file_matches": true,
+  "release_checksum_sha256": "7c7cbf34c2109c4ec6836a512f10d10113321a805c90ea1a215c00558da121cd",
+  "qualification": {
+    "default": {
+      "tests": 12314,
+      "files": 217,
+      "skips": 12
+    },
+    "second": {
+      "tests": 12296,
+      "files": 217,
+      "skips": 30
+    },
+    "declared": {
+      "tests": 12314,
+      "files": 217,
+      "skips": 12
+    },
+    "both_exact_comparisons_equal": true
+  },
+  "limits": [
+    "No native Windows/Linux execution or real target installation.",
+    "Late-round check was reconstructed, not a replay of original field logs."
+  ]
+}

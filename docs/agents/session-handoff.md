@@ -2,15 +2,15 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-04
+Last verified: 2026-11-05
 
-## Local verification and release preparation — 1.39.0+q1dn
+## Official release — 1.39.0+q1do
 
-Wave22l5y is closed. MCP reload succeeded in process; actual live wf_review_wave readiness response includes the new packet (six current approval facts, no findings). Setup still reports setup_inputs_changed; no setup was run. A reconstructed late-round probe distinguishes two genuinely editorial findings from a required PHI obligation; the latter blocks activation and yields operator choices. Original field logs/version remain unavailable, so this is not a field replay or proof of reduced cost. Post-close evidence is retained in the wave's post-close-smoke.json and late-round-check.json.
+Published [Wavefoundry 1.39.0](https://github.com/coryhacking/wavefoundry/releases/tag/v1.39.0), build `1.39.0+q1do`, on 2026-11-05 UTC. GitHub reports a published, non-prerelease release with the framework ZIP, model-set 3 ZIP and SHA256SUMS. Uploaded asset digests and the downloaded checksum file match the verified local files. Source commit `29f64bb4` and release stamp/tag commit `568f605a` are pushed to main. GitHub reported the repository's pull-request-rule bypass. Post-release evidence is retained in the closed wave's `release-evidence.json`.
 
-Local package `/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.39.0.q1dn.zip` is verified: current default12,314 tests reused; second12,296/30skips and declared12,314/12skips pass across217files; both exact comparisons pass. Archive details in the wave's packaging-evidence.json. uv0.12.22 retained; unchanged dashboard dependencies retain official registry verification. Model-set3 is available. No native Windows/Linux or real target installation was performed.
+Wave 22l5y is closed; no active, planned or paused wave remains. MCP reload succeeded in process; the live wf_review_wave readiness response includes the new packet (six current approval facts, no findings). Setup reports setup_inputs_changed; no setup was run. A reconstructed late-round probe distinguishes two editorial findings from a required PHI obligation; the latter blocks activation and yields operator choices. Original field logs/version remain unavailable, so this is not a field replay or proof of reduced cost. Evidence is retained in the wave's post-close-smoke.json and late-round-check.json.
 
-Operator authorized committing and pushing all completed work, then publishing official1.39.0. The local test package is complete; official release is next. Neither release publication nor its final stamp commit is claimed yet. Earlier package entries are historical.
+Qualification passed: default 12,314 tests / 12 skips; second 12,296 / 30 skips; declared 12,314 / 12 skips, each across 217 files. Both exact comparisons pass. The official archive passes outer/nested CRC, path and payload checks; all 261 packaged source files match disk, with clean-source provenance bound to `29f64bb4`. Model-set 3 is unchanged. uv 0.12.22 is retained; dashboard dependencies match their official registry files. No native Windows/Linux or real target installation was performed. The preceding local test package q1dn and its packaging evidence remain available. Earlier entries below describe historical states, superseded by this release record.
 
 ## Last closed wave — 22l5y actionable readiness handoff
 
@@ -20,7 +20,7 @@ All four ACs and tasks are complete. Code, QA, architecture, docs-contract and s
 
 The final canonical suite passed 12,314 tests across 217 files, with 12 intended skips, in 571.576s. Current inputs hash is b59b0e60776d2eee5b6968bab74d002b2c70112d5843c5d03a3b96c28ed3f304, recorded at 2026-11-05T02:38:01.501859+00:00. Full docs validation and diff check passed. Registered read/write-continuation controls and one synthetic coordinator handoff discriminate the admitted cases; independent missing-packet, byte-cap, evidence-leak and broken-reference controls fail as intended. This does not reproduce the reported field cause, prove human comprehension or cost savings, or enforce a review-round budget. Unique proof is in docs/waves/22l5y actionable-readiness-handoff/delivery-evidence.json, with typed authority in events.jsonl and unique prewave dirty baselines in baseline-overrides.json.gz. All disposable Markdown backups use .snapshot extensions.
 
-Source gates are closed. Actual visions, prior-wave records and package metadata are unchanged. The latest archive below is still 1.39.0+q1ch and does not include 22l5y. MCP reported loaded-code/setup-input drift; no setup, reload or runtime-readiness claim was made. Larger approval-currency/carry-forward changes remain deferred.
+Source gates are closed. Actual visions and prior-wave records were preserved. Post-close reload, packaging and release results are recorded above. Larger approval-currency/carry-forward changes remain deferred.
 
 
 ## Last closed wave — 22h7w Envision history and presentation
