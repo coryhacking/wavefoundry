@@ -1,0 +1,25 @@
+{
+  "kind": "Post-close MCP smoke check",
+  "reload": {
+    "status": "ok",
+    "in_process": true,
+    "process_restarted": false,
+    "pid": 61992,
+    "impl_matches_disk": true,
+    "runner_stale": false,
+    "tools_reregistered": 90
+  },
+  "actual_mcp_review": {
+    "wave": "22l5y",
+    "phase": "prepare",
+    "status": "ok",
+    "packet_available": true,
+    "findings": 0,
+    "approval_facts": 6,
+    "all_approvals_current": true,
+    "truncated": false,
+    "operator_stop_inferred": false
+  },
+  "setup": "setup_inputs_changed remains; no setup run.",
+  "reconstruction": "late-round-check.json contains explicitly synthetic branches, not an actual field replay."
+}

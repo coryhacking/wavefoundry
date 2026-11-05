@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-26
+Last verified: 2026-11-04
 
 Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
 
@@ -111,6 +111,14 @@ Repository-wide single-OPEN activation is the default. Distributions may set `re
 ## Distribution upgrade preview
 
 Declared compatible Prepare/close overrides may opt in through `EXTENSION_UPGRADE_PREVIEW_TOOLS`. Only supported dry-run modes run during a compatible retained upgrade with current loaded core, launcher, declaration, module and helper provenance. `mcp.upgrade_preview_active()` exposes the inherited no-publication context, including through `core_handler`. Framework publication APIs refuse writes; trusted extension code is responsible for direct I/O. This preview grants no mutation or recovery authority.
+
+## Readiness decision handoff
+
+Use `wf_review_wave(phase="prepare")` for `data.review_actions.readiness_decision_packet` and its `focused_rereview` navigation. The compact packet exposes existing canonical finding/approval facts, not a second classifier or approval. Distinguish unresolved required blockers, nonblocking notes, ordinary missing approvals and unavailable/omitted detail; inspect the named full authority when the summary is incomplete. Do not infer readiness from empty actions or a review-round stop from receipt-publication counts.
+
+After the actual bounded repair and focused verification, give the operator a short decision handoff before any further automatic round: each remaining blocking finding and unmet obligation, decisive evidence or uncertainty, affected lanes/current approvals, advisory notes separately, and the next safe options. Offer another explicitly scoped bounded repair/verification, a plan/scope amendment with re-Prepare, or needed evidence with dependent work paused. An applicable explicit residual-risk waiver uses the existing `waiver_id`, `waiver_scope`, `waiver_reason` and `waiver_risk` protocol; it is neither independent verification nor specialist approval. Do not select an option, waive a requirement or accept sensitive-data risk on the operator's behalf. Ordinary unfinished readiness alone is not this stop boundary.
+
+Use the existing cumulative `focused_rereview` packet: source/blocking lanes replay each finding; other approving lanes assess only delta effects plus necessary unchanged context; new lanes assess their remit once. Full amended plans remain available for context, not an invitation to an unrelated whole-document sweep. Every required lane and council still re-record current-receipt approvals; no approval is carried forward by the summary.
 
 ## Focused readiness re-review
 

@@ -53,7 +53,9 @@ Before the first edit, call `memory_brief(context='pre_implementation', targets=
 
 Without MCP, follow the repository's documented navigation and validation fallbacks.
 
-Follow seed 180's **Builder-lane allocation** for implementation lane selection on every host.
+Follow seed 180's **Wave orchestration contract → Allocation** for implementation lane selection on every host.
+
+`wf_implement_wave` checks and consumes current readiness authority; it does not call Prepare automatically. If readiness is missing or stale, follow the returned Prepare/review remedy before source edits.
 
 ## Completion
 

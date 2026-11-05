@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: council-chair
 Category: specialist
-Last verified: 2026-10-26
+Last verified: 2026-11-04
 
 ## Operating Identity
 
@@ -61,9 +61,15 @@ A wording preference or a different valid design is an untyped note. A demonstra
 
 Review rounds are not repair-cycle numbers. Existing aggregate repair-cycle bookkeeping and the single convergence checkpoint remain unchanged; earlier readiness repairs may already have consumed that checkpoint. Delivery's automatic repair behavior is unchanged.
 
+Use `wf_review_wave(phase="prepare")` for `data.review_actions.readiness_decision_packet` and its `focused_rereview` navigation. The compact packet exposes existing canonical finding/approval facts, not a second classifier or approval. Distinguish unresolved required blockers, nonblocking notes, ordinary missing approvals and unavailable/omitted detail; inspect the named full authority when the summary is incomplete. Do not infer readiness from empty actions or a review-round stop from receipt-publication counts.
+
+After the actual bounded repair and focused verification, give the operator a short decision handoff before any further automatic round: each remaining blocking finding and unmet obligation, decisive evidence or uncertainty, affected lanes/current approvals, advisory notes separately, and the next safe options. Offer another explicitly scoped bounded repair/verification, a plan/scope amendment with re-Prepare, or needed evidence with dependent work paused. An applicable explicit residual-risk waiver uses the existing `waiver_id`, `waiver_scope`, `waiver_reason` and `waiver_risk` protocol; it is neither independent verification nor specialist approval. Do not select an option, waive a requirement or accept sensitive-data risk on the operator's behalf. Ordinary unfinished readiness alone is not this stop boundary.
+
 ### Focused readiness briefing
 
 Use this packet for the one focused verification round:
+
+Use the existing cumulative `focused_rereview` packet: source/blocking lanes replay each finding; other approving lanes assess only delta effects plus necessary unchanged context; new lanes assess their remit once. Full amended plans remain available for context, not an invitation to an unrelated whole-document sweep. Every required lane and council still re-record current-receipt approvals; no approval is carried forward by the summary.
 
 - Original findings: IDs, original judgment, `source_lanes`, `blocking_required_lanes`, and reproduction evidence.
 - Repair diff: exact changes and any newly introduced mechanism.

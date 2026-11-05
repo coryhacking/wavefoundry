@@ -1,0 +1,368 @@
+{
+  "wave": "22l5y",
+  "change": "22l5x",
+  "claims": "Bounded runtime visibility and one synthetic coordinator handoff; not reproduced field cause or measured savings.",
+  "runtime": {
+    "wave": "22l5y",
+    "change": "22l5x",
+    "role": "implementer; not reviewer",
+    "source_frozen": true,
+    "files": [
+      {
+        "path": ".wavefoundry/framework/scripts/wf_server/server_impl.py",
+        "sha256": "cf584e0b9ae3ce1f5cba8d05043f5882dcebfb3fecc83d834ca762e8cbb0dd7d"
+      },
+      {
+        "path": ".wavefoundry/framework/scripts/tests/test_readiness_convergence.py",
+        "sha256": "7a35dd8a787da7fff11f3255d015d5cfadee80d007d3875d2925133af6771f8f"
+      }
+    ],
+    "mechanical_delta": [
+      "142\t1\t.wavefoundry/framework/scripts/tests/test_readiness_convergence.py",
+      "126\t5\t.wavefoundry/framework/scripts/wf_server/server_impl.py"
+    ],
+    "behavior": "Readiness-only review_actions.readiness_decision_packet from the existing canonical authority projection; delivery response shape preserved.",
+    "limits": {
+      "aggregate_rows": 50,
+      "aggregate_serialized_bytes": 16384,
+      "identifier_max_characters": 128,
+      "unrepresentable_rows": "omitted whole and counted; no partial ID/lane truncation"
+    },
+    "evidence": {
+      "readiness_convergence": {
+        "tests": 14,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "seconds": 2.235
+      },
+      "review_evidence": {
+        "tests": 223,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "seconds": 2.46
+      },
+      "server_tools_lifecycle": {
+        "tests": 661,
+        "failures": 0,
+        "errors": 0,
+        "skips": 2,
+        "seconds": 127.443,
+        "skip_reasons": "Not expanded by this module invocation; coordinator full-suite receipt owns final skip accounting."
+      },
+      "mutants": "runtime-mutants.json: 3/3 detected by assertion failure; functions restored in process",
+      "diff_check": "passed for the two owned files"
+    },
+    "verification_scope": [
+      "registered readiness read and successful typed-write continuations",
+      "advisory optional note versus required-AC security blocker, unchanged activation authority",
+      "missing run versus absent/withheld approval, empty actions do not mean ready",
+      "delivery-only origin and canonical affected_signoff relation; delivery packet absent",
+      "stale/invalid authority yields explicit unavailable packet with unknown totals",
+      "bounded aggregate rows and serialized bytes; oversized IDs omitted, malicious evidence excluded",
+      "read-only readiness read leaves temporary ledger/wave byte-identical"
+    ],
+    "limitations": [
+      "Focused modules only; canonical full suite, docs validation and independent delivery review are coordinator-owned.",
+      "No real operator or field-cost/round-budget conclusion.",
+      "No policy digest, classifier, severity, ledger or gate predicate change.",
+      "Current MCP code_read returned setup_inputs_changed; no setup/reload/index mutation."
+    ],
+    "preserved": [
+      "test_server_tools_lifecycle.py untouched",
+      "review_evidence.py untouched by this implementer",
+      "No docs/ledger/source beyond the two named paths, commits, builds, wave closure or gate closure."
+    ]
+  },
+  "mutants": {
+    "mode": "process-local only; patch.object restores each original function; source and live ledger untouched",
+    "results": [
+      {
+        "mutant": "missing_packet",
+        "test": "test_registered_decision_packet_and_write_continuation_preserve_canonical_authority",
+        "detected": true,
+        "tests_run": 1,
+        "failures": 1,
+        "errors": 0,
+        "output": "vailability', 'confidentiality', 'integrity', 'none', 'privilege', 'unverified']}, 'authority_delta': {'kind': 'enum', 'allowed_values': ['critical', 'low', 'material', 'none', 'unverified']}, 'observable_impact': {'kind': 'enum', 'allowed_values': ['critical', 'low', 'material', 'none', 'unverified']}, 'containment': {'kind': 'enum', 'allowed_values': ['detect_only', 'impact_bounding', 'none', 'preventive', 'unverified']}, 'fix_risk': {'kind': 'enum', 'allowed_values': ['comparable', 'higher', 'lower', 'unverified']}, 'optional_value': {'kind': 'enum', 'allowed_values': ['none', 'positive', 'unverified']}, 'repair_safety': {'kind': 'enum', 'allowed_values': ['safe', 'unsafe', 'unverified']}, 'benefit_vs_fix_risk': {'kind': 'enum', 'allowed_values': ['equal', 'greater', 'less', 'unverified']}, 'rejection_basis': {'kind': 'enum', 'allowed_values': ['categorical', 'disproportionate_repair', 'insufficient_evidence', 'none', 'unsupported_reachability']}, 'introduced_or_worsened_by_wave': {'kind': 'tristate', 'allowed_values': [False, True, 'unverified']}, 'supported_reachability': {'kind': 'tristate', 'allowed_values': [False, True, 'unverified']}, 'attacker_reachability': {'kind': 'tristate', 'allowed_values': [False, True, 'unverified']}, 'repair_scope_bounded': {'kind': 'tristate', 'allowed_values': [False, True, 'unverified']}}, 'evidence': {'finding': {'required_fields': ['proposition', 'failure_condition', 'public_path', 'command_or_fixture', 'expected', 'observed', 'artifact_or_test_id', 'limitations', 'safety_and_authorization', 'disposition_rationale'], 'field_kind': 'non-empty string'}, 'approval': {'required_fields': ['observed', 'artifact_or_test_id'], 'field_kind': 'non-empty string'}, 'council_approval': {'signoff_keys': ['council-readiness', 'council-delivery'], 'required_fields': ['observed', 'artifact_or_test_id', 'intent_fit'], 'intent_fit': {'kind': 'enum', 'allowed_values_by_phase': {'readiness': ['establishes', 'partially'], 'delivery': ['establishes', 'partially', 'does_not']}, 'meaning': 'worst verdict across every admitted change and the wave Objective'}}}, 'integrity_checks': {'test_ran_without_unintended_skip': {'kind': 'boolean', 'null_allowed_for': ['operator-signoff'], 'null_meaning': 'not applicable'}, 'public_path_reached': {'kind': 'boolean', 'null_allowed_for': ['operator-signoff'], 'null_meaning': 'not applicable'}, 'boundary_values_realistic': {'kind': 'boolean', 'null_allowed_for': ['operator-signoff'], 'null_meaning': 'not applicable'}, 'assertions_non_vacuous': {'kind': 'boolean', 'null_allowed_for': ['operator-signoff'], 'null_meaning': 'not applicable'}, 'known_bad_detected': {'kind': 'boolean', 'null_allowed_for': ['operator-signoff'], 'null_meaning': 'not applicable'}, 'known_bad_detection_method': {'kind': 'string'}}}, 'focused_rereview': {'lanes': [], 'limitations': [], 'truncated': False, 'normalization': 'Existing canonical review-policy normalization; exact raw text remains in verified snapshots.', 'full_plan_directory': '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpd6owljbu/docs/waves/0f8gr receipt-count', 'wave_record_path': '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpd6owljbu/docs/waves/0f8gr receipt-count/wave.md', 'evidence_path': '/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/tmpd6owljbu/docs/waves/0f8gr receipt-count/events.jsonl'}}\n\n----------------------------------------------------------------------\nRan 1 test in 0.463s\n\nFAILED (failures=1)\n"
+      },
+      {
+        "mutant": "missing_byte_cap",
+        "test": "test_decision_packet_bounds_rows_bytes_and_excludes_oversized_evidence",
+        "detected": true,
+        "tests_run": 1,
+        "failures": 1,
+        "errors": 0,
+        "output": "F\n======================================================================\nFAIL: test_decision_packet_bounds_rows_bytes_and_excludes_oversized_evidence (test_readiness_convergence.ReadinessSignalTests.test_decision_packet_bounds_rows_bytes_and_excludes_oversized_evidence)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/tests/test_readiness_convergence.py\", line 377, in test_decision_packet_bounds_rows_bytes_and_excludes_oversized_evidence\n    self.assertTrue(limited['truncated'])\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: False is not true\n\n----------------------------------------------------------------------\nRan 1 test in 0.086s\n\nFAILED (failures=1)\n"
+      },
+      {
+        "mutant": "raw_evidence_leak",
+        "test": "test_decision_packet_bounds_rows_bytes_and_excludes_oversized_evidence",
+        "detected": true,
+        "tests_run": 1,
+        "failures": 1,
+        "errors": 0,
+        "output": "ICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-MALICIOUS-PHI-DO-NOT-COPY-\", \"evidence_record_id\": \"ev-safe-reference\", \"failure_or_readiness_semantics_changed\": false, \"finding_id\": \"safe-reference\", \"fix_risk\": \"comparable\", \"introduced_or_worsened_by_wave\": false, \"observable_impact\": \"low\", \"optional_value\": \"positive\", \"record_id\": \"syn-safe-reference-0\", \"record_type\": \"finding_synthesis\", \"rejection_basis\": \"none\", \"repair_execution_state\": \"pending\", \"repair_safety\": \"safe\", \"repair_scope_bounded\": true, \"review_depth\": \"focused\", \"review_run_id\": \"run-readiness-0-safe-reference\", \"scope_relation\": \"admitted\", \"source_lanes\": [\"code-reviewer\"], \"supported_reachability\": false, \"trust_boundary_changed\": false, \"validation_status\": \"real\"}]}'\n\n----------------------------------------------------------------------\nRan 1 test in 0.081s\n\nFAILED (failures=1)\n"
+      }
+    ]
+  },
+  "walkthrough": {
+    "inputs": {
+      "scenario": "After one bounded readiness repair and focused verification, an optional wording note remains and a required sensitive-data access-control AC still lacks evidence. The source implementation worked in an internal service; a proposed documentation migration publishes examples to a wider audience. Current receipt requires security/QA/architecture/docs lanes. Unaffected approvals still need current-receipt refresh, but their reviews must check delta effects instead of another full sweep.",
+      "facts": {
+        "optional_note": "maybe_later/nonblocking",
+        "required_security_ac": "do_now/blocking",
+        "source_evidence": "internal-service tests pass; no public-example data review",
+        "destination_delta": "wider publication, changed reader access and example data exposure",
+        "observed_round_history": "Coordinator declares initialreview+oneboundedrepair+onefocusedverification completed; this is not inferred from receipts."
+      },
+      "known_bad_controls": [
+        "Run another automatic full panel before telling the operator what remains.",
+        "All documentation migrations are security-exempt because source tests passed.",
+        "Six receipt publications prove six review rounds and force a new automatic stop gate."
+      ],
+      "expected": "A compact operator handoff distinguishes actual blocker from optional note, names missing destination evidence and current lanes, offers scope/rePrepare/evidence or explicit applicable operator waiver choices without choosing or accepting risk, and stops dependent automatic review pending operator decision."
+    },
+    "observed_packet": {
+      "boundary": "Fresh temporary-root actual registered wf_review_wave plus successful public typed-write continuation; validation mocked to isolate review semantics, unchanged lifecycle activation gate observed.",
+      "response_status": "error",
+      "packet": {
+        "available": true,
+        "phase": "readiness",
+        "required_run_kind": "readiness",
+        "required_run_present": true,
+        "finding_facts": [
+          {
+            "finding_id": "editorial-note",
+            "origin_phase": "readiness",
+            "disposition": "maybe_later",
+            "blocking": false,
+            "terminal": false,
+            "repair_execution_state": "pending",
+            "source_lanes": [
+              "code-reviewer"
+            ],
+            "unresolved_required_lanes": [],
+            "approval_recheck_lanes": [
+              "code-reviewer"
+            ],
+            "affected_signoff_keys": [
+              "code-reviewer"
+            ],
+            "judgment_reasons": {
+              "validation_status": "real",
+              "scope_relation": "admitted",
+              "contract_relevance": "none",
+              "authority_domain": "none",
+              "authority_delta": "none",
+              "observable_impact": "low",
+              "containment": "preventive",
+              "rejection_basis": "none"
+            }
+          },
+          {
+            "finding_id": "security-ac",
+            "origin_phase": "readiness",
+            "disposition": "do_now",
+            "blocking": true,
+            "terminal": false,
+            "repair_execution_state": "pending",
+            "source_lanes": [
+              "security-reviewer"
+            ],
+            "unresolved_required_lanes": [
+              "security-reviewer"
+            ],
+            "approval_recheck_lanes": [
+              "security-reviewer"
+            ],
+            "affected_signoff_keys": [
+              "security-reviewer"
+            ],
+            "judgment_reasons": {
+              "validation_status": "real",
+              "scope_relation": "admitted",
+              "contract_relevance": "required_ac",
+              "authority_domain": "confidentiality",
+              "authority_delta": "material",
+              "observable_impact": "material",
+              "containment": "preventive",
+              "rejection_basis": "none"
+            }
+          }
+        ],
+        "approval_facts": [
+          {
+            "signoff_key": "council-readiness",
+            "approval_phase": "readiness",
+            "approval_recorded": true,
+            "approval_current": true,
+            "state": "approved",
+            "approval_state": "approved",
+            "blocking_finding_ids": [],
+            "has_unresolved_blocking_findings": false,
+            "unresolved_required_lanes": []
+          },
+          {
+            "signoff_key": "code-reviewer",
+            "approval_phase": "readiness",
+            "approval_recorded": true,
+            "approval_current": true,
+            "state": "approved",
+            "approval_state": "approved",
+            "blocking_finding_ids": [],
+            "has_unresolved_blocking_findings": false,
+            "unresolved_required_lanes": []
+          },
+          {
+            "signoff_key": "qa-reviewer",
+            "approval_phase": "readiness",
+            "approval_recorded": true,
+            "approval_current": true,
+            "state": "approved",
+            "approval_state": "approved",
+            "blocking_finding_ids": [],
+            "has_unresolved_blocking_findings": false,
+            "unresolved_required_lanes": []
+          },
+          {
+            "signoff_key": "architecture-reviewer",
+            "approval_phase": "readiness",
+            "approval_recorded": true,
+            "approval_current": true,
+            "state": "approved",
+            "approval_state": "approved",
+            "blocking_finding_ids": [],
+            "has_unresolved_blocking_findings": false,
+            "unresolved_required_lanes": []
+          },
+          {
+            "signoff_key": "docs-contract-reviewer",
+            "approval_phase": "readiness",
+            "approval_recorded": true,
+            "approval_current": true,
+            "state": "approved",
+            "approval_state": "approved",
+            "blocking_finding_ids": [],
+            "has_unresolved_blocking_findings": false,
+            "unresolved_required_lanes": []
+          },
+          {
+            "signoff_key": "security-reviewer",
+            "approval_phase": "readiness",
+            "approval_recorded": true,
+            "approval_current": false,
+            "state": "withheld",
+            "approval_state": "withheld",
+            "blocking_finding_ids": [
+              "security-ac"
+            ],
+            "has_unresolved_blocking_findings": true,
+            "unresolved_required_lanes": [
+              "security-reviewer"
+            ]
+          }
+        ],
+        "total_findings": 2,
+        "total_approvals": 6,
+        "omitted_findings": 0,
+        "omitted_approvals": 0,
+        "truncated": false,
+        "row_cap": 50,
+        "byte_cap": 16384,
+        "empty_actions_imply_ready": false,
+        "operator_stop_inferred": false,
+        "finding_blocking_scope": "canonical_affected_signoff_keys_for_selected_phase",
+        "history_rule": "apply_one_repair_one_focused_verification_stop_from_actual_review_history_not_publication_count",
+        "operator_options": [
+          {
+            "option": "authorize_named_bounded_repair_and_focused_verification"
+          },
+          {
+            "option": "amend_scope_and_reprepare"
+          },
+          {
+            "option": "request_missing_evidence_or_pause_dependent_work"
+          },
+          {
+            "option": "explicit_applicable_operator_waiver",
+            "required_fields": [
+              "waiver_id",
+              "waiver_scope",
+              "waiver_reason",
+              "waiver_risk"
+            ],
+            "protocol": "existing_operator_waiver",
+            "grants_approval": false,
+            "automatic_security_waiver": false
+          }
+        ],
+        "navigation": {
+          "focused_rereview": "review_actions.focused_rereview",
+          "inspection_tools": [
+            "wf_review_event",
+            "wf_review_wave",
+            "wf_get_change"
+          ],
+          "ledger_event": "list"
+        }
+      },
+      "read_only_ledger_and_wave": true,
+      "typed_write_continuation_equal": true,
+      "activation_still_blocked": true,
+      "round_history_source": "Frozen coordinator-supplied scenario states one bounded repair and focused verification complete; not reconstructed from receipt count or executed as a real panel.",
+      "independent_vision_or_field_trial": false
+    },
+    "operator_handoff": "Readiness remains blocked by security-ac, a required acceptance obligation concerning sensitive-data access. Its canonical disposition is do_now; the security reviewer remains the unresolved lane. The editorial-note is maybe_later and nonblocking for readiness; it is not silently completed or waived. Current pending approvals must be reconciled through their existing owners, not inferred from the packet or an earlier receipt.\n\nThe supplied scenario says one bounded repair and focused verification have finished. On that actual-history boundary, stop dependent automatic repair/review and return this decision to the operator. Receipt publications and the number of returned actions do not establish review rounds or clearance. The packet reports no automatic operator stop and adds no gate.\n\nWorking internal-service tests remain useful evidence for the source behavior, but do not establish safe public examples or the wider destination audience's access. Missing decisive evidence is a destination data/exposure review: what examples may be published, who can read them and whether identity/permission or persistence changes invalidate earlier assurance. Do not classify this as security-exempt because the changed artifact is documentation.\n\nSafe options are to obtain that evidence and pause dependent work; authorize a named bounded repair and focused verification; or amend the relevant scope/contract and re-Prepare. An applicable operator residual-risk waiver would require waiver_id, waiver_scope, waiver_reason and waiver_risk through the existing protocol, and would not be specialist approval, independent verification or blanket acceptance of sensitive-data exposure. No option is selected here.\n\nFor any authorized continuation, source/blocking security lanes replay the original finding and necessary adjacent controls. Other previously approving lanes examine cumulative delta effects and necessary unchanged context from focused_rereview; newly required lanes assess their remit once. Every required lane and Council still supplies current-receipt approvals. Missing/invalid snapshots or other required fallbacks retain their full-context remedy; focused review does not mean diff-only review or an unrelated full-panel sweep.\n",
+    "assessment": {
+      "required_security_blocker_preserved": true,
+      "advisory_not_promoted_to_blocker": true,
+      "pending_current_approvals": [
+        "security-reviewer"
+      ],
+      "stop_uses_supplied_actual_history_not_receipts": true,
+      "canonical_options_not_selected": true,
+      "working_source_plus_destination_risk_delta": true,
+      "current_approvals_and_fallbacks_preserved": true,
+      "bad_controls_rejected": {
+        "automatic_full_panel": "Reject: after the supplied bounded verification, return remaining blocker and options before another automatic round.",
+        "documentation_only_security_exemption": "Reject: source behavior evidence does not establish safe wider publication/data access.",
+        "six_receipts_prove_six_rounds": "Reject: publication count neither counts review rounds nor enforces their stop."
+      },
+      "limits": "Coordinator authored this one synthetic handoff from frozen facts/current packet. Independent QA must assess it; no real operator choice, actual repeated panel, field-cost result or Teton root cause is established."
+    }
+  },
+  "reviewed_paths": {
+    ".wavefoundry/framework/scripts/wf_server/server_impl.py": "c9deb2b3c310ca77e8e0a849b8d7723a23c21992",
+    ".wavefoundry/framework/scripts/tests/test_readiness_convergence.py": "fd5ac8e769ffb96f247100ccf20d6036b0da3176",
+    ".wavefoundry/framework/seeds/209-agent-harness-core.prompt.md": "d1ad1dc613beab6e6ff96d33895a2ce623786275",
+    ".wavefoundry/framework/seeds/215-council-chair.prompt.md": "75f5715a60fb51ed3c7fba92a75aa32d25974c01",
+    ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": "2770b45f9396f9be574ded36287d15b5ee063c83",
+    ".wavefoundry/framework/seeds/190-close-wave.prompt.md": "25e23b5d4e351469897a368870aebe5d0b03329f",
+    ".wavefoundry/framework/install/lifecycle-prompts/implement-wave.prompt.md": "436f91cb569d1f23d580b93042e99ad1a2fe6660",
+    "docs/prompts/prepare-wave.prompt.md": "fda88fb783cc1a9068c922ded1001b595fb67fc1",
+    "docs/prompts/implement-wave.prompt.md": "9f3b6a66a2728edea6024e88bfdd7bed9438be60",
+    "docs/prompts/close-wave.prompt.md": "dd718870afcdbc3cb466b0488120dafa5eee1491",
+    "docs/agents/specialists/council-chair.md": "c748a64165bbe6588bafea70c67c65f0f6d1ae5e",
+    "docs/architecture/data-and-control-flow.md": "b57f78a772cdf864d89a4cc99f8f238fabed6320",
+    "CHANGELOG.md": "3ad5052798fc160edda045e7660f11d238ef4108",
+    ".wavefoundry/framework/install/lifecycle-prompts/prepare-wave.prompt.md": "e1553bdb43b78d3ffa4467742a4e26926c7e4ddc",
+    ".wavefoundry/framework/install/lifecycle-prompts/close-wave.prompt.md": "6ccb934d5157ca41024998e2acff9a9a323faca2",
+    ".wavefoundry/framework/scripts/review_evidence.py": "74ba920dd05d63a564901b4d041b743d9fae7036"
+  },
+  "checks": {
+    "protected_visions_and_package_metadata_unchanged": true,
+    "allocation_references_resolve_to_actual_named_contract_and_bold_clause": true,
+    "question_only_literal_changed": true,
+    "baseline_documents_all_snapshot_extension": true
+  },
+  "limits": [
+    "No installed Teton version/round logs or causal incident reproduction.",
+    "Coordinator-authored case, not independent human comprehension/time savings.",
+    "Focused modules only until root canonical suite.",
+    "No new round budget/classifier/currency/approval/waiver authority.",
+    "No native Windows/Linux or downstream install.",
+    "Initial anchor probe wrongly assumed Markdown headings; corrected to actual plain contract label and bold Allocation clause, no product correction."
+  ]
+}

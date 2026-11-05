@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-26
+Last verified: 2026-11-04
 
 Shortcut: **`Implement wave`**
 
@@ -26,7 +26,7 @@ Correct an agent-only misreading directly from the established requirement. Rout
 
 1. Orient per change with the code tools and the tool's `retrieval_posture` directive; follow seed 180's exploration contract and its unavailable-MCP fallback.
 2. Follow seed 180's ReAct execution model; implement admitted scope only, follow `docs/repo-profile.json` `code_patterns`, and mark each completed AC and task in the completing pass with `wf_mark_ac` and `wf_mark_task`. When one change finishes before the others, `wf_close_change(wave_id, change_id, mode)` closes it to `complete` (dry-run first) and moves the dependents whose `Depends On:` names it to `ready`; the wave stays open and `Close wave` remains the only wave close.
-3. Follow seed 180's **Builder-lane allocation** and **Host-neutral orchestration** for lane selection and delegated work (`frontend-developer` for UI; `data-engineer` only where seed 050's database evidence renders that role).
+3. Follow seed 180's **Wave orchestration contract → Allocation** and **Host-neutral orchestration** for lane selection and delegated work (`frontend-developer` for UI; `data-engineer` only where seed 050's database evidence renders that role).
 4. Run focused tests per change and the canonical suite before delivery review; verify that the change addresses the stated problem.
 5. Follow seed 209's typed authoring contract: the coordinator is the writing hand; record `repair_start` before mutation and obtain distinct fresh reverification, treating `recommended_fix` as a hypothesis to re-derive from the code.
 
@@ -42,6 +42,8 @@ At every completion boundary, run full **`wf_validate_docs`** with MCP attached;
 ## Agent Memory Briefing
 
 Before the first edit, call `memory_brief(context='pre_implementation', targets=[...])` with the files in scope — active memory records (fragile files, prior failed attempts, operator preferences) surface as capped, cited advisories. Treat a `needs_reverification` fragile-file advisory as a prompt to re-check the concern against current code before editing. `wf_prepare_wave` responses carry the same advisories for the admitted change set. Absence of records is not absence of risk.
+
+`wf_implement_wave` checks and consumes current readiness authority; it does not call Prepare automatically. If readiness is missing or stale, follow the returned Prepare/review remedy before source edits.
 
 ## Completion
 

@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from server_tools_support import _make_repo, load_server
+from server_tools_support import _make_repo, integrity_checks, load_server, load_thin_runner
 import test_server_tools_lifecycle as fixtures
 import record_paths
 import review_evidence
@@ -247,6 +247,147 @@ class ReadinessSignalTests(unittest.TestCase):
                 self.assertEqual(result['status'], status)
                 self.assertEqual(result['data']['sentinel'], 7)
                 self.assertTrue(self._diagnostics(result, 'readiness_receipt_publications_high'))
+
+    def _readiness_review(self, wave_id, *, registered=False):
+        handler = self.srv.wf_review_wave_response
+        if registered:
+            handler = load_thin_runner().build_server(self.root)._tool_manager._tools['wf_review_wave'].fn
+        with patch.object(self.srv, 'run_validate', return_value=self.LINT_OK):
+            return (handler(wave_id=wave_id, phase='prepare') if registered else
+                    handler(self.root, wave_id=wave_id, phase='prepare'))
+
+    def _decision_finding(self, wave_id, finding_id, *, security=False, phase='readiness', evidence_text='fixture observation'):
+        judgment = {
+            'validation_status': 'real', 'scope_relation': 'admitted',
+            'introduced_or_worsened_by_wave': security,
+            'contract_relevance': 'required_ac' if security else 'none',
+            'supported_reachability': security, 'attacker_reachability': False,
+            'authority_domain': 'confidentiality' if security else 'none',
+            'authority_delta': 'material' if security else 'none',
+            'observable_impact': 'material' if security else 'low', 'containment': 'preventive',
+            'fix_risk': 'comparable', 'optional_value': 'positive', 'repair_scope_bounded': True,
+            'repair_safety': 'safe', 'benefit_vs_fix_risk': 'greater', 'rejection_basis': 'none',
+        }
+        evidence = {key: evidence_text for key in review_evidence.REVIEW_FINDING_REQUIRED_EVIDENCE_FIELDS}
+        evidence.update(artifact_or_test_id='test:readiness-decision', known_bad_detection_method='injected contrary judgment')
+        lane = 'security-reviewer' if security else 'code-reviewer'
+        result = self.srv.wf_review_event_response(
+            self.root, wave_id=wave_id, event='finding', mode='create',
+            actor=lane, context_id='ctx-' + finding_id, finding_id=finding_id,
+            run_kind='readiness' if phase == 'readiness' else 'initial_delivery', cycle=0,
+            source_lanes=[lane], blocking_required_lanes=[lane] if security else [],
+            approval_recheck_lanes=[lane],
+            judgment=judgment, evidence=evidence, fresh_context=True, independent=True,
+            integrity_checks=integrity_checks())
+        self.assertEqual(result['status'], 'ok', result)
+        return result
+
+    def test_registered_decision_packet_and_write_continuation_preserve_canonical_authority(self):
+        config_path = self.root / 'docs/workflow-config.json'
+        config = json.loads(config_path.read_text())
+        config['required_review_lanes'] = ['security-reviewer', 'code-reviewer']
+        config_path.write_text(json.dumps(config))
+        wave_id, wave_md, _ = self._wave_with_receipts(1)
+        for lane in ('council-readiness', 'security-reviewer', 'code-reviewer', 'qa-reviewer'):
+            self.assertEqual(self._record_readiness_approval(wave_id, lane, 'before-' + lane)['status'], 'ok')
+        advisory = self._decision_finding(wave_id, 'editorial-note')
+        self.assertIn('readiness_decision_packet', advisory['data']['review_actions'])
+        self.assertEqual(self.srv.wf_implement_wave_response(self.root, wave_id=wave_id, mode='dry_run')['status'], 'dry_run')
+        blocker = self._decision_finding(wave_id, 'security-ac', security=True)
+        continuation = blocker['data']['review_actions']['readiness_decision_packet']
+        ledger = review_evidence.review_event_path(wave_md)
+        before = ledger.read_bytes(), wave_md.read_bytes()
+        gate_before = self.srv.wf_implement_wave_response(self.root, wave_id=wave_id, mode='dry_run')
+        reviewed = self._readiness_review(wave_id, registered=True)
+        packet = reviewed['data']['review_actions']['readiness_decision_packet']
+        self.assertEqual(packet, continuation)
+        facts = {row['finding_id']: row for row in packet['finding_facts']}
+        self.assertEqual((facts['editorial-note']['disposition'], facts['editorial-note']['blocking']), ('maybe_later', False))
+        self.assertEqual((facts['security-ac']['disposition'], facts['security-ac']['blocking']), ('do_now', True))
+        self.assertEqual(facts['security-ac']['unresolved_required_lanes'], ('security-reviewer',))
+        self.assertEqual(facts['security-ac']['judgment_reasons']['contract_relevance'], 'required_ac')
+        self.assertTrue(facts['security-ac']['affected_signoff_keys'])
+        self.assertIn('focused_rereview', reviewed['data']['review_actions'])
+        self.assertEqual(packet['navigation']['focused_rereview'], 'review_actions.focused_rereview')
+        waiver = packet['operator_options'][-1]
+        self.assertEqual(waiver['required_fields'], ['waiver_id', 'waiver_scope', 'waiver_reason', 'waiver_risk'])
+        self.assertFalse(waiver['grants_approval'])
+        self.assertFalse(waiver['automatic_security_waiver'])
+        self.assertFalse(packet['operator_stop_inferred'])
+        self.assertEqual((ledger.read_bytes(), wave_md.read_bytes()), before)
+        self.assertEqual(self.srv.wf_implement_wave_response(self.root, wave_id=wave_id, mode='dry_run')['status'], gate_before['status'])
+        self.assertEqual(gate_before['status'], 'error')
+        security_approval = next(row for row in packet['approval_facts'] if row['signoff_key'] == 'security-reviewer')
+        self.assertEqual(security_approval['approval_state'], 'withheld')
+        self.assertEqual(security_approval['blocking_finding_ids'], ('security-ac',))
+
+    def test_decision_packet_missing_run_approvals_and_empty_actions_do_not_imply_ready(self):
+        wave_id, _, _ = self._wave_with_receipts(1)
+        initial = self._readiness_review(wave_id)
+        actions = initial['data']['review_actions']
+        packet = actions['readiness_decision_packet']
+        self.assertFalse(packet['required_run_present'])
+        self.assertFalse(actions['next_actions'])
+        self.assertTrue(packet['approval_facts'])
+        self.assertTrue(all(row['approval_state'] == 'absent' for row in packet['approval_facts']))
+        self.assertFalse(packet['empty_actions_imply_ready'])
+        self.assertFalse(packet['operator_stop_inferred'])
+        self.assertEqual(initial['status'], 'error')
+        run = self.srv.wf_review_event_response(self.root, wave_id=wave_id, event='run', mode='create',
+            actor='council-chair', context_id='run-packet', run_kind='readiness', cycle=0)
+        self.assertEqual(run['status'], 'ok', run)
+        after = run['data']['review_actions']['readiness_decision_packet']
+        self.assertTrue(after['required_run_present'])
+        self.assertTrue(any(not row['approval_current'] for row in after['approval_facts']))
+
+    def test_decision_packet_phase_unavailable_and_delivery_compatibility(self):
+        wave_id, wave_md, change = self._wave_with_receipts(1)
+        delivery = self._decision_finding(wave_id, 'delivery-only', security=True, phase='delivery')
+        self.assertNotIn('readiness_decision_packet', delivery['data']['review_actions'])
+        result = self._readiness_review(wave_id)
+        fact = result['data']['review_actions']['readiness_decision_packet']['finding_facts'][0]
+        self.assertEqual(fact['origin_phase'], 'delivery')
+        self.assertEqual(fact['affected_signoff_keys'], ())
+        self.assertTrue(all('delivery-only' not in row['blocking_finding_ids'] for row in
+                            result['data']['review_actions']['readiness_decision_packet']['approval_facts']))
+        change.write_text(change.read_text().replace('1. x', '1. x changed contract', 1))
+        stale = self._readiness_review(wave_id)['data']['review_actions']['readiness_decision_packet']
+        self.assertFalse(stale['available'])
+        self.assertEqual(stale['reason'], 'review_policy_receipt_stale')
+        self.assertIsNone(stale['total_findings'])
+        self.assertEqual(stale['finding_facts'], [])
+        # negative-fixture: deliberately unreadable typed authority must not manufacture an empty ready packet.
+        review_evidence.review_event_path(wave_md).write_text('{invalid-ledger\n')
+        invalid = self._readiness_review(wave_id)['data']['review_actions']['readiness_decision_packet']
+        self.assertFalse(invalid['available'])
+        self.assertEqual(invalid['reason'], 'invalid_typed_authority')
+
+    def test_decision_packet_bounds_rows_bytes_and_excludes_oversized_evidence(self):
+        wave_id, wave_md, _ = self._wave_with_receipts(1)
+        secret = 'MALICIOUS-PHI-DO-NOT-COPY-' * 3000
+        self._decision_finding(wave_id, 'safe-reference', evidence_text=secret)
+        packet = self._readiness_review(wave_id)['data']['review_actions']['readiness_decision_packet']
+        self.assertNotIn(secret[:100], json.dumps(packet))
+        self.assertNotIn('judgment_template', json.dumps(packet))
+        self.assertLessEqual(len(json.dumps(packet).encode()), packet['byte_cap'])
+        # A small aggregate budget on the real public path forces omission;
+        # the optional note must not silently make missing approvals disappear.
+        with patch.object(self.srv, 'READINESS_DECISION_BYTE_CAP', 1900):
+            limited = self._readiness_review(wave_id)['data']['review_actions']['readiness_decision_packet']
+        self.assertTrue(limited['truncated'])
+        self.assertGreater(limited['omitted_findings'] + limited['omitted_approvals'], 0)
+        self.assertLessEqual(len(json.dumps(limited).encode()), 1900)
+        with patch.object(self.srv, 'READINESS_DECISION_ROW_CAP', 1):
+            limited = self._readiness_review(wave_id)['data']['review_actions']['readiness_decision_packet']
+        self.assertEqual(len(limited['finding_facts']) + len(limited['approval_facts']), 1)
+        self.assertEqual(limited['total_findings'], 1)
+        self.assertTrue(limited['omitted_approvals'])
+        oversized_id = 'reference-' + 'x' * 200
+        self._decision_finding(wave_id, oversized_id)
+        limited = self._readiness_review(wave_id)['data']['review_actions']['readiness_decision_packet']
+        self.assertEqual(limited['total_findings'], 2)
+        self.assertEqual(limited['omitted_findings'], 1)
+        self.assertNotIn(oversized_id, json.dumps(limited))
 
 
 class ReadinessProtocolPins(unittest.TestCase):

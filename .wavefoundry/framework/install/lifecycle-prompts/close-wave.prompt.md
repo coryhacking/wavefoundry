@@ -44,6 +44,8 @@ briefed subagent.
 
 Before closure, explicitly author one concise `Intent outcome:` paragraph in the existing exact `## Review Checkpoints` section: state achieved, partial or not established, cite evidence, and retain material limitations. When the plan states a measure of success, cite it and say whether it can be read yet. It may cover changes sharing an outcome. The close-summary composer carries the last such paragraph or list item (optionally dated `YYYY-MM-DD: `) into Wave Summary, preserving its text and qualification; do not infer achievement from titles or checked ACs. Legacy records without this assessment remain closable under existing gates and retain their existing summary behavior; this adds no schema or blocking gate. When the current `council-delivery` approval records `intent_fit: does_not`, Review and Close report the `delivery_intent_not_established` advisory; it does not block, and the operator's sign-off accepts that outcome.
 
+Final review evaluates any reviewer/persona lanes newly applicable to the delivered scope. This is not a blanket rerun of an unchanged readiness Council. Material policy, roster or readiness changes follow existing re-Prepare and current-approval requirements; otherwise consume the current readiness authority and complete the required delivery reviews.
+
 ## Operator authority
 
 Only an explicit operator instruction authorizes `wf_close_wave(mode='create')`

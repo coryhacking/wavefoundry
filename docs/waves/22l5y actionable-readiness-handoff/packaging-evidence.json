@@ -1,0 +1,29 @@
+{
+  "kind": "Post-close local package",
+  "version": "1.39.0+q1dn",
+  "archive": "/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.39.0.q1dn.zip",
+  "bytes": 11010590,
+  "sha256": "e2ce580ac1c3f046982384a330def597e8cb27c667371eb60c415e33963b688b",
+  "checks": "outer/nested CRC and paths, declared payload hashes, source bytes and changelog parity pass",
+  "source_files_compared": 261,
+  "qualification": {
+    "default": 12314,
+    "second": 12296,
+    "declared": 12314,
+    "files": 217,
+    "skips": {
+      "default": 12,
+      "second": 30,
+      "declared": 12
+    },
+    "exact_comparisons": "pass, no exceptions"
+  },
+  "provenance": {
+    "build_id": "q1dn",
+    "release_tag": null,
+    "release_version": "1.39.0+q1dn",
+    "schema_version": 1,
+    "source_commit": "189a250279bc9948495c7573be8c3953aef725f1",
+    "source_tree_clean": false
+  }
+}

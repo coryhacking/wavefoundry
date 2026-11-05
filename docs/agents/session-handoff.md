@@ -1,9 +1,59 @@
 # Session Handoff
 
 Owner: Engineering
-Status: idle
-Last verified: 2026-11-03
+Status: active
+Last verified: 2026-11-04
 
+## Local verification and release preparation — 1.39.0+q1dn
+
+Wave22l5y is closed. MCP reload succeeded in process; actual live wf_review_wave readiness response includes the new packet (six current approval facts, no findings). Setup still reports setup_inputs_changed; no setup was run. A reconstructed late-round probe distinguishes two genuinely editorial findings from a required PHI obligation; the latter blocks activation and yields operator choices. Original field logs/version remain unavailable, so this is not a field replay or proof of reduced cost. Post-close evidence is retained in the wave's post-close-smoke.json and late-round-check.json.
+
+Local package `/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.39.0.q1dn.zip` is verified: current default12,314 tests reused; second12,296/30skips and declared12,314/12skips pass across217files; both exact comparisons pass. Archive details in the wave's packaging-evidence.json. uv0.12.22 retained; unchanged dashboard dependencies retain official registry verification. Model-set3 is available. No native Windows/Linux or real target installation was performed.
+
+Operator authorized committing and pushing all completed work, then publishing official1.39.0. The local test package is complete; official release is next. Neither release publication nor its final stamp commit is claimed yet. Earlier package entries are historical.
+
+## Last closed wave — 22l5y actionable readiness handoff
+
+Implemented and independently reviewed on 2026-11-05; the wave is closed by explicit operator direction. Change 22l5x adds a bounded readiness decision packet from existing authority facts, separates blockers from advisory notes and pending approvals, and exposes safe operator choices and focused-review navigation. Guidance uses actual review history for the existing stop boundary, preserves destination security checks when reusing migration evidence, corrects both allocation references, and clarifies Implement authority consumption and final new-lane checks. Required approvals, security semantics and receipt currency are unchanged.
+
+All four ACs and tasks are complete. Code, QA, architecture, docs-contract and security delivery approvals are current on receipt review-policy-a79b6a81e3d0347642c3; no findings or delivery Council remain. Four reviewers had prior readiness context only, without implementation/repair context; docs-contract used a fresh actual thread. The continuation names only operator signoff. Operator subsequently authorized closure, local verification, commit/push and official 1.39.0 release.
+
+The final canonical suite passed 12,314 tests across 217 files, with 12 intended skips, in 571.576s. Current inputs hash is b59b0e60776d2eee5b6968bab74d002b2c70112d5843c5d03a3b96c28ed3f304, recorded at 2026-11-05T02:38:01.501859+00:00. Full docs validation and diff check passed. Registered read/write-continuation controls and one synthetic coordinator handoff discriminate the admitted cases; independent missing-packet, byte-cap, evidence-leak and broken-reference controls fail as intended. This does not reproduce the reported field cause, prove human comprehension or cost savings, or enforce a review-round budget. Unique proof is in docs/waves/22l5y actionable-readiness-handoff/delivery-evidence.json, with typed authority in events.jsonl and unique prewave dirty baselines in baseline-overrides.json.gz. All disposable Markdown backups use .snapshot extensions.
+
+Source gates are closed. Actual visions, prior-wave records and package metadata are unchanged. The latest archive below is still 1.39.0+q1ch and does not include 22l5y. MCP reported loaded-code/setup-input drift; no setup, reload or runtime-readiness claim was made. Larger approval-currency/carry-forward changes remain deferred.
+
+
+## Last closed wave — 22h7w Envision history and presentation
+
+Implemented and independently reviewed on 2026-11-04: change22i3j removes mandatory vision hashes, per-edit labels and status-only revisions; stable targets, comparison text retained through delivery and optional operator-owned Git preserve honest coverage. The operator extended the same open change with direct title/unified paragraph/Roadmap presentation, trailing routine metadata/review/adoption status, meaningful uncertainty beside claims and concise useful headings without forced verbs. Existing genuine titles and explicit formats retain precedence. Actual vision documents were not revised.
+
+All4ACs/tasks are complete. QA, architecture and docs-contract delivery approvals are current on readiness receipt39e1a426dcf88657c187; no delivery Council selected. Existing independent reviewers did focused cumulative refreshes, with priorreview but no implementation/repair context, not additional samples. Current fullsuite passes12,310tests/217files/12skips onsource db197b038fb7ce7500d0d877a4f341784e3c473cba70077633cbaf5af9897022. The added Harbor case and production metadata validator accept footer placement; missingOwner and supplied bad-presentation controls fail. This is one synthetic case and production function check, not a fresh-project install or human-comprehension result.
+
+Unique history/presentation proof remains in docs/waves/22h7w envision-source-control-history/delivery-evidence.json; typed approvals in events.jsonl are authority. Source gates closed; wave22h7w closed by explicit operator direction, with operator signoff recorded. The authorized compatibility profiles and local build are complete; use q1ch below. No closure or commit authorized. Earlier package evidence is preserved.
+
+## Latest local build — 1.39.0+q1ch
+
+Ready for Teton testing: `/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.39.0.q1ch.zip`, 10,999,267 bytes; SHA-256 `4d689d601cf0d0dbcf015199b4925715805958d07892bfc6dc12960d60158c9c`. Select this exact archive. It includes the vision-first opening, clean descriptive headings, routine status footer and source-control history guidance. Existing vision documents were not rewritten. Wave22h7w is now closed; no commit, push or public release occurred.
+
+Default full qualification passed12,310tests/217files/12skips. Fresh second passed12,292/217/30 including18 default-only skips; declared passed12,310/217/12. Both exact comparisons pass without exceptions. Reports `.wavefoundry/cache/qualification/{default,second,declared}.json` match db197b038fb7ce7500d0d877a4f341784e3c473cba70077633cbaf5af9897022. Unchanged uv0.12.22 and dashboard dependencies retain earlier official-registry verification. No native Windows/Linux or target-upgrade execution is claimed.
+
+ZIP checks passed outer/nested CRC and paths, declared payload hashes,267 feature/outer member comparisons,261 source-byte comparisons and current changelog/Envision guidance. Actual visions/project records are excluded; provenance records189a2502 and dirty source honestly. One operator-facing q1ch ZIP remains; internal composition archives were removed by builder. Unique checks/identity are retained in `docs/waves/22h7w envision-source-control-history/presentation-packaging-evidence.json`; earlier q1bg evidence is unchanged. Build stamps, guidance, changelog and handoff remain uncommitted. Lifecycle anchor/wording fixes from Teton are deferred until this wave closes, in a subsequent scope.
+
+## Previous local build — 1.39.0+q1bg
+
+Ready for Teton testing: `/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.39.0.q1bg.zip`, 10,998,200 bytes; SHA-256 `cbb4029ef46c97ee6e6a69fed03c753498295b6a61dd704ae7b59aef019bf7f2`. Select this exact archive; earlier 1.39 builds remain available. It includes Envision's source-control history guidance from open wave22h7w and the preceding Arc, writing-guide and Envision work. No target upgrade, public release, commit, push or closure occurred.
+
+Default qualification reused the matching 12,310-test execution (217 files,12 skips). Fresh second profile passed 12,292 tests/217 files/30 skips,18 additional default-only; declared passed12,310/217/12. Both exact comparisons passed without exceptions. Reports `.wavefoundry/cache/qualification/{default,second,declared}.json` match current inputs ee24c17b13750cd91f2f8c856c51343083bf4b31fd261d1346946ba6a208f12e. Dependency pins and dashboard files are unchanged from q19w's official-registry verification; uv0.12.22 retained. No native Windows/Linux or actual downstream-upgrade qualification is claimed.
+
+Outer/nested CRC and path checks, declared nested hashes,267-member feature/outer parity,261 source-byte comparisons and current Envision/changelog checks passed. Provenance names189a2502 and truthfully records a dirty tree. Actual visions/project records are excluded; model-set3 unchanged. Only the operator-facing ZIP remains in dist for q1bg. Unique package identity/checks are retained in `docs/waves/22h7w envision-source-control-history/packaging-evidence.json`. Build stamps, changelog and handoff remain uncommitted; wave22h7w is closed.
+
+## Previous local build — 1.39.0+q19w, 2026-11-04
+
+Ready for local project testing: `/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.39.0.q19w.zip`, 10,996,239 bytes; SHA-256 `3ee5aea587807ee87c6372a196f3bbf057e1faef33d86005c7ece1667d856343`. Select this exact archive because older 1.39.0 builds remain available. It includes Plan arc and the preceding Envision and writing-guide changes. The Arc changelog entry now sits in 1.39.0. No target upgrade, push, commit or public release was performed in this build task.
+
+Qualification: exact matching default execution reused (12,310 tests / 217 files / 12 skips); fresh second profile passed 12,292 / 217 / 30, including 18 explicitly default-only skips; fresh declared profile passed 12,310 / 217 / 12. Both exact comparisons passed without exceptions. Reports are `.wavefoundry/cache/qualification/{default,second,declared}.json`, source hash `8ab092cfa28ac8d410dc63ad344622f522af6d28c5df3fd4bb227f9f5370f7ac`. Native Windows/Linux and downstream installation were not exercised. All 18 retained uv 0.12.22 wheel hashes match official PyPI; all three dashboard dependencies match npm; all advisory sensor decisions were already settled.
+
+Archive checks passed outer/nested CRC and path checks, declared nested payload hashes, 267-member feature/outer parity, 261 source-file byte comparisons, and current seed171, writing guide, VERSION and changelog contents. Actual vision and wave records are excluded. Provenance records commit 189a2502 and the dirty tree; local packaging changed VERSION and the prompt manifest to 1.39.0+q19w. Model-set 3 is unchanged; this is a lean feature package. The builder removed internal composition archives, leaving one operator-facing ZIP. The build metadata, changelog adjustment and this handoff remain uncommitted. No open wave was created by packaging.
 
 ## Last closed wave — 22bs0, 2026-11-03
 
@@ -36,6 +86,8 @@ Both 228dy and 224i4 remain closed, with no active or paused wave. Their unique 
 **Writing-guide assessment and scope.** The operator requires the guide for all newly authored or substantially revised prose, including memories, ADRs, prompts, plans, waves, replies and handoffs. Shared run/entry/catalog and reviewer routes already apply broadly. The guide preserves schemas, exact obligations and audit history. Synthetic candidate text preserved all required meaning; the original matched reader missed four candidate atoms, and the authorized focused reader recovered all 32 unchanged candidate atoms while missing offline capability outside the frozen oracle. No comparative improvement or human-comprehension benefit was established. Memory records and full ADRs were not directly trialed. Use existing review and naturally occurring work to check retrieval/applicability and decision/tradeoff recovery; do not add another review gate or automatic evaluation batch.
 
 ## Open questions / Deferred decisions
+
+- After this wave closes, plan a separate follow-up for Teton lifecycle feedback, as explicitly directed. Root verified broken **Builder-lane allocation** references in install/lifecycle-prompts/implement-wave.prompt.md:56 and local implement-wave:29; the actual source is seed180 **Wave orchestration contract → Allocation** (around179). Seed190 step10 remains a valid final new-lanes check, legacy alias/handoff behavior executed correctly, and wf_implement_wave does not itself call Prepare (AST/source checked). No lifecycle source fix or newAC was added to22h7w; this follow-up does not block the current local build.
 
 - Wave 22bs0 is closed. No paused or other non-closed wave was found in the full wave-directory census. Try Plan arc on the next naturally occurring multi-wave outcome; no Arc has been created here yet.
 - The earlier build and completed-wave records below are preserved history. This implementation does not start a target upgrade or change the package.

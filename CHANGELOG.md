@@ -8,19 +8,21 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.39.0] - 2026-11-05
+
 ### Added
 
 - Plan arc / `wf-plan-arc` keeps a bounded outcome, linked wave evidence and the next useful step in one optional lifecycle-named document. Downstream distributions can use Epic terminology through the existing profile mechanisms. Plan initiative remains a compatibility phrase; upgrading preserves customized guidance. No additional lifecycle gate or routine review is required. Wave 22bs0 / changes 22brz and 22euo.
-
-## [1.39.0] - 2026-10-29
-
-### Added
 
 - A shared reader-centered writing guide connects document purpose, findability, precise meaning and usable next actions. Short authoring and review references use existing workflows; agent-assisted upgrade guidance preserves local writing policies and historical artifacts. Informed by ISO plain-language principles and selected STE practices, without a compliance claim or additional review gate. Wave 224i4 / change 223hp.
 
 - Envision project / `wf-envision` defines an ambitious product vision and an adaptable long-horizon roadmap, with useful technical and nontechnical advances and proportionate advisory reviews. Its opening makes the destination clear; distant horizons retain advancement conditions without invented precision. Decision-relevant research and validation of existing capabilities ground ordered immediate advances, including enabling technical changes where justified; technical shifts require causal evidence and alternatives rather than assumed technology benefits. It distinguishes transformative destination, unresolved breakthroughs and useful stages without silently shrinking earlier ambition. Advisory coverage uses product strategy, domain/application workflow, senior architecture and independent challenge, with consequential specialties and optional archetype techniques or an explicitly requested Council. Plan change conditionally carries an explicitly adopted vision’s relevant outcomes and prerequisites without editing it. Seed 100 authors missing prompts; seed 160 guides changed-seed179 and seed170 reconciliation into existing prompts, preserving project additions and stopping conflicts. Subsequent rendering emits the skill for active hosts. Authoring grants no implementation authority. Waves 21u1e / 21tpc, 21tpp / 21vpo, 21y6d / 21xpg and 21xq1 / 21xq0; authoring evidence is case-specific, and the 21ux4 comparison did not establish superiority.
 
 ### Changed
+
+- Readiness exposes compact canonical decision facts and focused-review navigation, with explicit blocker/advisory distinctions and safe operator handoff options. Migration review reuses applicable evidence while checking destination risks; lifecycle allocation references and final-review/current-readiness instructions are clarified. Required approvals and security obligations remain intact. Wave 22l5y / change 22l5x.
+
+- Envision replaces mandatory draft hashes and status-only revisions with stable review targets, retained comparison text and readable coverage. Git checkpoints remain optional and operator-owned; formatting-only changes need no automatic re-review after semantic inspection. Generated visions lead directly from title to unified purpose and Roadmap, with routine status at the end and concise useful headings. Wave 22h7w / change 22i3j.
 
 - Envision discusses its unified vision paragraph before polishing the roadmap, propagates consequential evidence into affected stages, and stages a selected reader’s reconstruction before the full review brief. Feedback shares one bounded repair and verification pass; settled choices, deferrals and operator authority remain intact. Wave 228dy / change 226i1; instruction changes do not establish general authoring superiority or human comprehension.
 

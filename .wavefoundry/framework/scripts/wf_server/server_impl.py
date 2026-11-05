@@ -11258,6 +11258,112 @@ def _identified_review_event_bundle(
 REVIEW_EVIDENCE_LIST_CAP = 500
 
 
+READINESS_DECISION_ROW_CAP = 50
+READINESS_DECISION_BYTE_CAP = 16 * 1024
+
+
+def _readiness_decision_packet(projection: Mapping[str, Any]) -> dict[str, Any]:
+    """Expose bounded canonical facts, never evidence or a second gate verdict."""
+
+    import review_evidence
+
+    packet = {
+        "available": True,
+        "phase": "readiness",
+        "required_run_kind": projection["required_run_kind"],
+        "required_run_present": projection["required_run_present"],
+        "finding_facts": [],
+        "approval_facts": [],
+        "total_findings": len(projection["finding_facts"]),
+        "total_approvals": len(projection["approval_facts"]),
+        "omitted_findings": len(projection["finding_facts"]),
+        "omitted_approvals": len(projection["approval_facts"]),
+        "truncated": False,
+        "row_cap": READINESS_DECISION_ROW_CAP,
+        "byte_cap": READINESS_DECISION_BYTE_CAP,
+        "empty_actions_imply_ready": False,
+        "operator_stop_inferred": False,
+        "finding_blocking_scope": "canonical_affected_signoff_keys_for_selected_phase",
+        "history_rule": "apply_one_repair_one_focused_verification_stop_from_actual_review_history_not_publication_count",
+        "operator_options": [
+            {"option": "authorize_named_bounded_repair_and_focused_verification"},
+            {"option": "amend_scope_and_reprepare"},
+            {"option": "request_missing_evidence_or_pause_dependent_work"},
+            {"option": "explicit_applicable_operator_waiver",
+             "required_fields": ["waiver_id", "waiver_scope", "waiver_reason", "waiver_risk"],
+             "protocol": "existing_operator_waiver",
+             "grants_approval": False, "automatic_security_waiver": False},
+        ],
+        "navigation": {
+            "focused_rereview": "review_actions.focused_rereview",
+            "inspection_tools": ["wf_review_event", "wf_review_wave", "wf_get_change"],
+            "ledger_event": "list",
+        },
+    }
+    # IDs are references, not excerpts. Reject an unrepresentable row rather
+    # than silently shortening an ID or hiding some of its affected lanes.
+    id_lists = {"source_lanes", "unresolved_required_lanes", "approval_recheck_lanes",
+                "affected_signoff_keys", "blocking_finding_ids"}
+    enums = {
+        "origin_phase": {"readiness", "delivery", None},
+        "disposition": review_evidence.DISPOSITIONS,
+        "repair_execution_state": review_evidence.REPAIR_EXECUTION_STATES,
+        "approval_phase": {"readiness"},
+        "state": {"pending", "approved", "withheld"},
+        "approval_state": {"absent", "invalid", "stale", "withheld", "approved"},
+    }
+    reasons = {
+        "validation_status": review_evidence.VALIDATION_STATUSES,
+        "scope_relation": review_evidence.SCOPE_RELATIONS,
+        "contract_relevance": review_evidence.CONTRACT_RELEVANCES,
+        "authority_domain": review_evidence.AUTHORITY_DOMAINS,
+        "authority_delta": review_evidence.AUTHORITY_DELTAS,
+        "observable_impact": review_evidence.OBSERVABLE_IMPACTS,
+        "containment": review_evidence.CONTAINMENTS,
+        "rejection_basis": review_evidence.REJECTION_BASES,
+    }
+    fields = {
+        "finding_facts": ("finding_id", "origin_phase", "disposition", "blocking", "terminal",
+                          "repair_execution_state", "source_lanes", "unresolved_required_lanes",
+                          "approval_recheck_lanes", "affected_signoff_keys"),
+        "approval_facts": ("signoff_key", "approval_phase", "approval_recorded", "approval_current",
+                           "state", "approval_state", "blocking_finding_ids",
+                           "has_unresolved_blocking_findings", "unresolved_required_lanes"),
+    }
+    def identifier(value: Any) -> bool:
+        return isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", value) is not None
+
+    for group, allowed in fields.items():
+        for fact in projection[group]:
+            row = {key: fact[key] for key in allowed}
+            safe = True
+            for key, value in row.items():
+                if key in id_lists:
+                    safe = safe and len(value) <= READINESS_DECISION_ROW_CAP and all(identifier(v) for v in value)
+                elif key in enums:
+                    safe = safe and value in enums[key]
+                elif key in {"finding_id", "signoff_key"}:
+                    safe = safe and identifier(value)
+                else:
+                    safe = safe and type(value) is bool
+            if not safe or sum(len(packet[g]) for g in fields) >= READINESS_DECISION_ROW_CAP:
+                continue
+            if group == "finding_facts":
+                template = fact["judgment_template"]
+                row["judgment_reasons"] = {key: template[key] for key, values in reasons.items()
+                                           if isinstance(template.get(key), str) and template[key] in values}
+            packet[group].append(row)
+            omitted_key = "omitted_findings" if group == "finding_facts" else "omitted_approvals"
+            packet[omitted_key] -= 1
+            # The aggregate serialized packet, including metadata and both row
+            # groups, has one budget; row limits alone cannot bound long IDs.
+            if len(json.dumps(packet, ensure_ascii=True).encode("utf-8")) > READINESS_DECISION_BYTE_CAP:
+                packet[group].pop()
+                packet[omitted_key] += 1
+    packet["truncated"] = bool(packet["omitted_findings"] or packet["omitted_approvals"])
+    return packet
+
+
 def _guided_review_actions(
     records: Iterable[Mapping[str, Any]],
     required_signoff_keys: Iterable[str],
@@ -11289,6 +11395,8 @@ def _guided_review_actions(
         "action_cap": projection["action_cap"],
         "caller_input_schema": review_action_input_schema(),
     }
+    if approval_phase == "readiness":
+        payload["readiness_decision_packet"] = _readiness_decision_packet(projection)
     diagnostics: list[dict[str, Any]] = []
     if projection["truncated"]:
         diagnostics.append(
@@ -11367,10 +11475,10 @@ def _guided_review_signoff_keys(
     return list(dict.fromkeys(keys))
 
 
-def _unavailable_guided_review_actions(reason: str) -> dict[str, Any]:
+def _unavailable_guided_review_actions(reason: str, *, approval_phase: str | None = None) -> dict[str, Any]:
     """Fail closed when no trustworthy typed authority can derive actions."""
 
-    return {
+    payload = {
         "available": False,
         "reason": reason,
         "next_actions": [],
@@ -11381,6 +11489,15 @@ def _unavailable_guided_review_actions(reason: str) -> dict[str, Any]:
         "truncated": False,
         "action_cap": REVIEW_ACTION_CAP,
     }
+    if approval_phase == "readiness":
+        payload["readiness_decision_packet"] = {
+            "available": False, "reason": reason, "phase": "readiness",
+            "finding_facts": [], "approval_facts": [],
+            "total_findings": None, "total_approvals": None,
+            "required_run_present": None,
+            "empty_actions_imply_ready": False, "operator_stop_inferred": False,
+        }
+    return payload
 
 
 def _review_evidence_list_response(
@@ -12271,7 +12388,7 @@ def wf_review_event_response(
             )
         else:
             review_actions = _unavailable_guided_review_actions(
-                continuation_blocker
+                continuation_blocker, approval_phase=continuation_phase
             )
             action_diagnostics = []
         payload["review_actions"] = review_actions
@@ -12430,8 +12547,11 @@ def _attach_prepare_readiness_advisories(root: Path, wave_id: str, response: dic
                     "readiness_receipt_publications_high",
                     f"This wave has {count} review-policy receipt publications before initial delivery. "
                     "Prepare publications are unusually frequent; inspect readiness churn. "
-                    "This is a publication count, not a review-round budget or proof of convergence.",
+                    "This is a publication count, not a review-round budget or proof of convergence. "
+                    "Inspect the readiness decision packet from wf_review_wave(phase='prepare').",
                     advisory=True,
+                    recovery_tools=["wf_review_wave"],
+                    recovery_usage="wf_review_wave(wave_id=..., phase='prepare')",
                 ))
         wave_text, _ = _read_wave_record_text(wave_md)
         if wave_text is None:
@@ -13195,7 +13315,8 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
             review_actions = _unavailable_guided_review_actions(
                 "invalid_typed_authority"
                 if authority.ledger_errors
-                else action_blocker or "legacy_prose_authority"
+                else action_blocker or "legacy_prose_authority",
+                approval_phase="readiness",
             )
         status = "ok" if lint_result["passed"] and not missing and not review_evidence_diagnostics else "error"
         if status == "ok":

@@ -241,6 +241,10 @@ After the first full readiness review, focused review is the default. Follow see
 
 At the end of focused verification, escalate every remaining blocker to the operator, including surviving original blockers and newly discovered defects. No further automatic repair/review round begins. Record the operator's choice and scope for another bounded repair and focused verification, or replanning, in `## Review Checkpoints`. A discovered blocker is not suppressed because it falls outside the packet. Approval is not promised; this protocol never waives required-lane authority. Settlement prose does not change scope, budget, authority or receipt currency.
 
+Use seed215's operator decision handoff and the existing guided `readiness_decision_packet`/`focused_rereview` output. The summary reports canonical facts, not clearance or a new round budget; missing approval, unavailable evidence and a real blocking finding are distinct. Keep required current approvals and explicit waiver semantics intact.
+
+**Migration evidence reuse:** Reuse relevant verified source behavior, naming its exact boundary and what still applies at the destination. Review the consequential delta in data, identity/permissions, persistence, access/exposure and trust or operating boundaries. A documentation-only label is no security exemption; source tests do not prove a changed publication or data-access boundary. Seek decisive missing evidence and preserve existing blocking derivations rather than silently trusting the destination.
+
 This readiness orchestration does not alter ledger run kinds, validation, projection, actionability or repair-cycle bookkeeping. Review rounds are not repair-cycle numbers; earlier readiness repairs may already have consumed the single convergence checkpoint. Delivery's automatic repair behavior is unchanged. Material scope or authority changes retain existing replanning/full-council rules.
 
 ### Repair re-verification

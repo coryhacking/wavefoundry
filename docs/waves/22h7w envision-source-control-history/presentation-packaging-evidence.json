@@ -1,0 +1,28 @@
+{
+  "version": "1.39.0+q1ch",
+  "archive": "/Users/coryhacking/.wavefoundry/dist/wavefoundry-1.39.0.q1ch.zip",
+  "bytes": 10999267,
+  "sha256": "4d689d601cf0d0dbcf015199b4925715805958d07892bfc6dc12960d60158c9c",
+  "source_byte_comparisons": 261,
+  "feature_parity_members": 267,
+  "checks": "outer/nested CRC and paths, payload SHA, source bytes, changelog parity, vision exclusion passed",
+  "provenance": {
+    "build_id": "q1ch",
+    "release_tag": null,
+    "release_version": "1.39.0+q1ch",
+    "schema_version": 1,
+    "source_commit": "189a250279bc9948495c7573be8c3953aef725f1",
+    "source_tree_clean": false
+  },
+  "qualification": {
+    "default_tests": 12310,
+    "default_skips": 12,
+    "second_tests": 12292,
+    "second_skips": 30,
+    "declared_tests": 12310,
+    "declared_skips": 12,
+    "comparisons": "both equal; no exceptions",
+    "source_hash": "db197b038fb7ce7500d0d877a4f341784e3c473cba70077633cbaf5af9897022"
+  },
+  "limits": "Local lean feature package; no native Windows/Linux or downstream install run. No commit, push, release or wave closure."
+}

@@ -1,0 +1,169 @@
+{
+  "kind": "Post-close reported late-round reconstruction",
+  "source": "Operator incident narrative; original source, installed version and actual round-six records unavailable. Judgments in each branch are explicit synthetic assumptions, not findings about the real PHI issue.",
+  "method": "One coordinator, two conditional branches through registered tool fixtures; validation stubbed to isolate authority handling. Live MCP packet was checked separately on the closed real wave. No additional review panel or source edit.",
+  "fixture_correction": "Initial probe omitted required security/code lanes from the temporary project config. Corrected fixture to declare the lanes before creating its wave; no product changes.",
+  "cases": [
+    {
+      "branch": "genuinely-editorial",
+      "receipt_publications": 6,
+      "facts": [
+        {
+          "finding_id": "appendix-abbreviation",
+          "origin_phase": "readiness",
+          "disposition": "maybe_later",
+          "blocking": false,
+          "terminal": false,
+          "repair_execution_state": "pending",
+          "source_lanes": [
+            "code-reviewer"
+          ],
+          "unresolved_required_lanes": [],
+          "approval_recheck_lanes": [
+            "code-reviewer"
+          ],
+          "affected_signoff_keys": [
+            "code-reviewer"
+          ],
+          "judgment_reasons": {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "contract_relevance": "none",
+            "authority_domain": "none",
+            "authority_delta": "none",
+            "observable_impact": "low",
+            "containment": "preventive",
+            "rejection_basis": "none"
+          }
+        },
+        {
+          "finding_id": "acceptance-wording",
+          "origin_phase": "readiness",
+          "disposition": "maybe_later",
+          "blocking": false,
+          "terminal": false,
+          "repair_execution_state": "pending",
+          "source_lanes": [
+            "code-reviewer"
+          ],
+          "unresolved_required_lanes": [],
+          "approval_recheck_lanes": [
+            "code-reviewer"
+          ],
+          "affected_signoff_keys": [
+            "code-reviewer"
+          ],
+          "judgment_reasons": {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "contract_relevance": "none",
+            "authority_domain": "none",
+            "authority_delta": "none",
+            "observable_impact": "low",
+            "containment": "preventive",
+            "rejection_basis": "none"
+          }
+        }
+      ],
+      "activation_status": "dry_run",
+      "operator_stop_inferred": false,
+      "coordinator_handoff": "Two supplied findings are editorial, not blockers. Carry them as notes; check current required approvals, then proceed without another full panel."
+    },
+    {
+      "branch": "required-security-obligation",
+      "receipt_publications": 6,
+      "facts": [
+        {
+          "finding_id": "appendix-abbreviation",
+          "origin_phase": "readiness",
+          "disposition": "maybe_later",
+          "blocking": false,
+          "terminal": false,
+          "repair_execution_state": "pending",
+          "source_lanes": [
+            "code-reviewer"
+          ],
+          "unresolved_required_lanes": [],
+          "approval_recheck_lanes": [
+            "code-reviewer"
+          ],
+          "affected_signoff_keys": [
+            "code-reviewer"
+          ],
+          "judgment_reasons": {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "contract_relevance": "none",
+            "authority_domain": "none",
+            "authority_delta": "none",
+            "observable_impact": "low",
+            "containment": "preventive",
+            "rejection_basis": "none"
+          }
+        },
+        {
+          "finding_id": "acceptance-wording",
+          "origin_phase": "readiness",
+          "disposition": "maybe_later",
+          "blocking": false,
+          "terminal": false,
+          "repair_execution_state": "pending",
+          "source_lanes": [
+            "code-reviewer"
+          ],
+          "unresolved_required_lanes": [],
+          "approval_recheck_lanes": [
+            "code-reviewer"
+          ],
+          "affected_signoff_keys": [
+            "code-reviewer"
+          ],
+          "judgment_reasons": {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "contract_relevance": "none",
+            "authority_domain": "none",
+            "authority_delta": "none",
+            "observable_impact": "low",
+            "containment": "preventive",
+            "rejection_basis": "none"
+          }
+        },
+        {
+          "finding_id": "required-phi-definition",
+          "origin_phase": "readiness",
+          "disposition": "do_now",
+          "blocking": true,
+          "terminal": false,
+          "repair_execution_state": "pending",
+          "source_lanes": [
+            "security-reviewer"
+          ],
+          "unresolved_required_lanes": [
+            "security-reviewer"
+          ],
+          "approval_recheck_lanes": [
+            "security-reviewer"
+          ],
+          "affected_signoff_keys": [
+            "security-reviewer"
+          ],
+          "judgment_reasons": {
+            "validation_status": "real",
+            "scope_relation": "admitted",
+            "contract_relevance": "required_ac",
+            "authority_domain": "confidentiality",
+            "authority_delta": "material",
+            "observable_impact": "material",
+            "containment": "preventive",
+            "rejection_basis": "none"
+          }
+        }
+      ],
+      "activation_status": "error",
+      "operator_stop_inferred": false,
+      "coordinator_handoff": "A required PHI obligation remains unresolved. Pause dependent implementation. Ask the operator to authorize one named repair and focused security verification, amend scope with re-Prepare, or obtain the missing evidence. Do not launch another full panel or accept PHI risk automatically."
+    }
+  ],
+  "limitation": "Shows selected classification and handoff paths; not a field replay, independent behavioral trial, elapsed-cost comparison or mechanical stop guarantee."
+}

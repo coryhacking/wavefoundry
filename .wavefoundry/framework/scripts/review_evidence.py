@@ -1877,7 +1877,7 @@ def focused_rereview(
             ) if field in approval},
             "section_changes": [], "documents": [], "full_plan_paths": [],
             "limitations": [], "full_review_required": False,
-            "question": "Does the cumulative change since your last approval alter your verdict? Review the full amended plans and dependency context before recording fresh approval.",
+            "question": "Does the cumulative change since your last approval alter your verdict? Use the full amended plans and dependency context as needed to assess that delta; do not repeat an unrelated whole-document sweep.",
         }
         # Preserve access to complete prior evidence without allowing a large
         # command/result field to exhaust this optional response.
