@@ -4,6 +4,12 @@ Owner: Engineering
 Status: active
 Last verified: 2026-11-05
 
+## Last closed wave — 22l9i canonical fallback reference
+
+Closed on 2026-11-05 by explicit operator direction. Seed 100 now says “the allowed fallback conditions,” retaining seed 180's canonical citation without a separate count. All surrounding bootstrap text and seeds 020/180 are unchanged. All ACs/tasks are complete; fresh QA and docs-contract delivery approvals are recorded. The frozen-tree suite passes 12,314 tests across 217 files, with 12 intended skips; Close accepted its current green framework receipt. The first run's handoff-edit refusal and successful rerun are retained in the wave's Progress Log. Full docs validation passes; source gates are closed, and canonical Close removed the wave-owned disposable work.
+
+Operator authorized commit and push. No package build or release was requested; the official release below remains unchanged. Setup still reports changed inputs; no setup was run. This correction establishes instruction consistency, not measured agent adherence. No other wave work is in progress in this session.
+
 ## Official release — 1.39.0+q1do
 
 Published [Wavefoundry 1.39.0](https://github.com/coryhacking/wavefoundry/releases/tag/v1.39.0), build `1.39.0+q1do`, on 2026-11-05 UTC. GitHub reports a published, non-prerelease release with the framework ZIP, model-set 3 ZIP and SHA256SUMS. Uploaded asset digests and the downloaded checksum file match the verified local files. Source commit `29f64bb4` and release stamp/tag commit `568f605a` are pushed to main. GitHub reported the repository's pull-request-rule bypass. Post-release evidence is retained in the closed wave's `release-evidence.json`.
