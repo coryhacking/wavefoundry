@@ -93,6 +93,21 @@ def _snapshot_index_tables(index_dir: Path, store):
             conn.close()
 
 
+def _snapshot_sqlite_dump(path: Path):
+    """Read a quiescent test database without changing its original sidecars."""
+    with tempfile.TemporaryDirectory() as tmp:
+        copied = Path(tmp) / path.name
+        for suffix in ("", "-wal", "-shm"):
+            source = Path(str(path) + suffix)
+            if source.exists():
+                shutil.copyfile(source, Path(str(copied) + suffix))
+        conn = sqlite3.connect(copied.as_uri() + "?mode=ro", uri=True)
+        try:
+            return tuple(conn.iterdump())
+        finally:
+            conn.close()
+
+
 class SnapshotSidecarIsolationTests(unittest.TestCase):
     def test_all_sidecar_states_preserve_rows_and_original_directory(self):
         store = _store_mod()
@@ -5712,14 +5727,9 @@ class DryRunIdleMaintenanceTests(_EpochBuildCase):
                 continue
             key = str(p.relative_to(self.index_dir))
             if p.suffix == ".sqlite":
-                # SQLite read locks can change SHM bytes even in mode=ro.
-                # Compare every persisted row (including meta/epoch) instead;
-                # Lance and all other index artifacts remain byte comparisons.
-                conn = sqlite3.connect(p.as_uri() + "?mode=ro", uri=True)
-                try:
-                    snapshot[key] = tuple(conn.iterdump())
-                finally:
-                    conn.close()
+                # Include committed WAL rows while confining SQLite scratch
+                # writes to a private copy of this quiescent test fixture.
+                snapshot[key] = _snapshot_sqlite_dump(p)
             else:
                 snapshot[key] = hashlib.sha256(p.read_bytes()).hexdigest()
         return snapshot
@@ -9497,6 +9507,49 @@ class WalkStatDenialReconcileTests(_OrphanStoreCase):
         self.assertNotIn(self._TARGET, self._rows("code"), "a dangling symlink is a removal")
         self.assertNotIn(self._TARGET, self.iss.layer_hashes(self.index_dir, "code") or {})
         self.assertNotIn("unreadable file", err.getvalue())
+
+
+class ReportedSnapshotConsumerTests(unittest.TestCase):
+    def test_original_snapshot_caller_isolates_every_sidecar_state(self):
+        for state in ("none", "shm-only", "empty-wal", "populated-wal", "populated-wal-shm"):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                for relative in ("first.sqlite", "nested/second.sqlite"):
+                    path = root / relative
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    writer = sqlite3.connect(path)
+                    writer.execute("PRAGMA journal_mode=WAL")
+                    writer.execute("PRAGMA wal_autocheckpoint=0")
+                    writer.execute("CREATE TABLE observed(value TEXT)")
+                    writer.execute("INSERT INTO observed VALUES ('main')")
+                    writer.commit()
+                    writer.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    if state.startswith("populated"):
+                        writer.execute("INSERT INTO observed VALUES ('committed-in-wal')")
+                        writer.commit()
+                    main = path.read_bytes()
+                    wal = Path(str(path) + "-wal").read_bytes()
+                    shm = Path(str(path) + "-shm").read_bytes()
+                    writer.close()
+                    path.write_bytes(main)
+                    if state in ("empty-wal", "populated-wal", "populated-wal-shm"):
+                        Path(str(path) + "-wal").write_bytes(wal)
+                    if state in ("shm-only", "populated-wal-shm"):
+                        Path(str(path) + "-shm").write_bytes(shm)
+                marker = root / "marker.txt"
+                marker.write_bytes(b"original artifact")
+                before = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+                consumer = types.SimpleNamespace(index_dir=root)
+                snapshot = DryRunIdleMaintenanceTests._snapshot(consumer)
+                self.assertEqual(set(snapshot), {"first.sqlite", "nested/second.sqlite", "marker.txt"})
+                for key in ("first.sqlite", "nested/second.sqlite"):
+                    dump = "\n".join(snapshot[key])
+                    self.assertIn("'main'", dump)
+                    self.assertEqual("'committed-in-wal'" in dump, state.startswith("populated"))
+                self.assertEqual({str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()}, before)
+                marker.write_bytes(b"changed artifact")
+                changed = DryRunIdleMaintenanceTests._snapshot(consumer)
+                self.assertNotEqual(snapshot["marker.txt"], changed["marker.txt"])
 
 
 if __name__ == "__main__":

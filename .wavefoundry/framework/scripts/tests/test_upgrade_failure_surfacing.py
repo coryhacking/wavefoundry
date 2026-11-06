@@ -410,6 +410,53 @@ class UpgradeOutputTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = _make_repo(Path(self.tmp.name))
 
+    @staticmethod
+    def _expected_setup_command(root, windows):
+        import ntpath
+        import shlex
+        if windows:
+            argv = [ntpath.join(ntpath.abspath(str(root)), ".wavefoundry", "bin", "wf.cmd"), "setup", "--root", str(root)]
+            return "& " + " ".join("'" + value.replace("'", "''") + "'" for value in argv)
+        return shlex.join([str(root / ".wavefoundry/bin/wf"), "setup", "--root", str(root)])
+
+    def test_dependency_failure_remedies_keep_selected_root_in_every_field(self):
+        import types
+        import setup_readiness
+        target = _make_repo(self.root / "selected repo's & data")
+        output = "WAVE_UPGRADE_SUMMARY_JSON:" + json.dumps({"dependency_provisioning_failed": True})
+        for windows in (False, True):
+            with self.subTest(windows=windows):
+                platform = types.SimpleNamespace(name="nt" if windows else "posix", path=os.path)
+                with patch.object(setup_readiness, "os", platform), \
+                     patch.object(self.server, "_mcp_subprocess_run", return_value=subprocess.CompletedProcess([], 1, output, "")) as child:
+                    response = self.server.wf_upgrade_response(target)
+                child.assert_called_once()
+                expected = self._expected_setup_command(target, windows)
+                self.assertEqual(response["status"], "error")
+                dependency = next(d for d in response["diagnostics"] if d["code"] == "dependency_provisioning_failed")
+                failure = next(d for d in response["diagnostics"] if d["code"] == "upgrade_failed")
+                self.assertIn(expected, dependency["message"])
+                self.assertEqual(dependency["recovery_usage"], expected)
+                self.assertIn(expected, failure["message"])
+                self.assertIn("ask before", dependency["message"])
+
+    def test_absent_and_incompatible_index_remedies_keep_selected_root(self):
+        import types
+        import setup_readiness
+        target = _make_repo(self.root / "selected repo's & data")
+        for windows in (False, True):
+            for token in (None, (1, 1)):
+                with self.subTest(windows=windows, token=token):
+                    index = self.server.WaveIndex(target)
+                    platform = types.SimpleNamespace(name="nt" if windows else "posix", path=os.path)
+                    with patch.object(setup_readiness, "os", platform), \
+                         patch.object(index, "_index_meta_signature", return_value=token), \
+                         patch.object(index, "_open_vector_layer", return_value=None):
+                        with self.assertRaises(self.server.IndexNotReadyError) as raised:
+                            index._ensure_loaded()
+                    self.assertIn(self._expected_setup_command(target, windows), str(raised.exception))
+                    self.assertNotIn("Run wf setup", str(raised.exception))
+
     def test_full_middle_sentinel_diagnostics_and_final_error_survive(self):
         summary = {'index_update': 'publication failed', 'dependency_provisioning_failed': True,
                    'retired_model_cleanup_status': 'failed'}

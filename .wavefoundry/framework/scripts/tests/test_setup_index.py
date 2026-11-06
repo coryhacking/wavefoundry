@@ -920,6 +920,52 @@ class SetupIndexTests(unittest.TestCase):
         self.assertIn("leave it zipped", message)
         self.assertIn("leaves the verified cache unchanged", message)
 
+    def test_main_model_failure_guidance_keeps_selected_root_from_other_cwd(self):
+        import model_bundle
+        import ntpath
+        import setup_readiness
+        import shlex
+
+        for windows in (False, True):
+            for prewarm_only in (False, True):
+                with self.subTest(windows=windows, prewarm_only=prewarm_only), tempfile.TemporaryDirectory() as tmp:
+                    target = (Path(tmp) / "selected repo's data").resolve()
+                    caller = (Path(tmp) / "caller").resolve()
+                    target.mkdir()
+                    caller.mkdir()
+                    stderr = io.StringIO()
+                    platform = types.SimpleNamespace(name="nt" if windows else "posix", path=os.path)
+                    with ExitStack() as stack:
+                        stack.enter_context(patch.object(setup_readiness, "os", platform))
+                        stack.enter_context(patch.object(self.mod, "_reexec_with_venv_if_needed"))
+                        stack.enter_context(patch.object(self.mod, "ensure_deps"))
+                        stack.enter_context(patch.object(model_bundle, "find_local_bundle", return_value=None))
+                        stack.enter_context(patch.object(model_bundle, "unused_bundle_hint", return_value=None))
+                        stack.enter_context(patch.object(model_bundle, "local_model_set_status", return_value="current"))
+                        stack.enter_context(patch.object(self.mod, "_setup_semantic_work_is_current", return_value=False))
+                        stack.enter_context(patch.object(self.mod, "_indexer_models", return_value=["fixture-model"]))
+                        stack.enter_context(patch.object(self.mod, "_check_setup_precision"))
+                        stack.enter_context(patch.object(self.mod, "_warm_model", side_effect=RuntimeError("controlled offline failure")))
+                        stack.enter_context(patch.object(self.mod, "_model_cache_corruption_reason", return_value=None))
+                        build = stack.enter_context(patch.object(self.mod, "build_index"))
+                        stack.enter_context(contextlib.chdir(caller))
+                        stack.enter_context(redirect_stdout(io.StringIO()))
+                        stack.enter_context(redirect_stderr(stderr))
+                        argv = ["--root", str(target)] + (["--prewarm-only"] if prewarm_only else [])
+                        result = self.mod.main(argv)
+                    self.assertEqual(result, 1 if prewarm_only else 2)
+                    build.assert_not_called()
+                    if windows:
+                        launcher = ntpath.join(ntpath.abspath(str(target)), ".wavefoundry", "bin", "wf.cmd")
+                        expected = "& " + " ".join("'" + value.replace("'", "''") + "'" for value in (launcher, "setup"))
+                    else:
+                        expected = shlex.join([str(target / ".wavefoundry/bin/wf"), "setup"])
+                    # Check failure stderr, not the earlier status preamble.
+                    self.assertIn(expected, stderr.getvalue())
+                    self.assertNotIn(str(caller / ".wavefoundry/bin/wf"), stderr.getvalue())
+                    self.assertIn("--model-bundle PATH", stderr.getvalue())
+                    self.assertIn("WAVEFOUNDRY_MODEL_BUNDLE=PATH", stderr.getvalue())
+
     def test_main_returns_2_on_model_prewarm_error(self):
         with patch.object(self.mod, "_reexec_with_venv_if_needed"):
             with patch.object(self.mod, "ensure_deps"):
@@ -1082,7 +1128,7 @@ class SetupIndexTests(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         ensure_deps.assert_called_once()
-        prewarm.assert_called_once_with(include_code=True, code_only=False, precision_check=ANY)
+        prewarm.assert_called_once_with(include_code=True, code_only=False, precision_check=ANY, root=Path("/tmp/repo").resolve())
         build_index.assert_called_once()
         self.assertIn("Done. Project index update complete.", stdout.getvalue())
         self.assertIn("MCP handoff:", stdout.getvalue())
@@ -1164,7 +1210,7 @@ class SetupIndexTests(unittest.TestCase):
             stack.enter_context(redirect_stdout(io.StringIO()))
             stack.enter_context(redirect_stderr(io.StringIO()))
             self.assertEqual(self.mod.main(['--root', str(root), '--prewarm-only']), 0)
-            warm.assert_called_once_with(include_code=True)
+            warm.assert_called_once_with(include_code=True, root=root.resolve())
             warm.side_effect = self.mod.ModelPrewarmError('missing required model')
             self.assertEqual(self.mod.main(['--root', str(root), '--prewarm-only']), 1)
             build.assert_not_called()
@@ -1291,7 +1337,7 @@ class SetupLayerSchedulingTests(unittest.TestCase):
                         with patch.object(self.mod, "_spawn_background_docs_build") as docs_spawn:
                             with redirect_stdout(io.StringIO()):
                                 self.mod.main(["--root", "/tmp/repo"])
-        prewarm.assert_called_once_with(include_code=True, code_only=False, precision_check=ANY)
+        prewarm.assert_called_once_with(include_code=True, code_only=False, precision_check=ANY, root=Path("/tmp/repo").resolve())
         _, kwargs = build_index.call_args
         self.assertTrue(kwargs.get("include_code", False))
         self.assertFalse(kwargs.get("code_only", False))
@@ -1306,7 +1352,7 @@ class SetupLayerSchedulingTests(unittest.TestCase):
                     with patch.object(self.mod, "_spawn_background_code_build"):
                         with redirect_stdout(io.StringIO()):
                             self.mod.main(["--root", "/tmp/repo", "--background-code"])
-        prewarm.assert_called_once_with(include_code=False, code_only=False, precision_check=ANY)
+        prewarm.assert_called_once_with(include_code=False, code_only=False, precision_check=ANY, root=Path("/tmp/repo").resolve())
 
     def test_background_code_builds_docs_only_in_foreground(self):
         """--background-code must call build_index with include_code=False and code_only=False."""
@@ -1369,7 +1415,7 @@ class SetupLayerSchedulingTests(unittest.TestCase):
                     with patch.object(self.mod, "_spawn_background_code_build") as spawn:
                         with redirect_stdout(io.StringIO()):
                             self.mod.main(["--root", "/tmp/repo", "--include-code", "--background-code"])
-        prewarm.assert_called_once_with(include_code=True, code_only=False, precision_check=ANY)
+        prewarm.assert_called_once_with(include_code=True, code_only=False, precision_check=ANY, root=Path("/tmp/repo").resolve())
         _, kwargs = build_index.call_args
         self.assertTrue(kwargs.get("include_code", False))
         self.assertFalse(kwargs.get("code_only", False))
@@ -1383,7 +1429,7 @@ class SetupLayerSchedulingTests(unittest.TestCase):
                     with patch.object(self.mod, "_spawn_background_docs_build"):
                         with redirect_stdout(io.StringIO()):
                             self.mod.main(["--root", "/tmp/repo", "--background-docs"])
-        prewarm.assert_called_once_with(include_code=True, code_only=True, precision_check=ANY)
+        prewarm.assert_called_once_with(include_code=True, code_only=True, precision_check=ANY, root=Path("/tmp/repo").resolve())
 
     def test_background_docs_builds_code_only_in_foreground(self):
         """--background-docs must build only the code layer before spawning docs."""

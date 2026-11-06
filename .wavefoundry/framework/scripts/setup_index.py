@@ -2081,6 +2081,7 @@ def _model_failure_message(
     model_kind: str,
     action: str,
     exc: BaseException,
+    root: Path | None = None,
     corruption_reason: str | None = None,
     quarantined_to: Path | None = None,
 ) -> str:
@@ -2099,7 +2100,7 @@ def _model_failure_message(
         f"{_fastembed_cache_dir()}."
     )
     import model_bundle
-    details.append(model_bundle.manual_recovery_guidance())
+    details.append(model_bundle.manual_recovery_guidance(root=root))
     return " ".join(details)
 
 
@@ -2109,6 +2110,7 @@ def _prewarm_required_model(
     model_kind: str,
     action: str,
     warm_fn,
+    root: Path | None = None,
 ) -> None:
     quarantined_to: Path | None = None
     repaired = False
@@ -2142,6 +2144,7 @@ def _prewarm_required_model(
                     model_kind=model_kind,
                     action=action,
                     exc=exc,
+                    root=root,
                     corruption_reason=corruption_reason if repaired or corruption_reason else None,
                     quarantined_to=quarantined_to,
                 )
@@ -2229,7 +2232,7 @@ def _check_setup_precision(root: Path, model_name: str, resident, diagnostic: di
             "is a separate rebuild choice. Existing published index retained.")
 
 
-def prewarm_models(*, include_code: bool, code_only: bool = False, precision_check=None) -> None:
+def prewarm_models(*, include_code: bool, code_only: bool = False, precision_check=None, root: Path | None = None) -> None:
     models = _indexer_models(include_code, code_only=code_only)
     for model_name in models:
         diagnostic = {}
@@ -2245,6 +2248,7 @@ def prewarm_models(*, include_code: bool, code_only: bool = False, precision_che
             model_kind="embedding",
             action="semantic index setup",
             warm_fn=_warm_model,
+            root=root,
         )
         print(f"Verified offline semantic model cache: {model_name}", flush=True)
 
@@ -2871,7 +2875,7 @@ def main(argv: list[str] | None = None) -> int:
         # Storage recovery uses the canonical model provisioning path before
         # cutover; never open the legacy database or publish an index here.
         try:
-            prewarm_models(include_code=True)
+            prewarm_models(include_code=True, root=root)
         except (ModelPrewarmError, ModelPrewarmTimeout) as exc:
             print(str(exc), file=sys.stderr, flush=True)
             return 1
@@ -2975,7 +2979,7 @@ def main(argv: list[str] | None = None) -> int:
             # Download/verify the models BEFORE the provider probe — the probe loads with
             # local_files_only and would transiently fail on a fresh/cleared cache (model absent),
             # silently dropping the whole build to CPU. Order: download → probe → GPU accel prewarm.
-            prewarm_models(include_code=_include_code, code_only=_code_only, precision_check=precision_check)
+            prewarm_models(include_code=_include_code, code_only=_code_only, precision_check=precision_check, root=root)
             models = _indexer_models(include_code=_include_code, code_only=_code_only)
             local_models = []
             for model in models:

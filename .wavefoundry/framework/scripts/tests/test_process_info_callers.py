@@ -143,6 +143,45 @@ class UnavailablePsutilBuildPathTests(_Repo):
         self.assertTrue(ok["data"]["process_info"]["available"])
         self.assertNotIn("process_info_unavailable", [d["code"] for d in ok.get("diagnostics", [])])
 
+    def test_all_process_info_consumers_keep_target_and_pending_continuation(self):
+        from unittest.mock import MagicMock
+        import ntpath
+        import shlex
+        import types
+        import setup_readiness
+
+        for windows in (False, True):
+            for pending in (False, True):
+                with self.subTest(windows=windows, pending=pending):
+                    target = _make_repo(self.root / ("selected repo's & data" + str(windows) + str(pending)))
+                    index = MagicMock()
+                    index.root = target
+                    index.docs_health.return_value = {"semantic_ready": True, "stale_layers": [], "missing_layers": [], "has_any_index": True, "compatible_chunks": True, "readiness_overview": "ready", "project": {"readiness": "current"}}
+                    failure = process_info.ProcessInfoUnavailable("psutil fixture unavailable; " + process_info._SETUP_HINT)
+                    platform = types.SimpleNamespace(name="nt" if windows else "posix", path=os.path)
+                    with patch.object(process_info, "_load", side_effect=failure), \
+                         patch.object(process_info, "_STARTUP_INSTALL_PENDING", "installing" if pending else None), \
+                         patch.object(setup_readiness, "os", platform):
+                        responses = (self.h.index_build_status_response(target), self.h.index_health_response(index), self.impl.wf_server_info_response(target))
+                    if windows:
+                        launcher = ntpath.join(ntpath.abspath(str(target)), ".wavefoundry", "bin", "wf.cmd")
+                        argv = [launcher, "setup", "--root", str(target)]
+                        expected = "& " + " ".join("'" + value.replace("'", "''") + "'" for value in argv)
+                    else:
+                        expected = shlex.join([str(target / ".wavefoundry/bin/wf"), "setup", "--root", str(target)])
+                    for response in responses:
+                        diagnostic = next(d for d in response["diagnostics"] if d["code"] == "process_info_unavailable")
+                        self.assertNotIn("`wf setup`", diagnostic["message"])
+                        if pending:
+                            self.assertIn("startup install finishes", diagnostic["message"])
+                            self.assertEqual(diagnostic["recovery_usage"], "wf_server_info()")
+                            self.assertNotIn(expected, diagnostic["message"])
+                        else:
+                            self.assertIn(expected, diagnostic["message"])
+                            self.assertEqual(diagnostic["recovery_usage"], expected)
+                        self.assertNotIn("`wf setup`", response["data"]["process_info"]["reason"])
+
+
 
 class DashboardCarrierTests(_Repo):
     def setUp(self):

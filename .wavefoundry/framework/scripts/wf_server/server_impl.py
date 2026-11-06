@@ -1808,7 +1808,7 @@ class WaveIndex:
             raise IndexNotReadyError(
                 f"Index state at {self.index_dir} has no completed build epoch "
                 "(absent, building, or interrupted). "
-                "Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py "
+                f"Run: {_setup_recovery_command(self.root)} "
                 "or index_build(content='all', mode='update')."
             )
 
@@ -1839,7 +1839,7 @@ class WaveIndex:
                 "(none stored, or no recorded embedding model identity). Check "
                 "index_build_status; retry after the build completes."
                 if partial else
-                "[wavefoundry] No compatible SQLite index found. Run wf setup."
+                f"[wavefoundry] No compatible SQLite index found. Run {_setup_recovery_command(self.root)}."
             )
         self._docs_vector_layer = self._proj_docs_vector_layer = proj_docs_table
         self._code_vector_layer = self._proj_code_vector_layer = proj_code_table
@@ -20216,7 +20216,15 @@ def _declared_skills_for_response() -> dict[str, Any]:
     return out
 
 
-def _process_info_status() -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
+def _setup_recovery_command(root: Path) -> str:
+    """Render the selected checkout's setup remedy without running it."""
+    import setup_readiness
+
+    return setup_readiness.format_command(setup_readiness.repository_launcher_argv(
+        root, "setup", "--root", str(root)))
+
+
+def _process_info_status(root: Path | None = None) -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
     """``psutil`` availability for responses, and the diagnostic when it is unavailable (wave 1zc7n).
 
     When ``psutil`` cannot be imported, process liveness reads "not running"
@@ -20230,18 +20238,22 @@ def _process_info_status() -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
         return {"available": True, "psutil_version": detail}, None
     # Wave 1zfd9: while MCP startup installs psutil, recommending `wf setup`
     # would only queue behind the same install lock.
+    pending = bool(getattr(process_info, "_STARTUP_INSTALL_PENDING", None))
+    # The low-level import error has no repository context. Keep its cause,
+    # replacing only its known rootless setup hint at this response boundary.
+    detail = detail.replace(process_info._SETUP_HINT, "").rstrip("; .")
+    command = _setup_recovery_command(root if root is not None else Path.cwd())
     remedy = (
         "It becomes available when the startup install finishes; wf_server_info shows its progress."
-        if getattr(process_info, "_STARTUP_INSTALL_PENDING", None)
-        else "Run `wf setup` to install or repair psutil."
+        if pending else f"Run `{command}` to install or repair psutil."
     )
     return {"available": False, "reason": detail}, _diagnostic(
         "process_info_unavailable",
         f"Process information is unavailable: {detail}. Until it is fixed, process status may show "
         "a running build or dashboard as not running; index builds still run because the OS locks "
         f"decide. {remedy}",
-        recovery_tools=[],
-        recovery_usage="wf setup",
+        recovery_tools=["wf_server_info"] if pending else [],
+        recovery_usage="wf_server_info()" if pending else command,
     )
 
 
@@ -20262,7 +20274,7 @@ def wf_server_info_response(root: Path, *, server_runner_version: str | None = N
     data.update(tensorwell_client.status_bundle_snapshot())
     data["extensions"] = _extension_provenance_for_response(root)
     diagnostics: list[dict[str, Any]] = []
-    data["process_info"], process_info_diagnostic = _process_info_status()
+    data["process_info"], process_info_diagnostic = _process_info_status(root)
     if process_info_diagnostic is not None:
         diagnostics.append(process_info_diagnostic)
     # Wave 1zfd9: what MCP startup installed (packages, mode, outcome), read from the runner.

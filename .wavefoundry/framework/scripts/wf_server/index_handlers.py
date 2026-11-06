@@ -1694,7 +1694,7 @@ def index_health_response(
     # by design, not held) is diagnosable at a glance and agents don't misread its presence as "a build
     # is running."
     health["size"] = _index_dir_size(index.root / ".wavefoundry" / "index")  # wave 1p9a9
-    health["process_info"], _process_info_diagnostic = server_impl._process_info_status()
+    health["process_info"], _process_info_diagnostic = server_impl._process_info_status(index.root)
     if _process_info_diagnostic is not None:
         diagnostics.append(_process_info_diagnostic)
     lock_info = _index_build_lock_info(index.root)
@@ -2342,7 +2342,7 @@ def index_build_status_response(root: Path, layer: str = "project") -> dict[str,
         epoch["interrupted"] = epoch.get("status") == "building" and not held
         data["epoch"] = epoch
         # Wave 1zc7n: without psutil, liveness reads "not running"; say so.
-        data["process_info"], _process_info_diagnostic = server_impl._process_info_status()
+        data["process_info"], _process_info_diagnostic = server_impl._process_info_status(root)
         if _process_info_diagnostic is not None:
             resp.setdefault("diagnostics", []).append(_process_info_diagnostic)
         # Wave 1za2y: a live setup process can run without holding the lock

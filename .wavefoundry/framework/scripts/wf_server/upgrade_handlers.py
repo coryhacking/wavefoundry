@@ -1349,15 +1349,16 @@ def wf_upgrade_response(
         (summary is not None and summary.get("dependency_provisioning_failed") is True)
         or "Dependency provisioning FAILED" in output
     )
+    setup_command = server_impl._setup_recovery_command(root) if _deps_failed else None
     _deps_diag = (
         _diagnostic(
             "dependency_provisioning_failed",
             "The upgrade could not install the declared dependencies, so the index "
             "update did not run. Fix network, proxy or TLS access to the package "
-            "index, then run `wf setup`. Report this to the operator and ask before "
+            f"index, then run `{setup_command}`. Report this to the operator and ask before "
             "running any command.",
             recovery_tools=["wf_upgrade_status"],
-            recovery_usage="wf setup",
+            recovery_usage=setup_command,
         )
         if _deps_failed
         else None
@@ -1525,7 +1526,7 @@ def wf_upgrade_response(
             # an observed publication failure as a docs-gate failure.
             reason = "index publication failed"
         if result.returncode == 1 and _deps_failed:
-            reason = "dependency provisioning failed; run `wf setup`"
+            reason = f"dependency provisioning failed; run `{setup_command}`"
         _post_gate_phase = None if _deps_failed else _post_docs_gate_failure_phase(root)
         if _post_gate_phase is not None:
             reason = (

@@ -6,7 +6,11 @@ Last verified: 2026-11-05
 
 ## Current state
 
-Idle after closing 22ob1. Both 22l9k and 22ob1 are complete; their reviewed framework work and closure records are included in the authorized commit/push scope.
+Idle. Last closed wave: **22nu3 reported-caller-recovery-corrections**. Shipped the exact reported SQLite snapshot caller repair, selected-root model-failure guidance and the identified MCP setup remedies. All three ACs/tasks are complete, required specialist/Council approvals are current, and operator signoff and canonical closure succeeded. The operator authorized the scoped commit and push; no build or release was requested.
+
+The matching green receipt covers 12,374 tests across 217 files, with 12 skips, in 544.962s. Independent code/QA cleared the test-only platform-oracle repair; all twelve semantic bad variants were detected. The earlier coordinator evidence-file edit caused a guard refusal, followed by a clean frozen rerun; no qualification shortcut was used. Unique proof and reviewer conclusions remain in the wave's delivery-evidence.json and authoritative events.jsonl. Closure removed owned disposable work; edit gates remain closed.
+
+Native Windows, live model execution and downstream patch removal remain unqualified. No setup, download, provider override or machine change ran. Prior 22ob1/22l9k work is committed and pushed as 614ac8a2. The unrelated 51-byte :memory:.ses artifact remains untouched and excluded. Existing deferred setup/field qualification items remain below.
 
 ## Last closed wave — 22ob1 distribution integration follow-ups
 
