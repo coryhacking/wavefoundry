@@ -5135,7 +5135,7 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
             self._symlink_or_skip(wave_dir.name, linked_dir, target_is_directory=True)
             self.assertEqual(
                 subject._review_authority_path_error(linked_dir / RECORD),
-                "wave directory may not be a symlink",
+                f"{vocabulary_profile.CONTAINER_NAME.lower()} directory may not be a symlink",
             )
 
             outside = Path(tmp) / "outside"
@@ -5163,8 +5163,8 @@ class ReviewAuthorityFacadeTests(unittest.TestCase):
 
             real_resolve = Path.resolve
             for member, expected in (
-                (RECORD, f"{RECORD} escapes its wave directory"),
-                ("events.jsonl", "events.jsonl escapes its wave directory"),
+                (RECORD, f"{RECORD} escapes its {vocabulary_profile.CONTAINER_NAME.lower()} directory"),
+                ("events.jsonl", f"events.jsonl escapes its {vocabulary_profile.CONTAINER_NAME.lower()} directory"),
             ):
                 def escaping(path, *args, _member=member, **kwargs):
                     if path.name == _member:

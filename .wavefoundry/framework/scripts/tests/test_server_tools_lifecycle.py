@@ -10613,7 +10613,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             result = self._run_prepare(wave_id=wave_id, mode=mode)
             diagnostic = next(d for d in result["diagnostics"] if d["code"] == "review_policy_receipt_superseded")
             self.assertTrue(diagnostic["advisory"])
-            self.assertIn("changed change docs: 1abcz-bug sample", diagnostic["message"])
+            self.assertIn(f"changed {vocabulary_profile.ITEM_NAME.lower()} docs: 1abcz-bug sample", diagnostic["message"])
             self.assertIn("changed sections: 1abcz-bug sample: changed Requirements", diagnostic["message"])
             self.assertNotIn("policy_inputs", result["data"]["review_policy"]["receipt"])
             self.assertIn("missing_wave_council_signoff", [d["code"] for d in result["diagnostics"]])
@@ -10649,7 +10649,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             if mode == "ready":
                 self.assertIn("Which specific document changed is not attributable from persisted data", message)
             else:
-                self.assertIn("changed change docs: 1abcz-bug sample", message)
+                self.assertIn(f"changed {vocabulary_profile.ITEM_NAME.lower()} docs: 1abcz-bug sample", message)
 
     def test_repeated_receipt_advice_tracks_latest_approval_per_lane(self):
         self._write_config()
@@ -10670,7 +10670,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         initial = advice()
         self.assertEqual(len(initial), 1)
         self.assertTrue(initial[0]["advisory"])
-        self.assertIn("changed change docs: 1abcz-bug sample", initial[0]["message"])
+        self.assertIn(f"changed {vocabulary_profile.ITEM_NAME.lower()} docs: 1abcz-bug sample", initial[0]["message"])
         # Delivery inspection never repeats readiness advice.
         self.assertFalse(advice("implementation"))
         self.assertEqual(self._record_readiness_approval(wave_id, "council-readiness", "repeat-council")["status"], "ok")
@@ -10858,7 +10858,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         self.assertIn("current receipt", message)
         self.assertIn("pending receipt", message)
         self.assertIn("policy_input_digest", message)
-        self.assertIn("digested change ids", message)
+        self.assertIn(f"digested {vocabulary_profile.ITEM_NAME.lower()} ids", message)
         self.assertIn("1abcz-bug sample", message)
         self.assertIn("changed sections: 1abcz-bug sample: changed Requirements", message)
 
@@ -10955,7 +10955,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         # AC-3 also requires digested change ids and the changed acceptance section;
         # asserting the label pair alone let a placeholder-attribution mutant
         # ("superseded receipt aaa; new current receipt bbb") pass all 38 tests.
-        self.assertIn("digested change ids", message)
+        self.assertIn(f"digested {vocabulary_profile.ITEM_NAME.lower()} ids", message)
         self.assertIn("changed sections: 1abcz-bug sample: changed Acceptance Criteria", message)
         self.assertNotIn(
             "pending receipt", message,
@@ -11677,7 +11677,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         message = " ".join(d["message"] for d in stale)
         self.assertIn("current receipt", message)
         self.assertIn("pending receipt", message)
-        self.assertIn("digested change ids", message)
+        self.assertIn(f"digested {vocabulary_profile.ITEM_NAME.lower()} ids", message)
         self.assertIn("changed sections: 1abcz-bug sample: changed Requirements", message)
 
     def test_a_mark_without_supersession_reports_no_supersession(self):
@@ -18009,7 +18009,12 @@ class LifecycleHintGapTests(unittest.TestCase):
     }
 
     def test_council_brief_points_at_the_record_that_counts(self):
+        from record_layout_support import SHIPPED_DEFAULTS, expected_profile
+
         support = self.srv.lifecycle_gate_support
+        defaults = SHIPPED_DEFAULTS["vocabulary_profile"]
+        effective = expected_profile().constants()["vocabulary_profile"]
+        item, container = effective["ITEM_NAME"].lower(), effective["CONTAINER_NAME"].lower()
         digest = lambda text: hashlib.sha256(text.encode("utf-8")).hexdigest()
         actor = support.review_evidence.COUNCIL_ACTOR
         legacy_actor = support.review_evidence.LEGACY_COUNCIL_ACTORS[0]
@@ -18027,19 +18032,34 @@ class LifecycleHintGapTests(unittest.TestCase):
                 rendered_template = support._prepare_council_verdict_template(seat)
                 self.assertIn(f"Have {actor} synthesize findings.", rendered_instructions)
                 self.assertIn(f"(moderator: {actor};", rendered_template)
-                self.assertEqual(digest(historical_text(rendered_instructions)), instructions)
-                self.assertEqual(digest(historical_text(rendered_template)), template)
+                # The historical oracle pins default bytes in every profile run.
+                # Freeze its inputs, not the actual text: a wording regression must
+                # still fail the unchanged hashes. Effective-profile checks below
+                # run outside this patch and cannot inherit default vocabulary.
+                with patch.multiple(support._vocab, ITEM_NAME=defaults["ITEM_NAME"],
+                                    CONTAINER_NAME=defaults["CONTAINER_NAME"]):
+                    self.assertEqual(digest(historical_text(support._prepare_council_instructions(seat))), instructions)
+                    self.assertEqual(digest(historical_text(support._prepare_council_verdict_template(seat))), template)
+                self.assertIn(f"recorded in the {container} record", rendered_instructions)
                 self.assertEqual(support._prepare_council_instructions(seat, typed=False),
                                  support._prepare_council_instructions(seat))
                 typed_instructions = support._prepare_council_instructions(seat, typed=True)
                 typed_template = support._prepare_council_verdict_template(seat, typed=True)
+                for text in (rendered_instructions, typed_instructions):
+                    self.assertTrue(text.startswith(
+                        f"Run each council seat in isolation against the admitted {item} docs and {container} record. "))
+                    self.assertIn(f"a sibling {container} edits", text)
+                self.assertIn(f"This {container}'s review authority is the typed ledger", typed_instructions)
+                self.assertIn(f"across every admitted {item} and the {container} Objective", typed_instructions)
+                self.assertIn(f"wave_id=<{container} id>", typed_template)
                 for text in (typed_instructions, typed_template):
                     self.assertIn("wf_review_event(", text)
                     self.assertIn("signoff_key='council-readiness'", text)
                 self.assertNotIn("Record the verdict in ## Review Checkpoints", typed_instructions)
-                self.assertIn("## Review Checkpoints narrative is optional and is not authority", typed_instructions)
+                self.assertIn("## Review Checkpoints narrative is optional and is not authority: "
+                              "the gate reads only the typed approval.", typed_instructions)
                 self.assertTrue(typed_instructions.endswith(
-                    "Then call wf_prepare_wave(mode='ready'), or mode='create' to also open the wave."))
+                    f"Then call wf_prepare_wave(mode='ready'), or mode='create' to also open the {container}."))
                 self.assertIn("code-grounded", typed_instructions)
         # Bound and unbound briefs render the same text for the same seat and authority.
         wave_text = "## Objective\n\nRework the security credential boundary.\n"

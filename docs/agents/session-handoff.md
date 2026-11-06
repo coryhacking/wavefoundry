@@ -6,13 +6,31 @@ Last verified: 2026-11-06
 
 ## Current state
 
+No wave is OPEN. **22lli renamed-profile-review-parity closed on 2026-11-06.** It ships profile-aware review and hook assertions plus one configured-noun diagnostic; all four ACs and tasks are complete. Code, QA, architecture and Council approvals are current, with no findings and intent fit `establishes`. The operator directed closure, commit and push. Canonical closure accepted the existing green receipt, reported no diagnostics and removed the owned work area. The scoped commit includes this repair, closure records and the requested 22lwp evidence cleanup; unrelated website and local-build stamps remain outside it. No new package or release is part of this request.
+
+Full qualification passes: default 12,485 tests / 221 files / 12 skips / 716.508 seconds; renamed 12,467 / 221 / 30 / 700.315; declared-extension 12,485 / 221 / 12 / 705.813. Both exact profile comparisons pass, including the existing 18 default-only renamed cases. Six scoped negative controls and four independent reviewer controls reject deliberately broken behavior. Source and gates stayed fixed during qualification; default receipt inputs are `67a67641b3d521a84201c9d318c66ab5d99255154c35956e47d613cd4709cb63`. An earlier focused run passed its tests but refused a receipt because the coordinator closed a gate during it; it was not repeated solely for that refusal. The full default run was already required.
+
+The operator also requested cleanup of 22lwp's evidence folder. All 27 removed JSON files (183,183 bytes) were byte-verified against pushed commit `b1e45f03798e970ace5add820b33ee325cefaf72`. The closed wave now gives the exact Git recovery location; its immutable ledger is unchanged. Docs validation retired three findings tied to deleted evidence files, leaving 281 recorded false positives and zero unresolved. Their original reasons remain in Git. No source evidence is being represented as newly verified.
+
+Preserve the pre-existing VERSION/local-package manifest and README, docs/index and overview edits. Build 1.39.0+q1rd predates this repair and was not rebuilt. The qualification results below remain the historical results for that earlier archive. Native Windows execution and a real downstream installation remain unqualified. No setup or MCP reload was performed.
+
+## Previous delivery — 22lwp
+
 No wave is OPEN. **22lwp full-betterleaks-offline-rules closed on 2026-11-06** by explicit operator direction. It ships the full pinned 474-rule Python offline profile, verified assets under `.wavefoundry/framework/scan/`, bounded worker execution and distribution-owned runtime-directory exclusions. All six required ACs/tasks and all required technical/Council approvals are complete; QA and Council confirm intent fit establishes. Root now owns the separately authorized commit/push and **local test package**, not an official release.
 
 Canonical Close accepted the current green receipt `e73306cd71805a94dfdb36ebfc10ececa6be33d04a282f8e2979bc3b7f1c7ffc`: **12,485 tests / 221 modules / 12 expected skips / 746.812 seconds**, recorded 2026-11-06T19:57:41.052892+00:00. Close returned no diagnostics and removed the verified owned work area. Full documentation validation and diff checks pass. Framework and seed edit gates are closed. The operator confirmed all remaining scanner observations false-positive; `docs/scan-findings.json` permanently records individual reasons, confirmer and date (284 false positives, zero unresolved). Binary/long-line coverage skips remain explicit; this is not complete coverage of those inputs.
 
+### Local test package — 2026-11-06
+
+Wave closure and scanner delivery are committed and pushed to `main`: `b1e45f03` contains the implementation and evidence; `d46dad4e` contains closure-generated maps. The requested local package is `~/.wavefoundry/dist/wavefoundry-1.39.0.q1rd.zip`, with `wavefoundry-models-3.zip` alongside it. No official tag or GitHub release was created. The build keeps uv 0.12.22. Its VERSION and prompt-manifest stamps remain local, as do the unrelated README, docs/index and overview edits, whose bytes were preserved.
+
+Archive integrity, source provenance, changelog equality, all 474 unique packaged rules, scanner asset checksums and 270 matching framework files were verified. The model archive passes its integrity check. Documentation gardening/lint and official npm vendor verification pass. Source provenance names `d46dad4e8c37ebeb59fe57929c95357463366695` and honestly reports an unclean tree.
+
+Packaging qualification reused the exact current default run (12,485 tests, 12 skips). The declared-extension profile passed 12,485 tests across 221 files in 774.016 seconds; comparison confirms the same 12 skips. **The renamed second profile is not qualified:** 12,467 tests across 221 files in 800.001 seconds produced 11 failed assertions in `test_render_platform_surfaces.py` (1), `test_review_evidence.py` (1) and `test_server_tools_lifecycle.py` (9). Observed failures include generated modernization-hook consistency, fixed terminology expectations and historical instruction digests. This requires investigation before an official release; no exception was accepted and no source repair was attempted during packaging. Bounded execution reports remain in `.wavefoundry/cache/qualification/{default,second,declared}.json`. An earlier sandbox-limited attempt was stopped because loopback binding was denied; it is not qualification evidence, and its owned workers were terminated.
+
 ### Retained evidence
 
-The wave's `evidence/` retains the full-rule inventory, reference and independent qualification summaries, frozen cost comparisons, historical and final manifests, consumer/policy/cache tests, worker lifetime and guard mutants, representative downstream package probe and runtime-exclusion baseline/review evidence. Typed review authority remains in `events.jsonl`. Maintained tests reproduce the load-bearing behavior. Disposable reviewer notes and raw green logs were removed only through the canonical owned-work cleanup.
+At closure the wave's `evidence/` retained the full-rule inventory, reference and independent qualification summaries, frozen cost comparisons, historical and final manifests, consumer/policy/cache tests, worker lifetime and guard mutants, representative downstream package probe and runtime-exclusion baseline/review evidence. Those files are now preserved in the pushed Git snapshot identified above. Typed review authority remains in `events.jsonl`. Maintained tests reproduce the load-bearing behavior. Disposable reviewer notes and raw green logs were removed only through the canonical owned-work cleanup.
 
 Qualification includes 9,330 reference cases, 430 expressions / 1,720 evaluations, 2,006 tokenizer cases and 1,521 designed near misses covering 169 rule IDs without upstream negatives. Actual consumer upgrade, cache/history, worker failure and exact runtime selection controls pass. Runtime exclusions apply before content hashing; changing declaration or predicate identity refreshes both owners. No Go helper, new runtime dependency or external action is shipped. Prior integration failures and the independently repaired worker-retention defect remain recorded with their candidate boundaries.
 
@@ -23,7 +41,7 @@ The bounded retrospective found no additional memory to create: current architec
 - Native Windows execution, actual Waveforge installation, arbitrary forks, field precision and field cost remain unqualified. The production-copy second-profile probe is representative, not a deployment claim.
 - Preserve unrelated README.md, docs/index.md and docs/references/wavefoundry-overview.md edits when committing this wave. Earlier waves 22o92/22o93 are already pushed as b33211eb. The operator-deleted `:memory:.ses` stays absent.
 - MCP setup/index staleness remains separate from source qualification; no setup, live index rebuild or recovery operation was performed.
-- Root will commit/push the authorized work and build a local test package. No official release is authorized by this request.
+- Local test build 1.39.0+q1rd is unchanged. Source repair 22llh now passes the full profile matrix, but that existing archive predates it. A new build and release require a subsequent request.
 
 ## Last closed waves — 22o93 and 22o92
 

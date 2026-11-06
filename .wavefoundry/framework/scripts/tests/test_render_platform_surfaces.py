@@ -4357,11 +4357,15 @@ class HookVenvMismatchTests(unittest.TestCase):
         # declaration-dependent assignments are verified against the effective roster
         # and the actual source bytes instead; every other byte and every other hook
         # stays byte-exact. The branch is chosen by the loaded declaration, never by an
-        # observed difference, so the shipped default and a vocabulary-only profile keep
-        # raw equality (and with it the committed extensions-digest check).
+        # observed difference. A profile overlay may also change the modernization
+        # briefing's single item noun; only that anchored occurrence is substituted.
+        # The base profile still uses raw equality, including the extensions digest.
         from declaration_support import _normalized, declaration_profile_mismatch
-        from record_layout_support import SHIPPED_DECLARATION, expected_profile
+        from record_layout_support import SHIPPED_DECLARATION, SHIPPED_DEFAULTS, expected_profile
         expected = expected_profile()
+        base_item = expected.base.modules.get("vocabulary_profile", {}).get(
+            "ITEM_NAME", SHIPPED_DEFAULTS["vocabulary_profile"]["ITEM_NAME"]).lower()
+        effective_item = expected.constants()["vocabulary_profile"]["ITEM_NAME"].lower()
         declaration_aware = _normalized(expected.declaration()) != _normalized(SHIPPED_DECLARATION)
         if declaration_aware:
             self.assertIsNone(declaration_profile_mismatch(expected))
@@ -4390,6 +4394,12 @@ class HookVenvMismatchTests(unittest.TestCase):
                         fresh_names, _matches = _assignment_value(fresh.splitlines(keepends=True), _CORE_READ_TOOLS_LINE)
                         self.assertNotIn("mcp__wavefoundry__wf_gpu_doctor", fresh_names)
                     continue
+                if rel == ".claude/hooks/wf-modernization-briefing.py" and base_item != effective_item:
+                    before = f"Stay within the assigned {base_item}/ACs".encode("utf-8")
+                    after = f"Stay within the assigned {effective_item}/ACs".encode("utf-8")
+                    self.assertEqual(committed.count(before), 1, "committed briefing must have exactly one base noun")
+                    self.assertEqual(fresh.count(after), 1, "rendered briefing must have exactly one effective noun")
+                    committed = committed.replace(before, after, 1)
                 self.assertEqual(committed, fresh, f"{rel} differs from the renderer; regenerate with wf_sync_surfaces")
 
 

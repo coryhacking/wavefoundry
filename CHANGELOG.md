@@ -10,6 +10,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Repair renamed-profile review and hook tests while retaining strict default council hashes, typed-authority checks and unrelated-hook drift detection. Record-escape diagnostics now use the configured container name without changing containment checks. Wave 22lli / change 22llh.
+
 - Exclude exact runtime directory descendants at any depth before secret-scan reads or hashing, independent of Git. A validated distribution-owned `SCAN_RUNTIME_ROOT_NAMES` tuple defaults only to `.wavefoundry`; forks declare their own namespaces. Preserve source and near-miss paths, apply the same boundary to history, and invalidate both scan caches when the declaration or path policy changes. Wave 22lwp / change 22o94.
 
 - Apply same-ID project scanner overrides and update only the Sourcegraph detector to pinned Betterleaks `8f376ff9` prefixed formats. Ordinary commit hashes no longer trigger that rule; legacy unprefixed tokens, including credential assignments, intentionally lose coverage. Add opt-in bounded import compatibility reporting without executing upstream validation or revocation metadata. Local policy and triage authority remain unchanged by that repair. Wave 22o93 / change 22o91.

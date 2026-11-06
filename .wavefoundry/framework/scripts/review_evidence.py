@@ -1165,7 +1165,7 @@ def _review_authority_path_error(wave_path: Path) -> str | None:
         if wave_md_stat is not None and _is_link_metadata(wave_md_stat):
             return f"{_vocab.RECORD_FILENAME} may not be a symlink"
         if wave_md_stat is not None and not wave_md.resolve(strict=True).is_relative_to(wave_real):
-            return f"{_vocab.RECORD_FILENAME} escapes its wave directory"
+            return f"{_vocab.RECORD_FILENAME} escapes its {_vocab.tier_noun('container')} directory"
         ledger_stat = _authority_member_lstat(ledger)
         if ledger_stat is not None and _is_link_metadata(ledger_stat):
             return "events.jsonl may not be a symlink"
