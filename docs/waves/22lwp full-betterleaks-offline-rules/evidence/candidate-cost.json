@@ -1,0 +1,112 @@
+{
+  "configure_seconds": 0.3878094580140896,
+  "normal": {
+    "warmup": {
+      "seconds": 0.40764466699329205,
+      "complete": true,
+      "findings": 0,
+      "diagnostics": [],
+      "slowest": [
+        [
+          "generic-api-key",
+          0.08220116698066704
+        ]
+      ]
+    },
+    "runs": [
+      {
+        "seconds": 0.4070722500036936,
+        "complete": true,
+        "findings": 0,
+        "diagnostics": [],
+        "slowest": [
+          [
+            "generic-api-key",
+            0.08216158399591222
+          ]
+        ]
+      },
+      {
+        "seconds": 0.40617075000773184,
+        "complete": true,
+        "findings": 0,
+        "diagnostics": [],
+        "slowest": [
+          [
+            "generic-api-key",
+            0.08267612499184906
+          ]
+        ]
+      },
+      {
+        "seconds": 0.4017516669991892,
+        "complete": true,
+        "findings": 0,
+        "diagnostics": [],
+        "slowest": [
+          [
+            "generic-api-key",
+            0.08168091700645164
+          ]
+        ]
+      }
+    ]
+  },
+  "adversarial": {
+    "warmup": {
+      "seconds": 0.5712182919960469,
+      "complete": true,
+      "findings": 0,
+      "diagnostics": [],
+      "slowest": [
+        [
+          "generic-api-key",
+          0.21361274999799207
+        ]
+      ]
+    },
+    "runs": [
+      {
+        "seconds": 0.5654246660124045,
+        "complete": true,
+        "findings": 0,
+        "diagnostics": [],
+        "slowest": [
+          [
+            "generic-api-key",
+            0.2149477500061039
+          ]
+        ]
+      },
+      {
+        "seconds": 0.565423958003521,
+        "complete": true,
+        "findings": 0,
+        "diagnostics": [],
+        "slowest": [
+          [
+            "generic-api-key",
+            0.213558124989504
+          ]
+        ]
+      },
+      {
+        "seconds": 0.5675960000080522,
+        "complete": true,
+        "findings": 0,
+        "diagnostics": [],
+        "slowest": [
+          [
+            "generic-api-key",
+            0.2104110830114223
+          ]
+        ]
+      }
+    ]
+  },
+  "parent_peak_rss": 33570816,
+  "child_peak_rss": 74547200,
+  "measurement_boundary": "Configure monotonic interval includes child launch, configuration compilation and asset verification; excludes prior parent imports/TOML read. Tokenizer/dictionary structures can load lazily during matched filters. Workload warmup is separate, not omitted.",
+  "source_tree_fingerprint": "a27f6c50d310eeef5912a198c9dd8381802e9c6f624ec849cc062a3272527070",
+  "qualification_note": "Root replay after CA-1 lifetime repair, same frozen one-MiB inputs and one warmup plus three measured runs; not field savings or native Windows qualification."
+}

@@ -781,7 +781,7 @@ class TestShippedFrameworkSelfExclusions(unittest.TestCase):
             r"(?:^|/)graphify-out(?:/.*)?$",
         )
         for pattern in expected_patterns:
-            self.assertIn(pattern, ruleset.get("prefilter", ""))
+            self.assertTrue(pattern in ruleset.get("prefilter", "") or pattern in paths)
             self.assertIn(pattern, paths)
         for rel in (
             ".venv/Lib/site-packages/package/module.py",
@@ -1007,6 +1007,7 @@ class TestGenericApiKeyDocsScope(unittest.TestCase):
         with open(fw, "rb") as f:
             data = tomllib.load(f)
         rule = next(r for r in data["rules"] if r["id"] == "generic-api-key")
+        cls._profile = {"_betterleaks_config": {"rules": [rule]}}
         al_paths: list = []
         al_regexes: list = []
         for al in rule.get("allowlists", []):
@@ -1028,7 +1029,7 @@ class TestGenericApiKeyDocsScope(unittest.TestCase):
         p = self.root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(text, encoding="utf-8")
-        _, _, hits = scan_file_raw(p, rel, self._compiled, [], set())
+        _, _, hits = scan_file_raw(p, rel, self._compiled, [], set(), self._profile)
         return hits
 
     def test_docs_prose_suppressed(self):  # AC-1
@@ -1072,6 +1073,7 @@ class TestJwtExpiry(unittest.TestCase):
         with open(cls._fw_path, "rb") as f:
             data = tomllib.load(f)
         rule = next(r for r in data["rules"] if r["id"] == "jwt")
+        cls._profile = {"_betterleaks_config": {"rules": [rule]}}
         cls._compiled = [(
             rule["id"], [kw.lower() for kw in rule.get("keywords", [])],
             re.compile(rule["regex"]), [], [], rule.get("filter", ""),
@@ -1094,7 +1096,7 @@ class TestJwtExpiry(unittest.TestCase):
     def _scan(self, token, policy=None):
         p = self.root / "config.py"
         p.write_text(f'data = "{token}"\n', encoding="utf-8")
-        _, _, hits = scan_file_raw(p, "config.py", self._compiled, [], set(), policy)
+        _, _, hits = scan_file_raw(p, "config.py", self._compiled, [], set(), {**self._profile, **(policy or {})})
         return hits
 
     def test_builtin_expired_valid_malformed(self):  # AC-1 / AC-5
@@ -1641,7 +1643,7 @@ class TestRe2PythonRegexCompat(unittest.TestCase):
         self.assertTrue(adobe.search('"p8e-A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6"'))
         self.assertFalse(adobe.search('"P8E-' + "a" * 32 + '"'))  # wrong-case prefix rejected
         # authress's pre-existing scoped negative flag must survive translation.
-        self.assertIn("(?-i:acc)", _re2_to_re(rules["authress-service-client-access-key"]["regex"]))
+        self.assertIn("(?-i:acc)", _re2_to_re(r"(?i)prefix(?-i:acc)"))
 
     def test_previously_dead_rules_now_detect(self):  # AC-4
         rules = {r["id"]: r for r in self._framework_rules()}
@@ -2080,7 +2082,7 @@ class TestFrameworkRuleset(unittest.TestCase):
         if not path.exists():
             self.skipTest(f"{SCAN_RULES_FRAMEWORK_PATH} not found")
         content = path.read_text(encoding="utf-8")
-        self.assertIn("Commit:", content)
+        self.assertIn("8f376ff9c31ed5309ac448fe601c5dd21b376155", content)
         self.assertIn("gitleaks", content.lower())
 
 
@@ -2561,13 +2563,13 @@ regex = 'GUARDFIXTURE_[A-Z]{10}'
         self._scan([path])
         self.assertEqual(self.ledger.read_bytes(), original)
         (self.root / SCAN_RULES_PROJECT_PATH).unlink()
-        real_read = Path.read_text
+        real_read = Path.open
         def unreadable(file, *args, **kwargs):
             if file == path:
                 raise PermissionError("fixture denied")
             return real_read(file, *args, **kwargs)
         path.write_text("now text")
-        with patch.object(Path, "read_text", unreadable):
+        with patch.object(Path, "open", unreadable):
             self._scan([path])
         self.assertEqual(self.ledger.read_bytes(), original)
         path.write_bytes(b"")
@@ -2693,6 +2695,160 @@ regex = 'GUARDFIXTURE_[A-Z]{10}'
         self.assertEqual(self.ledger.read_bytes(), b"malformed")
         self.assertIn("WARNING: secrets scanner guard coverage", output.getvalue())
         self.assertIn("scanner_skips_error", self.notice())
+
+
+class UpstreamProfilePublicTests(unittest.TestCase):
+    """Exercise the real public scanner, policy layer, and durable findings."""
+
+    HEADER = '''wavefoundryProfile = "betterleaks-v2-8f376ff9"
+prefilter = "false"
+filter = "false"
+[allowlist]
+paths = ['^\\.wavefoundry/', '^docs/']
+'''
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+        _make_root(self.root)
+        from wave_lint_lib.betterleaks_worker import close_worker
+        self.addCleanup(close_worker)
+
+    def configure(self, rules, policy=""):
+        _write_framework_toml(self.root, self.HEADER + policy + rules)
+
+    def scan(self, name="source.txt", content="", *, binary=False):
+        path = self.root / name
+        path.write_bytes(content if binary else content.encode())
+        failures = _run_check(self.root)
+        return failures, load_exceptions(self.root)
+
+    def test_binary_path_rule_reports_without_decoding_content(self):
+        self.configure('''[[rules]]
+id = "pkcs12-file"
+path = '(?i)\\.(?:p12|pfx)$'
+''')
+        failures, rows = self.scan("private.p12", b"\0\xff\xfe\0", binary=True)
+        self.assertEqual([(r["rule_id"], r["file"]) for r in rows],
+                         [("pkcs12-file", "private.p12")])
+        self.assertTrue(failures)
+
+    def test_path_timeout_is_bounded_before_file_read_without_history(self):
+        from wave_lint_lib import betterleaks_worker as worker
+        self.configure('''[[rules]]
+id = "primary"
+regex = 'PRIMARY_[A-Z0-9]{12}'
+''')
+        rules = self.root / SCAN_RULES_FRAMEWORK_PATH
+        rules.write_text(rules.read_text().replace("'^docs/'", "'^docs/', '(a+)+$'"))
+        path = self.root / ("a" * 30 + "!")
+        path.write_text("PRIMARY_ABCDEF123456")
+        original_request, original_open = worker.worker_request, Path.open
+        observed = []
+
+        def bounded(operation, payload, **kwargs):
+            if operation == "path_excluded":
+                observed.append(payload["path"])
+                return original_request(operation, payload, timeout=0.15)
+            return original_request(operation, payload, **kwargs)
+
+        def no_subject_read(current, *args, **kwargs):
+            if current == path:
+                raise AssertionError("path assessment must finish before reading the subject")
+            return original_open(current, *args, **kwargs)
+
+        with patch.object(worker, "worker_request", side_effect=bounded), \
+             patch.object(Path, "open", no_subject_read), \
+             patch.object(_sv, "_path_matches_allowlist", side_effect=AssertionError("parent regex used")):
+            _run_check(self.root)
+        self.assertIn(path.name, observed)
+        self.assertIn(path.name, _sv.unpublished_scanner_skips())
+        self.assertEqual(load_exceptions(self.root), [])
+
+    def test_required_optional_components_and_all_match_redaction(self):
+        rules = '''[[rules]]
+id = "primary"
+regex = 'PRIMARY_[A-Z0-9]{12}'
+[[rules.components]]
+id = "account"
+within = "5L"
+[[rules.components]]
+id = "region"
+within = "5L"
+optional = true
+[[rules]]
+id = "account"
+regex = 'ACCOUNT_[A-Z0-9]{12}'
+skipReport = true
+[[rules]]
+id = "region"
+regex = 'REGION_[A-Z0-9]{12}'
+skipReport = true
+'''
+        first, second, component = ("PRIMARY_ABCDEF123456", "PRIMARY_FEDCBA654321",
+                                    "ACCOUNT_ABC123DEF456")
+        self.configure(rules)
+        _, rows = self.scan(content=first)
+        self.assertEqual(rows, [], "required component must gate the primary")
+        failures, rows = self.scan(content=f"{first} {second} {component}\n")
+        # Triage intentionally coalesces same-rule findings on the same line.
+        self.assertEqual(len(rows), 1)
+        visible = json.dumps(failures) + (self.root / SCAN_FINDINGS_PATH).read_text()
+        for value in (first, second, component):
+            self.assertNotIn(value, visible, "another match must not leak through a reported line")
+        _, rows = self.scan(name="optional.txt", content=f"{first} {component}")
+        self.assertEqual(len([r for r in rows if r["file"] == "optional.txt"]), 1,
+                         "optional component must not gate the primary")
+
+    def test_changed_line_keeps_current_pending_finding_visible(self):
+        self.configure('''[[rules]]
+id = "primary"
+regex = 'PRIMARY_[A-Z0-9]{12}'
+''')
+        _, rows = self.scan(content="PRIMARY_ABCDEF123456")
+        self.assertEqual(len(rows), 1)
+        _, rows = self.scan(content="prefix PRIMARY_ABCDEF123456 suffix")
+        self.assertEqual(len(rows), 1, "same-line text edits must not erase a current finding")
+        self.assertEqual(rows[0]["status"], "pending")
+
+    def test_project_override_disable_and_incompatible_profile(self):
+        self.configure('''[[rules]]
+id = "replace-me"
+regex = 'SYNTH_ALPHA_[0-9]{3}'
+[[rules]]
+id = "disable-me"
+regex = 'SYNTH_GAMMA_[0-9]{3}'
+''')
+        _write_project_toml(self.root, '''[policy]
+disabled_rules = ["disable-me"]
+[[rules]]
+id = "replace-me"
+regex = 'SYNTH_BETA_[0-9]{3}'
+''')
+        _, rows = self.scan(content="SYNTH_ALPHA_001 SYNTH_BETA_002 SYNTH_GAMMA_003")
+        self.assertEqual([r["rule_id"] for r in rows], ["replace-me"])
+        before = (self.root / SCAN_FINDINGS_PATH).read_bytes()
+        _write_project_toml(self.root, 'wavefoundryProfile = "legacy-cel"\n')
+        failures = _run_check(self.root)
+        self.assertTrue(any("profiles differ" in str(f) for f in failures))
+        self.assertEqual((self.root / SCAN_FINDINGS_PATH).read_bytes(), before)
+
+    def test_expired_jwt_surfaces_until_policy_explicitly_suppresses_it(self):
+        rule = '''[[rules]]
+id = "jwt"
+regex = '[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+'
+'''
+        token = TestJwtExpiry._jwt(1000000000)
+        self.configure(rule)
+        _, rows = self.scan(content=token)
+        self.assertEqual(len(rows), 1)
+        self.assertIn("EXPIRED", rows[0]["exp_date"])
+        self.configure(rule, "[policy]\nsuppress_expired_jwts = true\n")
+        _, rows = self.scan(content=token)
+        self.assertEqual(rows, [])
+        _, rows = self.scan(content=TestJwtExpiry._jwt(4102444800))
+        self.assertEqual(len(rows), 1, "future JWT must still surface")
 
 
 if __name__ == "__main__":

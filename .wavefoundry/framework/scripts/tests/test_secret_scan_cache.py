@@ -152,6 +152,11 @@ class NonGitMachineAuthorityTests(_CacheCase):
         ".wavefoundry/index/index-build.lock",
         ".wavefoundry/locks/dashboard-server.lock",
     )
+    RUNTIME_EXCLUDED_PATHS = LOCK_PATHS + (
+        ".wavefoundry/index/code.lance/_versions/1.manifest",
+        ".wavefoundry/index/new.manifest",
+        ".wavefoundry/logs/dashboard.log",
+    )
 
     def _fixture(self):
         for rel in self.AUTHORITY_PATHS + self.CONTENT_PATHS:
@@ -183,7 +188,7 @@ class NonGitMachineAuthorityTests(_CacheCase):
         candidates = self._candidates()
         for rel in self.AUTHORITY_PATHS + self.CONTENT_PATHS + (untracked,):
             with self.subTest(candidate=rel):
-                if rel in self.LOCK_PATHS:
+                if rel in self.RUNTIME_EXCLUDED_PATHS:
                     self.assertNotIn(rel, candidates)
                 else:
                     self.assertIn(rel, candidates)
@@ -210,7 +215,7 @@ class NonGitMachineAuthorityTests(_CacheCase):
         self.assertIn(["git", "check-ignore", "--stdin"], commands)
         for rel in self.AUTHORITY_PATHS:
             with self.subTest(tracked_authority=rel):
-                if rel in self.LOCK_PATHS:
+                if rel in self.RUNTIME_EXCLUDED_PATHS:
                     self.assertNotIn(rel, candidates)
                 else:
                     self.assertIn(rel, candidates)
@@ -490,6 +495,120 @@ class RuleCatalogTests(_CacheCase):
         self.assertEqual(modified_rules, {"test-fake-key"})
 
 
+class UpstreamIncompleteCacheTests(_CacheCase):
+    """Incomplete worker scans preserve triage and never establish cached coverage."""
+
+    def _run_owner(self, owner):
+        run_scan = _load("run_secrets_scan")
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()), \
+             patch.object(run_scan, "_auto_max_workers", return_value=1), \
+             patch.object(self.scan_secrets, "_auto_max_workers", return_value=1):
+            if owner == "indexer":
+                self.scan_secrets.update_secrets_scan(
+                    root=self.root, scan_dir=self.index_dir / "scan",
+                    changed={"subject.txt"}, removed=set(), full=True)
+            else:
+                with patch.object(sys, "argv", ["run_secrets_scan.py", "--root", str(self.root),
+                                                "--mode", "full"]):
+                    self.assertEqual(run_scan.main(), 0)
+
+    def _configure(self, regex):
+        self._write(".wavefoundry/framework/scan-rules.toml",
+                    'wavefoundryProfile = "betterleaks-v2-8f376ff9"\n'
+                    'prefilter = "false"\nfilter = "false"\n'
+                    '[allowlist]\npaths = [\'^\\.wavefoundry/\', \'^docs/\']\n'
+                    '[[rules]]\nid = "synthetic-probe"\nregex = ' + repr(regex) + '\n')
+
+    def _exercise(self, owner, failure):
+        from wave_lint_lib import betterleaks_worker as worker
+        from wave_lint_lib import secrets_validators as sv
+        worker.close_worker()
+        self.addCleanup(worker.close_worker)
+        subject = "a" * 30 + "!" if failure == "path_timeout" else "subject.txt"
+        self._configure("a+!")
+        self._write(subject, "a" * 30 + "!")
+        sv.check_hardcoded_secrets(self.root, scan_all=True, max_workers=1)
+        ledger = self.root / "docs/scan-findings.json"
+        before = json.loads(ledger.read_text())
+        self.assertEqual(len(before), 1)
+        before[0]["history"] = [{"note": "pre-existing pending evidence"}]
+        ledger.write_text(json.dumps(before))
+        if failure == "timeout":
+            self._configure("(a+)+$")
+        elif failure == "configuration":
+            self._configure("(?=unsupported)")
+        elif failure == "path_timeout":
+            rules = self.root / ".wavefoundry/framework/scan-rules.toml"
+            rules.write_text(rules.read_text().replace("'^docs/'", "'^docs/', '(a+)+$'"))
+        original = worker.worker_request
+        scanned = []
+        timed_out = []
+
+        def faulty(operation, payload, **kwargs):
+            path_timeout = failure == "path_timeout" and operation == "path_excluded"
+            if operation != "scan" and not path_timeout:
+                return original(operation, payload, **kwargs)
+            scanned.append(payload["path"])
+            if failure == "timeout" or path_timeout:
+                process = worker._CLIENT._process
+                try:
+                    return original(operation, payload, timeout=0.15)
+                except worker.WorkerError as exc:
+                    timed_out.append((process, exc.code))
+                    raise
+            if failure == "incomplete":
+                return {"complete": False, "findings": [], "diagnostics": ["fixture_failure"], "costs": {}}
+            return {"complete": True, "findings": [{"rule_id": "synthetic-probe"}],
+                    "diagnostics": [], "costs": {}}
+
+        with patch.object(worker, "worker_request", side_effect=faulty):
+            self._run_owner(owner)
+        if failure == "configuration":
+            self.assertEqual(scanned, [], "unsupported rules must fail before file detection")
+        else:
+            self.assertIn(subject, scanned)
+        self.assertEqual(json.loads(ledger.read_text()), before)
+        self.assertIn(subject, sv.unpublished_scanner_skips())
+        db = index_paths.runtime_database_path(self.index_dir)
+        if db.exists():
+            with closing(sqlite3.connect(db)) as conn:
+                self.assertEqual(conn.execute(
+                    "SELECT count(*) FROM secret_scan_cache WHERE path = ?", (subject,)).fetchone()[0], 0)
+        if failure in {"timeout", "path_timeout"}:
+            self.assertTrue(timed_out, "real worker must fail on the scan deadline")
+            for process, code in timed_out:
+                self.assertIsNotNone(process)
+                self.assertIsNotNone(process.poll(), "the owned worker must have been reaped")
+                self.assertIn(code, {"worker_timeout", "worker_crashed", "worker_protocol"})
+            # A fresh parse succeeds after kill/reap; there is no stuck serial fallback.
+            self.assertEqual(original("parse_toml", {"text": "answer = 42"}), {"answer": 42})
+
+    def test_invalid_output_cannot_clear_history_or_cache_either_owner(self):
+        for owner in ("indexer", "cli"):
+            with self.subTest(owner=owner):
+                self._exercise(owner, "invalid")
+
+    def test_partial_output_cannot_clear_history_or_cache_either_owner(self):
+        for owner in ("indexer", "cli"):
+            with self.subTest(owner=owner):
+                self._exercise(owner, "incomplete")
+
+    def test_configuration_failure_cannot_clear_history_or_cache_either_owner(self):
+        for owner in ("indexer", "cli"):
+            with self.subTest(owner=owner):
+                self._exercise(owner, "configuration")
+
+    def test_actual_regex_timeout_cannot_clear_history_or_cache_either_owner(self):
+        for owner in ("indexer", "cli"):
+            with self.subTest(owner=owner):
+                self._exercise(owner, "timeout")
+
+    def test_path_regex_timeout_precedes_history_sweep_in_both_owners(self):
+        for owner in ("indexer", "cli"):
+            with self.subTest(owner=owner):
+                self._exercise(owner, "path_timeout")
+
+
 class RunSecretsScanGuardHistoryTests(_CacheCase):
     """1x5tr delivery review (RED-DEL-9): the wf_scan_secrets subprocess path
     shares the unpublished-outcome seam with the indexer scan."""
@@ -657,6 +776,8 @@ class InstrumentationAndCompatTests(_CacheCase):
         mock_validators.check_hardcoded_secrets = lambda root, **kw: calls.append(kw) or []
         mock_validators.get_scan_files = lambda root, scan_all=False: []
         mock_validators.unpublished_scanner_skips = lambda: []  # wave 1x5tr seam
+        mock_validators.scanner_runtime_roots = lambda: (".wavefoundry",)
+        mock_validators.is_scanner_excluded_path = lambda rel: False
         mock_validators.load_merged_ruleset = lambda root: ([], {}, [])
         mock_constants = types.ModuleType("wave_lint_lib.constants")
         mock_constants.SCAN_FINDINGS_PATH = "docs/scan-findings.json"

@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import contextlib
+import gzip
 import io
 import json
 import sys
 import tempfile
 import types
+import tomllib
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -51,6 +53,8 @@ def _inject_mock_validators(captured: list) -> types.ModuleType:
     mod.check_hardcoded_secrets = fake_check
     mod.get_scan_files = fake_get_scan_files
     mod.unpublished_scanner_skips = lambda: []  # wave 1x5tr seam
+    mod.scanner_runtime_roots = lambda: (".wavefoundry",)
+    mod.is_scanner_excluded_path = lambda rel: False
     return mod
 
 
@@ -489,6 +493,134 @@ class ActualRulesChangeConsumers(unittest.TestCase):
                 AssertionError, "newly detected unchanged file"
             ):
                 self._exercise(owner, frozen_fingerprint=True)
+
+
+class DetectionIdentityConsumers(unittest.TestCase):
+    """Assets and executable detection code are part of both cache identities."""
+
+    _run_owner = ActualRulesChangeConsumers._run_owner
+
+    def test_every_detection_input_changes_both_fingerprints(self):
+        self.assertEqual(len(scan_secrets._DETECTION_RELPATHS), 10)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _make_root(root)
+            prior = scan_secrets._compute_rules_hash(root)
+            for rel in scan_secrets._DETECTION_RELPATHS:
+                with self.subTest(path=rel):
+                    path = root / rel
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(b"synthetic detection input identity")
+                    current = scan_secrets._compute_rules_hash(root)
+                    self.assertNotEqual(prior, current)
+                    self.assertEqual(current, run_secrets_scan._compute_rules_hash(root))
+                    prior = current
+
+    def test_asset_engine_and_path_policy_change_rescan_unchanged_source_in_both_owners(self):
+        from wave_lint_lib import secrets_validators as sv
+        from wave_lint_lib.betterleaks_worker import close_worker
+        self.addCleanup(close_worker)
+        for owner in ("indexer", "cli"):
+            for rel in (scan_secrets._DETECTION_RELPATHS[0],
+                        scan_secrets._DETECTION_RELPATHS[-2],
+                        ".wavefoundry/framework/scripts/wave_lint_lib/constants.py",
+                        ".wavefoundry/framework/scripts/wave_lint_lib/secrets_validators.py"):
+                with self.subTest(owner=owner, path=rel), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory).resolve()
+                    _make_root(root)
+                    (root / ".wavefoundry/framework/scan-rules.toml").write_text(
+                        'wavefoundryProfile = "betterleaks-v2-8f376ff9"\n'
+                        'prefilter = "false"\nfilter = "false"\n'
+                        '[allowlist]\npaths = [\'^\\.wavefoundry/\', \'^docs/\']\n'
+                        '[[rules]]\nid = "synthetic-probe"\nregex = "SYNTH_[0-9]{3}"\n')
+                    subject = root / "unchanged.txt"
+                    subject.write_text("SYNTH_001\n")
+                    self._run_owner(owner, root)
+                    ledger = root / _FINDINGS_RELPATH
+                    rows = json.loads(ledger.read_text())
+                    self.assertEqual(len(rows), 1)
+                    rows[0].update(status="false-positive", override_reason="fixture disposition")
+                    ledger.write_text(json.dumps(rows))
+                    path = root / rel
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(b"changed detection identity")
+                    with patch.object(sv, "scan_file_raw", wraps=sv.scan_file_raw) as scanned:
+                        result = self._run_owner(owner, root)
+                    self.assertIn(subject, [call.args[0] for call in scanned.call_args_list])
+                    self.assertTrue(result["rules_change_escalation"] if owner == "indexer"
+                                    else result["escalated_to_full"])
+                    current = json.loads(ledger.read_text())
+                    self.assertEqual(current[0]["id"], rows[0]["id"])
+                    self.assertEqual(current[0]["override_reason"], "fixture disposition")
+
+
+class ShippedProfileUpgradeConsumers(unittest.TestCase):
+    """The shipped 280-rule legacy baseline upgrades through both real caches."""
+
+    _run_owner = ActualRulesChangeConsumers._run_owner
+
+    def test_shipped_upgrade_finds_new_rule_and_preserves_triage(self):
+        from wave_lint_lib.betterleaks_worker import close_worker
+        self.addCleanup(close_worker)
+        fixture_root = Path(__file__).parent / "fixtures/betterleaks"
+        baseline = (fixture_root / "baseline.toml").read_bytes()
+        shipped = (SCRIPTS_ROOT.parent / "scan-rules.toml").read_bytes()
+        old_ids = {rule["id"] for rule in tomllib.loads(baseline.decode())["rules"]}
+        new_ids = {rule["id"] for rule in tomllib.loads(shipped.decode())["rules"]}
+        self.assertEqual((len(old_ids), len(new_ids)), (280, 474))
+        self.assertNotIn("kimi-api-key", old_ids)
+        self.assertIn("kimi-api-key", new_ids)
+        samples = {}
+        with gzip.open(fixture_root / "oracle.jsonl.gz", "rt", encoding="utf-8") as rows:
+            for line in rows:
+                row = json.loads(line)
+                if (row.get("rule_id") in {"aws-access-token", "kimi-api-key"}
+                        and row.get("label") == "positive" and row.get("findings")):
+                    samples.setdefault(row["rule_id"], row["content"])
+                if len(samples) == 2:
+                    break
+        self.assertEqual(set(samples), {"aws-access-token", "kimi-api-key"})
+        for owner in ("indexer", "cli"):
+            with self.subTest(owner=owner), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                _make_root(root)
+                framework = root / ".wavefoundry/framework/scan-rules.toml"
+                framework.write_bytes(baseline)
+                (root / "docs/scan-rules.toml").write_text(
+                    "[allowlist]\npaths = ['^\\.wavefoundry/', '^docs/']\n")
+                for rel in ("prior-pending.env", "prior-classified.env"):
+                    (root / rel).write_text(samples["aws-access-token"])
+                subject = root / "unchanged-new-provider.env"
+                subject.write_text(samples["kimi-api-key"])
+                self._run_owner(owner, root)
+                ledger = root / _FINDINGS_RELPATH
+                initial = json.loads(ledger.read_text())
+                self.assertFalse(any(row["rule_id"] == "kimi-api-key" for row in initial))
+                retained = {}
+                for rel, status in (("prior-pending.env", "pending"),
+                                    ("prior-classified.env", "false-positive")):
+                    entry = next(row for row in initial if row["file"] == rel and row["rule_id"] == "aws-access-token")
+                    entry.update(status=status, history=[{"note": "pre-upgrade synthetic evidence"}])
+                    if status == "false-positive":
+                        entry.update(confirmations=[{"confirmed_by": "fixture reviewer"}],
+                                     override_reason="Retain reviewed fixture classification")
+                    retained[entry["id"]] = {key: entry[key] for key in (
+                        "status", "history", "confirmations", "override_reason") if key in entry}
+                ledger.write_text(json.dumps(initial))
+                cached = self._run_owner(owner, root)
+                self.assertTrue(cached["up_to_date"] if owner == "indexer" else cached["files_skipped"] >= 3)
+                framework.write_bytes(shipped)
+                result = self._run_owner(owner, root)
+                current = json.loads(ledger.read_text())
+                self.assertTrue(any(row["file"] == subject.name and row["rule_id"] == "kimi-api-key"
+                                    for row in current), "new shipped rule must inspect already-cached unchanged source")
+                for identity, fields in retained.items():
+                    entry = next(row for row in current if row["id"] == identity)
+                    self.assertEqual({key: entry[key] for key in fields}, fields)
+                self.assertTrue(result["rules_change_escalation"] if owner == "indexer"
+                                else result["escalated_to_full"])
+                self.assertEqual(subject.read_text(), samples["kimi-api-key"])
+                self.assertNotIn(samples["kimi-api-key"], ledger.read_text())
 
 
 if __name__ == "__main__":

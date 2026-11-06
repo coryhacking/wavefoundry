@@ -1,0 +1,118 @@
+{"actual_skip":true,"error":"","expected_skip":true,"group":"environment variables","input":"$2","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"environment variables","input":"$GIT_PASSWORD","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"environment variables","input":"${GIT_PASSWORD}","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"environment variables","input":"$password","kind":"filter"}
+{"actual_skip":false,"error":"","expected_skip":false,"group":"environment variables","input":"$yP@R.@=ibxI","kind":"filter"}
+{"actual_skip":false,"error":"","expected_skip":false,"group":"environment variables","input":"$2a6WCust9aE","kind":"filter"}
+{"actual_skip":false,"error":"","expected_skip":false,"group":"environment variables","input":"${not_complete1","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"general placeholders","input":"true","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"general placeholders","input":"True","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"general placeholders","input":"false","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"general placeholders","input":"False","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"general placeholders","input":"null","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"general placeholders","input":"NULL","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"general placeholders - repeated characters","input":"aaaaaaaaaaaaaaaaa","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"general placeholders - repeated characters","input":"BBBBBBBBBBbBBBBBBBbBB","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"general placeholders - repeated characters","input":"********************","kind":"filter"}
+{"actual_skip":false,"error":"","expected_skip":false,"group":"general placeholders - repeated characters","input":"aaaaaaaaaaaaaaaaaaabaa","kind":"filter"}
+{"actual_skip":false,"error":"","expected_skip":false,"group":"general placeholders - repeated characters","input":"pas*************d","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - ansible","input":"{{ x }}","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - ansible","input":"{{ password }}","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - ansible","input":"{{password}}","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - ansible","input":"{{ data.proxy_password }}","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - ansible","input":"{{ dict1 | ansible.builtin.combine(dict2) }}","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - github actions","input":"${{ env.First_Name }}","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - github actions","input":"${{ env.DAY_OF_WEEK == 'Monday' }}","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - github actions","input":"${{env.JAVA_VERSION}}","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - github actions","input":"${{ github.event.issue.title }}","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - github actions","input":"${{ github.repository == \"Gattocrucco/lsqfitgp\" }}","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - github actions","input":"${{ github.event.pull_request.number || github.ref }}","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - github actions","input":"${{ github.event_name == 'pull_request' \u0026\u0026 github.event.action == 'unassigned' }}","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - github actions","input":"${{ secrets.SuperSecret }}","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - github actions","input":"${{ vars.JOB_NAME }}","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - github actions","input":"${{ vars.USE_VARIABLES == 'true' }}","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - nuget","input":"%MY_PASSWORD%","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - nuget","input":"%password%","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%b","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%c","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%d","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"% d","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%e","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%E","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%f","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%F","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%g","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%G","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%o","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%O","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%p","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%q","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%-s","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%s","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%t","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%T","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%U","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%#U","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%+v","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%#v","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%v","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%x","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - golang","input":"%X","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - python","input":"{}","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - python","input":"{0}","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - string fmt - python","input":"{10}","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - ucd","input":"@password@","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"interpolated variables - ucd","input":"@LDAP_PASS@","kind":"filter"}
+{"actual_skip":false,"error":"","expected_skip":false,"group":"interpolated variables - ucd","input":"@username@mastodon.example","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"miscellaneous - file paths","input":"/Users/james/Projects/SwiftCode/build/Release","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"miscellaneous - file paths","input":"/tmp/screen-exchange","kind":"filter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"binary extension exclusions","input":"assets/logo.png","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"binary extension exclusions","input":"assets/icon.SVG","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"binary extension exclusions","input":"fonts/site.woff2","kind":"prefilter"}
+{"actual_skip":false,"error":"","expected_skip":false,"group":"binary extension exclusions","input":"docs/report.pdf","kind":"prefilter"}
+{"actual_skip":false,"error":"","expected_skip":false,"group":"binary extension exclusions","input":"docs/report.docx","kind":"prefilter"}
+{"actual_skip":false,"error":"","expected_skip":false,"group":"binary extension exclusions","input":"docs/data.xlsx","kind":"prefilter"}
+{"actual_skip":false,"error":"","expected_skip":false,"group":"binary extension exclusions","input":"build/program.exe","kind":"prefilter"}
+{"actual_skip":false,"error":"","expected_skip":false,"group":"binary extension exclusions","input":"build/library.dll","kind":"prefilter"}
+{"actual_skip":false,"error":"","expected_skip":false,"group":"binary extension exclusions","input":"build/program.pdb","kind":"prefilter"}
+{"actual_skip":false,"error":"","expected_skip":false,"group":"binary extension exclusions","input":"data/blob.bin","kind":"prefilter"}
+{"actual_skip":false,"error":"","expected_skip":false,"group":"binary extension exclusions","input":"models/scene.gltf","kind":"prefilter"}
+{"actual_skip":false,"error":"","expected_skip":false,"group":"binary extension exclusions","input":"data/export.sqlite","kind":"prefilter"}
+{"actual_skip":false,"error":"","expected_skip":false,"group":"binary extension exclusions","input":"build/program","kind":"prefilter"}
+{"actual_skip":false,"error":"","expected_skip":false,"group":"git directories","input":".git","kind":"prefilter"}
+{"actual_skip":false,"error":"","expected_skip":false,"group":"git directories","input":"project/.git","kind":"prefilter"}
+{"actual_skip":false,"error":"","expected_skip":false,"group":"git directories","input":"project/.git/config","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"javascript - common static assets","input":"tests/e2e/nuget/wwwroot/lib/bootstrap/dist/js/bootstrap.esm.min.js","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"javascript - common static assets","input":"src/main/static/lib/angular.1.2.16.min.js","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"javascript - common static assets","input":"src/main/resources/static/jquery-ui-1.12.1/jquery-ui-min.js","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"javascript - common static assets","input":"src/main/resources/static/js/jquery-ui-1.10.4.min.js","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"javascript - common static assets","input":"src-static/js/plotly.min.js","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"javascript - common static assets","input":"swagger/swaggerui/swagger-ui-bundle.js.map","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"javascript - common static assets","input":"swagger/swaggerui/swagger-ui-es-bundle.js.map","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"javascript - common static assets","input":"src/main/static/swagger-ui.min.js","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"javascript - common static assets","input":"swagger/swaggerui/swagger-ui.js","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"javascript - lockfiles","input":"bun.lock","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"javascript - lockfiles","input":"bun.lockb","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"javascript - lockfiles","input":"deno.lock","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"javascript - lockfiles","input":"npm-shrinkwrap.json","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"javascript - lockfiles","input":"package-lock.json","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"javascript - lockfiles","input":"pnpm-lock.yaml","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"javascript - lockfiles","input":"yarn.lock","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"javascript - lockfiles","input":"packages/web/bun.lock","kind":"prefilter"}
+{"actual_skip":false,"error":"","expected_skip":false,"group":"javascript - lockfiles","input":"src/bun.lock.ts","kind":"prefilter"}
+{"actual_skip":false,"error":"","expected_skip":false,"group":"javascript - lockfiles","input":"docs/bun.lockfile.md","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"python","input":"Pipfile.lock","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"python","input":"poetry.lock","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"python","input":"env/lib/python3.7/site-packages/urllib3/util/url.py","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"python","input":"venv/Lib/site-packages/regex-2018.08.29.dist-info/DESCRIPTION.rst","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"python","input":"venv/lib64/python3.5/site-packages/pynvml.py","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"python","input":"python/python3/virtualenv/Lib/site-packages/pyphonetics/utils.py","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"python","input":"virtualenv/lib64/python3.7/base64.py","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"python","input":"cde-root/usr/lib64/python2.4/site-packages/Numeric.pth","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"python","input":"lib/python3.9/site-packages/setuptools/_distutils/msvccompiler.py","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"python","input":"lib/python3.8/site-packages/botocore/data/alexaforbusiness/2017-11-09/service-2.json","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"python","input":"code/python/3.7.4/Lib/site-packages/dask/bytes/tests/test_bytes_utils.py","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"python","input":"python/3.7.4/Lib/site-packages/fsspec/utils.py","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"python","input":"python/2.7.16.32/Lib/bsddb/test/test_dbenv.py","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"python","input":"python/lib/python3.8/site-packages/boto3/data/ec2/2016-04-01/resources-1.json","kind":"prefilter"}
+{"actual_skip":true,"error":"","expected_skip":true,"group":"python","input":"libs/PyX-0.15.dist-info/AUTHORS","kind":"prefilter"}

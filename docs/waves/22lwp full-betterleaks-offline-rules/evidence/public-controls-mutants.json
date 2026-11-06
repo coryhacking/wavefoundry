@@ -1,0 +1,19 @@
+{
+  "controls": [
+    {
+      "mutant": "allow_incomplete_cache_indexer",
+      "detected": true,
+      "incorrect_cache_rows": 1
+    },
+    {
+      "mutant": "allow_incomplete_cache_cli",
+      "detected": true,
+      "incorrect_cache_rows": 1
+    },
+    {
+      "mutant": "remove_all_match_line_redaction",
+      "detected": true
+    }
+  ],
+  "all_detected": true
+}

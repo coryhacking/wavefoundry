@@ -6,7 +6,7 @@
     "line_hash": "adbd87162acc",
     "context_hash": "d23dfb15744d",
     "rule_id": "generic-api-key",
-    "matched_text": "\".wavefoundry/framework/scripts/desi****702\",",
+    "matched_text": "\".wavefoundry/framework/scripts/design_****,",
     "in_comment": false,
     "status": "false-positive",
     "confirmations": [
@@ -26,7 +26,7 @@
     "line_hash": "afdbccf519af",
     "context_hash": "b8c5c5728d65",
     "rule_id": "generic-api-key",
-    "matched_text": "\".wavefoundry/framework/scripts/scan****877\",",
+    "matched_text": "\".wavefoundry/framework/scripts/scan_****,",
     "in_comment": false,
     "status": "false-positive",
     "confirmations": [
@@ -922,7 +922,7 @@
   {
     "id": "221a4-sec",
     "file": "docs/agents/session-handoff.md",
-    "line": 338,
+    "line": 344,
     "line_hash": "fdfcfdbd54cf",
     "context_hash": "c8a464591bfb",
     "rule_id": "sourcegraph-access-token",
@@ -936,6 +936,4746 @@
         "verdict": "false-positive",
         "reason": "Additional occurrence of the operator-confirmed non-credential Git-hash class. Handoff release provenance exactly matches local v1.30.0 commit tag and git cat-file reports commit. Surfaced to operator as the same file-wide keyword-trigger defect; no token or credential.",
         "confirmed_at": "2026-10-30T12:25:35.553597+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22n2o-sec",
+    "file": "docs/reports/retrieval-quality-1y0bf-final.json",
+    "line": 17381,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "7ff6382e7059",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o0w-sec",
+    "file": "docs/reports/retrieval-quality-1y0bf-post-move.json",
+    "line": 17381,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "7ff6382e7059",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o0x-sec",
+    "file": "docs/reports/retrieval-quality-1ymzk-after.json",
+    "line": 17406,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "7ff6382e7059",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o0y-sec",
+    "file": "docs/reports/retrieval-quality-1ymzk-before-retry1.json",
+    "line": 17547,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "7ff6382e7059",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o0z-sec",
+    "file": "docs/reports/retrieval-quality-1ymzq-after.json",
+    "line": 17351,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "7ff6382e7059",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o10-sec",
+    "file": "docs/reports/retrieval-quality-1ymzq-before.json",
+    "line": 17357,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "7ff6382e7059",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o11-sec",
+    "file": "docs/reports/retrieval-quality-1ymzq-mid-comparison.json",
+    "line": 17406,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "7ff6382e7059",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o12-sec",
+    "file": "docs/reports/retrieval-quality-1ypxw-after.json",
+    "line": 17424,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "7ff6382e7059",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o13-sec",
+    "file": "docs/reports/retrieval-quality-1ypxw-before.json",
+    "line": 17375,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "7ff6382e7059",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o14-sec",
+    "file": "docs/reports/retrieval-quality-1ypy6-after.json",
+    "line": 17424,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "7ff6382e7059",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o1j-sec",
+    "file": "docs/reports/retrieval-quality-1ypy6-before.json",
+    "line": 17375,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "7ff6382e7059",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o1k-sec",
+    "file": "docs/reports/retrieval-quality-1yxyw-e1.json",
+    "line": 17333,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "7ff6382e7059",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o1l-sec",
+    "file": "docs/reports/retrieval-quality-1yxyw-e2c.json",
+    "line": 17401,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "7ff6382e7059",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o1m-sec",
+    "file": "docs/reports/retrieval-quality-1yxyw-e3.json",
+    "line": 17357,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "7ff6382e7059",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o1n-sec",
+    "file": "docs/reports/retrieval-quality-1yzd0-e1c.json",
+    "line": 17333,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "7ff6382e7059",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o1o-sec",
+    "file": "docs/reports/retrieval-quality-1yzd0-e2b.json",
+    "line": 17406,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "7ff6382e7059",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o1p-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 14,
+    "line_hash": "80f7b4f58e13",
+    "context_hash": "5be05de8219e",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"test_accel_embedder.py::_Fake****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry test_accel_embedder.py::_FakeTokenizer. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o1q-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 72,
+    "line_hash": "cd8e6b4c3f42",
+    "context_hash": "18fd7dbb21e1",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"test_chunker.py::****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry test_chunker.py::SecretsChunkerTests. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o1r-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 146,
+    "line_hash": "1c7d01a3afc2",
+    "context_hash": "0bda15743ca2",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"test_design_system_validators.py::Broken****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry test_design_system_validators.py::BrokenTokenRefTests. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o1s-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 156,
+    "line_hash": "a102e106ae5b",
+    "context_hash": "297b9763187c",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"test_design_system_validators.py::****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry test_design_system_validators.py::TokenNamingTests. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o1t-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 199,
+    "line_hash": "02b8f3aae583",
+    "context_hash": "97e2bbe6819c",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"test_docs_lint.py::Design****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry test_docs_lint.py::DesignTokenSeedGrammarTests. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o1u-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 233,
+    "line_hash": "c41c1ecfc4ae",
+    "context_hash": "f030c211922c",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"test_fts_lexical_layer.py::****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry test_fts_lexical_layer.py::SecretPostureTests. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o1v-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 269,
+    "line_hash": "8effe6bd393b",
+    "context_hash": "c36950ee31c4",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"test_graph_incremental_merge.py::DepthSwapDelta****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry test_graph_incremental_merge.py::DepthSwapDeltaKeyTests. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o1w-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 284,
+    "line_hash": "b5652de93f36",
+    "context_hash": "ef258127ddcf",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"test_graph_indexer.py::Config****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry test_graph_indexer.py::ConfigKeyReaderEdgeTests. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22o1x-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 466,
+    "line_hash": "cf07a5ac4a62",
+    "context_hash": "6d98fec8a37a",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"test_memory_records.py::****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry test_memory_records.py::SecretScanCoverageTests. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ob2-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 472,
+    "line_hash": "0edb2cb442b4",
+    "context_hash": "d43fe91c3ba6",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"test_memory_records.py::Writer****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry test_memory_records.py::WriterTokenInterleaveTests. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ob3-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 575,
+    "line_hash": "132ff44f34d2",
+    "context_hash": "a045eb8be144",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"test_scan_secrets.py::TestRun****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry test_scan_secrets.py::TestRunSecretsScanHelpers. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ob4-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 576,
+    "line_hash": "07cad5f6de26",
+    "context_hash": "0d33c814857c",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"test_scan_secrets.py::TestRun****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry test_scan_secrets.py::TestRunSecretsScanMainEscalation. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ob5-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 577,
+    "line_hash": "0d7d62cfce87",
+    "context_hash": "37b388220b90",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"test_scan_secrets.py::TestUpdate****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry test_scan_secrets.py::TestUpdateSecretsScanEscalation. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ob6-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 595,
+    "line_hash": "20d98d00e8de",
+    "context_hash": "70d707b72086",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"test_secrets_validators.py::TestGeneric****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry test_secrets_validators.py::TestGenericApiKeyDocsScope. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ob7-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 607,
+    "line_hash": "a6fc416d68da",
+    "context_hash": "d7b35f1c5447",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"test_secrets_validators.py::Test****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry test_secrets_validators.py::TestSecretFindingIdCollision. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ob8-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 608,
+    "line_hash": "6e1783c50c32",
+    "context_hash": "06a64de4b133",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"test_secrets_validators.py::Test****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry test_secrets_validators.py::TestSecretFindingIdShape. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ob9-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 789,
+    "line_hash": "0a8b4887bd58",
+    "context_hash": "384a4ebb3e2d",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"test_server_tools.py::TestSuggestNearSymbols****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry test_server_tools.py::TestSuggestNearSymbolsTokenization. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oba-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 802,
+    "line_hash": "8223d74eb0ee",
+    "context_hash": "594323a04dd7",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"test_server_tools.py::WaveClose****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry test_server_tools.py::WaveCloseSecretsGateTests. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ofx-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 997,
+    "line_hash": "ebade456c95a",
+    "context_hash": "a48771d1437e",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_design_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scripts/tests/test_design_token_build.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ofy-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 1030,
+    "line_hash": "0b5bae6f9f92",
+    "context_hash": "e2ab203147e1",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_scan_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scripts/tests/test_scan_secrets.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ofz-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 1031,
+    "line_hash": "51c3759ee002",
+    "context_hash": "c9c86339a0e2",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scripts/tests/test_secret_scan_cache.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22og0-sec",
+    "file": "docs/waves/1tmtx test-suite-performance/evidence/freeze.json",
+    "line": 1032,
+    "line_hash": "76fa0f50944d",
+    "context_hash": "e808f7b28da4",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scripts/tests/test_secrets_validators.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22og1-sec",
+    "file": "docs/waves/1xhbo lancedb-038-evaluation/vector-screen-results.json",
+    "line": 29395,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "72727ce52297",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22og2-sec",
+    "file": "docs/waves/1xhbo lancedb-038-evaluation/vector-screen-results.json",
+    "line": 28446,
+    "line_hash": "e74e146f529a",
+    "context_hash": "a6f1a718df88",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry tokenizer_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22og3-sec",
+    "file": "docs/waves/1xhbo lancedb-038-evaluation/vector-screen-results.json",
+    "line": 29540,
+    "line_hash": "64d46fdb0490",
+    "context_hash": "24bf9f185bd7",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Report object keyed_initial followed by the docs checksum, not a credential. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22og4-sec",
+    "file": "docs/waves/1xhbo lancedb-038-evaluation/vector-screen-results.json",
+    "line": 29620,
+    "line_hash": "7d4197e1e06c",
+    "context_hash": "bcf8f9872a71",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Report object keyed_final followed by the docs checksum, not a credential. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22og5-sec",
+    "file": "docs/waves/1xhbo lancedb-038-evaluation/vector-screen-results.json",
+    "line": 29812,
+    "line_hash": "64d46fdb0490",
+    "context_hash": "24bf9f185bd7",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Report object keyed_initial followed by the docs checksum, not a credential. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22og6-sec",
+    "file": "docs/waves/1xhbo lancedb-038-evaluation/vector-screen-results.json",
+    "line": 29892,
+    "line_hash": "7d4197e1e06c",
+    "context_hash": "bcf8f9872a71",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Report object keyed_final followed by the docs checksum, not a credential. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22og7-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 1085,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "4913e98f0e5e",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22og8-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 1171,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "fe0129e82013",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22og9-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 3145,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "fe0129e82013",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oga-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4321,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "4913e98f0e5e",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogb-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4610,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "4913e98f0e5e",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogc-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4899,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "4913e98f0e5e",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogd-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5188,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "4913e98f0e5e",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oge-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5414,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "4913e98f0e5e",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogf-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5559,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "4913e98f0e5e",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogg-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5704,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "4913e98f0e5e",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogh-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5849,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "4913e98f0e5e",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogi-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 6384,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "4913e98f0e5e",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogj-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 7077,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "f9d17e41a514",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogk-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 16848,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "52aca5bb9414",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogl-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 1193,
+    "line_hash": "5d7849ce37b8",
+    "context_hash": "7fdbfc70c496",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"design_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry design_token_build.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogm-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 1234,
+    "line_hash": "39f41bb93582",
+    "context_hash": "1d2211251748",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"run_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry run_secrets_scan.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogn-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 1237,
+    "line_hash": "4e1573fe7767",
+    "context_hash": "31a0eec9b4bc",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"scan_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry scan_secrets.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogo-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 1275,
+    "line_hash": "f4a6880197a1",
+    "context_hash": "807730d02f54",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"tests/test_design_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry tests/test_design_token_build.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogp-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 1291,
+    "line_hash": "0b5c55f6529b",
+    "context_hash": "3d354c03920c",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"tests/test_indexer_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry tests/test_indexer_secrets_scope.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogq-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 1314,
+    "line_hash": "b047ab032809",
+    "context_hash": "f925cac6ba9f",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"tests/test_scan_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry tests/test_scan_secrets.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogr-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 1316,
+    "line_hash": "f84bb26f88dc",
+    "context_hash": "f92af9543f9a",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"tests/test_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry tests/test_secret_scan_cache.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogs-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 1317,
+    "line_hash": "e224d3925e7f",
+    "context_hash": "4cac7d5dddfd",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"tests/test_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry tests/test_secrets_prefix_collapse.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogt-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 1318,
+    "line_hash": "5bfa749f63e4",
+    "context_hash": "94b18e24cbd7",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"tests/test_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry tests/test_secrets_validators.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogu-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 1370,
+    "line_hash": "17606680e8a0",
+    "context_hash": "c9b40ca31b0b",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"wave_lint_lib/****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry wave_lint_lib/secrets_validators.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogv-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 3167,
+    "line_hash": "5d7849ce37b8",
+    "context_hash": "7fdbfc70c496",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"design_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry design_token_build.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogw-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 3208,
+    "line_hash": "39f41bb93582",
+    "context_hash": "1d2211251748",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"run_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry run_secrets_scan.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogx-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 3211,
+    "line_hash": "4e1573fe7767",
+    "context_hash": "31a0eec9b4bc",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"scan_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry scan_secrets.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogy-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 3249,
+    "line_hash": "f4a6880197a1",
+    "context_hash": "807730d02f54",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"tests/test_design_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry tests/test_design_token_build.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ogz-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 3265,
+    "line_hash": "0b5c55f6529b",
+    "context_hash": "3d354c03920c",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"tests/test_indexer_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry tests/test_indexer_secrets_scope.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oh0-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 3288,
+    "line_hash": "b047ab032809",
+    "context_hash": "f925cac6ba9f",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"tests/test_scan_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry tests/test_scan_secrets.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oh1-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 3290,
+    "line_hash": "f84bb26f88dc",
+    "context_hash": "f92af9543f9a",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"tests/test_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry tests/test_secret_scan_cache.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oh2-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 3291,
+    "line_hash": "e224d3925e7f",
+    "context_hash": "4cac7d5dddfd",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"tests/test_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry tests/test_secrets_prefix_collapse.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oh3-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 3292,
+    "line_hash": "5bfa749f63e4",
+    "context_hash": "94b18e24cbd7",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"tests/test_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry tests/test_secrets_validators.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oh4-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 3344,
+    "line_hash": "17606680e8a0",
+    "context_hash": "c9b40ca31b0b",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"wave_lint_lib/****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry wave_lint_lib/secrets_validators.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oh5-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4090,
+    "line_hash": "7e9cc8788dcc",
+    "context_hash": "cc79f8d66fb3",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oh6-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4101,
+    "line_hash": "8e8a2ed7cf35",
+    "context_hash": "868713d900fe",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oh7-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4112,
+    "line_hash": "07cfa7eb1edc",
+    "context_hash": "bd9e0153a9da",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oh8-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4123,
+    "line_hash": "a14a92b58bec",
+    "context_hash": "18055e761d36",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oh9-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4134,
+    "line_hash": "4e7c4e7c72e5",
+    "context_hash": "478fa1725786",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oha-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4186,
+    "line_hash": "7a9d9590e12b",
+    "context_hash": "0022ff2c7858",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohb-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4234,
+    "line_hash": "7e9cc8788dcc",
+    "context_hash": "050e2307b802",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohc-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4245,
+    "line_hash": "8e8a2ed7cf35",
+    "context_hash": "389757aed7b8",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohd-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4256,
+    "line_hash": "07cfa7eb1edc",
+    "context_hash": "b6d4e9a5fada",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohe-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4267,
+    "line_hash": "a14a92b58bec",
+    "context_hash": "25fe6ebf4ccf",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohf-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4278,
+    "line_hash": "4e7c4e7c72e5",
+    "context_hash": "4532bc27be37",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohg-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4331,
+    "line_hash": "7a9d9590e12b",
+    "context_hash": "2cf8d7a7d27c",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohh-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4379,
+    "line_hash": "fb572a73905b",
+    "context_hash": "637ef83ad8e6",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohi-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4390,
+    "line_hash": "9b7bd7548776",
+    "context_hash": "55fdf39253ba",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohj-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4401,
+    "line_hash": "d7af500431ec",
+    "context_hash": "96449b4d2243",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohk-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4412,
+    "line_hash": "28b1a3c7944f",
+    "context_hash": "8998163bb3fb",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohl-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4423,
+    "line_hash": "48c3fbadf996",
+    "context_hash": "7bc40bcd1a91",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohm-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4475,
+    "line_hash": "7a9d9590e12b",
+    "context_hash": "0022ff2c7858",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohn-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4523,
+    "line_hash": "fb572a73905b",
+    "context_hash": "f0ea1d0a3623",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oho-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4534,
+    "line_hash": "9b7bd7548776",
+    "context_hash": "dd3286f267c3",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohp-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4545,
+    "line_hash": "d7af500431ec",
+    "context_hash": "b2b376786b96",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohq-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4556,
+    "line_hash": "28b1a3c7944f",
+    "context_hash": "d55178ce3811",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohr-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4567,
+    "line_hash": "48c3fbadf996",
+    "context_hash": "39b205998e64",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohs-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4620,
+    "line_hash": "7a9d9590e12b",
+    "context_hash": "2cf8d7a7d27c",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oht-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4668,
+    "line_hash": "b456b63a31f6",
+    "context_hash": "b7e1f2710545",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohu-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4679,
+    "line_hash": "d6f2db1c4525",
+    "context_hash": "73185fd85e95",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohv-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4690,
+    "line_hash": "40ff19f09d11",
+    "context_hash": "9ab8bcd87fc0",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohw-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4701,
+    "line_hash": "7a394dbf86f3",
+    "context_hash": "463cf092d052",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohx-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4712,
+    "line_hash": "5cde53dc77f1",
+    "context_hash": "3f3c33a4f9cd",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohy-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4764,
+    "line_hash": "7a9d9590e12b",
+    "context_hash": "0022ff2c7858",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ohz-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4812,
+    "line_hash": "b456b63a31f6",
+    "context_hash": "ecbd626e4d44",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oi0-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4823,
+    "line_hash": "d6f2db1c4525",
+    "context_hash": "3fd844122d55",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oi1-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4834,
+    "line_hash": "40ff19f09d11",
+    "context_hash": "f87635c950df",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oi2-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4845,
+    "line_hash": "7a394dbf86f3",
+    "context_hash": "6346b3b35ddf",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oi3-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4856,
+    "line_hash": "5cde53dc77f1",
+    "context_hash": "055f2631c4f2",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oi4-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4909,
+    "line_hash": "7a9d9590e12b",
+    "context_hash": "2cf8d7a7d27c",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oi5-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4957,
+    "line_hash": "5035e9b222a6",
+    "context_hash": "3e3b91218d2b",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oi6-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4968,
+    "line_hash": "c9072786a440",
+    "context_hash": "ff5747ae3020",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oi7-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4979,
+    "line_hash": "192f0a92f99c",
+    "context_hash": "ca769f66cd6a",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oi8-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 4990,
+    "line_hash": "31ddfdbe5de1",
+    "context_hash": "d956b832dcff",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oi9-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5001,
+    "line_hash": "5f48af25e774",
+    "context_hash": "2dabf80d1a85",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oia-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5053,
+    "line_hash": "7a9d9590e12b",
+    "context_hash": "0022ff2c7858",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oib-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5101,
+    "line_hash": "5035e9b222a6",
+    "context_hash": "bad5099f4308",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oic-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5112,
+    "line_hash": "c9072786a440",
+    "context_hash": "a83c2fb2d2f3",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oid-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5123,
+    "line_hash": "192f0a92f99c",
+    "context_hash": "797d5375348f",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oie-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5134,
+    "line_hash": "31ddfdbe5de1",
+    "context_hash": "0c06d82f81b9",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oif-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5145,
+    "line_hash": "5f48af25e774",
+    "context_hash": "5cdf9c4ecd51",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oig-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5198,
+    "line_hash": "7a9d9590e12b",
+    "context_hash": "2cf8d7a7d27c",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oih-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5327,
+    "line_hash": "7e9cc8788dcc",
+    "context_hash": "050e2307b802",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oii-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5338,
+    "line_hash": "8e8a2ed7cf35",
+    "context_hash": "389757aed7b8",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oij-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5349,
+    "line_hash": "07cfa7eb1edc",
+    "context_hash": "b6d4e9a5fada",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oik-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5360,
+    "line_hash": "a14a92b58bec",
+    "context_hash": "25fe6ebf4ccf",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oil-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5371,
+    "line_hash": "4e7c4e7c72e5",
+    "context_hash": "4532bc27be37",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oim-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5424,
+    "line_hash": "7a9d9590e12b",
+    "context_hash": "2cf8d7a7d27c",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oin-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5472,
+    "line_hash": "fb572a73905b",
+    "context_hash": "f0ea1d0a3623",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oio-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5483,
+    "line_hash": "9b7bd7548776",
+    "context_hash": "dd3286f267c3",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oip-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5494,
+    "line_hash": "d7af500431ec",
+    "context_hash": "b2b376786b96",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oiq-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5505,
+    "line_hash": "28b1a3c7944f",
+    "context_hash": "d55178ce3811",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oir-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5516,
+    "line_hash": "48c3fbadf996",
+    "context_hash": "39b205998e64",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ois-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5569,
+    "line_hash": "7a9d9590e12b",
+    "context_hash": "2cf8d7a7d27c",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oit-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5617,
+    "line_hash": "b456b63a31f6",
+    "context_hash": "ecbd626e4d44",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oiu-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5628,
+    "line_hash": "d6f2db1c4525",
+    "context_hash": "3fd844122d55",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oiv-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5639,
+    "line_hash": "40ff19f09d11",
+    "context_hash": "f87635c950df",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oiw-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5650,
+    "line_hash": "7a394dbf86f3",
+    "context_hash": "6346b3b35ddf",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oix-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5661,
+    "line_hash": "5cde53dc77f1",
+    "context_hash": "055f2631c4f2",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oiy-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5714,
+    "line_hash": "7a9d9590e12b",
+    "context_hash": "2cf8d7a7d27c",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oiz-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5762,
+    "line_hash": "5035e9b222a6",
+    "context_hash": "bad5099f4308",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oj0-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5773,
+    "line_hash": "c9072786a440",
+    "context_hash": "a83c2fb2d2f3",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oj1-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5784,
+    "line_hash": "192f0a92f99c",
+    "context_hash": "797d5375348f",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oj2-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5795,
+    "line_hash": "31ddfdbe5de1",
+    "context_hash": "0c06d82f81b9",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oj3-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5806,
+    "line_hash": "5f48af25e774",
+    "context_hash": "5cdf9c4ecd51",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oj4-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5859,
+    "line_hash": "7a9d9590e12b",
+    "context_hash": "2cf8d7a7d27c",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oj5-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5894,
+    "line_hash": "5d7849ce37b8",
+    "context_hash": "edb9c864eaec",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"design_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry design_token_build.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oj6-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5929,
+    "line_hash": "39f41bb93582",
+    "context_hash": "a884380eb051",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"run_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry run_secrets_scan.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oj7-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5936,
+    "line_hash": "4e1573fe7767",
+    "context_hash": "3b7571094ccb",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"scan_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry scan_secrets.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oj8-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 5995,
+    "line_hash": "0b5c55f6529b",
+    "context_hash": "3bcce336955a",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"tests/test_indexer_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry tests/test_indexer_secrets_scope.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oj9-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 6002,
+    "line_hash": "e224d3925e7f",
+    "context_hash": "1bc3c57ae564",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"tests/test_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry tests/test_secrets_prefix_collapse.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oja-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 6004,
+    "line_hash": "5bfa749f63e4",
+    "context_hash": "e68478ff7963",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"tests/test_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry tests/test_secrets_validators.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojb-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 6015,
+    "line_hash": "f84bb26f88dc",
+    "context_hash": "7a99da0a70cb",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"tests/test_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry tests/test_secret_scan_cache.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojc-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 6020,
+    "line_hash": "b047ab032809",
+    "context_hash": "365ec3e4af50",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"tests/test_scan_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry tests/test_scan_secrets.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojd-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 6050,
+    "line_hash": "f4a6880197a1",
+    "context_hash": "bed702dcb53b",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"tests/test_design_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry tests/test_design_token_build.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oje-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 6075,
+    "line_hash": "17606680e8a0",
+    "context_hash": "af0c46a84abd",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"wave_lint_lib/****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry wave_lint_lib/secrets_validators.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojf-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 6297,
+    "line_hash": "5035e9b222a6",
+    "context_hash": "bad5099f4308",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojg-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 6308,
+    "line_hash": "c9072786a440",
+    "context_hash": "a83c2fb2d2f3",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojh-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 6319,
+    "line_hash": "192f0a92f99c",
+    "context_hash": "797d5375348f",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oji-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 6330,
+    "line_hash": "31ddfdbe5de1",
+    "context_hash": "0c06d82f81b9",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojj-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 6341,
+    "line_hash": "5f48af25e774",
+    "context_hash": "5cdf9c4ecd51",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojk-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 6394,
+    "line_hash": "7a9d9590e12b",
+    "context_hash": "2cf8d7a7d27c",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry keyed_rows_sha256. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojl-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 7226,
+    "line_hash": "7d46883dcc66",
+    "context_hash": "5f4f3240ab1e",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/run_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/run_secrets_scan.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojm-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 7229,
+    "line_hash": "a830a49ebd99",
+    "context_hash": "87ad2ec509de",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/scan_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/scan_secrets.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojn-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 10350,
+    "line_hash": "08307531d112",
+    "context_hash": "133cc06b0f7a",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/tests/test_secret_scan_cache.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojo-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 11370,
+    "line_hash": "08307531d112",
+    "context_hash": "133cc06b0f7a",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/tests/test_secret_scan_cache.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojp-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 14334,
+    "line_hash": "1fc7248e9eb4",
+    "context_hash": "2496a3b6345d",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/design_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scripts/design_token_build.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojq-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 14367,
+    "line_hash": "f1eb17fd03c1",
+    "context_hash": "5d963f147676",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/run_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scripts/run_secrets_scan.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojr-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 14374,
+    "line_hash": "f919ac54fb61",
+    "context_hash": "941b03252afc",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/scan_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scripts/scan_secrets.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojs-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 14415,
+    "line_hash": "450e34d947dc",
+    "context_hash": "11a378e4f25d",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/wave_lint_lib/****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scripts/wave_lint_lib/secrets_validators.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojt-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 15725,
+    "line_hash": "635d6563011c",
+    "context_hash": "bf6088ea2ec1",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/design_****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Report object .wavefoundry/framework/scripts/design_token_build.py followed by the package_sha256 checksum, not a credential. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oju-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 15890,
+    "line_hash": "3d2403e96fa6",
+    "context_hash": "3750410c8dce",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/run_****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Report object .wavefoundry/framework/scripts/run_secrets_scan.py followed by the package_sha256 checksum, not a credential. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojv-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 15925,
+    "line_hash": "b7ea4776d4f7",
+    "context_hash": "7a404f151a9c",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/scan_****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Report object .wavefoundry/framework/scripts/scan_secrets.py followed by the package_sha256 checksum, not a credential. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojw-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 16130,
+    "line_hash": "3d320c9edf80",
+    "context_hash": "b23f1127f1f8",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/wave_lint_lib/****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Report object .wavefoundry/framework/scripts/wave_lint_lib/secrets_validators.py followed by the package_sha256 checksum, not a credential. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojx-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 16196,
+    "line_hash": "635d6563011c",
+    "context_hash": "bf6088ea2ec1",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/design_****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Report object .wavefoundry/framework/scripts/design_token_build.py followed by the package_sha256 checksum, not a credential. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojy-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 16361,
+    "line_hash": "3d2403e96fa6",
+    "context_hash": "3750410c8dce",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/run_****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Report object .wavefoundry/framework/scripts/run_secrets_scan.py followed by the package_sha256 checksum, not a credential. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ojz-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 16396,
+    "line_hash": "b7ea4776d4f7",
+    "context_hash": "7a404f151a9c",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/scan_****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Report object .wavefoundry/framework/scripts/scan_secrets.py followed by the package_sha256 checksum, not a credential. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ok0-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/implementation-evidence.json",
+    "line": 16601,
+    "line_hash": "3d320c9edf80",
+    "context_hash": "b23f1127f1f8",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/wave_lint_lib/****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Report object .wavefoundry/framework/scripts/wave_lint_lib/secrets_validators.py followed by the package_sha256 checksum, not a credential. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ok1-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/runtime-qualification.json",
+    "line": 6,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "9369525378cd",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ok2-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/runtime-qualification.json",
+    "line": 70,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "6cd300cbde44",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ok3-sec",
+    "file": "docs/waves/1xjmm unified-sqlite-vector-storage/runtime-qualification.json",
+    "line": 281,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "ccb978addc74",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ok4-sec",
+    "file": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/benchmark-results.json",
+    "line": 7,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "1dfd229abd1a",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ok5-sec",
+    "file": "docs/waves/1xny3 sqlite-graph-consolidation-evaluation/benchmark-results.json",
+    "line": 17149,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "e31037adf64e",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ok6-sec",
+    "file": "docs/waves/1xny6 unified-index-database/delivery-review.json",
+    "line": 2614,
+    "line_hash": "1204306e4bc4",
+    "context_hash": "0205c5da8036",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scripts/tests/test_secret_scan_cache.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ok7-sec",
+    "file": "docs/waves/1xny6 unified-index-database/delivery-review.json",
+    "line": 2691,
+    "line_hash": "1204306e4bc4",
+    "context_hash": "0205c5da8036",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scripts/tests/test_secret_scan_cache.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ok8-sec",
+    "file": "docs/waves/1xny6 unified-index-database/delivery-review.json",
+    "line": 2750,
+    "line_hash": "5f3962e2c25a",
+    "context_hash": "63f543f515aa",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/tests/test_secret_scan_cache.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ok9-sec",
+    "file": "docs/waves/1xny6 unified-index-database/delivery-review.json",
+    "line": 2961,
+    "line_hash": "5f3962e2c25a",
+    "context_hash": "63f543f515aa",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/tests/test_secret_scan_cache.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oka-sec",
+    "file": "docs/waves/1xny6 unified-index-database/delivery-review.json",
+    "line": 3782,
+    "line_hash": "5f3962e2c25a",
+    "context_hash": "63f543f515aa",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/tests/test_secret_scan_cache.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22okb-sec",
+    "file": "docs/waves/1xny6 unified-index-database/runtime-qualification.json",
+    "line": 433,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "0a8e9f48fa3a",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22okc-sec",
+    "file": "docs/waves/1xny6 unified-index-database/runtime-qualification.json",
+    "line": 2296,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "c0e687150ae4",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22okd-sec",
+    "file": "docs/waves/1xny6 unified-index-database/runtime-qualification.json",
+    "line": 3191,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "c0e687150ae4",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oke-sec",
+    "file": "docs/waves/1xny6 unified-index-database/runtime-qualification.json",
+    "line": 3799,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "c0e687150ae4",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22okf-sec",
+    "file": "docs/waves/1xny6 unified-index-database/runtime-qualification.json",
+    "line": 4692,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "c0e687150ae4",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22okg-sec",
+    "file": "docs/waves/1xny6 unified-index-database/runtime-qualification.json",
+    "line": 5413,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "c0e687150ae4",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22okh-sec",
+    "file": "docs/waves/1xny6 unified-index-database/runtime-qualification.json",
+    "line": 6375,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "c0e687150ae4",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oki-sec",
+    "file": "docs/waves/1xny6 unified-index-database/runtime-qualification.json",
+    "line": 7275,
+    "line_hash": "988e7e9e521d",
+    "context_hash": "c0e687150ae4",
+    "rule_id": "generic-password",
+    "matched_text": "\"a****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "APSW dependency version 3.53.4.0, not a password. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22okj-sec",
+    "file": "docs/waves/1xq4f dashboard-lifecycle-integrity/compatibility-review.json",
+    "line": 51,
+    "line_hash": "1204306e4bc4",
+    "context_hash": "0205c5da8036",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scripts/tests/test_secret_scan_cache.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22okk-sec",
+    "file": "docs/waves/1ycrj task-fit-agent-model-policy/evidence/delivery-fingerprint-initial.json",
+    "line": 7,
+    "line_hash": "334bc515defc",
+    "context_hash": "fedf016bbfcb",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".claude/agents/factor-13-****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .claude/agents/factor-13-api-first.md. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22okl-sec",
+    "file": "docs/waves/1ycrj task-fit-agent-model-policy/evidence/delivery-fingerprint-pre-bom.json",
+    "line": 7,
+    "line_hash": "334bc515defc",
+    "context_hash": "fedf016bbfcb",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".claude/agents/factor-13-****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .claude/agents/factor-13-api-first.md. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22okm-sec",
+    "file": "docs/waves/1ycrj task-fit-agent-model-policy/evidence/delivery-fingerprint.json",
+    "line": 7,
+    "line_hash": "334bc515defc",
+    "context_hash": "fedf016bbfcb",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".claude/agents/factor-13-****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .claude/agents/factor-13-api-first.md. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22okn-sec",
+    "file": "docs/waves/204mp waveforge-follow-up/evidence/delivery-20261009-01/architecture-docs.json",
+    "line": 70,
+    "line_hash": "e8b3ad694ee7",
+    "context_hash": "d142847e2717",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_council_signoff_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/tests/test_council_signoff_keys.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oko-sec",
+    "file": "docs/waves/204mp waveforge-follow-up/evidence/delivery-20261009-01/architecture-docs.json",
+    "line": 111,
+    "line_hash": "e8b3ad694ee7",
+    "context_hash": "d142847e2717",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_council_signoff_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/tests/test_council_signoff_keys.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22okp-sec",
+    "file": "docs/waves/204mp waveforge-follow-up/evidence/delivery-20261009-01/architecture-docs.json",
+    "line": 149,
+    "line_hash": "60deb4be91d0",
+    "context_hash": "28059457c561",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_council_signoff_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scripts/tests/test_council_signoff_keys.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22okq-sec",
+    "file": "docs/waves/204mp waveforge-follow-up/evidence/delivery-20261009-01/architecture-docs.json",
+    "line": 201,
+    "line_hash": "60deb4be91d0",
+    "context_hash": "28059457c561",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_council_signoff_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scripts/tests/test_council_signoff_keys.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22okr-sec",
+    "file": "docs/waves/204mp waveforge-follow-up/evidence/delivery-20261009-01/code-qa.json",
+    "line": 22,
+    "line_hash": "e8b3ad694ee7",
+    "context_hash": "d142847e2717",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_council_signoff_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/tests/test_council_signoff_keys.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oks-sec",
+    "file": "docs/waves/204mp waveforge-follow-up/evidence/delivery-20261009-01/code-qa.json",
+    "line": 63,
+    "line_hash": "e8b3ad694ee7",
+    "context_hash": "d142847e2717",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_council_signoff_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/tests/test_council_signoff_keys.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22okt-sec",
+    "file": "docs/waves/204mp waveforge-follow-up/evidence/delivery-20261009-01/code-qa.json",
+    "line": 102,
+    "line_hash": "60deb4be91d0",
+    "context_hash": "28059457c561",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_council_signoff_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scripts/tests/test_council_signoff_keys.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oku-sec",
+    "file": "docs/waves/204mp waveforge-follow-up/evidence/delivery-20261009-01/security-performance.json",
+    "line": 122,
+    "line_hash": "e8b3ad694ee7",
+    "context_hash": "d142847e2717",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_council_signoff_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/tests/test_council_signoff_keys.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22okv-sec",
+    "file": "docs/waves/204mp waveforge-follow-up/evidence/delivery-20261009-01/security-performance.json",
+    "line": 163,
+    "line_hash": "e8b3ad694ee7",
+    "context_hash": "d142847e2717",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_council_signoff_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/tests/test_council_signoff_keys.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22okw-sec",
+    "file": "docs/waves/204mp waveforge-follow-up/evidence/delivery-20261009-01/security-performance.json",
+    "line": 201,
+    "line_hash": "60deb4be91d0",
+    "context_hash": "28059457c561",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_council_signoff_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scripts/tests/test_council_signoff_keys.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22okx-sec",
+    "file": "docs/waves/204mp waveforge-follow-up/evidence/delivery-20261009-04/wf-204mp-autolink-final-arch-docs-report.json",
+    "line": 27,
+    "line_hash": "60deb4be91d0",
+    "context_hash": "28059457c561",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_council_signoff_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scripts/tests/test_council_signoff_keys.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22oky-sec",
+    "file": "docs/waves/204mp waveforge-follow-up/evidence/delivery-20261009-04/wf-204mp-autolink-final-arch-docs-report.json",
+    "line": 53,
+    "line_hash": "e8b3ad694ee7",
+    "context_hash": "d142847e2717",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_council_signoff_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/tests/test_council_signoff_keys.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22okz-sec",
+    "file": "docs/waves/204mp waveforge-follow-up/evidence/delivery-20261009-04/wf-204mp-autolink-final-arch-docs-report.json",
+    "line": 80,
+    "line_hash": "60deb4be91d0",
+    "context_hash": "28059457c561",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_council_signoff_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scripts/tests/test_council_signoff_keys.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ol0-sec",
+    "file": "docs/waves/204mp waveforge-follow-up/evidence/delivery-20261009-04/wf-204mp-autolink-final-arch-docs-report.json",
+    "line": 106,
+    "line_hash": "e8b3ad694ee7",
+    "context_hash": "d142847e2717",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_council_signoff_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/tests/test_council_signoff_keys.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ol1-sec",
+    "file": "docs/waves/204mp waveforge-follow-up/evidence/delivery-20261009-04/wf-204mp-autolink-final-code-qa-report.json",
+    "line": 26,
+    "line_hash": "60deb4be91d0",
+    "context_hash": "28059457c561",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_council_signoff_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scripts/tests/test_council_signoff_keys.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ol2-sec",
+    "file": "docs/waves/204mp waveforge-follow-up/evidence/delivery-20261009-04/wf-204mp-autolink-final-code-qa-report.json",
+    "line": 52,
+    "line_hash": "e8b3ad694ee7",
+    "context_hash": "d142847e2717",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_council_signoff_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/tests/test_council_signoff_keys.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ol3-sec",
+    "file": "docs/waves/204mp waveforge-follow-up/evidence/delivery-20261009-04/wf-204mp-autolink-final-qa-qualification-report.json",
+    "line": 37,
+    "line_hash": "60deb4be91d0",
+    "context_hash": "28059457c561",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_council_signoff_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scripts/tests/test_council_signoff_keys.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ol4-sec",
+    "file": "docs/waves/204mp waveforge-follow-up/evidence/delivery-20261009-04/wf-204mp-autolink-security-report.json",
+    "line": 147,
+    "line_hash": "e8b3ad694ee7",
+    "context_hash": "d142847e2717",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_council_signoff_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/tests/test_council_signoff_keys.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ol5-sec",
+    "file": "docs/waves/204mp waveforge-follow-up/evidence/delivery-20261009-04/wf-204mp-autolink-security-report.json",
+    "line": 173,
+    "line_hash": "60deb4be91d0",
+    "context_hash": "28059457c561",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_council_signoff_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scripts/tests/test_council_signoff_keys.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ol6-sec",
+    "file": "docs/waves/204mp waveforge-follow-up/evidence/implementation-tree.json",
+    "line": 11,
+    "line_hash": "60deb4be91d0",
+    "context_hash": "28059457c561",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_council_signoff_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scripts/tests/test_council_signoff_keys.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ol7-sec",
+    "file": "docs/waves/21tpp envision-product-vision/envision-evaluation.json",
+    "line": 589,
+    "line_hash": "a9c619cbd8d7",
+    "context_hash": "469475f440bd",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"prompt-council/anonymous-****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Report object prompt-council/anonymous-key.json followed by the sha256 checksum, not a credential. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ol8-sec",
+    "file": "docs/waves/21y6d envision-adaptive-roadmap/adoption-evaluation.json",
+    "line": 135,
+    "line_hash": "922a6892f073",
+    "context_hash": "c378036310f4",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"evaluation/private-control-****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Report object evaluation/private-control-key.json followed by the sha256 checksum, not a credential. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ol9-sec",
+    "file": "docs/waves/21y6d envision-adaptive-roadmap/roadmap-evaluation.json",
+    "line": 239,
+    "line_hash": "df2719c217f4",
+    "context_hash": "411056cb8d27",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"evaluation-design/private/control-****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Report object evaluation-design/private/control-key.json followed by the sha256 checksum, not a credential. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ola-sec",
+    "file": "docs/waves/220a9 envision-future-exploration/evaluation-evidence.json",
+    "line": 1492,
+    "line_hash": "dec37db71fb2",
+    "context_hash": "6af1d3a6228d",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/work/220a9/trials/chosen-stages/later-****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Report object .wavefoundry/work/220a9/trials/chosen-stages/later-authorized.diff followed by the sha256 checksum, not a credential. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22olb-sec",
+    "file": "docs/waves/224i4 reader-centered-writing/evaluation-evidence.json",
+    "line": 1229,
+    "line_hash": "d763ad3e9f51",
+    "context_hash": "2e3287627ea0",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"focused-reader-****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Report object focused-reader-authorization.json followed by the sha256 checksum, not a credential. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22olc-sec",
+    "file": "docs/waves/22o93 scanner-rule-corrections/evidence/delivery-manifest.json",
+    "line": 3,
+    "line_hash": "527e126f0752",
+    "context_hash": "a9fc2f1a3ca6",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/scan_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/scan_secrets.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22old-sec",
+    "file": "docs/waves/22o93 scanner-rule-corrections/evidence/delivery-manifest.json",
+    "line": 4,
+    "line_hash": "57d1996803fc",
+    "context_hash": "89f5d9b50bbc",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_scan_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/tests/test_scan_secrets.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22ole-sec",
+    "file": "docs/waves/22o93 scanner-rule-corrections/evidence/delivery-manifest.json",
+    "line": 5,
+    "line_hash": "fbeb90d3befb",
+    "context_hash": "0265caf6e716",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/tests/test_secrets_prefix_collapse.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22olf-sec",
+    "file": "docs/waves/22o93 scanner-rule-corrections/evidence/delivery-manifest.json",
+    "line": 6,
+    "line_hash": "16f9c4503ae5",
+    "context_hash": "0e88e2f1568f",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/tests/test_****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/tests/test_secrets_validators.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22olg-sec",
+    "file": "docs/waves/22o93 scanner-rule-corrections/evidence/delivery-manifest.json",
+    "line": 8,
+    "line_hash": "7a8faab7737c",
+    "context_hash": "b283965e51ae",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scripts/wave_lint_lib/****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "40-character hex file fingerprint in a saved delivery/source manifest, keyed by .wavefoundry/framework/scripts/wave_lint_lib/secrets_validators.py. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22nx0-sec",
+    "file": "docs/waves/22lwp full-betterleaks-offline-rules/evidence/ruleset-static-inventory.json",
+    "line": 192,
+    "line_hash": "8d7502be1617",
+    "context_hash": "52b38da7bba7",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"snowflake-programmatic-****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Identifier of shipped scanner rule snowflake-programmatic-access-token.1, not a token. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22nx1-sec",
+    "file": "docs/waves/22lwp full-betterleaks-offline-rules/evidence/ruleset-static-inventory.json",
+    "line": 214,
+    "line_hash": "ad25db98c12f",
+    "context_hash": "18c3f890f236",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"voyageai-****",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "Identifier of shipped scanner rule voyageai-api-key, not a token. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
+      }
+    ]
+  },
+  {
+    "id": "22lh8-sec",
+    "file": "docs/waves/22lwp full-betterleaks-offline-rules/evidence/downstream-scan-probe.json",
+    "line": 15,
+    "line_hash": "47d29f1643a7",
+    "context_hash": "c2094ddc1667",
+    "rule_id": "generic-api-key",
+    "matched_text": "\".wavefoundry/framework/scan/cl100k_base.tik****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "verdict": "false-positive",
+        "reason": "64-character hex digest stored in report checksum entry .wavefoundry/framework/scan/cl100k_base.tiktoken.gz. Source context reviewed on 2026-11-06; operator confirmed this classification.",
+        "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
       }
     ]
   }

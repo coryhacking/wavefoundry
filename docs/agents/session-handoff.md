@@ -6,17 +6,24 @@ Last verified: 2026-11-06
 
 ## Current state
 
-No wave is open. Waves **22o92 distribution-followup-corrections** and **22o93 scanner-rule-corrections** are closed by the operator's explicit direction on 2026-11-06. All admitted ACs/tasks are complete, technical and Council delivery approvals are current, and operator signoffs are recorded. Commit and push are authorized and are the root coordinator's next actions; neither has occurred yet.
+No wave is OPEN. **22lwp full-betterleaks-offline-rules closed on 2026-11-06** by explicit operator direction. It ships the full pinned 474-rule Python offline profile, verified assets under `.wavefoundry/framework/scan/`, bounded worker execution and distribution-owned runtime-directory exclusions. All six required ACs/tasks and all required technical/Council approvals are complete; QA and Council confirm intent fit establishes. Root now owns the separately authorized commit/push and **local test package**, not an official release.
 
-### Next
+Canonical Close accepted the current green receipt `e73306cd71805a94dfdb36ebfc10ececa6be33d04a282f8e2979bc3b7f1c7ffc`: **12,485 tests / 221 modules / 12 expected skips / 746.812 seconds**, recorded 2026-11-06T19:57:41.052892+00:00. Close returned no diagnostics and removed the verified owned work area. Full documentation validation and diff checks pass. Framework and seed edit gates are closed. The operator confirmed all remaining scanner observations false-positive; `docs/scan-findings.json` permanently records individual reasons, confirmer and date (284 false positives, zero unresolved). Binary/long-line coverage skips remain explicit; this is not complete coverage of those inputs.
 
-Review and commit the two waves' exact delivered scope, then push. Preserve earlier README.md, docs/index.md and docs/references/wavefoundry-overview.md edits separately. The operator also authorized preparing, reviewing and implementing `docs/plans/22o94-enh adopt-current-betterleaks-ruleset.md`; it is currently staged, not admitted or readied. Its construct census, engine decision and cost qualification precede implementation. No package or release was requested.
+### Retained evidence
 
-### Test state and operational limits
+The wave's `evidence/` retains the full-rule inventory, reference and independent qualification summaries, frozen cost comparisons, historical and final manifests, consumer/policy/cache tests, worker lifetime and guard mutants, representative downstream package probe and runtime-exclusion baseline/review evidence. Typed review authority remains in `events.jsonl`. Maintained tests reproduce the load-bearing behavior. Disposable reviewer notes and raw green logs were removed only through the canonical owned-work cleanup.
 
-The canonical suite exits 0: **12,411 tests / 218 files / 12 expected skips / 614.796 seconds**. Receipt inputs_hash: `7ad25d4f851118e37ffb85dc82560b9e25438bd328aa61ee0d55d43c1b964161`, recorded 2026-11-06T09:05:21.019783+00:00. Both canonical close calls verified this matching green receipt. Source gates are closed. Native Windows/Git Bash, actual Python 3.9, live providers and field savings remain unqualified. Sourcegraph bare-token detection is deliberately excluded; compatibility inspection does not establish full upstream semantics or absence of secrets.
+Qualification includes 9,330 reference cases, 430 expressions / 1,720 evaluations, 2,006 tokenizer cases and 1,521 designed near misses covering 169 rule IDs without upstream negatives. Actual consumer upgrade, cache/history, worker failure and exact runtime selection controls pass. Runtime exclusions apply before content hashing; changing declaration or predicate identity refreshes both owners. No Go helper, new runtime dependency or external action is shipped. Prior integration failures and the independently repaired worker-retention defect remain recorded with their candidate boundaries.
 
-The MCP runner remains stale after in-process reload. Its memory handler refused producer compatibility, so the unchanged public memory/close handlers ran successfully in fresh Python processes with all normal checks. No setup or index rebuild ran; restart the host before relying on indexed operations. Both memory proposal inspections returned zero candidates, and no wave-linked pending memory record exists. The operator-deleted :memory:.ses remains absent.
+The bounded retrospective found no additional memory to create: current architecture/build guidance and maintained tests already own the actionable lessons. `memory_propose` returned zero eligible candidates; no pending candidate was created. Unique proof was retained before cleanup.
+
+## Open questions / Deferred decisions
+
+- Native Windows execution, actual Waveforge installation, arbitrary forks, field precision and field cost remain unqualified. The production-copy second-profile probe is representative, not a deployment claim.
+- Preserve unrelated README.md, docs/index.md and docs/references/wavefoundry-overview.md edits when committing this wave. Earlier waves 22o92/22o93 are already pushed as b33211eb. The operator-deleted `:memory:.ses` stays absent.
+- MCP setup/index staleness remains separate from source qualification; no setup, live index rebuild or recovery operation was performed.
+- Root will commit/push the authorized work and build a local test package. No official release is authorized by this request.
 
 ## Last closed waves — 22o93 and 22o92
 

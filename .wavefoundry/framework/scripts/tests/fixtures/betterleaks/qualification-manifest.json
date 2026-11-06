@@ -1,0 +1,5439 @@
+{
+  "commit": "8f376ff9c31ed5309ac448fe601c5dd21b376155",
+  "rules": 474,
+  "full_config_cases": 9330,
+  "upstream_cases": 9123,
+  "upstream_labels": {
+    "positive": 8207,
+    "negative": 916
+  },
+  "observed_top_level_ids": 430,
+  "observed_component_ids": 43,
+  "observed_union_ids": 473,
+  "unreachable_ids": [
+    "polymarket-address"
+  ],
+  "isolated_orphan_proven": true,
+  "diagnostic_cases": 0,
+  "global_cases": 118,
+  "full_corpus_bytes": 7939245,
+  "compressed_bytes": 360876,
+  "full_corpus_sha256": "0661787b4b389a2b0496e0b1fe2f75fd908f3bde8169841b46cd516eb1c1ff5b",
+  "rule_coverage": [
+    {
+      "id": "1password-secret-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 54,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00052",
+      "default_unreachable": false
+    },
+    {
+      "id": "1password-service-account-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 4,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00056",
+      "default_unreachable": false
+    },
+    {
+      "id": "abuseipdb-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00148",
+      "default_unreachable": false
+    },
+    {
+      "id": "adafruit-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00107",
+      "default_unreachable": false
+    },
+    {
+      "id": "adobe-client-id",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00127",
+      "default_unreachable": false
+    },
+    {
+      "id": "adobe-client-secret",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00147",
+      "default_unreachable": false
+    },
+    {
+      "id": "age-secret-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00174",
+      "default_unreachable": false
+    },
+    {
+      "id": "aikido-ci-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00183",
+      "default_unreachable": false
+    },
+    {
+      "id": "aikido-client-id",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09123",
+      "default_unreachable": false
+    },
+    {
+      "id": "aikido-client-secret",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "aikido-client-id"
+        }
+      ],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09123",
+      "default_unreachable": false
+    },
+    {
+      "id": "airtable-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00185",
+      "default_unreachable": false
+    },
+    {
+      "id": "airtable-oauth-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00237",
+      "default_unreachable": false
+    },
+    {
+      "id": "airtable-personnal-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00224",
+      "default_unreachable": false
+    },
+    {
+      "id": "aiven-auth-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00063",
+      "default_unreachable": false
+    },
+    {
+      "id": "algolia-api-key",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "algolia-application-id"
+        }
+      ],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09126",
+      "default_unreachable": false
+    },
+    {
+      "id": "algolia-application-id",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09126",
+      "default_unreachable": false
+    },
+    {
+      "id": "alibaba-access-key-id",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 0,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09135",
+      "default_unreachable": false
+    },
+    {
+      "id": "alibaba-secret-key",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "alibaba-access-key-id",
+          "within": "5L"
+        }
+      ],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09135",
+      "default_unreachable": false
+    },
+    {
+      "id": "alibaba-sts-access-key-id",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 1,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09138",
+      "default_unreachable": false
+    },
+    {
+      "id": "alibaba-sts-access-key-secret",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "alibaba-sts-access-key-id",
+          "within": "10L"
+        },
+        {
+          "id": "alibaba-sts-security-token",
+          "within": "10L"
+        }
+      ],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09138",
+      "default_unreachable": false
+    },
+    {
+      "id": "alibaba-sts-security-token",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 1,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09138",
+      "default_unreachable": false
+    },
+    {
+      "id": "amplitude-secret-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00315",
+      "default_unreachable": false
+    },
+    {
+      "id": "anthropic-admin-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00320",
+      "default_unreachable": false
+    },
+    {
+      "id": "anthropic-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00324",
+      "default_unreachable": false
+    },
+    {
+      "id": "apify-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 4,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00331",
+      "default_unreachable": false
+    },
+    {
+      "id": "apollo-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00337",
+      "default_unreachable": false
+    },
+    {
+      "id": "artifactory-api-key",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "artifactory-jfrog-url"
+        }
+      ],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 4,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09141",
+      "default_unreachable": false
+    },
+    {
+      "id": "artifactory-jfrog-url",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 2,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09144",
+      "default_unreachable": false
+    },
+    {
+      "id": "artifactory-reference-token",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "artifactory-jfrog-url"
+        }
+      ],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 4,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09144",
+      "default_unreachable": false
+    },
+    {
+      "id": "asaas-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00410",
+      "default_unreachable": false
+    },
+    {
+      "id": "asana-client-id",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00371",
+      "default_unreachable": false
+    },
+    {
+      "id": "asana-client-secret",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00391",
+      "default_unreachable": false
+    },
+    {
+      "id": "assemblyai-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00069",
+      "default_unreachable": false
+    },
+    {
+      "id": "atlassian-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 5,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00414",
+      "default_unreachable": false
+    },
+    {
+      "id": "auth0-client-id.1",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09147",
+      "default_unreachable": false
+    },
+    {
+      "id": "auth0-client-secret.1",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "auth0-client-id.1",
+          "within": "10L"
+        },
+        {
+          "id": "auth0-domain.1",
+          "within": "10L"
+        }
+      ],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09147",
+      "default_unreachable": false
+    },
+    {
+      "id": "auth0-domain.1",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09147",
+      "default_unreachable": false
+    },
+    {
+      "id": "authress-service-client-access-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00435",
+      "default_unreachable": false
+    },
+    {
+      "id": "aws-access-token",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "aws-secret-access-key",
+          "optional": true,
+          "within": "5L"
+        }
+      ],
+      "upstream_positive_cases": 130,
+      "upstream_negative_cases": 5,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00437",
+      "default_unreachable": false
+    },
+    {
+      "id": "aws-amazon-bedrock-api-key-long-lived",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00281",
+      "default_unreachable": false
+    },
+    {
+      "id": "aws-amazon-bedrock-api-key-short-lived",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00295",
+      "default_unreachable": false
+    },
+    {
+      "id": "aws-secret-access-key",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 52,
+      "upstream_negative_cases": 0,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09153",
+      "default_unreachable": false
+    },
+    {
+      "id": "azure-ad-client-secret",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "azure-tenant-id",
+          "within": "8L"
+        },
+        {
+          "id": "azure-client-id",
+          "within": "8L"
+        }
+      ],
+      "upstream_positive_cases": 17,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09162",
+      "default_unreachable": false
+    },
+    {
+      "id": "azure-app-configuration-connection-string",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00650",
+      "default_unreachable": false
+    },
+    {
+      "id": "azure-client-id",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 0,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09162",
+      "default_unreachable": false
+    },
+    {
+      "id": "azure-servicebus-connection-string",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00651",
+      "default_unreachable": false
+    },
+    {
+      "id": "azure-storage-account-key",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "azure-storage-account-name",
+          "within": "8L"
+        }
+      ],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00646",
+      "default_unreachable": false
+    },
+    {
+      "id": "azure-storage-account-name",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 0,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-00646",
+      "default_unreachable": false
+    },
+    {
+      "id": "azure-tenant-id",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 0,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09162",
+      "default_unreachable": false
+    },
+    {
+      "id": "beamer-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00786",
+      "default_unreachable": false
+    },
+    {
+      "id": "bitbucket-client-id",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00671",
+      "default_unreachable": false
+    },
+    {
+      "id": "bitbucket-client-secret",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00681",
+      "default_unreachable": false
+    },
+    {
+      "id": "bitbucket-data-center-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00706",
+      "default_unreachable": false
+    },
+    {
+      "id": "bitly-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00713",
+      "default_unreachable": false
+    },
+    {
+      "id": "bitrise-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00709",
+      "default_unreachable": false
+    },
+    {
+      "id": "bittrex-access-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00739",
+      "default_unreachable": false
+    },
+    {
+      "id": "bittrex-secret-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00739",
+      "default_unreachable": false
+    },
+    {
+      "id": "box-api-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 6,
+      "upstream_negative_cases": 9,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00796",
+      "default_unreachable": false
+    },
+    {
+      "id": "brave-search-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00820",
+      "default_unreachable": false
+    },
+    {
+      "id": "browserstack-access-key.1",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "browserstack-username.1",
+          "within": "5L"
+        }
+      ],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09174",
+      "default_unreachable": false
+    },
+    {
+      "id": "browserstack-username.1",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09174",
+      "default_unreachable": false
+    },
+    {
+      "id": "buildkite-service-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 8,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00833",
+      "default_unreachable": false
+    },
+    {
+      "id": "buildkite-user-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00824",
+      "default_unreachable": false
+    },
+    {
+      "id": "canadian-digital-service-notify-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02472",
+      "default_unreachable": false
+    },
+    {
+      "id": "canva-client-id",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09180",
+      "default_unreachable": false
+    },
+    {
+      "id": "canva-client-secret",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "canva-client-id"
+        }
+      ],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09180",
+      "default_unreachable": false
+    },
+    {
+      "id": "cartesia-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00844",
+      "default_unreachable": false
+    },
+    {
+      "id": "cerebras-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00848",
+      "default_unreachable": false
+    },
+    {
+      "id": "checkout-secret-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07498",
+      "default_unreachable": false
+    },
+    {
+      "id": "circleci-personal-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07500",
+      "default_unreachable": false
+    },
+    {
+      "id": "circleci-project-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07502",
+      "default_unreachable": false
+    },
+    {
+      "id": "cisco-meraki-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 5,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04722",
+      "default_unreachable": false
+    },
+    {
+      "id": "civo-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00899",
+      "default_unreachable": false
+    },
+    {
+      "id": "clerk-secret-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01145",
+      "default_unreachable": false
+    },
+    {
+      "id": "clickhouse-cloud-api-secret-key",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "clickhouse-cloud-key-id"
+        }
+      ],
+      "upstream_positive_cases": 52,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09186",
+      "default_unreachable": false
+    },
+    {
+      "id": "clickhouse-cloud-key-id",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09186",
+      "default_unreachable": false
+    },
+    {
+      "id": "clickup-personal-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00961",
+      "default_unreachable": false
+    },
+    {
+      "id": "clojars-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-00982",
+      "default_unreachable": false
+    },
+    {
+      "id": "cloudflare-account-id.1",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 1,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09192",
+      "default_unreachable": false
+    },
+    {
+      "id": "cloudflare-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 29,
+      "upstream_negative_cases": 5,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01022",
+      "default_unreachable": false
+    },
+    {
+      "id": "cloudflare-api-key.2",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "cloudflare-account-id.1",
+          "optional": true,
+          "within": "5L"
+        }
+      ],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01028",
+      "default_unreachable": false
+    },
+    {
+      "id": "cloudflare-global-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 29,
+      "upstream_negative_cases": 5,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01025",
+      "default_unreachable": false
+    },
+    {
+      "id": "cloudflare-origin-ca-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 28,
+      "upstream_negative_cases": 6,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01087",
+      "default_unreachable": false
+    },
+    {
+      "id": "cloudinary-api-key",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09198",
+      "default_unreachable": false
+    },
+    {
+      "id": "cloudinary-api-secret",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "cloudinary-api-key"
+        },
+        {
+          "id": "cloudinary-cloud-name"
+        }
+      ],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09198",
+      "default_unreachable": false
+    },
+    {
+      "id": "cloudinary-cloud-name",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09198",
+      "default_unreachable": false
+    },
+    {
+      "id": "cloudsmith-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01100",
+      "default_unreachable": false
+    },
+    {
+      "id": "cockroachlabs-cloud-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01138",
+      "default_unreachable": false
+    },
+    {
+      "id": "codecov-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01142",
+      "default_unreachable": false
+    },
+    {
+      "id": "cohere-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01176",
+      "default_unreachable": false
+    },
+    {
+      "id": "coinbase-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01174",
+      "default_unreachable": false
+    },
+    {
+      "id": "configcat-sdk-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01231",
+      "default_unreachable": false
+    },
+    {
+      "id": "configcat-sdk-key-extended",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01234",
+      "default_unreachable": false
+    },
+    {
+      "id": "confluent-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01192",
+      "default_unreachable": false
+    },
+    {
+      "id": "confluent-secret-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01206",
+      "default_unreachable": false
+    },
+    {
+      "id": "contentful-delivery-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01256",
+      "default_unreachable": false
+    },
+    {
+      "id": "couchbase-capella-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01266",
+      "default_unreachable": false
+    },
+    {
+      "id": "coveralls-personal-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01263",
+      "default_unreachable": false
+    },
+    {
+      "id": "crates-io-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07504",
+      "default_unreachable": false
+    },
+    {
+      "id": "curl-auth-header",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 18,
+      "upstream_negative_cases": 9,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01298",
+      "default_unreachable": false
+    },
+    {
+      "id": "curl-auth-user",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 11,
+      "upstream_negative_cases": 24,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01326",
+      "default_unreachable": false
+    },
+    {
+      "id": "cursor-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01270",
+      "default_unreachable": false
+    },
+    {
+      "id": "databento-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07506",
+      "default_unreachable": false
+    },
+    {
+      "id": "databricks-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01385",
+      "default_unreachable": false
+    },
+    {
+      "id": "datadog-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01448",
+      "default_unreachable": false
+    },
+    {
+      "id": "datadog-application-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01472",
+      "default_unreachable": false
+    },
+    {
+      "id": "datagov-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01474",
+      "default_unreachable": false
+    },
+    {
+      "id": "datastax-astra-application-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01387",
+      "default_unreachable": false
+    },
+    {
+      "id": "deepgram-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01408",
+      "default_unreachable": false
+    },
+    {
+      "id": "deepseek-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01418",
+      "default_unreachable": false
+    },
+    {
+      "id": "defined-networking-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01491",
+      "default_unreachable": false
+    },
+    {
+      "id": "deno-account-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01502",
+      "default_unreachable": false
+    },
+    {
+      "id": "devcycle-client-sdk-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01510",
+      "default_unreachable": false
+    },
+    {
+      "id": "devcycle-mobile-sdk-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01512",
+      "default_unreachable": false
+    },
+    {
+      "id": "devcycle-server-sdk-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01514",
+      "default_unreachable": false
+    },
+    {
+      "id": "devin-personal-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01503",
+      "default_unreachable": false
+    },
+    {
+      "id": "devin-service-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01505",
+      "default_unreachable": false
+    },
+    {
+      "id": "devin-service-user-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01508",
+      "default_unreachable": false
+    },
+    {
+      "id": "digitalocean-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01565",
+      "default_unreachable": false
+    },
+    {
+      "id": "digitalocean-pat",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01528",
+      "default_unreachable": false
+    },
+    {
+      "id": "digitalocean-refresh-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01577",
+      "default_unreachable": false
+    },
+    {
+      "id": "discord-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01609",
+      "default_unreachable": false
+    },
+    {
+      "id": "discord-client-id",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01626",
+      "default_unreachable": false
+    },
+    {
+      "id": "discord-client-secret",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01657",
+      "default_unreachable": false
+    },
+    {
+      "id": "disqus-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01594",
+      "default_unreachable": false
+    },
+    {
+      "id": "docker-swarm-join-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01705",
+      "default_unreachable": false
+    },
+    {
+      "id": "docker-swarm-unlock-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01707",
+      "default_unreachable": false
+    },
+    {
+      "id": "dockerhub-organization-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01704",
+      "default_unreachable": false
+    },
+    {
+      "id": "dockerhub-personal-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01702",
+      "default_unreachable": false
+    },
+    {
+      "id": "doppler-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01690",
+      "default_unreachable": false
+    },
+    {
+      "id": "droneci-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01758",
+      "default_unreachable": false
+    },
+    {
+      "id": "dropbox-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01722",
+      "default_unreachable": false
+    },
+    {
+      "id": "dropbox-long-lived-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 0,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "generated-dropbox-long-lived-api-token",
+      "default_unreachable": false
+    },
+    {
+      "id": "dropbox-short-lived-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 0,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "generated-dropbox-short-lived-api-token",
+      "default_unreachable": false
+    },
+    {
+      "id": "duffel-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01777",
+      "default_unreachable": false
+    },
+    {
+      "id": "dynatrace-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01802",
+      "default_unreachable": false
+    },
+    {
+      "id": "easypost-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 28,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01839",
+      "default_unreachable": false
+    },
+    {
+      "id": "easypost-test-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 29,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01932",
+      "default_unreachable": false
+    },
+    {
+      "id": "ebay-client-id",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09201",
+      "default_unreachable": false
+    },
+    {
+      "id": "ebay-client-secret",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "ebay-client-id"
+        }
+      ],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09201",
+      "default_unreachable": false
+    },
+    {
+      "id": "elastic-cloud-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01866",
+      "default_unreachable": false
+    },
+    {
+      "id": "elevenlabs-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01887",
+      "default_unreachable": false
+    },
+    {
+      "id": "endorlabs-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01900",
+      "default_unreachable": false
+    },
+    {
+      "id": "endorlabs-api-secret",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01900",
+      "default_unreachable": false
+    },
+    {
+      "id": "etsy-open-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01940",
+      "default_unreachable": false
+    },
+    {
+      "id": "exoscale-api-key",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "exoscale-api-secret",
+          "within": "5L"
+        }
+      ],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09204",
+      "default_unreachable": false
+    },
+    {
+      "id": "exoscale-api-secret",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09204",
+      "default_unreachable": false
+    },
+    {
+      "id": "facebook-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02001",
+      "default_unreachable": false
+    },
+    {
+      "id": "facebook-page-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02005",
+      "default_unreachable": false
+    },
+    {
+      "id": "facebook-secret",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 28,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-01979",
+      "default_unreachable": false
+    },
+    {
+      "id": "fal-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02009",
+      "default_unreachable": false
+    },
+    {
+      "id": "fastly-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02035",
+      "default_unreachable": false
+    },
+    {
+      "id": "figma-personal-access-header-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02069",
+      "default_unreachable": false
+    },
+    {
+      "id": "figma-personal-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 28,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02064",
+      "default_unreachable": false
+    },
+    {
+      "id": "finicity-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02143",
+      "default_unreachable": false
+    },
+    {
+      "id": "finicity-client-secret",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02113",
+      "default_unreachable": false
+    },
+    {
+      "id": "finnhub-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02177",
+      "default_unreachable": false
+    },
+    {
+      "id": "flickr-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02172",
+      "default_unreachable": false
+    },
+    {
+      "id": "flutterwave-encryption-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02265",
+      "default_unreachable": false
+    },
+    {
+      "id": "flutterwave-public-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02220",
+      "default_unreachable": false
+    },
+    {
+      "id": "flutterwave-secret-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02232",
+      "default_unreachable": false
+    },
+    {
+      "id": "flyio-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 30,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02279",
+      "default_unreachable": false
+    },
+    {
+      "id": "frameio-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02310",
+      "default_unreachable": false
+    },
+    {
+      "id": "freemius-secret-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 4,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02336",
+      "default_unreachable": false
+    },
+    {
+      "id": "freshbooks-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02360",
+      "default_unreachable": false
+    },
+    {
+      "id": "fullstory-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02334",
+      "default_unreachable": false
+    },
+    {
+      "id": "gcp-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 20,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02423",
+      "default_unreachable": false
+    },
+    {
+      "id": "gcp-application-default-credentials",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02393",
+      "default_unreachable": false
+    },
+    {
+      "id": "gcp-gemini-api",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02468",
+      "default_unreachable": false
+    },
+    {
+      "id": "gcp-service-account",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02395",
+      "default_unreachable": false
+    },
+    {
+      "id": "generic-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 62,
+      "upstream_negative_cases": 74,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07140",
+      "default_unreachable": false
+    },
+    {
+      "id": "generic-credential-uri",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 17,
+      "upstream_negative_cases": 20,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08860",
+      "default_unreachable": false
+    },
+    {
+      "id": "generic-password",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "generic-username",
+          "optional": true,
+          "within": "7L,200C"
+        }
+      ],
+      "upstream_positive_cases": 29,
+      "upstream_negative_cases": 29,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08898",
+      "default_unreachable": false
+    },
+    {
+      "id": "generic-username",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 4,
+      "upstream_negative_cases": 3,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09207",
+      "default_unreachable": false
+    },
+    {
+      "id": "gitea-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 4,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02499",
+      "default_unreachable": false
+    },
+    {
+      "id": "github-app-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 52,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02587",
+      "default_unreachable": false
+    },
+    {
+      "id": "github-fine-grained-pat",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02549",
+      "default_unreachable": false
+    },
+    {
+      "id": "github-oauth",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02576",
+      "default_unreachable": false
+    },
+    {
+      "id": "github-pat",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02527",
+      "default_unreachable": false
+    },
+    {
+      "id": "github-refresh-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02647",
+      "default_unreachable": false
+    },
+    {
+      "id": "gitlab-cicd-job-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02682",
+      "default_unreachable": false
+    },
+    {
+      "id": "gitlab-deploy-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02694",
+      "default_unreachable": false
+    },
+    {
+      "id": "gitlab-feature-flag-client-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02717",
+      "default_unreachable": false
+    },
+    {
+      "id": "gitlab-feed-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02738",
+      "default_unreachable": false
+    },
+    {
+      "id": "gitlab-incoming-mail-address-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 4,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02775",
+      "default_unreachable": false
+    },
+    {
+      "id": "gitlab-incoming-mail-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02764",
+      "default_unreachable": false
+    },
+    {
+      "id": "gitlab-kubernetes-agent-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02781",
+      "default_unreachable": false
+    },
+    {
+      "id": "gitlab-oauth-app-secret",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02812",
+      "default_unreachable": false
+    },
+    {
+      "id": "gitlab-pat",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02841",
+      "default_unreachable": false
+    },
+    {
+      "id": "gitlab-pat-routable",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02868",
+      "default_unreachable": false
+    },
+    {
+      "id": "gitlab-pat-routable-versioned",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02906",
+      "default_unreachable": false
+    },
+    {
+      "id": "gitlab-ptt",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02924",
+      "default_unreachable": false
+    },
+    {
+      "id": "gitlab-rrt",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02955",
+      "default_unreachable": false
+    },
+    {
+      "id": "gitlab-runner-authentication-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02978",
+      "default_unreachable": false
+    },
+    {
+      "id": "gitlab-runner-authentication-token-routable",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03007",
+      "default_unreachable": false
+    },
+    {
+      "id": "gitlab-scim-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03030",
+      "default_unreachable": false
+    },
+    {
+      "id": "gitlab-session-cookie",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03066",
+      "default_unreachable": false
+    },
+    {
+      "id": "gitter-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03072",
+      "default_unreachable": false
+    },
+    {
+      "id": "gocardless-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-02381",
+      "default_unreachable": false
+    },
+    {
+      "id": "grafana-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03129",
+      "default_unreachable": false
+    },
+    {
+      "id": "grafana-cloud-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 28,
+      "upstream_negative_cases": 4,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03156",
+      "default_unreachable": false
+    },
+    {
+      "id": "grafana-service-account-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03214",
+      "default_unreachable": false
+    },
+    {
+      "id": "greptile-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 4,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03126",
+      "default_unreachable": false
+    },
+    {
+      "id": "groq-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03117",
+      "default_unreachable": false
+    },
+    {
+      "id": "gumroad-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03217",
+      "default_unreachable": false
+    },
+    {
+      "id": "harness-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 53,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03220",
+      "default_unreachable": false
+    },
+    {
+      "id": "hashicorp-tf-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03297",
+      "default_unreachable": false
+    },
+    {
+      "id": "hashicorp-tf-password",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03299",
+      "default_unreachable": false
+    },
+    {
+      "id": "heroku-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 28,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03319",
+      "default_unreachable": false
+    },
+    {
+      "id": "heroku-api-key-v2",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 28,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03334",
+      "default_unreachable": false
+    },
+    {
+      "id": "highnote-secret-live-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03360",
+      "default_unreachable": false
+    },
+    {
+      "id": "honeycomb-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03364",
+      "default_unreachable": false
+    },
+    {
+      "id": "hubspot-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03374",
+      "default_unreachable": false
+    },
+    {
+      "id": "huggingface-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 41,
+      "upstream_negative_cases": 10,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03408",
+      "default_unreachable": false
+    },
+    {
+      "id": "huggingface-organization-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 34,
+      "upstream_negative_cases": 7,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03469",
+      "default_unreachable": false
+    },
+    {
+      "id": "hunter-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03485",
+      "default_unreachable": false
+    },
+    {
+      "id": "ibm-cloud-user-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03489",
+      "default_unreachable": false
+    },
+    {
+      "id": "influxdb-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03518",
+      "default_unreachable": false
+    },
+    {
+      "id": "infomaniak-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03491",
+      "default_unreachable": false
+    },
+    {
+      "id": "infracost-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 4,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09107",
+      "default_unreachable": false
+    },
+    {
+      "id": "instantly-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03522",
+      "default_unreachable": false
+    },
+    {
+      "id": "intercom-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03539",
+      "default_unreachable": false
+    },
+    {
+      "id": "intra42-client-secret",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 4,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03555",
+      "default_unreachable": false
+    },
+    {
+      "id": "ionic-personal-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03557",
+      "default_unreachable": false
+    },
+    {
+      "id": "jumpcloud-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03914",
+      "default_unreachable": false
+    },
+    {
+      "id": "jwt",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 57,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03573",
+      "default_unreachable": false
+    },
+    {
+      "id": "jwt-base64",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 296,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03656",
+      "default_unreachable": false
+    },
+    {
+      "id": "kagi-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03915",
+      "default_unreachable": false
+    },
+    {
+      "id": "kimi-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 52,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03927",
+      "default_unreachable": false
+    },
+    {
+      "id": "klaviyo-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03971",
+      "default_unreachable": false
+    },
+    {
+      "id": "kraken-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-03978",
+      "default_unreachable": false
+    },
+    {
+      "id": "kubernetes-secret-yaml",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 17,
+      "upstream_negative_cases": 17,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04007",
+      "default_unreachable": false
+    },
+    {
+      "id": "kucoin-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04034",
+      "default_unreachable": false
+    },
+    {
+      "id": "kucoin-secret-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04074",
+      "default_unreachable": false
+    },
+    {
+      "id": "labelbox-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 29,
+      "upstream_negative_cases": 4,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04087",
+      "default_unreachable": false
+    },
+    {
+      "id": "labelbox-recursion-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 28,
+      "upstream_negative_cases": 4,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06384",
+      "default_unreachable": false
+    },
+    {
+      "id": "langchain-langsmith-personal-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04124",
+      "default_unreachable": false
+    },
+    {
+      "id": "langchain-langsmith-service-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04126",
+      "default_unreachable": false
+    },
+    {
+      "id": "langfuse-public-key.1",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09216",
+      "default_unreachable": false
+    },
+    {
+      "id": "langfuse-secret-key.1",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "langfuse-public-key.1",
+          "within": "5L"
+        }
+      ],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09216",
+      "default_unreachable": false
+    },
+    {
+      "id": "lark-app-id",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09219",
+      "default_unreachable": false
+    },
+    {
+      "id": "lark-app-secret",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "lark-app-id"
+        }
+      ],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09219",
+      "default_unreachable": false
+    },
+    {
+      "id": "launchdarkly-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04133",
+      "default_unreachable": false
+    },
+    {
+      "id": "lichess-personal-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04159",
+      "default_unreachable": false
+    },
+    {
+      "id": "lighton-paradigm-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 52,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04211",
+      "default_unreachable": false
+    },
+    {
+      "id": "linear-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04222",
+      "default_unreachable": false
+    },
+    {
+      "id": "linear-client-secret",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04268",
+      "default_unreachable": false
+    },
+    {
+      "id": "linkedin-client-id",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04291",
+      "default_unreachable": false
+    },
+    {
+      "id": "linkedin-client-secret",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04320",
+      "default_unreachable": false
+    },
+    {
+      "id": "llama-cloud-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04215",
+      "default_unreachable": false
+    },
+    {
+      "id": "lob-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04323",
+      "default_unreachable": false
+    },
+    {
+      "id": "lob-pub-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04350",
+      "default_unreachable": false
+    },
+    {
+      "id": "looker-client-id",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04391",
+      "default_unreachable": false
+    },
+    {
+      "id": "looker-client-secret",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04400",
+      "default_unreachable": false
+    },
+    {
+      "id": "mailchimp-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 28,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04428",
+      "default_unreachable": false
+    },
+    {
+      "id": "mailersend-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04533",
+      "default_unreachable": false
+    },
+    {
+      "id": "mailgun-private-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04490",
+      "default_unreachable": false
+    },
+    {
+      "id": "mailgun-pub-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04477",
+      "default_unreachable": false
+    },
+    {
+      "id": "mailgun-signing-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04509",
+      "default_unreachable": false
+    },
+    {
+      "id": "mapbox-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 31,
+      "upstream_negative_cases": 12,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04565",
+      "default_unreachable": false
+    },
+    {
+      "id": "mapbox-secret-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 31,
+      "upstream_negative_cases": 12,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04608",
+      "default_unreachable": false
+    },
+    {
+      "id": "mattermost-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04668",
+      "default_unreachable": false
+    },
+    {
+      "id": "maxmind-license-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04691",
+      "default_unreachable": false
+    },
+    {
+      "id": "mem0-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04702",
+      "default_unreachable": false
+    },
+    {
+      "id": "mercury-production-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04738",
+      "default_unreachable": false
+    },
+    {
+      "id": "mergify-application-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04741",
+      "default_unreachable": false
+    },
+    {
+      "id": "messagebird-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 78,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04753",
+      "default_unreachable": false
+    },
+    {
+      "id": "messagebird-client-id",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04825",
+      "default_unreachable": false
+    },
+    {
+      "id": "microsoft-teams-webhook",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07884",
+      "default_unreachable": false
+    },
+    {
+      "id": "midtrans-production-server-client-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04849",
+      "default_unreachable": false
+    },
+    {
+      "id": "minimax-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04876",
+      "default_unreachable": false
+    },
+    {
+      "id": "miro-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04901",
+      "default_unreachable": false
+    },
+    {
+      "id": "miro-client-id",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 3,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09225",
+      "default_unreachable": false
+    },
+    {
+      "id": "miro-client-secret",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "miro-client-id",
+          "within": "5L"
+        }
+      ],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09225",
+      "default_unreachable": false
+    },
+    {
+      "id": "mistral-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04642",
+      "default_unreachable": false
+    },
+    {
+      "id": "monday-api-token.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-04970",
+      "default_unreachable": false
+    },
+    {
+      "id": "mongodb-atlas-service-account-id",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09234",
+      "default_unreachable": false
+    },
+    {
+      "id": "mongodb-atlas-service-account-secret",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "mongodb-atlas-service-account-id"
+        }
+      ],
+      "upstream_positive_cases": 29,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09234",
+      "default_unreachable": false
+    },
+    {
+      "id": "mongodb-connection-string",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 5,
+      "upstream_negative_cases": 5,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05036",
+      "default_unreachable": false
+    },
+    {
+      "id": "mux-access-token-id.1",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09240",
+      "default_unreachable": false
+    },
+    {
+      "id": "mux-access-token-secret.1",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "mux-access-token-id.1",
+          "within": "5L"
+        }
+      ],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09240",
+      "default_unreachable": false
+    },
+    {
+      "id": "neon-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05052",
+      "default_unreachable": false
+    },
+    {
+      "id": "netlify-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05072",
+      "default_unreachable": false
+    },
+    {
+      "id": "new-relic-browser-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05153",
+      "default_unreachable": false
+    },
+    {
+      "id": "new-relic-insert-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05188",
+      "default_unreachable": false
+    },
+    {
+      "id": "new-relic-user-api-id",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05136",
+      "default_unreachable": false
+    },
+    {
+      "id": "new-relic-user-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05099",
+      "default_unreachable": false
+    },
+    {
+      "id": "ngrok-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05081",
+      "default_unreachable": false
+    },
+    {
+      "id": "notion-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05190",
+      "default_unreachable": false
+    },
+    {
+      "id": "npm-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05219",
+      "default_unreachable": false
+    },
+    {
+      "id": "nuget-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 34,
+      "upstream_negative_cases": 9,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05255",
+      "default_unreachable": false
+    },
+    {
+      "id": "nuget-config-password",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 6,
+      "upstream_negative_cases": 6,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05270",
+      "default_unreachable": false
+    },
+    {
+      "id": "nvidia-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05288",
+      "default_unreachable": false
+    },
+    {
+      "id": "nylas-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05305",
+      "default_unreachable": false
+    },
+    {
+      "id": "nytimes-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05333",
+      "default_unreachable": false
+    },
+    {
+      "id": "octopus-deploy-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 4,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05365",
+      "default_unreachable": false
+    },
+    {
+      "id": "okta-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 28,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05408",
+      "default_unreachable": false
+    },
+    {
+      "id": "ollama-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05336",
+      "default_unreachable": false
+    },
+    {
+      "id": "onesignal-rich-authentication-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05370",
+      "default_unreachable": false
+    },
+    {
+      "id": "onfido-live-api-token-ca",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05379",
+      "default_unreachable": false
+    },
+    {
+      "id": "onfido-live-api-token-eu",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05382",
+      "default_unreachable": false
+    },
+    {
+      "id": "onfido-live-api-token-us",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05385",
+      "default_unreachable": false
+    },
+    {
+      "id": "openai-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 36,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05438",
+      "default_unreachable": false
+    },
+    {
+      "id": "openrouter-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05462",
+      "default_unreachable": false
+    },
+    {
+      "id": "openshift-user-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 29,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05514",
+      "default_unreachable": false
+    },
+    {
+      "id": "openweather-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05389",
+      "default_unreachable": false
+    },
+    {
+      "id": "opsgenie-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05374",
+      "default_unreachable": false
+    },
+    {
+      "id": "ovh-application-key",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 2,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09249",
+      "default_unreachable": false
+    },
+    {
+      "id": "ovh-application-secret",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "ovh-application-key",
+          "within": "20L"
+        },
+        {
+          "id": "ovh-consumer-key",
+          "within": "20L"
+        }
+      ],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09249",
+      "default_unreachable": false
+    },
+    {
+      "id": "ovh-consumer-key",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 2,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09249",
+      "default_unreachable": false
+    },
+    {
+      "id": "paddle-live-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05532",
+      "default_unreachable": false
+    },
+    {
+      "id": "pagerduty-authorization-token.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05535",
+      "default_unreachable": false
+    },
+    {
+      "id": "paypal-client-id.1",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 3,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09255",
+      "default_unreachable": false
+    },
+    {
+      "id": "paypal-client-secret.1",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "paypal-client-id.1",
+          "within": "5L"
+        }
+      ],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09255",
+      "default_unreachable": false
+    },
+    {
+      "id": "perplexity-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05561",
+      "default_unreachable": false
+    },
+    {
+      "id": "persona-production-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05548",
+      "default_unreachable": false
+    },
+    {
+      "id": "pinecone-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05578",
+      "default_unreachable": false
+    },
+    {
+      "id": "pinecone-api-key.2",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05581",
+      "default_unreachable": false
+    },
+    {
+      "id": "pinterest-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05584",
+      "default_unreachable": false
+    },
+    {
+      "id": "pkcs12-file",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06229",
+      "default_unreachable": false
+    },
+    {
+      "id": "plaid-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05727",
+      "default_unreachable": false
+    },
+    {
+      "id": "plaid-client-id",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05665",
+      "default_unreachable": false
+    },
+    {
+      "id": "plaid-secret-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05691",
+      "default_unreachable": false
+    },
+    {
+      "id": "planetscale-api-token",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "planetscale-id"
+        }
+      ],
+      "upstream_positive_cases": 78,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09258",
+      "default_unreachable": false
+    },
+    {
+      "id": "planetscale-id",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 0,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09258",
+      "default_unreachable": false
+    },
+    {
+      "id": "planetscale-oauth-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 78,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05906",
+      "default_unreachable": false
+    },
+    {
+      "id": "planetscale-password",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 78,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05741",
+      "default_unreachable": false
+    },
+    {
+      "id": "plivo-auth-id",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09267",
+      "default_unreachable": false
+    },
+    {
+      "id": "plivo-auth-token",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "plivo-auth-id"
+        }
+      ],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09267",
+      "default_unreachable": false
+    },
+    {
+      "id": "polar-oauth-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06166",
+      "default_unreachable": false
+    },
+    {
+      "id": "polar-organization-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06160",
+      "default_unreachable": false
+    },
+    {
+      "id": "polar-personal-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06163",
+      "default_unreachable": false
+    },
+    {
+      "id": "polymarket-address",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": false,
+      "observed_component": false,
+      "example_case_id": null,
+      "default_unreachable": true
+    },
+    {
+      "id": "polymarket-api-key",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "polymarket-api-secret",
+          "within": "20L"
+        },
+        {
+          "id": "polymarket-passphrase",
+          "within": "20L"
+        }
+      ],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09273",
+      "default_unreachable": false
+    },
+    {
+      "id": "polymarket-api-secret",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 52,
+      "upstream_negative_cases": 0,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09273",
+      "default_unreachable": false
+    },
+    {
+      "id": "polymarket-passphrase",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 52,
+      "upstream_negative_cases": 0,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09273",
+      "default_unreachable": false
+    },
+    {
+      "id": "polymarket-private-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06158",
+      "default_unreachable": false
+    },
+    {
+      "id": "posthog-personal-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 30,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05644",
+      "default_unreachable": false
+    },
+    {
+      "id": "posthog-project-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 28,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05613",
+      "default_unreachable": false
+    },
+    {
+      "id": "postman-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06189",
+      "default_unreachable": false
+    },
+    {
+      "id": "postmark-api-token.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-05652",
+      "default_unreachable": false
+    },
+    {
+      "id": "prefect-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06201",
+      "default_unreachable": false
+    },
+    {
+      "id": "private-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06224",
+      "default_unreachable": false
+    },
+    {
+      "id": "privateai-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06222",
+      "default_unreachable": false
+    },
+    {
+      "id": "proof-full-access-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06234",
+      "default_unreachable": false
+    },
+    {
+      "id": "pulumi-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06245",
+      "default_unreachable": false
+    },
+    {
+      "id": "pypi-upload-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06281",
+      "default_unreachable": false
+    },
+    {
+      "id": "rainforest-pay-production-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06292",
+      "default_unreachable": false
+    },
+    {
+      "id": "ramp-client-id",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09279",
+      "default_unreachable": false
+    },
+    {
+      "id": "ramp-client-secret",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "ramp-client-id"
+        }
+      ],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09279",
+      "default_unreachable": false
+    },
+    {
+      "id": "rapidapi-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06311",
+      "default_unreachable": false
+    },
+    {
+      "id": "razorpay-key-id.1",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09282",
+      "default_unreachable": false
+    },
+    {
+      "id": "razorpay-key-secret.1",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "razorpay-key-id.1",
+          "within": "5L"
+        }
+      ],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09282",
+      "default_unreachable": false
+    },
+    {
+      "id": "readme-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06349",
+      "default_unreachable": false
+    },
+    {
+      "id": "redirect-pizza-api-token.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06397",
+      "default_unreachable": false
+    },
+    {
+      "id": "render-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06408",
+      "default_unreachable": false
+    },
+    {
+      "id": "replicate-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06451",
+      "default_unreachable": false
+    },
+    {
+      "id": "resend-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06457",
+      "default_unreachable": false
+    },
+    {
+      "id": "retell-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06462",
+      "default_unreachable": false
+    },
+    {
+      "id": "rootly-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06467",
+      "default_unreachable": false
+    },
+    {
+      "id": "rubygems-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06490",
+      "default_unreachable": false
+    },
+    {
+      "id": "runpod-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06400",
+      "default_unreachable": false
+    },
+    {
+      "id": "salesforce-access-token.1",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "salesforce-instance-url.1",
+          "within": "30L"
+        }
+      ],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06505",
+      "default_unreachable": false
+    },
+    {
+      "id": "salesforce-instance-url.1",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 3,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-06505",
+      "default_unreachable": false
+    },
+    {
+      "id": "samsara-api-token.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06510",
+      "default_unreachable": false
+    },
+    {
+      "id": "scaleway-secret-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06517",
+      "default_unreachable": false
+    },
+    {
+      "id": "scalingo-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06524",
+      "default_unreachable": false
+    },
+    {
+      "id": "scalr-api-access-token.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06513",
+      "default_unreachable": false
+    },
+    {
+      "id": "segment-public-api-token.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06548",
+      "default_unreachable": false
+    },
+    {
+      "id": "sendbird-access-id",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06565",
+      "default_unreachable": false
+    },
+    {
+      "id": "sendbird-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06590",
+      "default_unreachable": false
+    },
+    {
+      "id": "sendgrid-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06620",
+      "default_unreachable": false
+    },
+    {
+      "id": "sendinblue-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06631",
+      "default_unreachable": false
+    },
+    {
+      "id": "sentry-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06636",
+      "default_unreachable": false
+    },
+    {
+      "id": "sentry-org-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 56,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06683",
+      "default_unreachable": false
+    },
+    {
+      "id": "sentry-user-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06733",
+      "default_unreachable": false
+    },
+    {
+      "id": "settlemint-application-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06756",
+      "default_unreachable": false
+    },
+    {
+      "id": "settlemint-personal-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06799",
+      "default_unreachable": false
+    },
+    {
+      "id": "settlemint-service-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06818",
+      "default_unreachable": false
+    },
+    {
+      "id": "shippo-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 52,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06837",
+      "default_unreachable": false
+    },
+    {
+      "id": "shopify-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06908",
+      "default_unreachable": false
+    },
+    {
+      "id": "shopify-custom-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06922",
+      "default_unreachable": false
+    },
+    {
+      "id": "shopify-private-app-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06949",
+      "default_unreachable": false
+    },
+    {
+      "id": "shopify-shared-secret",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06982",
+      "default_unreachable": false
+    },
+    {
+      "id": "sidekiq-secret",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 60,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07055",
+      "default_unreachable": false
+    },
+    {
+      "id": "sidekiq-sensitive-url",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 12,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07065",
+      "default_unreachable": false
+    },
+    {
+      "id": "slack-app-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 29,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07148",
+      "default_unreachable": false
+    },
+    {
+      "id": "slack-bot-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 30,
+      "upstream_negative_cases": 4,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07101",
+      "default_unreachable": false
+    },
+    {
+      "id": "slack-config-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 29,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07182",
+      "default_unreachable": false
+    },
+    {
+      "id": "slack-config-refresh-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 29,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07226",
+      "default_unreachable": false
+    },
+    {
+      "id": "slack-legacy-bot-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 37,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07270",
+      "default_unreachable": false
+    },
+    {
+      "id": "slack-legacy-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 32,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07323",
+      "default_unreachable": false
+    },
+    {
+      "id": "slack-legacy-workspace-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 31,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07304",
+      "default_unreachable": false
+    },
+    {
+      "id": "slack-session-cookie",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07367",
+      "default_unreachable": false
+    },
+    {
+      "id": "slack-session-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07387",
+      "default_unreachable": false
+    },
+    {
+      "id": "slack-user-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 33,
+      "upstream_negative_cases": 5,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07137",
+      "default_unreachable": false
+    },
+    {
+      "id": "slack-webhook-url",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 11,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07400",
+      "default_unreachable": false
+    },
+    {
+      "id": "snowflake-account-host.1",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09294",
+      "default_unreachable": false
+    },
+    {
+      "id": "snowflake-programmatic-access-token.1",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "snowflake-account-host.1",
+          "within": "30L"
+        }
+      ],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09294",
+      "default_unreachable": false
+    },
+    {
+      "id": "snyk-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 35,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07433",
+      "default_unreachable": false
+    },
+    {
+      "id": "sonar-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 34,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07459",
+      "default_unreachable": false
+    },
+    {
+      "id": "sourcegraph-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 4,
+      "upstream_negative_cases": 4,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07488",
+      "default_unreachable": false
+    },
+    {
+      "id": "square-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 28,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07618",
+      "default_unreachable": false
+    },
+    {
+      "id": "squarespace-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07639",
+      "default_unreachable": false
+    },
+    {
+      "id": "sslmate-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07495",
+      "default_unreachable": false
+    },
+    {
+      "id": "stability-ai-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07526",
+      "default_unreachable": false
+    },
+    {
+      "id": "stripe-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 54,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07545",
+      "default_unreachable": false
+    },
+    {
+      "id": "sumologic-access-id",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 30,
+      "upstream_negative_cases": 11,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07670",
+      "default_unreachable": false
+    },
+    {
+      "id": "sumologic-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 30,
+      "upstream_negative_cases": 7,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07688",
+      "default_unreachable": false
+    },
+    {
+      "id": "supabase-management-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-06885",
+      "default_unreachable": false
+    },
+    {
+      "id": "supabase-project-api-key",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "supabase-project-url"
+        }
+      ],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09300",
+      "default_unreachable": false
+    },
+    {
+      "id": "supabase-project-url",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09300",
+      "default_unreachable": false
+    },
+    {
+      "id": "tableau-personal-access-token-name.1",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09303",
+      "default_unreachable": false
+    },
+    {
+      "id": "tableau-personal-access-token.1",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "tableau-personal-access-token-name.1",
+          "within": "20L"
+        },
+        {
+          "id": "tableau-server-host.1",
+          "within": "20L"
+        }
+      ],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 4,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09303",
+      "default_unreachable": false
+    },
+    {
+      "id": "tableau-server-host.1",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09303",
+      "default_unreachable": false
+    },
+    {
+      "id": "tailscale-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 4,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07739",
+      "default_unreachable": false
+    },
+    {
+      "id": "tailscale-auth-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07744",
+      "default_unreachable": false
+    },
+    {
+      "id": "tailscale-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07867",
+      "default_unreachable": false
+    },
+    {
+      "id": "tailscale-oauth-client-secret",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07791",
+      "default_unreachable": false
+    },
+    {
+      "id": "tailscale-scim-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07802",
+      "default_unreachable": false
+    },
+    {
+      "id": "tailscale-webhook-secret",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07839",
+      "default_unreachable": false
+    },
+    {
+      "id": "telegram-bot-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 80,
+      "upstream_negative_cases": 11,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07957",
+      "default_unreachable": false
+    },
+    {
+      "id": "telnyx-api-v2-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07880",
+      "default_unreachable": false
+    },
+    {
+      "id": "temporal-cloud-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07885",
+      "default_unreachable": false
+    },
+    {
+      "id": "thunderstore-api-token.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07888",
+      "default_unreachable": false
+    },
+    {
+      "id": "togetherai-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-07910",
+      "default_unreachable": false
+    },
+    {
+      "id": "travisci-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08024",
+      "default_unreachable": false
+    },
+    {
+      "id": "twilio-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08039",
+      "default_unreachable": false
+    },
+    {
+      "id": "twitch-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08063",
+      "default_unreachable": false
+    },
+    {
+      "id": "twitter-access-secret",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08190",
+      "default_unreachable": false
+    },
+    {
+      "id": "twitter-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08153",
+      "default_unreachable": false
+    },
+    {
+      "id": "twitter-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08097",
+      "default_unreachable": false
+    },
+    {
+      "id": "twitter-api-secret",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08117",
+      "default_unreachable": false
+    },
+    {
+      "id": "twitter-bearer-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08216",
+      "default_unreachable": false
+    },
+    {
+      "id": "typeform-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08220",
+      "default_unreachable": false
+    },
+    {
+      "id": "unkey-root-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08244",
+      "default_unreachable": false
+    },
+    {
+      "id": "upcloud-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08248",
+      "default_unreachable": false
+    },
+    {
+      "id": "upstage-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 1,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08274",
+      "default_unreachable": false
+    },
+    {
+      "id": "upstash-redis-rest-token.1",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "upstash-redis-rest-url.1",
+          "within": "5L"
+        }
+      ],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09312",
+      "default_unreachable": false
+    },
+    {
+      "id": "upstash-redis-rest-url.1",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09312",
+      "default_unreachable": false
+    },
+    {
+      "id": "val-town-api-token.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08286",
+      "default_unreachable": false
+    },
+    {
+      "id": "vault-batch-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08490",
+      "default_unreachable": false
+    },
+    {
+      "id": "vault-service-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 4,
+      "upstream_negative_cases": 8,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08495",
+      "default_unreachable": false
+    },
+    {
+      "id": "vercel-ai-gateway-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08464",
+      "default_unreachable": false
+    },
+    {
+      "id": "vercel-api-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 30,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08310",
+      "default_unreachable": false
+    },
+    {
+      "id": "vercel-app-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08406",
+      "default_unreachable": false
+    },
+    {
+      "id": "vercel-app-refresh-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08435",
+      "default_unreachable": false
+    },
+    {
+      "id": "vercel-integration-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 27,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08365",
+      "default_unreachable": false
+    },
+    {
+      "id": "vercel-personal-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 28,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08347",
+      "default_unreachable": false
+    },
+    {
+      "id": "virustotal-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08506",
+      "default_unreachable": false
+    },
+    {
+      "id": "voyageai-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08511",
+      "default_unreachable": false
+    },
+    {
+      "id": "vultr-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08516",
+      "default_unreachable": false
+    },
+    {
+      "id": "wakatime-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08521",
+      "default_unreachable": false
+    },
+    {
+      "id": "wakatime-api-key.2",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08525",
+      "default_unreachable": false
+    },
+    {
+      "id": "weatherstack-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08528",
+      "default_unreachable": false
+    },
+    {
+      "id": "weights-and-biases-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08533",
+      "default_unreachable": false
+    },
+    {
+      "id": "weights-and-biases-api-key-v1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08573",
+      "default_unreachable": false
+    },
+    {
+      "id": "wiz-client-id.1",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 3,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09318",
+      "default_unreachable": false
+    },
+    {
+      "id": "wiz-client-secret.1",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "wiz-client-id.1",
+          "within": "5L"
+        }
+      ],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09318",
+      "default_unreachable": false
+    },
+    {
+      "id": "woocommerce-consumer-secret.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 28,
+      "upstream_negative_cases": 4,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08620",
+      "default_unreachable": false
+    },
+    {
+      "id": "workato-developer-api-token.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08629",
+      "default_unreachable": false
+    },
+    {
+      "id": "workos-production-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 1,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08632",
+      "default_unreachable": false
+    },
+    {
+      "id": "xai-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08649",
+      "default_unreachable": false
+    },
+    {
+      "id": "xendit-production-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08664",
+      "default_unreachable": false
+    },
+    {
+      "id": "yandex-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08730",
+      "default_unreachable": false
+    },
+    {
+      "id": "yandex-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08680",
+      "default_unreachable": false
+    },
+    {
+      "id": "yandex-aws-access-token",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08703",
+      "default_unreachable": false
+    },
+    {
+      "id": "zai-api-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08772",
+      "default_unreachable": false
+    },
+    {
+      "id": "zendesk-secret-key",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 26,
+      "upstream_negative_cases": 0,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08782",
+      "default_unreachable": false
+    },
+    {
+      "id": "zoho-client-id.1",
+      "skipReport": true,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 4,
+      "observed_top_level": false,
+      "observed_component": true,
+      "example_case_id": "fixture-09321",
+      "default_unreachable": false
+    },
+    {
+      "id": "zoho-client-secret.1",
+      "skipReport": false,
+      "components": [
+        {
+          "id": "zoho-client-id.1",
+          "within": "5L"
+        }
+      ],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 3,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-09321",
+      "default_unreachable": false
+    },
+    {
+      "id": "zoho-oauth-token.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 28,
+      "upstream_negative_cases": 4,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08848",
+      "default_unreachable": false
+    },
+    {
+      "id": "zoho-zapi-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 3,
+      "upstream_negative_cases": 4,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08845",
+      "default_unreachable": false
+    },
+    {
+      "id": "zuplo-consumer-api-key.1",
+      "skipReport": false,
+      "components": [],
+      "upstream_positive_cases": 2,
+      "upstream_negative_cases": 2,
+      "observed_top_level": true,
+      "observed_component": false,
+      "example_case_id": "fixture-08850",
+      "default_unreachable": false
+    }
+  ]
+}

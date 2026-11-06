@@ -1,0 +1,38 @@
+{
+  "profile": "second",
+  "container": "Set",
+  "item": "Wave",
+  "record_root": "docs/delivery/sets",
+  "asset_integrity": "pass",
+  "project_override": "pass",
+  "disabled_rule": "pass",
+  "project_policy": "pass",
+  "path_allowlist": "pass",
+  "record_path_scan": "pass",
+  "both_cache_asset_invalidation": "pass",
+  "findings": 2,
+  "packaged_assets": {
+    ".wavefoundry/framework/scan/cl100k_base.tiktoken.gz": "4414e3fb432aa5c4a9a19d5b91fe5ab27fecb8f5347208696a01bc507e093696",
+    ".wavefoundry/framework/scan/words.txt.gz": "d4dd5530d98f4ff343864ed71cfc0064abeae34e4f078edc0b46590c2da8fb47",
+    ".wavefoundry/framework/scan/manifest.json": "8ae3cd8b216056113b39eed77f01d78273793420b92464ae7b9d1047c371113a",
+    ".wavefoundry/framework/scan/NOTICE.md": "d1a92a4287c35cf631abf66f31b87e95e7a87955fd2860f798128b2d0feb7257"
+  },
+  "scope": "Representative temporary installed package under declared second vocabulary profile; not the actual Waveforge checkout or native Windows.",
+  "producer": "root integration owner; independent reviewer corroboration is recorded separately",
+  "source_probe_sha256": "1e0d4c766bcea3f5c5e6cbd17048e6cf4a91ef9e93c6191256f0b599267f5e49",
+  "fixture_correction": "Initial temporary-path assertion compared /var and /private aliases. Resolving the fixture root corrected the probe; no production source change or waived behavior check.",
+  "source_fingerprint": "af79e3d24e8e725dc201969cef4f0531ca9a8aede90dd192fe97191b81d4fbfa",
+  "method": [
+    "Copy only actual build_pack.collect_files production entries into a private temporary repository.",
+    "Apply declared second profile: container Set, item Wave and docs/delivery/sets record root.",
+    "Verify four new assets and absence of old asset paths.",
+    "Exercise actual scanner with same-ID project override, additional detector, disabled rule, local confirmation policy and path allowlist.",
+    "Observe two synthetic findings in the renamed record root.",
+    "Mutate one packaged asset and assert both actual cache fingerprint wrappers change."
+  ],
+  "limits": [
+    "No new runtime abstraction was needed for the supported profile and override seams.",
+    "Existing installation paths, dialect/config keys, environment keys and inline suppression marker remain canonical contracts.",
+    "No general arbitrary-fork compatibility, field precision or packaged release qualification claimed."
+  ]
+}

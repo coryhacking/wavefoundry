@@ -1,0 +1,58 @@
+{
+  "normal": {
+    "warmup": {
+      "seconds": 0.580736917007016,
+      "hits": 0,
+      "complete": true,
+      "peak_rss_bytes": 46710784
+    },
+    "runs": [
+      {
+        "seconds": 0.5721547499997541,
+        "hits": 0,
+        "complete": true,
+        "peak_rss_bytes": 46727168
+      },
+      {
+        "seconds": 0.5769199999922421,
+        "hits": 0,
+        "complete": true,
+        "peak_rss_bytes": 46727168
+      },
+      {
+        "seconds": 0.575167542003328,
+        "hits": 0,
+        "complete": true,
+        "peak_rss_bytes": 50053120
+      }
+    ]
+  },
+  "adversarial": {
+    "warmup": {
+      "seconds": 9.806518666999182,
+      "hits": 0,
+      "complete": true,
+      "peak_rss_bytes": 51429376
+    },
+    "runs": [
+      {
+        "seconds": 9.741225625009974,
+        "hits": 0,
+        "complete": true,
+        "peak_rss_bytes": 51429376
+      },
+      {
+        "seconds": 9.789612249995116,
+        "hits": 0,
+        "complete": true,
+        "peak_rss_bytes": 51429376
+      },
+      {
+        "seconds": 9.82835774999694,
+        "hits": 0,
+        "complete": true,
+        "peak_rss_bytes": 51429376
+      }
+    ]
+  }
+}

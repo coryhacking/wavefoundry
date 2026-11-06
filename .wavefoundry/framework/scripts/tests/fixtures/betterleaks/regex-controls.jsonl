@@ -1,0 +1,11 @@
+{"captures":[["A0"]],"error":"","input":"éA0","name":"posix-alnum-ascii","pattern":"[[:alnum:]]+","spans":[[2,4]]}
+{"captures":[["_A0"]],"error":"","input":"é_A0","name":"word-ascii","pattern":"\\w+","spans":[[2,5]]}
+{"captures":[["1"]],"error":"","input":"١1","name":"digit-ascii","pattern":"\\d+","spans":[[2,3]]}
+{"captures":[[" \t"]],"error":"","input":"  \t","name":"space-ascii","pattern":"\\s+","spans":[[2,4]]}
+{"captures":null,"error":"","input":"token\n","name":"dollar-strict","pattern":"token$","spans":null}
+{"captures":[["token"]],"error":"","input":"token\n","name":"dollar-multiline","pattern":"(?m)token$","spans":[[0,5]]}
+{"captures":[["C","C"]],"error":"","input":"C","name":"inline-flags-cross-alternative","pattern":"(a(?i)b|c)","spans":[[0,1,0,1]]}
+{"captures":[["Ab","A"]],"error":"","input":"Ab AB","name":"inline-flags-nested-exit","pattern":"((?i)a)b","spans":[[0,2,0,1]]}
+{"captures":[["Ab","Ab"],["c","c"]],"error":"","input":"AB Ab C c","name":"inline-flags-off","pattern":"(?i)(a(?-i)b|c)","spans":[[3,5,3,5],[8,9,8,9]]}
+{"captures":[["token"]],"error":"","input":"étokené","name":"word-boundary-ascii","pattern":"\\btoken\\b","spans":[[2,7]]}
+{"captures":[["b","","b"]],"error":"","input":"b","name":"namedcapture-empty","pattern":"(?P\u003cone\u003ea)?(?P\u003ctwo\u003eb)","spans":[[0,1,-1,-1,0,1]]}

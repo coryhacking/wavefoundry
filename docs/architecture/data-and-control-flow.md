@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-04
+Last verified: 2026-11-06
 
 ## Runtime advisory boundary
 
@@ -158,6 +158,19 @@ exclusions. See [configuration and examples](../contributing/build-and-verificat
 **State read:** `docs/`, `.wavefoundry/framework/VERSION`
 **State written:** scanner findings and skip observations by ordinary lint; none with `--read-only`
 **Triggered by:** Claude Code post-edit hook (after any `docs/` file edit), manual operator run
+
+### Secret scanning and the offline engine
+
+The scanner's outer owners retain file selection, local policy, redaction, findings publication and cache eligibility. `scan_secrets.update_secrets_scan` handles the indexer's precise changed set; `run_secrets_scan.main` handles the standalone candidate set with content-addressed skips. Both incorporate rule/profile/asset and runtime-path policy identity into currency and withhold affected paths from clean caching when work or publication is incomplete.
+
+Before candidate inspection or cache no-work shortcuts, validate `constants.SCAN_RUNTIME_ROOT_NAMES`. Its upstream default is only `.wavefoundry`; forks extend the module-owned tuple. `secrets_validators.is_scanner_excluded_path` applies the fixed six immediate runtime directory names with a required descendant, at any depth and independently of Git. Full/changed Git, non-Git, explicit-file and incremental pre-hash paths share that boundary with existing history cleanup. Invalid declarations refuse; near-miss paths and project source remain eligible. Both cache fingerprints include constants.py and secrets_validators.py so policy changes cannot reuse old selection results. See [runtime scope and fork declaration](../contributing/build-and-verification.md#exclude-runtime-artifacts).
+
+1. Merge framework and project configuration while preserving same-ID overrides and disable/policy precedence. An unprofiled framework selects legacy CEL; an omitted project profile inherits the framework profile. Explicitly incompatible profiles refuse. Global profile metadata must survive merge and worker transport.
+2. For `betterleaks-v2-8f376ff9`, send bounded data to `betterleaks_worker.py`. The owned Python child parses configuration, compiles the finite Expr/regex profile, verifies local tokenizer/dictionary assets and runs `betterleaks_engine.py`. The parent bounds each operation at 115 seconds plus at most four seconds of cleanup; failure never selects an unbounded serial fallback. `expr_filter.py` and `secret_tokenizer.py` own expression and token-efficiency semantics; legacy `cel_filter.py` remains separate.
+3. The engine evaluates global/per-rule filters, captures and correlated components, then returns bounded findings or an explicit incomplete outcome. Imported provider actions remain inert. A path-only PKCS#12 rule can yield a metadata finding before binary-content refusal, without reading that binary. Existing file/line omissions remain visible.
+4. Validate worker output before applying local redaction, JWT and confirmation policy. Publish findings through existing owners; partial or failed work cannot clear pending findings or establish clean scan currency. Rule/profile/asset changes cause both consumers to revisit unchanged files without discarding prior dispositions.
+
+The worker is a cost/ownership boundary, not a security sandbox. Its runtime uses Python and packaged local data, with no Go executable, provider action or automatic asset download. Full pinned coverage and cost require the owning wave's actual consumer qualification; a compatible parser or a count of 474 rules is insufficient. Native Windows worker execution remains unqualified.
 
 ### Path 3: Platform Surface Rendering
 

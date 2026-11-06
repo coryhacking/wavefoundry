@@ -1,0 +1,17 @@
+{
+  "baseline_commit": "b33211eb",
+  "bytes_each": 1048576,
+  "recipe": "Repeat fixed normal/adversarial source blocks to exactly 1 MiB; no real credential. Frozen before candidate edits.",
+  "workloads": {
+    "normal": {
+      "sha256": "9ade1e7b9f5b55c3067ea2a0d3d1eab190d2c4a54fbaede9fff4f52ac8d696d1",
+      "bytes": 1048576,
+      "max_line": 60
+    },
+    "adversarial": {
+      "sha256": "a8b47228089a6ad256f4598344552b7ece11760b8cbf8e0095f2f64f58563287",
+      "bytes": 1048576,
+      "max_line": 2100
+    }
+  }
+}

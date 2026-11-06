@@ -1,0 +1,3000 @@
+{
+  "schema": 1,
+  "upstream_commit": "8f376ff9c31ed5309ac448fe601c5dd21b376155",
+  "upstream_module": "github.com/betterleaks/betterleaks/v2@v2.0.0-rc.7",
+  "upstream_module_sum": "h1:7at3QQNiE6hDV6/1Xj8bHDKJ0yILunYSRfw2nmyh/B0=",
+  "purpose": "Independent near-miss controls for each rule with zero upstream negative fixtures in qualification-manifest.json; finite differential evidence, not exhaustive equivalence.",
+  "oracle": {
+    "api": "config.Default; scan.New; scanner.Scan",
+    "options": [
+      "scan.WithPrecompile()",
+      "scan.WithAllowSignatures()",
+      "scan.WithWorkers(1)",
+      "scan.WithMaxDecodeDepth(0)"
+    ],
+    "prefilter": "sources/prefilter.Compile(cfg.PrefilterExpr)",
+    "source": "one fragment, raw content and path from each row, StartLine=1",
+    "credential_actions": "none: no validate/analyze/revoke invocation",
+    "exception": "For rows with isolated=true, retain config.Default global filters and only polymarket-address with skipReport=false; default config never reports this orphan."
+  },
+  "input_derivation": "Take the named baseline from oracle.jsonl.gz, or orphan-isolated-oracle.jsonl for the unreachable orphan. Identify target rule in top-level or component findings. Replace every occurrence of its match.value by the named mutation, preserving remaining content and path.",
+  "mutations": {
+    "baseline": "Unchanged positive fixture; proves target remains reachable under this configuration.",
+    "delete-last": "Remove the final character of the matched value.",
+    "illegal-middle": "Replace character at floor(len(value)/2) with !.",
+    "illegal-first": "Replace first character with !.",
+    "insert-middle": "Insert ! at floor(len(value)/2).",
+    "extend-right": "Append Z to the value.",
+    "extend-left": "Prepend Z to the value.",
+    "low-entropy": "Replace value by the same number of A characters.",
+    "truncate-half": "Keep the first floor(len(value)/2) characters."
+  },
+  "assertion_scope": [
+    "rule ID",
+    "secret value",
+    "full match",
+    "named captures",
+    "confidence",
+    "start/end line/column",
+    "component groups and optional markers",
+    "complete status and empty diagnostics"
+  ],
+  "counts": {
+    "rule_ids": 169,
+    "cases": 1521,
+    "positive_baselines": 169,
+    "target_negative": 1230,
+    "target_positive_mutations": 122,
+    "full_config_rule_ids": 168,
+    "isolated_rule_ids": 1,
+    "python_go_differences": 0,
+    "diagnostic_cases": 0,
+    "baseline_failures": 0
+  },
+  "corpus": {
+    "path": "independent-negative-oracle.jsonl.gz",
+    "sha256": "b26d2f75a1d51f6bd6ab1c4885ba10e771404e57e880fb50ed59c52c02ab361c",
+    "decompressed_sha256": "fa07c008859f9c356f2d63e000616bd9f5b5efd492bce6323ae7e33efcaa98b7",
+    "compressed_bytes": 81524,
+    "decompressed_bytes": 1105617
+  },
+  "limitations": [
+    "Systematic mutations reuse known positive fixtures rather than sampling realistic benign repositories.",
+    "Each ID has finite negative evidence; input space and all filter branches are not exhausted.",
+    "Some mutations remain positive by design; expected output preserves these outcomes instead of relabeling them negative.",
+    "The orphan polymarket-address is only detectable in the explicitly isolated probe; full configuration reachability remains absent.",
+    "Other rules may still report a target-negative fragment; all findings and component groups are compared."
+  ],
+  "rule_coverage": [
+    {
+      "rule_id": "adafruit-api-key",
+      "source_case_id": "fixture-00107",
+      "isolated": false,
+      "baseline_case_id": "independent-adafruit-api-key-baseline",
+      "negative_case_ids": [
+        "independent-adafruit-api-key-delete-last",
+        "independent-adafruit-api-key-illegal-middle",
+        "independent-adafruit-api-key-illegal-first",
+        "independent-adafruit-api-key-insert-middle",
+        "independent-adafruit-api-key-extend-right",
+        "independent-adafruit-api-key-extend-left",
+        "independent-adafruit-api-key-low-entropy",
+        "independent-adafruit-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "adobe-client-id",
+      "source_case_id": "fixture-00127",
+      "isolated": false,
+      "baseline_case_id": "independent-adobe-client-id-baseline",
+      "negative_case_ids": [
+        "independent-adobe-client-id-delete-last",
+        "independent-adobe-client-id-illegal-middle",
+        "independent-adobe-client-id-illegal-first",
+        "independent-adobe-client-id-insert-middle",
+        "independent-adobe-client-id-extend-right",
+        "independent-adobe-client-id-extend-left",
+        "independent-adobe-client-id-low-entropy",
+        "independent-adobe-client-id-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "adobe-client-secret",
+      "source_case_id": "fixture-00147",
+      "isolated": false,
+      "baseline_case_id": "independent-adobe-client-secret-baseline",
+      "negative_case_ids": [
+        "independent-adobe-client-secret-delete-last",
+        "independent-adobe-client-secret-illegal-middle",
+        "independent-adobe-client-secret-illegal-first",
+        "independent-adobe-client-secret-insert-middle",
+        "independent-adobe-client-secret-extend-right",
+        "independent-adobe-client-secret-extend-left",
+        "independent-adobe-client-secret-low-entropy",
+        "independent-adobe-client-secret-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "age-secret-key",
+      "source_case_id": "fixture-00174",
+      "isolated": false,
+      "baseline_case_id": "independent-age-secret-key-baseline",
+      "negative_case_ids": [
+        "independent-age-secret-key-delete-last",
+        "independent-age-secret-key-illegal-middle",
+        "independent-age-secret-key-illegal-first",
+        "independent-age-secret-key-insert-middle",
+        "independent-age-secret-key-low-entropy",
+        "independent-age-secret-key-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "airtable-api-key",
+      "source_case_id": "fixture-00185",
+      "isolated": false,
+      "baseline_case_id": "independent-airtable-api-key-baseline",
+      "negative_case_ids": [
+        "independent-airtable-api-key-delete-last",
+        "independent-airtable-api-key-illegal-middle",
+        "independent-airtable-api-key-illegal-first",
+        "independent-airtable-api-key-insert-middle",
+        "independent-airtable-api-key-extend-right",
+        "independent-airtable-api-key-extend-left",
+        "independent-airtable-api-key-low-entropy",
+        "independent-airtable-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "airtable-personnal-access-token",
+      "source_case_id": "fixture-00224",
+      "isolated": false,
+      "baseline_case_id": "independent-airtable-personnal-access-token-baseline",
+      "negative_case_ids": [
+        "independent-airtable-personnal-access-token-delete-last",
+        "independent-airtable-personnal-access-token-illegal-middle",
+        "independent-airtable-personnal-access-token-illegal-first",
+        "independent-airtable-personnal-access-token-insert-middle",
+        "independent-airtable-personnal-access-token-extend-right",
+        "independent-airtable-personnal-access-token-extend-left",
+        "independent-airtable-personnal-access-token-low-entropy",
+        "independent-airtable-personnal-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "algolia-api-key",
+      "source_case_id": "fixture-09126",
+      "isolated": false,
+      "baseline_case_id": "independent-algolia-api-key-baseline",
+      "negative_case_ids": [
+        "independent-algolia-api-key-delete-last",
+        "independent-algolia-api-key-illegal-middle",
+        "independent-algolia-api-key-illegal-first",
+        "independent-algolia-api-key-insert-middle",
+        "independent-algolia-api-key-extend-right",
+        "independent-algolia-api-key-extend-left",
+        "independent-algolia-api-key-low-entropy",
+        "independent-algolia-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "alibaba-access-key-id",
+      "source_case_id": "fixture-09135",
+      "isolated": false,
+      "baseline_case_id": "independent-alibaba-access-key-id-baseline",
+      "negative_case_ids": [
+        "independent-alibaba-access-key-id-illegal-middle",
+        "independent-alibaba-access-key-id-illegal-first",
+        "independent-alibaba-access-key-id-insert-middle",
+        "independent-alibaba-access-key-id-extend-left",
+        "independent-alibaba-access-key-id-low-entropy",
+        "independent-alibaba-access-key-id-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "delete-last",
+        "extend-right"
+      ]
+    },
+    {
+      "rule_id": "alibaba-secret-key",
+      "source_case_id": "fixture-09135",
+      "isolated": false,
+      "baseline_case_id": "independent-alibaba-secret-key-baseline",
+      "negative_case_ids": [
+        "independent-alibaba-secret-key-delete-last",
+        "independent-alibaba-secret-key-illegal-middle",
+        "independent-alibaba-secret-key-illegal-first",
+        "independent-alibaba-secret-key-insert-middle",
+        "independent-alibaba-secret-key-extend-right",
+        "independent-alibaba-secret-key-extend-left",
+        "independent-alibaba-secret-key-low-entropy",
+        "independent-alibaba-secret-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "asana-client-id",
+      "source_case_id": "fixture-00371",
+      "isolated": false,
+      "baseline_case_id": "independent-asana-client-id-baseline",
+      "negative_case_ids": [
+        "independent-asana-client-id-delete-last",
+        "independent-asana-client-id-illegal-middle",
+        "independent-asana-client-id-illegal-first",
+        "independent-asana-client-id-insert-middle",
+        "independent-asana-client-id-extend-right",
+        "independent-asana-client-id-extend-left",
+        "independent-asana-client-id-low-entropy",
+        "independent-asana-client-id-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "asana-client-secret",
+      "source_case_id": "fixture-00391",
+      "isolated": false,
+      "baseline_case_id": "independent-asana-client-secret-baseline",
+      "negative_case_ids": [
+        "independent-asana-client-secret-delete-last",
+        "independent-asana-client-secret-illegal-middle",
+        "independent-asana-client-secret-illegal-first",
+        "independent-asana-client-secret-insert-middle",
+        "independent-asana-client-secret-extend-right",
+        "independent-asana-client-secret-extend-left",
+        "independent-asana-client-secret-low-entropy",
+        "independent-asana-client-secret-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "aws-secret-access-key",
+      "source_case_id": "fixture-09153",
+      "isolated": false,
+      "baseline_case_id": "independent-aws-secret-access-key-baseline",
+      "negative_case_ids": [
+        "independent-aws-secret-access-key-delete-last",
+        "independent-aws-secret-access-key-illegal-middle",
+        "independent-aws-secret-access-key-illegal-first",
+        "independent-aws-secret-access-key-insert-middle",
+        "independent-aws-secret-access-key-extend-right",
+        "independent-aws-secret-access-key-extend-left",
+        "independent-aws-secret-access-key-low-entropy",
+        "independent-aws-secret-access-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "azure-app-configuration-connection-string",
+      "source_case_id": "fixture-00650",
+      "isolated": false,
+      "baseline_case_id": "independent-azure-app-configuration-connection-string-baseline",
+      "negative_case_ids": [
+        "independent-azure-app-configuration-connection-string-illegal-middle",
+        "independent-azure-app-configuration-connection-string-illegal-first",
+        "independent-azure-app-configuration-connection-string-insert-middle",
+        "independent-azure-app-configuration-connection-string-low-entropy",
+        "independent-azure-app-configuration-connection-string-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "delete-last",
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "azure-client-id",
+      "source_case_id": "fixture-09162",
+      "isolated": false,
+      "baseline_case_id": "independent-azure-client-id-baseline",
+      "negative_case_ids": [
+        "independent-azure-client-id-delete-last",
+        "independent-azure-client-id-illegal-middle",
+        "independent-azure-client-id-illegal-first",
+        "independent-azure-client-id-insert-middle",
+        "independent-azure-client-id-extend-right",
+        "independent-azure-client-id-low-entropy",
+        "independent-azure-client-id-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "azure-servicebus-connection-string",
+      "source_case_id": "fixture-00651",
+      "isolated": false,
+      "baseline_case_id": "independent-azure-servicebus-connection-string-baseline",
+      "negative_case_ids": [
+        "independent-azure-servicebus-connection-string-illegal-first",
+        "independent-azure-servicebus-connection-string-low-entropy",
+        "independent-azure-servicebus-connection-string-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "delete-last",
+        "illegal-middle",
+        "insert-middle",
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "azure-storage-account-key",
+      "source_case_id": "fixture-00646",
+      "isolated": false,
+      "baseline_case_id": "independent-azure-storage-account-key-baseline",
+      "negative_case_ids": [
+        "independent-azure-storage-account-key-delete-last",
+        "independent-azure-storage-account-key-illegal-middle",
+        "independent-azure-storage-account-key-illegal-first",
+        "independent-azure-storage-account-key-insert-middle",
+        "independent-azure-storage-account-key-low-entropy",
+        "independent-azure-storage-account-key-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "azure-storage-account-name",
+      "source_case_id": "fixture-00646",
+      "isolated": false,
+      "baseline_case_id": "independent-azure-storage-account-name-baseline",
+      "negative_case_ids": [
+        "independent-azure-storage-account-name-illegal-first",
+        "independent-azure-storage-account-name-low-entropy"
+      ],
+      "retained_positive_mutations": [
+        "delete-last",
+        "illegal-middle",
+        "insert-middle",
+        "extend-right",
+        "extend-left",
+        "truncate-half"
+      ]
+    },
+    {
+      "rule_id": "azure-tenant-id",
+      "source_case_id": "fixture-09162",
+      "isolated": false,
+      "baseline_case_id": "independent-azure-tenant-id-baseline",
+      "negative_case_ids": [
+        "independent-azure-tenant-id-delete-last",
+        "independent-azure-tenant-id-illegal-middle",
+        "independent-azure-tenant-id-illegal-first",
+        "independent-azure-tenant-id-insert-middle",
+        "independent-azure-tenant-id-extend-right",
+        "independent-azure-tenant-id-low-entropy",
+        "independent-azure-tenant-id-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "bitbucket-client-id",
+      "source_case_id": "fixture-00671",
+      "isolated": false,
+      "baseline_case_id": "independent-bitbucket-client-id-baseline",
+      "negative_case_ids": [
+        "independent-bitbucket-client-id-delete-last",
+        "independent-bitbucket-client-id-illegal-middle",
+        "independent-bitbucket-client-id-illegal-first",
+        "independent-bitbucket-client-id-insert-middle",
+        "independent-bitbucket-client-id-extend-right",
+        "independent-bitbucket-client-id-extend-left",
+        "independent-bitbucket-client-id-low-entropy",
+        "independent-bitbucket-client-id-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "bitbucket-client-secret",
+      "source_case_id": "fixture-00681",
+      "isolated": false,
+      "baseline_case_id": "independent-bitbucket-client-secret-baseline",
+      "negative_case_ids": [
+        "independent-bitbucket-client-secret-delete-last",
+        "independent-bitbucket-client-secret-illegal-middle",
+        "independent-bitbucket-client-secret-illegal-first",
+        "independent-bitbucket-client-secret-insert-middle",
+        "independent-bitbucket-client-secret-extend-right",
+        "independent-bitbucket-client-secret-extend-left",
+        "independent-bitbucket-client-secret-low-entropy",
+        "independent-bitbucket-client-secret-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "bittrex-access-key",
+      "source_case_id": "fixture-00739",
+      "isolated": false,
+      "baseline_case_id": "independent-bittrex-access-key-baseline",
+      "negative_case_ids": [
+        "independent-bittrex-access-key-delete-last",
+        "independent-bittrex-access-key-illegal-middle",
+        "independent-bittrex-access-key-illegal-first",
+        "independent-bittrex-access-key-insert-middle",
+        "independent-bittrex-access-key-extend-right",
+        "independent-bittrex-access-key-extend-left",
+        "independent-bittrex-access-key-low-entropy",
+        "independent-bittrex-access-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "bittrex-secret-key",
+      "source_case_id": "fixture-00739",
+      "isolated": false,
+      "baseline_case_id": "independent-bittrex-secret-key-baseline",
+      "negative_case_ids": [
+        "independent-bittrex-secret-key-delete-last",
+        "independent-bittrex-secret-key-illegal-middle",
+        "independent-bittrex-secret-key-illegal-first",
+        "independent-bittrex-secret-key-insert-middle",
+        "independent-bittrex-secret-key-extend-right",
+        "independent-bittrex-secret-key-extend-left",
+        "independent-bittrex-secret-key-low-entropy",
+        "independent-bittrex-secret-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "clojars-api-token",
+      "source_case_id": "fixture-00982",
+      "isolated": false,
+      "baseline_case_id": "independent-clojars-api-token-baseline",
+      "negative_case_ids": [
+        "independent-clojars-api-token-delete-last",
+        "independent-clojars-api-token-illegal-middle",
+        "independent-clojars-api-token-illegal-first",
+        "independent-clojars-api-token-insert-middle",
+        "independent-clojars-api-token-low-entropy",
+        "independent-clojars-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "coinbase-access-token",
+      "source_case_id": "fixture-01174",
+      "isolated": false,
+      "baseline_case_id": "independent-coinbase-access-token-baseline",
+      "negative_case_ids": [
+        "independent-coinbase-access-token-delete-last",
+        "independent-coinbase-access-token-illegal-middle",
+        "independent-coinbase-access-token-illegal-first",
+        "independent-coinbase-access-token-insert-middle",
+        "independent-coinbase-access-token-extend-right",
+        "independent-coinbase-access-token-extend-left",
+        "independent-coinbase-access-token-low-entropy",
+        "independent-coinbase-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "confluent-access-token",
+      "source_case_id": "fixture-01192",
+      "isolated": false,
+      "baseline_case_id": "independent-confluent-access-token-baseline",
+      "negative_case_ids": [
+        "independent-confluent-access-token-delete-last",
+        "independent-confluent-access-token-illegal-middle",
+        "independent-confluent-access-token-illegal-first",
+        "independent-confluent-access-token-insert-middle",
+        "independent-confluent-access-token-extend-right",
+        "independent-confluent-access-token-extend-left",
+        "independent-confluent-access-token-low-entropy",
+        "independent-confluent-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "confluent-secret-key",
+      "source_case_id": "fixture-01206",
+      "isolated": false,
+      "baseline_case_id": "independent-confluent-secret-key-baseline",
+      "negative_case_ids": [
+        "independent-confluent-secret-key-delete-last",
+        "independent-confluent-secret-key-illegal-middle",
+        "independent-confluent-secret-key-illegal-first",
+        "independent-confluent-secret-key-insert-middle",
+        "independent-confluent-secret-key-extend-right",
+        "independent-confluent-secret-key-extend-left",
+        "independent-confluent-secret-key-low-entropy",
+        "independent-confluent-secret-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "contentful-delivery-api-token",
+      "source_case_id": "fixture-01256",
+      "isolated": false,
+      "baseline_case_id": "independent-contentful-delivery-api-token-baseline",
+      "negative_case_ids": [
+        "independent-contentful-delivery-api-token-delete-last",
+        "independent-contentful-delivery-api-token-illegal-middle",
+        "independent-contentful-delivery-api-token-illegal-first",
+        "independent-contentful-delivery-api-token-insert-middle",
+        "independent-contentful-delivery-api-token-extend-right",
+        "independent-contentful-delivery-api-token-extend-left",
+        "independent-contentful-delivery-api-token-low-entropy",
+        "independent-contentful-delivery-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "coveralls-personal-api-token",
+      "source_case_id": "fixture-01263",
+      "isolated": false,
+      "baseline_case_id": "independent-coveralls-personal-api-token-baseline",
+      "negative_case_ids": [
+        "independent-coveralls-personal-api-token-delete-last",
+        "independent-coveralls-personal-api-token-illegal-middle",
+        "independent-coveralls-personal-api-token-illegal-first",
+        "independent-coveralls-personal-api-token-insert-middle",
+        "independent-coveralls-personal-api-token-extend-right",
+        "independent-coveralls-personal-api-token-extend-left",
+        "independent-coveralls-personal-api-token-low-entropy",
+        "independent-coveralls-personal-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "datadog-api-key",
+      "source_case_id": "fixture-01448",
+      "isolated": false,
+      "baseline_case_id": "independent-datadog-api-key-baseline",
+      "negative_case_ids": [
+        "independent-datadog-api-key-delete-last",
+        "independent-datadog-api-key-illegal-middle",
+        "independent-datadog-api-key-illegal-first",
+        "independent-datadog-api-key-insert-middle",
+        "independent-datadog-api-key-extend-right",
+        "independent-datadog-api-key-extend-left",
+        "independent-datadog-api-key-low-entropy",
+        "independent-datadog-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "datadog-application-key",
+      "source_case_id": "fixture-01472",
+      "isolated": false,
+      "baseline_case_id": "independent-datadog-application-key-baseline",
+      "negative_case_ids": [
+        "independent-datadog-application-key-delete-last",
+        "independent-datadog-application-key-illegal-middle",
+        "independent-datadog-application-key-illegal-first",
+        "independent-datadog-application-key-insert-middle",
+        "independent-datadog-application-key-extend-right",
+        "independent-datadog-application-key-extend-left",
+        "independent-datadog-application-key-low-entropy",
+        "independent-datadog-application-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "datagov-api-key",
+      "source_case_id": "fixture-01474",
+      "isolated": false,
+      "baseline_case_id": "independent-datagov-api-key-baseline",
+      "negative_case_ids": [
+        "independent-datagov-api-key-delete-last",
+        "independent-datagov-api-key-illegal-middle",
+        "independent-datagov-api-key-illegal-first",
+        "independent-datagov-api-key-insert-middle",
+        "independent-datagov-api-key-extend-right",
+        "independent-datagov-api-key-extend-left",
+        "independent-datagov-api-key-low-entropy",
+        "independent-datagov-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "defined-networking-api-token",
+      "source_case_id": "fixture-01491",
+      "isolated": false,
+      "baseline_case_id": "independent-defined-networking-api-token-baseline",
+      "negative_case_ids": [
+        "independent-defined-networking-api-token-delete-last",
+        "independent-defined-networking-api-token-illegal-middle",
+        "independent-defined-networking-api-token-illegal-first",
+        "independent-defined-networking-api-token-insert-middle",
+        "independent-defined-networking-api-token-extend-right",
+        "independent-defined-networking-api-token-extend-left",
+        "independent-defined-networking-api-token-low-entropy",
+        "independent-defined-networking-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "deno-account-token",
+      "source_case_id": "fixture-01502",
+      "isolated": false,
+      "baseline_case_id": "independent-deno-account-token-baseline",
+      "negative_case_ids": [
+        "independent-deno-account-token-delete-last",
+        "independent-deno-account-token-illegal-middle",
+        "independent-deno-account-token-illegal-first",
+        "independent-deno-account-token-insert-middle",
+        "independent-deno-account-token-extend-right",
+        "independent-deno-account-token-extend-left",
+        "independent-deno-account-token-low-entropy",
+        "independent-deno-account-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "devin-personal-api-key",
+      "source_case_id": "fixture-01503",
+      "isolated": false,
+      "baseline_case_id": "independent-devin-personal-api-key-baseline",
+      "negative_case_ids": [
+        "independent-devin-personal-api-key-illegal-middle",
+        "independent-devin-personal-api-key-illegal-first",
+        "independent-devin-personal-api-key-insert-middle",
+        "independent-devin-personal-api-key-extend-right",
+        "independent-devin-personal-api-key-extend-left",
+        "independent-devin-personal-api-key-low-entropy",
+        "independent-devin-personal-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "delete-last"
+      ]
+    },
+    {
+      "rule_id": "devin-service-user-token",
+      "source_case_id": "fixture-01508",
+      "isolated": false,
+      "baseline_case_id": "independent-devin-service-user-token-baseline",
+      "negative_case_ids": [
+        "independent-devin-service-user-token-delete-last",
+        "independent-devin-service-user-token-illegal-middle",
+        "independent-devin-service-user-token-illegal-first",
+        "independent-devin-service-user-token-insert-middle",
+        "independent-devin-service-user-token-extend-right",
+        "independent-devin-service-user-token-extend-left",
+        "independent-devin-service-user-token-low-entropy",
+        "independent-devin-service-user-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "digitalocean-access-token",
+      "source_case_id": "fixture-01565",
+      "isolated": false,
+      "baseline_case_id": "independent-digitalocean-access-token-baseline",
+      "negative_case_ids": [
+        "independent-digitalocean-access-token-delete-last",
+        "independent-digitalocean-access-token-illegal-middle",
+        "independent-digitalocean-access-token-illegal-first",
+        "independent-digitalocean-access-token-insert-middle",
+        "independent-digitalocean-access-token-extend-right",
+        "independent-digitalocean-access-token-extend-left",
+        "independent-digitalocean-access-token-low-entropy",
+        "independent-digitalocean-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "digitalocean-pat",
+      "source_case_id": "fixture-01528",
+      "isolated": false,
+      "baseline_case_id": "independent-digitalocean-pat-baseline",
+      "negative_case_ids": [
+        "independent-digitalocean-pat-delete-last",
+        "independent-digitalocean-pat-illegal-middle",
+        "independent-digitalocean-pat-illegal-first",
+        "independent-digitalocean-pat-insert-middle",
+        "independent-digitalocean-pat-extend-right",
+        "independent-digitalocean-pat-extend-left",
+        "independent-digitalocean-pat-low-entropy",
+        "independent-digitalocean-pat-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "digitalocean-refresh-token",
+      "source_case_id": "fixture-01577",
+      "isolated": false,
+      "baseline_case_id": "independent-digitalocean-refresh-token-baseline",
+      "negative_case_ids": [
+        "independent-digitalocean-refresh-token-delete-last",
+        "independent-digitalocean-refresh-token-illegal-middle",
+        "independent-digitalocean-refresh-token-illegal-first",
+        "independent-digitalocean-refresh-token-insert-middle",
+        "independent-digitalocean-refresh-token-extend-right",
+        "independent-digitalocean-refresh-token-extend-left",
+        "independent-digitalocean-refresh-token-low-entropy",
+        "independent-digitalocean-refresh-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "discord-api-token",
+      "source_case_id": "fixture-01609",
+      "isolated": false,
+      "baseline_case_id": "independent-discord-api-token-baseline",
+      "negative_case_ids": [
+        "independent-discord-api-token-delete-last",
+        "independent-discord-api-token-illegal-middle",
+        "independent-discord-api-token-illegal-first",
+        "independent-discord-api-token-insert-middle",
+        "independent-discord-api-token-extend-right",
+        "independent-discord-api-token-extend-left",
+        "independent-discord-api-token-low-entropy",
+        "independent-discord-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "disqus-api-key",
+      "source_case_id": "fixture-01594",
+      "isolated": false,
+      "baseline_case_id": "independent-disqus-api-key-baseline",
+      "negative_case_ids": [
+        "independent-disqus-api-key-delete-last",
+        "independent-disqus-api-key-illegal-middle",
+        "independent-disqus-api-key-illegal-first",
+        "independent-disqus-api-key-insert-middle",
+        "independent-disqus-api-key-extend-right",
+        "independent-disqus-api-key-extend-left",
+        "independent-disqus-api-key-low-entropy",
+        "independent-disqus-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "dockerhub-organization-access-token",
+      "source_case_id": "fixture-01704",
+      "isolated": false,
+      "baseline_case_id": "independent-dockerhub-organization-access-token-baseline",
+      "negative_case_ids": [
+        "independent-dockerhub-organization-access-token-delete-last",
+        "independent-dockerhub-organization-access-token-illegal-middle",
+        "independent-dockerhub-organization-access-token-illegal-first",
+        "independent-dockerhub-organization-access-token-insert-middle",
+        "independent-dockerhub-organization-access-token-extend-right",
+        "independent-dockerhub-organization-access-token-extend-left",
+        "independent-dockerhub-organization-access-token-low-entropy",
+        "independent-dockerhub-organization-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "dockerhub-personal-access-token",
+      "source_case_id": "fixture-01702",
+      "isolated": false,
+      "baseline_case_id": "independent-dockerhub-personal-access-token-baseline",
+      "negative_case_ids": [
+        "independent-dockerhub-personal-access-token-delete-last",
+        "independent-dockerhub-personal-access-token-illegal-middle",
+        "independent-dockerhub-personal-access-token-illegal-first",
+        "independent-dockerhub-personal-access-token-insert-middle",
+        "independent-dockerhub-personal-access-token-extend-right",
+        "independent-dockerhub-personal-access-token-extend-left",
+        "independent-dockerhub-personal-access-token-low-entropy",
+        "independent-dockerhub-personal-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "doppler-api-token",
+      "source_case_id": "fixture-01690",
+      "isolated": false,
+      "baseline_case_id": "independent-doppler-api-token-baseline",
+      "negative_case_ids": [
+        "independent-doppler-api-token-delete-last",
+        "independent-doppler-api-token-illegal-middle",
+        "independent-doppler-api-token-illegal-first",
+        "independent-doppler-api-token-insert-middle",
+        "independent-doppler-api-token-low-entropy",
+        "independent-doppler-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "droneci-access-token",
+      "source_case_id": "fixture-01758",
+      "isolated": false,
+      "baseline_case_id": "independent-droneci-access-token-baseline",
+      "negative_case_ids": [
+        "independent-droneci-access-token-delete-last",
+        "independent-droneci-access-token-illegal-middle",
+        "independent-droneci-access-token-illegal-first",
+        "independent-droneci-access-token-insert-middle",
+        "independent-droneci-access-token-extend-right",
+        "independent-droneci-access-token-extend-left",
+        "independent-droneci-access-token-low-entropy",
+        "independent-droneci-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "dropbox-api-token",
+      "source_case_id": "fixture-01722",
+      "isolated": false,
+      "baseline_case_id": "independent-dropbox-api-token-baseline",
+      "negative_case_ids": [
+        "independent-dropbox-api-token-delete-last",
+        "independent-dropbox-api-token-illegal-middle",
+        "independent-dropbox-api-token-illegal-first",
+        "independent-dropbox-api-token-insert-middle",
+        "independent-dropbox-api-token-extend-right",
+        "independent-dropbox-api-token-extend-left",
+        "independent-dropbox-api-token-low-entropy",
+        "independent-dropbox-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "dropbox-long-lived-api-token",
+      "source_case_id": "generated-dropbox-long-lived-api-token",
+      "isolated": false,
+      "baseline_case_id": "independent-dropbox-long-lived-api-token-baseline",
+      "negative_case_ids": [
+        "independent-dropbox-long-lived-api-token-delete-last",
+        "independent-dropbox-long-lived-api-token-illegal-middle",
+        "independent-dropbox-long-lived-api-token-illegal-first",
+        "independent-dropbox-long-lived-api-token-insert-middle",
+        "independent-dropbox-long-lived-api-token-extend-right",
+        "independent-dropbox-long-lived-api-token-extend-left",
+        "independent-dropbox-long-lived-api-token-low-entropy",
+        "independent-dropbox-long-lived-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "dropbox-short-lived-api-token",
+      "source_case_id": "generated-dropbox-short-lived-api-token",
+      "isolated": false,
+      "baseline_case_id": "independent-dropbox-short-lived-api-token-baseline",
+      "negative_case_ids": [
+        "independent-dropbox-short-lived-api-token-delete-last",
+        "independent-dropbox-short-lived-api-token-illegal-middle",
+        "independent-dropbox-short-lived-api-token-illegal-first",
+        "independent-dropbox-short-lived-api-token-insert-middle",
+        "independent-dropbox-short-lived-api-token-extend-right",
+        "independent-dropbox-short-lived-api-token-extend-left",
+        "independent-dropbox-short-lived-api-token-low-entropy",
+        "independent-dropbox-short-lived-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "duffel-api-token",
+      "source_case_id": "fixture-01777",
+      "isolated": false,
+      "baseline_case_id": "independent-duffel-api-token-baseline",
+      "negative_case_ids": [
+        "independent-duffel-api-token-delete-last",
+        "independent-duffel-api-token-illegal-middle",
+        "independent-duffel-api-token-illegal-first",
+        "independent-duffel-api-token-insert-middle",
+        "independent-duffel-api-token-low-entropy",
+        "independent-duffel-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "dynatrace-api-token",
+      "source_case_id": "fixture-01802",
+      "isolated": false,
+      "baseline_case_id": "independent-dynatrace-api-token-baseline",
+      "negative_case_ids": [
+        "independent-dynatrace-api-token-delete-last",
+        "independent-dynatrace-api-token-illegal-middle",
+        "independent-dynatrace-api-token-illegal-first",
+        "independent-dynatrace-api-token-insert-middle",
+        "independent-dynatrace-api-token-low-entropy",
+        "independent-dynatrace-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "exoscale-api-secret",
+      "source_case_id": "fixture-09204",
+      "isolated": false,
+      "baseline_case_id": "independent-exoscale-api-secret-baseline",
+      "negative_case_ids": [
+        "independent-exoscale-api-secret-delete-last",
+        "independent-exoscale-api-secret-illegal-middle",
+        "independent-exoscale-api-secret-illegal-first",
+        "independent-exoscale-api-secret-insert-middle",
+        "independent-exoscale-api-secret-low-entropy",
+        "independent-exoscale-api-secret-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "facebook-access-token",
+      "source_case_id": "fixture-02001",
+      "isolated": false,
+      "baseline_case_id": "independent-facebook-access-token-baseline",
+      "negative_case_ids": [
+        "independent-facebook-access-token-delete-last",
+        "independent-facebook-access-token-illegal-middle",
+        "independent-facebook-access-token-insert-middle",
+        "independent-facebook-access-token-extend-left",
+        "independent-facebook-access-token-low-entropy",
+        "independent-facebook-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "illegal-first",
+        "extend-right"
+      ]
+    },
+    {
+      "rule_id": "facebook-secret",
+      "source_case_id": "fixture-01979",
+      "isolated": false,
+      "baseline_case_id": "independent-facebook-secret-baseline",
+      "negative_case_ids": [
+        "independent-facebook-secret-delete-last",
+        "independent-facebook-secret-illegal-middle",
+        "independent-facebook-secret-illegal-first",
+        "independent-facebook-secret-insert-middle",
+        "independent-facebook-secret-extend-right",
+        "independent-facebook-secret-extend-left",
+        "independent-facebook-secret-low-entropy",
+        "independent-facebook-secret-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "fastly-api-token",
+      "source_case_id": "fixture-02035",
+      "isolated": false,
+      "baseline_case_id": "independent-fastly-api-token-baseline",
+      "negative_case_ids": [
+        "independent-fastly-api-token-delete-last",
+        "independent-fastly-api-token-illegal-middle",
+        "independent-fastly-api-token-illegal-first",
+        "independent-fastly-api-token-insert-middle",
+        "independent-fastly-api-token-extend-right",
+        "independent-fastly-api-token-extend-left",
+        "independent-fastly-api-token-low-entropy",
+        "independent-fastly-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "figma-personal-access-header-token",
+      "source_case_id": "fixture-02069",
+      "isolated": false,
+      "baseline_case_id": "independent-figma-personal-access-header-token-baseline",
+      "negative_case_ids": [
+        "independent-figma-personal-access-header-token-delete-last",
+        "independent-figma-personal-access-header-token-illegal-middle",
+        "independent-figma-personal-access-header-token-illegal-first",
+        "independent-figma-personal-access-header-token-insert-middle",
+        "independent-figma-personal-access-header-token-extend-right",
+        "independent-figma-personal-access-header-token-extend-left",
+        "independent-figma-personal-access-header-token-low-entropy",
+        "independent-figma-personal-access-header-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "figma-personal-access-token",
+      "source_case_id": "fixture-02064",
+      "isolated": false,
+      "baseline_case_id": "independent-figma-personal-access-token-baseline",
+      "negative_case_ids": [
+        "independent-figma-personal-access-token-delete-last",
+        "independent-figma-personal-access-token-illegal-middle",
+        "independent-figma-personal-access-token-illegal-first",
+        "independent-figma-personal-access-token-insert-middle",
+        "independent-figma-personal-access-token-extend-left",
+        "independent-figma-personal-access-token-low-entropy",
+        "independent-figma-personal-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right"
+      ]
+    },
+    {
+      "rule_id": "finicity-api-token",
+      "source_case_id": "fixture-02143",
+      "isolated": false,
+      "baseline_case_id": "independent-finicity-api-token-baseline",
+      "negative_case_ids": [
+        "independent-finicity-api-token-delete-last",
+        "independent-finicity-api-token-illegal-middle",
+        "independent-finicity-api-token-illegal-first",
+        "independent-finicity-api-token-insert-middle",
+        "independent-finicity-api-token-extend-right",
+        "independent-finicity-api-token-extend-left",
+        "independent-finicity-api-token-low-entropy",
+        "independent-finicity-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "finicity-client-secret",
+      "source_case_id": "fixture-02113",
+      "isolated": false,
+      "baseline_case_id": "independent-finicity-client-secret-baseline",
+      "negative_case_ids": [
+        "independent-finicity-client-secret-delete-last",
+        "independent-finicity-client-secret-illegal-middle",
+        "independent-finicity-client-secret-illegal-first",
+        "independent-finicity-client-secret-insert-middle",
+        "independent-finicity-client-secret-extend-right",
+        "independent-finicity-client-secret-extend-left",
+        "independent-finicity-client-secret-low-entropy",
+        "independent-finicity-client-secret-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "finnhub-access-token",
+      "source_case_id": "fixture-02177",
+      "isolated": false,
+      "baseline_case_id": "independent-finnhub-access-token-baseline",
+      "negative_case_ids": [
+        "independent-finnhub-access-token-delete-last",
+        "independent-finnhub-access-token-illegal-middle",
+        "independent-finnhub-access-token-illegal-first",
+        "independent-finnhub-access-token-insert-middle",
+        "independent-finnhub-access-token-extend-right",
+        "independent-finnhub-access-token-extend-left",
+        "independent-finnhub-access-token-low-entropy",
+        "independent-finnhub-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "flickr-access-token",
+      "source_case_id": "fixture-02172",
+      "isolated": false,
+      "baseline_case_id": "independent-flickr-access-token-baseline",
+      "negative_case_ids": [
+        "independent-flickr-access-token-delete-last",
+        "independent-flickr-access-token-illegal-middle",
+        "independent-flickr-access-token-illegal-first",
+        "independent-flickr-access-token-insert-middle",
+        "independent-flickr-access-token-extend-right",
+        "independent-flickr-access-token-extend-left",
+        "independent-flickr-access-token-low-entropy",
+        "independent-flickr-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "flutterwave-encryption-key",
+      "source_case_id": "fixture-02265",
+      "isolated": false,
+      "baseline_case_id": "independent-flutterwave-encryption-key-baseline",
+      "negative_case_ids": [
+        "independent-flutterwave-encryption-key-delete-last",
+        "independent-flutterwave-encryption-key-illegal-middle",
+        "independent-flutterwave-encryption-key-illegal-first",
+        "independent-flutterwave-encryption-key-insert-middle",
+        "independent-flutterwave-encryption-key-low-entropy",
+        "independent-flutterwave-encryption-key-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "flutterwave-public-key",
+      "source_case_id": "fixture-02220",
+      "isolated": false,
+      "baseline_case_id": "independent-flutterwave-public-key-baseline",
+      "negative_case_ids": [
+        "independent-flutterwave-public-key-delete-last",
+        "independent-flutterwave-public-key-illegal-middle",
+        "independent-flutterwave-public-key-illegal-first",
+        "independent-flutterwave-public-key-insert-middle",
+        "independent-flutterwave-public-key-low-entropy",
+        "independent-flutterwave-public-key-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "flutterwave-secret-key",
+      "source_case_id": "fixture-02232",
+      "isolated": false,
+      "baseline_case_id": "independent-flutterwave-secret-key-baseline",
+      "negative_case_ids": [
+        "independent-flutterwave-secret-key-delete-last",
+        "independent-flutterwave-secret-key-illegal-middle",
+        "independent-flutterwave-secret-key-illegal-first",
+        "independent-flutterwave-secret-key-insert-middle",
+        "independent-flutterwave-secret-key-low-entropy",
+        "independent-flutterwave-secret-key-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "frameio-api-token",
+      "source_case_id": "fixture-02310",
+      "isolated": false,
+      "baseline_case_id": "independent-frameio-api-token-baseline",
+      "negative_case_ids": [
+        "independent-frameio-api-token-delete-last",
+        "independent-frameio-api-token-illegal-middle",
+        "independent-frameio-api-token-illegal-first",
+        "independent-frameio-api-token-insert-middle",
+        "independent-frameio-api-token-low-entropy",
+        "independent-frameio-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "freshbooks-access-token",
+      "source_case_id": "fixture-02360",
+      "isolated": false,
+      "baseline_case_id": "independent-freshbooks-access-token-baseline",
+      "negative_case_ids": [
+        "independent-freshbooks-access-token-delete-last",
+        "independent-freshbooks-access-token-illegal-middle",
+        "independent-freshbooks-access-token-illegal-first",
+        "independent-freshbooks-access-token-insert-middle",
+        "independent-freshbooks-access-token-extend-right",
+        "independent-freshbooks-access-token-extend-left",
+        "independent-freshbooks-access-token-low-entropy",
+        "independent-freshbooks-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "gcp-application-default-credentials",
+      "source_case_id": "fixture-02393",
+      "isolated": false,
+      "baseline_case_id": "independent-gcp-application-default-credentials-baseline",
+      "negative_case_ids": [
+        "independent-gcp-application-default-credentials-delete-last",
+        "independent-gcp-application-default-credentials-illegal-first",
+        "independent-gcp-application-default-credentials-low-entropy",
+        "independent-gcp-application-default-credentials-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "illegal-middle",
+        "insert-middle",
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "gitlab-cicd-job-token",
+      "source_case_id": "fixture-02682",
+      "isolated": false,
+      "baseline_case_id": "independent-gitlab-cicd-job-token-baseline",
+      "negative_case_ids": [
+        "independent-gitlab-cicd-job-token-delete-last",
+        "independent-gitlab-cicd-job-token-illegal-middle",
+        "independent-gitlab-cicd-job-token-illegal-first",
+        "independent-gitlab-cicd-job-token-insert-middle",
+        "independent-gitlab-cicd-job-token-low-entropy",
+        "independent-gitlab-cicd-job-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "gitlab-deploy-token",
+      "source_case_id": "fixture-02694",
+      "isolated": false,
+      "baseline_case_id": "independent-gitlab-deploy-token-baseline",
+      "negative_case_ids": [
+        "independent-gitlab-deploy-token-delete-last",
+        "independent-gitlab-deploy-token-illegal-middle",
+        "independent-gitlab-deploy-token-illegal-first",
+        "independent-gitlab-deploy-token-insert-middle",
+        "independent-gitlab-deploy-token-low-entropy",
+        "independent-gitlab-deploy-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "gitlab-feature-flag-client-token",
+      "source_case_id": "fixture-02717",
+      "isolated": false,
+      "baseline_case_id": "independent-gitlab-feature-flag-client-token-baseline",
+      "negative_case_ids": [
+        "independent-gitlab-feature-flag-client-token-delete-last",
+        "independent-gitlab-feature-flag-client-token-illegal-middle",
+        "independent-gitlab-feature-flag-client-token-illegal-first",
+        "independent-gitlab-feature-flag-client-token-insert-middle",
+        "independent-gitlab-feature-flag-client-token-low-entropy",
+        "independent-gitlab-feature-flag-client-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "gitlab-feed-token",
+      "source_case_id": "fixture-02738",
+      "isolated": false,
+      "baseline_case_id": "independent-gitlab-feed-token-baseline",
+      "negative_case_ids": [
+        "independent-gitlab-feed-token-delete-last",
+        "independent-gitlab-feed-token-illegal-middle",
+        "independent-gitlab-feed-token-illegal-first",
+        "independent-gitlab-feed-token-insert-middle",
+        "independent-gitlab-feed-token-low-entropy",
+        "independent-gitlab-feed-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "gitlab-incoming-mail-address-token",
+      "source_case_id": "fixture-02775",
+      "isolated": false,
+      "baseline_case_id": "independent-gitlab-incoming-mail-address-token-baseline",
+      "negative_case_ids": [
+        "independent-gitlab-incoming-mail-address-token-illegal-middle",
+        "independent-gitlab-incoming-mail-address-token-illegal-first",
+        "independent-gitlab-incoming-mail-address-token-insert-middle",
+        "independent-gitlab-incoming-mail-address-token-low-entropy"
+      ],
+      "retained_positive_mutations": [
+        "delete-last",
+        "extend-right",
+        "extend-left",
+        "truncate-half"
+      ]
+    },
+    {
+      "rule_id": "gitlab-incoming-mail-token",
+      "source_case_id": "fixture-02764",
+      "isolated": false,
+      "baseline_case_id": "independent-gitlab-incoming-mail-token-baseline",
+      "negative_case_ids": [
+        "independent-gitlab-incoming-mail-token-delete-last",
+        "independent-gitlab-incoming-mail-token-illegal-middle",
+        "independent-gitlab-incoming-mail-token-illegal-first",
+        "independent-gitlab-incoming-mail-token-insert-middle",
+        "independent-gitlab-incoming-mail-token-low-entropy",
+        "independent-gitlab-incoming-mail-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "gitlab-kubernetes-agent-token",
+      "source_case_id": "fixture-02781",
+      "isolated": false,
+      "baseline_case_id": "independent-gitlab-kubernetes-agent-token-baseline",
+      "negative_case_ids": [
+        "independent-gitlab-kubernetes-agent-token-delete-last",
+        "independent-gitlab-kubernetes-agent-token-illegal-middle",
+        "independent-gitlab-kubernetes-agent-token-illegal-first",
+        "independent-gitlab-kubernetes-agent-token-insert-middle",
+        "independent-gitlab-kubernetes-agent-token-low-entropy",
+        "independent-gitlab-kubernetes-agent-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "gitlab-oauth-app-secret",
+      "source_case_id": "fixture-02812",
+      "isolated": false,
+      "baseline_case_id": "independent-gitlab-oauth-app-secret-baseline",
+      "negative_case_ids": [
+        "independent-gitlab-oauth-app-secret-delete-last",
+        "independent-gitlab-oauth-app-secret-illegal-middle",
+        "independent-gitlab-oauth-app-secret-illegal-first",
+        "independent-gitlab-oauth-app-secret-insert-middle",
+        "independent-gitlab-oauth-app-secret-low-entropy",
+        "independent-gitlab-oauth-app-secret-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "gitlab-runner-authentication-token",
+      "source_case_id": "fixture-02978",
+      "isolated": false,
+      "baseline_case_id": "independent-gitlab-runner-authentication-token-baseline",
+      "negative_case_ids": [
+        "independent-gitlab-runner-authentication-token-delete-last",
+        "independent-gitlab-runner-authentication-token-illegal-middle",
+        "independent-gitlab-runner-authentication-token-illegal-first",
+        "independent-gitlab-runner-authentication-token-insert-middle",
+        "independent-gitlab-runner-authentication-token-low-entropy",
+        "independent-gitlab-runner-authentication-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "gitlab-scim-token",
+      "source_case_id": "fixture-03030",
+      "isolated": false,
+      "baseline_case_id": "independent-gitlab-scim-token-baseline",
+      "negative_case_ids": [
+        "independent-gitlab-scim-token-delete-last",
+        "independent-gitlab-scim-token-illegal-middle",
+        "independent-gitlab-scim-token-illegal-first",
+        "independent-gitlab-scim-token-insert-middle",
+        "independent-gitlab-scim-token-low-entropy",
+        "independent-gitlab-scim-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "gitlab-session-cookie",
+      "source_case_id": "fixture-03066",
+      "isolated": false,
+      "baseline_case_id": "independent-gitlab-session-cookie-baseline",
+      "negative_case_ids": [
+        "independent-gitlab-session-cookie-delete-last",
+        "independent-gitlab-session-cookie-illegal-middle",
+        "independent-gitlab-session-cookie-illegal-first",
+        "independent-gitlab-session-cookie-insert-middle",
+        "independent-gitlab-session-cookie-low-entropy",
+        "independent-gitlab-session-cookie-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "gitter-access-token",
+      "source_case_id": "fixture-03072",
+      "isolated": false,
+      "baseline_case_id": "independent-gitter-access-token-baseline",
+      "negative_case_ids": [
+        "independent-gitter-access-token-delete-last",
+        "independent-gitter-access-token-illegal-middle",
+        "independent-gitter-access-token-illegal-first",
+        "independent-gitter-access-token-insert-middle",
+        "independent-gitter-access-token-extend-right",
+        "independent-gitter-access-token-extend-left",
+        "independent-gitter-access-token-low-entropy",
+        "independent-gitter-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "gocardless-api-token",
+      "source_case_id": "fixture-02381",
+      "isolated": false,
+      "baseline_case_id": "independent-gocardless-api-token-baseline",
+      "negative_case_ids": [
+        "independent-gocardless-api-token-delete-last",
+        "independent-gocardless-api-token-illegal-middle",
+        "independent-gocardless-api-token-illegal-first",
+        "independent-gocardless-api-token-insert-middle",
+        "independent-gocardless-api-token-extend-right",
+        "independent-gocardless-api-token-extend-left",
+        "independent-gocardless-api-token-low-entropy",
+        "independent-gocardless-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "grafana-api-key",
+      "source_case_id": "fixture-03129",
+      "isolated": false,
+      "baseline_case_id": "independent-grafana-api-key-baseline",
+      "negative_case_ids": [
+        "independent-grafana-api-key-illegal-middle",
+        "independent-grafana-api-key-illegal-first",
+        "independent-grafana-api-key-insert-middle",
+        "independent-grafana-api-key-extend-left",
+        "independent-grafana-api-key-low-entropy",
+        "independent-grafana-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "delete-last",
+        "extend-right"
+      ]
+    },
+    {
+      "rule_id": "gumroad-access-token",
+      "source_case_id": "fixture-03217",
+      "isolated": false,
+      "baseline_case_id": "independent-gumroad-access-token-baseline",
+      "negative_case_ids": [
+        "independent-gumroad-access-token-delete-last",
+        "independent-gumroad-access-token-illegal-middle",
+        "independent-gumroad-access-token-illegal-first",
+        "independent-gumroad-access-token-insert-middle",
+        "independent-gumroad-access-token-extend-right",
+        "independent-gumroad-access-token-extend-left",
+        "independent-gumroad-access-token-low-entropy",
+        "independent-gumroad-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "harness-api-key",
+      "source_case_id": "fixture-03220",
+      "isolated": false,
+      "baseline_case_id": "independent-harness-api-key-baseline",
+      "negative_case_ids": [
+        "independent-harness-api-key-delete-last",
+        "independent-harness-api-key-illegal-middle",
+        "independent-harness-api-key-illegal-first",
+        "independent-harness-api-key-insert-middle",
+        "independent-harness-api-key-low-entropy",
+        "independent-harness-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "heroku-api-key",
+      "source_case_id": "fixture-03319",
+      "isolated": false,
+      "baseline_case_id": "independent-heroku-api-key-baseline",
+      "negative_case_ids": [
+        "independent-heroku-api-key-delete-last",
+        "independent-heroku-api-key-illegal-middle",
+        "independent-heroku-api-key-illegal-first",
+        "independent-heroku-api-key-insert-middle",
+        "independent-heroku-api-key-extend-right",
+        "independent-heroku-api-key-extend-left",
+        "independent-heroku-api-key-low-entropy",
+        "independent-heroku-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "heroku-api-key-v2",
+      "source_case_id": "fixture-03334",
+      "isolated": false,
+      "baseline_case_id": "independent-heroku-api-key-v2-baseline",
+      "negative_case_ids": [
+        "independent-heroku-api-key-v2-delete-last",
+        "independent-heroku-api-key-v2-illegal-middle",
+        "independent-heroku-api-key-v2-illegal-first",
+        "independent-heroku-api-key-v2-insert-middle",
+        "independent-heroku-api-key-v2-extend-right",
+        "independent-heroku-api-key-v2-extend-left",
+        "independent-heroku-api-key-v2-low-entropy",
+        "independent-heroku-api-key-v2-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "honeycomb-api-key",
+      "source_case_id": "fixture-03364",
+      "isolated": false,
+      "baseline_case_id": "independent-honeycomb-api-key-baseline",
+      "negative_case_ids": [
+        "independent-honeycomb-api-key-delete-last",
+        "independent-honeycomb-api-key-illegal-middle",
+        "independent-honeycomb-api-key-illegal-first",
+        "independent-honeycomb-api-key-insert-middle",
+        "independent-honeycomb-api-key-extend-right",
+        "independent-honeycomb-api-key-extend-left",
+        "independent-honeycomb-api-key-low-entropy",
+        "independent-honeycomb-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "hubspot-api-key",
+      "source_case_id": "fixture-03374",
+      "isolated": false,
+      "baseline_case_id": "independent-hubspot-api-key-baseline",
+      "negative_case_ids": [
+        "independent-hubspot-api-key-delete-last",
+        "independent-hubspot-api-key-illegal-middle",
+        "independent-hubspot-api-key-illegal-first",
+        "independent-hubspot-api-key-insert-middle",
+        "independent-hubspot-api-key-extend-right",
+        "independent-hubspot-api-key-extend-left",
+        "independent-hubspot-api-key-low-entropy",
+        "independent-hubspot-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "ibm-cloud-user-api-key",
+      "source_case_id": "fixture-03489",
+      "isolated": false,
+      "baseline_case_id": "independent-ibm-cloud-user-api-key-baseline",
+      "negative_case_ids": [
+        "independent-ibm-cloud-user-api-key-illegal-middle",
+        "independent-ibm-cloud-user-api-key-illegal-first",
+        "independent-ibm-cloud-user-api-key-insert-middle",
+        "independent-ibm-cloud-user-api-key-low-entropy",
+        "independent-ibm-cloud-user-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "delete-last",
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "intercom-api-key",
+      "source_case_id": "fixture-03539",
+      "isolated": false,
+      "baseline_case_id": "independent-intercom-api-key-baseline",
+      "negative_case_ids": [
+        "independent-intercom-api-key-delete-last",
+        "independent-intercom-api-key-illegal-middle",
+        "independent-intercom-api-key-illegal-first",
+        "independent-intercom-api-key-insert-middle",
+        "independent-intercom-api-key-extend-right",
+        "independent-intercom-api-key-extend-left",
+        "independent-intercom-api-key-low-entropy",
+        "independent-intercom-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "intra42-client-secret",
+      "source_case_id": "fixture-03555",
+      "isolated": false,
+      "baseline_case_id": "independent-intra42-client-secret-baseline",
+      "negative_case_ids": [
+        "independent-intra42-client-secret-delete-last",
+        "independent-intra42-client-secret-illegal-middle",
+        "independent-intra42-client-secret-illegal-first",
+        "independent-intra42-client-secret-insert-middle",
+        "independent-intra42-client-secret-extend-right",
+        "independent-intra42-client-secret-extend-left",
+        "independent-intra42-client-secret-low-entropy",
+        "independent-intra42-client-secret-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "jumpcloud-api-key",
+      "source_case_id": "fixture-03914",
+      "isolated": false,
+      "baseline_case_id": "independent-jumpcloud-api-key-baseline",
+      "negative_case_ids": [
+        "independent-jumpcloud-api-key-delete-last",
+        "independent-jumpcloud-api-key-illegal-middle",
+        "independent-jumpcloud-api-key-illegal-first",
+        "independent-jumpcloud-api-key-insert-middle",
+        "independent-jumpcloud-api-key-extend-right",
+        "independent-jumpcloud-api-key-extend-left",
+        "independent-jumpcloud-api-key-low-entropy",
+        "independent-jumpcloud-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "jwt",
+      "source_case_id": "fixture-03573",
+      "isolated": false,
+      "baseline_case_id": "independent-jwt-baseline",
+      "negative_case_ids": [
+        "independent-jwt-illegal-middle",
+        "independent-jwt-illegal-first",
+        "independent-jwt-insert-middle",
+        "independent-jwt-extend-right",
+        "independent-jwt-extend-left",
+        "independent-jwt-low-entropy",
+        "independent-jwt-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "delete-last"
+      ]
+    },
+    {
+      "rule_id": "kagi-api-key",
+      "source_case_id": "fixture-03915",
+      "isolated": false,
+      "baseline_case_id": "independent-kagi-api-key-baseline",
+      "negative_case_ids": [
+        "independent-kagi-api-key-delete-last",
+        "independent-kagi-api-key-illegal-middle",
+        "independent-kagi-api-key-illegal-first",
+        "independent-kagi-api-key-insert-middle",
+        "independent-kagi-api-key-extend-right",
+        "independent-kagi-api-key-extend-left",
+        "independent-kagi-api-key-low-entropy",
+        "independent-kagi-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "klaviyo-api-key",
+      "source_case_id": "fixture-03971",
+      "isolated": false,
+      "baseline_case_id": "independent-klaviyo-api-key-baseline",
+      "negative_case_ids": [
+        "independent-klaviyo-api-key-delete-last",
+        "independent-klaviyo-api-key-illegal-middle",
+        "independent-klaviyo-api-key-illegal-first",
+        "independent-klaviyo-api-key-insert-middle",
+        "independent-klaviyo-api-key-extend-right",
+        "independent-klaviyo-api-key-extend-left",
+        "independent-klaviyo-api-key-low-entropy",
+        "independent-klaviyo-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "kraken-access-token",
+      "source_case_id": "fixture-03978",
+      "isolated": false,
+      "baseline_case_id": "independent-kraken-access-token-baseline",
+      "negative_case_ids": [
+        "independent-kraken-access-token-delete-last",
+        "independent-kraken-access-token-illegal-middle",
+        "independent-kraken-access-token-illegal-first",
+        "independent-kraken-access-token-insert-middle",
+        "independent-kraken-access-token-low-entropy",
+        "independent-kraken-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "kucoin-access-token",
+      "source_case_id": "fixture-04034",
+      "isolated": false,
+      "baseline_case_id": "independent-kucoin-access-token-baseline",
+      "negative_case_ids": [
+        "independent-kucoin-access-token-delete-last",
+        "independent-kucoin-access-token-illegal-middle",
+        "independent-kucoin-access-token-illegal-first",
+        "independent-kucoin-access-token-insert-middle",
+        "independent-kucoin-access-token-extend-right",
+        "independent-kucoin-access-token-extend-left",
+        "independent-kucoin-access-token-low-entropy",
+        "independent-kucoin-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "kucoin-secret-key",
+      "source_case_id": "fixture-04074",
+      "isolated": false,
+      "baseline_case_id": "independent-kucoin-secret-key-baseline",
+      "negative_case_ids": [
+        "independent-kucoin-secret-key-delete-last",
+        "independent-kucoin-secret-key-illegal-middle",
+        "independent-kucoin-secret-key-illegal-first",
+        "independent-kucoin-secret-key-insert-middle",
+        "independent-kucoin-secret-key-extend-right",
+        "independent-kucoin-secret-key-extend-left",
+        "independent-kucoin-secret-key-low-entropy",
+        "independent-kucoin-secret-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "launchdarkly-access-token",
+      "source_case_id": "fixture-04133",
+      "isolated": false,
+      "baseline_case_id": "independent-launchdarkly-access-token-baseline",
+      "negative_case_ids": [
+        "independent-launchdarkly-access-token-delete-last",
+        "independent-launchdarkly-access-token-illegal-middle",
+        "independent-launchdarkly-access-token-illegal-first",
+        "independent-launchdarkly-access-token-insert-middle",
+        "independent-launchdarkly-access-token-extend-right",
+        "independent-launchdarkly-access-token-extend-left",
+        "independent-launchdarkly-access-token-low-entropy",
+        "independent-launchdarkly-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "linear-api-key",
+      "source_case_id": "fixture-04222",
+      "isolated": false,
+      "baseline_case_id": "independent-linear-api-key-baseline",
+      "negative_case_ids": [
+        "independent-linear-api-key-delete-last",
+        "independent-linear-api-key-illegal-middle",
+        "independent-linear-api-key-illegal-first",
+        "independent-linear-api-key-insert-middle",
+        "independent-linear-api-key-low-entropy",
+        "independent-linear-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "linear-client-secret",
+      "source_case_id": "fixture-04268",
+      "isolated": false,
+      "baseline_case_id": "independent-linear-client-secret-baseline",
+      "negative_case_ids": [
+        "independent-linear-client-secret-delete-last",
+        "independent-linear-client-secret-illegal-middle",
+        "independent-linear-client-secret-illegal-first",
+        "independent-linear-client-secret-insert-middle",
+        "independent-linear-client-secret-extend-right",
+        "independent-linear-client-secret-extend-left",
+        "independent-linear-client-secret-low-entropy",
+        "independent-linear-client-secret-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "linkedin-client-id",
+      "source_case_id": "fixture-04291",
+      "isolated": false,
+      "baseline_case_id": "independent-linkedin-client-id-baseline",
+      "negative_case_ids": [
+        "independent-linkedin-client-id-delete-last",
+        "independent-linkedin-client-id-illegal-middle",
+        "independent-linkedin-client-id-illegal-first",
+        "independent-linkedin-client-id-insert-middle",
+        "independent-linkedin-client-id-extend-right",
+        "independent-linkedin-client-id-extend-left",
+        "independent-linkedin-client-id-low-entropy",
+        "independent-linkedin-client-id-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "linkedin-client-secret",
+      "source_case_id": "fixture-04320",
+      "isolated": false,
+      "baseline_case_id": "independent-linkedin-client-secret-baseline",
+      "negative_case_ids": [
+        "independent-linkedin-client-secret-delete-last",
+        "independent-linkedin-client-secret-illegal-middle",
+        "independent-linkedin-client-secret-illegal-first",
+        "independent-linkedin-client-secret-insert-middle",
+        "independent-linkedin-client-secret-extend-right",
+        "independent-linkedin-client-secret-extend-left",
+        "independent-linkedin-client-secret-low-entropy",
+        "independent-linkedin-client-secret-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "lob-api-key",
+      "source_case_id": "fixture-04323",
+      "isolated": false,
+      "baseline_case_id": "independent-lob-api-key-baseline",
+      "negative_case_ids": [
+        "independent-lob-api-key-delete-last",
+        "independent-lob-api-key-illegal-middle",
+        "independent-lob-api-key-illegal-first",
+        "independent-lob-api-key-insert-middle",
+        "independent-lob-api-key-extend-right",
+        "independent-lob-api-key-extend-left",
+        "independent-lob-api-key-low-entropy",
+        "independent-lob-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "lob-pub-api-key",
+      "source_case_id": "fixture-04350",
+      "isolated": false,
+      "baseline_case_id": "independent-lob-pub-api-key-baseline",
+      "negative_case_ids": [
+        "independent-lob-pub-api-key-delete-last",
+        "independent-lob-pub-api-key-illegal-middle",
+        "independent-lob-pub-api-key-illegal-first",
+        "independent-lob-pub-api-key-insert-middle",
+        "independent-lob-pub-api-key-extend-right",
+        "independent-lob-pub-api-key-extend-left",
+        "independent-lob-pub-api-key-low-entropy",
+        "independent-lob-pub-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "looker-client-id",
+      "source_case_id": "fixture-04391",
+      "isolated": false,
+      "baseline_case_id": "independent-looker-client-id-baseline",
+      "negative_case_ids": [
+        "independent-looker-client-id-delete-last",
+        "independent-looker-client-id-illegal-middle",
+        "independent-looker-client-id-illegal-first",
+        "independent-looker-client-id-insert-middle",
+        "independent-looker-client-id-extend-right",
+        "independent-looker-client-id-extend-left",
+        "independent-looker-client-id-low-entropy",
+        "independent-looker-client-id-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "looker-client-secret",
+      "source_case_id": "fixture-04400",
+      "isolated": false,
+      "baseline_case_id": "independent-looker-client-secret-baseline",
+      "negative_case_ids": [
+        "independent-looker-client-secret-delete-last",
+        "independent-looker-client-secret-illegal-middle",
+        "independent-looker-client-secret-illegal-first",
+        "independent-looker-client-secret-insert-middle",
+        "independent-looker-client-secret-extend-right",
+        "independent-looker-client-secret-extend-left",
+        "independent-looker-client-secret-low-entropy",
+        "independent-looker-client-secret-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "mailgun-private-api-token",
+      "source_case_id": "fixture-04490",
+      "isolated": false,
+      "baseline_case_id": "independent-mailgun-private-api-token-baseline",
+      "negative_case_ids": [
+        "independent-mailgun-private-api-token-delete-last",
+        "independent-mailgun-private-api-token-illegal-middle",
+        "independent-mailgun-private-api-token-illegal-first",
+        "independent-mailgun-private-api-token-insert-middle",
+        "independent-mailgun-private-api-token-extend-right",
+        "independent-mailgun-private-api-token-extend-left",
+        "independent-mailgun-private-api-token-low-entropy",
+        "independent-mailgun-private-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "mailgun-pub-key",
+      "source_case_id": "fixture-04477",
+      "isolated": false,
+      "baseline_case_id": "independent-mailgun-pub-key-baseline",
+      "negative_case_ids": [
+        "independent-mailgun-pub-key-delete-last",
+        "independent-mailgun-pub-key-illegal-middle",
+        "independent-mailgun-pub-key-illegal-first",
+        "independent-mailgun-pub-key-insert-middle",
+        "independent-mailgun-pub-key-extend-right",
+        "independent-mailgun-pub-key-extend-left",
+        "independent-mailgun-pub-key-low-entropy",
+        "independent-mailgun-pub-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "mailgun-signing-key",
+      "source_case_id": "fixture-04509",
+      "isolated": false,
+      "baseline_case_id": "independent-mailgun-signing-key-baseline",
+      "negative_case_ids": [
+        "independent-mailgun-signing-key-delete-last",
+        "independent-mailgun-signing-key-illegal-middle",
+        "independent-mailgun-signing-key-illegal-first",
+        "independent-mailgun-signing-key-insert-middle",
+        "independent-mailgun-signing-key-extend-right",
+        "independent-mailgun-signing-key-extend-left",
+        "independent-mailgun-signing-key-low-entropy",
+        "independent-mailgun-signing-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "mattermost-access-token",
+      "source_case_id": "fixture-04668",
+      "isolated": false,
+      "baseline_case_id": "independent-mattermost-access-token-baseline",
+      "negative_case_ids": [
+        "independent-mattermost-access-token-delete-last",
+        "independent-mattermost-access-token-illegal-middle",
+        "independent-mattermost-access-token-illegal-first",
+        "independent-mattermost-access-token-insert-middle",
+        "independent-mattermost-access-token-extend-right",
+        "independent-mattermost-access-token-extend-left",
+        "independent-mattermost-access-token-low-entropy",
+        "independent-mattermost-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "maxmind-license-key",
+      "source_case_id": "fixture-04691",
+      "isolated": false,
+      "baseline_case_id": "independent-maxmind-license-key-baseline",
+      "negative_case_ids": [
+        "independent-maxmind-license-key-delete-last",
+        "independent-maxmind-license-key-illegal-middle",
+        "independent-maxmind-license-key-illegal-first",
+        "independent-maxmind-license-key-insert-middle",
+        "independent-maxmind-license-key-extend-right",
+        "independent-maxmind-license-key-extend-left",
+        "independent-maxmind-license-key-low-entropy",
+        "independent-maxmind-license-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "messagebird-api-token",
+      "source_case_id": "fixture-04753",
+      "isolated": false,
+      "baseline_case_id": "independent-messagebird-api-token-baseline",
+      "negative_case_ids": [
+        "independent-messagebird-api-token-delete-last",
+        "independent-messagebird-api-token-illegal-middle",
+        "independent-messagebird-api-token-illegal-first",
+        "independent-messagebird-api-token-insert-middle",
+        "independent-messagebird-api-token-extend-right",
+        "independent-messagebird-api-token-extend-left",
+        "independent-messagebird-api-token-low-entropy",
+        "independent-messagebird-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "messagebird-client-id",
+      "source_case_id": "fixture-04825",
+      "isolated": false,
+      "baseline_case_id": "independent-messagebird-client-id-baseline",
+      "negative_case_ids": [
+        "independent-messagebird-client-id-delete-last",
+        "independent-messagebird-client-id-illegal-middle",
+        "independent-messagebird-client-id-illegal-first",
+        "independent-messagebird-client-id-insert-middle",
+        "independent-messagebird-client-id-extend-right",
+        "independent-messagebird-client-id-extend-left",
+        "independent-messagebird-client-id-low-entropy",
+        "independent-messagebird-client-id-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "microsoft-teams-webhook",
+      "source_case_id": "fixture-07884",
+      "isolated": false,
+      "baseline_case_id": "independent-microsoft-teams-webhook-baseline",
+      "negative_case_ids": [
+        "independent-microsoft-teams-webhook-delete-last",
+        "independent-microsoft-teams-webhook-illegal-middle",
+        "independent-microsoft-teams-webhook-illegal-first",
+        "independent-microsoft-teams-webhook-insert-middle",
+        "independent-microsoft-teams-webhook-extend-right",
+        "independent-microsoft-teams-webhook-extend-left",
+        "independent-microsoft-teams-webhook-low-entropy",
+        "independent-microsoft-teams-webhook-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "mongodb-atlas-service-account-id",
+      "source_case_id": "fixture-09234",
+      "isolated": false,
+      "baseline_case_id": "independent-mongodb-atlas-service-account-id-baseline",
+      "negative_case_ids": [
+        "independent-mongodb-atlas-service-account-id-delete-last",
+        "independent-mongodb-atlas-service-account-id-illegal-middle",
+        "independent-mongodb-atlas-service-account-id-illegal-first",
+        "independent-mongodb-atlas-service-account-id-insert-middle",
+        "independent-mongodb-atlas-service-account-id-extend-right",
+        "independent-mongodb-atlas-service-account-id-extend-left",
+        "independent-mongodb-atlas-service-account-id-low-entropy",
+        "independent-mongodb-atlas-service-account-id-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "netlify-access-token",
+      "source_case_id": "fixture-05072",
+      "isolated": false,
+      "baseline_case_id": "independent-netlify-access-token-baseline",
+      "negative_case_ids": [
+        "independent-netlify-access-token-delete-last",
+        "independent-netlify-access-token-illegal-middle",
+        "independent-netlify-access-token-illegal-first",
+        "independent-netlify-access-token-insert-middle",
+        "independent-netlify-access-token-low-entropy",
+        "independent-netlify-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "new-relic-browser-api-token",
+      "source_case_id": "fixture-05153",
+      "isolated": false,
+      "baseline_case_id": "independent-new-relic-browser-api-token-baseline",
+      "negative_case_ids": [
+        "independent-new-relic-browser-api-token-delete-last",
+        "independent-new-relic-browser-api-token-illegal-middle",
+        "independent-new-relic-browser-api-token-illegal-first",
+        "independent-new-relic-browser-api-token-insert-middle",
+        "independent-new-relic-browser-api-token-extend-right",
+        "independent-new-relic-browser-api-token-extend-left",
+        "independent-new-relic-browser-api-token-low-entropy",
+        "independent-new-relic-browser-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "new-relic-insert-key",
+      "source_case_id": "fixture-05188",
+      "isolated": false,
+      "baseline_case_id": "independent-new-relic-insert-key-baseline",
+      "negative_case_ids": [
+        "independent-new-relic-insert-key-delete-last",
+        "independent-new-relic-insert-key-illegal-middle",
+        "independent-new-relic-insert-key-illegal-first",
+        "independent-new-relic-insert-key-insert-middle",
+        "independent-new-relic-insert-key-extend-right",
+        "independent-new-relic-insert-key-extend-left",
+        "independent-new-relic-insert-key-low-entropy",
+        "independent-new-relic-insert-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "new-relic-user-api-id",
+      "source_case_id": "fixture-05136",
+      "isolated": false,
+      "baseline_case_id": "independent-new-relic-user-api-id-baseline",
+      "negative_case_ids": [
+        "independent-new-relic-user-api-id-delete-last",
+        "independent-new-relic-user-api-id-illegal-middle",
+        "independent-new-relic-user-api-id-illegal-first",
+        "independent-new-relic-user-api-id-insert-middle",
+        "independent-new-relic-user-api-id-extend-right",
+        "independent-new-relic-user-api-id-extend-left",
+        "independent-new-relic-user-api-id-low-entropy",
+        "independent-new-relic-user-api-id-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "new-relic-user-api-key",
+      "source_case_id": "fixture-05099",
+      "isolated": false,
+      "baseline_case_id": "independent-new-relic-user-api-key-baseline",
+      "negative_case_ids": [
+        "independent-new-relic-user-api-key-delete-last",
+        "independent-new-relic-user-api-key-illegal-middle",
+        "independent-new-relic-user-api-key-illegal-first",
+        "independent-new-relic-user-api-key-insert-middle",
+        "independent-new-relic-user-api-key-extend-right",
+        "independent-new-relic-user-api-key-extend-left",
+        "independent-new-relic-user-api-key-low-entropy",
+        "independent-new-relic-user-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "npm-access-token",
+      "source_case_id": "fixture-05219",
+      "isolated": false,
+      "baseline_case_id": "independent-npm-access-token-baseline",
+      "negative_case_ids": [
+        "independent-npm-access-token-delete-last",
+        "independent-npm-access-token-illegal-middle",
+        "independent-npm-access-token-illegal-first",
+        "independent-npm-access-token-insert-middle",
+        "independent-npm-access-token-extend-right",
+        "independent-npm-access-token-extend-left",
+        "independent-npm-access-token-low-entropy",
+        "independent-npm-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "nytimes-access-token",
+      "source_case_id": "fixture-05333",
+      "isolated": false,
+      "baseline_case_id": "independent-nytimes-access-token-baseline",
+      "negative_case_ids": [
+        "independent-nytimes-access-token-delete-last",
+        "independent-nytimes-access-token-illegal-middle",
+        "independent-nytimes-access-token-illegal-first",
+        "independent-nytimes-access-token-insert-middle",
+        "independent-nytimes-access-token-extend-right",
+        "independent-nytimes-access-token-extend-left",
+        "independent-nytimes-access-token-low-entropy",
+        "independent-nytimes-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "openai-api-key",
+      "source_case_id": "fixture-05438",
+      "isolated": false,
+      "baseline_case_id": "independent-openai-api-key-baseline",
+      "negative_case_ids": [
+        "independent-openai-api-key-delete-last",
+        "independent-openai-api-key-illegal-middle",
+        "independent-openai-api-key-illegal-first",
+        "independent-openai-api-key-insert-middle",
+        "independent-openai-api-key-extend-right",
+        "independent-openai-api-key-extend-left",
+        "independent-openai-api-key-low-entropy",
+        "independent-openai-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "plaid-api-token",
+      "source_case_id": "fixture-05727",
+      "isolated": false,
+      "baseline_case_id": "independent-plaid-api-token-baseline",
+      "negative_case_ids": [
+        "independent-plaid-api-token-delete-last",
+        "independent-plaid-api-token-illegal-middle",
+        "independent-plaid-api-token-illegal-first",
+        "independent-plaid-api-token-insert-middle",
+        "independent-plaid-api-token-extend-right",
+        "independent-plaid-api-token-extend-left",
+        "independent-plaid-api-token-low-entropy",
+        "independent-plaid-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "plaid-client-id",
+      "source_case_id": "fixture-05665",
+      "isolated": false,
+      "baseline_case_id": "independent-plaid-client-id-baseline",
+      "negative_case_ids": [
+        "independent-plaid-client-id-delete-last",
+        "independent-plaid-client-id-illegal-middle",
+        "independent-plaid-client-id-illegal-first",
+        "independent-plaid-client-id-insert-middle",
+        "independent-plaid-client-id-extend-right",
+        "independent-plaid-client-id-extend-left",
+        "independent-plaid-client-id-low-entropy",
+        "independent-plaid-client-id-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "plaid-secret-key",
+      "source_case_id": "fixture-05691",
+      "isolated": false,
+      "baseline_case_id": "independent-plaid-secret-key-baseline",
+      "negative_case_ids": [
+        "independent-plaid-secret-key-delete-last",
+        "independent-plaid-secret-key-illegal-middle",
+        "independent-plaid-secret-key-illegal-first",
+        "independent-plaid-secret-key-insert-middle",
+        "independent-plaid-secret-key-extend-right",
+        "independent-plaid-secret-key-extend-left",
+        "independent-plaid-secret-key-low-entropy",
+        "independent-plaid-secret-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "planetscale-api-token",
+      "source_case_id": "fixture-09258",
+      "isolated": false,
+      "baseline_case_id": "independent-planetscale-api-token-baseline",
+      "negative_case_ids": [
+        "independent-planetscale-api-token-delete-last",
+        "independent-planetscale-api-token-illegal-middle",
+        "independent-planetscale-api-token-illegal-first",
+        "independent-planetscale-api-token-insert-middle",
+        "independent-planetscale-api-token-extend-left",
+        "independent-planetscale-api-token-low-entropy",
+        "independent-planetscale-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right"
+      ]
+    },
+    {
+      "rule_id": "planetscale-id",
+      "source_case_id": "fixture-09258",
+      "isolated": false,
+      "baseline_case_id": "independent-planetscale-id-baseline",
+      "negative_case_ids": [
+        "independent-planetscale-id-delete-last",
+        "independent-planetscale-id-illegal-middle",
+        "independent-planetscale-id-illegal-first",
+        "independent-planetscale-id-insert-middle",
+        "independent-planetscale-id-low-entropy",
+        "independent-planetscale-id-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "planetscale-oauth-token",
+      "source_case_id": "fixture-05906",
+      "isolated": false,
+      "baseline_case_id": "independent-planetscale-oauth-token-baseline",
+      "negative_case_ids": [
+        "independent-planetscale-oauth-token-delete-last",
+        "independent-planetscale-oauth-token-illegal-middle",
+        "independent-planetscale-oauth-token-illegal-first",
+        "independent-planetscale-oauth-token-insert-middle",
+        "independent-planetscale-oauth-token-extend-left",
+        "independent-planetscale-oauth-token-low-entropy",
+        "independent-planetscale-oauth-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right"
+      ]
+    },
+    {
+      "rule_id": "planetscale-password",
+      "source_case_id": "fixture-05741",
+      "isolated": false,
+      "baseline_case_id": "independent-planetscale-password-baseline",
+      "negative_case_ids": [
+        "independent-planetscale-password-delete-last",
+        "independent-planetscale-password-illegal-middle",
+        "independent-planetscale-password-illegal-first",
+        "independent-planetscale-password-insert-middle",
+        "independent-planetscale-password-extend-left",
+        "independent-planetscale-password-low-entropy",
+        "independent-planetscale-password-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right"
+      ]
+    },
+    {
+      "rule_id": "polymarket-address",
+      "source_case_id": "orphan-skipreport-full-config",
+      "isolated": true,
+      "baseline_case_id": "independent-polymarket-address-baseline",
+      "negative_case_ids": [
+        "independent-polymarket-address-delete-last",
+        "independent-polymarket-address-illegal-middle",
+        "independent-polymarket-address-illegal-first",
+        "independent-polymarket-address-insert-middle",
+        "independent-polymarket-address-extend-right",
+        "independent-polymarket-address-extend-left",
+        "independent-polymarket-address-low-entropy",
+        "independent-polymarket-address-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "polymarket-api-key",
+      "source_case_id": "fixture-09273",
+      "isolated": false,
+      "baseline_case_id": "independent-polymarket-api-key-baseline",
+      "negative_case_ids": [
+        "independent-polymarket-api-key-delete-last",
+        "independent-polymarket-api-key-illegal-middle",
+        "independent-polymarket-api-key-illegal-first",
+        "independent-polymarket-api-key-insert-middle",
+        "independent-polymarket-api-key-extend-right",
+        "independent-polymarket-api-key-extend-left",
+        "independent-polymarket-api-key-low-entropy",
+        "independent-polymarket-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "polymarket-api-secret",
+      "source_case_id": "fixture-09273",
+      "isolated": false,
+      "baseline_case_id": "independent-polymarket-api-secret-baseline",
+      "negative_case_ids": [
+        "independent-polymarket-api-secret-delete-last",
+        "independent-polymarket-api-secret-illegal-middle",
+        "independent-polymarket-api-secret-illegal-first",
+        "independent-polymarket-api-secret-insert-middle",
+        "independent-polymarket-api-secret-low-entropy",
+        "independent-polymarket-api-secret-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "polymarket-passphrase",
+      "source_case_id": "fixture-09273",
+      "isolated": false,
+      "baseline_case_id": "independent-polymarket-passphrase-baseline",
+      "negative_case_ids": [
+        "independent-polymarket-passphrase-illegal-middle",
+        "independent-polymarket-passphrase-illegal-first",
+        "independent-polymarket-passphrase-insert-middle",
+        "independent-polymarket-passphrase-low-entropy",
+        "independent-polymarket-passphrase-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "delete-last",
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "polymarket-private-key",
+      "source_case_id": "fixture-06158",
+      "isolated": false,
+      "baseline_case_id": "independent-polymarket-private-key-baseline",
+      "negative_case_ids": [
+        "independent-polymarket-private-key-delete-last",
+        "independent-polymarket-private-key-illegal-middle",
+        "independent-polymarket-private-key-illegal-first",
+        "independent-polymarket-private-key-insert-middle",
+        "independent-polymarket-private-key-extend-right",
+        "independent-polymarket-private-key-extend-left",
+        "independent-polymarket-private-key-low-entropy",
+        "independent-polymarket-private-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "postman-api-token",
+      "source_case_id": "fixture-06189",
+      "isolated": false,
+      "baseline_case_id": "independent-postman-api-token-baseline",
+      "negative_case_ids": [
+        "independent-postman-api-token-delete-last",
+        "independent-postman-api-token-illegal-middle",
+        "independent-postman-api-token-illegal-first",
+        "independent-postman-api-token-insert-middle",
+        "independent-postman-api-token-extend-right",
+        "independent-postman-api-token-extend-left",
+        "independent-postman-api-token-low-entropy",
+        "independent-postman-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "pypi-upload-token",
+      "source_case_id": "fixture-06281",
+      "isolated": false,
+      "baseline_case_id": "independent-pypi-upload-token-baseline",
+      "negative_case_ids": [
+        "independent-pypi-upload-token-illegal-middle",
+        "independent-pypi-upload-token-illegal-first",
+        "independent-pypi-upload-token-insert-middle",
+        "independent-pypi-upload-token-low-entropy",
+        "independent-pypi-upload-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "delete-last",
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "rapidapi-access-token",
+      "source_case_id": "fixture-06311",
+      "isolated": false,
+      "baseline_case_id": "independent-rapidapi-access-token-baseline",
+      "negative_case_ids": [
+        "independent-rapidapi-access-token-delete-last",
+        "independent-rapidapi-access-token-illegal-middle",
+        "independent-rapidapi-access-token-illegal-first",
+        "independent-rapidapi-access-token-insert-middle",
+        "independent-rapidapi-access-token-extend-right",
+        "independent-rapidapi-access-token-extend-left",
+        "independent-rapidapi-access-token-low-entropy",
+        "independent-rapidapi-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "rubygems-api-token",
+      "source_case_id": "fixture-06490",
+      "isolated": false,
+      "baseline_case_id": "independent-rubygems-api-token-baseline",
+      "negative_case_ids": [
+        "independent-rubygems-api-token-delete-last",
+        "independent-rubygems-api-token-illegal-middle",
+        "independent-rubygems-api-token-illegal-first",
+        "independent-rubygems-api-token-insert-middle",
+        "independent-rubygems-api-token-extend-right",
+        "independent-rubygems-api-token-extend-left",
+        "independent-rubygems-api-token-low-entropy",
+        "independent-rubygems-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "scalingo-api-token",
+      "source_case_id": "fixture-06524",
+      "isolated": false,
+      "baseline_case_id": "independent-scalingo-api-token-baseline",
+      "negative_case_ids": [
+        "independent-scalingo-api-token-delete-last",
+        "independent-scalingo-api-token-illegal-middle",
+        "independent-scalingo-api-token-illegal-first",
+        "independent-scalingo-api-token-insert-middle",
+        "independent-scalingo-api-token-extend-right",
+        "independent-scalingo-api-token-extend-left",
+        "independent-scalingo-api-token-low-entropy",
+        "independent-scalingo-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "sendbird-access-id",
+      "source_case_id": "fixture-06565",
+      "isolated": false,
+      "baseline_case_id": "independent-sendbird-access-id-baseline",
+      "negative_case_ids": [
+        "independent-sendbird-access-id-delete-last",
+        "independent-sendbird-access-id-illegal-middle",
+        "independent-sendbird-access-id-illegal-first",
+        "independent-sendbird-access-id-insert-middle",
+        "independent-sendbird-access-id-extend-right",
+        "independent-sendbird-access-id-extend-left",
+        "independent-sendbird-access-id-low-entropy",
+        "independent-sendbird-access-id-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "sendbird-access-token",
+      "source_case_id": "fixture-06590",
+      "isolated": false,
+      "baseline_case_id": "independent-sendbird-access-token-baseline",
+      "negative_case_ids": [
+        "independent-sendbird-access-token-delete-last",
+        "independent-sendbird-access-token-illegal-middle",
+        "independent-sendbird-access-token-illegal-first",
+        "independent-sendbird-access-token-insert-middle",
+        "independent-sendbird-access-token-extend-right",
+        "independent-sendbird-access-token-extend-left",
+        "independent-sendbird-access-token-low-entropy",
+        "independent-sendbird-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "sendgrid-api-token",
+      "source_case_id": "fixture-06620",
+      "isolated": false,
+      "baseline_case_id": "independent-sendgrid-api-token-baseline",
+      "negative_case_ids": [
+        "independent-sendgrid-api-token-delete-last",
+        "independent-sendgrid-api-token-illegal-middle",
+        "independent-sendgrid-api-token-illegal-first",
+        "independent-sendgrid-api-token-insert-middle",
+        "independent-sendgrid-api-token-extend-right",
+        "independent-sendgrid-api-token-extend-left",
+        "independent-sendgrid-api-token-low-entropy",
+        "independent-sendgrid-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "sentry-access-token",
+      "source_case_id": "fixture-06636",
+      "isolated": false,
+      "baseline_case_id": "independent-sentry-access-token-baseline",
+      "negative_case_ids": [
+        "independent-sentry-access-token-delete-last",
+        "independent-sentry-access-token-illegal-middle",
+        "independent-sentry-access-token-illegal-first",
+        "independent-sentry-access-token-insert-middle",
+        "independent-sentry-access-token-extend-right",
+        "independent-sentry-access-token-extend-left",
+        "independent-sentry-access-token-low-entropy",
+        "independent-sentry-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "shippo-api-token",
+      "source_case_id": "fixture-06837",
+      "isolated": false,
+      "baseline_case_id": "independent-shippo-api-token-baseline",
+      "negative_case_ids": [
+        "independent-shippo-api-token-delete-last",
+        "independent-shippo-api-token-illegal-middle",
+        "independent-shippo-api-token-illegal-first",
+        "independent-shippo-api-token-insert-middle",
+        "independent-shippo-api-token-extend-right",
+        "independent-shippo-api-token-extend-left",
+        "independent-shippo-api-token-low-entropy",
+        "independent-shippo-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "shopify-access-token",
+      "source_case_id": "fixture-06908",
+      "isolated": false,
+      "baseline_case_id": "independent-shopify-access-token-baseline",
+      "negative_case_ids": [
+        "independent-shopify-access-token-delete-last",
+        "independent-shopify-access-token-illegal-middle",
+        "independent-shopify-access-token-illegal-first",
+        "independent-shopify-access-token-insert-middle",
+        "independent-shopify-access-token-low-entropy",
+        "independent-shopify-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "shopify-custom-access-token",
+      "source_case_id": "fixture-06922",
+      "isolated": false,
+      "baseline_case_id": "independent-shopify-custom-access-token-baseline",
+      "negative_case_ids": [
+        "independent-shopify-custom-access-token-delete-last",
+        "independent-shopify-custom-access-token-illegal-middle",
+        "independent-shopify-custom-access-token-illegal-first",
+        "independent-shopify-custom-access-token-insert-middle",
+        "independent-shopify-custom-access-token-low-entropy",
+        "independent-shopify-custom-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "shopify-private-app-access-token",
+      "source_case_id": "fixture-06949",
+      "isolated": false,
+      "baseline_case_id": "independent-shopify-private-app-access-token-baseline",
+      "negative_case_ids": [
+        "independent-shopify-private-app-access-token-delete-last",
+        "independent-shopify-private-app-access-token-illegal-middle",
+        "independent-shopify-private-app-access-token-illegal-first",
+        "independent-shopify-private-app-access-token-insert-middle",
+        "independent-shopify-private-app-access-token-low-entropy",
+        "independent-shopify-private-app-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "shopify-shared-secret",
+      "source_case_id": "fixture-06982",
+      "isolated": false,
+      "baseline_case_id": "independent-shopify-shared-secret-baseline",
+      "negative_case_ids": [
+        "independent-shopify-shared-secret-delete-last",
+        "independent-shopify-shared-secret-illegal-middle",
+        "independent-shopify-shared-secret-illegal-first",
+        "independent-shopify-shared-secret-insert-middle",
+        "independent-shopify-shared-secret-low-entropy",
+        "independent-shopify-shared-secret-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "sidekiq-secret",
+      "source_case_id": "fixture-07055",
+      "isolated": false,
+      "baseline_case_id": "independent-sidekiq-secret-baseline",
+      "negative_case_ids": [
+        "independent-sidekiq-secret-delete-last",
+        "independent-sidekiq-secret-illegal-middle",
+        "independent-sidekiq-secret-illegal-first",
+        "independent-sidekiq-secret-insert-middle",
+        "independent-sidekiq-secret-extend-right",
+        "independent-sidekiq-secret-extend-left",
+        "independent-sidekiq-secret-low-entropy",
+        "independent-sidekiq-secret-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "sidekiq-sensitive-url",
+      "source_case_id": "fixture-07065",
+      "isolated": false,
+      "baseline_case_id": "independent-sidekiq-sensitive-url-baseline",
+      "negative_case_ids": [
+        "independent-sidekiq-sensitive-url-delete-last",
+        "independent-sidekiq-sensitive-url-illegal-middle",
+        "independent-sidekiq-sensitive-url-illegal-first",
+        "independent-sidekiq-sensitive-url-insert-middle",
+        "independent-sidekiq-sensitive-url-extend-right",
+        "independent-sidekiq-sensitive-url-extend-left",
+        "independent-sidekiq-sensitive-url-low-entropy",
+        "independent-sidekiq-sensitive-url-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "slack-app-token",
+      "source_case_id": "fixture-07148",
+      "isolated": false,
+      "baseline_case_id": "independent-slack-app-token-baseline",
+      "negative_case_ids": [
+        "independent-slack-app-token-illegal-first",
+        "independent-slack-app-token-low-entropy"
+      ],
+      "retained_positive_mutations": [
+        "delete-last",
+        "illegal-middle",
+        "insert-middle",
+        "extend-right",
+        "extend-left",
+        "truncate-half"
+      ]
+    },
+    {
+      "rule_id": "slack-webhook-url",
+      "source_case_id": "fixture-07400",
+      "isolated": false,
+      "baseline_case_id": "independent-slack-webhook-url-baseline",
+      "negative_case_ids": [
+        "independent-slack-webhook-url-illegal-middle",
+        "independent-slack-webhook-url-illegal-first",
+        "independent-slack-webhook-url-insert-middle",
+        "independent-slack-webhook-url-low-entropy",
+        "independent-slack-webhook-url-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "delete-last",
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "snyk-api-token",
+      "source_case_id": "fixture-07433",
+      "isolated": false,
+      "baseline_case_id": "independent-snyk-api-token-baseline",
+      "negative_case_ids": [
+        "independent-snyk-api-token-delete-last",
+        "independent-snyk-api-token-illegal-middle",
+        "independent-snyk-api-token-illegal-first",
+        "independent-snyk-api-token-insert-middle",
+        "independent-snyk-api-token-extend-right",
+        "independent-snyk-api-token-extend-left",
+        "independent-snyk-api-token-low-entropy",
+        "independent-snyk-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "sonar-api-token",
+      "source_case_id": "fixture-07459",
+      "isolated": false,
+      "baseline_case_id": "independent-sonar-api-token-baseline",
+      "negative_case_ids": [
+        "independent-sonar-api-token-delete-last",
+        "independent-sonar-api-token-illegal-middle",
+        "independent-sonar-api-token-illegal-first",
+        "independent-sonar-api-token-insert-middle",
+        "independent-sonar-api-token-extend-right",
+        "independent-sonar-api-token-extend-left",
+        "independent-sonar-api-token-low-entropy",
+        "independent-sonar-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "squarespace-access-token",
+      "source_case_id": "fixture-07639",
+      "isolated": false,
+      "baseline_case_id": "independent-squarespace-access-token-baseline",
+      "negative_case_ids": [
+        "independent-squarespace-access-token-delete-last",
+        "independent-squarespace-access-token-illegal-middle",
+        "independent-squarespace-access-token-illegal-first",
+        "independent-squarespace-access-token-insert-middle",
+        "independent-squarespace-access-token-extend-right",
+        "independent-squarespace-access-token-extend-left",
+        "independent-squarespace-access-token-low-entropy",
+        "independent-squarespace-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "travisci-access-token",
+      "source_case_id": "fixture-08024",
+      "isolated": false,
+      "baseline_case_id": "independent-travisci-access-token-baseline",
+      "negative_case_ids": [
+        "independent-travisci-access-token-delete-last",
+        "independent-travisci-access-token-illegal-middle",
+        "independent-travisci-access-token-illegal-first",
+        "independent-travisci-access-token-insert-middle",
+        "independent-travisci-access-token-extend-right",
+        "independent-travisci-access-token-extend-left",
+        "independent-travisci-access-token-low-entropy",
+        "independent-travisci-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "twilio-api-key",
+      "source_case_id": "fixture-08039",
+      "isolated": false,
+      "baseline_case_id": "independent-twilio-api-key-baseline",
+      "negative_case_ids": [
+        "independent-twilio-api-key-delete-last",
+        "independent-twilio-api-key-illegal-middle",
+        "independent-twilio-api-key-illegal-first",
+        "independent-twilio-api-key-insert-middle",
+        "independent-twilio-api-key-low-entropy",
+        "independent-twilio-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right",
+        "extend-left"
+      ]
+    },
+    {
+      "rule_id": "twitch-api-token",
+      "source_case_id": "fixture-08063",
+      "isolated": false,
+      "baseline_case_id": "independent-twitch-api-token-baseline",
+      "negative_case_ids": [
+        "independent-twitch-api-token-delete-last",
+        "independent-twitch-api-token-illegal-middle",
+        "independent-twitch-api-token-illegal-first",
+        "independent-twitch-api-token-insert-middle",
+        "independent-twitch-api-token-extend-right",
+        "independent-twitch-api-token-extend-left",
+        "independent-twitch-api-token-low-entropy",
+        "independent-twitch-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "twitter-access-secret",
+      "source_case_id": "fixture-08190",
+      "isolated": false,
+      "baseline_case_id": "independent-twitter-access-secret-baseline",
+      "negative_case_ids": [
+        "independent-twitter-access-secret-delete-last",
+        "independent-twitter-access-secret-illegal-middle",
+        "independent-twitter-access-secret-illegal-first",
+        "independent-twitter-access-secret-insert-middle",
+        "independent-twitter-access-secret-extend-right",
+        "independent-twitter-access-secret-extend-left",
+        "independent-twitter-access-secret-low-entropy",
+        "independent-twitter-access-secret-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "twitter-access-token",
+      "source_case_id": "fixture-08153",
+      "isolated": false,
+      "baseline_case_id": "independent-twitter-access-token-baseline",
+      "negative_case_ids": [
+        "independent-twitter-access-token-delete-last",
+        "independent-twitter-access-token-illegal-middle",
+        "independent-twitter-access-token-illegal-first",
+        "independent-twitter-access-token-insert-middle",
+        "independent-twitter-access-token-extend-left",
+        "independent-twitter-access-token-low-entropy",
+        "independent-twitter-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right"
+      ]
+    },
+    {
+      "rule_id": "twitter-api-key",
+      "source_case_id": "fixture-08097",
+      "isolated": false,
+      "baseline_case_id": "independent-twitter-api-key-baseline",
+      "negative_case_ids": [
+        "independent-twitter-api-key-delete-last",
+        "independent-twitter-api-key-illegal-middle",
+        "independent-twitter-api-key-illegal-first",
+        "independent-twitter-api-key-insert-middle",
+        "independent-twitter-api-key-extend-right",
+        "independent-twitter-api-key-extend-left",
+        "independent-twitter-api-key-low-entropy",
+        "independent-twitter-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "twitter-api-secret",
+      "source_case_id": "fixture-08117",
+      "isolated": false,
+      "baseline_case_id": "independent-twitter-api-secret-baseline",
+      "negative_case_ids": [
+        "independent-twitter-api-secret-delete-last",
+        "independent-twitter-api-secret-illegal-middle",
+        "independent-twitter-api-secret-illegal-first",
+        "independent-twitter-api-secret-insert-middle",
+        "independent-twitter-api-secret-extend-right",
+        "independent-twitter-api-secret-extend-left",
+        "independent-twitter-api-secret-low-entropy",
+        "independent-twitter-api-secret-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "twitter-bearer-token",
+      "source_case_id": "fixture-08216",
+      "isolated": false,
+      "baseline_case_id": "independent-twitter-bearer-token-baseline",
+      "negative_case_ids": [
+        "independent-twitter-bearer-token-delete-last",
+        "independent-twitter-bearer-token-illegal-middle",
+        "independent-twitter-bearer-token-illegal-first",
+        "independent-twitter-bearer-token-insert-middle",
+        "independent-twitter-bearer-token-extend-left",
+        "independent-twitter-bearer-token-low-entropy",
+        "independent-twitter-bearer-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right"
+      ]
+    },
+    {
+      "rule_id": "typeform-api-token",
+      "source_case_id": "fixture-08220",
+      "isolated": false,
+      "baseline_case_id": "independent-typeform-api-token-baseline",
+      "negative_case_ids": [
+        "independent-typeform-api-token-delete-last",
+        "independent-typeform-api-token-illegal-middle",
+        "independent-typeform-api-token-illegal-first",
+        "independent-typeform-api-token-insert-middle",
+        "independent-typeform-api-token-extend-right",
+        "independent-typeform-api-token-extend-left",
+        "independent-typeform-api-token-low-entropy",
+        "independent-typeform-api-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "vault-batch-token",
+      "source_case_id": "fixture-08490",
+      "isolated": false,
+      "baseline_case_id": "independent-vault-batch-token-baseline",
+      "negative_case_ids": [
+        "independent-vault-batch-token-delete-last",
+        "independent-vault-batch-token-illegal-middle",
+        "independent-vault-batch-token-illegal-first",
+        "independent-vault-batch-token-insert-middle",
+        "independent-vault-batch-token-extend-left",
+        "independent-vault-batch-token-low-entropy",
+        "independent-vault-batch-token-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right"
+      ]
+    },
+    {
+      "rule_id": "yandex-access-token",
+      "source_case_id": "fixture-08730",
+      "isolated": false,
+      "baseline_case_id": "independent-yandex-access-token-baseline",
+      "negative_case_ids": [
+        "independent-yandex-access-token-delete-last",
+        "independent-yandex-access-token-illegal-middle",
+        "independent-yandex-access-token-illegal-first",
+        "independent-yandex-access-token-insert-middle",
+        "independent-yandex-access-token-extend-right",
+        "independent-yandex-access-token-extend-left",
+        "independent-yandex-access-token-low-entropy",
+        "independent-yandex-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "yandex-api-key",
+      "source_case_id": "fixture-08680",
+      "isolated": false,
+      "baseline_case_id": "independent-yandex-api-key-baseline",
+      "negative_case_ids": [
+        "independent-yandex-api-key-delete-last",
+        "independent-yandex-api-key-illegal-middle",
+        "independent-yandex-api-key-illegal-first",
+        "independent-yandex-api-key-insert-middle",
+        "independent-yandex-api-key-extend-left",
+        "independent-yandex-api-key-low-entropy",
+        "independent-yandex-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": [
+        "extend-right"
+      ]
+    },
+    {
+      "rule_id": "yandex-aws-access-token",
+      "source_case_id": "fixture-08703",
+      "isolated": false,
+      "baseline_case_id": "independent-yandex-aws-access-token-baseline",
+      "negative_case_ids": [
+        "independent-yandex-aws-access-token-delete-last",
+        "independent-yandex-aws-access-token-illegal-middle",
+        "independent-yandex-aws-access-token-illegal-first",
+        "independent-yandex-aws-access-token-insert-middle",
+        "independent-yandex-aws-access-token-extend-right",
+        "independent-yandex-aws-access-token-extend-left",
+        "independent-yandex-aws-access-token-low-entropy",
+        "independent-yandex-aws-access-token-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "zai-api-key",
+      "source_case_id": "fixture-08772",
+      "isolated": false,
+      "baseline_case_id": "independent-zai-api-key-baseline",
+      "negative_case_ids": [
+        "independent-zai-api-key-delete-last",
+        "independent-zai-api-key-illegal-middle",
+        "independent-zai-api-key-illegal-first",
+        "independent-zai-api-key-insert-middle",
+        "independent-zai-api-key-extend-right",
+        "independent-zai-api-key-extend-left",
+        "independent-zai-api-key-low-entropy",
+        "independent-zai-api-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    },
+    {
+      "rule_id": "zendesk-secret-key",
+      "source_case_id": "fixture-08782",
+      "isolated": false,
+      "baseline_case_id": "independent-zendesk-secret-key-baseline",
+      "negative_case_ids": [
+        "independent-zendesk-secret-key-delete-last",
+        "independent-zendesk-secret-key-illegal-middle",
+        "independent-zendesk-secret-key-illegal-first",
+        "independent-zendesk-secret-key-insert-middle",
+        "independent-zendesk-secret-key-extend-right",
+        "independent-zendesk-secret-key-extend-left",
+        "independent-zendesk-secret-key-low-entropy",
+        "independent-zendesk-secret-key-truncate-half"
+      ],
+      "retained_positive_mutations": []
+    }
+  ]
+}

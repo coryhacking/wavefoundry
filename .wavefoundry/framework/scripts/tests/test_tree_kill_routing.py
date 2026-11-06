@@ -150,6 +150,10 @@ ROUTED = {
 
 # Timed calls that stay as they are, each with the reason. Only these (wave 1z8ox).
 EXCLUDED = {
+    ("wave_lint_lib/betterleaks_worker.py", "_dispose", "wait"): (
+        1, "bounded reap after killing the exact owned offline worker; its audit hook "
+           "denies descendant creation and provider actions; real timeout/reap and "
+           "subprocess-denial controls are in test_betterleaks_engine"),
     ("tensorwell_client.py", "_cli", "wait"): (
         2, "qualified controller only: deadline wait and exact owned Popen child reap; "
            "never signal shared daemon, descendants, process groups or discovery PIDs"),

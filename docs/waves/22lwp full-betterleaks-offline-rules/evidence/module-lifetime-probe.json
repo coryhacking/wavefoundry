@@ -1,0 +1,12 @@
+[
+  {
+    "candidate": false,
+    "module_collected": true,
+    "child_reaped": false
+  },
+  {
+    "candidate": true,
+    "module_collected": true,
+    "child_reaped": true
+  }
+]

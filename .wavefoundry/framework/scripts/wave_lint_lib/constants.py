@@ -314,6 +314,11 @@ SCAN_RULES_PROJECT_PATH = "docs/scan-rules.toml"
 SCAN_FINDINGS_PATH = "docs/scan-findings.json"
 SCAN_ALLOWLIST_PATH = ".wavefoundry/framework/scan-allowlist"
 
+# Distribution-owned scanner declaration. Add a fork's dot-prefixed directory
+# name here at merge time; this does not relocate the framework or its config.
+# Only the fixed runtime subdirectories are excluded, never the whole namespace.
+SCAN_RUNTIME_ROOT_NAMES: tuple[str, ...] = (".wavefoundry",)
+
 SLUG_PATTERN = r"[a-z0-9][a-z0-9-]*"
 LEGACY_SLUG_PATTERN = r"legacy[a-z0-9-]*"
 # 5 chars standard; 6 chars is the graceful post-horizon overflow (scheme v2

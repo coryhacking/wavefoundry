@@ -1,0 +1,7 @@
+{
+  "mutant": "execution-key-restart-deleted",
+  "test": "test_execution_key_change_restarts_child_and_loads_changed_engine",
+  "returncode": 1,
+  "detected": true,
+  "output": "F\n======================================================================\nFAIL: test_execution_key_change_restarts_child_and_loads_changed_engine (tests.test_betterleaks_engine.OfflineWorkerTests.test_execution_key_change_restarts_child_and_loads_changed_engine)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/private/var/folders/wm/m3y1rv2d3pg40zxwgw7byqb40000gp/T/wf-worker-key-mutant-jy5fgxww/tests/test_betterleaks_engine.py\", line 231, in test_execution_key_change_restarts_child_and_loads_changed_engine\n    self.assertEqual(client.request(\"scan\", payload)[\"version\"], 2)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 1 != 2\n\n----------------------------------------------------------------------\nRan 1 test in 0.049s\n\nFAILED (failures=1)\n"
+}

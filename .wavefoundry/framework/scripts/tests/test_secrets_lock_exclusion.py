@@ -284,5 +284,131 @@ class InsideGitWorktreeTests(unittest.TestCase):
         self._assert_no_lock_paths(selected, expect="Cargo.lock")
 
 
+class RuntimeDirectoryExclusionTests(unittest.TestCase):
+    """Exact runtime descendants, including a distribution-declared namespace."""
+
+    ROOTS = (".wavefoundry", ".waveforge")
+    DIRS = ("cache", "index", "logs", "dist", "work", "locks")
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+        self.excluded = {
+            f"{prefix}{name}/{directory}/probe.txt"
+            for prefix in ("", "child/", "a/b/")
+            for name in self.ROOTS for directory in self.DIRS
+        }
+        self.kept = {
+            "app.txt", "child/.wavefoundry/framework/probe.txt",
+            "child/.wavefoundry/bin/probe.txt", "child/.waveforge/framework/probe.txt",
+            "child/.waveforge/bin/probe.txt", "child/.wavefoundry-extra/work/probe.txt",
+            "child/.waveforge/project/cache/probe.txt", "child/.waveforge/workbench/probe.txt",
+            "child/.wavefoundry/cache-tools/probe.txt",
+        }
+        for rel in self.excluded | self.kept:
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("RUNTIME_PROBE_1234\n")
+        rules = self.root / SCAN_RULES_FRAMEWORK_PATH
+        rules.parent.mkdir(parents=True, exist_ok=True)
+        rules.write_text("[[rules]]\nid='runtime-probe'\nregex='RUNTIME_PROBE_[0-9]{4}'\n")
+        (self.root / "docs").mkdir()
+        (self.root / SCAN_FINDINGS_PATH).write_text("[]")
+        self.names = patch.object(sv._scanner_constants, "SCAN_RUNTIME_ROOT_NAMES", self.ROOTS)
+        self.names.start()
+        self.addCleanup(self.names.stop)
+
+    def test_declaration_and_exact_directory_components(self):
+        for rel in self.excluded:
+            self.assertTrue(sv.is_scanner_excluded_path(rel), rel)
+            self.assertTrue(sv.is_scanner_excluded_path(rel.replace("/", "\\")), rel)
+        for rel in self.kept | {"child/.wavefoundry/cache", "child/.waveforge/work"}:
+            self.assertFalse(sv.is_scanner_excluded_path(rel), rel)
+        with patch.object(sv._scanner_constants, "SCAN_RUNTIME_ROOT_NAMES", (".wavefoundry",)):
+            self.assertFalse(sv.is_scanner_excluded_path("child/.waveforge/work/probe.txt"))
+            self.assertTrue(sv.is_scanner_excluded_path("child/.wavefoundry/work/probe.txt"))
+
+    def test_non_git_selection_preserves_source_and_near_misses(self):
+        self.assertFalse(sv._is_inside_git(self.root))
+        selected = _rels(self.root, sv._get_all_files(self.root))
+        self.assertFalse(selected & self.excluded)
+        self.assertTrue(self.kept <= selected)
+
+    def test_git_full_changed_and_failed_listing_use_the_same_policy(self):
+        _git(self.root, "init", "-q")
+        _git(self.root, "add", "-f", ".")
+        _git(self.root, "commit", "-qm", "fixture")
+        for rel in self.excluded | self.kept:
+            (self.root / rel).write_text("RUNTIME_PROBE_5678\n")
+        for select in (sv._get_all_files, sv._get_changed_files):
+            selected = _rels(self.root, select(self.root))
+            self.assertFalse(selected & self.excluded)
+            self.assertTrue(self.kept <= selected)
+        run = sv.subprocess_util.isolated_run
+        def failed_listing(command, *args, **kwargs):
+            if command == ["git", "ls-files"]:
+                return subprocess.CompletedProcess(command, 1, "", "fixture")
+            return run(command, *args, **kwargs)
+        with patch.object(sv.subprocess_util, "isolated_run", failed_listing):
+            selected = _rels(self.root, sv._get_all_files(self.root))
+        self.assertFalse(selected & self.excluded)
+        self.assertTrue(self.kept <= selected)
+
+    def test_explicit_scan_and_incremental_cache_never_read_runtime_content(self):
+        import scan_secrets
+        scan_dir = self.root / ".wavefoundry/index/scan"
+        scan_secrets._save_scan_state(scan_dir, {
+            "scanner_version": scan_secrets.SCANNER_VERSION,
+            "rules_hash": scan_secrets._compute_rules_hash(self.root),
+        })
+        original = Path.open
+        forbidden = {self.root / rel for rel in self.excluded}
+        def guarded_open(path, *args, **kwargs):
+            self.assertNotIn(path, forbidden, "runtime content was opened")
+            return original(path, *args, **kwargs)
+        with patch.object(Path, "open", guarded_open), patch.object(scan_secrets, "_auto_max_workers", return_value=1):
+            failures = _scan(self.root, files=[self.root / rel for rel in self.excluded | self.kept])
+            result = scan_secrets.update_secrets_scan(
+                root=self.root, scan_dir=scan_dir, changed=self.excluded | self.kept,
+                removed=set(), full=False,
+            )
+        self.assertTrue(any(line.startswith("app.txt:") for line in failures), failures)
+        self.assertEqual(result["files_scanned"], len(self.kept))
+        findings = json.loads((self.root / SCAN_FINDINGS_PATH).read_text())
+        self.assertEqual({entry["file"] for entry in findings}, self.kept)
+
+    def test_history_sweeps_only_excluded_runtime_paths(self):
+        rows = [{"id": f"fixture-{n}", "file": rel, "line": 1, "rule_id": "runtime-probe",
+                 "status": "false-positive", "match_sha256": "0" * 64, "confirmations": []}
+                for n, rel in enumerate(sorted(self.excluded | self.kept))]
+        path = self.root / SCAN_FINDINGS_PATH
+        path.write_text(json.dumps(rows))
+        _scan(self.root, files=[])
+        self.assertEqual({entry["file"] for entry in json.loads(path.read_text())}, self.kept)
+
+    def test_invalid_declaration_refuses_empty_selection_and_no_work_update(self):
+        import scan_secrets
+        scan_dir = self.root / ".wavefoundry/index/scan"
+        scan_secrets._save_scan_state(scan_dir, {
+            "scanner_version": scan_secrets.SCANNER_VERSION,
+            "rules_hash": scan_secrets._compute_rules_hash(self.root),
+        })
+        invalid = ((), ".wavefoundry", (".",), ("..",), ("cache",), (".wf/*",),
+                   (".wf/cache",), (".wf\\cache",), (1,))
+        for names in invalid:
+            with self.subTest(names=names), patch.object(sv._scanner_constants, "SCAN_RUNTIME_ROOT_NAMES", names):
+                with self.assertRaisesRegex(ValueError, "SCAN_RUNTIME_ROOT_NAMES"):
+                    sv._get_all_files(self.root)
+                with self.assertRaisesRegex(ValueError, "SCAN_RUNTIME_ROOT_NAMES"):
+                    sv._get_changed_files(self.root)
+                self.assertTrue(any("invalid runtime directory declaration" in line for line in _scan(self.root, files=[])))
+                with self.assertRaisesRegex(ValueError, "SCAN_RUNTIME_ROOT_NAMES"):
+                    scan_secrets.update_secrets_scan(
+                        root=self.root, scan_dir=scan_dir,
+                        changed=set(), removed=set(), full=False,
+                    )
+
+
 if __name__ == "__main__":
     unittest.main()

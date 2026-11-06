@@ -1,0 +1,29 @@
+[
+  {
+    "case": "baseline",
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0
+  },
+  {
+    "case": "missing_cleanup",
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "skips": 0
+  },
+  {
+    "case": "active_request_lease",
+    "pass": true
+  },
+  {
+    "case": "missing_strong_lease",
+    "expected_assertion": "module lease lost during active request"
+  },
+  {
+    "case": "foreign_pid_guard",
+    "pass": true,
+    "limit": "controlled PID; no real fork"
+  }
+]

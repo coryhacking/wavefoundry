@@ -1,0 +1,4161 @@
+{
+  "schema": 1,
+  "upstream_commit": "8f376ff9c31ed5309ac448fe601c5dd21b376155",
+  "inputs": {
+    "old": {
+      "path": ".wavefoundry/framework/scripts/tests/fixtures/betterleaks/baseline.toml",
+      "sha256": "d81f3cefc668df8a22492848224b7908c3eac33ea3fd45eb4fb48278af1bb9ec",
+      "matches_git_head": true,
+      "git_commit": "b33211eb97ce949469f7c7454868fd138189dd93"
+    },
+    "pinned_upstream": {
+      "path": ".wavefoundry/framework/scripts/tests/fixtures/betterleaks/upstream.toml",
+      "sha256": "7c305ade42d5dbad4650b97cca0299f9c16d152ec555ae47bd6f321f049f82e5"
+    },
+    "shipped": {
+      "path": ".wavefoundry/framework/scan-rules.toml",
+      "sha256": "94dbe0cf3528d8bd0ad47fe44d478d49b5a6c2e279577cc695ea2d038d7164df"
+    }
+  },
+  "method": "Parse all TOML into typed structures; compare per-ID maps and fields. Parse all 733 upstream program bodies through github.com/expr-lang/expr v1.17.8 parser.Parse and ast.Walk without evaluating any program. No call inference from string matching.",
+  "counts": {
+    "old": 280,
+    "upstream": 474,
+    "shipped": 474,
+    "added": 199,
+    "removed": 5,
+    "shared": 275,
+    "changed_shared": 275,
+    "unchanged_shared": 0
+  },
+  "added_ids": [
+    "abuseipdb-api-key.1",
+    "aikido-ci-token",
+    "aikido-client-id",
+    "aikido-client-secret",
+    "airtable-oauth-token",
+    "aiven-auth-token",
+    "algolia-application-id",
+    "alibaba-sts-access-key-id",
+    "alibaba-sts-access-key-secret",
+    "alibaba-sts-security-token",
+    "amplitude-secret-key",
+    "apify-api-token",
+    "apollo-api-key.1",
+    "artifactory-jfrog-url",
+    "asaas-api-token",
+    "auth0-client-id.1",
+    "auth0-client-secret.1",
+    "auth0-domain.1",
+    "azure-app-configuration-connection-string",
+    "azure-client-id",
+    "azure-servicebus-connection-string",
+    "azure-storage-account-key",
+    "azure-storage-account-name",
+    "azure-tenant-id",
+    "bitbucket-data-center-token",
+    "bitly-access-token",
+    "bitrise-access-token",
+    "box-api-access-token",
+    "brave-search-api-key",
+    "browserstack-access-key.1",
+    "browserstack-username.1",
+    "buildkite-service-token",
+    "buildkite-user-access-token",
+    "canadian-digital-service-notify-api-key",
+    "canva-client-id",
+    "canva-client-secret",
+    "cartesia-api-key.1",
+    "checkout-secret-key",
+    "circleci-personal-token",
+    "circleci-project-token",
+    "clerk-secret-key",
+    "clickhouse-cloud-key-id",
+    "clickup-personal-api-token",
+    "cloudflare-account-id.1",
+    "cloudflare-api-key.1",
+    "cloudflare-api-key.2",
+    "cloudinary-api-key",
+    "cloudinary-api-secret",
+    "cloudinary-cloud-name",
+    "cloudsmith-api-key",
+    "cockroachlabs-cloud-api-key",
+    "configcat-sdk-key",
+    "configcat-sdk-key-extended",
+    "couchbase-capella-api-key",
+    "coveralls-personal-api-token",
+    "crates-io-api-key",
+    "databento-api-key",
+    "datadog-api-key",
+    "datadog-application-key",
+    "datagov-api-key",
+    "datastax-astra-application-token",
+    "deno-account-token",
+    "devcycle-client-sdk-key",
+    "devcycle-mobile-sdk-key",
+    "devcycle-server-sdk-key",
+    "devin-personal-api-key",
+    "devin-service-api-key",
+    "devin-service-user-token",
+    "disqus-api-key",
+    "docker-swarm-join-token",
+    "docker-swarm-unlock-key",
+    "dockerhub-organization-access-token",
+    "dockerhub-personal-access-token",
+    "ebay-client-id",
+    "ebay-client-secret",
+    "etsy-open-api-key",
+    "fal-api-key.1",
+    "fullstory-api-key",
+    "gcp-gemini-api",
+    "generic-credential-uri",
+    "generic-password",
+    "generic-username",
+    "gitlab-incoming-mail-address-token",
+    "gumroad-access-token",
+    "highnote-secret-live-key",
+    "honeycomb-api-key",
+    "hunter-api-key.1",
+    "ibm-cloud-user-api-key",
+    "influxdb-api-token",
+    "instantly-api-key.1",
+    "ionic-personal-access-token",
+    "jumpcloud-api-key",
+    "kagi-api-key",
+    "kimi-api-key",
+    "klaviyo-api-key",
+    "labelbox-api-key",
+    "labelbox-recursion-api-key",
+    "langchain-langsmith-personal-access-token",
+    "langchain-langsmith-service-key",
+    "langfuse-public-key.1",
+    "langfuse-secret-key.1",
+    "lark-app-id",
+    "lark-app-secret",
+    "lichess-personal-access-token",
+    "llama-cloud-api-key.1",
+    "mailersend-api-token",
+    "mapbox-secret-token",
+    "mem0-api-key.1",
+    "mercury-production-api-token",
+    "mergify-application-key",
+    "midtrans-production-server-client-key",
+    "minimax-api-key",
+    "miro-access-token",
+    "miro-client-id",
+    "miro-client-secret",
+    "monday-api-token.1",
+    "mux-access-token-id.1",
+    "mux-access-token-secret.1",
+    "neon-api-key",
+    "ngrok-api-key.1",
+    "nuget-api-key",
+    "nylas-api-key.1",
+    "onesignal-rich-authentication-token",
+    "onfido-live-api-token-ca",
+    "onfido-live-api-token-eu",
+    "onfido-live-api-token-us",
+    "openweather-api-key",
+    "opsgenie-api-key.1",
+    "paddle-live-api-key",
+    "pagerduty-authorization-token.1",
+    "paypal-client-id.1",
+    "paypal-client-secret.1",
+    "persona-production-api-key",
+    "pinecone-api-key.1",
+    "pinecone-api-key.2",
+    "pinterest-access-token",
+    "plivo-auth-id",
+    "plivo-auth-token",
+    "polar-oauth-access-token",
+    "polar-organization-access-token",
+    "polar-personal-access-token",
+    "postmark-api-token.1",
+    "proof-full-access-api-key",
+    "rainforest-pay-production-api-key",
+    "ramp-client-id",
+    "ramp-client-secret",
+    "razorpay-key-id.1",
+    "razorpay-key-secret.1",
+    "redirect-pizza-api-token.1",
+    "render-api-key",
+    "resend-api-key.1",
+    "retell-api-key.1",
+    "rootly-api-key.1",
+    "runpod-api-key.1",
+    "salesforce-access-token.1",
+    "salesforce-instance-url.1",
+    "samsara-api-token.1",
+    "scalr-api-access-token.1",
+    "segment-public-api-token.1",
+    "snowflake-account-host.1",
+    "snowflake-programmatic-access-token.1",
+    "sslmate-api-key.1",
+    "supabase-management-token",
+    "supabase-project-api-key",
+    "supabase-project-url",
+    "tableau-personal-access-token-name.1",
+    "tableau-personal-access-token.1",
+    "tableau-server-host.1",
+    "tailscale-api-key.1",
+    "tailscale-auth-key",
+    "tailscale-key",
+    "tailscale-oauth-client-secret",
+    "tailscale-scim-key",
+    "tailscale-webhook-secret",
+    "telnyx-api-v2-key.1",
+    "temporal-cloud-api-key.1",
+    "thunderstore-api-token.1",
+    "unkey-root-key.1",
+    "upstash-redis-rest-token.1",
+    "upstash-redis-rest-url.1",
+    "val-town-api-token.1",
+    "virustotal-api-key.1",
+    "voyageai-api-key",
+    "vultr-api-key.1",
+    "wakatime-api-key.1",
+    "wakatime-api-key.2",
+    "weatherstack-api-key.1",
+    "wiz-client-id.1",
+    "wiz-client-secret.1",
+    "woocommerce-consumer-secret.1",
+    "workato-developer-api-token.1",
+    "workos-production-api-key.1",
+    "xendit-production-api-key.1",
+    "zai-api-key",
+    "zoho-client-id.1",
+    "zoho-client-secret.1",
+    "zoho-oauth-token.1",
+    "zoho-zapi-key.1",
+    "zuplo-consumer-api-key.1"
+  ],
+  "removed_ids": [
+    "cloudflare-api-key",
+    "datadog-access-token",
+    "etsy-access-token",
+    "jfrog-api-key",
+    "jfrog-identity-token"
+  ],
+  "changed_shared_rules": [
+    {
+      "id": "1password-secret-key",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "1password-service-account-token",
+      "fields": [
+        "confidence",
+        "keywords",
+        "validate"
+      ]
+    },
+    {
+      "id": "adafruit-api-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "adobe-client-id",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "adobe-client-secret",
+      "fields": [
+        "confidence",
+        "filter"
+      ]
+    },
+    {
+      "id": "age-secret-key",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "airtable-api-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "airtable-personnal-access-token",
+      "fields": [
+        "analyze",
+        "confidence",
+        "filter",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "algolia-api-key",
+      "fields": [
+        "analyze",
+        "components",
+        "confidence",
+        "filter",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "alibaba-access-key-id",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex",
+        "skipReport"
+      ]
+    },
+    {
+      "id": "alibaba-secret-key",
+      "fields": [
+        "components",
+        "confidence",
+        "filter",
+        "keywords",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "anthropic-admin-api-key",
+      "fields": [
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "anthropic-api-key",
+      "fields": [
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "artifactory-api-key",
+      "fields": [
+        "components",
+        "confidence",
+        "filter",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "artifactory-reference-token",
+      "fields": [
+        "components",
+        "confidence",
+        "filter",
+        "validate"
+      ]
+    },
+    {
+      "id": "asana-client-id",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "asana-client-secret",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "assemblyai-api-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "atlassian-api-token",
+      "fields": [
+        "confidence",
+        "description",
+        "filter",
+        "keywords",
+        "regex"
+      ]
+    },
+    {
+      "id": "authress-service-client-access-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "keywords",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "aws-access-token",
+      "fields": [
+        "analyze",
+        "components",
+        "confidence",
+        "filter",
+        "required",
+        "validate"
+      ]
+    },
+    {
+      "id": "aws-amazon-bedrock-api-key-long-lived",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "aws-amazon-bedrock-api-key-short-lived",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "aws-secret-access-key",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "azure-ad-client-secret",
+      "fields": [
+        "components",
+        "confidence",
+        "keywords",
+        "validate"
+      ]
+    },
+    {
+      "id": "beamer-api-token",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "bitbucket-client-id",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "bitbucket-client-secret",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "bittrex-access-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "bittrex-secret-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "cerebras-api-key",
+      "fields": [
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "cisco-meraki-api-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "civo-api-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "clickhouse-cloud-api-secret-key",
+      "fields": [
+        "components",
+        "confidence",
+        "filter",
+        "validate"
+      ]
+    },
+    {
+      "id": "clojars-api-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "cloudflare-global-api-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "cloudflare-origin-ca-key",
+      "fields": [
+        "confidence",
+        "filter"
+      ]
+    },
+    {
+      "id": "codecov-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "cohere-api-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "coinbase-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "confluent-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "confluent-secret-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "contentful-delivery-api-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "curl-auth-header",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "curl-auth-user",
+      "fields": [
+        "confidence",
+        "filter"
+      ]
+    },
+    {
+      "id": "cursor-api-key",
+      "fields": [
+        "confidence",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "databricks-api-token",
+      "fields": [
+        "confidence",
+        "filter"
+      ]
+    },
+    {
+      "id": "deepgram-api-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "deepseek-api-key",
+      "fields": [
+        "confidence",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "defined-networking-api-token",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "digitalocean-access-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "digitalocean-pat",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "digitalocean-refresh-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "discord-api-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "discord-client-id",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "discord-client-secret",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "doppler-api-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "droneci-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "dropbox-api-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "dropbox-long-lived-api-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "dropbox-short-lived-api-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "duffel-api-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "dynatrace-api-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "easypost-api-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "easypost-test-api-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "elastic-cloud-api-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "validate"
+      ]
+    },
+    {
+      "id": "elevenlabs-api-key",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "endorlabs-api-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "endorlabs-api-secret",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "exoscale-api-key",
+      "fields": [
+        "components",
+        "confidence",
+        "filter",
+        "required",
+        "validate"
+      ]
+    },
+    {
+      "id": "exoscale-api-secret",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "facebook-access-token",
+      "fields": [
+        "confidence",
+        "filter"
+      ]
+    },
+    {
+      "id": "facebook-page-access-token",
+      "fields": [
+        "confidence",
+        "filter"
+      ]
+    },
+    {
+      "id": "facebook-secret",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "fastly-api-token",
+      "fields": [
+        "analyze",
+        "confidence",
+        "description",
+        "filter",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "figma-personal-access-header-token",
+      "fields": [
+        "analyze",
+        "confidence",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "figma-personal-access-token",
+      "fields": [
+        "analyze",
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "finicity-api-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "finicity-client-secret",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "finnhub-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "flickr-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "flutterwave-encryption-key",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "flutterwave-public-key",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "flutterwave-secret-key",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "flyio-access-token",
+      "fields": [
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "frameio-api-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "validate"
+      ]
+    },
+    {
+      "id": "freemius-secret-key",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "freshbooks-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "gcp-api-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "validate"
+      ]
+    },
+    {
+      "id": "gcp-application-default-credentials",
+      "fields": [
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "gcp-service-account",
+      "fields": [
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "generic-api-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "keywords",
+        "regex",
+        "specificity"
+      ]
+    },
+    {
+      "id": "gitea-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "github-app-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "validate"
+      ]
+    },
+    {
+      "id": "github-fine-grained-pat",
+      "fields": [
+        "analyze",
+        "confidence",
+        "revoke",
+        "validate"
+      ]
+    },
+    {
+      "id": "github-oauth",
+      "fields": [
+        "analyze",
+        "confidence",
+        "revoke",
+        "validate"
+      ]
+    },
+    {
+      "id": "github-pat",
+      "fields": [
+        "analyze",
+        "confidence",
+        "filter",
+        "revoke",
+        "validate"
+      ]
+    },
+    {
+      "id": "github-refresh-token",
+      "fields": [
+        "confidence",
+        "revoke",
+        "validate"
+      ]
+    },
+    {
+      "id": "gitlab-cicd-job-token",
+      "fields": [
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "gitlab-deploy-token",
+      "fields": [
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "gitlab-feature-flag-client-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "gitlab-feed-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "gitlab-incoming-mail-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "gitlab-kubernetes-agent-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "gitlab-oauth-app-secret",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "gitlab-pat",
+      "fields": [
+        "analyze",
+        "confidence",
+        "revoke",
+        "validate"
+      ]
+    },
+    {
+      "id": "gitlab-pat-routable",
+      "fields": [
+        "analyze",
+        "confidence",
+        "revoke",
+        "validate"
+      ]
+    },
+    {
+      "id": "gitlab-pat-routable-versioned",
+      "fields": [
+        "analyze",
+        "confidence",
+        "revoke",
+        "validate"
+      ]
+    },
+    {
+      "id": "gitlab-ptt",
+      "fields": [
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "gitlab-rrt",
+      "fields": [
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "gitlab-runner-authentication-token",
+      "fields": [
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "gitlab-runner-authentication-token-routable",
+      "fields": [
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "gitlab-scim-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "gitlab-session-cookie",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "gitter-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "gocardless-api-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "grafana-api-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "grafana-cloud-api-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "grafana-service-account-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "greptile-api-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "groq-api-key",
+      "fields": [
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "harness-api-key",
+      "fields": [
+        "analyze",
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "hashicorp-tf-api-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "hashicorp-tf-password",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "heroku-api-key",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "heroku-api-key-v2",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "hubspot-api-key",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "huggingface-access-token",
+      "fields": [
+        "analyze",
+        "confidence",
+        "revoke",
+        "validate"
+      ]
+    },
+    {
+      "id": "huggingface-organization-api-token",
+      "fields": [
+        "analyze",
+        "confidence",
+        "revoke",
+        "validate"
+      ]
+    },
+    {
+      "id": "infomaniak-api-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "infracost-api-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "intercom-api-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "intra42-client-secret",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "jwt",
+      "fields": [
+        "confidence",
+        "filter",
+        "keywords"
+      ]
+    },
+    {
+      "id": "jwt-base64",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "kraken-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "kubernetes-secret-yaml",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "kucoin-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "kucoin-secret-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "launchdarkly-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "lighton-paradigm-api-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "linear-api-key",
+      "fields": [
+        "analyze",
+        "confidence",
+        "filter",
+        "validate"
+      ]
+    },
+    {
+      "id": "linear-client-secret",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "linkedin-client-id",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "linkedin-client-secret",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "lob-api-key",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "lob-pub-api-key",
+      "fields": [
+        "confidence",
+        "keywords",
+        "regex"
+      ]
+    },
+    {
+      "id": "looker-client-id",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "looker-client-secret",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "mailchimp-api-key",
+      "fields": [
+        "analyze",
+        "confidence",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "mailgun-private-api-token",
+      "fields": [
+        "confidence",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "mailgun-pub-key",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "mailgun-signing-key",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "mapbox-api-token",
+      "fields": [
+        "analyze",
+        "confidence",
+        "description",
+        "filter",
+        "keywords",
+        "regex",
+        "tags",
+        "validate"
+      ]
+    },
+    {
+      "id": "mattermost-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "maxmind-license-key",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "messagebird-api-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "messagebird-client-id",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "microsoft-teams-webhook",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "mistral-api-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "mongodb-atlas-service-account-id",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "mongodb-atlas-service-account-secret",
+      "fields": [
+        "components",
+        "confidence",
+        "filter",
+        "required",
+        "validate"
+      ]
+    },
+    {
+      "id": "mongodb-connection-string",
+      "fields": [
+        "confidence",
+        "filter"
+      ]
+    },
+    {
+      "id": "netlify-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "new-relic-browser-api-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "new-relic-insert-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "new-relic-user-api-id",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "new-relic-user-api-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "notion-api-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "npm-access-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "nuget-config-password",
+      "fields": [
+        "confidence",
+        "filter"
+      ]
+    },
+    {
+      "id": "nvidia-api-key",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "nytimes-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "octopus-deploy-api-key",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "okta-access-token",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "ollama-api-key",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "openai-api-key",
+      "fields": [
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "openrouter-api-key",
+      "fields": [
+        "analyze",
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "openshift-user-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "ovh-application-key",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "ovh-application-secret",
+      "fields": [
+        "components",
+        "confidence",
+        "regex",
+        "required",
+        "validate"
+      ]
+    },
+    {
+      "id": "ovh-consumer-key",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "perplexity-api-key",
+      "fields": [
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "pkcs12-file",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "plaid-api-token",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "plaid-client-id",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "plaid-secret-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "planetscale-api-token",
+      "fields": [
+        "components",
+        "confidence",
+        "required",
+        "validate"
+      ]
+    },
+    {
+      "id": "planetscale-id",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "planetscale-oauth-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "planetscale-password",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "polymarket-address",
+      "fields": [
+        "confidence",
+        "keywords",
+        "regex"
+      ]
+    },
+    {
+      "id": "polymarket-api-key",
+      "fields": [
+        "components",
+        "confidence",
+        "keywords",
+        "regex",
+        "required",
+        "validate"
+      ]
+    },
+    {
+      "id": "polymarket-api-secret",
+      "fields": [
+        "confidence",
+        "keywords",
+        "regex"
+      ]
+    },
+    {
+      "id": "polymarket-passphrase",
+      "fields": [
+        "confidence",
+        "keywords",
+        "regex"
+      ]
+    },
+    {
+      "id": "polymarket-private-key",
+      "fields": [
+        "confidence",
+        "keywords",
+        "regex"
+      ]
+    },
+    {
+      "id": "posthog-personal-api-key",
+      "fields": [
+        "confidence",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "posthog-project-api-key",
+      "fields": [
+        "confidence",
+        "description",
+        "regex"
+      ]
+    },
+    {
+      "id": "postman-api-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "prefect-api-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "private-key",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "privateai-api-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "pulumi-api-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "pypi-upload-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "rapidapi-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "readme-api-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "replicate-api-token",
+      "fields": [
+        "analyze",
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "rubygems-api-token",
+      "fields": [
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "scaleway-secret-key",
+      "fields": [
+        "confidence",
+        "entropy",
+        "filter",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "scalingo-api-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "sendbird-access-id",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "sendbird-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "sendgrid-api-token",
+      "fields": [
+        "analyze",
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "sendinblue-api-token",
+      "fields": [
+        "analyze",
+        "confidence",
+        "description",
+        "filter",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "sentry-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "sentry-org-token",
+      "fields": [
+        "confidence",
+        "filter"
+      ]
+    },
+    {
+      "id": "sentry-user-token",
+      "fields": [
+        "confidence",
+        "filter"
+      ]
+    },
+    {
+      "id": "settlemint-application-access-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "settlemint-personal-access-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "settlemint-service-access-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "shippo-api-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "shopify-access-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "shopify-custom-access-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "shopify-private-app-access-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "shopify-shared-secret",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "sidekiq-secret",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "sidekiq-sensitive-url",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "slack-app-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "slack-bot-token",
+      "fields": [
+        "analyze",
+        "confidence",
+        "revoke",
+        "validate"
+      ]
+    },
+    {
+      "id": "slack-config-access-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "slack-config-refresh-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "slack-legacy-bot-token",
+      "fields": [
+        "analyze",
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "slack-legacy-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "slack-legacy-workspace-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "slack-session-cookie",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "slack-session-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "slack-user-token",
+      "fields": [
+        "analyze",
+        "confidence",
+        "revoke",
+        "validate"
+      ]
+    },
+    {
+      "id": "slack-webhook-url",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "snyk-api-token",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "sonar-api-token",
+      "fields": [
+        "confidence",
+        "regex",
+        "secretGroup",
+        "valueGroup"
+      ]
+    },
+    {
+      "id": "sourcegraph-access-token",
+      "fields": [
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "square-access-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "squarespace-access-token",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "stability-ai-api-key",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "stripe-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "validate"
+      ]
+    },
+    {
+      "id": "sumologic-access-id",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "sumologic-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "telegram-bot-api-token",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "togetherai-api-key",
+      "fields": [
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "travisci-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "twilio-api-key",
+      "fields": [
+        "confidence",
+        "keywords"
+      ]
+    },
+    {
+      "id": "twitch-api-token",
+      "fields": [
+        "analyze",
+        "confidence",
+        "filter",
+        "regex",
+        "revoke",
+        "validate"
+      ]
+    },
+    {
+      "id": "twitter-access-secret",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "twitter-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "twitter-api-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "twitter-api-secret",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "twitter-bearer-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    },
+    {
+      "id": "typeform-api-token",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "upcloud-api-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "validate"
+      ]
+    },
+    {
+      "id": "upstage-api-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "vault-batch-token",
+      "fields": [
+        "confidence"
+      ]
+    },
+    {
+      "id": "vault-service-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "keywords"
+      ]
+    },
+    {
+      "id": "vercel-ai-gateway-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "validate"
+      ]
+    },
+    {
+      "id": "vercel-api-token",
+      "fields": [
+        "analyze",
+        "confidence",
+        "filter",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "vercel-app-access-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "validate"
+      ]
+    },
+    {
+      "id": "vercel-app-refresh-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "validate"
+      ]
+    },
+    {
+      "id": "vercel-integration-token",
+      "fields": [
+        "confidence",
+        "filter",
+        "validate"
+      ]
+    },
+    {
+      "id": "vercel-personal-access-token",
+      "fields": [
+        "analyze",
+        "confidence",
+        "filter",
+        "validate"
+      ]
+    },
+    {
+      "id": "weights-and-biases-api-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex",
+        "validate"
+      ]
+    },
+    {
+      "id": "weights-and-biases-api-key-v1",
+      "fields": [
+        "confidence",
+        "filter",
+        "validate"
+      ]
+    },
+    {
+      "id": "xai-api-key",
+      "fields": [
+        "analyze",
+        "confidence",
+        "validate"
+      ]
+    },
+    {
+      "id": "yandex-access-token",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "yandex-api-key",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "yandex-aws-access-token",
+      "fields": [
+        "confidence",
+        "regex"
+      ]
+    },
+    {
+      "id": "zendesk-secret-key",
+      "fields": [
+        "confidence",
+        "filter",
+        "regex"
+      ]
+    }
+  ],
+  "upstream_rule_field_occurrences": {
+    "analyze": 52,
+    "components": 37,
+    "confidence": 474,
+    "description": 474,
+    "filter": 428,
+    "id": 474,
+    "keywords": 473,
+    "path": 5,
+    "regex": 473,
+    "revoke": 13,
+    "skipReport": 44,
+    "specificity": 5,
+    "tags": 8,
+    "validate": 238,
+    "valueGroup": 3
+  },
+  "constructs": {
+    "regex": 473,
+    "path": 5,
+    "without_regex": [
+      "pkcs12-file"
+    ],
+    "skipReport": [
+      "aikido-client-id",
+      "algolia-application-id",
+      "alibaba-access-key-id",
+      "alibaba-sts-access-key-id",
+      "alibaba-sts-security-token",
+      "artifactory-jfrog-url",
+      "auth0-client-id.1",
+      "auth0-domain.1",
+      "aws-secret-access-key",
+      "azure-client-id",
+      "azure-storage-account-name",
+      "azure-tenant-id",
+      "browserstack-username.1",
+      "canva-client-id",
+      "clickhouse-cloud-key-id",
+      "cloudflare-account-id.1",
+      "cloudinary-api-key",
+      "cloudinary-cloud-name",
+      "ebay-client-id",
+      "exoscale-api-secret",
+      "generic-username",
+      "langfuse-public-key.1",
+      "lark-app-id",
+      "miro-client-id",
+      "mongodb-atlas-service-account-id",
+      "mux-access-token-id.1",
+      "ovh-application-key",
+      "ovh-consumer-key",
+      "paypal-client-id.1",
+      "planetscale-id",
+      "plivo-auth-id",
+      "polymarket-address",
+      "polymarket-api-secret",
+      "polymarket-passphrase",
+      "ramp-client-id",
+      "razorpay-key-id.1",
+      "salesforce-instance-url.1",
+      "snowflake-account-host.1",
+      "supabase-project-url",
+      "tableau-personal-access-token-name.1",
+      "tableau-server-host.1",
+      "upstash-redis-rest-url.1",
+      "wiz-client-id.1",
+      "zoho-client-id.1"
+    ],
+    "valueGroup": {
+      "azure-app-configuration-connection-string": 3,
+      "generic-credential-uri": 4,
+      "sonar-api-token": 2
+    },
+    "component_parents": 37,
+    "component_references": 44,
+    "unique_component_ids": 43,
+    "optional_component_references": 3
+  },
+  "expressions": {
+    "offline": {
+      "expression_count": 430,
+      "by_kind": {
+        "prefilter": 1,
+        "filter": 429
+      },
+      "calls": {
+        "containsAny": 52,
+        "entropy": 423,
+        "failsTokenEfficiency": 1,
+        "findMatch": 7,
+        "fromBase64": 2,
+        "join": 3,
+        "len": 24,
+        "lower": 1,
+        "map": 1,
+        "matchesAny": 108,
+        "max": 5,
+        "min": 3,
+        "repeat": 2,
+        "replace": 7,
+        "setConfidence": 3,
+        "split": 5,
+        "startsWithAny": 1,
+        "tokenRatio": 124
+      },
+      "ast_nodes": {
+        "*ast.ArrayNode": 161,
+        "*ast.BinaryNode": 890,
+        "*ast.BuiltinNode": 53,
+        "*ast.CallNode": 719,
+        "*ast.ConditionalNode": 11,
+        "*ast.FloatNode": 545,
+        "*ast.IdentifierNode": 1535,
+        "*ast.IntegerNode": 44,
+        "*ast.MemberNode": 703,
+        "*ast.PointerNode": 3,
+        "*ast.PredicateNode": 1,
+        "*ast.SliceNode": 8,
+        "*ast.StringNode": 2545,
+        "*ast.UnaryNode": 12,
+        "*ast.VariableDeclaratorNode": 52
+      },
+      "operators": {
+        "!": 12,
+        "%": 6,
+        "&&": 72,
+        "+": 10,
+        "-": 8,
+        "<": 286,
+        "<=": 140,
+        "==": 16,
+        ">=": 127,
+        "contains": 1,
+        "matches": 2,
+        "||": 222
+      },
+      "call_sites": {
+        "containsAny": [
+          "global:filter",
+          "gcp-service-account:filter",
+          "generic-api-key:filter",
+          "generic-password:filter"
+        ],
+        "entropy": [
+          "1password-secret-key:filter",
+          "1password-service-account-token:filter",
+          "abuseipdb-api-key.1:filter",
+          "adafruit-api-key:filter",
+          "adobe-client-id:filter",
+          "adobe-client-secret:filter",
+          "aikido-ci-token:filter",
+          "aikido-client-id:filter",
+          "aikido-client-secret:filter",
+          "airtable-api-key:filter",
+          "airtable-oauth-token:filter",
+          "airtable-personnal-access-token:filter",
+          "aiven-auth-token:filter",
+          "algolia-api-key:filter",
+          "algolia-application-id:filter",
+          "alibaba-access-key-id:filter",
+          "alibaba-secret-key:filter",
+          "alibaba-sts-access-key-id:filter",
+          "alibaba-sts-access-key-secret:filter",
+          "alibaba-sts-security-token:filter",
+          "amplitude-secret-key:filter",
+          "apify-api-token:filter",
+          "apollo-api-key.1:filter",
+          "artifactory-api-key:filter",
+          "artifactory-jfrog-url:filter",
+          "artifactory-reference-token:filter",
+          "asaas-api-token:filter",
+          "asana-client-id:filter",
+          "asana-client-secret:filter",
+          "assemblyai-api-key:filter",
+          "atlassian-api-token:filter",
+          "auth0-client-id.1:filter",
+          "auth0-client-secret.1:filter",
+          "authress-service-client-access-key:filter",
+          "aws-access-token:filter",
+          "aws-amazon-bedrock-api-key-long-lived:filter",
+          "aws-amazon-bedrock-api-key-short-lived:filter",
+          "aws-secret-access-key:filter",
+          "azure-ad-client-secret:filter",
+          "azure-app-configuration-connection-string:filter",
+          "azure-client-id:filter",
+          "azure-servicebus-connection-string:filter",
+          "azure-storage-account-key:filter",
+          "azure-storage-account-name:filter",
+          "azure-tenant-id:filter",
+          "bitbucket-client-id:filter",
+          "bitbucket-client-secret:filter",
+          "bitbucket-data-center-token:filter",
+          "bitly-access-token:filter",
+          "bitrise-access-token:filter",
+          "bittrex-access-key:filter",
+          "bittrex-secret-key:filter",
+          "box-api-access-token:filter",
+          "brave-search-api-key:filter",
+          "browserstack-access-key.1:filter",
+          "browserstack-username.1:filter",
+          "buildkite-service-token:filter",
+          "buildkite-user-access-token:filter",
+          "canadian-digital-service-notify-api-key:filter",
+          "canva-client-id:filter",
+          "canva-client-secret:filter",
+          "cartesia-api-key.1:filter",
+          "cerebras-api-key:filter",
+          "circleci-personal-token:filter",
+          "circleci-project-token:filter",
+          "cisco-meraki-api-key:filter",
+          "civo-api-key:filter",
+          "clerk-secret-key:filter",
+          "clickhouse-cloud-api-secret-key:filter",
+          "clickhouse-cloud-key-id:filter",
+          "clickup-personal-api-token:filter",
+          "clojars-api-token:filter",
+          "cloudflare-api-key.1:filter",
+          "cloudflare-api-key.2:filter",
+          "cloudflare-global-api-key:filter",
+          "cloudflare-origin-ca-key:filter",
+          "cloudinary-api-key:filter",
+          "cloudinary-api-secret:filter",
+          "cockroachlabs-cloud-api-key:filter",
+          "codecov-access-token:filter",
+          "cohere-api-token:filter",
+          "coinbase-access-token:filter",
+          "configcat-sdk-key:filter",
+          "configcat-sdk-key-extended:filter",
+          "confluent-access-token:filter",
+          "confluent-secret-key:filter",
+          "contentful-delivery-api-token:filter",
+          "couchbase-capella-api-key:filter",
+          "coveralls-personal-api-token:filter",
+          "curl-auth-header:filter",
+          "curl-auth-user:filter",
+          "cursor-api-key:filter",
+          "databricks-api-token:filter",
+          "datadog-api-key:filter",
+          "datadog-application-key:filter",
+          "datagov-api-key:filter",
+          "datastax-astra-application-token:filter",
+          "deepgram-api-key:filter",
+          "deepseek-api-key:filter",
+          "deno-account-token:filter",
+          "devcycle-client-sdk-key:filter",
+          "devcycle-mobile-sdk-key:filter",
+          "devcycle-server-sdk-key:filter",
+          "devin-personal-api-key:filter",
+          "devin-service-api-key:filter",
+          "devin-service-user-token:filter",
+          "digitalocean-access-token:filter",
+          "digitalocean-pat:filter",
+          "discord-api-token:filter",
+          "discord-client-id:filter",
+          "discord-client-secret:filter",
+          "disqus-api-key:filter",
+          "docker-swarm-join-token:filter",
+          "docker-swarm-unlock-key:filter",
+          "dockerhub-organization-access-token:filter",
+          "dockerhub-personal-access-token:filter",
+          "doppler-api-token:filter",
+          "droneci-access-token:filter",
+          "dropbox-api-token:filter",
+          "dropbox-long-lived-api-token:filter",
+          "dropbox-short-lived-api-token:filter",
+          "duffel-api-token:filter",
+          "dynatrace-api-token:filter",
+          "easypost-api-token:filter",
+          "easypost-test-api-token:filter",
+          "ebay-client-id:filter",
+          "ebay-client-secret:filter",
+          "elastic-cloud-api-key:filter",
+          "elevenlabs-api-key:filter",
+          "endorlabs-api-key:filter",
+          "endorlabs-api-secret:filter",
+          "etsy-open-api-key:filter",
+          "exoscale-api-key:filter",
+          "exoscale-api-secret:filter",
+          "facebook-access-token:filter",
+          "facebook-page-access-token:filter",
+          "facebook-secret:filter",
+          "fal-api-key.1:filter",
+          "fastly-api-token:filter",
+          "figma-personal-access-token:filter",
+          "finicity-api-token:filter",
+          "finicity-client-secret:filter",
+          "finnhub-access-token:filter",
+          "flickr-access-token:filter",
+          "flutterwave-encryption-key:filter",
+          "flutterwave-public-key:filter",
+          "flutterwave-secret-key:filter",
+          "flyio-access-token:filter",
+          "frameio-api-token:filter",
+          "freshbooks-access-token:filter",
+          "fullstory-api-key:filter",
+          "gcp-api-key:filter",
+          "gcp-gemini-api:filter",
+          "generic-api-key:filter",
+          "gitea-access-token:filter",
+          "github-app-token:filter",
+          "github-fine-grained-pat:filter",
+          "github-oauth:filter",
+          "github-pat:filter",
+          "github-refresh-token:filter",
+          "gitlab-cicd-job-token:filter",
+          "gitlab-deploy-token:filter",
+          "gitlab-feature-flag-client-token:filter",
+          "gitlab-feed-token:filter",
+          "gitlab-incoming-mail-address-token:filter",
+          "gitlab-incoming-mail-token:filter",
+          "gitlab-kubernetes-agent-token:filter",
+          "gitlab-oauth-app-secret:filter",
+          "gitlab-pat:filter",
+          "gitlab-pat-routable:filter",
+          "gitlab-pat-routable-versioned:filter",
+          "gitlab-ptt:filter",
+          "gitlab-rrt:filter",
+          "gitlab-runner-authentication-token:filter",
+          "gitlab-runner-authentication-token-routable:filter",
+          "gitlab-scim-token:filter",
+          "gitlab-session-cookie:filter",
+          "gitter-access-token:filter",
+          "gocardless-api-token:filter",
+          "grafana-api-key:filter",
+          "grafana-cloud-api-token:filter",
+          "grafana-service-account-token:filter",
+          "greptile-api-key:filter",
+          "groq-api-key:filter",
+          "gumroad-access-token:filter",
+          "harness-api-key:filter",
+          "hashicorp-tf-api-token:filter",
+          "hashicorp-tf-password:filter",
+          "heroku-api-key-v2:filter",
+          "highnote-secret-live-key:filter",
+          "honeycomb-api-key:filter",
+          "huggingface-access-token:filter",
+          "huggingface-organization-api-token:filter",
+          "hunter-api-key.1:filter",
+          "ibm-cloud-user-api-key:filter",
+          "influxdb-api-token:filter",
+          "infomaniak-api-token:filter",
+          "infracost-api-token:filter",
+          "instantly-api-key.1:filter",
+          "intercom-api-key:filter",
+          "intra42-client-secret:filter",
+          "ionic-personal-access-token:filter",
+          "jumpcloud-api-key:filter",
+          "jwt:filter",
+          "jwt-base64:filter",
+          "kagi-api-key:filter",
+          "kimi-api-key:filter",
+          "klaviyo-api-key:filter",
+          "kraken-access-token:filter",
+          "kucoin-access-token:filter",
+          "kucoin-secret-key:filter",
+          "labelbox-api-key:filter",
+          "labelbox-recursion-api-key:filter",
+          "langchain-langsmith-personal-access-token:filter",
+          "langchain-langsmith-service-key:filter",
+          "langfuse-public-key.1:filter",
+          "langfuse-secret-key.1:filter",
+          "lark-app-id:filter",
+          "lark-app-secret:filter",
+          "launchdarkly-access-token:filter",
+          "lichess-personal-access-token:filter",
+          "lighton-paradigm-api-key:filter",
+          "linear-api-key:filter",
+          "linear-client-secret:filter",
+          "linkedin-client-id:filter",
+          "linkedin-client-secret:filter",
+          "llama-cloud-api-key.1:filter",
+          "looker-client-id:filter",
+          "looker-client-secret:filter",
+          "mailersend-api-token:filter",
+          "mapbox-api-token:filter",
+          "mapbox-secret-token:filter",
+          "mattermost-access-token:filter",
+          "maxmind-license-key:filter",
+          "mem0-api-key.1:filter",
+          "mercury-production-api-token:filter",
+          "mergify-application-key:filter",
+          "messagebird-api-token:filter",
+          "messagebird-client-id:filter",
+          "midtrans-production-server-client-key:filter",
+          "minimax-api-key:filter",
+          "miro-access-token:filter",
+          "miro-client-id:filter",
+          "miro-client-secret:filter",
+          "mistral-api-key:filter",
+          "monday-api-token.1:filter",
+          "mongodb-atlas-service-account-id:filter",
+          "mongodb-atlas-service-account-secret:filter",
+          "mongodb-connection-string:filter",
+          "mux-access-token-id.1:filter",
+          "mux-access-token-secret.1:filter",
+          "neon-api-key:filter",
+          "netlify-access-token:filter",
+          "new-relic-browser-api-token:filter",
+          "new-relic-insert-key:filter",
+          "new-relic-user-api-id:filter",
+          "new-relic-user-api-key:filter",
+          "ngrok-api-key.1:filter",
+          "notion-api-token:filter",
+          "npm-access-token:filter",
+          "nuget-api-key:filter",
+          "nuget-config-password:filter",
+          "nvidia-api-key:filter",
+          "nylas-api-key.1:filter",
+          "nytimes-access-token:filter",
+          "octopus-deploy-api-key:filter",
+          "okta-access-token:filter",
+          "ollama-api-key:filter",
+          "onesignal-rich-authentication-token:filter",
+          "onfido-live-api-token-ca:filter",
+          "onfido-live-api-token-eu:filter",
+          "onfido-live-api-token-us:filter",
+          "openai-api-key:filter",
+          "openrouter-api-key:filter",
+          "openshift-user-token:filter",
+          "openweather-api-key:filter",
+          "opsgenie-api-key.1:filter",
+          "ovh-application-key:filter",
+          "ovh-application-secret:filter",
+          "ovh-consumer-key:filter",
+          "paddle-live-api-key:filter",
+          "pagerduty-authorization-token.1:filter",
+          "paypal-client-id.1:filter",
+          "paypal-client-secret.1:filter",
+          "perplexity-api-key:filter",
+          "persona-production-api-key:filter",
+          "pinecone-api-key.1:filter",
+          "pinecone-api-key.2:filter",
+          "pinterest-access-token:filter",
+          "plaid-client-id:filter",
+          "plaid-secret-key:filter",
+          "planetscale-api-token:filter",
+          "planetscale-id:filter",
+          "planetscale-oauth-token:filter",
+          "planetscale-password:filter",
+          "plivo-auth-id:filter",
+          "plivo-auth-token:filter",
+          "polar-oauth-access-token:filter",
+          "polar-organization-access-token:filter",
+          "polar-personal-access-token:filter",
+          "polymarket-api-key:filter",
+          "polymarket-api-secret:filter",
+          "polymarket-private-key:filter",
+          "posthog-personal-api-key:filter",
+          "posthog-project-api-key:filter",
+          "postman-api-token:filter",
+          "postmark-api-token.1:filter",
+          "prefect-api-token:filter",
+          "privateai-api-token:filter",
+          "proof-full-access-api-key:filter",
+          "pulumi-api-token:filter",
+          "pypi-upload-token:filter",
+          "rainforest-pay-production-api-key:filter",
+          "ramp-client-id:filter",
+          "ramp-client-secret:filter",
+          "rapidapi-access-token:filter",
+          "razorpay-key-id.1:filter",
+          "razorpay-key-secret.1:filter",
+          "readme-api-token:filter",
+          "redirect-pizza-api-token.1:filter",
+          "render-api-key:filter",
+          "replicate-api-token:filter",
+          "resend-api-key.1:filter",
+          "retell-api-key.1:filter",
+          "rootly-api-key.1:filter",
+          "rubygems-api-token:filter",
+          "runpod-api-key.1:filter",
+          "salesforce-access-token.1:filter",
+          "samsara-api-token.1:filter",
+          "scaleway-secret-key:filter",
+          "scalingo-api-token:filter",
+          "scalr-api-access-token.1:filter",
+          "segment-public-api-token.1:filter",
+          "sendbird-access-id:filter",
+          "sendbird-access-token:filter",
+          "sendgrid-api-token:filter",
+          "sendinblue-api-token:filter",
+          "sentry-access-token:filter",
+          "sentry-org-token:filter",
+          "sentry-user-token:filter",
+          "settlemint-application-access-token:filter",
+          "settlemint-personal-access-token:filter",
+          "settlemint-service-access-token:filter",
+          "shippo-api-token:filter",
+          "shopify-access-token:filter",
+          "shopify-custom-access-token:filter",
+          "shopify-private-app-access-token:filter",
+          "shopify-shared-secret:filter",
+          "slack-app-token:filter",
+          "slack-bot-token:filter",
+          "slack-config-access-token:filter",
+          "slack-config-refresh-token:filter",
+          "slack-legacy-bot-token:filter",
+          "slack-legacy-token:filter",
+          "slack-legacy-workspace-token:filter",
+          "slack-session-cookie:filter",
+          "slack-session-token:filter",
+          "slack-user-token:filter",
+          "snowflake-programmatic-access-token.1:filter",
+          "sourcegraph-access-token:filter",
+          "square-access-token:filter",
+          "sslmate-api-key.1:filter",
+          "stability-ai-api-key:filter",
+          "stripe-access-token:filter",
+          "sumologic-access-id:filter",
+          "sumologic-access-token:filter",
+          "supabase-management-token:filter",
+          "supabase-project-api-key:filter",
+          "supabase-project-url:filter",
+          "tableau-personal-access-token.1:filter",
+          "tailscale-api-key.1:filter",
+          "tailscale-auth-key:filter",
+          "tailscale-key:filter",
+          "tailscale-oauth-client-secret:filter",
+          "tailscale-scim-key:filter",
+          "tailscale-webhook-secret:filter",
+          "telnyx-api-v2-key.1:filter",
+          "temporal-cloud-api-key.1:filter",
+          "thunderstore-api-token.1:filter",
+          "togetherai-api-key:filter",
+          "travisci-access-token:filter",
+          "twilio-api-key:filter",
+          "twitch-api-token:filter",
+          "twitter-access-secret:filter",
+          "twitter-access-token:filter",
+          "twitter-api-key:filter",
+          "twitter-api-secret:filter",
+          "twitter-bearer-token:filter",
+          "unkey-root-key.1:filter",
+          "upcloud-api-token:filter",
+          "upstage-api-key:filter",
+          "upstash-redis-rest-token.1:filter",
+          "val-town-api-token.1:filter",
+          "vault-batch-token:filter",
+          "vault-service-token:filter",
+          "vercel-ai-gateway-key:filter",
+          "vercel-api-token:filter",
+          "vercel-app-access-token:filter",
+          "vercel-app-refresh-token:filter",
+          "vercel-integration-token:filter",
+          "vercel-personal-access-token:filter",
+          "virustotal-api-key.1:filter",
+          "voyageai-api-key:filter",
+          "vultr-api-key.1:filter",
+          "wakatime-api-key.1:filter",
+          "wakatime-api-key.2:filter",
+          "weatherstack-api-key.1:filter",
+          "weights-and-biases-api-key:filter",
+          "weights-and-biases-api-key-v1:filter",
+          "wiz-client-id.1:filter",
+          "wiz-client-secret.1:filter",
+          "woocommerce-consumer-secret.1:filter",
+          "workato-developer-api-token.1:filter",
+          "workos-production-api-key.1:filter",
+          "xai-api-key:filter",
+          "xendit-production-api-key.1:filter",
+          "zai-api-key:filter",
+          "zendesk-secret-key:filter",
+          "zoho-client-id.1:filter",
+          "zoho-client-secret.1:filter",
+          "zoho-oauth-token.1:filter",
+          "zoho-zapi-key.1:filter",
+          "zuplo-consumer-api-key.1:filter"
+        ],
+        "failsTokenEfficiency": [
+          "generic-api-key:filter"
+        ],
+        "findMatch": [
+          "box-api-access-token:filter",
+          "generic-api-key:filter",
+          "generic-password:filter"
+        ],
+        "fromBase64": [
+          "mapbox-api-token:filter",
+          "mapbox-secret-token:filter"
+        ],
+        "join": [
+          "generic-api-key:filter",
+          "generic-password:filter"
+        ],
+        "len": [
+          "generic-api-key:filter",
+          "generic-password:filter",
+          "mapbox-api-token:filter",
+          "mapbox-secret-token:filter"
+        ],
+        "lower": [
+          "box-api-access-token:filter"
+        ],
+        "map": [
+          "generic-api-key:filter"
+        ],
+        "matchesAny": [
+          "global:prefilter",
+          "global:filter",
+          "aws-access-token:filter",
+          "curl-auth-user:filter",
+          "gcp-api-key:filter",
+          "generic-api-key:filter",
+          "generic-credential-uri:filter",
+          "generic-password:filter",
+          "generic-username:filter",
+          "github-app-token:filter",
+          "github-pat:filter",
+          "kubernetes-secret-yaml:filter",
+          "mongodb-atlas-service-account-secret:filter",
+          "mongodb-connection-string:filter",
+          "nuget-config-password:filter",
+          "proof-full-access-api-key:filter",
+          "stripe-access-token:filter",
+          "supabase-management-token:filter",
+          "temporal-cloud-api-key.1:filter",
+          "thunderstore-api-token.1:filter",
+          "unkey-root-key.1:filter",
+          "val-town-api-token.1:filter",
+          "vault-service-token:filter",
+          "workos-production-api-key.1:filter"
+        ],
+        "max": [
+          "generic-api-key:filter",
+          "generic-password:filter"
+        ],
+        "min": [
+          "generic-api-key:filter",
+          "generic-password:filter"
+        ],
+        "repeat": [
+          "mapbox-api-token:filter",
+          "mapbox-secret-token:filter"
+        ],
+        "replace": [
+          "generic-api-key:filter",
+          "generic-password:filter",
+          "mapbox-api-token:filter",
+          "mapbox-secret-token:filter"
+        ],
+        "setConfidence": [
+          "generic-api-key:filter",
+          "generic-credential-uri:filter",
+          "generic-password:filter"
+        ],
+        "split": [
+          "generic-api-key:filter",
+          "generic-password:filter",
+          "mapbox-api-token:filter",
+          "mapbox-secret-token:filter"
+        ],
+        "startsWithAny": [
+          "generic-password:filter"
+        ],
+        "tokenRatio": [
+          "adafruit-api-key:filter",
+          "adobe-client-id:filter",
+          "airtable-api-key:filter",
+          "airtable-oauth-token:filter",
+          "airtable-personnal-access-token:filter",
+          "aiven-auth-token:filter",
+          "algolia-api-key:filter",
+          "algolia-application-id:filter",
+          "alibaba-secret-key:filter",
+          "alibaba-sts-access-key-secret:filter",
+          "alibaba-sts-security-token:filter",
+          "amplitude-secret-key:filter",
+          "apollo-api-key.1:filter",
+          "asana-client-secret:filter",
+          "assemblyai-api-key:filter",
+          "atlassian-api-token:filter",
+          "bitbucket-client-id:filter",
+          "bitbucket-client-secret:filter",
+          "bitbucket-data-center-token:filter",
+          "bitly-access-token:filter",
+          "bitrise-access-token:filter",
+          "bittrex-access-key:filter",
+          "bittrex-secret-key:filter",
+          "box-api-access-token:filter",
+          "circleci-personal-token:filter",
+          "circleci-project-token:filter",
+          "cisco-meraki-api-key:filter",
+          "civo-api-key:filter",
+          "cloudflare-api-key.1:filter",
+          "cloudflare-api-key.2:filter",
+          "cloudflare-global-api-key:filter",
+          "cloudflare-origin-ca-key:filter",
+          "cloudinary-api-secret:filter",
+          "codecov-access-token:filter",
+          "cohere-api-token:filter",
+          "coinbase-access-token:filter",
+          "confluent-access-token:filter",
+          "confluent-secret-key:filter",
+          "contentful-delivery-api-token:filter",
+          "coveralls-personal-api-token:filter",
+          "datagov-api-key:filter",
+          "deepgram-api-key:filter",
+          "discord-api-token:filter",
+          "discord-client-secret:filter",
+          "disqus-api-key:filter",
+          "droneci-access-token:filter",
+          "dropbox-api-token:filter",
+          "dropbox-long-lived-api-token:filter",
+          "dropbox-short-lived-api-token:filter",
+          "facebook-access-token:filter",
+          "facebook-page-access-token:filter",
+          "facebook-secret:filter",
+          "fastly-api-token:filter",
+          "finicity-api-token:filter",
+          "finicity-client-secret:filter",
+          "finnhub-access-token:filter",
+          "flickr-access-token:filter",
+          "freshbooks-access-token:filter",
+          "gitea-access-token:filter",
+          "gitter-access-token:filter",
+          "greptile-api-key:filter",
+          "gumroad-access-token:filter",
+          "honeycomb-api-key:filter",
+          "influxdb-api-token:filter",
+          "infomaniak-api-token:filter",
+          "intercom-api-key:filter",
+          "jumpcloud-api-key:filter",
+          "kraken-access-token:filter",
+          "kucoin-access-token:filter",
+          "kucoin-secret-key:filter",
+          "lark-app-id:filter",
+          "lark-app-secret:filter",
+          "launchdarkly-access-token:filter",
+          "lighton-paradigm-api-key:filter",
+          "linear-api-key:filter",
+          "linear-client-secret:filter",
+          "linkedin-client-id:filter",
+          "linkedin-client-secret:filter",
+          "looker-client-id:filter",
+          "looker-client-secret:filter",
+          "mattermost-access-token:filter",
+          "messagebird-api-token:filter",
+          "messagebird-client-id:filter",
+          "mistral-api-key:filter",
+          "netlify-access-token:filter",
+          "new-relic-browser-api-token:filter",
+          "new-relic-insert-key:filter",
+          "new-relic-user-api-id:filter",
+          "new-relic-user-api-key:filter",
+          "nytimes-access-token:filter",
+          "openweather-api-key:filter",
+          "plaid-client-id:filter",
+          "plaid-secret-key:filter",
+          "plivo-auth-id:filter",
+          "plivo-auth-token:filter",
+          "privateai-api-token:filter",
+          "rapidapi-access-token:filter",
+          "sendbird-access-id:filter",
+          "sendbird-access-token:filter",
+          "sentry-access-token:filter",
+          "sentry-org-token:filter",
+          "sentry-user-token:filter",
+          "snowflake-programmatic-access-token.1:filter",
+          "sslmate-api-key.1:filter",
+          "sumologic-access-id:filter",
+          "sumologic-access-token:filter",
+          "travisci-access-token:filter",
+          "twitch-api-token:filter",
+          "twitter-access-secret:filter",
+          "twitter-access-token:filter",
+          "twitter-api-key:filter",
+          "twitter-api-secret:filter",
+          "twitter-bearer-token:filter",
+          "upstage-api-key:filter",
+          "vercel-ai-gateway-key:filter",
+          "vercel-api-token:filter",
+          "vercel-app-access-token:filter",
+          "vercel-app-refresh-token:filter",
+          "vercel-integration-token:filter",
+          "vercel-personal-access-token:filter",
+          "weatherstack-api-key.1:filter",
+          "weights-and-biases-api-key:filter",
+          "weights-and-biases-api-key-v1:filter",
+          "zendesk-secret-key:filter"
+        ]
+      }
+    },
+    "provider_actions": {
+      "expression_count": 303,
+      "by_kind": {
+        "validate": 238,
+        "analyze": 52,
+        "revoke": 13
+      },
+      "calls": {
+        "all": 1,
+        "analysis.capabilities": 27,
+        "any": 14,
+        "aws.validate": 1,
+        "azure.validateAppConfig": 1,
+        "azure.validateServiceBusSAS": 1,
+        "azure.validateServicePrincipal": 1,
+        "azure.validateStorage": 1,
+        "base64.decode": 1,
+        "base64.encode": 25,
+        "bytes": 29,
+        "concat": 2,
+        "crypto.hmacSha1": 2,
+        "crypto.hmacSha256": 2,
+        "crypto.sha1": 1,
+        "env.getOrDefault": 18,
+        "filter": 6,
+        "find": 6,
+        "flatten": 10,
+        "gcp.validate": 2,
+        "hex.encode": 1,
+        "http.delete": 4,
+        "http.get": 203,
+        "http.post": 54,
+        "int": 13,
+        "intersects": 24,
+        "last": 1,
+        "lastIndexOf": 1,
+        "len": 55,
+        "map": 11,
+        "matchesAny": 55,
+        "replace": 8,
+        "revoke.unknown": 14,
+        "sort": 2,
+        "split": 9,
+        "string": 89,
+        "strings.splitTrim": 9,
+        "strings.urlQueryEscape": 23,
+        "time.nowRFC3339": 2,
+        "time.nowUnix": 5,
+        "toJSON": 9,
+        "trim": 2,
+        "type": 87,
+        "uniq": 2,
+        "validate.unknown": 236
+      },
+      "ast_nodes": {
+        "*ast.ArrayNode": 372,
+        "*ast.BinaryNode": 2556,
+        "*ast.BoolNode": 68,
+        "*ast.BuiltinNode": 328,
+        "*ast.CallNode": 742,
+        "*ast.ChainNode": 462,
+        "*ast.ConditionalNode": 703,
+        "*ast.IdentifierNode": 3403,
+        "*ast.IntegerNode": 825,
+        "*ast.MapNode": 1221,
+        "*ast.MemberNode": 3178,
+        "*ast.NilNode": 28,
+        "*ast.PairNode": 2400,
+        "*ast.PointerNode": 50,
+        "*ast.PredicateNode": 38,
+        "*ast.SliceNode": 1,
+        "*ast.StringNode": 8734,
+        "*ast.UnaryNode": 37,
+        "*ast.VariableDeclaratorNode": 535
+      },
+      "operators": {
+        "!": 35,
+        "!=": 63,
+        "&&": 352,
+        "+": 387,
+        "-": 7,
+        "==": 637,
+        ">": 16,
+        "??": 695,
+        "contains": 151,
+        "in": 195,
+        "matches": 2,
+        "not": 1,
+        "startsWith": 2,
+        "||": 50
+      },
+      "call_sites": {
+        "all": [
+          "sendgrid-api-token:validate"
+        ],
+        "analysis.capabilities": [
+          "airtable-oauth-token:analyze",
+          "airtable-personnal-access-token:analyze",
+          "algolia-api-key:analyze",
+          "buildkite-user-access-token:analyze",
+          "cloudflare-api-key.1:analyze",
+          "cloudflare-api-key.2:analyze",
+          "fastly-api-token:analyze",
+          "fullstory-api-key:analyze",
+          "github-fine-grained-pat:analyze",
+          "github-oauth:analyze",
+          "github-pat:analyze",
+          "gitlab-pat:analyze",
+          "gitlab-pat-routable:analyze",
+          "gitlab-pat-routable-versioned:analyze",
+          "harness-api-key:analyze",
+          "honeycomb-api-key:analyze",
+          "huggingface-access-token:analyze",
+          "huggingface-organization-api-token:analyze",
+          "miro-access-token:analyze",
+          "openrouter-api-key:analyze",
+          "sendgrid-api-token:analyze",
+          "slack-bot-token:analyze",
+          "slack-legacy-bot-token:analyze",
+          "slack-user-token:analyze",
+          "tailscale-api-key.1:analyze",
+          "tailscale-oauth-client-secret:analyze",
+          "twitch-api-token:analyze"
+        ],
+        "any": [
+          "algolia-api-key:validate",
+          "honeycomb-api-key:analyze",
+          "huggingface-access-token:analyze",
+          "huggingface-organization-api-token:analyze",
+          "miro-access-token:analyze",
+          "twitch-api-token:analyze"
+        ],
+        "aws.validate": [
+          "aws-access-token:validate"
+        ],
+        "azure.validateAppConfig": [
+          "azure-app-configuration-connection-string:validate"
+        ],
+        "azure.validateServiceBusSAS": [
+          "azure-servicebus-connection-string:validate"
+        ],
+        "azure.validateServicePrincipal": [
+          "azure-ad-client-secret:validate"
+        ],
+        "azure.validateStorage": [
+          "azure-storage-account-key:validate"
+        ],
+        "base64.decode": [
+          "polymarket-api-key:validate"
+        ],
+        "base64.encode": [
+          "alibaba-secret-key:validate",
+          "alibaba-sts-access-key-secret:validate",
+          "browserstack-access-key.1:validate",
+          "clickhouse-cloud-api-secret-key:validate",
+          "cloudinary-api-secret:validate",
+          "cursor-api-key:validate",
+          "databento-api-key:validate",
+          "ebay-client-secret:validate",
+          "exoscale-api-key:validate",
+          "highnote-secret-live-key:validate",
+          "langfuse-secret-key.1:validate",
+          "mailchimp-api-key:validate",
+          "mailgun-private-api-token:validate",
+          "midtrans-production-server-client-key:validate",
+          "mongodb-atlas-service-account-secret:validate",
+          "mux-access-token-secret.1:validate",
+          "paypal-client-secret.1:validate",
+          "plivo-auth-token:validate",
+          "polymarket-api-key:validate",
+          "ramp-client-secret:validate",
+          "razorpay-key-secret.1:validate",
+          "sslmate-api-key.1:validate",
+          "weights-and-biases-api-key:validate",
+          "weights-and-biases-api-key-v1:validate",
+          "xendit-production-api-key.1:validate"
+        ],
+        "bytes": [
+          "alibaba-secret-key:validate",
+          "alibaba-sts-access-key-secret:validate",
+          "browserstack-access-key.1:validate",
+          "clickhouse-cloud-api-secret-key:validate",
+          "cloudinary-api-secret:validate",
+          "cursor-api-key:validate",
+          "databento-api-key:validate",
+          "ebay-client-secret:validate",
+          "exoscale-api-key:validate",
+          "highnote-secret-live-key:validate",
+          "langfuse-secret-key.1:validate",
+          "mailchimp-api-key:validate",
+          "mailgun-private-api-token:validate",
+          "midtrans-production-server-client-key:validate",
+          "mongodb-atlas-service-account-secret:validate",
+          "mux-access-token-secret.1:validate",
+          "ovh-application-secret:validate",
+          "paypal-client-secret.1:validate",
+          "plivo-auth-token:validate",
+          "polymarket-api-key:validate",
+          "ramp-client-secret:validate",
+          "razorpay-key-secret.1:validate",
+          "sslmate-api-key.1:validate",
+          "weights-and-biases-api-key:validate",
+          "weights-and-biases-api-key-v1:validate",
+          "xendit-production-api-key.1:validate"
+        ],
+        "concat": [
+          "huggingface-access-token:analyze",
+          "huggingface-organization-api-token:analyze"
+        ],
+        "crypto.hmacSha1": [
+          "alibaba-secret-key:validate",
+          "alibaba-sts-access-key-secret:validate"
+        ],
+        "crypto.hmacSha256": [
+          "exoscale-api-key:validate",
+          "polymarket-api-key:validate"
+        ],
+        "crypto.sha1": [
+          "ovh-application-secret:validate"
+        ],
+        "env.getOrDefault": [
+          "github-app-token:validate",
+          "github-fine-grained-pat:validate",
+          "github-fine-grained-pat:revoke",
+          "github-oauth:validate",
+          "github-oauth:revoke",
+          "github-pat:validate",
+          "github-pat:revoke",
+          "github-refresh-token:validate",
+          "github-refresh-token:revoke",
+          "gitlab-pat:validate",
+          "gitlab-pat:analyze",
+          "gitlab-pat:revoke",
+          "gitlab-pat-routable:validate",
+          "gitlab-pat-routable:analyze",
+          "gitlab-pat-routable:revoke",
+          "gitlab-pat-routable-versioned:validate",
+          "gitlab-pat-routable-versioned:analyze",
+          "gitlab-pat-routable-versioned:revoke"
+        ],
+        "filter": [
+          "bitly-access-token:validate",
+          "mapbox-api-token:analyze",
+          "mapbox-secret-token:analyze",
+          "miro-access-token:validate",
+          "twitch-api-token:validate",
+          "xai-api-key:validate"
+        ],
+        "find": [
+          "gitlab-pat:analyze",
+          "gitlab-pat-routable:analyze",
+          "gitlab-pat-routable-versioned:analyze",
+          "harness-api-key:analyze",
+          "mapbox-api-token:analyze",
+          "mapbox-secret-token:analyze"
+        ],
+        "flatten": [
+          "cloudflare-api-key.1:analyze",
+          "cloudflare-api-key.2:analyze",
+          "gitlab-pat:analyze",
+          "gitlab-pat-routable:analyze",
+          "gitlab-pat-routable-versioned:analyze",
+          "huggingface-access-token:analyze",
+          "huggingface-organization-api-token:analyze"
+        ],
+        "gcp.validate": [
+          "gcp-application-default-credentials:validate",
+          "gcp-service-account:validate"
+        ],
+        "hex.encode": [
+          "ovh-application-secret:validate"
+        ],
+        "http.delete": [
+          "buildkite-user-access-token:revoke",
+          "gitlab-pat:revoke",
+          "gitlab-pat-routable:revoke",
+          "gitlab-pat-routable-versioned:revoke"
+        ],
+        "http.get": [
+          "1password-service-account-token:validate",
+          "abuseipdb-api-key.1:validate",
+          "airtable-oauth-token:validate",
+          "airtable-personnal-access-token:validate",
+          "aiven-auth-token:validate",
+          "algolia-api-key:validate",
+          "alibaba-secret-key:validate",
+          "alibaba-sts-access-key-secret:validate",
+          "anthropic-admin-api-key:validate",
+          "anthropic-api-key:validate",
+          "apify-api-token:validate",
+          "artifactory-api-key:validate",
+          "artifactory-reference-token:validate",
+          "asaas-api-token:validate",
+          "authress-service-client-access-key:validate",
+          "bitly-access-token:validate",
+          "bitrise-access-token:validate",
+          "box-api-access-token:validate",
+          "brave-search-api-key:validate",
+          "browserstack-access-key.1:validate",
+          "buildkite-user-access-token:validate",
+          "canadian-digital-service-notify-api-key:validate",
+          "cartesia-api-key.1:validate",
+          "cerebras-api-key:validate",
+          "checkout-secret-key:validate",
+          "circleci-personal-token:validate",
+          "circleci-project-token:validate",
+          "cisco-meraki-api-key:validate",
+          "civo-api-key:validate",
+          "clerk-secret-key:validate",
+          "clickhouse-cloud-api-secret-key:validate",
+          "clickup-personal-api-token:validate",
+          "cloudflare-api-key.1:validate",
+          "cloudflare-api-key.1:analyze",
+          "cloudflare-api-key.2:validate",
+          "cloudflare-api-key.2:analyze",
+          "cloudinary-api-secret:validate",
+          "cloudsmith-api-key:validate",
+          "cockroachlabs-cloud-api-key:validate",
+          "codecov-access-token:validate",
+          "cohere-api-token:validate",
+          "configcat-sdk-key:validate",
+          "configcat-sdk-key-extended:validate",
+          "couchbase-capella-api-key:validate",
+          "crates-io-api-key:validate",
+          "cursor-api-key:validate",
+          "databento-api-key:validate",
+          "datadog-api-key:validate",
+          "datagov-api-key:validate",
+          "datastax-astra-application-token:validate",
+          "deepseek-api-key:validate",
+          "deno-account-token:validate",
+          "devin-personal-api-key:validate",
+          "devin-service-api-key:validate",
+          "devin-service-user-token:validate",
+          "disqus-api-key:validate",
+          "elastic-cloud-api-key:validate",
+          "etsy-open-api-key:validate",
+          "exoscale-api-key:validate",
+          "fal-api-key.1:validate",
+          "fastly-api-token:validate",
+          "figma-personal-access-header-token:validate",
+          "figma-personal-access-token:validate",
+          "frameio-api-token:validate",
+          "freshbooks-access-token:validate",
+          "fullstory-api-key:validate",
+          "gcp-api-key:validate",
+          "gcp-gemini-api:validate",
+          "github-app-token:validate",
+          "github-fine-grained-pat:validate",
+          "github-oauth:validate",
+          "github-pat:validate",
+          "github-refresh-token:validate",
+          "gitlab-cicd-job-token:validate",
+          "gitlab-deploy-token:validate",
+          "gitlab-pat:validate",
+          "gitlab-pat:analyze",
+          "gitlab-pat-routable:validate",
+          "gitlab-pat-routable:analyze",
+          "gitlab-pat-routable-versioned:validate",
+          "gitlab-pat-routable-versioned:analyze",
+          "gitlab-ptt:validate",
+          "gitlab-runner-authentication-token:validate",
+          "gitlab-runner-authentication-token-routable:validate",
+          "gocardless-api-token:validate",
+          "grafana-cloud-api-token:validate",
+          "groq-api-key:validate",
+          "gumroad-access-token:validate",
+          "harness-api-key:validate",
+          "harness-api-key:analyze",
+          "honeycomb-api-key:validate",
+          "huggingface-access-token:validate",
+          "huggingface-organization-api-token:validate",
+          "hunter-api-key.1:validate",
+          "ibm-cloud-user-api-key:validate",
+          "influxdb-api-token:validate",
+          "infomaniak-api-token:validate",
+          "instantly-api-key.1:validate",
+          "jumpcloud-api-key:validate",
+          "kagi-api-key:validate",
+          "kimi-api-key:validate",
+          "klaviyo-api-key:validate",
+          "labelbox-recursion-api-key:validate",
+          "langchain-langsmith-personal-access-token:validate",
+          "langchain-langsmith-service-key:validate",
+          "langfuse-secret-key.1:validate",
+          "lichess-personal-access-token:validate",
+          "lighton-paradigm-api-key:validate",
+          "llama-cloud-api-key.1:validate",
+          "mailchimp-api-key:validate",
+          "mailersend-api-token:validate",
+          "mailgun-private-api-token:validate",
+          "mapbox-api-token:validate",
+          "mapbox-api-token:analyze",
+          "mapbox-secret-token:validate",
+          "mapbox-secret-token:analyze",
+          "mercury-production-api-token:validate",
+          "mergify-application-key:validate",
+          "midtrans-production-server-client-key:validate",
+          "minimax-api-key:validate",
+          "miro-access-token:validate",
+          "mistral-api-key:validate",
+          "mux-access-token-secret.1:validate",
+          "neon-api-key:validate",
+          "ngrok-api-key.1:validate",
+          "nuget-api-key:validate",
+          "nylas-api-key.1:validate",
+          "onesignal-rich-authentication-token:validate",
+          "onfido-live-api-token-ca:validate",
+          "onfido-live-api-token-eu:validate",
+          "onfido-live-api-token-us:validate",
+          "openai-api-key:validate",
+          "openrouter-api-key:validate",
+          "openweather-api-key:validate",
+          "opsgenie-api-key.1:validate",
+          "ovh-application-secret:validate",
+          "paddle-live-api-key:validate",
+          "pagerduty-authorization-token.1:validate",
+          "persona-production-api-key:validate",
+          "pinecone-api-key.1:validate",
+          "pinecone-api-key.2:validate",
+          "pinterest-access-token:validate",
+          "planetscale-api-token:validate",
+          "plivo-auth-token:validate",
+          "polar-oauth-access-token:validate",
+          "polar-organization-access-token:validate",
+          "polar-personal-access-token:validate",
+          "polymarket-api-key:validate",
+          "posthog-personal-api-key:validate",
+          "postmark-api-token.1:validate",
+          "rainforest-pay-production-api-key:validate",
+          "razorpay-key-secret.1:validate",
+          "redirect-pizza-api-token.1:validate",
+          "render-api-key:validate",
+          "replicate-api-token:validate",
+          "resend-api-key.1:validate",
+          "retell-api-key.1:validate",
+          "rootly-api-key.1:validate",
+          "rubygems-api-token:validate",
+          "salesforce-access-token.1:validate",
+          "samsara-api-token.1:validate",
+          "scaleway-secret-key:validate",
+          "scalr-api-access-token.1:validate",
+          "segment-public-api-token.1:validate",
+          "sendgrid-api-token:validate",
+          "sendinblue-api-token:validate",
+          "sslmate-api-key.1:validate",
+          "stripe-access-token:validate",
+          "supabase-management-token:validate",
+          "supabase-project-api-key:validate",
+          "tailscale-api-key.1:validate",
+          "telnyx-api-v2-key.1:validate",
+          "temporal-cloud-api-key.1:validate",
+          "thunderstore-api-token.1:validate",
+          "togetherai-api-key:validate",
+          "twitch-api-token:validate",
+          "twitch-api-token:revoke",
+          "upcloud-api-token:validate",
+          "upstage-api-key:validate",
+          "upstash-redis-rest-token.1:validate",
+          "val-town-api-token.1:validate",
+          "vercel-api-token:validate",
+          "vercel-api-token:analyze",
+          "vercel-integration-token:validate",
+          "vercel-personal-access-token:validate",
+          "vercel-personal-access-token:analyze",
+          "virustotal-api-key.1:validate",
+          "vultr-api-key.1:validate",
+          "wakatime-api-key.1:validate",
+          "wakatime-api-key.2:validate",
+          "weatherstack-api-key.1:validate",
+          "workato-developer-api-token.1:validate",
+          "workos-production-api-key.1:validate",
+          "xai-api-key:validate",
+          "xendit-production-api-key.1:validate",
+          "zoho-oauth-token.1:validate",
+          "zuplo-consumer-api-key.1:validate"
+        ],
+        "http.post": [
+          "amplitude-secret-key:validate",
+          "apollo-api-key.1:validate",
+          "auth0-client-secret.1:validate",
+          "canva-client-secret:validate",
+          "devcycle-client-sdk-key:validate",
+          "devcycle-mobile-sdk-key:validate",
+          "devcycle-server-sdk-key:validate",
+          "ebay-client-secret:validate",
+          "flyio-access-token:validate",
+          "github-fine-grained-pat:revoke",
+          "github-oauth:revoke",
+          "github-pat:revoke",
+          "github-refresh-token:revoke",
+          "gitlab-rrt:validate",
+          "highnote-secret-live-key:validate",
+          "huggingface-access-token:revoke",
+          "huggingface-organization-api-token:revoke",
+          "ionic-personal-access-token:validate",
+          "labelbox-api-key:validate",
+          "lark-app-secret:validate",
+          "linear-api-key:validate",
+          "mem0-api-key.1:validate",
+          "miro-client-secret:validate",
+          "monday-api-token.1:validate",
+          "mongodb-atlas-service-account-secret:validate",
+          "paypal-client-secret.1:validate",
+          "perplexity-api-key:validate",
+          "proof-full-access-api-key:validate",
+          "ramp-client-secret:validate",
+          "runpod-api-key.1:validate",
+          "slack-bot-token:validate",
+          "slack-bot-token:revoke",
+          "slack-legacy-bot-token:validate",
+          "slack-user-token:validate",
+          "slack-user-token:revoke",
+          "snowflake-programmatic-access-token.1:validate",
+          "sourcegraph-access-token:validate",
+          "tableau-personal-access-token.1:validate",
+          "tailscale-auth-key:validate",
+          "tailscale-key:validate",
+          "tailscale-oauth-client-secret:validate",
+          "tailscale-scim-key:validate",
+          "tailscale-webhook-secret:validate",
+          "twitch-api-token:revoke",
+          "unkey-root-key.1:validate",
+          "vercel-ai-gateway-key:validate",
+          "vercel-app-access-token:validate",
+          "vercel-app-refresh-token:validate",
+          "voyageai-api-key:validate",
+          "weights-and-biases-api-key:validate",
+          "weights-and-biases-api-key-v1:validate",
+          "wiz-client-secret.1:validate",
+          "zai-api-key:validate",
+          "zoho-client-secret.1:validate"
+        ],
+        "int": [
+          "github-fine-grained-pat:validate",
+          "github-oauth:validate",
+          "github-pat:validate",
+          "github-refresh-token:validate",
+          "gitlab-pat:validate",
+          "gitlab-pat:analyze",
+          "gitlab-pat-routable:validate",
+          "gitlab-pat-routable:analyze",
+          "gitlab-pat-routable-versioned:validate",
+          "gitlab-pat-routable-versioned:analyze"
+        ],
+        "intersects": [
+          "algolia-api-key:analyze",
+          "buildkite-user-access-token:analyze",
+          "fastly-api-token:analyze",
+          "gitlab-pat:analyze",
+          "gitlab-pat-routable:analyze",
+          "gitlab-pat-routable-versioned:analyze",
+          "tailscale-api-key.1:analyze",
+          "tailscale-oauth-client-secret:analyze"
+        ],
+        "last": [
+          "aws-access-token:analyze"
+        ],
+        "lastIndexOf": [
+          "mailchimp-api-key:validate"
+        ],
+        "len": [
+          "airtable-oauth-token:analyze",
+          "airtable-personnal-access-token:analyze",
+          "algolia-api-key:analyze",
+          "bitly-access-token:validate",
+          "buildkite-user-access-token:analyze",
+          "cloudflare-api-key.1:analyze",
+          "cloudflare-api-key.2:analyze",
+          "fastly-api-token:analyze",
+          "github-fine-grained-pat:analyze",
+          "github-oauth:analyze",
+          "github-pat:analyze",
+          "gitlab-pat:analyze",
+          "gitlab-pat-routable:analyze",
+          "gitlab-pat-routable-versioned:analyze",
+          "harness-api-key:analyze",
+          "honeycomb-api-key:analyze",
+          "huggingface-access-token:analyze",
+          "huggingface-organization-api-token:analyze",
+          "labelbox-api-key:validate",
+          "linear-api-key:validate",
+          "miro-access-token:analyze",
+          "onesignal-rich-authentication-token:validate",
+          "persona-production-api-key:validate",
+          "sendgrid-api-token:analyze",
+          "slack-bot-token:analyze",
+          "slack-legacy-bot-token:analyze",
+          "slack-user-token:analyze",
+          "tailscale-api-key.1:validate",
+          "tailscale-api-key.1:analyze",
+          "tailscale-auth-key:validate",
+          "tailscale-key:validate",
+          "tailscale-oauth-client-secret:validate",
+          "tailscale-oauth-client-secret:analyze",
+          "tailscale-scim-key:validate",
+          "tailscale-webhook-secret:validate",
+          "twitch-api-token:analyze",
+          "vercel-api-token:analyze",
+          "vercel-personal-access-token:analyze"
+        ],
+        "map": [
+          "cloudflare-api-key.1:analyze",
+          "cloudflare-api-key.2:analyze",
+          "gitlab-pat:analyze",
+          "gitlab-pat-routable:analyze",
+          "gitlab-pat-routable-versioned:analyze",
+          "huggingface-access-token:analyze",
+          "huggingface-organization-api-token:analyze",
+          "vercel-api-token:analyze",
+          "vercel-personal-access-token:analyze"
+        ],
+        "matchesAny": [
+          "airtable-oauth-token:analyze",
+          "airtable-personnal-access-token:analyze",
+          "aws-access-token:analyze",
+          "buildkite-user-access-token:analyze",
+          "cloudflare-api-key.1:analyze",
+          "cloudflare-api-key.2:analyze",
+          "github-fine-grained-pat:analyze",
+          "github-oauth:analyze",
+          "github-pat:analyze",
+          "gitlab-pat:analyze",
+          "gitlab-pat-routable:analyze",
+          "gitlab-pat-routable-versioned:analyze",
+          "sendgrid-api-token:analyze",
+          "slack-bot-token:analyze",
+          "slack-legacy-bot-token:analyze",
+          "slack-user-token:analyze",
+          "twitch-api-token:analyze",
+          "workato-developer-api-token.1:validate"
+        ],
+        "replace": [
+          "alibaba-secret-key:validate",
+          "alibaba-sts-access-key-secret:validate",
+          "polymarket-api-key:validate"
+        ],
+        "revoke.unknown": [
+          "buildkite-user-access-token:revoke",
+          "github-fine-grained-pat:revoke",
+          "github-oauth:revoke",
+          "github-pat:revoke",
+          "github-refresh-token:revoke",
+          "gitlab-pat:revoke",
+          "gitlab-pat-routable:revoke",
+          "gitlab-pat-routable-versioned:revoke",
+          "huggingface-access-token:revoke",
+          "huggingface-organization-api-token:revoke",
+          "slack-bot-token:revoke",
+          "slack-user-token:revoke",
+          "twitch-api-token:revoke"
+        ],
+        "sort": [
+          "huggingface-access-token:analyze",
+          "huggingface-organization-api-token:analyze"
+        ],
+        "split": [
+          "aws-access-token:analyze",
+          "etsy-open-api-key:validate",
+          "harness-api-key:analyze",
+          "tailscale-api-key.1:validate",
+          "tailscale-auth-key:validate",
+          "tailscale-key:validate",
+          "tailscale-oauth-client-secret:validate",
+          "tailscale-scim-key:validate",
+          "tailscale-webhook-secret:validate"
+        ],
+        "string": [
+          "apify-api-token:validate",
+          "bitly-access-token:validate",
+          "box-api-access-token:validate",
+          "circleci-personal-token:validate",
+          "clickup-personal-api-token:validate",
+          "fastly-api-token:validate",
+          "figma-personal-access-header-token:validate",
+          "figma-personal-access-token:validate",
+          "github-fine-grained-pat:validate",
+          "github-oauth:validate",
+          "github-pat:validate",
+          "github-refresh-token:validate",
+          "gitlab-pat:validate",
+          "gitlab-pat-routable:validate",
+          "gitlab-pat-routable-versioned:validate",
+          "huggingface-access-token:analyze",
+          "huggingface-organization-api-token:analyze",
+          "hunter-api-key.1:validate",
+          "labelbox-api-key:validate",
+          "linear-api-key:validate",
+          "mailchimp-api-key:validate",
+          "miro-access-token:validate",
+          "openrouter-api-key:validate",
+          "replicate-api-token:validate",
+          "sendinblue-api-token:validate",
+          "tailscale-api-key.1:validate",
+          "twitch-api-token:validate",
+          "wakatime-api-key.1:validate",
+          "wakatime-api-key.2:validate",
+          "xai-api-key:validate"
+        ],
+        "strings.splitTrim": [
+          "fastly-api-token:validate",
+          "github-fine-grained-pat:validate",
+          "github-oauth:validate",
+          "github-pat:validate",
+          "github-refresh-token:validate",
+          "slack-bot-token:validate",
+          "slack-legacy-bot-token:validate",
+          "slack-user-token:validate",
+          "tailscale-oauth-client-secret:validate"
+        ],
+        "strings.urlQueryEscape": [
+          "alibaba-secret-key:validate",
+          "alibaba-sts-access-key-secret:validate",
+          "auth0-client-secret.1:validate",
+          "mapbox-api-token:validate",
+          "mapbox-api-token:analyze",
+          "mapbox-secret-token:validate",
+          "mapbox-secret-token:analyze",
+          "miro-client-secret:validate",
+          "twitch-api-token:revoke",
+          "wiz-client-secret.1:validate",
+          "zoho-client-secret.1:validate"
+        ],
+        "time.nowRFC3339": [
+          "alibaba-secret-key:validate",
+          "alibaba-sts-access-key-secret:validate"
+        ],
+        "time.nowUnix": [
+          "alibaba-secret-key:validate",
+          "alibaba-sts-access-key-secret:validate",
+          "exoscale-api-key:validate",
+          "ovh-application-secret:validate",
+          "polymarket-api-key:validate"
+        ],
+        "toJSON": [
+          "amplitude-secret-key:validate",
+          "github-fine-grained-pat:revoke",
+          "github-oauth:revoke",
+          "github-pat:revoke",
+          "github-refresh-token:revoke",
+          "huggingface-access-token:revoke",
+          "huggingface-organization-api-token:revoke",
+          "lark-app-secret:validate"
+        ],
+        "trim": [
+          "hunter-api-key.1:validate",
+          "sendinblue-api-token:validate"
+        ],
+        "type": [
+          "apify-api-token:validate",
+          "bitly-access-token:validate",
+          "box-api-access-token:validate",
+          "circleci-personal-token:validate",
+          "clickup-personal-api-token:validate",
+          "figma-personal-access-header-token:validate",
+          "figma-personal-access-token:validate",
+          "fullstory-api-key:validate",
+          "harness-api-key:validate",
+          "harness-api-key:analyze",
+          "hunter-api-key.1:validate",
+          "labelbox-api-key:validate",
+          "linear-api-key:validate",
+          "mailchimp-api-key:validate",
+          "mapbox-api-token:validate",
+          "mapbox-api-token:analyze",
+          "mapbox-secret-token:validate",
+          "mapbox-secret-token:analyze",
+          "miro-access-token:validate",
+          "openrouter-api-key:validate",
+          "replicate-api-token:validate",
+          "sendgrid-api-token:validate",
+          "sendinblue-api-token:validate",
+          "tailscale-api-key.1:validate",
+          "tailscale-oauth-client-secret:validate",
+          "twitch-api-token:validate",
+          "twitch-api-token:revoke",
+          "wakatime-api-key.1:validate",
+          "wakatime-api-key.2:validate",
+          "xai-api-key:validate"
+        ],
+        "uniq": [
+          "huggingface-access-token:analyze",
+          "huggingface-organization-api-token:analyze"
+        ],
+        "validate.unknown": [
+          "1password-service-account-token:validate",
+          "abuseipdb-api-key.1:validate",
+          "airtable-oauth-token:validate",
+          "airtable-personnal-access-token:validate",
+          "aiven-auth-token:validate",
+          "algolia-api-key:validate",
+          "alibaba-secret-key:validate",
+          "alibaba-sts-access-key-secret:validate",
+          "amplitude-secret-key:validate",
+          "anthropic-admin-api-key:validate",
+          "anthropic-api-key:validate",
+          "apify-api-token:validate",
+          "apollo-api-key.1:validate",
+          "artifactory-api-key:validate",
+          "artifactory-reference-token:validate",
+          "asaas-api-token:validate",
+          "auth0-client-secret.1:validate",
+          "authress-service-client-access-key:validate",
+          "aws-access-token:validate",
+          "azure-ad-client-secret:validate",
+          "azure-app-configuration-connection-string:validate",
+          "azure-servicebus-connection-string:validate",
+          "azure-storage-account-key:validate",
+          "bitly-access-token:validate",
+          "bitrise-access-token:validate",
+          "box-api-access-token:validate",
+          "brave-search-api-key:validate",
+          "browserstack-access-key.1:validate",
+          "buildkite-user-access-token:validate",
+          "canadian-digital-service-notify-api-key:validate",
+          "canva-client-secret:validate",
+          "cartesia-api-key.1:validate",
+          "cerebras-api-key:validate",
+          "checkout-secret-key:validate",
+          "circleci-personal-token:validate",
+          "circleci-project-token:validate",
+          "cisco-meraki-api-key:validate",
+          "civo-api-key:validate",
+          "clerk-secret-key:validate",
+          "clickhouse-cloud-api-secret-key:validate",
+          "clickup-personal-api-token:validate",
+          "cloudflare-api-key.1:validate",
+          "cloudflare-api-key.2:validate",
+          "cloudinary-api-secret:validate",
+          "cloudsmith-api-key:validate",
+          "cockroachlabs-cloud-api-key:validate",
+          "codecov-access-token:validate",
+          "cohere-api-token:validate",
+          "configcat-sdk-key:validate",
+          "configcat-sdk-key-extended:validate",
+          "couchbase-capella-api-key:validate",
+          "crates-io-api-key:validate",
+          "cursor-api-key:validate",
+          "databento-api-key:validate",
+          "datadog-api-key:validate",
+          "datagov-api-key:validate",
+          "datastax-astra-application-token:validate",
+          "deepseek-api-key:validate",
+          "deno-account-token:validate",
+          "devcycle-client-sdk-key:validate",
+          "devcycle-mobile-sdk-key:validate",
+          "devcycle-server-sdk-key:validate",
+          "devin-personal-api-key:validate",
+          "devin-service-api-key:validate",
+          "devin-service-user-token:validate",
+          "disqus-api-key:validate",
+          "ebay-client-secret:validate",
+          "elastic-cloud-api-key:validate",
+          "etsy-open-api-key:validate",
+          "exoscale-api-key:validate",
+          "fal-api-key.1:validate",
+          "fastly-api-token:validate",
+          "figma-personal-access-header-token:validate",
+          "figma-personal-access-token:validate",
+          "flyio-access-token:validate",
+          "frameio-api-token:validate",
+          "freshbooks-access-token:validate",
+          "fullstory-api-key:validate",
+          "gcp-api-key:validate",
+          "gcp-application-default-credentials:validate",
+          "gcp-gemini-api:validate",
+          "gcp-service-account:validate",
+          "github-app-token:validate",
+          "github-fine-grained-pat:validate",
+          "github-oauth:validate",
+          "github-pat:validate",
+          "github-refresh-token:validate",
+          "gitlab-cicd-job-token:validate",
+          "gitlab-deploy-token:validate",
+          "gitlab-pat:validate",
+          "gitlab-pat-routable:validate",
+          "gitlab-pat-routable-versioned:validate",
+          "gitlab-ptt:validate",
+          "gitlab-rrt:validate",
+          "gitlab-runner-authentication-token:validate",
+          "gitlab-runner-authentication-token-routable:validate",
+          "gocardless-api-token:validate",
+          "grafana-cloud-api-token:validate",
+          "groq-api-key:validate",
+          "gumroad-access-token:validate",
+          "harness-api-key:validate",
+          "highnote-secret-live-key:validate",
+          "honeycomb-api-key:validate",
+          "huggingface-access-token:validate",
+          "huggingface-organization-api-token:validate",
+          "hunter-api-key.1:validate",
+          "ibm-cloud-user-api-key:validate",
+          "influxdb-api-token:validate",
+          "infomaniak-api-token:validate",
+          "instantly-api-key.1:validate",
+          "ionic-personal-access-token:validate",
+          "jumpcloud-api-key:validate",
+          "kagi-api-key:validate",
+          "kimi-api-key:validate",
+          "klaviyo-api-key:validate",
+          "labelbox-api-key:validate",
+          "labelbox-recursion-api-key:validate",
+          "langchain-langsmith-personal-access-token:validate",
+          "langchain-langsmith-service-key:validate",
+          "langfuse-secret-key.1:validate",
+          "lark-app-secret:validate",
+          "lichess-personal-access-token:validate",
+          "lighton-paradigm-api-key:validate",
+          "linear-api-key:validate",
+          "llama-cloud-api-key.1:validate",
+          "mailchimp-api-key:validate",
+          "mailersend-api-token:validate",
+          "mailgun-private-api-token:validate",
+          "mapbox-api-token:validate",
+          "mapbox-secret-token:validate",
+          "mem0-api-key.1:validate",
+          "mercury-production-api-token:validate",
+          "mergify-application-key:validate",
+          "midtrans-production-server-client-key:validate",
+          "minimax-api-key:validate",
+          "miro-access-token:validate",
+          "miro-client-secret:validate",
+          "mistral-api-key:validate",
+          "monday-api-token.1:validate",
+          "mongodb-atlas-service-account-secret:validate",
+          "mux-access-token-secret.1:validate",
+          "neon-api-key:validate",
+          "ngrok-api-key.1:validate",
+          "nuget-api-key:validate",
+          "nylas-api-key.1:validate",
+          "onesignal-rich-authentication-token:validate",
+          "onfido-live-api-token-ca:validate",
+          "onfido-live-api-token-eu:validate",
+          "onfido-live-api-token-us:validate",
+          "openai-api-key:validate",
+          "openrouter-api-key:validate",
+          "openweather-api-key:validate",
+          "opsgenie-api-key.1:validate",
+          "ovh-application-secret:validate",
+          "paddle-live-api-key:validate",
+          "pagerduty-authorization-token.1:validate",
+          "paypal-client-secret.1:validate",
+          "perplexity-api-key:validate",
+          "persona-production-api-key:validate",
+          "pinecone-api-key.1:validate",
+          "pinecone-api-key.2:validate",
+          "pinterest-access-token:validate",
+          "planetscale-api-token:validate",
+          "plivo-auth-token:validate",
+          "polar-oauth-access-token:validate",
+          "polar-organization-access-token:validate",
+          "polar-personal-access-token:validate",
+          "polymarket-api-key:validate",
+          "posthog-personal-api-key:validate",
+          "postmark-api-token.1:validate",
+          "proof-full-access-api-key:validate",
+          "rainforest-pay-production-api-key:validate",
+          "ramp-client-secret:validate",
+          "razorpay-key-secret.1:validate",
+          "redirect-pizza-api-token.1:validate",
+          "render-api-key:validate",
+          "replicate-api-token:validate",
+          "resend-api-key.1:validate",
+          "retell-api-key.1:validate",
+          "rootly-api-key.1:validate",
+          "rubygems-api-token:validate",
+          "runpod-api-key.1:validate",
+          "salesforce-access-token.1:validate",
+          "samsara-api-token.1:validate",
+          "scaleway-secret-key:validate",
+          "scalr-api-access-token.1:validate",
+          "segment-public-api-token.1:validate",
+          "sendgrid-api-token:validate",
+          "sendinblue-api-token:validate",
+          "snowflake-programmatic-access-token.1:validate",
+          "sourcegraph-access-token:validate",
+          "sslmate-api-key.1:validate",
+          "stripe-access-token:validate",
+          "supabase-management-token:validate",
+          "supabase-project-api-key:validate",
+          "tableau-personal-access-token.1:validate",
+          "tailscale-api-key.1:validate",
+          "tailscale-auth-key:validate",
+          "tailscale-key:validate",
+          "tailscale-oauth-client-secret:validate",
+          "tailscale-scim-key:validate",
+          "tailscale-webhook-secret:validate",
+          "telnyx-api-v2-key.1:validate",
+          "temporal-cloud-api-key.1:validate",
+          "thunderstore-api-token.1:validate",
+          "togetherai-api-key:validate",
+          "twitch-api-token:validate",
+          "unkey-root-key.1:validate",
+          "upcloud-api-token:validate",
+          "upstage-api-key:validate",
+          "upstash-redis-rest-token.1:validate",
+          "val-town-api-token.1:validate",
+          "vercel-ai-gateway-key:validate",
+          "vercel-api-token:validate",
+          "vercel-app-access-token:validate",
+          "vercel-app-refresh-token:validate",
+          "vercel-integration-token:validate",
+          "vercel-personal-access-token:validate",
+          "virustotal-api-key.1:validate",
+          "voyageai-api-key:validate",
+          "vultr-api-key.1:validate",
+          "wakatime-api-key.1:validate",
+          "wakatime-api-key.2:validate",
+          "weatherstack-api-key.1:validate",
+          "weights-and-biases-api-key:validate",
+          "weights-and-biases-api-key-v1:validate",
+          "wiz-client-secret.1:validate",
+          "workato-developer-api-token.1:validate",
+          "workos-production-api-key.1:validate",
+          "xai-api-key:validate",
+          "xendit-production-api-key.1:validate",
+          "zai-api-key:validate",
+          "zoho-client-secret.1:validate",
+          "zoho-oauth-token.1:validate",
+          "zuplo-consumer-api-key.1:validate"
+        ]
+      }
+    }
+  },
+  "expression_parse_errors": [],
+  "shipped_against_upstream": {
+    "missing_ids": [],
+    "extra_ids": [],
+    "changed_rules": [],
+    "changed_global_fields": [
+      "allowlist",
+      "filter",
+      "policy",
+      "wavefoundryProfile"
+    ],
+    "preserved_old_policy": true,
+    "preserved_old_allowlist": false,
+    "old_allowlist_field_changes": [
+      "description"
+    ],
+    "preserved_old_exclusion_patterns": true
+  },
+  "execution_disposition": {
+    "offline": "All 18 parsed call names are implemented in expr_filter or secret_tokenizer, with compiled programs evaluated only in the bounded Python worker.",
+    "provider_actions": "validate/analyze/revoke program strings remain inert metadata. Neither the Python scanner nor this AST inventory executes them. Provider-only functions are not in the offline allowlist.",
+    "legacy": "Legacy unprofiled CEL grammar stays in cel_filter.py and is covered using baseline.toml; it is not passed to the Expr parser."
+  }
+}

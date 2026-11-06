@@ -1,0 +1,110 @@
+{
+  "normal": {
+    "warmup": {
+      "seconds": 0.4118054589780513,
+      "complete": true,
+      "findings": 0,
+      "diagnostics": [],
+      "slowest": [
+        [
+          "generic-api-key",
+          0.08935875000315718
+        ]
+      ]
+    },
+    "runs": [
+      {
+        "seconds": 0.4050697910133749,
+        "complete": true,
+        "findings": 0,
+        "diagnostics": [],
+        "slowest": [
+          [
+            "generic-api-key",
+            0.08270025000092573
+          ]
+        ]
+      },
+      {
+        "seconds": 0.40708512501441874,
+        "complete": true,
+        "findings": 0,
+        "diagnostics": [],
+        "slowest": [
+          [
+            "generic-api-key",
+            0.08270212498609908
+          ]
+        ]
+      },
+      {
+        "seconds": 0.41014962500776164,
+        "complete": true,
+        "findings": 0,
+        "diagnostics": [],
+        "slowest": [
+          [
+            "generic-api-key",
+            0.08419945801142603
+          ]
+        ]
+      }
+    ]
+  },
+  "adversarial": {
+    "warmup": {
+      "seconds": 0.5732599579787347,
+      "complete": true,
+      "findings": 0,
+      "diagnostics": [],
+      "slowest": [
+        [
+          "generic-api-key",
+          0.21666166701470502
+        ]
+      ]
+    },
+    "runs": [
+      {
+        "seconds": 0.5723183749942109,
+        "complete": true,
+        "findings": 0,
+        "diagnostics": [],
+        "slowest": [
+          [
+            "generic-api-key",
+            0.21823154200683348
+          ]
+        ]
+      },
+      {
+        "seconds": 0.5932728750049137,
+        "complete": true,
+        "findings": 0,
+        "diagnostics": [],
+        "slowest": [
+          [
+            "generic-api-key",
+            0.23386025000945665
+          ]
+        ]
+      },
+      {
+        "seconds": 0.5794151250156574,
+        "complete": true,
+        "findings": 0,
+        "diagnostics": [],
+        "slowest": [
+          [
+            "generic-api-key",
+            0.21817849998478778
+          ]
+        ]
+      }
+    ]
+  },
+  "parent_peak_rss": 39419904,
+  "child_peak_rss": 79134720,
+  "startup_seconds": 0.3890100000135135,
+  "startup_measurement_note": "Root measurement: monotonic interval around the first worker_request(configure, config/key), including child launch, configuration compilation and asset verification; excludes prior parent imports and TOML read. Tokenizer/dictionary structures may load lazily on a matched filter. The first workload run is recorded separately as warmup; this is not full cold-tokenization or end-to-end CLI latency."
+}

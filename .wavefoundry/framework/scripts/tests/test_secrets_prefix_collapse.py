@@ -14,6 +14,8 @@ engine edit existed, never against the rewritten pattern's own output.
 from __future__ import annotations
 
 import io
+import hashlib
+import tomllib
 import json
 import random
 import re
@@ -35,6 +37,16 @@ REPO_ROOT = SCRIPTS_ROOT.parents[2]
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 POSITIVES = FIXTURES / "secrets_prefix_collapse_positives.json"
 FROZEN = FIXTURES / "secrets_prefix_collapse_baseline.json"
+LEGACY_RULES = FIXTURES / "betterleaks" / "baseline.toml"
+
+
+def _legacy_ruleset():
+    """The 280-rule input paired with the frozen prefix-collapse evidence."""
+    raw = LEGACY_RULES.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != "d81f3cefc668df8a22492848224b7908c3eac33ea3fd45eb4fb48278af1bb9ec":
+        raise AssertionError("historical ruleset fixture changed")
+    data = tomllib.loads(raw.decode("utf-8"))
+    return data["rules"], data.get("policy", {}), []
 
 NESTED = "[\\w.-]{0,50}?(?i:[\\w.-]{0,50}?"
 COLLAPSED = "(?i:[\\w.-]{0,100}?"
@@ -99,7 +111,7 @@ class CollapseIsSurgicalTests(unittest.TestCase):
     """AC-1: the rewrite touches exactly the declared shape and nothing else."""
 
     def test_the_declared_shape_is_the_one_the_rules_actually_carry(self):
-        rules, _p, errs = sv.load_merged_ruleset(REPO_ROOT)
+        rules, _p, errs = _legacy_ruleset()
         self.assertFalse(errs)
         carrying = [r["id"] for r in rules if NESTED in (r.get("regex") or "")]
         self.assertEqual(11, len(carrying), f"the nested-shape census moved; re-derive: {carrying}")
@@ -107,7 +119,7 @@ class CollapseIsSurgicalTests(unittest.TestCase):
         self.assertEqual(sv._COLLAPSED_PREFIX, COLLAPSED)
 
     def test_round_trip_over_the_whole_ruleset_changes_only_the_shape(self):
-        rules, _p, _e = sv.load_merged_ruleset(REPO_ROOT)
+        rules, _p, _e = _legacy_ruleset()
         touched = untouched = 0
         for r in rules:
             pat = r.get("regex")
@@ -125,7 +137,7 @@ class CollapseIsSurgicalTests(unittest.TestCase):
         self.assertGreater(untouched, 0)
 
     def test_the_rewrite_is_idempotent(self):
-        rules, _p, _e = sv.load_merged_ruleset(REPO_ROOT)
+        rules, _p, _e = _legacy_ruleset()
         for r in rules:
             pat = r.get("regex")
             if pat:
@@ -152,7 +164,7 @@ class CollapsePreservesTheLanguageTests(unittest.TestCase):
         if not FROZEN.is_file():
             raise unittest.SkipTest("frozen detection baseline is not in this tree")
         cls.frozen = json.loads(FROZEN.read_text(encoding="utf-8"))
-        rules, _p, errs = sv.load_merged_ruleset(REPO_ROOT)
+        rules, _p, errs = _legacy_ruleset()
         assert not errs
         cls.by_id = {r["id"]: r["regex"] for r in rules if r.get("regex")}
         cls.affected = [rid for rid in cls.frozen["affected_rule_ids"] if rid in cls.by_id]
@@ -171,7 +183,7 @@ class CollapsePreservesTheLanguageTests(unittest.TestCase):
     def test_random_corpus_reproduced_from_seed_matches_identically(self):
         rnd = random.Random(self.frozen["seed"])
         alpha = string.ascii_letters + string.digits + "_-. =\"':;{}[]/+,()"
-        rules, _p, _e = sv.load_merged_ruleset(REPO_ROOT)
+        rules, _p, _e = _legacy_ruleset()
         kws = sorted({k.lower() for r in rules if NESTED in (r.get("regex") or "")
                       for k in r.get("keywords", [])})[:400]
         lines = []
@@ -228,7 +240,7 @@ class CollapsePreservesTheLanguageTests(unittest.TestCase):
     def test_the_positives_fixture_still_agrees_with_the_engine(self):
         # AC-5's spirit for detection: the hand-authored expectations hold
         # after the rewrite, for every rule (not only affected ones).
-        rules, _p, _e = sv.load_merged_ruleset(REPO_ROOT)
+        rules, _p, _e = _legacy_ruleset()
         compiled = [(r["id"], _compile_original(sv.collapse_redundant_prefix(r["regex"])))
                     for r in rules if r.get("regex")]
         for e in json.loads(POSITIVES.read_text(encoding="utf-8")):
@@ -247,7 +259,7 @@ class CollapseRemovesTheSuperLinearCostTests(unittest.TestCase):
         return (time.perf_counter() - t0) / reps
 
     def test_the_collapsed_pattern_is_an_order_of_magnitude_cheaper_on_dense_input(self):
-        rules, _p, _e = sv.load_merged_ruleset(REPO_ROOT)
+        rules, _p, _e = _legacy_ruleset()
         aws = next(r["regex"] for r in rules if r["id"] == "aws-secret-access-key")
         self.assertIn(NESTED, aws)
         before = self._cost(_compile_original(aws), IDENT_DENSE_LINE)
@@ -314,7 +326,7 @@ keywords = ["a"]
                          "a previous run's rows leaked into this run's report")
 
     def test_on_bounded_dense_input_the_report_names_a_lazy_prefix_rule(self):
-        root = self._scratch_root((REPO_ROOT / sv.SCAN_RULES_FRAMEWORK_PATH).read_text(encoding="utf-8"))
+        root = self._scratch_root(LEGACY_RULES.read_text(encoding="utf-8"))
         target = root / "dense.json"
         target.write_text((IDENT_DENSE_LINE + "\n") * 32, encoding="utf-8")
         with _NoRepoWrites():
@@ -423,13 +435,42 @@ keywords = ["zztoken-"]
             self.assertEqual({"ordinary.txt", "nested/candidate.md", "long.txt"},
                              {row["file"] for row in json.loads(recorder.saved[-1])})
 
-    def test_the_source_declares_no_new_skip_reason(self):
-        # Belt and braces on the same claim, from the source rather than a run.
+    def test_the_source_declares_only_accounted_skip_reasons(self):
+        # Existing guards retain their contract. The upstream profile additionally
+        # reports incomplete detection explicitly; it must never become clean coverage.
         src = Path(sv.__file__).read_text(encoding="utf-8")
         calls = re.findall(r'_record_scan_skip\(\s*rel,\s*"([^"]+)"', src)
         self.assertTrue(calls)
-        self.assertEqual(set(), set(calls) - self.PRE_EXISTING_SKIP_REASONS,
-                         f"new _record_scan_skip reason(s) in source: {set(calls) - self.PRE_EXISTING_SKIP_REASONS}")
+        self.assertEqual(self.PRE_EXISTING_SKIP_REASONS | {"upstream scan incomplete"}, set(calls))
+
+    def test_upstream_filter_failure_is_explicit_incomplete_coverage(self):
+        from wave_lint_lib import betterleaks_worker
+        self.addCleanup(betterleaks_worker.close_worker)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rules = root / sv.SCAN_RULES_FRAMEWORK_PATH
+            rules.parent.mkdir(parents=True)
+            rules.write_text('''wavefoundryProfile = "betterleaks-v2-8f376ff9"
+[[rules]]
+id = "fixture-probe"
+regex = 'ZZTOKEN-[0-9]{4}'
+filter = 'fromBase64("bad*") == ""'
+''', encoding="utf-8")
+            target = root / "ordinary.txt"
+            target.write_text("ZZTOKEN-0001\n", encoding="utf-8")
+            observations = []
+            real_scan = sv.scan_file_raw
+
+            def observe(*args, **kwargs):
+                result = real_scan(*args, **kwargs)
+                observations.append((kwargs["_outcome"]["complete"], len(result[2])))
+                return result
+
+            with _NoRepoWrites(), patch.object(sv, "scan_file_raw", observe):
+                sv.check_hardcoded_secrets(root, files=[target], max_workers=1, record_only=True)
+            self.assertEqual([(False, 1)], observations)
+            self.assertEqual([("ordinary.txt", "upstream scan incomplete")],
+                             [(row["file"], row["reason"]) for row in sv._SCANNER_SKIPS])
 
 
 

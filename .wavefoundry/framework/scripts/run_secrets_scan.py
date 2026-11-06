@@ -87,12 +87,8 @@ def _cpu_cap() -> int:
 
 
 def _compute_rules_hash(root: Path) -> str:
-    h = hashlib.sha256()
-    for rel in _RULES_RELPATHS:
-        p = root / rel
-        h.update(p.read_bytes() if p.exists() else b"")
-        h.update(b"\x00")
-    return h.hexdigest()
+    from wave_lint_lib.betterleaks_worker import rules_fingerprint
+    return rules_fingerprint(root, _RULES_RELPATHS)
 
 
 def _load_scan_state(root: Path) -> dict:

@@ -1,0 +1,87 @@
+{
+  "scope": "R8 / AC-6 runtime-directory exclusions; prior full-engine and relocation proof retained",
+  "readiness": "review-policy-d5e41abe17220c1c704c",
+  "manifest": "85262c81df48d8fda3cd295a32c0529f7cb19c0282b903a318780acce0dc453b",
+  "candidate_files": 39,
+  "root_evidence": {
+    "tests": 72,
+    "seconds": 18.47,
+    "mutants": 9,
+    "all_rejected_by_assertion": true,
+    "errors": 0,
+    "maintained_tests": [
+      "test_secrets_lock_exclusion.RuntimeDirectoryExclusionTests",
+      "test_scan_secrets.DetectionIdentityConsumers.test_asset_engine_and_path_policy_change_rescan_unchanged_source_in_both_owners"
+    ],
+    "fixture_correction": "No-work mutation exposed a test that escalated to full scan; fixture now seeds current scanner version and fingerprint before invalid declaration. Final tests and all mutants were rerun."
+  },
+  "reviews": [
+    {
+      "context": "/root/implement_22o92/full_delivery_codearch",
+      "lanes": [
+        "code-reviewer",
+        "architecture-reviewer"
+      ],
+      "controls": 2,
+      "seconds": 0.429,
+      "findings": 0,
+      "evidence": "Actual explicit scanner and incremental content-open trap; default undeclared fork remains detectable; malformed CLI declaration retains existing ledger bytes. Root nine-mutant evidence attributed."
+    },
+    {
+      "context": "/root/implement_22o92/full_delivery_qa",
+      "lanes": [
+        "qa-reviewer"
+      ],
+      "controls": 12,
+      "findings": 0,
+      "evidence": "Nine maintained controls plus three independent actual scanner and both-owner history/currency controls. Independent pre-hash omission mutant fails one assertion with zero errors. Intent fit establishes."
+    },
+    {
+      "context": "/root/implement_22o92/full_delivery_security",
+      "lanes": [
+        "security-reviewer",
+        "docs-contract-reviewer"
+      ],
+      "controls": 3,
+      "seconds": 0.11,
+      "findings": 0,
+      "evidence": "Exact-component, genuinely current no-work refusal and history controls pass. Blanket namespace mutant fails one assertion with zero errors. Five current public documents preserve intended coverage gap and authority."
+    },
+    {
+      "context": "/root/implement_22o92/full_delivery_perfrelease",
+      "lanes": [
+        "performance-reviewer",
+        "release-reviewer"
+      ],
+      "findings": 0,
+      "evidence": "Bounded effects check reuses actual package collector, prior unchanged engine cost and attributed root/QA/code controls. Declaration is in existing shipped constants module; fingerprint adds two bounded source inputs. No benchmark or package repeated."
+    }
+  ],
+  "independence": "Four nonauthor contexts cover seven remits; grouped remits are correlated, not seven independent samples. Earlier full fixed-seat Council and runtime readiness/primer evidence remain separately attributed.",
+  "status": "All affected reviews and Council effects synthesis complete without findings; final approvals await fresh canonical receipt.",
+  "limits": [
+    "No native Windows execution",
+    "No actual Waveforge checkout qualification",
+    "No traversal rewrite or speedup claim",
+    "Excluded runtime content is not established safe",
+    "Three pending scanner observations remain operator-owned",
+    "Previous green receipt qualifies the predecessor candidate only"
+  ],
+  "council": {
+    "context": "/root/implement_22o92/full_delivery_chair",
+    "intent_fit": "establishes",
+    "material_blockers": 0,
+    "basis": "Synthesized seven affected remits against current manifest with existing standard runtime primer and separately attributed fixed-seat readiness/full-delivery evidence. No new panel, probe or audit."
+  },
+  "final_qualification": {
+    "result": "ok",
+    "tests": 12485,
+    "modules": 221,
+    "skips": 12,
+    "seconds": 746.812,
+    "inputs_hash": "e73306cd71805a94dfdb36ebfc10ececa6be33d04a282f8e2979bc3b7f1c7ffc",
+    "ran_at": "2026-11-06T19:57:41.052892+00:00",
+    "attribution": "Root executed the frozen canonical suite. All reviewed blobs unchanged; actual reviewers confirmed final approvals, recorded in events.jsonl."
+  },
+  "closure_disposition": "Earlier pending qualification and scanner notes above describe review-time state. Before closure, final qualification passed and the operator confirmed all remaining scanner observations false-positive; permanent per-entry rationale, name and date are retained in docs/scan-findings.json."
+}

@@ -1,0 +1,180 @@
+{
+  "baseline_commit": "b33211eb",
+  "receipt": "review-policy-d5e41abe17220c1c704c",
+  "tree_fingerprint": "85262c81df48d8fda3cd295a32c0529f7cb19c0282b903a318780acce0dc453b",
+  "fingerprint_algorithm": "SHA-256 of UTF-8 JSON files array, sorted by path, sorted keys, compact separators",
+  "predecessor_fingerprint": "af79e3d24e8e725dc201969cef4f0531ca9a8aede90dd192fe97191b81d4fbfa",
+  "files": [
+    {
+      "path": ".wavefoundry/framework/scan-rules.toml",
+      "git_blob": "c09ac72bae04fae3c38774b81f1f5184f549c0cf"
+    },
+    {
+      "path": ".wavefoundry/framework/scan/NOTICE.md",
+      "git_blob": "a6095f065ee33e2573f1c730c3905cd87f34f226"
+    },
+    {
+      "path": ".wavefoundry/framework/scan/cl100k_base.tiktoken.gz",
+      "git_blob": "621ffda6fda2f73e732dd82d84e4017446ed7e8b"
+    },
+    {
+      "path": ".wavefoundry/framework/scan/manifest.json",
+      "git_blob": "60fc93a140bb6905d96a7936f7d3ccc1e97c7f26"
+    },
+    {
+      "path": ".wavefoundry/framework/scan/words.txt.gz",
+      "git_blob": "df8d9d6c60ff59329190999842705317ecca7e9e"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/run_secrets_scan.py",
+      "git_blob": "c6289db6d7424b17853886a53c3bfe78cc773091"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/scan_secrets.py",
+      "git_blob": "0439ea248027fb37393fb13e47fd27ddc719a657"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/fixtures/betterleaks/baseline.toml",
+      "git_blob": "3c2d92a673174fbd2077752351bda99d300350c8"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/fixtures/betterleaks/expr-oracle.json.gz",
+      "git_blob": "416193708a4fa95b2f5d739d1fd38627c5f6719b"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/fixtures/betterleaks/global-oracle.jsonl",
+      "git_blob": "fbb0ef40905ef5f4be4bb93888cf7b9ad5c36da5"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/fixtures/betterleaks/independent-negative-manifest.json",
+      "git_blob": "9f0d234f837397c962f15e8515c44d39d7e8ec1b"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/fixtures/betterleaks/independent-negative-oracle.jsonl.gz",
+      "git_blob": "222c0c647c6ad1a570e4ec561df2a388f6fc76c1"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/fixtures/betterleaks/oracle.jsonl.gz",
+      "git_blob": "1dd3560fed5e08a646ae6b325b8ffa4a18b297f7"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/fixtures/betterleaks/orphan-isolated-oracle.jsonl",
+      "git_blob": "d1329c591914add1a6a23751df49f1d6d2cea3b3"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/fixtures/betterleaks/qualification-manifest.json",
+      "git_blob": "6609370b2b899a485517476bd1b3e46460f12f79"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/fixtures/betterleaks/regex-controls.jsonl",
+      "git_blob": "97b418027e51af674a09a2c0456a6a81eac06a0b"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/fixtures/betterleaks/token-oracle.json.gz",
+      "git_blob": "0fc0fbfb3a2048c3378ff9416127628d1cb08ecf"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/fixtures/betterleaks/upstream.toml",
+      "git_blob": "a17a4d9450f8a90c0e8984e4a325339407f32220"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_betterleaks_engine.py",
+      "git_blob": "dafa8de4fffdd2a82b0da9bb20e8bedb6b56d9ad"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_expr_filter.py",
+      "git_blob": "dda879ac79d52c03626891fc8bbab208e39bb750"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_indexer_secrets_scope.py",
+      "git_blob": "76cce19c1a94b076c89f48615acef0688580e1e1"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_scan_secrets.py",
+      "git_blob": "cf7d0b1dba914e2852226d8cd7a9fb7c4203db22"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_secret_scan_cache.py",
+      "git_blob": "9e449fce6a14e07e001df0ca60456e669c0dffa6"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_secret_tokenizer.py",
+      "git_blob": "3b77f775baf23427b5478b04d4294ffc6e1e9efa"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_secrets_lock_exclusion.py",
+      "git_blob": "f4551fb8181c598d57147974a2bbf8f1d3818632"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_secrets_prefix_collapse.py",
+      "git_blob": "d6fdb0d3e5b55af8b615b9fe7fbcb30d68b9d179"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_secrets_validators.py",
+      "git_blob": "7e4e950d85b8a0917c89c013e28cad62fcd9c07f"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/tests/test_tree_kill_routing.py",
+      "git_blob": "34f61bde7c1786843dae322b54bdd6ab0894079f"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/wave_lint_lib/betterleaks_engine.py",
+      "git_blob": "1961c9725df729563818e65a465e6d5119dd6440"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/wave_lint_lib/betterleaks_worker.py",
+      "git_blob": "e5a07e561d312cb7bf31d91f49b296a575fcd3a3"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/wave_lint_lib/constants.py",
+      "git_blob": "f810c014ed7b60efee99fb827e6e5326fd75c99e"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/wave_lint_lib/expr_filter.py",
+      "git_blob": "2a493d7bd51cc567f84b1106d8766bee626a6375"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/wave_lint_lib/secret_tokenizer.py",
+      "git_blob": "244978b23c2b33063bf20e8bda239f0b9517ae3a"
+    },
+    {
+      "path": ".wavefoundry/framework/scripts/wave_lint_lib/secrets_validators.py",
+      "git_blob": "2c2a19fce8cca531635bad1181e847edda9ec9c2"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "git_blob": "e35c8cb978debc9141fdae6922d19906df404514"
+    },
+    {
+      "path": "docs/architecture/data-and-control-flow.md",
+      "git_blob": "9dd4856ad12e20bc014ab34f4f58012e7255aeda"
+    },
+    {
+      "path": "docs/architecture/threat-model.md",
+      "git_blob": "707622473385a9821c91629d28cc5f7d86deedd4"
+    },
+    {
+      "path": "docs/contributing/build-and-verification.md",
+      "git_blob": "fa1637b62a0cabe2ba1a30ce07f70c6008f1a05c"
+    },
+    {
+      "path": "docs/specs/mcp-tool-surface.md",
+      "git_blob": "36495cafae6ecc6e488e37716559d6293298452a"
+    }
+  ],
+  "changed_paths": [
+    ".wavefoundry/framework/scripts/scan_secrets.py",
+    ".wavefoundry/framework/scripts/tests/test_scan_secrets.py",
+    ".wavefoundry/framework/scripts/tests/test_secret_scan_cache.py",
+    ".wavefoundry/framework/scripts/tests/test_secrets_lock_exclusion.py",
+    ".wavefoundry/framework/scripts/wave_lint_lib/betterleaks_worker.py",
+    ".wavefoundry/framework/scripts/wave_lint_lib/constants.py",
+    ".wavefoundry/framework/scripts/wave_lint_lib/secrets_validators.py",
+    "CHANGELOG.md",
+    "docs/architecture/data-and-control-flow.md",
+    "docs/architecture/threat-model.md",
+    "docs/contributing/build-and-verification.md",
+    "docs/specs/mcp-tool-surface.md"
+  ],
+  "qualification": "Runtime-policy focused72 tests and9 assertion-failing mutants pass; independent affected review and fresh canonical receipt pending."
+}

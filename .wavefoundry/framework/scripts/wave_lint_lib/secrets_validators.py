@@ -13,6 +13,7 @@ from typing import Any
 import tomllib
 
 from .cel_filter import eval_filter, _jwt_exp_claim
+from . import constants as _scanner_constants
 from .constants import SCAN_ALLOWLIST_PATH, SCAN_FINDINGS_PATH, SCAN_RULES_FRAMEWORK_PATH, SCAN_RULES_PROJECT_PATH
 
 # Shared subprocess isolation (wave 1p8gu). This module lives in the wave_lint_lib subpackage; the
@@ -77,12 +78,24 @@ _INLINE_SUPPRESS_RE = re.compile(r"#\s*wavefoundry-ignore:\s*secrets(.*)")
 # ---------------------------------------------------------------------------
 
 def _load_toml(path: Path) -> dict:
+    # Parsing configuration is part of the bounded worker operation too. A
+    # failed worker never falls back to parsing/evaluation in this process.
+    from .betterleaks_worker import worker_request
     with open(path, "rb") as f:
-        return tomllib.load(f)
+        data = f.read(2 * 1024 * 1024 + 1)
+    if len(data) > 2 * 1024 * 1024:
+        raise ValueError("configuration_size_limit")
+    return worker_request("parse_toml", {"text": data.decode("utf-8")})
 
 
 def _ruleset_shape_error(data: dict) -> str | None:
     """Reject malformed runtime containers without interpreting upstream actions."""
+    if data.get("wavefoundryProfile", "legacy-cel") not in ("legacy-cel", "betterleaks-v2-8f376ff9"):
+        return "unsupported wavefoundryProfile"
+    if data.get("wavefoundryProfile") == "betterleaks-v2-8f376ff9" and set(data) - {
+        "title", "minVersion", "wavefoundryProfile", "prefilter", "filter", "rules", "policy", "allowlist"
+    }:
+        return "unsupported upstream-profile configuration field"
     if not isinstance(data.get("policy", {}), dict):
         return "policy must be a table"
     disabled = data.get("policy", {}).get("disabled_rules", [])
@@ -124,6 +137,8 @@ def load_merged_ruleset(root: Path) -> tuple[list[dict], dict, list[str]]:
 
     rules: list[dict] = list(fw_data.get("rules", []))
     policy: dict = dict(fw_data.get("policy", {}))
+    profile = fw_data.get("wavefoundryProfile", "legacy-cel")
+    proj_data = {}
 
     project_path = root / SCAN_RULES_PROJECT_PATH
     if project_path.exists():
@@ -131,8 +146,12 @@ def load_merged_ruleset(root: Path) -> tuple[list[dict], dict, list[str]]:
             proj_data = _load_toml(project_path)
         except Exception as exc:
             return [], {}, [f"secrets scan: failed to parse {SCAN_RULES_PROJECT_PATH}: {exc}"]
-        if error := _ruleset_shape_error(proj_data):
+        if error := _ruleset_shape_error({"wavefoundryProfile": profile, **proj_data}):
             return [], {}, [f"secrets scan: invalid {SCAN_RULES_PROJECT_PATH}: {error}"]
+        if proj_data.get("wavefoundryProfile", profile) != profile:
+            return [], {}, ["secrets scan: framework and project detection profiles differ; choose compatible rule syntax explicitly"]
+        if profile == "betterleaks-v2-8f376ff9" and any(proj_data.get(k) for k in ("filter", "prefilter")):
+            return [], {}, ["secrets scan: project global Expr overrides are unsupported; use rule filters or project allowlists"]
 
         proj_policy = proj_data.get("policy", {})
         policy.update(proj_policy)
@@ -150,6 +169,30 @@ def load_merged_ruleset(root: Path) -> tuple[list[dict], dict, list[str]]:
             else:
                 rules.append(project_rule)
 
+    # Reserved internal state is constructed after the project policy merge.
+    # An omitted project profile inherits the framework profile; legacy CEL
+    # syntax is never silently reinterpreted as Expr.
+    policy.pop("_betterleaks_config", None)
+    policy.pop("_betterleaks_cache_key", None)
+    if profile == "betterleaks-v2-8f376ff9":
+        from .betterleaks_worker import rules_fingerprint
+        merged_allowlist = {"paths": [], "regexes": [], "stopwords": []}
+        for data in (fw_data, proj_data):
+            allowlist = data.get("allowlist", {})
+            if not isinstance(allowlist, dict) or set(allowlist) - {"description", *merged_allowlist}:
+                return [], {}, ["secrets scan: unsupported upstream-profile allowlist"]
+            for key in merged_allowlist:
+                values = allowlist.get(key, [])
+                if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+                    return [], {}, ["secrets scan: upstream-profile allowlist values must be arrays of strings"]
+                merged_allowlist[key].extend(values)
+        policy["_betterleaks_config"] = {
+            "wavefoundryProfile": profile, "rules": rules,
+            "prefilter": fw_data.get("prefilter") or "false",
+            "filter": fw_data.get("filter") or "false",
+            "allowlist": merged_allowlist,
+        }
+        policy["_betterleaks_cache_key"] = rules_fingerprint(root)
     return rules, policy, []
 
 
@@ -161,6 +204,36 @@ def inspect_ruleset_compatibility(data: Any) -> dict:
     correctness, Python/RE2 equivalence, performance or credential coverage.
     """
     from .cel_filter import filter_compatibility_issues
+
+    if isinstance(data, dict) and data.get("wavefoundryProfile") == "betterleaks-v2-8f376ff9":
+        from .betterleaks_worker import WorkerError, worker_request
+        from .betterleaks_worker import rules_fingerprint
+        issue = None
+        complete = True
+        checked = 0
+        try:
+            result = worker_request("configure", {
+                "config": data,
+                "cache_key": rules_fingerprint(Path(__file__).resolve().parents[4]),
+            })
+            if result.get("configured") is not True or type(result.get("rule_count")) is not int:
+                raise WorkerError("worker_protocol")
+            checked = result["rule_count"]
+        except WorkerError as exc:
+            issue = exc.code
+            complete = issue == "invalid_configuration"
+        return {
+            "status": "within_checked_subset" if issue is None else "unsupported" if complete else "incomplete",
+            "complete": complete, "rules_checked": checked,
+            "issues": [{"location": "$", "code": issue}] if issue else [],
+            "issue_counts": {issue: 1} if issue else {},
+            "limits": {"rules": 1024, "worker_seconds": 120, "request_bytes": 32 * 1024 * 1024},
+            "limitations": [
+                "Compiles the pinned offline Expr profile and verifies packaged assets; no match or filter execution.",
+                "Provider validation, analysis and revocation programs remain inert metadata.",
+                "No proof of upstream equivalence, credential coverage, runtime performance or local policy correctness.",
+            ],
+        }
 
     issues: list[dict] = []
     counts: dict[str, int] = {}
@@ -328,7 +401,35 @@ def is_wavefoundry_lock_path(rel_path: str) -> bool:
     return norm.startswith(_WAVEFOUNDRY_LOCKS_PREFIX) or norm.endswith(_LOCK_SUFFIX)
 
 
+_SCAN_RUNTIME_DIRS = frozenset({"cache", "index", "logs", "dist", "work", "locks"})
+
+
+def scanner_runtime_roots() -> tuple[str, ...]:
+    """Read the distribution declaration without accepting paths or globs."""
+    names = _scanner_constants.SCAN_RUNTIME_ROOT_NAMES
+    if not isinstance(names, tuple) or not names or any(
+        not isinstance(name, str) or re.fullmatch(r"\.[A-Za-z0-9][A-Za-z0-9_.-]*", name) is None
+        for name in names
+    ):
+        raise ValueError(
+            "SCAN_RUNTIME_ROOT_NAMES must be a nonempty tuple of dot-prefixed ASCII "
+            "directory names; paths and wildcards are not allowed"
+        )
+    return names
+
+
+def is_scanner_excluded_path(rel_path: str) -> bool:
+    """Exclude runtime descendants at any depth and preserve legacy lock safety."""
+    names = scanner_runtime_roots()
+    parts = rel_path.replace("\\", "/").split("/")
+    return is_wavefoundry_lock_path(rel_path) or any(
+        parts[i] in names and parts[i + 1] in _SCAN_RUNTIME_DIRS
+        for i in range(len(parts) - 2)
+    )
+
+
 def _get_changed_files(root: Path) -> list[Path]:
+    scanner_runtime_roots()  # Refuse invalid declarations even with no candidates.
     # Wave 200xy (200v1): this listing repopulates the file-set refusals, so it
     # resets them first; a repeated in-process ``--changed`` run (which reads
     # them before check_hardcoded_secrets) never reports a stale refusal.
@@ -349,7 +450,7 @@ def _get_changed_files(root: Path) -> list[Path]:
     paths: list[Path] = []
     for line in (changed.stdout + untracked.stdout).splitlines():
         line = line.strip()
-        if line and not is_wavefoundry_lock_path(line):
+        if line and not is_scanner_excluded_path(line):
             p = root / line
             if p not in seen and _fileset_admits(root, p, line):
                 seen.add(p)
@@ -395,6 +496,7 @@ def _filter_gitignored(root: Path, paths: list[Path]) -> list[Path]:
 
 
 def _get_all_files(root: Path) -> list[Path]:
+    scanner_runtime_roots()
     tracked = subprocess_util.isolated_run(
         ["git", "ls-files"],
         cwd=root, capture_output=True, text=True,
@@ -409,7 +511,7 @@ def _get_all_files(root: Path) -> list[Path]:
         exclude_machine_authority = not _is_inside_git(root)
         walked = [
             p for p in root.rglob("*")
-            if not is_wavefoundry_lock_path(p.relative_to(root).as_posix())
+            if not is_scanner_excluded_path(p.relative_to(root).as_posix())
             and ".git" not in p.parts
             and _fileset_admits(root, p, p.relative_to(root).as_posix())
             and (not exclude_machine_authority or not is_machine_authority_path(p.relative_to(root).as_posix(), root))
@@ -424,7 +526,7 @@ def _get_all_files(root: Path) -> list[Path]:
     paths: list[Path] = []
     for line in (tracked.stdout + untracked.stdout).splitlines():
         line = line.strip()
-        if line and not is_wavefoundry_lock_path(line):
+        if line and not is_scanner_excluded_path(line):
             p = root / line
             if p not in seen and _fileset_admits(root, p, line):
                 seen.add(p)
@@ -1301,6 +1403,135 @@ def _format_jwt_exp(secret: str) -> str | None:
     return f"{stamp} (EXPIRED)" if when < datetime.now(timezone.utc) else stamp
 
 
+def _valid_upstream_result(result: object, content: str, rel: str, rule_ids: set[str]) -> bool:
+    """Treat malformed worker findings as incomplete, never as clean coverage."""
+    import math
+    if not isinstance(result, dict) or type(result.get("complete")) is not bool or not isinstance(result.get("findings"), list):
+        return False
+    if len(result["findings"]) > 20000 or not isinstance(result.get("diagnostics"), list):
+        return False
+    costs = result.get("costs", {})
+    if not isinstance(costs, dict) or any(k not in rule_ids or type(v) not in (int, float) or not math.isfinite(v) or v < 0 for k, v in costs.items()):
+        return False
+    size = len(content.encode("utf-8", "surrogateescape"))
+    def valid_finding(item):
+        if not isinstance(item, dict) or item.get("rule_id") not in rule_ids:
+            return False
+        match, location = item.get("match"), item.get("location")
+        if not isinstance(match, dict) or any(not isinstance(match.get(k), str) for k in ("full", "value", "line")):
+            return False
+        if not isinstance(location, dict) or location.get("path") != rel:
+            return False
+        if any(type(location.get(k)) is not int or location[k] < 0 for k in ("start_line", "end_line", "start_column", "end_column")):
+            return False
+        return type(item.get("_start")) is int and type(item.get("_end")) is int and 0 <= item["_start"] <= item["_end"] <= size
+    for finding in result["findings"]:
+        if not valid_finding(finding):
+            return False
+        sets = finding.get("component_sets", [])
+        if not isinstance(sets, list) or len(sets) > 100:
+            return False
+        for group in sets:
+            if not isinstance(group, dict) or not isinstance(group.get("components"), list) or len(group["components"]) > 64:
+                return False
+            if any(not valid_finding(c) or c.get("component_sets") for c in group["components"]):
+                return False
+    return True
+
+
+def _upstream_path_excluded(rel: str, policy: dict, paths: list[str]) -> bool:
+    """Run imported path expressions inside the same bounded offline worker."""
+    if not paths:
+        return False
+    from .betterleaks_worker import worker_request, WorkerError
+    config = policy["_betterleaks_config"]
+    result = worker_request("path_excluded", {
+        "config": {**config, "allowlist": {**config.get("allowlist", {}), "paths": paths}},
+        "cache_key": policy.get("_betterleaks_cache_key", ""), "path": rel,
+    })
+    if type(result) is not dict or set(result) != {"excluded"} or type(result["excluded"]) is not bool:
+        raise WorkerError("worker_protocol")
+    return result["excluded"]
+
+
+def _scan_upstream_raw(content, rel, lines, policy, global_regexes, global_stopwords, *, metadata_only=False, outcome=None):
+    """Adapt isolated upstream findings to the existing private triage contract."""
+    from .betterleaks_worker import worker_request
+    try:
+        result = worker_request("scan", {
+            "config": {**policy["_betterleaks_config"], "allowlist": {
+                **policy["_betterleaks_config"].get("allowlist", {}),
+                "regexes": global_regexes or [], "stopwords": global_stopwords or []}},
+            "cache_key": policy.get("_betterleaks_cache_key", ""),
+            "content": content, "path": rel, "metadata_only": metadata_only,
+        })
+        if not _valid_upstream_result(result, content, rel, {r["id"] for r in policy["_betterleaks_config"]["rules"]}):
+            raise ValueError("invalid_worker_result")
+    except Exception as exc:
+        _record_scan_skip(rel, "upstream scan incomplete", getattr(exc, "code", "worker_failure"))
+        return []
+    if not result["complete"]:
+        _record_scan_skip(rel, "upstream scan incomplete", "detection_or_filter_work_incomplete")
+    if outcome is not None:
+        outcome["complete"] = result["complete"]
+    costs = result.get("costs", {})
+    if costs:
+        rid, duration = max(costs.items(), key=lambda item: item[1])
+        _SCANNER_COSTS.append({"file": rel, "rule": rid, "seconds": round(duration, 6), "rules_timed": len(costs)})
+    findings = result["findings"]
+    # Redact every known match/component on a displayed line, not just the hit
+    # being reported. Otherwise a second token on that line leaks through prose.
+    raw = content.encode("utf-8", "surrogateescape")
+    line_starts = [0] + [m.end() for m in re.finditer(b"\n", raw)]
+    spans = set()
+    for finding in findings:
+        for item in [finding] + [c for group in finding.get("component_sets", []) for c in group["components"]]:
+            spans.add((item["_start"], item["_end"]))
+    def safe_line(number, fallback):
+        if number <= 0 or number > len(line_starts):
+            return redact(fallback)
+        start = line_starts[number - 1]
+        end = line_starts[number] if number < len(line_starts) else len(raw)
+        intervals = sorted((max(a, start), min(b, end)) for a, b in spans if a < end and start < b)
+        chunks = []
+        cursor = start
+        for a, b in intervals:
+            if b <= cursor:
+                continue
+            if a > cursor:
+                chunks.append(raw[cursor:a])
+            chunks.append(b"****")
+            cursor = b
+        chunks.append(raw[cursor:end])
+        return b"".join(chunks).decode("utf-8", "replace").strip()
+    hits = []
+    for finding in findings:
+        rid = finding["rule_id"]
+        secret = finding["match"]["value"]
+        full = finding["match"]["full"]
+        number = finding["location"]["start_line"]
+        line = lines[number - 1] if 0 < number <= len(lines) else full
+        # These two policies predate the profile and remain Wavefoundry-owned.
+        if rid == "generic-api-key" and (rel.endswith((".md", ".markdown")) or rel.startswith("docs/") or "/docs/" in rel):
+            from .secret_tokenizer import entropy
+            if entropy(secret) <= 4.2 and len(line.split()) >= 5:
+                continue
+        expiry = _format_jwt_exp(secret)
+        if rid == "jwt" and policy.get("suppress_expired_jwts") and expiry and expiry.endswith("(EXPIRED)"):
+            continue
+        suppressed, suppress_error = check_inline_suppression(line)
+        if suppressed and not suppress_error:
+            continue
+        hit = {"rule_id": rid, "line_no": number, "matched_text": full,
+            "redacted_match": redact(full), "redacted_line": safe_line(number, full),
+            "line_hash": _hash_line(line), "context_hash": _hash_context(lines, number),
+            "in_comment": _line_is_comment(rel, line), "suppress_error": suppress_error}
+        if expiry:
+            hit["exp_date"] = expiry
+        hits.append(hit)
+    return hits
+
+
 def scan_file_raw(
     file_path: Path,
     rel: str,
@@ -1332,7 +1563,15 @@ def scan_file_raw(
     """
     if _outcome is not None:
         _outcome["complete"] = False
-    if _path_matches_allowlist(rel, global_allowlist_paths):
+    upstream = bool(policy and policy.get("_betterleaks_config"))
+    if upstream:
+        try:
+            if _upstream_path_excluded(rel, policy, global_allowlist_paths):
+                return [], None, []
+        except Exception as exc:
+            _record_scan_skip(rel, "upstream scan incomplete", getattr(exc, "code", "worker_failure"))
+            return [], None, []
+    elif _path_matches_allowlist(rel, global_allowlist_paths):
         return [], None, []
     # Wave 1p5qp — extension fast-skip BEFORE any stat/read: known-binary/data
     # artifacts (archives, shared objects, LanceDB segments, media, model weights)
@@ -1340,7 +1579,8 @@ def scan_file_raw(
     # over ~300 such files made docs-lint / wave_* tools spin (~54s).
     if _is_binary_path(file_path):
         _record_scan_skip(rel, "binary file (extension)", "".join(file_path.suffixes).lower() or file_path.name)
-        return [], None, []
+        hits = _scan_upstream_raw("", rel, [], policy, global_regexes, global_stopwords, metadata_only=True) if upstream and file_path.is_file() else []
+        return [], None, hits
     # Wave 1p44s — input guards BEFORE reading the file. Each returns the same
     # ([], None, []) shape as a clean skip so phase-2 short-circuits without a
     # stale-exception sweep (AC-5). Size/binary skips are surfaced (AC-9).
@@ -1379,19 +1619,24 @@ def scan_file_raw(
             _record_scan_skip(rel, RECORD_REFUSED_SKIP_REASON, RECORD_CAUSE_UNREADABLE)
             return [], None, []
     try:
-        head = record_data if record_data is not None else file_path.read_bytes()
+        if record_data is not None:
+            head = record_data
+        else:
+            with file_path.open("rb") as handle:
+                head = handle.read(MAX_FILE_BYTES + 1)
+        if len(head) > MAX_FILE_BYTES:
+            _record_scan_skip(rel, "file too large", "file grew beyond the read limit")
+            return [], None, []
         if b"\x00" in head[:BINARY_SNIFF_BYTES]:
             _record_scan_skip(
                 rel, "binary file", f"NUL byte in first {BINARY_SNIFF_BYTES} bytes"
             )
-            return [], None, []
+            hits = _scan_upstream_raw("", rel, [], policy, global_regexes, global_stopwords, metadata_only=True) if upstream else []
+            return [], None, hits
     except OSError:
         return [], None, []  # disappeared between stat and read — clean skip
     try:
-        if record_data is not None:
-            content = record_data.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
-        else:
-            content = file_path.read_text(encoding="utf-8", errors="replace")
+        content = head.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
     except Exception:
         return [], None, []
 
@@ -1410,6 +1655,17 @@ def scan_file_raw(
         file_sha256 = hashlib.sha256(record_data.replace(b"\r\n", b"\n")).hexdigest()
     else:
         file_sha256 = _sha256_file(file_path)
+    if upstream:
+        if long_lines:
+            # A long line may contain a required component. Omitting it and
+            # reporting the rest as complete would change correlation semantics.
+            _record_scan_skip(rel, "upstream scan incomplete", "line_guard_prevents_complete_fragment")
+            return lines, file_sha256, []
+        lines = content.split("\n")
+        if lines and not lines[-1]:
+            lines.pop()
+        return lines, file_sha256, _scan_upstream_raw(
+            content, rel, lines, policy, global_regexes, global_stopwords, outcome=_outcome)
     # Wave 1p44w — policy flag a rule filter can read via attributes. Default off
     # ("") so an expired JWT still SURFACES; an opt-in policy enables suppression.
     _jwt_suppress = "1" if policy and policy.get("suppress_expired_jwts") else ""
@@ -1621,6 +1877,17 @@ def _match_hits_for_file(
             )
             continue
 
+        # Exact file/line/rule matches retain their existing triage identity.
+        # Refresh observed evidence before the stale-line sweep: otherwise a
+        # still-present hit is removed merely because surrounding text changed.
+        # Classification, confirmations, overrides and history remain untouched.
+        for key, value in (("line_hash", hit["line_hash"]),
+                           ("context_hash", hit["context_hash"]),
+                           ("matched_text", hit["redacted_line"])):
+            if existing.get(key) != value:
+                existing[key] = value
+                exceptions_changed = True
+
         status = existing.get("status", "pending")
 
         if status == "pending":
@@ -1746,8 +2013,18 @@ def check_hardcoded_secrets(
     _SCANNER_SKIPS_UNPUBLISHED.clear()  # wave 1x5tr
     _FILESET_REFUSED.clear()  # wave 200xy (200v1)
 
+    try:
+        scanner_runtime_roots()
+    except ValueError as exc:
+        _SCANNER_SKIPS_UNPUBLISHED.extend(
+            p.relative_to(root).as_posix() for p in (files or []) if p.is_relative_to(root)
+        )
+        return [f"secrets scan: invalid runtime directory declaration: {exc}"]
+
     rules, policy, load_errors = load_merged_ruleset(root)
     if load_errors:
+        _SCANNER_SKIPS_UNPUBLISHED.extend(
+            p.relative_to(root).as_posix() for p in (files if files is not None else get_scan_files(root, scan_all)) if p.is_relative_to(root))
         return load_errors
     if not rules:
         return []
@@ -1766,43 +2043,76 @@ def check_hardcoded_secrets(
     global_regexes: list[str] = []
     global_stopwords: list[str] = []
 
-    fw_path = root / SCAN_RULES_FRAMEWORK_PATH
-    try:
-        if fw_path.exists():
-            with open(fw_path, "rb") as f:
-                fw_raw = tomllib.load(f)
-            fw_allow = fw_raw.get("allowlist", {})
-            global_allowlist_paths = list(fw_allow.get("paths", []))
-            global_regexes = list(fw_allow.get("regexes", []))
-            global_stopwords = list(fw_allow.get("stopwords", []))
-    except Exception:
-        pass
+    if policy.get("_betterleaks_config"):
+        # Use the same parsed snapshot as detection. A second failed parse must
+        # never silently discard exclusions or turn incomplete work into clean.
+        merged_allowlist = policy["_betterleaks_config"]["allowlist"]
+        global_allowlist_paths = merged_allowlist["paths"]
+        global_regexes = merged_allowlist["regexes"]
+        global_stopwords = merged_allowlist["stopwords"]
+    else:
+        fw_path = root / SCAN_RULES_FRAMEWORK_PATH
+        try:
+            if fw_path.exists():
+                fw_raw = _load_toml(fw_path)
+                fw_allow = fw_raw.get("allowlist", {})
+                global_allowlist_paths = list(fw_allow.get("paths", []))
+                global_regexes = list(fw_allow.get("regexes", []))
+                global_stopwords = list(fw_allow.get("stopwords", []))
+        except Exception:
+            pass
 
-    proj_path = root / SCAN_RULES_PROJECT_PATH
-    try:
-        if proj_path.exists():
-            with open(proj_path, "rb") as f:
-                proj_raw = tomllib.load(f)
-            proj_allow = proj_raw.get("allowlist", {})
-            global_allowlist_paths += list(proj_allow.get("paths", []))
-            global_regexes += list(proj_allow.get("regexes", []))
-            global_stopwords += list(proj_allow.get("stopwords", []))
-    except Exception:
-        pass
+        proj_path = root / SCAN_RULES_PROJECT_PATH
+        try:
+            if proj_path.exists():
+                proj_raw = _load_toml(proj_path)
+                proj_allow = proj_raw.get("allowlist", {})
+                global_allowlist_paths += list(proj_allow.get("paths", []))
+                global_regexes += list(proj_allow.get("regexes", []))
+                global_stopwords += list(proj_allow.get("stopwords", []))
+        except Exception:
+            pass
+
+    if policy.get("_betterleaks_config"):
+        # Validate the entire configuration before touching disposition history,
+        # including rules that do not match any selected file.
+        from .betterleaks_worker import worker_request, WorkerError
+        policy["_betterleaks_config"]["allowlist"] = {
+            "paths": global_allowlist_paths, "regexes": global_regexes, "stopwords": global_stopwords}
+        try:
+            worker_request("configure", {
+                "config": policy["_betterleaks_config"],
+                "cache_key": policy.get("_betterleaks_cache_key", ""),
+            })
+        except WorkerError as exc:
+            _SCANNER_SKIPS_UNPUBLISHED.extend(
+                p.relative_to(root).as_posix() for p in (files if files is not None else get_scan_files(root, scan_all)) if p.is_relative_to(root))
+            return ["secrets scan: upstream configuration incomplete (" + exc.code + "); correct the configuration or restore its verified assets and retry"]
 
     exceptions = load_exceptions(root)
     exceptions_changed = False
 
     # Sweep findings for paths that now match the combined path allowlist.
-    excluded = [e for e in exceptions if _path_matches_allowlist(e.get("file", ""), global_allowlist_paths)]
+    if policy.get("_betterleaks_config"):
+        # Resolve all history exclusions before mutating any dispositions. A
+        # timed-out path expression is incomplete work, never an exclusion.
+        try:
+            excluded_paths = {rel for rel in {e.get("file", "") for e in exceptions}
+                              if _upstream_path_excluded(rel, policy, global_allowlist_paths)}
+        except Exception as exc:
+            _SCANNER_SKIPS_UNPUBLISHED.extend(
+                p.relative_to(root).as_posix() for p in (files if files is not None else get_scan_files(root, scan_all)) if p.is_relative_to(root))
+            return ["secrets scan: upstream path assessment incomplete (" + getattr(exc, "code", "worker_failure") + "); prior findings retained"]
+        excluded = [e for e in exceptions if e.get("file", "") in excluded_paths]
+    else:
+        excluded = [e for e in exceptions if _path_matches_allowlist(e.get("file", ""), global_allowlist_paths)]
     if excluded:
         for e in excluded:
             exceptions.remove(e)
         exceptions_changed = True
 
-    # Wave 1zimc: sweep findings for Wavefoundry's own lock files, which the
-    # scanner no longer selects or opens (mirrors the allowlist sweep above).
-    lock_findings = [e for e in exceptions if is_wavefoundry_lock_path(str(e.get("file", "")))]
+    # Retire findings only for paths the shared runtime/lock policy excludes.
+    lock_findings = [e for e in exceptions if is_scanner_excluded_path(str(e.get("file", "")))]
     if lock_findings:
         for e in lock_findings:
             exceptions.remove(e)
@@ -1840,7 +2150,7 @@ def check_hardcoded_secrets(
     # missing hit may be the broken rule, not a legitimate suppression — pruning a
     # pending entry that the broken rule would have caught is a fail-OPEN miss.
     rules_degraded = False
-    for rule in rules:
+    for rule in (() if policy.get("_betterleaks_config") else rules):
         rule_id = rule.get("id", "")
         pattern_str = rule.get("regex", "")
         if not pattern_str:
@@ -1885,9 +2195,8 @@ def check_hardcoded_secrets(
             rel = file_path.relative_to(root).as_posix()
         except ValueError:
             rel = file_path.as_posix()
-        # Wave 1zimc: an explicit ``files=`` list is filtered like selection,
-        # so a Wavefoundry lock file is never opened.
-        if is_wavefoundry_lock_path(rel):
+        # Explicit file lists receive the same exclusion before content reads.
+        if is_scanner_excluded_path(rel):
             continue
         if is_record_document(root, file_path):
             record_rels.add(rel)
@@ -1980,6 +2289,10 @@ def check_hardcoded_secrets(
                 # Wave 200xy (200v1): a refused record document is never
                 # cached as a clean scan; it is re-observed on the next run.
                 _SCANNER_SKIPS_UNPUBLISHED.append(rel)
+            if any(row.get("reason") == "upstream scan incomplete" for row in outcome["skips"]):
+                # Transient worker failures must be retried even if the skip
+                # ledger successfully records the incomplete observation.
+                _SCANNER_SKIPS_UNPUBLISHED.append(rel)
             if is_recordable_path(rel):
                 scan_outcomes[rel] = outcome
             elif outcome["skips"]:
@@ -1999,7 +2312,7 @@ def check_hardcoded_secrets(
             confirmation_valid_days, scan_as_of,
             # Wave 1p4a2 — fail closed: never prune on a degraded ruleset (a rule
             # failed to compile), only on a clean full scan.
-            prune_suppressed=scan_all and not rules_degraded,
+            prune_suppressed=scan_all and not rules_degraded and (len(_res) < 5 or _res[4].get("complete", False)),
             # Wave 1p8l0 — new findings get a lifecycle-backed `<prefix>-sec` id;
             # root enables on-disk id dedup, scan_as_of pins the prefix.
             root=root,

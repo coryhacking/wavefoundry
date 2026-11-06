@@ -1,0 +1,9 @@
+{
+  "first_status": "ok",
+  "old_module_collected": true,
+  "old_child_reaped": true,
+  "retired_error": "worker_closed",
+  "second_status": "ok",
+  "fresh_child_distinct": true,
+  "fresh_child_reaped": true
+}

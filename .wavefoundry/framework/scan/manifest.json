@@ -1,0 +1,23 @@
+{
+  "assets": {
+    "cl100k_base.tiktoken.gz": {
+      "compressed_bytes": 775417,
+      "lines": 100256,
+      "sha256": "4414e3fb432aa5c4a9a19d5b91fe5ab27fecb8f5347208696a01bc507e093696",
+      "source_path": "internal/tokenizer/assets/cl100k_base.tiktoken.gz",
+      "uncompressed_bytes": 1681126,
+      "uncompressed_sha256": "223921b76ee99bde995b7ff738513eef100fb51d18c93597a113bcffe865b2a7"
+    },
+    "words.txt.gz": {
+      "compressed_bytes": 93947,
+      "lines": 33775,
+      "sha256": "d4dd5530d98f4ff343864ed71cfc0064abeae34e4f078edc0b46590c2da8fb47",
+      "source_path": "internal/words/words.txt.gz",
+      "uncompressed_bytes": 297667,
+      "uncompressed_sha256": "e811a9be4d82bef94c0134d66ab7de8c7f656b160b2f0e9d033c528b613905c8"
+    }
+  },
+  "notice_sha256": "d1a92a4287c35cf631abf66f31b87e95e7a87955fd2860f798128b2d0feb7257",
+  "schema": 1,
+  "upstream_commit": "8f376ff9c31ed5309ac448fe601c5dd21b376155"
+}

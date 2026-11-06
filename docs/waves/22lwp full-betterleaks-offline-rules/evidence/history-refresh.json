@@ -1,0 +1,15 @@
+{
+  "same_line_evidence_refresh": true,
+  "preserved_statuses": [
+    "pending",
+    "false-positive",
+    "suspected-secret",
+    "confirmed-secret"
+  ],
+  "preserved_fields": [
+    "id",
+    "history",
+    "confirmations",
+    "override_reason"
+  ]
+}

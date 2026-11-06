@@ -35,7 +35,7 @@ if _scripts_dir not in sys.path:
     sys.path.insert(0, _scripts_dir)
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)  # noqa: E402
 
-SCANNER_VERSION = "2"  # First upgraded scan observes guard coverage for cached files.
+SCANNER_VERSION = "3"  # Offline profile, engine and asset-aware scan currency.
 
 # Minimum file count before the parallel scan path is engaged (matches
 # _PARALLEL_SCAN_THRESHOLD in secrets_validators.py).
@@ -121,21 +121,13 @@ def _auto_max_workers(file_count: int) -> int:
 # the real ruleset. (One-time effect on upgrade: the hash changes → one full
 # re-scan.)
 _RULES_RELPATHS = (".wavefoundry/framework/scan-rules.toml", "docs/scan-rules.toml")
+from wave_lint_lib.betterleaks_worker import DETECTION_RELPATHS as _DETECTION_RELPATHS
 
 
 def _compute_rules_hash(root: Path) -> str:
-    """SHA-256 of framework + project scan-rules.toml content (in order).
-
-    A null-byte separator between files prevents collisions where the
-    concatenated bytes of two different splits would be identical.
-    Missing files contribute nothing (empty bytes + separator).
-    """
-    h = hashlib.sha256()
-    for rel in _RULES_RELPATHS:
-        p = root / rel
-        h.update(p.read_bytes() if p.exists() else b"")
-        h.update(b"\x00")
-    return h.hexdigest()
+    """Fingerprint rules, engine and packaged assets through their shared owner."""
+    from wave_lint_lib.betterleaks_worker import rules_fingerprint
+    return rules_fingerprint(root, _RULES_RELPATHS)
 
 
 _state_store_mod = None
@@ -243,7 +235,11 @@ def update_secrets_scan(
     scripts_dir = Path(__file__).parent
     if str(scripts_dir) not in sys.path:
         sys.path.insert(0, str(scripts_dir))
-    from wave_lint_lib.secrets_validators import check_hardcoded_secrets, unpublished_scanner_skips
+    from wave_lint_lib.secrets_validators import (
+        check_hardcoded_secrets, unpublished_scanner_skips,
+        is_scanner_excluded_path, scanner_runtime_roots,
+    )
+    scanner_runtime_roots()  # Validate before a cached/no-work return.
     from wave_lint_lib.constants import SCAN_FINDINGS_PATH
 
     scan_state = _load_scan_state(scan_dir)
@@ -293,7 +289,8 @@ def update_secrets_scan(
             if verbose:
                 print("build_index: secrets scan — nothing changed", flush=True)
             return {"files_scanned": 0, "files_skipped": 0, "failures": 0, "up_to_date": True}
-        candidate_rel = [p for p in sorted(changed) if (root / p).is_file()]
+        candidate_rel = [p for p in sorted(changed)
+                         if not is_scanner_excluded_path(p) and (root / p).is_file()]
         if iss is not None:
             try:
                 candidate_rel, files_skipped, content_hashes = iss.secret_scan_filter(
