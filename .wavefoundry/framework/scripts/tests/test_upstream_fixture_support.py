@@ -56,6 +56,32 @@ class UpstreamFixtureHelperTests(unittest.TestCase):
         self.assertEqual(present, self._call(present))
         self.assertEqual(present, self._call(str(present)))
 
+    def test_present_consumer_file_is_not_source_provenance(self):
+        present = self.root / "docs/local.md"
+        present.write_text("custom project prose")
+        self._config_obj({"testing": {"upstream_fixtures_required": False}})
+        self.assertEqual(ufs.upstream_fixture(present, root=self.root), present)
+        with self.assertRaises(unittest.SkipTest):
+            ufs.source_repository_fixture(present, root=self.root)
+        self._config_obj({"testing": {"upstream_fixtures_required": True}})
+        self.assertEqual(ufs.source_repository_fixture(present, root=self.root), present)
+        with self.assertRaises(AssertionError):
+            ufs.source_repository_fixture(self.absent, root=self.root)
+
+    def test_source_subtest_skip_keeps_following_portable_contracts(self):
+        self._config_obj({})
+        check = unittest.TestCase()
+        result = unittest.TestResult()
+        seen = []
+        def exercise():
+            seen.extend(ufs.source_carriers(check,
+                ("docs/custom.md", ".wavefoundry/framework/seeds/example.md"), root=self.root))
+        check.runTest = exercise
+        check.run(result)
+        self.assertEqual(seen, [".wavefoundry/framework/seeds/example.md"])
+        self.assertEqual(len(result.skipped), 1)
+        self.assertEqual(result.errors + result.failures, [])
+
     def test_absent_with_the_key_true_fails(self):
         self._config_obj({"testing": {"upstream_fixtures_required": True}})
         with self.assertRaises(AssertionError) as ctx:

@@ -430,6 +430,19 @@ def _owner(root: Path, diagnostics: dict | None = None) -> tuple[bool, list[str]
     return True, argv
 
 
+def repository_launcher_argv(root: Path | str, *arguments: str,
+                             windows: bool | None = None) -> list[str]:
+    """Build an absolute checkout-local command without executing or probing it."""
+    windows = os.name == 'nt' if windows is None else windows
+    if windows:
+        import ntpath
+
+        launcher = ntpath.join(ntpath.abspath(str(root)), '.wavefoundry', 'bin', 'wf.cmd')
+    else:
+        launcher = os.path.join(os.path.abspath(os.path.expanduser(str(root))), '.wavefoundry', 'bin', 'wf')
+    return [launcher, *arguments]
+
+
 def assess_setup(root: Path, *, loaded_identity: dict | None = None,
                  timeout_seconds: float = 2.0, use_stamp: bool = True) -> dict:
     """Assess local setup readiness; never repairs or writes application data.
@@ -470,7 +483,7 @@ def assess_setup(root: Path, *, loaded_identity: dict | None = None,
         if loaded_identity is not None and loaded_identity != identity:
             reason('loaded_code_stale', 'Installed assessment/producer code changed; restart the Wavefoundry host before reassessing. '
                    'The restarted server attempts to install any newly required dependencies at startup; '
-                   'if it fails to start, run `wf setup`.')
+                   'if it fails to start, run ' + format_command(repository_launcher_argv(root, 'setup', '--root', str(root))) + '.')
             result['actions'].append({'kind': 'restart', 'argv': []})
             unknown = True
         try:
@@ -623,7 +636,7 @@ def assess_setup(root: Path, *, loaded_identity: dict | None = None,
     except (OSError, ValueError, SyntaxError, KeyError, TypeError) as exc:
         unknown = True; reason('assessment_unproven', str(exc))
     if needs_setup and not pending and not preserve and not any(r['code'] == 'loaded_code_stale' for r in result['reasons']):
-        result['actions'].append({'kind': 'setup', 'argv': ['wf', 'setup', '--root', str(root)]})
+        result['actions'].append({'kind': 'setup', 'argv': repository_launcher_argv(root, 'setup', '--root', str(root))})
     result['status'] = 'indeterminate' if unknown else 'action_required' if result['actions'] else 'ready'
     result['timings_ms']['total'] = round((time.monotonic() - started) * 1000, 3)
     return result

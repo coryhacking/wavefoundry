@@ -228,6 +228,7 @@ class WaveWorkLifecycleTests(unittest.TestCase):
         owner = json.loads(marker.read_text())
         original_generation = owner["generation"]
         owner["directory"][0] += 1
+        owner["repository_directory"][0] += 1
         marker.write_text(json.dumps(owner))
         before = marker.read_bytes()
         scratch = self.scratch(wid)
@@ -242,6 +243,56 @@ class WaveWorkLifecycleTests(unittest.TestCase):
         self.assertIn("Status: closed", wave_md.read_text())
         self.assertFalse(scratch.exists())
         self.assertFalse(self.work(wid).exists())
+
+    def test_registered_root_rename_retains_generation_and_closes_owned_work(self):
+        wid, wave_md, cid = self.wave()
+        self.finish(wid, cid)
+        scratch = self.scratch(wid)
+        marker = self.work(wid) / ".owner.json"
+        owner = json.loads(marker.read_text())
+        owner["directory"][0] += 7
+        owner["repository_directory"][0] += 9
+        marker.write_text(json.dumps(owner))
+        before = marker.read_bytes()
+        old_root = self.root
+        moved = old_root.with_name(old_root.name + "-renamed")
+        self.addCleanup(shutil.rmtree, moved, ignore_errors=True)
+        old_root.rename(moved)
+        self.root = self.handler.root = moved
+        current = next(entry for entry in self.ok(self.call("wf_current_wave"))["waves"]
+                       if entry["wave_id"] == wid)
+        self.assertTrue(current["work_area"]["available"], current)
+        self.assertEqual(current["work_area"]["generation"], owner["generation"])
+        self.assertEqual((moved / marker.relative_to(old_root)).read_bytes(), before)
+        result = self.call("wf_close_wave", wave_id=wid, mode="create")
+        self.ok(result)
+        self.assertEqual(result["data"]["work_cleanup"]["outcome"], "removed", result)
+        self.assertFalse((moved / scratch.relative_to(old_root)).exists())
+        self.assertIn("Status: closed", (moved / wave_md.relative_to(old_root)).read_text())
+
+    def test_registered_foreign_root_preserves_moved_work(self):
+        wid, _, cid = self.wave()
+        self.finish(wid, cid)
+        self.scratch(wid, "foreign must survive")
+        old_root = self.root
+        foreign = old_root.with_name(old_root.name + "-foreign")
+        self.addCleanup(shutil.rmtree, foreign, ignore_errors=True)
+        foreign.mkdir()
+        shutil.copytree(old_root / "docs", foreign / "docs")
+        destination = foreign / ".wavefoundry/work" / wid.split()[0]
+        destination.parent.mkdir(parents=True)
+        self.work(wid).rename(destination)
+        marker = destination / ".owner.json"
+        before = marker.read_bytes()
+        self.root = self.handler.root = foreign
+        current = next(entry for entry in self.ok(self.call("wf_current_wave"))["waves"]
+                       if entry["wave_id"] == wid)
+        self.assertFalse(current["work_area"]["available"], current)
+        result = self.call("wf_close_wave", wave_id=wid, mode="create")
+        self.ok(result)
+        self.assertEqual(result["data"]["work_cleanup"]["outcome"], "preserved", result)
+        self.assertEqual((destination / "scratch/result.txt").read_text(), "foreign must survive")
+        self.assertEqual(marker.read_bytes(), before)
 
     def test_registered_closed_reopen_adopts_device_drift_and_rotates_generation(self):
         import wave_work

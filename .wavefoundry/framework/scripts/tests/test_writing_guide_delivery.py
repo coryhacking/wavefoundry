@@ -17,6 +17,7 @@ sys.path.insert(0, str(SCRIPTS))
 import build_pack
 import record_paths
 import upgrade_wavefoundry
+from upstream_fixture_support import source_repository_fixture
 import vocabulary_profile
 
 
@@ -119,6 +120,7 @@ class WritingGuideDeliveryTests(unittest.TestCase):
         self.assertEqual((target / ".wavefoundry/framework/seeds" / seed).read_bytes(), old_seed)
 
     def test_local_invocation_routes_load_the_guide(self):
+        source_repository_fixture(REPO / "AGENTS.md", root=REPO)
         for name in ("AGENTS.md", "docs/prompts/index.md", "docs/agents/specialists/technical-writer.md"):
             with self.subTest(name=name):
                 self.assert_readable_guide_reference(REPO, (REPO / name).read_text())

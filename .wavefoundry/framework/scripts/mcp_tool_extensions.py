@@ -161,7 +161,9 @@ EXTENSION_ARTIFACT_PATH_FIELDS: Mapping[str, str] = {}
 # marked folder of a skill the distribution stops declaring.
 # Renderer-only: the server never validates it, so a bad entry refuses the
 # skill render (see ``skill_declaration_problems``) and never stops the server.
-# Names never start with "wf-", which the framework's own skills keep.
+# A distribution-specific prefix reduces future collisions; nonconflicting
+# wf- names are allowed. The renderer rejects effective core and retired names
+# before mutation; skills have no override or alias mechanism.
 EXTENSION_SKILLS: Mapping[str, Mapping[str, object]] = {}
 
 # Extra pristine journal scaffolds for the upgrade's one-time journal migration
@@ -929,8 +931,6 @@ def skill_declaration_problems(skills: object = None) -> list[str]:
             problems.append(f"{label}: the name must be lower-case letters and digits joined by single hyphens")
         if len(name) > SKILL_NAME_MAX_CHARS:
             problems.append(f"{label}: the name is longer than {SKILL_NAME_MAX_CHARS} characters")
-        if name.startswith("wf-"):
-            problems.append(f"{label}: the name prefix 'wf-' is reserved for the framework's own skills")
         lowered = name.lower()
         for reserved in ("claude", "anthropic"):
             if reserved in lowered:

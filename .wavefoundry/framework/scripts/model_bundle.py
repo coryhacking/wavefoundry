@@ -159,13 +159,19 @@ def bundle_name(model_set_version: str = MODEL_SET_VERSION) -> str:
     return f"{BUNDLE_PREFIX}{model_set_version}.zip"
 
 
-def manual_recovery_guidance(model_set_version: str = MODEL_SET_VERSION) -> str:
+def manual_recovery_guidance(model_set_version: str = MODEL_SET_VERSION, *, root: Path | None = None) -> str:
     """Return the operator recovery path when an online model warm cannot complete."""
     asset = bundle_name(model_set_version)
+    from setup_readiness import format_command, repository_launcher_argv
+
+    command = format_command(repository_launcher_argv(root or Path.cwd(), 'setup'))
     return (
-        f"To recover without a model download, manually download '{asset}' from the same Wavefoundry release "
-        "(or an approved internal distribution), leave it zipped, and place it in the target repository root, "
-        "~/, ~/.wavefoundry/, ~/.wavefoundry/dist/, or ~/Downloads/. Then rerun 'wf setup'. Setup validates the "
+        f"To recover without an automatic model download, obtain '{asset}' from a Wavefoundry release "
+        f"or approved internal distribution carrying compatible model-set {model_set_version}, leave it zipped, "
+        "and place it in the target repository root, "
+        "~/, ~/.wavefoundry/, ~/.wavefoundry/dist/, or ~/Downloads/. A bundle under any name can be selected "
+        "with --model-bundle PATH or WAVEFOUNDRY_MODEL_BUNDLE=PATH when rerunning "
+        f"{command}. Framework releases may reuse the same model set. Setup validates the "
         "model set, component hashes, and licenses before replacing the cache; an invalid bundle leaves the verified "
         "cache unchanged."
     )
@@ -183,6 +189,45 @@ def find_local_bundle(search_dirs: tuple[Path, ...], model_set_version: str = MO
         candidate = directory / name
         if candidate.is_file():
             return candidate
+    return None
+
+
+def _quoted_bundle_basename(name: str) -> str:
+    """Bound an untrusted diagnostic label, including its JSON quotes and escaping."""
+    name = ''.join(ch if ' ' <= ch <= '~' else '?' for ch in name[:116])
+    while len(json.dumps(name, ensure_ascii=True)) > 120:
+        name = name[:-1]
+    return json.dumps(name, ensure_ascii=True)
+
+
+def unused_bundle_hint(search_dirs: tuple[Path, ...], model_set_version: str = MODEL_SET_VERSION) -> str | None:
+    """Suggest one misnamed asset by filename only; never inspect or select its bytes."""
+    import re
+
+    expected = bundle_name(model_set_version)
+    pattern = re.compile(r".+-models-" + re.escape(model_set_version) + r"(?:[ _-].*)?\.zip$", re.IGNORECASE | re.DOTALL)
+    seen: set[Path] = set()
+    remaining = 512
+    for directory in search_dirs:
+        directory = directory.expanduser()
+        if directory in seen:
+            continue
+        seen.add(directory)
+        try:
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    remaining -= 1
+                    if remaining < 0:
+                        return None
+                    if entry.name != expected and pattern.fullmatch(entry.name) and entry.is_file(follow_symlinks=False):
+                        # JSON quoting is display only; never interpolate the filename into a command.
+                        quoted = _quoted_bundle_basename(entry.name)
+                        return (f"Found but not used: {quoted} (unverified model archive candidate). "
+                                f"Model-set {model_set_version} is required; select its path explicitly with "
+                                "--model-bundle PATH or WAVEFOUNDRY_MODEL_BUNDLE=PATH. "
+                                "Normal model-set and hash validation still applies.")
+        except OSError:
+            continue
     return None
 
 

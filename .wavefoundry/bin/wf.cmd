@@ -5,6 +5,16 @@ set "REPO_ROOT=%~dp0..\.."
 cd /d "%REPO_ROOT%"
 where.exe python3 >nul 2>nul
 if errorlevel 1 goto python_missing
+set "WF_PYTHON3="
+for /f "delims=" %%I in ('where.exe python3 2^>nul') do if not defined WF_PYTHON3 set "WF_PYTHON3=%%I"
+if /i "%WF_PYTHON3%"=="%LOCALAPPDATA%\Microsoft\WindowsApps\python3.exe" goto python_alias_probe
+goto python_launch
+:python_alias_probe
+python3 -c "import sys" >nul 2>nul
+if "%ERRORLEVEL%"=="0" goto python_launch
+echo Wavefoundry: the WindowsApps python3 App execution alias cannot run Python. Disable the Python/Python3 App execution aliases in Settings and put a real Python 3.11 or newer python3 on PATH, then retry. 1>&2
+exit /b 2
+:python_launch
 python3 "%REPO_ROOT%\.wavefoundry\framework\scripts\wf_cli.py" %*
 set "WF_EXIT=%ERRORLEVEL%"
 if "%WF_EXIT%"=="0" exit /b 0

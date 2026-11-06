@@ -28,7 +28,7 @@ import review_policy_reconcile  # noqa: E402
 from wave_lint_lib.core_validators import check_review_policy_carriers  # noqa: E402
 import vocabulary_profile as vp  # noqa: E402
 from record_layout_support import default_profile_only  # noqa: E402
-from upstream_fixture_support import upstream_fixture  # noqa: E402
+from upstream_fixture_support import upstream_fixture, source_carriers  # noqa: E402
 import record_paths  # noqa: E402
 from prompt_vocabulary_support import (  # noqa: E402
     assert_clause,
@@ -708,12 +708,13 @@ class EfficacyCheckCarrierTests(unittest.TestCase):
 
     def test_plan_change_prompt_carries_the_seed_block_verbatim(self) -> None:
         seed = self._block(self._read(self.SEED_170))
-        self.assertEqual(self._block(self._read(vp.prompt_doc("plan-change"))), seed)
+        for relative in source_carriers(self, (vp.prompt_doc("plan-change"),), root=self.ROOT):
+            self.assertEqual(self._block(self._read(relative)), seed)
         for clause in self.EFFICACY_CLAUSES:
             self.assertIn(clause, seed)
 
     def test_efficacy_questions_are_asked_before_selection(self) -> None:
-        for relative in (self.SEED_170, vp.prompt_doc("plan-change")):
+        for relative in source_carriers(self, (self.SEED_170, vp.prompt_doc("plan-change")), root=self.ROOT):
             with self.subTest(carrier=relative):
                 text = self._read(relative)
                 critique = next(line for line in text.splitlines() if "**Critique:**" in line)
@@ -727,21 +728,25 @@ class EfficacyCheckCarrierTests(unittest.TestCase):
         self.assertNotIn(self.EFFICACY_CLAUSES[0], self._block(mutant))
 
     def test_every_primer_carrier_keeps_each_efficacy_replay_role(self) -> None:
-        for relative, clauses in self.PRIMER_CARRIERS.items():
+        for relative in source_carriers(self, self.PRIMER_CARRIERS, root=self.ROOT):
+            clauses = self.PRIMER_CARRIERS[relative]
             text = self._read(relative)
             for clause in clauses:
                 with self.subTest(carrier=relative, clause=clause):
                     self.assertIn(clause, text)
 
     def test_upgrade_carriers_name_the_efficacy_carry_over(self) -> None:
-        for relative in self.UPGRADE_CARRIERS:
+        for relative in source_carriers(self, self.UPGRADE_CARRIERS, root=self.ROOT):
             text = self._read(relative)
             for clause in self.UPGRADE_CLAUSES:
                 with self.subTest(carrier=relative, clause=clause):
                     self.assertIn(clause, text)
 
     def test_primer_carrier_list_matches_the_census(self) -> None:
-        self.assertEqual(self._census(self.ROOT), set(self.PRIMER_CARRIERS))
+        expected = set(source_carriers(self, self.PRIMER_CARRIERS, root=self.ROOT))
+        roots = self.CENSUS_ROOTS if any(p.startswith("docs/") for p in expected) else self.CENSUS_ROOTS[:2]
+        with patch.object(self, "CENSUS_ROOTS", roots):
+            self.assertEqual(self._census(self.ROOT), expected)
 
     def test_census_sees_an_unlisted_carrier(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -753,7 +758,7 @@ class EfficacyCheckCarrierTests(unittest.TestCase):
             self.assertNotEqual(self._census(root), set(self.PRIMER_CARRIERS))
 
     def test_close_carriers_cite_the_measure_of_success(self) -> None:
-        for relative in self.CLOSE_CARRIERS:
+        for relative in source_carriers(self, self.CLOSE_CARRIERS, root=self.ROOT):
             with self.subTest(carrier=relative):
                 self.assertIn(self.MEASURE_CLAUSE, self._read(relative))
 
@@ -798,7 +803,8 @@ class IntentFitCarrierTests(unittest.TestCase):
     }
 
     def test_carriers_state_intent_fit_and_the_pre_delivery_draft(self) -> None:
-        for relative, clauses in self.CARRIERS.items():
+        for relative in source_carriers(self, self.CARRIERS, root=self.ROOT):
+            clauses = self.CARRIERS[relative]
             # Templates wrap prose; compare with whitespace collapsed.
             text = " ".join((self.ROOT / relative).read_text(encoding="utf-8").split())
             for clause in clauses:
@@ -806,7 +812,7 @@ class IntentFitCarrierTests(unittest.TestCase):
                     self.assertIn(clause, text)
 
     def test_edited_carriers_name_the_exact_carrier_heading(self) -> None:
-        for relative in self.CARRIERS:
+        for relative in source_carriers(self, self.CARRIERS, root=self.ROOT):
             with self.subTest(carrier=relative):
                 text = (self.ROOT / relative).read_text(encoding="utf-8")
                 self.assertNotIn("`## Review checkpoints`", text)
@@ -837,10 +843,10 @@ class IntentFitCarrierTests(unittest.TestCase):
         self.assertIn("judges the same draft using the assigned reviewer's assessment when available", text)
 
     def test_delivery_intent_check_is_outside_the_conditional_council_step(self) -> None:
-        for relative in (
+        for relative in source_carriers(self, (
             ".wavefoundry/framework/install/lifecycle-prompts/review-wave.prompt.md",
             vp.prompt_doc("review-wave"),
-        ):
+        ), root=self.ROOT):
             text = (self.ROOT / relative).read_text(encoding="utf-8")
             with self.subTest(carrier=relative):
                 self._assert_unconditional_delivery_check(text)
@@ -866,13 +872,13 @@ class IntentFitCarrierTests(unittest.TestCase):
                 change_texts=(f"# Example\n\n## Serialization Points\n\n- `{path}`\n",),
             )
             self.assertEqual(lanes, expected)
-        for relative in (
+        for relative in source_carriers(self, (
             ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md",
             ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
             "docs/prompts/upgrade-wavefoundry.prompt.md",
             "docs/contributing/review-and-evals.md",
             "CHANGELOG.md",
-        ):
+        ), root=self.ROOT):
             text = " ".join((self.ROOT / relative).read_text(encoding="utf-8").split())
             for clause in (
                 "on every delivery review",
@@ -946,7 +952,8 @@ class IntentFitApprovalCarrierTests(unittest.TestCase):
     }
 
     def test_carriers_state_the_approval_field_advisory_and_qa_duty(self) -> None:
-        for relative, clauses in self.CARRIERS.items():
+        for relative in source_carriers(self, self.CARRIERS, root=self.ROOT):
+            clauses = self.CARRIERS[relative]
             text = " ".join((self.ROOT / relative).read_text(encoding="utf-8").split())
             for clause in clauses:
                 with self.subTest(carrier=relative, clause=clause):
@@ -967,7 +974,7 @@ class IntentFitApprovalCarrierTests(unittest.TestCase):
     )
 
     def test_intent_issues_are_triaged_like_defects(self) -> None:
-        for relative in self.TRIAGE_CARRIERS:
+        for relative in source_carriers(self, self.TRIAGE_CARRIERS, root=self.ROOT):
             text = " ".join((self.ROOT / relative).read_text(encoding="utf-8").split())
             for clause in self.TRIAGE:
                 with self.subTest(carrier=relative, clause=clause):
@@ -976,10 +983,35 @@ class IntentFitApprovalCarrierTests(unittest.TestCase):
                 self.assertNotIn("unestablished is a finding", text)
 
     def test_no_carrier_spells_the_not_established_value_with_a_space(self) -> None:
-        for relative in {*self.CARRIERS, *IntentFitCarrierTests.CARRIERS}:
+        for relative in source_carriers(self, {*self.CARRIERS, *IntentFitCarrierTests.CARRIERS}, root=self.ROOT):
             with self.subTest(carrier=relative):
                 text = (self.ROOT / relative).read_text(encoding="utf-8")
                 self.assertNotIn("`does not`", text)
+
+
+class DistributionCarrierBoundaryTests(unittest.TestCase):
+    def test_custom_consumer_docs_keep_canonical_and_negative_controls_running(self):
+        import shutil
+        import json
+        classes = (EfficacyCheckCarrierTests, IntentFitCarrierTests, IntentFitApprovalCarrierTests)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs/prompts").mkdir(parents=True)
+            (root / "docs/workflow-config.json").write_text(json.dumps({"testing": {"upstream_fixtures_required": False}}))
+            (root / "docs/prompts/plan-change.prompt.md").write_text("# Consumer-owned policy\n")
+            framework = root / ".wavefoundry/framework"
+            framework.mkdir(parents=True)
+            for part in ("seeds", "install"):
+                shutil.copytree(PROJECT_ROOT / "framework" / part, framework / part)
+            result = unittest.TestResult()
+            with patch.object(EfficacyCheckCarrierTests, "ROOT", root), patch.object(IntentFitCarrierTests, "ROOT", root), patch.object(IntentFitApprovalCarrierTests, "ROOT", root):
+                suite = unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(cls) for cls in classes)
+                suite.run(result)
+            self.assertGreater(result.testsRun, 10)
+            self.assertGreater(len(result.skipped), 0)
+            self.assertEqual(result.errors + result.failures, [])
+            # These portable tests include dropped-efficacy and reversed-intent
+            # controls; the custom local prompt is deliberately not copied prose.
 
 
 class MemoryReviewPromptTests(unittest.TestCase):

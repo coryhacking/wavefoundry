@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-27
+Last verified: 2026-11-05
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -716,22 +716,27 @@ thin-pointer body headed `# <title> (skill)` that points at `prompt_doc`, beside
 the skill name and `description`; it renders only where `prompt_doc` exists, after the framework
 skills, through the same symlink and host-root checks. `mcp_tool_extensions.skill_declaration_problems()`
 (stdlib-only) reports every problem: a name that is not lower-case kebab-case, is longer than 64
-characters, starts with `wf-` (the framework's own skills keep that prefix) or contains `claude` or
+characters, or contains `claude` or
 `anthropic`; a missing or unknown key; a title, description or summary line that is empty, is not
 one line (any C0 or C1 control, U+2028 or U+2029), has surrounding spaces, contains `: ` or ` #`,
 ends with `:` or starts with a YAML indicator character; a title or description that is a YAML
 boolean or null word or a number, or a description longer than 1024 characters; a `prompt_doc`
 that is not a repository-relative POSIX path under `docs/prompts/` ending in `.prompt.md` (a
 backslash, colon, absolute form, or empty, `.` or `..` segment is refused on every platform). The
-renderer also refuses a name whose folder is a retired skill path it removes. The render preflight
+renderer also refuses complete effective core names, including configured and doc-gated skills,
+and retired managed skill paths. A distribution-specific prefix reduces future collision risk
+but is optional: new nonconflicting `wf-` skills are supported, like shared MCP tool prefixes.
+A later core-name collision refuses rendering until the distribution resolves it; skills gain
+no override or alias mechanism. Downstream projects own their `wfs-` to `wf-` renames.
+The render preflight
 runs this check before the first write of any render, including `render_platform_surfaces`, so an
 invalid declaration refuses the whole render with every problem named and writes nothing.
 Declared skill folders are distribution-owned: they are not framework-maintenance surfaces.
 
 **Declared-skill ownership (wave `1zyb3`).** Every `SKILL.md` rendered for a declared skill carries
 the line `<!-- wavefoundry:declared-skill -->` as its first body line, right after the frontmatter
-and its blank line; the frontmatter still holds only `name` and `description`, and framework
-(`wf-`) skills stay unmarked. A file counts as marked only when that exact line (a trailing `\r`
+and its blank line; the frontmatter still holds only `name` and `description`, and core registry
+skills stay unmarked. A file counts as marked only when that exact line (a trailing `\r`
 ignored) is the first non-blank line after the frontmatter. Before any write the render checks each
 declared skill's target on each active host:
 
@@ -740,8 +745,8 @@ declared skill's target on each active host:
 - Any other existing `SKILL.md` is left byte-identical and that skill is skipped on that host; the
   rest of the render proceeds, and stderr carries one `NOTICE` naming the repository-relative path
   and the remedy (rename the declared skill, or remove or rename the hand-written folder).
-- On each active host whose skills root is not a link, a child folder whose name does not start
-  with `wf-`, matches no declared name (compared casefolded, so a gated-off skill and a folder that
+- On each active host whose skills root is not a link, a child folder that matches no declared
+  name (compared casefolded, so a gated-off skill and a folder that
   differs only in case are kept) and holds a marked regular `SKILL.md` is an orphan. A linked child
   (symlink, Windows junction or other reparse point, or one whose resolved path differs from its
   lexical path) and a linked `SKILL.md` are skipped without being read. An orphan folder holding
@@ -1590,6 +1595,10 @@ Work is retained through pause. Successful operator-authorized whole-wave close 
 
 The area is disposable: preserve unique long-term proof in maintained records before finalizing evidence, and never make new durable approvals depend solely on scratch paths. Ordinary wave-folder evidence and immutable ledger references retain their protections. Managed ignores, indexing/reconciliation exclusions and source observation omit this exact runtime prefix; packaging and framework input hashes traverse the sibling framework tree. No new public tool or lifecycle gate is introduced.
 
+New ownership records bind the repository root and work directory by nonzero inode continuity. Stored device numbers and repository spelling are historical diagnostics; a device-ID change across reboots does not invalidate ownership. Case aliases must name the same directory, and same-filesystem root renames retain ownership. Legacy records without root identity remain usable at their verified original root or alias; an unprovable rename preserves work with a move-aside remedy. This is not cross-volume qualification or globally unique identity. Within-operation descriptor and substitution checks remain strict.
+
+Snapshot reads also accept one positively verified regular publisher construction link in the pinned receipts directory, preserving immutable publication and content/receipt validation. Reads delete nothing and tolerate the active publisher removing that link. Unknown, external or excess links still force full-review fallback. Hosts lacking the required descriptor-safe I/O report unavailable work/snapshots and use full review; native Windows operation remains unqualified.
+
 ### Wave Inspection
 
 `wf_current_wave()`
@@ -1913,6 +1922,7 @@ above: typed-exclusive on declared waves, prose only on legacy waves.
 
 `wf_mark_ac(wave_id, change_id, ac_id, state, reason="", mode="dry_run")` and `wf_mark_task(wave_id, change_id, task, state, mode="dry_run")`
 
+- The default `dry_run` previews without writing. Accepted modes are `dry_run`, `create` and `apply`, after trim/lower-case normalization; other values refuse with `invalid_arguments`. Every successful response includes normalized `mode` (`apply` reports `create`) and `applied`, which is true only after document bytes are replaced. `changed` retains its existing meaning; a create no-op reports both booleans false. A changing preview adds advisory `dry_run_not_written` with the equivalent applying call, including the same target/state/reason and `mode='create'`. The advisory grants no permission and applies nothing automatically.
 - Mark one exact acceptance criterion or task as complete (`state="x"`) or intentionally deferred (`state="~"`). They are deliberately not generic document editors: absent or ambiguous targets are refused, and only the selected checkbox (plus a supplied AC deferral note) changes. `wf_mark_ac` applies the exact docs-lint rationale rule for required-priority ACs; tasks retain the validator's more permissive rule. Logical checkbox labels include indented continuation lines, so a wrapped task is addressed by its full normalized label; duplicate labels are refused instead of guessed.
 - Refusals are recoverable: an unknown wave points to `wf_current_wave`; an absent or ambiguous item points to `wf_get_change`. Ambiguous responses return matching labels and instruct the agent not to choose arbitrarily—retry with the exact full label, or make truly identical labels distinct in the change document before retrying. An absent target returns every parsed label in that section so the caller can pick the right one; that branch reports the candidates without the not-arbitrarily instruction, which applies only where several labels genuinely matched. A required AC deferral without a valid note tells the agent to retry `wf_mark_ac` with `reason`.
 - A successful `wf_mark_ac(state="~")` on a declared wave with review policy configured atomically writes the deferred AC, publishes its new review-policy receipt, and reprojects review state. Its `review_receipt_refreshed` object identifies that receipt and gives the fresh readiness review actions, and the supersession is **also reported as a diagnostic** rather than only as that payload field, because publishing the receipt moves any current readiness approval to non-current, and reporting that only in the payload field left it out of the diagnostics an agent actually reads. It does **not** create or carry forward approvals for the changed contract. If this publication fails, the AC is not changed; inspect the returned recovery diagnostic, correct the named review-state problem, and retry the same call rather than manually editing the checkbox, ledger, or projection. Completion and task marks remain receipt-neutral; legacy or policy-disabled waves retain their ordinary tracking-only behavior.

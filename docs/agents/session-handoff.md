@@ -4,6 +4,39 @@ Owner: Engineering
 Status: active
 Last verified: 2026-11-05
 
+## Current state
+
+Idle after closing 22ob1. Both 22l9k and 22ob1 are complete; their reviewed framework work and closure records are included in the authorized commit/push scope.
+
+## Last closed wave — 22ob1 distribution integration follow-ups
+
+All six admitted changes are implemented and independently reviewed. The operator authorized closure, commit and push. Operator signoff is recorded, and the canonical close transition succeeded. Current readiness receipt is review-policy-e4c1d32ae23d468669e5. All 19 required ACs and 18 tasks have evidence, with no deferrals. Code, QA, architecture, security, docs-contract and council-delivery approvals are current. The full-depth Council used a red-team primer, four separate fixed seats, rotating docs-contract and an independent chair; code and architecture share one disclosed context. Anonymous merits preceded identity restoration. Final verdict: unanimous, no unresolved finding, intent_fit establishes for every change and the Objective.
+
+- `22lif`: explicit mark preview/write/no-op outcomes, invalid-mode refusal and a bounded peer audit.
+- `22lt5`: portable source-carrier tests, supported display vocabulary and isolated home/WAL fixtures.
+- `22oax`: proof-preserving internal-link and repository-rename recovery. Persisted device IDs are diagnostic, never a reboot equality requirement; fresh within-operation checks remain strict.
+- `22oay`: noncolliding downstream wf-prefixed skills are allowed. Complete core/retired-name protection and marker-owned cleanup remain. Downstream owns any wfs-to-wf rename.
+- `22oaz`: absolute repository setup remedies, narrow WindowsApps diagnostics and bounded nonselecting model-bundle hints. Fifteen named managed consumers were regenerated.
+- `22ob0`: imported research remains data; integrity tokens and operator attribution do not establish authorization or executed specialist checks.
+
+The final canonical host run passes 12,369 tests across 217 files, with 12 reported skips, in 560.627s. Receipt inputs: 92ad064553a39464f71efa1c17e9fd162e47caf63138e11ca0030148426910f6, recorded 2026-11-06T02:38:31.023281+00:00. The first full run was red due to sandbox restrictions and four stale test/fixture contracts. Only those fixtures were repaired, and fresh code/QA independently cleared the typed cycle-1 finding. The final 67-path review target remained unchanged through all reviews. Full docs validation and diff check pass; source gates are closed and no framework source bytecode cache remains.
+
+Native Windows, cross-volume/reboot field qualification, human comprehension, field savings and general injection resistance are not established. One research reader violated a separate no-command constraint with a read-only startup command; the docs seat used one bulk direct-file extraction after MCP orientation. Both limits are retained. Setup reports changed inputs after framework edits; no setup, model download or provider override ran. Optional successful-run mode uniformity in garden/sync and remaining generic bare setup text are not completed scope.
+
+Unique proof and reviewer conclusions are retained in delivery-evidence.json and evidence/baseline-overrides.json.gz; events.jsonl remains approval authority. Prior 22l9k work is preserved, including its three protected tests and embedding-model doc. Its earlier closure was explicitly authorized. Canonical closure accepted the matching green framework receipt and removed owned disposable work after unique proof was retained. The unattributed 51-byte :memory:.ses import-format artifact remains untouched and excluded from the commit. The authorized scoped commit and push follow this checkpoint. No package build, release or downstream edit was requested.
+
+## Open questions / Deferred decisions
+
+Local setup refresh remains pending after source changes. Native Windows qualification, uniform successful-run mode echo in garden/sync and remaining generic bare setup messages are outside the completed scope. No follow-up work starts automatically.
+
+## Previous closed wave — 22l9k setup machine-local fallback
+
+Closed by explicit operator direction on 2026-11-05 after independently reviewed change 22l9j. Current compatible incremental plans skip native embedding preparation while normal index execution and the existing stamp owner remain authoritative. Optional Tensorwell absence permits the compatible automatic local path without tracked provider edits or overrides; known precision mismatches still refuse. All four ACs/tasks are complete. Fresh code/architecture/QA/docs-contract approvals, the targeted delivery council and operator signoff are recorded.
+
+The final frozen suite passes 12,328 tests across 217 files, with 12 intended skips, in 568.366 seconds. Its receipt matches source inputs aa8ddc700c3ff56a07430b9a8545c2f1cd5f74b90e62dabecd1db95afaf6f38c. Independent reviewers replayed real setup/indexer/stamp/MCP controls and behavioral mutants. The first full run's sole CLI census failure came from owned Markdown baseline copies; verified copies were renamed .snapshot, CLI controls and the final full run pass. Protected indexer/provider/accelerator/declaration files remain unchanged; framework edit gates are closed.
+
+Native/model leaves and MCP child transport were controlled. The operator's other-machine CoreML run, native Windows/Linux and broader field efficacy remain unqualified. After a separately authorized commit/push, the useful field check is ordinary `wf setup` on that source checkout without provider overrides, followed by setup readiness inspection. Close accepted the existing matching green receipt and removed owned disposable work. The operator subsequently authorized committing and pushing this work together with 22ob1; no build or release was requested. Full evidence, actual shared reviewer contexts and limits are in wave.md, the change Progress Log and typed events.
+
 ## Last closed wave — 22l9i canonical fallback reference
 
 Closed on 2026-11-05 by explicit operator direction. Seed 100 now says “the allowed fallback conditions,” retaining seed 180's canonical citation without a separate count. All surrounding bootstrap text and seeds 020/180 are unchanged. All ACs/tasks are complete; fresh QA and docs-contract delivery approvals are recorded. The frozen-tree suite passes 12,314 tests across 217 files, with 12 intended skips; Close accepted its current green framework receipt. The first run's handoff-edit refusal and successful rerun are retained in the wave's Progress Log. Full docs validation passes; source gates are closed, and canonical Close removed the wave-owned disposable work.

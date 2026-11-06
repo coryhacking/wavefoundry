@@ -228,7 +228,8 @@ class SetupWavefoundryTests(unittest.TestCase):
             def main(argv=None):
                 return 0
 
-        for option in ("--deps-only", "--prewarm-only", "--graph-only", "--docs-only", "--background-code"):
+        for option in ("--deps-only", "--prewarm-only", "--graph-only", "--docs-only",
+                       "--code-only", "--background-code", "--background-docs"):
             with self.subTest(option=option), \
                  patch.object(self.mod, "_load_setup_index", return_value=FakeSetupIndex), \
                  patch.object(self.mod, "_run_render_platform_surfaces", return_value=0), \
@@ -331,6 +332,7 @@ class SetupWavefoundryTests(unittest.TestCase):
              redirect_stdout(io.StringIO()) as stdout:
             self.assertEqual(self.mod.main([]), 9)
         reconciliation.complete.assert_not_called()
+        self.write_setup_stamp_mock.assert_not_called()
         self.assertNotIn("setup complete", stdout.getvalue())
 
     def test_step_2_failure_aborts_before_step_3(self):
@@ -1379,6 +1381,102 @@ class StrayArtifactGuardTests(unittest.TestCase):
                 self.assertIsNotNone(message)
                 self.assertIn("memory-state.sqlite", message)
                 self.assertIn("STRAY TEST ARTIFACTS", message)
+
+
+class SetupCurrentIndexOwnerTests(unittest.TestCase):
+    """Real setup completion/stamp ownership with controlled native leaves."""
+
+    def setUp(self):
+        import setup_index
+        import venv_bootstrap
+        from test_setup_provider_preflight import SetupProviderPreflightTests
+        real_build = setup_index.build_index
+        self.provider = SetupProviderPreflightTests("runTest")
+        self.provider.setUp()
+        self.addCleanup(self.provider.doCleanups)
+        self.mod = load_setup_wavefoundry()
+        self.root = self.provider.root
+        (self.root / ".wavefoundry/framework").mkdir(parents=True, exist_ok=True)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(self.mod._provision_lifecycle_policy_if_absent(self.root), 0)
+            self.assertEqual(self.mod._provision_workflow_defaults_if_absent(self.root), 0)
+        self.provider.fixture._seed("full")
+        self.before = self.provider.fixture._snapshot()
+        self.provider.covered = False
+        self.results = []
+        self.before_build = None
+
+        def run_indexer(root, **kwargs):
+            if self.before_build is not None:
+                self.before_build()
+            result = self.provider.indexer.build_index(root, **kwargs)
+            self.results.append((kwargs["content"], result))
+            if result.get("failed"):
+                raise subprocess.CalledProcessError(2, "fixture indexer")
+
+        self.enterContext(patch.object(self.mod, "_load_setup_index", return_value=setup_index))
+        self.enterContext(patch.object(self.mod, "_run_render_platform_surfaces", return_value=0))
+        self.enterContext(patch.object(self.mod, "_run_mcp_server_dry_run", return_value=0))
+        self.enterContext(patch.object(venv_bootstrap, "ensure_python_resolves"))
+        self.enterContext(patch.object(venv_bootstrap, "activate_tool_venv"))
+        self.enterContext(patch.object(setup_index, "build_index", side_effect=real_build))
+        self.enterContext(patch.object(setup_index, "_run_indexer", side_effect=run_indexer))
+        self.embedder = self.enterContext(patch.object(
+            self.provider.indexer, "_get_embedder",
+            side_effect=AssertionError("no-op setup reached embedding")))
+
+    def run_owner(self):
+        output = io.StringIO()
+        with redirect_stdout(output), redirect_stderr(output):
+            rc = self.mod.main(["--root", str(self.root)])
+        self.assertEqual(self.provider.fixture._snapshot(), self.before)
+        return rc, output.getvalue()
+
+    def test_current_all_content_refreshes_real_stamp_without_preparation(self):
+        import setup_readiness
+        stamp_path = self.root / setup_readiness.STAMP_PATH
+        stamp_path.write_text('{"sentinel":"older setup stamp"}\n')
+        self.assertEqual(self.run_owner()[0], 0)
+        self.assertEqual(len(self.results), 1)
+        content, result = self.results[0]
+        self.assertEqual(content, "all")
+        self.assertTrue(result["up_to_date"])
+        self.assertEqual(result["files_indexed"], 0)
+        self.assertEqual(self.provider.prepared(), [])
+        self.embedder.assert_not_called()
+        stamp = json.loads(stamp_path.read_text())
+        self.assertEqual(stamp["provenance"], "setup")
+        self.assertEqual(stamp["schema_version"], setup_readiness.SCHEMA_VERSION)
+        self.assertNotIn("sentinel", stamp)
+
+    def test_precision_refusal_preserves_existing_stamp(self):
+        import setup_readiness
+        stamp = self.root / setup_readiness.STAMP_PATH
+        before = b'{"sentinel":"previous successful setup"}\n'
+        stamp.write_bytes(before)
+        self.provider.gpu = []
+        rc, output = self.run_owner()
+        self.assertEqual(rc, 2)
+        self.assertEqual(stamp.read_bytes(), before)
+        self.assertEqual(self.results, [])
+        self.assertEqual(self.provider.prepared(), [])
+        self.embedder.assert_not_called()
+        self.assertNotIn("harness setup complete", output)
+
+    def test_late_build_refusal_after_current_plan_preserves_stamp(self):
+        import setup_readiness
+        stamp = self.root / setup_readiness.STAMP_PATH
+        before = b'{"sentinel":"previous successful setup"}\n'
+        stamp.write_bytes(before)
+        self.before_build = self.provider.gpu.clear
+        rc, output = self.run_owner()
+        self.assertEqual(rc, 2)
+        self.assertEqual(stamp.read_bytes(), before)
+        self.assertEqual(len(self.results), 1)
+        self.assertTrue(self.results[0][1]["failed"])
+        self.assertEqual(self.provider.prepared(), [])
+        self.embedder.assert_not_called()
+        self.assertIn("Implicit precision conversion refused", output)
 
 
 if __name__ == "__main__":

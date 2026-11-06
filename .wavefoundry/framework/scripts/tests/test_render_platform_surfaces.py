@@ -647,7 +647,7 @@ class RenderBinLaunchersTests(unittest.TestCase):
             rendered = (root / ".wavefoundry" / "bin" / "wf.cmd").read_bytes()
         lines = rendered.decode("utf-8").split("\r\n")
         success = lines.index('if "%WF_EXIT%"=="0" exit /b 0')
-        probe = lines.index('python3 -c "import sys" >nul 2>nul')
+        probe = lines.index('python3 -c "import sys" >nul 2>nul', success)
         passthrough = lines.index('if "%ERRORLEVEL%"=="0" exit /b %WF_EXIT%')
         hint = next(i for i, line in enumerate(lines) if "could not start" in line)
         self.assertLess(success, probe)
@@ -660,6 +660,40 @@ class RenderBinLaunchersTests(unittest.TestCase):
         self.assertNotIn("EnableDelayedExpansion", body)
         # The checked-in launcher is the rendered one.
         self.assertEqual((PROJECT_ROOT / "bin" / "wf.cmd").read_bytes(), rendered)
+
+    def test_windowsapps_selected_placeholder_has_one_silent_preflight_and_remedy(self):
+        """Simulate rendered branch selection; this does not qualify cmd.exe execution."""
+        rps = self._load_rps()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            rps.render_bin_launchers(root)
+            lines = (root / '.wavefoundry/bin/wf.cmd').read_text().splitlines()
+        select = next(line for line in lines if line.startswith('if /i "%WF_PYTHON3%"'))
+        self.assertEqual(select, 'if /i "%WF_PYTHON3%"=="%LOCALAPPDATA%\\Microsoft\\WindowsApps\\python3.exe" goto python_alias_probe')
+        self.assertIn('for /f "delims=" %%I in (\'where.exe python3 2^>nul\') do if not defined WF_PYTHON3 set "WF_PYTHON3=%%I"', lines)
+        probe_block = lines[lines.index(':python_alias_probe') + 1:lines.index(':python_launch')]
+        self.assertEqual(probe_block[0], 'python3 -c "import sys" >nul 2>nul')
+        self.assertEqual(probe_block[1], 'if "%ERRORLEVEL%"=="0" goto python_launch')
+        self.assertEqual(probe_block[-1], 'exit /b 2')
+        remedies = [line for line in probe_block if line.startswith('echo ')]
+        self.assertEqual(len(remedies), 1)
+        self.assertIn('Disable the Python/Python3 App execution aliases', remedies[0])
+        self.assertIn('real Python 3.11 or newer python3 on PATH', remedies[0])
+        self.assertNotIn('admin', remedies[0].lower())
+        local = r'C:\Users\Some User\AppData\Local'
+        expected = select.split('=="', 1)[1].split('" goto', 1)[0].replace('%LOCALAPPDATA%', local)
+        fixtures = [(expected, True), (expected.upper(), True),
+                    (r'C:\Approved Python\python3.exe', False),
+                    (r'C:\Other\WindowsApps\python3.exe', False),
+                    (r'C:\Approved Python\python3.cmd', False)]
+        for selected, alias in fixtures:
+            with self.subTest(selected=selected):
+                self.assertEqual(selected.lower() == expected.lower(), alias)
+        # Real-interpreter success still reaches the dispatcher without any -c probe.
+        normal_path = lines[lines.index('goto python_launch'):lines.index(':python_alias_probe')]
+        self.assertEqual(normal_path, ['goto python_launch'])
+        self.assertIn('if errorlevel 1 goto python_missing', lines)
+        self.assertIn('if "%WF_EXIT%"=="0" exit /b 0', lines)
 
     def test_retired_wrappers_not_rendered(self):
         # AC-2: none of the nine individual bash wrappers is written; a re-render removes any present.
@@ -1225,6 +1259,18 @@ class ModernizationBriefingTests(unittest.TestCase):
         second = self.run_hook(self.payload("code-modernization:another-agent", prompt="DO_NOT_ECHO_SECRET"))
         self.assertEqual(json.loads(second), response)
         self.assertNotIn(b"DO_NOT_ECHO_SECRET", second)
+
+    def test_alternate_vocabulary_reaches_executed_briefing_without_renaming_seed(self):
+        import vocabulary_profile as vp
+
+        with patch.object(vp, 'ITEM_NAME', 'Proposal'):
+            self.mod.render_platform_entrypoints(self.root, 'claude')
+        context = json.loads(self.run_hook(self.payload()))['hookSpecificOutput']['additionalContext']
+        self.assertIn('assigned proposal/ACs', context)
+        self.assertNotIn('assigned change/ACs', context)
+        self.assertIn('Wavefoundry modernization briefing', context)
+        self.assertIn('.wavefoundry/framework/seeds/180-implement-change.prompt.md', context)
+        self.assertIn('docs/agents/guru.md', context)
 
     def test_unrelated_misleading_and_malformed_payloads_are_silent(self):
         for agent in ("Explore", "modernization-planner", "code-modernization", "code-modernization:",

@@ -10,6 +10,7 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -77,7 +78,7 @@ class WaveWorkTests(unittest.TestCase):
         self.assertEqual(self.cleanup(None)["outcome"], "preserved")
         self.assertEqual(list(self.path.iterdir()), [])
 
-    def test_wrong_repository_wave_or_directory_identity_is_preserved(self):
+    def test_malformed_repository_wrong_wave_or_directory_identity_is_preserved(self):
         for field, value in [("repository", "elsewhere"), ("wave", waves_rel("abc13", vp.RECORD_FILENAME)),
                              ("directory", [0, 0])]:
             with self.subTest(field=field):
@@ -92,6 +93,16 @@ class WaveWorkTests(unittest.TestCase):
                 owner[field] = original
                 marker.write_text(json.dumps(owner))
 
+    def test_schema_two_repository_spelling_is_history_with_verified_root_identity(self):
+        generation = self.ensure()
+        marker = self.path / work.OWNER_FILE
+        owner = json.loads(marker.read_text())
+        owner["repository"] = str(self.outside)
+        marker.write_text(json.dumps(owner))
+        before = marker.read_bytes()
+        self.assertEqual(work.describe_work(self.root, self.wave)["generation"], generation)
+        self.assertEqual(marker.read_bytes(), before)
+
     def test_unknown_generation_never_discovers_cleanup_authority(self):
         generation = self.ensure()
         self.assertEqual(self.cleanup(None)["outcome"], "preserved")
@@ -103,6 +114,7 @@ class WaveWorkTests(unittest.TestCase):
         marker = self.path / work.OWNER_FILE
         owner = json.loads(marker.read_text())
         owner["directory"][0] += 1
+        owner["repository_directory"][0] += 1
         marker.write_text(json.dumps(owner))
         before = marker.read_bytes()
         for result in (work.describe_work(self.root, self.wave),
@@ -110,6 +122,80 @@ class WaveWorkTests(unittest.TestCase):
             self.assertTrue(result["available"], result)
             self.assertEqual(result["generation"], generation)
             self.assertEqual(marker.read_bytes(), before)
+
+    def test_root_rename_uses_persisted_identity_without_restamping(self):
+        generation = self.ensure()
+        tail = self.wave.relative_to(self.root)
+        before = (self.path / work.OWNER_FILE).read_bytes()
+        moved = self.root.with_name("renamed")
+        self.root.rename(moved)
+        self.root, self.wave = moved, moved / tail
+        self.path = moved / work.WORK_ROOT / "abc12"
+        self.assertEqual(work.describe_work(moved, self.wave)["generation"], generation)
+        self.assertEqual(work.ensure_work(moved, self.wave)["generation"], generation)
+        self.assertEqual((self.path / work.OWNER_FILE).read_bytes(), before)
+        self.assertEqual(self.cleanup(generation)["outcome"], "removed")
+
+    def test_actual_case_alias_is_accepted_without_case_folding_foreign_roots(self):
+        generation = self.ensure()
+        alias = self.root.with_name("REPO")
+        if not alias.exists():
+            self.skipTest("filesystem has distinct case spellings")
+        self.assertTrue(os.path.samefile(alias, self.root))
+        result = work.describe_work(alias, alias / self.wave.relative_to(self.root))
+        self.assertEqual(result.get("generation"), generation, result)
+
+    def test_moved_work_alone_cannot_transfer_repository_ownership(self):
+        generation = self.ensure()
+        foreign = self.base / "foreign"
+        foreign_wave = foreign / self.wave.relative_to(self.root)
+        foreign_wave.parent.mkdir(parents=True)
+        foreign_wave.write_bytes(self.wave.read_bytes())
+        destination = foreign / work.WORK_ROOT / "abc12"
+        destination.parent.mkdir(parents=True)
+        self.path.rename(destination)
+        marker = destination / work.OWNER_FILE
+        before = marker.read_bytes()
+        self.assertFalse(work.describe_work(foreign, foreign_wave)["available"])
+        self.assertFalse(work.ensure_work(foreign, foreign_wave)["available"])
+        result = work.cleanup_work(foreign, foreign_wave, expected_generation=generation)
+        self.assertEqual(result["outcome"], "preserved")
+        self.assertEqual(marker.read_bytes(), before)
+
+    def test_legacy_same_root_remains_usable_but_unprovable_rename_preserves(self):
+        generation = self.ensure()
+        marker = self.path / work.OWNER_FILE
+        owner = json.loads(marker.read_text())
+        owner["schema"] = 1
+        owner.pop("repository_directory")
+        marker.write_text(json.dumps(owner))
+        original = marker.read_bytes()
+        self.assertEqual(work.describe_work(self.root, self.wave)["generation"], generation)
+        self.assertEqual(marker.read_bytes(), original)
+        tail = self.wave.relative_to(self.root)
+        before = marker.read_bytes()
+        moved = self.root.with_name("legacy-renamed")
+        self.root.rename(moved)
+        wave = moved / tail
+        for result in (work.describe_work(moved, wave), work.ensure_work(moved, wave),
+                       work.cleanup_work(moved, wave, expected_generation=generation)):
+            self.assertFalse(result["available"], result)
+            self.assertIn("move retained work aside", result["notice"])
+        self.assertEqual((moved / work.WORK_ROOT / "abc12" / work.OWNER_FILE).read_bytes(), before)
+
+    def test_invalid_root_identity_never_grants_ownership(self):
+        generation = self.ensure()
+        marker = self.path / work.OWNER_FILE
+        owner = json.loads(marker.read_text())
+        device, inode = owner["repository_directory"]
+        for value in ([device, inode + 1], [device, 0], [True, inode], [device, True], None, [], [device]):
+            with self.subTest(root_identity=value):
+                owner["repository_directory"] = value
+                marker.write_text(json.dumps(owner))
+                before = marker.read_bytes()
+                self.assertFalse(work.describe_work(self.root, self.wave)["available"])
+                self.assertEqual(self.cleanup(generation)["outcome"], "preserved")
+                self.assertEqual(marker.read_bytes(), before)
 
     def test_invalid_directory_records_refuse_reads_and_cleanup_without_mutation(self):
         generation = self.ensure()
@@ -403,6 +489,7 @@ class SnapshotTests(unittest.TestCase):
         marker = self.path / work.OWNER_FILE
         owner = json.loads(marker.read_text())
         owner["directory"][0] += 1
+        owner["repository_directory"][0] += 1
         marker.write_text(json.dumps(owner))
         before = marker.read_bytes()
         snapshot_before = self.snapshot.read_bytes()
@@ -411,6 +498,141 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(result["documents"], self.documents)
         self.assertEqual(marker.read_bytes(), before)
         self.assertEqual(self.snapshot.read_bytes(), snapshot_before)
+
+    def test_interrupted_post_link_unlink_keeps_snapshot_readable_and_immutable(self):
+        real = os.unlink
+        def interrupt(name, *args, **kwargs):
+            if str(name).startswith(".snapshot-"):
+                raise PermissionError(errno.EACCES, "interrupted cleanup")
+            return real(name, *args, **kwargs)
+        with mock.patch.object(work.os, "unlink", side_effect=interrupt):
+            self.assertFalse(self.publish()["available"])
+        temporary, = self.snapshot.parent.glob(".snapshot-*.tmp")
+        self.assertEqual(self.snapshot.stat().st_nlink, 2)
+        before = {p.name: p.read_bytes() for p in self.snapshot.parent.iterdir()}
+        result = self.read()
+        self.assertTrue(result["available"], result)
+        self.assertEqual(result["documents"], self.documents)
+        self.assertEqual({p.name: p.read_bytes() for p in self.snapshot.parent.iterdir()}, before)
+        self.assertIn("immutable", self.publish()["notice"])
+        self.assertTrue(temporary.exists())
+        self.assertEqual(self.snapshot.read_bytes(), before[self.snapshot.name])
+
+    def test_active_publisher_unlink_race_reads_without_mutating(self):
+        self.assertTrue(self.publish()["available"])
+        temporary = self.snapshot.parent / (".snapshot-" + "a" * 32 + ".tmp")
+        os.link(self.snapshot, temporary)
+        def finish(stage):
+            if stage == "snapshot_link":
+                temporary.unlink(missing_ok=True)
+        with mock.patch.object(work, "_checkpoint", side_effect=finish):
+            result = self.read()
+        self.assertTrue(result["available"], result)
+        self.assertEqual(result["documents"], self.documents)
+        self.assertEqual(self.snapshot.stat().st_nlink, 1)
+
+    def test_concurrent_publisher_read_and_collision_keep_first_bytes(self):
+        linked, release = threading.Event(), threading.Event()
+        results, errors = [], []
+        real = os.unlink
+        def hold(name, *args, **kwargs):
+            if threading.current_thread() is publisher and str(name).startswith(".snapshot-"):
+                linked.set()
+                if not release.wait(10):
+                    raise AssertionError("publisher not released")
+            return real(name, *args, **kwargs)
+        def publish():
+            try:
+                results.append(self.publish())
+            except BaseException as exc:
+                errors.append(exc)
+        publisher = threading.Thread(target=publish, daemon=True)
+        with mock.patch.object(work.os, "unlink", side_effect=hold):
+            publisher.start()
+            try:
+                self.assertTrue(linked.wait(10), "publisher did not commit its link")
+                self.assertEqual(self.snapshot.stat().st_nlink, 2)
+                before = self.snapshot.read_bytes()
+                self.assertEqual(self.read()["documents"], self.documents)
+                collision = self.publish()
+                self.assertIn("snapshot_exists", collision["notice"])
+                self.assertEqual(self.snapshot.read_bytes(), before)
+            finally:
+                release.set()
+                publisher.join(10)
+        self.assertFalse(publisher.is_alive())
+        self.assertFalse(errors, errors)
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0]["available"], results)
+        self.assertEqual(self.snapshot.stat().st_nlink, 1)
+        self.assertEqual(self.read()["documents"], self.documents)
+
+    def test_unknown_external_excess_and_symlink_links_refuse(self):
+        self.assertTrue(self.publish()["available"])
+        internal = self.snapshot.parent / (".snapshot-" + "a" * 32 + ".tmp")
+        external = self.outside / "external.json"
+        unknown = self.snapshot.parent / ".snapshot-not-a-uuid.tmp"
+        for case in ("external", "unknown", "excess", "symlink"):
+            with self.subTest(case=case):
+                if case in ("external", "symlink", "excess"):
+                    os.link(self.snapshot, external)
+                if case in ("excess",):
+                    os.link(self.snapshot, internal)
+                if case == "unknown":
+                    os.link(self.snapshot, unknown)
+                if case == "symlink":
+                    internal.symlink_to(external)
+                try:
+                    before = self.snapshot.read_bytes()
+                    result = self.read()
+                    self.assertFalse(result["available"], result)
+                    self.assertIn("snapshot_file_unproven", result["notice"])
+                    self.assertNotIn("documents", result)
+                    self.assertEqual(self.snapshot.read_bytes(), before)
+                finally:
+                    internal.unlink(missing_ok=True)
+                    external.unlink(missing_ok=True)
+                    unknown.unlink(missing_ok=True)
+
+    def test_recovered_link_still_checks_receipt_integrity(self):
+        self.assertTrue(self.publish()["available"])
+        temporary = self.snapshot.parent / (".snapshot-" + "a" * 32 + ".tmp")
+        os.link(self.snapshot, temporary)
+        bad = copy.deepcopy(self.receipt)
+        bad["review_context"]["documents"][0]["raw_sha256"] = "f" * 64
+        self.assertIn("raw_integrity", self.read(bad)["notice"])
+        self.assertTrue(temporary.exists())
+
+    def test_publisher_unlink_with_new_external_link_does_not_reuse_stale_proof(self):
+        self.assertTrue(self.publish()["available"])
+        temporary = self.snapshot.parent / (".snapshot-" + "a" * 32 + ".tmp")
+        external = self.outside / "foreign-link.json"
+        os.link(self.snapshot, temporary)
+        def replace(stage):
+            if stage == "snapshot_link_verified" and temporary.exists():
+                temporary.unlink()
+                os.link(self.snapshot, external)
+        with mock.patch.object(work, "_checkpoint", side_effect=replace):
+            result = self.read()
+        self.assertFalse(result["available"], result)
+        self.assertIn("snapshot_file_unproven", result["notice"])
+        self.assertTrue(external.exists())
+
+    def test_snapshot_survives_root_rename_and_both_device_history_changes(self):
+        self.assertTrue(self.publish()["available"])
+        marker = self.path / work.OWNER_FILE
+        owner = json.loads(marker.read_text())
+        owner["directory"][0] += 1
+        owner["repository_directory"][0] += 1
+        marker.write_text(json.dumps(owner))
+        before = marker.read_bytes()
+        tail = self.wave.relative_to(self.root)
+        moved = self.root.with_name("snapshot-renamed")
+        self.root.rename(moved)
+        result = work.read_snapshot(moved, moved / tail, self.receipt)
+        self.assertTrue(result["available"], result)
+        self.assertEqual(result["documents"], self.documents)
+        self.assertEqual((moved / work.WORK_ROOT / "abc12" / work.OWNER_FILE).read_bytes(), before)
 
     def test_missing_or_legacy_baseline_never_creates_work(self):
         result = self.read()

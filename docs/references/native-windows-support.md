@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: supported
-Last verified: 2026-10-19
+Last verified: 2026-11-05
 
 ## SQLite conversion qualification (1xjmm)
 
@@ -64,6 +64,8 @@ powershell -NoProfile -File ".\.wavefoundry\framework\scripts\diagnose_python.ps
 ```
 
 On first installation, a successful supported `python3` check permits setup to provision the tool environment before the server dry-run; do not require MCP bootstrap before its dependencies exist. Existing provisioned checkouts need no forced setup or rebuild merely for command repair.
+
+Setup assessments and recovery messages name the absolute repository-local `.wavefoundry\bin\wf.cmd`, with structured arguments in `setup --check --json`; avoid bare `wf`, which can resolve to Windows Firewall. The rendered launcher silently probes a positively recognized selected WindowsApps `python3` execution alias before starting. If that alias cannot run Python, one message asks the operator to disable the Python/Python3 App execution aliases in Settings and put a real supported `python3` on PATH. Ordinary interpreter paths receive no extra preprobe. These changes have rendered/controlled-branch evidence; native Windows execution remains unqualified.
 
 Record the failed stage and attempted command, the resolved path and interpreter identity when available, and the observed error, exit status or timeout. The script checks `python3` and, for diagnosis, an available `python` entry with finite version probes. A discovered `python.exe` does not satisfy MCP's `python3` contract. Distinguish a missing command, old interpreter, failed execution, timeout and a later `server.py --dry-run` failure. A Store-placeholder explanation is supported only when the observed path or error identifies it; a generic failed exit is not proof. Do not infer PATH, alias or enterprise-policy causation from executable presence alone. A cause without supporting evidence remains undetermined, with the next probe named.
 

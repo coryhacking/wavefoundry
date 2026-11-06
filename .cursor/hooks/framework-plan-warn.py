@@ -36,11 +36,15 @@ if _wf_venv_bootstrap is not None:
         _WF_VENV_UNAVAILABLE = "activation_failed"
 if _WF_VENV_UNAVAILABLE:
     try:
+        import setup_readiness as _wf_setup_readiness
+
         print(
             "wavefoundry: hook running without the tool venv ("
             + ("it was built for another Python version" if _WF_VENV_UNAVAILABLE == "version_mismatch"
                else "its activation failed")
-            + "); run `wf setup` to rebuild it.",
+            + "); run " + _wf_setup_readiness.format_command(
+                _wf_setup_readiness.repository_launcher_argv(
+                    _WfPath(__file__).resolve().parents[2], "setup")) + " to rebuild it.",
             file=_wf_sys.stderr,
         )
     except Exception:

@@ -41,6 +41,7 @@ class SetupProviderPreflightTests(unittest.TestCase):
     def setUp(self):
         # Other framework test loaders deliberately replace these sys.modules
         # entries. Pin this fixture's patched objects for dynamic imports too.
+        self.real_select_embedder = inference_provider.select_embedder
         self.pin_modules({
             "setup_index": setup_index, "inference_provider": inference_provider,
             "inference_profile": inference_profile, "tensorwell_client": tensorwell_client,
@@ -53,7 +54,11 @@ class SetupProviderPreflightTests(unittest.TestCase):
         self.fixture._seed("full")
         self.indexer = self.fixture.bi
         self.root = self.fixture.root
+        # Most boundary controls require actual work; no-work controls reseed.
+        self.source = self.root / "docs/guide.md"
+        self.source.write_text(self.source.read_text() + "\nPending setup update.\n")
         self.before = self.fixture._snapshot()
+        self.real_setup_build = setup_index.build_index
         self.events = []
         self.gpu = ["CoreMLExecutionProvider"]
         self.covered = True
@@ -152,14 +157,15 @@ class SetupProviderPreflightTests(unittest.TestCase):
         self.assertIn("selection only", output)
         self.assertNotIn("executed inference", output)
 
-    def test_probe_dependent_full_is_uncertain_not_measured_failure(self):
+    def test_absent_service_uses_compatible_automatic_local_preparation(self):
         self.covered = False
         code, output = self.run_setup()
-        self.assertEqual(code, 2)
-        self.assertIn("compatibility unverified", output)
-        self.assertIn("possible full/int8", output)
-        self.assertNotIn("probe failed", output)
-        self.assertEqual(self.prepared(), [])
+        self.assertEqual(code, 0)
+        self.assertTrue(any(kind == "warm" for kind, _ in self.prepared()))
+        self.assertTrue(any(kind == "probe" for kind, _ in self.prepared()))
+        self.assertTrue(any(kind == "compile" for kind, _ in self.prepared()))
+        self.assertNotIn("compatibility unverified", output)
+        self.assertEqual(os.environ["WAVEFOUNDRY_EMBED_PROVIDER"], "auto")
 
     def test_fresh_legacy_unknown_compatible_local_and_full_rebuild_controls(self):
         self.covered = False
@@ -203,21 +209,35 @@ class SetupProviderPreflightTests(unittest.TestCase):
         for flag in ("--background-code", "--background-docs"):
             with self.subTest(flag=flag):
                 self.events.clear()
-                self.assertEqual(self.run_setup(flag)[0], 2)
-                self.assertEqual(self.prepared(), [])
+                self.assertEqual(self.run_setup(flag)[0], 0)
+                if flag == "--background-code":
+                    self.assertEqual(self.prepared(), [])  # uncovered work is detached
+                else:
+                    self.assertTrue(self.prepared())
 
-    def test_changed_selection_rechecked_before_each_local_boundary(self):
-        # One model is used by both layers. Calls 1/2/3/4 correspond to initial
-        # assessment, weight preparation, provider probe, accelerated preparation.
+    def test_changed_selection_allows_compatible_local_work(self):
         for vanish_at in (2, 3, 4):
             with self.subTest(vanish_at=vanish_at):
                 self.events.clear()
                 self.selections = 0
                 self.choose = lambda model, count: count < vanish_at
                 code, output = self.run_setup()
-                self.assertEqual(code, 2)
+                self.assertEqual(code, 0)
+                self.assertTrue(self.prepared())
                 self.assertIn("discovery_unavailable", output)
-                self.assertEqual(self.prepared(), [])
+
+    def test_provider_probe_rejection_rechecks_precision_before_native_accel(self):
+        self.covered = False
+        def reject_probe(**kwargs):
+            self.leaf("probe", kwargs["model_name"])
+            self.gpu = []
+        with patch.object(setup_index, "report_embedding_provider_decision", side_effect=reject_probe):
+            code, output = self.run_setup()
+        self.assertEqual(code, 2)
+        self.assertIn("recorded full, requested int8", output)
+        self.assertTrue(any(kind == "warm" for kind, _ in self.prepared()))
+        self.assertFalse(any(kind in {"compile", "reranker"} for kind, _ in self.prepared()))
+        self.assertFalse(any(event[0] == "build" for event in self.events))
 
     def test_loss_after_preflight_still_hits_direct_indexer_guard(self):
         def change_at_build(root, **kwargs):
@@ -261,26 +281,157 @@ class SetupProviderPreflightTests(unittest.TestCase):
     def test_early_and_repeated_guard_mutants_expose_unwanted_preparation(self):
         self.covered = False
         self.gpu = []
-        # Disabling the early check makes the original unwanted work observable,
-        # even though the final guard still protects publication.
         with patch.object(setup_index, "_check_setup_precision"):
             code, _ = self.run_setup()
         self.assertEqual(code, 2)
         self.assertTrue(any(kind == "warm" for kind, _ in self.prepared()))
-        # Checking only the first qualified selection also authorizes unsafe work.
+        # A probe can alter local precision after the initial compatible check.
         self.events.clear()
-        self.selections = 0
         self.gpu = ["CoreMLExecutionProvider"]
-        self.choose = lambda model, count: count == 1
         original = setup_index._check_setup_precision
         calls = []
         def once(*args):
             calls.append(1)
             if len(calls) == 1:
                 original(*args)
-        with patch.object(setup_index, "_check_setup_precision", side_effect=once):
-            self.assertEqual(self.run_setup()[0], 0)
-        self.assertTrue(any(kind == "warm" for kind, _ in self.prepared()))
+        def reject_probe(**kwargs):
+            self.leaf("probe", kwargs["model_name"])
+            self.gpu = []
+        with patch.object(setup_index, "_check_setup_precision", side_effect=once), \
+             patch.object(setup_index, "report_embedding_provider_decision", side_effect=reject_probe):
+            self.assertEqual(self.run_setup()[0], 2)
+        self.assertTrue(any(kind == "compile" for kind, _ in self.prepared()))
+
+    def use_real_index_build(self, before_build=None):
+        self.results = []
+        def run_indexer(root, **kwargs):
+            if before_build is not None:
+                before_build()
+            result = self.indexer.build_index(root, **kwargs)
+            self.results.append(result)
+            if result.get("failed"):
+                raise subprocess.CalledProcessError(2, "fixture indexer")
+        self.enterContext(patch.object(setup_index, "build_index", side_effect=self.real_setup_build))
+        self.enterContext(patch.object(setup_index, "_run_indexer", side_effect=run_indexer))
+
+    def settle_source(self):
+        self.fixture._seed("full")
+        self.before = self.fixture._snapshot()
+        self.events.clear()
+
+    def test_current_plan_skips_preparation_but_reaches_real_build(self):
+        self.settle_source()
+        self.covered = False
+        self.use_real_index_build()
+        with patch.object(self.indexer, "_get_embedder", side_effect=AssertionError("unexpected embedding")):
+            code, output = self.run_setup()
+        self.assertEqual(code, 0)
+        self.assertIn("Normal index validation continues", output)
+        self.assertEqual(self.prepared(), [])
+        self.assertEqual(len(self.results), 1)
+        self.assertTrue(self.results[0]["up_to_date"])
+        self.assertEqual(self.results[0]["files_indexed"], 0)
+
+    def test_changed_work_uses_local_preparation_and_real_build(self):
+        self.covered = False
+        self.use_real_index_build()
+        with patch.object(self.indexer, "_get_embedder", return_value=self.fixture.embedder):
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                code = setup_index.main(["--root", str(self.root)])
+        self.assertEqual(code, 0)
+        self.assertTrue(self.prepared())
+        self.assertFalse(self.results[0]["up_to_date"])
+        self.assertGreater(self.results[0]["files_indexed"], 0)
+        self.assertTrue(self.fixture.calls)
+
+    def test_invalid_extension_cannot_gain_no_work_exemption(self):
+        self.settle_source()
+        with patch.object(inference_profile, "PROVIDER", "extension"), \
+             patch.object(inference_provider, "select_embedder", side_effect=self.real_select_embedder):
+            code, output = self.run_setup()
+        self.assertEqual(code, 2)
+        self.assertEqual(self.prepared(), [])
+        self.assertIn("Declared inference provider is unavailable", output)
+
+    def test_nonsemantic_special_paths_do_not_use_no_work_assessment(self):
+        for flag in ("--deps-only", "--graph-only", "--prewarm-only"):
+            with self.subTest(flag=flag), \
+                 patch.object(setup_index, "_setup_semantic_work_is_current", side_effect=AssertionError("unexpected planning")), \
+                 patch.object(setup_index, "_run_indexer"):
+                self.assertEqual(self.run_setup(flag)[0], 0)
+
+    def test_source_change_after_current_plan_is_indexed_by_real_build(self):
+        self.settle_source()
+        self.covered = False
+        def change_source():
+            self.source.write_text(self.source.read_text() + "\nArrived after planning.\n")
+        self.use_real_index_build(change_source)
+        with patch.object(self.indexer, "_get_embedder", return_value=self.fixture.embedder):
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                code = setup_index.main(["--root", str(self.root)])
+        self.assertEqual(code, 0)
+        self.assertEqual(self.prepared(), [])
+        self.assertFalse(self.results[0]["up_to_date"])
+        self.assertGreater(self.results[0]["files_indexed"], 0)
+        self.assertTrue(self.fixture.calls)
+
+    def test_provider_change_after_current_plan_retains_published_snapshot(self):
+        self.settle_source()
+        self.covered = False
+        self.use_real_index_build(lambda: self.gpu.clear())
+        with patch.object(self.indexer, "_get_embedder", side_effect=AssertionError("incompatible embedding")):
+            code, output = self.run_setup()
+        self.assertEqual(code, 2)
+        self.assertIn("Implicit precision conversion refused", output)
+        self.assertEqual(self.prepared(), [])
+        self.assertTrue(self.results[0]["failed"])
+
+    def test_uncertain_plan_preserves_normal_preparation_without_exception_text(self):
+        self.covered = False
+        for result in (None, {}, {"up_to_date": "true"}, {"up_to_date": True, "failed": True}):
+            with self.subTest(result=result), patch.object(self.indexer, "build_index", return_value=result):
+                self.events.clear()
+                self.assertEqual(self.run_setup()[0], 0)
+                self.assertTrue(self.prepared())
+        with patch.object(self.indexer, "build_index", side_effect=ValueError("private diagnostic")):
+            self.events.clear()
+            code, output = self.run_setup()
+        self.assertEqual(code, 0)
+        self.assertTrue(self.prepared())
+        self.assertNotIn("private diagnostic", output)
+
+    def test_planner_matches_scope_and_flags_and_does_not_override_rebuild(self):
+        for flag, content in (("--docs-only", "docs"), ("--code-only", "code"),
+                              ("--background-code", "all"), ("--background-docs", "all")):
+            with self.subTest(flag=flag), patch.object(self.indexer, "build_index", wraps=self.indexer.build_index) as plan:
+                self.assertEqual(self.run_setup(flag, "--include-tests", "--include-generated")[0], 0)
+                self.assertEqual(plan.call_args.kwargs, dict(content=content, include_tests=True,
+                                                           include_generated=True, dry_run=True))
+        self.covered = False
+        for flag in ("--full", "--rechunk"):
+            with self.subTest(flag=flag), patch.object(self.indexer, "build_index") as plan:
+                self.events.clear()
+                self.assertEqual(self.run_setup(flag)[0], 0)
+                plan.assert_not_called()
+                self.assertTrue(self.prepared())
+
+    def test_canonical_plan_observes_self_hosted_sources_and_identity_changes(self):
+        code = self.root / ".wavefoundry/framework/scripts/example.py"
+        code.parent.mkdir(parents=True, exist_ok=True)
+        code.write_text("def example(): return 1\n")
+        config = self.root / "docs/workflow-config.json"
+        config.write_text('{"indexing":{"project_include_prefixes":{"code":[".wavefoundry/framework/scripts"]}}}')
+        self.settle_source()
+        self.covered = False
+        code.write_text("def example(): return 2\n")
+        self.assertEqual(self.run_setup()[0], 0)
+        self.assertTrue(self.prepared())
+        self.settle_source()
+        for owner, field in ((self.indexer, "WALKER_VERSION"), (self.indexer._get_chunker(), "CHUNKER_VERSION")):
+            with self.subTest(field=field), patch.object(owner, field, str(getattr(owner, field)) + "-changed"):
+                self.events.clear()
+                self.assertEqual(self.run_setup()[0], 0)
+                self.assertTrue(self.prepared())
 
 
 if __name__ == "__main__":

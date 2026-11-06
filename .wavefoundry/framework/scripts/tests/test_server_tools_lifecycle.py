@@ -6679,6 +6679,98 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
     def _diagnostic(response):
         return response["diagnostics"][0]
 
+    def _registered_mark(self, tool_name, **arguments):
+        from declaration_support import RecordingFastMCP
+
+        if not hasattr(self, "_mark_surface"):
+            telemetry = MagicMock()
+            telemetry.focus = types.SimpleNamespace(wave_id="", stage="general")
+            telemetry.record_workflow.return_value = {}
+            handler = types.SimpleNamespace(root=self.root, cache=None, telemetry=telemetry)
+            self._mark_surface = RecordingFastMCP()
+            self.srv.register_mcp_surface(self._mark_surface, lambda: handler)
+        return self._mark_surface._tool_manager._tools[tool_name].fn(
+            wave_id=self.wave_id, change_id="1200c-enh mark-sample", **arguments,
+        )
+
+    def test_registered_mark_previews_report_no_write_and_exact_applying_call(self):
+        for tool, label_key, label, section in (
+            ("wf_mark_ac", "ac_id", "AC-1", "Acceptance Criteria"),
+            ("wf_mark_task", "task", "Implement", "Tasks"),
+        ):
+            for mode in (None, "dry_run", "  DRY_RUN  "):
+                with self.subTest(tool=tool, mode=mode):
+                    original = f"# Sample\r\n\r\n## {section}\r\n\r\n- [ ] {label}: Keep bytes.\r\n".encode()
+                    path = self.wave_dir / "1200c-enh mark-sample.md"
+                    path.write_bytes(original)
+                    args = {label_key: label, "state": "x"}
+                    if mode is not None:
+                        args["mode"] = mode
+                    result = self._registered_mark(tool, **args)
+                    self.assertEqual(result["status"], "ok", result)
+                    self.assertEqual(result["data"]["mode"], "dry_run")
+                    self.assertFalse(result["data"]["applied"])
+                    self.assertTrue(result["data"]["changed"])
+                    self.assertEqual(path.read_bytes(), original)
+                    note = next(d for d in result["diagnostics"] if d["code"] == "dry_run_not_written")
+                    self.assertTrue(note["advisory"])
+                    self.assertEqual(note["recovery_tools"], [tool])
+                    self.assertEqual(note["recovery_usage"], (
+                        f"{tool}(wave_id={self.wave_id!r}, change_id='1200c-enh mark-sample', "
+                        f"{label_key}={label!r}, state='x', mode='create')"
+                    ))
+
+    def test_registered_mark_writes_normalize_alias_and_noop_is_not_applied(self):
+        for tool, label_key, label, section in (
+            ("wf_mark_ac", "ac_id", "AC-1", "Acceptance Criteria"),
+            ("wf_mark_task", "task", "Implement", "Tasks"),
+        ):
+            for mode in ("create", "apply", "  APPLY  ", " CREATE "):
+                with self.subTest(tool=tool, mode=mode):
+                    original = f"# Sample\r\n\r\n## {section}\r\n\r\n- [ ] {label}: Keep bytes.\r\n".encode()
+                    path = self.wave_dir / "1200c-enh mark-sample.md"
+                    path.write_bytes(original)
+                    args = {label_key: label, "state": "x", "mode": mode}
+                    result = self._registered_mark(tool, **args)
+                    self.assertEqual(result["status"], "ok", result)
+                    self.assertEqual(result["data"]["mode"], "create")
+                    self.assertTrue(result["data"]["applied"])
+                    self.assertTrue(result["data"]["changed"])
+                    self.assertEqual(path.read_bytes(), original.replace(b"[ ]", b"[x]"))
+                    with patch.object(self.srv, "_atomic_replace_text") as writer:
+                        noop = self._registered_mark(tool, **args)
+                    self.assertEqual(noop["status"], "ok", noop)
+                    self.assertEqual(noop["data"]["mode"], "create")
+                    self.assertFalse(noop["data"]["applied"])
+                    self.assertFalse(noop["data"]["changed"])
+                    writer.assert_not_called()
+
+    def test_registered_mark_invalid_modes_refuse_instead_of_silent_preview(self):
+        self._write_change("# Sample\n\n## Tasks\n\n- [ ] Implement\n")
+        path = self.wave_dir / "1200c-enh mark-sample.md"
+        original = path.read_bytes()
+        for mode in ("creat", "", "yes", "preview"):
+            with self.subTest(mode=mode), patch.object(self.srv, "_atomic_replace_text") as writer:
+                result = self._registered_mark("wf_mark_task", task="Implement", state="x", mode=mode)
+                self.assertEqual(result["status"], "error", result)
+                self.assertEqual(result["diagnostics"][0]["code"], "invalid_arguments")
+                self.assertEqual(result["data"]["valid_modes"], ["dry_run", "create", "apply"])
+                self.assertEqual(path.read_bytes(), original)
+                writer.assert_not_called()
+
+    def test_registered_ac_preview_retains_quoted_reason_without_receipt_write(self):
+        self._write_change("# Sample\n\n## Acceptance Criteria\n\n- [ ] AC-1: Keep evidence.\n")
+        path = self.wave_dir / "1200c-enh mark-sample.md"
+        original = path.read_bytes()
+        reason = "Owner's decision: deferred until the next supported host."
+        result = self._registered_mark("wf_mark_ac", ac_id="AC-1", state="~", reason=reason)
+        self.assertEqual(result["status"], "ok", result)
+        self.assertFalse(result["data"]["applied"])
+        self.assertEqual(path.read_bytes(), original)
+        note = next(d for d in result["diagnostics"] if d["code"] == "dry_run_not_written")
+        self.assertIn(f"reason={reason!r}", note["recovery_usage"])
+        self.assertIn("mode='create'", note["recovery_usage"])
+
     def test_ambiguous_task_returns_candidates_and_safe_recovery(self):
         self._write_change(
             "# Sample\n\n## Tasks\n\n- [ ] Implement\n- [ ] Implement\n"
@@ -11237,6 +11329,8 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             tagged,
             {
                 ("change_sections_gate", "_diagnostic", "ac_priority_unpopulated"),
+                # Wave 22ob1: a changing preview remains deliberately unwritten.
+                ("_mark_change_item_response", "_diagnostic", "dry_run_not_written"),
                 ("required_sensors_gate", "_diagnostic", "phase_sensor_not_executed"),
                 # Wave 21j63: a delivery that does not establish its intent never blocks.
                 ("_evaluate_shared_delivery_state", "_diagnostic", "delivery_intent_not_established"),
@@ -18222,6 +18316,8 @@ class ReceiptSnapshotPublicIntegrationTests(unittest.TestCase):
                            ac_id="AC-1", state="~", reason="explicit compatibility validation is deferred",
                            mode="create")
         self.ok(result)
+        self.assertEqual(result["data"]["mode"], "create")
+        self.assertTrue(result["data"]["applied"])
         current = self.receipt()
         self.assertNotEqual(current["receipt_id"], before)
         after = self.change_path.read_bytes()

@@ -1169,6 +1169,46 @@ class WaveIndexBuildResponseTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_all_content_update_response_routes_to_incremental_setup(self):
+        import io
+        import setup_index
+        import setup_readiness
+        from test_setup_provider_preflight import SetupProviderPreflightTests
+        provider = SetupProviderPreflightTests("runTest")
+        provider.setUp()
+        self.addCleanup(provider.doCleanups)
+        provider.settle_source()
+        provider.covered = False
+        provider.use_real_index_build()
+        commands = []
+        codes = []
+        real_popen = subprocess.Popen
+        process = MagicMock()
+        process.pid = 12345
+
+        def spawn(command, **kwargs):
+            if len(command) < 2 or Path(command[1]).name != "setup_index.py":
+                return real_popen(command, **kwargs)
+            commands.append(command)
+            codes.append(setup_index.main(command[2:]))
+            process.poll.return_value = codes[-1]
+            return process
+
+        with patch("subprocess.Popen", side_effect=spawn), \
+             patch.object(provider.indexer, "_get_embedder", side_effect=AssertionError("unexpected embedding")), \
+             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            result = self.srv.index_build_response(provider.root, content="all", mode="update")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(codes, [0])
+        self.assertEqual(len(commands), 1)
+        self.assertIn("--include-code", commands[0])
+        self.assertNotIn("--full", commands[0])
+        self.assertNotIn("--rechunk", commands[0])
+        self.assertEqual(provider.prepared(), [])
+        self.assertTrue(provider.results[0]["up_to_date"])
+        self.assertEqual(provider.fixture._snapshot(), provider.before)
+        self.assertFalse((provider.root / setup_readiness.STAMP_PATH).exists())
+
     def test_invalid_mode_returns_error(self):
         result = self.srv.index_build_response(self.root, mode="full-refresh")
         self.assertEqual(result["status"], "error")

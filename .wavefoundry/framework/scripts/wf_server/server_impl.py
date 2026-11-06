@@ -7896,6 +7896,17 @@ def _mark_change_item_response(
 ) -> dict[str, Any]:
     """Mark one exact AC or task without providing a generic document editor."""
 
+    mode_s = mode.strip().lower() if isinstance(mode, str) else ""
+    if mode_s not in {"dry_run", "create", "apply"}:
+        return _response(
+            "error", {"valid_modes": ["dry_run", "create", "apply"]},
+            diagnostics=[_diagnostic(
+                "invalid_arguments",
+                "mode must be 'dry_run', 'create', or 'apply'. "
+                "The default 'dry_run' previews without writing.",
+            )],
+        )
+    mode_s = "create" if mode_s == "apply" else mode_s
     shape_error = _change_id_shape_error(change_id)
     if shape_error is not None:
         return _response("error", {"change_id": change_id}, diagnostics=[shape_error])
@@ -8061,10 +8072,24 @@ def _mark_change_item_response(
     # undercounts a wrapped acceptance criterion several times over, and
     # acceptance criteria are exactly where the saving concentrates.
     matched_text = "\n".join(lines[index:block_end]) + ("\n" if block_end < len(lines) else "")
-    data = {"wave_id": wave_md.parent.name, "change_id": change_id, "item_label": item_label, "state": state, "path": _repo_rel(root, path), "matched_text": matched_text}
-    mode_s = mode.strip().lower()
-    if mode_s not in {"create", "apply"}:
-        return _response("ok", {**data, "changed": updated != text})
+    data = {"wave_id": wave_md.parent.name, "change_id": change_id, "item_label": item_label, "state": state, "path": _repo_rel(root, path), "matched_text": matched_text, "mode": mode_s, "applied": False}
+    if mode_s == "dry_run":
+        changed = updated != text
+        diagnostics = []
+        if changed:
+            tool = "wf_mark_ac" if target_section == "Acceptance Criteria" else "wf_mark_task"
+            label_arg = "ac_id" if target_section == "Acceptance Criteria" else "task"
+            reason_arg = f", reason={reason!r}" if target_section == "Acceptance Criteria" and reason else ""
+            applying_call = (
+                f"{tool}(wave_id={wave_id!r}, change_id={change_id!r}, "
+                f"{label_arg}={item_label!r}, state={state!r}{reason_arg}, mode='create')"
+            )
+            diagnostics.append(_diagnostic(
+                "dry_run_not_written",
+                "This is a preview; no document was written. Apply it with " + applying_call,
+                recovery_tools=[tool], recovery_usage=applying_call, advisory=True,
+            ))
+        return _response("ok", {**data, "changed": changed}, diagnostics=diagnostics)
     if updated_raw == raw:
         return _response("ok", {**data, "changed": False})
 
@@ -8079,7 +8104,7 @@ def _mark_change_item_response(
     )
     if not refresh_receipt:
         _atomic_replace_text(path, updated_raw, "wf-mark")
-        return _response("ok", {**data, "changed": True})
+        return _response("ok", {**data, "changed": True, "applied": True})
 
     try:
         with project_state_publication_lock(root):
@@ -8175,6 +8200,7 @@ def _mark_change_item_response(
         {
             **data,
             "changed": True,
+            "applied": True,
             "review_receipt_refreshed": {
                 "receipt_id": receipt["receipt_id"],
                 "policy_input_digest": receipt["policy_input_digest"],
@@ -24359,6 +24385,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def wf_mark_ac(wave_id: str, change_id: str, ac_id: str, state: str, reason: str = "", mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
         """Mark one acceptance criterion complete (``x``) or deferred (``~``).
 
+        Default ``mode='dry_run'`` previews without writing. Use ``mode='create'``
+        (or its ``apply`` alias) to write; successful results report ``mode`` and ``applied``.
         Required-priority deferrals need a reason under the same rule as docs-lint.
         A successful deferred AC also refreshes its review receipt; it never
         carries an approval forward and returns the fresh review actions.
@@ -24376,7 +24404,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wf_mark_task(wave_id: str, change_id: str, task: str, state: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
-        """Mark one exact task complete (``x``) or deferred (``~``)."""
+        """Mark one exact task complete (``x``) or deferred (``~``).
+
+        Default ``mode='dry_run'`` previews without writing. Use ``mode='create'``
+        (or its ``apply`` alias) to write; successful results report ``mode`` and ``applied``.
+        """
         bad = _ensure_no_extra_args("wf_mark_task", kwargs)
         if bad is not None:
             return bad

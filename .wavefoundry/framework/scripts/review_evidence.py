@@ -391,7 +391,7 @@ def _intent_fit_errors(
                 errors.append(
                     f"{label} for `{signoff_key}` requires evidence `{INTENT_FIT_FIELD}`: "
                     f"one of {', '.join(allowed)} (the worst verdict across every "
-                    "admitted change and the wave Objective)"
+                    f"admitted {_vocab.tier_noun('item')} and the {_vocab.tier_noun('container')} Objective)"
                 )
         elif value == INTENT_FIT_NOT_ESTABLISHED and value not in allowed:
             errors.append(
@@ -716,7 +716,7 @@ def review_action_input_schema() -> dict[str, Any]:
                         phase: list(values)
                         for phase, values in INTENT_FIT_VALUES_BY_PHASE.items()
                     },
-                    "meaning": "worst verdict across every admitted change and the wave Objective",
+                    "meaning": f"worst verdict across every admitted {_vocab.tier_noun('item')} and the {_vocab.tier_noun('container')} Objective",
                 },
             },
         },
@@ -1154,7 +1154,7 @@ def _review_authority_path_error(wave_path: Path) -> str | None:
         # not-found included, is "not safely resolvable".
         wave_dir_stat = os.lstat(wave_dir)
         if _is_link_metadata(wave_dir_stat):
-            return "wave directory may not be a symlink"
+            return f"{_vocab.tier_noun('container')} directory may not be a symlink"
         if not stat.S_ISDIR(wave_dir_stat.st_mode):
             return (
                 "review authority path is not safely resolvable: "
@@ -1170,7 +1170,7 @@ def _review_authority_path_error(wave_path: Path) -> str | None:
         if ledger_stat is not None and _is_link_metadata(ledger_stat):
             return "events.jsonl may not be a symlink"
         if ledger_stat is not None and not ledger.resolve(strict=True).is_relative_to(wave_real):
-            return "events.jsonl escapes its wave directory"
+            return f"events.jsonl escapes its {_vocab.tier_noun('container')} directory"
     except (OSError, RuntimeError) as exc:
         # Path-free (1v1de census): ``OSError.__str__`` and the symlink-loop
         # message both embed the absolute filesystem path, and this string
@@ -2541,7 +2541,7 @@ def review_authority_projection(
                         },
                         "reason": (
                             "A council approval states the intent verdict: the worst "
-                            "across every admitted change and the wave Objective."
+                            f"across every admitted {_vocab.tier_noun('item')} and the {_vocab.tier_noun('container')} Objective."
                         ),
                     }
                     if requires_intent_fit(fact["signoff_key"])
@@ -3249,7 +3249,7 @@ def render_review_status_projection(
     ))
     matches = list(_REVIEW_EVIDENCE_SECTION_RE.finditer(text))
     if len(matches) != 1:
-        raise ValueError("external wave must contain exactly one Review Evidence section")
+        raise ValueError(f"external {_vocab.tier_noun('container')} must contain exactly one Review Evidence section")
     body = matches[0].group("body")
     begin_count = body.count(REVIEW_STATUS_MARKER_BEGIN)
     end_count = body.count(REVIEW_STATUS_MARKER_END)
@@ -3320,7 +3320,7 @@ def render_review_evidence_projection(
     rows = tuple(dict(record) for record in records)
     section_matches = list(_SECTION_RE.finditer(text))
     if len(section_matches) != 1:
-        raise ValueError("external wave must contain exactly one Finding Synthesis section")
+        raise ValueError(f"external {_vocab.tier_noun('container')} must contain exactly one Finding Synthesis section")
     body = section_matches[0].group("body")
     marker_begin = body.find(FINDING_SYNTHESIS_MARKER_BEGIN)
     marker_end = body.find(FINDING_SYNTHESIS_MARKER_END)
@@ -4940,7 +4940,7 @@ def _validate_relationships(records: list[dict[str, Any]], *, closure: bool) -> 
         # claim exists.  Its empty marker-owned JSONL block is valid; lifecycle
         # gates require the phase-appropriate run before readiness/review, and
         # closure always requires at least one sealed run.
-        return ["marked wave requires at least one Review Run Record before closure"] if closure else []
+        return [f"marked {_vocab.tier_noun('container')} requires at least one Review Run Record before closure"] if closure else []
 
     run_ids: dict[str, dict[str, Any]] = {}
     record_ids: dict[str, dict[str, Any]] = {}
@@ -4977,7 +4977,7 @@ def _validate_relationships(records: list[dict[str, Any]], *, closure: bool) -> 
         and evidence.get("execution_status") == "executed"
         for evidence in evidence_rows
     ):
-        errors.append("marked wave closure requires executed delivery evidence for a required approval")
+        errors.append(f"marked {_vocab.tier_noun('container')} closure requires executed delivery evidence for a required approval")
 
     for run in runs:
         evidence_id = run.get("dedup_evidence_id")
@@ -5371,12 +5371,12 @@ def validate_external_review_evidence(
     projection_errors.extend(marker_errors)
     if marker is not None:
         projection_errors.append(
-            "external review evidence wave must not retain review-evidence-protocol"
+            f"external review evidence {_vocab.tier_noun('container')} must not retain review-evidence-protocol"
         )
     section_matches = list(_SECTION_RE.finditer(text))
     if len(section_matches) != 1:
         projection_errors.append(
-            "external wave must contain exactly one `## Finding Synthesis` projection"
+            f"external {_vocab.tier_noun('container')} must contain exactly one `## Finding Synthesis` projection"
         )
     else:
         body = section_matches[0].group("body")

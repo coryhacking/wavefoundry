@@ -134,25 +134,45 @@ def _read_owner(fd: int, root: Path, wave: str, directory) -> dict:
         raise _Refused("work_ownership_unproven; work preserved") from None
     finally:
         os.close(owner_fd)
-    if (not isinstance(owner, dict) or owner.get("schema") != 1
-            or owner.get("repository") != str(root) or owner.get("wave") != wave
+    if (not isinstance(owner, dict) or type(owner.get("schema")) is not int
+            or owner["schema"] not in (1, 2) or owner.get("wave") != wave
             or not isinstance(owner.get("generation"), str)
             or not re.fullmatch(r"[0-9a-f]{32}", owner["generation"])):
         raise _Refused("work_ownership_unproven; work preserved")
+    repository = owner.get("repository")
+    if not isinstance(repository, str) or not Path(repository).is_absolute():
+        raise _Refused("work_ownership_unproven; work preserved")
+    if owner["schema"] == 2:
+        # The recorded spelling is a historical locator; the root identity
+        # keeps work bound to this repository after a same-filesystem rename.
+        _persisted_identity(owner.get("repository_directory"), os.stat(root))
+    elif repository != str(root):
+        # Legacy records have no persisted root identity. An existing alias
+        # must prove it names this actual directory, without case folding.
+        try:
+            same_root = _same(os.stat(repository), os.stat(root))
+        except OSError:
+            same_root = False
+        if not same_root:
+            raise _Refused("work_repository_unproven; work preserved; move retained work aside before retrying")
     recorded = owner.get("directory")
+    _persisted_identity(recorded, directory)
+    return owner
+
+
+def _persisted_identity(recorded, directory) -> None:
     if (not isinstance(recorded, list) or len(recorded) != 2
             or not all(type(value) is int and value >= 0 for value in recorded)
             or recorded[1] <= 0 or directory.st_ino <= 0):
         raise _Refused("work_ownership_unproven; work preserved")
-    # The pinned walk and repository/wave fields bind the path. Only this
-    # persisted identity tolerates device renumbering; fresh stats stay strict.
+    # The caller binds the owned role. Persisted device numbers are history;
+    # fresh descriptor/path comparisons within this operation remain strict.
     comparison = compare_identity(
         {"device": recorded[0], "inode": recorded[1]},
         {"device": directory.st_dev, "inode": directory.st_ino},
     )
     if not comparison["matches"] or comparison["basis"] != "path+inode":
         raise _Refused("work_ownership_unproven; work preserved")
-    return owner
 
 
 def _write_owner(fd: int, owner: dict, *, replace=False) -> None:
@@ -217,7 +237,8 @@ def ensure_work(root, wave_md, *, reopen=False) -> dict:
                 directory = os.fstat(fd)
                 if created and not _same(created_identity, directory):
                     raise _Refused("work_identity_changed; work preserved")
-                owner = ({"schema": 1, "repository": str(root), "wave": wave,
+                owner = ({"schema": 2, "repository": str(root), "wave": wave,
+                          "repository_directory": identities[0],
                           "directory": _identity(directory), "generation": uuid.uuid4().hex}
                          if created else _read_owner(fd, root, wave, directory))
                 _checkpoint("ensure")
@@ -509,6 +530,44 @@ def _unique_json(pairs):
     return result
 
 
+def _verify_snapshot_links(fd: int, source: int) -> None:
+    """Accept only the published name and its optional construction link."""
+    info = os.fstat(source)
+    if not stat.S_ISREG(info.st_mode):
+        raise _Refused("snapshot_file_unproven; full review required")
+    if info.st_nlink == 1:
+        return
+    matches = []
+    if info.st_nlink == 2:
+        for name in os.listdir(fd):
+            if not re.fullmatch(r"\.snapshot-[0-9a-f]{32}\.tmp", name):
+                continue
+            _checkpoint("snapshot_link")
+            try:
+                candidate = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            except FileNotFoundError:
+                continue  # The active publisher may have removed its link.
+            if (stat.S_ISREG(candidate.st_mode) and not _is_link_metadata(candidate)
+                    and _same(candidate, info)):
+                matches.append(name)
+    # Recheck the name as well as the count: a publisher may unlink while a
+    # different process creates an unrelated extra link during enumeration.
+    if len(matches) == 1:
+        _checkpoint("snapshot_link_verified")
+        try:
+            candidate = os.stat(matches[0], dir_fd=fd, follow_symlinks=False)
+        except FileNotFoundError:
+            matches = []
+        else:
+            if (_is_link_metadata(candidate) or not stat.S_ISREG(candidate.st_mode)
+                    or not _same(candidate, info)):
+                matches = []
+    current = os.fstat(source)
+    if current.st_nlink == 1 or (current.st_nlink == 2 and len(matches) == 1):
+        return
+    raise _Refused("snapshot_file_unproven; full review required")
+
+
 def read_snapshot(root, wave_md, receipt: Mapping) -> dict:
     """Read verified bytes for an actual ledger receipt; never create a baseline."""
     key = receipt_id = None
@@ -520,8 +579,7 @@ def read_snapshot(root, wave_md, receipt: Mapping) -> dict:
             source = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0), dir_fd=fd)
             try:
                 info = os.fstat(source)
-                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-                    raise _Refused("snapshot_file_unproven; full review required")
+                _verify_snapshot_links(fd, source)
                 if info.st_size > SNAPSHOT_MAX_BYTES:
                     raise _Refused("snapshot_oversized; full review required")
                 chunks, count = [], 0
@@ -550,6 +608,7 @@ def read_snapshot(root, wave_md, receipt: Mapping) -> dict:
                 _checkpoint("snapshot_read")
                 verify()
                 _entry(fd, name, info)
+                _verify_snapshot_links(fd, source)
                 return _snapshot_result(key, receipt_id, available=True, documents=documents)
             finally:
                 os.close(source)

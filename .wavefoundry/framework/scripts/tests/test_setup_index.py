@@ -173,6 +173,8 @@ class VersionAwareDependencyTests(unittest.TestCase):
         model_bundle = types.SimpleNamespace(
             MODEL_SET_VERSION="1",
             find_local_bundle=lambda _dirs: None,
+            unused_bundle_hint=lambda _root: None,
+            manual_recovery_guidance=lambda **_kwargs: "Fixture manual recovery guidance",
             local_model_set_status=lambda: "unmanaged",
         )
         with tempfile.TemporaryDirectory() as tmp:
@@ -503,6 +505,8 @@ class SetupIndexTests(unittest.TestCase):
         checked too (it re-enters setup with --code-only or --docs-only)."""
         model_bundle = types.SimpleNamespace(
             find_local_bundle=lambda _dirs: None,
+            unused_bundle_hint=lambda _root: None,
+            manual_recovery_guidance=lambda **_kwargs: "Fixture manual recovery guidance",
             local_model_set_status=lambda: "current",
             attest_online_cache=lambda: False,
         )
@@ -614,6 +618,10 @@ class SetupIndexTests(unittest.TestCase):
     def test_mcp_is_pinned_below_2_in_every_declaration(self):
         # Wave 1z822: mcp 2.x removed mcp.server.fastmcp, which server.py imports.
         self.assertEqual(self.mod.REQUIRED_IMPORTS.get("mcp[cli]<2"), "mcp")
+
+    def test_source_pyproject_mcp_pin(self):
+        from upstream_fixture_support import source_repository_fixture
+        source_repository_fixture(PYPROJECT_PATH, root=PYPROJECT_PATH.parent)
         with PYPROJECT_PATH.open("rb") as fh:
             deps = tomllib.load(fh)["project"]["dependencies"]
         self.assertEqual([dep for dep in deps if dep.startswith("mcp")], ["mcp[cli]<2"])
@@ -624,6 +632,10 @@ class SetupIndexTests(unittest.TestCase):
         self.assertEqual(self.mod.REQUIRED_IMPORTS.get(req.PSUTIL_REQUIREMENT), "psutil")
         self.assertEqual(req.PSUTIL_REQUIREMENT, "psutil>=6.1,<8")
         self.assertEqual(tuple(req.PSUTIL_MIN_VERSION), (6, 1))
+
+    def test_source_pyproject_psutil_pin(self):
+        from upstream_fixture_support import source_repository_fixture
+        source_repository_fixture(PYPROJECT_PATH, root=PYPROJECT_PATH.parent)
         with PYPROJECT_PATH.open("rb") as fh:
             deps = tomllib.load(fh)["project"]["dependencies"]
         self.assertEqual([dep for dep in deps if dep.startswith("psutil")], ["psutil>=6.1,<8"])
@@ -632,6 +644,8 @@ class SetupIndexTests(unittest.TestCase):
         # Wave 1zc7n: the two declarations may differ only by the known entries.
         known_only_required = {"networkx>=3.0"}
         known_only_pyproject = {"packaging>=24"}
+        from upstream_fixture_support import source_repository_fixture
+        source_repository_fixture(PYPROJECT_PATH, root=PYPROJECT_PATH.parent)
         with PYPROJECT_PATH.open("rb") as fh:
             deps = set(tomllib.load(fh)["project"]["dependencies"])
         required = set(self.mod.REQUIRED_IMPORTS)
@@ -650,6 +664,8 @@ class SetupIndexTests(unittest.TestCase):
         self.assertEqual(self.mod._missing_in_venv(python, {f"mcp[cli]<{major}": "mcp"}), [f"mcp[cli]<{major}"])
 
     def test_pyproject_includes_httpx_socks(self):
+        from upstream_fixture_support import source_repository_fixture
+        source_repository_fixture(PYPROJECT_PATH, root=PYPROJECT_PATH.parent)
         with PYPROJECT_PATH.open("rb") as fh:
             metadata = tomllib.load(fh)
         self.assertIn("httpx[socks]", metadata["project"]["dependencies"])
@@ -657,6 +673,8 @@ class SetupIndexTests(unittest.TestCase):
     def test_pyproject_builds_a_metadata_only_wheel(self):
         # 21ij7: the backend must exist, the SPDX license string needs
         # setuptools 77 and forbids the classifier, and no code ships.
+        from upstream_fixture_support import source_repository_fixture
+        source_repository_fixture(PYPROJECT_PATH, root=PYPROJECT_PATH.parent)
         with PYPROJECT_PATH.open("rb") as fh:
             metadata = tomllib.load(fh)
         self.assertEqual(metadata["build-system"]["build-backend"], "setuptools.build_meta")
@@ -664,6 +682,20 @@ class SetupIndexTests(unittest.TestCase):
         self.assertEqual(metadata["project"]["license"], "Apache-2.0")
         self.assertFalse([c for c in metadata["project"]["classifiers"] if c.startswith("License ::")])
         self.assertEqual(metadata["tool"]["setuptools"]["packages"], [])
+
+    def test_custom_consumer_manifest_keeps_runtime_pin_checks(self):
+        import json
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir()
+            (root / "docs/workflow-config.json").write_text(json.dumps({"testing": {"upstream_fixtures_required": False}}))
+            manifest = root / "pyproject.toml"
+            manifest.write_text('[project]\nname = "consumer-product"\n')
+            with patch.dict(self.test_pyproject_builds_a_metadata_only_wheel.__func__.__globals__, PYPROJECT_PATH=manifest):
+                with self.assertRaises(unittest.SkipTest):
+                    self.test_pyproject_builds_a_metadata_only_wheel()
+                self.test_mcp_is_pinned_below_2_in_every_declaration()
+                self.test_psutil_is_pinned_in_every_declaration()
 
     def test_required_imports_include_leiden(self):
         self.assertIn("igraph>=0.11", self.mod.REQUIRED_IMPORTS)
@@ -903,6 +935,8 @@ class SetupIndexTests(unittest.TestCase):
         events: list[str] = []
         model_bundle = types.SimpleNamespace(
             find_local_bundle=lambda _dirs: None,
+            unused_bundle_hint=lambda _root: None,
+            manual_recovery_guidance=lambda **_kwargs: "Fixture manual recovery guidance",
             local_model_set_status=lambda: "unmanaged",
             attest_online_cache=lambda: events.append("attest") or True,
         )

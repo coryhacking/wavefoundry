@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-26
+Last verified: 2026-11-05
 
 ## Tensorwell qualification
 
@@ -288,6 +288,10 @@ Reconcile expectations use literal canonical keys. The hook-contract test reads 
 `PostWriteLintFreshGitTests` compares each nested untracked fallback trigger in a real no-commit Git repository with the actual changed-file collector and CLI scope, then checks the real lint subprocess's timeout and advisory flags. The predictor requests `git status --porcelain --untracked-files=all` so Git cannot collapse a new directory into one entry. Unrelated nested docs retain incremental scope and the hook bound; tracked edits, supported rename parsing and Git failure controls retain their existing selection. The advisory reuse suite also checks a no-commit tree's first full fallback and subsequent identical-proof incremental scan. These scratch regressions do not qualify native Windows execution.
 
 ### Upstream-only fixtures (change 21ile)
+
+Source-project prose and closed-ledger assertions use `source_repository_fixture`, which requires the explicit `testing.upstream_fixtures_required` opt-in even when a consuming project's file exists. An existing file is not upstream provenance. `source_carriers` skips only source-specific subtests, keeping canonical seed/renderer assertions and their negative controls running. Missing or malformed opt-in configuration still fails closed. The source corpus uses configured live/archive roots and closed records; lifecycle validation remains responsible for active records. Portable synthetic corruption checks run independently of that corpus.
+
+Test-only SQLite snapshots copy quiescent fixtures and their existing WAL/SHM sidecars to private scratch before opening them. This retains committed WAL rows without letting SQLite create or change sidecars beside the original fixture. Explicit absent/SHM-only/empty-WAL/populated-WAL controls check both row visibility and unchanged original bytes. This helper changes no runtime database policy. Archive-discovery fixtures likewise pin all dist, downloads and home search roots rather than inspect the developer's actual folders.
 
 Some tests read content that only the framework source repository hosts: evaluation corpora under `docs/evals/`, history under `docs/waves/` and `docs/agents/history/`, and report artifacts under `docs/reports/`. Each such read goes through `upstream_fixture(path)` in `tests/upstream_fixture_support.py`, which returns the path when it exists. When it is absent, the outcome comes from the source-repository opt-in `testing.upstream_fixtures_required` in `docs/workflow-config.json`, resolved from the repository root above the helper's own file rather than the current directory: `true` fails the test naming the path; absent or `false` skips it with `upstream-only fixture absent: <path>`, which is what a distribution sees; a missing, unreadable or malformed config, a non-object `testing` or a non-boolean key fails, naming the cause. A missing config fails closed, the opposite of the docs-lint opt-in, because every distribution ships the config. This repository pins the key `true`, and the install defaults never carry a `testing` key, so the opt-in cannot reach consumers. The routed set is derived mechanically: run the suite in a full working-tree copy with and without the upstream-only content (and with a config lacking the key); the tests that fail only in the second run are the set. Tests that build their own fixtures are not routed. The same opt-in also gates the credible-threat carrier census in `tests/test_credible_threat_unknown_factor.py` (change 21ild), which checks this repository's own role docs; a later split of the key must keep that census running here.
 

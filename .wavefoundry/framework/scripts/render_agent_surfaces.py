@@ -533,7 +533,7 @@ CLAUDE_GURU_AGENT = dedent(
 # standard SKILL.md (YAML frontmatter name/description + markdown body) into
 # each ACTIVE skill-supporting host's project-local directory. Skill names
 # live in a `wf-` kebab-case namespace so `/wf` filters a host's command list
-# to the whole family and the names cannot collide with third-party skills in
+# to the whole family; complete-name collision checks protect core skills in
 # target repos. Bodies are THIN POINTERS to the backing prompt/seed surfaces;
 # workflow content is never inlined here.
 # ---------------------------------------------------------------------------
@@ -977,8 +977,7 @@ def has_declared_skill_marker(text: str) -> bool:
 def declared_skill_problems(skills: object = None) -> list[str]:
     """Every problem with the distribution's skill declaration (wave 1zv8c,
     change 1zv89): ``mcp_tool_extensions.skill_declaration_problems`` plus a
-    name whose rendered path is one of ``STALE_SKILL_PATHS``, which this
-    renderer owns. ``EXTENSION_SKILLS`` is read now when ``skills`` is None."""
+    effective core name or retired managed path, both owned by this renderer. ``EXTENSION_SKILLS`` is read now when ``skills`` is None."""
 
     if skills is None:
         skills = getattr(mcp_tool_extensions, "EXTENSION_SKILLS", {})
@@ -986,12 +985,16 @@ def declared_skill_problems(skills: object = None) -> list[str]:
         return []
     problems = list(mcp_tool_extensions.skill_declaration_problems(skills))
     if isinstance(skills, Mapping):
+        core_names = {skill.name.casefold() for skill in SKILL_REGISTRY}
         for name in skills:
             if not isinstance(name, str):
                 continue
+            if name.casefold() in core_names:
+                problems.append(f"skill {name!r}: the complete name conflicts with a core skill")
             for _host_root, skills_dir in SKILL_HOSTS:
                 folder = f"{skills_dir}/{name}"
-                if any(rel == folder or rel.startswith(f"{folder}/") for rel in stale_skill_paths()):
+                if any(rel.casefold() == folder.casefold() or rel.casefold().startswith(f"{folder.casefold()}/")
+                       for rel in stale_skill_paths()):
                     problems.append(
                         f"skill {name!r}: the name renders to the retired skill path {folder}, "
                         "which every render removes"
@@ -1187,7 +1190,7 @@ def _declared_skill_orphans(active_skill_roots: "Mapping[str, Path]") -> "list[_
     """A :class:`_SkillOrphan` for every marked skill folder on an active
     host whose name no declared skill uses (wave 1zyb3, change 1zxnu).
 
-    ``wf-`` folders are the framework's. A linked child (symlink, junction or
+    Ownership comes from the marker, irrespective of prefix. A linked child (symlink, junction or
     reparse point, or one that resolves elsewhere) is skipped without reading
     through it, as is one whose SKILL.md is linked or not a regular file. A
     marked folder holding anything besides SKILL.md is left untouched and
@@ -1213,7 +1216,7 @@ def _declared_skill_orphans(active_skill_roots: "Mapping[str, Path]") -> "list[_
                 f"cannot list the host skill root {_display_name(skills_dir)} ({type(exc).__name__})"
             ) from exc
         for child in children:
-            if child.name.startswith("wf-") or child.name.casefold() in declared:
+            if child.name.casefold() in declared:
                 continue
             try:
                 child_info = os.lstat(child)

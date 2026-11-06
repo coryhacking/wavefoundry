@@ -188,6 +188,73 @@ class DeclaredSkillRenderTests(unittest.TestCase):
             self.assertEqual(ras.declared_skills(), ())
 
 
+class SharedPrefixSkillTests(unittest.TestCase):
+    """Synthetic names, not a field reproduction or downstream rename."""
+
+    def test_shared_prefix_renders_rerenders_and_cleans_on_all_hosts(self):
+        declaration = {"wf-synthetic-deploy": VALID_SPEC}
+        self.assertEqual(ext.skill_declaration_problems(declaration), [])
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            _repo(root)
+            custom = root / ".agents/skills/wf-local/SKILL.md"
+            custom.parent.mkdir(parents=True)
+            custom.write_text("# Unmarked local skill\n")
+            with base_declaration(EXTENSION_SKILLS=declaration):
+                ras.render_skills(root)
+                self.assertEqual(ras.render_skills(root), [])
+                for host in HOSTS:
+                    self.assertTrue(ras.has_declared_skill_marker(
+                        (root / host / "skills/wf-synthetic-deploy/SKILL.md").read_text()))
+            with base_declaration():
+                ras.render_skills(root)
+            for host in HOSTS:
+                self.assertFalse((root / host / "skills/wf-synthetic-deploy").exists())
+            self.assertEqual(custom.read_text(), "# Unmarked local skill\n")
+
+    def test_configured_core_name_is_reserved_without_its_backing_doc(self):
+        from dataclasses import replace
+        from unittest.mock import patch
+        gated = next(skill for skill in ras.SKILL_REGISTRY if skill.requires_doc)
+        configured = replace(gated, name="wf-configured-synthetic")
+        registry = tuple(configured if skill is gated else skill for skill in ras.SKILL_REGISTRY)
+        with patch.object(ras, "SKILL_REGISTRY", registry), base_declaration(EXTENSION_SKILLS={configured.name: VALID_SPEC}):
+            for entrypoint in (ras.render_skills, ras.render_agent_surfaces):
+                with self.subTest(entrypoint=entrypoint.__name__), tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    _repo(root)
+                    before = _snapshot(root)
+                    with self.assertRaisesRegex(RuntimeError, configured.name):
+                        entrypoint(root)
+                    self.assertEqual(_snapshot(root), before)
+
+    def test_effective_doc_gated_retired_and_upgrade_collisions_refuse_before_mutation(self):
+        from dataclasses import replace
+        from unittest.mock import patch
+        gated = next(skill for skill in ras.SKILL_REGISTRY if skill.requires_doc)
+        for entrypoint in (ras.render_skills, ras.render_agent_surfaces):
+            for name in (gated.name, "wf-plan-feature", "wf-plan-initiative", "auto-guru"):
+                with self.subTest(entrypoint=entrypoint.__name__, name=name), tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    _repo(root)
+                    before = _snapshot(root)
+                    with base_declaration(EXTENSION_SKILLS={name: VALID_SPEC}):
+                        with self.assertRaisesRegex(RuntimeError, name):
+                            entrypoint(root)
+                    self.assertEqual(_snapshot(root), before)
+            with tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                _repo(root)
+                name = "wf-synthetic-upgrade"
+                with base_declaration(EXTENSION_SKILLS={name: VALID_SPEC}):
+                    ras.render_skills(root)
+                    before = _snapshot(root)
+                    with patch.object(ras, "SKILL_REGISTRY", (*ras.SKILL_REGISTRY, replace(gated, name=name))):
+                        with self.assertRaisesRegex(RuntimeError, name):
+                            entrypoint(root)
+                    self.assertEqual(_snapshot(root), before)
+
+
 class SkillDeclarationProblemTests(unittest.TestCase):
     """AC-2: every rule in Requirement 2 reports a named problem."""
 
@@ -210,7 +277,7 @@ class SkillDeclarationProblemTests(unittest.TestCase):
 
     def test_name_rules(self) -> None:
         for name in ("Acme", "acme_deploy", "acme--deploy", "-acme", "acme-", "acme deploy", "a" * 65,
-                     "wf-acme", "claude-helper", "acme-anthropic"):
+                     "claude-helper", "acme-anthropic"):
             with self.subTest(name=name):
                 self.assert_refused({name: VALID_SPEC}, name, "name")
         self.assertTrue(ext.skill_declaration_problems({7: VALID_SPEC}))
@@ -268,7 +335,7 @@ class SkillDeclarationProblemTests(unittest.TestCase):
     def test_every_problem_is_reported_at_once(self) -> None:
         problems = ext.skill_declaration_problems(
             {"wf-one": _spec(title="true"), "two": _spec(prompt_doc="x.md", summary=[])})
-        self.assertTrue(any("'wf-one'" in p and "wf-" in p for p in problems))
+        self.assertFalse(any("prefix" in p for p in problems))
         self.assertTrue(any("'wf-one' title" in p for p in problems))
         self.assertTrue(any("'two' prompt_doc" in p for p in problems))
         self.assertTrue(any("'two' summary" in p for p in problems))
@@ -289,7 +356,7 @@ class SkillDeclarationProblemTests(unittest.TestCase):
         )
 
 
-INVALID = {"wf-acme": VALID_SPEC, "auto-guru": VALID_SPEC, "bad-title": _spec(title="null")}
+INVALID = {vp.skill_name("plan-change"): VALID_SPEC, "auto-guru": VALID_SPEC, "bad-title": _spec(title="null")}
 
 
 class InvalidDeclarationRefusesRenderTests(unittest.TestCase):
@@ -327,7 +394,7 @@ class InvalidDeclarationRefusesRenderTests(unittest.TestCase):
             self.assertEqual(_snapshot(root), before)
 
     def test_preflight_refuses_each_rule_the_renderer_owns(self) -> None:
-        for declaration in ({"wf-acme": VALID_SPEC}, {"auto-guru": VALID_SPEC}):
+        for declaration in ({vp.skill_name("plan-change"): VALID_SPEC}, {"auto-guru": VALID_SPEC}):
             with self.subTest(declaration=list(declaration)), tempfile.TemporaryDirectory() as temp_dir:
                 root = Path(temp_dir)
                 _repo(root)
@@ -602,20 +669,20 @@ class DeclaredSkillOrphanTests(unittest.TestCase):
                 "Keep-Me/SKILL.md": EXPECTED_DOCUMENT,
                 # Unmarked, hand-written.
                 "hand-made/SKILL.md": LEGACY_DOCUMENT,
-                # The framework's namespace, even when marked.
-                "wf-custom/SKILL.md": EXPECTED_DOCUMENT,
+                # A shared prefix conveys no ownership.
+                "wf-custom/SKILL.md": LEGACY_DOCUMENT,
                 # Marked, with an extra entry.
-                "extra-entry/SKILL.md": EXPECTED_DOCUMENT,
-                "extra-entry/notes.txt": "operator notes\n",
+                "wf-extra-entry/SKILL.md": EXPECTED_DOCUMENT,
+                "wf-extra-entry/notes.txt": "operator notes\n",
             }
             for rel, content in kept.items():
                 _write(skills / rel, content)
             _write(outside / "target/SKILL.md", EXPECTED_DOCUMENT)
-            kind = _dir_link(skills / "linked", outside / "target")
+            kind = _dir_link(skills / "wf-linked", outside / "target")
             # A real folder whose SKILL.md is a link to a marked file elsewhere.
-            (skills / "file-link").mkdir()
+            (skills / "wf-file-link").mkdir()
             try:
-                (skills / "file-link" / "SKILL.md").symlink_to(outside / "target" / "SKILL.md")
+                (skills / "wf-file-link" / "SKILL.md").symlink_to(outside / "target" / "SKILL.md")
                 file_link = True
             except (OSError, NotImplementedError):
                 file_link = False
@@ -628,16 +695,16 @@ class DeclaredSkillOrphanTests(unittest.TestCase):
                 self.assertIn(rel, written)
                 self.assertFalse((root / host / "skills" / "acme-deploy").exists(), host)
             self.assertEqual({rel: (skills / rel).read_bytes() for rel in kept}, before_kept)
-            self.assertEqual(sorted(p.name for p in (skills / "extra-entry").iterdir()), ["SKILL.md", "notes.txt"])
+            self.assertEqual(sorted(p.name for p in (skills / "wf-extra-entry").iterdir()), ["SKILL.md", "notes.txt"])
             self.assertEqual(_snapshot(outside), before_outside, kind)
-            self.assertTrue(os.path.lexists(skills / "linked"))
+            self.assertTrue(os.path.lexists(skills / "wf-linked"))
             if file_link:
-                self.assertTrue((skills / "file-link" / "SKILL.md").is_symlink())
+                self.assertTrue((skills / "wf-file-link" / "SKILL.md").is_symlink())
             notices = [line for line in err.splitlines() if "NOTICE" in line]
             self.assertEqual(len(notices), 1, err)
-            self.assertIn(".claude/skills/extra-entry", notices[0])
-            self.assertFalse(any("linked" in rel or "Keep-Me" in rel or "hand-made" in rel
-                                 or "wf-custom" in rel or "extra-entry" in rel for rel in written), written)
+            self.assertIn(".claude/skills/wf-extra-entry", notices[0])
+            self.assertFalse(any("wf-linked" in rel or "Keep-Me" in rel or "hand-made" in rel
+                                 or "wf-custom" in rel or "wf-extra-entry" in rel for rel in written), written)
 
     def test_gated_off_declared_skill_keeps_its_marked_folder(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir, base_declaration(EXTENSION_SKILLS=VALID):

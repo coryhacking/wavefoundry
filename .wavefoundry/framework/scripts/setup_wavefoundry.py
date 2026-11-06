@@ -455,9 +455,12 @@ def _run_setup(repo_root: Path, args: list[str], reconciliation) -> int:
     reconciliation.complete()
 
     if not core_requested or any(arg in {"--background-code", "--background-docs"} for arg in index_args):
+        import setup_readiness
+
+        command = setup_readiness.format_command(setup_readiness.repository_launcher_argv(repo_root, 'setup'))
         print(
             "\nSelected setup work complete; full core readiness was not verified. "
-            "Run ordinary `wf setup` to complete all core indexes.",
+            f"Run ordinary {command} to complete all core indexes.",
             flush=True,
         )
         return 0
@@ -482,7 +485,8 @@ def _run_setup(repo_root: Path, args: list[str], reconciliation) -> int:
             flush=True,
         )
     else:
-        print(restart + "Then confirm with index_health() or `wf setup --check`.", flush=True)
+        command = setup_readiness.format_command(setup_readiness.repository_launcher_argv(repo_root, 'setup', '--check'))
+        print(restart + f"Then confirm with index_health() or {command}.", flush=True)
     return 0
 
 

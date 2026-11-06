@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-27
+Last verified: 2026-11-05
 
 ## Trust Boundaries
 
@@ -25,6 +25,10 @@ Review events may record the current local OS process account as separately labe
 The owned `.wavefoundry/work/<wave-id>/` area is disposable filesystem state, not a sandbox, execution grant or review authority. Its key comes from the resolved unique lifecycle prefix, and ownership binds the configured repository, wave and generation. Existing unrelated directories are not silently adopted. Creation and cleanup reject traversal, links/reparse points, identity substitution and ownership mismatch. The persisted directory identity tolerates device renumbering only with a well-formed record and matching nonzero inode at the owned path; within-operation device and inode checks stay strict. Cleanup checks parent and directory identity at the destructive boundary and is coordinated with lifecycle publication so an older close cannot remove a reopened generation. It never follows links to delete their targets. Unsupported safe-I/O paths preserve files with an explicit notice; native Windows deletion is not qualified.
 
 Cleanup is attempted only after successful operator-authorized whole-wave closure, with failure advisory after the committed lifecycle transition. Read-only/dry-run, failed close, pause and single-change close preserve work. Agents must preserve unique long-term proof in maintained records before finalizing evidence; new durable approvals must not rely solely on disposable paths. Ordinary wave-folder evidence and immutable ledger references retain their existing protections. Managed ignores and explicit runtime exclusions keep work outside index and source qualification observation; packaging and framework input hashes traverse only the sibling framework tree. These exclusions do not authenticate scratch content or prevent arbitrary native writes.
+
+New owner records retain nonzero inode identities for both repository root and work directory, permitting a same-filesystem root rename or actual case alias. Persisted device numbers never gate equality across runs; within-operation descriptor checks stay strict. Legacy owners without root identity cannot prove an unavailable old root and preserve the work with a remedy. Copying only work into another repository does not transfer ownership; cross-volume continuity and globally unique identity are not promised.
+
+A snapshot with two hard links is readable only when the additional link is positively verified as the same regular publisher temporary file inside the pinned receipts directory. The reader rechecks that proof around publisher unlink races and never deletes files. External, unknown, linked or excess construction names remain unproven, as do invalid receipt/content bindings. These are local integrity checks within the existing same-user trust model, not authentication or a filesystem sandbox.
 
 ## Optional Tensorwell client
 

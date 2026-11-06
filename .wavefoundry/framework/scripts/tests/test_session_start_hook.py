@@ -170,7 +170,8 @@ class SessionStartExecutionTests(unittest.TestCase):
         lines = result.stdout.splitlines()
         self.assertEqual(lines[0], 'Wavefoundry setup readiness (tool output from the session-start hook):')
         self.assertIn('- dependencies_missing: Missing or incompatible dependency metadata: numpy', lines)
-        self.assertIn('Recommended: ' + readiness.format_command(['wf', 'setup', '--root', str(self.root)]), lines)
+        self.assertIn('Recommended: ' + readiness.format_command(readiness.repository_launcher_argv(
+            self.root, 'setup', '--root', str(self.root))), lines)
         self.assertIn('Setup ends by asking for an agent-host restart.', lines)
         self.assertEqual(lines[-1], 'Report this to the operator and ask before running any command.')
         self.assertFalse(self.marker.exists())
@@ -205,14 +206,16 @@ class SessionStartExecutionTests(unittest.TestCase):
         self.assertIn('Stop the Wavefoundry hosts and run it from an external terminal.', result.stdout)
         self.assertNotIn('Setup ends by asking', result.stdout)
 
-    def test_indeterminate_is_one_line_naming_the_manual_check(self):
+    def test_indeterminate_preserves_the_complete_absolute_manual_check(self):
         (self.root / '.wavefoundry/upgrade-in-progress.json').write_text('{not json')
         result = self.run_hook()
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()
-        self.assertEqual(len(lines), 1, result.stdout)
+        self.assertEqual(len(lines), 2, result.stdout)
         self.assertIn('could not be determined (recovery_unproven', lines[0])
-        self.assertIn('`wf setup --check --json`', lines[0])
+        command = readiness.format_command(readiness.repository_launcher_argv(
+            self.root, 'setup', '--root', str(self.root), '--check', '--json'))
+        self.assertEqual(command, lines[1])
 
     def test_missing_framework_scripts_is_one_line(self):
         shutil.rmtree(self.root / '.wavefoundry/framework/scripts')
@@ -302,7 +305,7 @@ class SessionStartInProcessTests(unittest.TestCase):
         with patch.object(readiness, 'assess_setup', return_value=result):
             code, out = self.run_main()
         self.assertEqual(code, 0)
-        self.assertIn('Recommended: the command shown by `wf setup --check` (too long to show here).', out)
+        self.assertIn("Recommended: run the repository's setup --check to display the full command (too long to show here).", out)
         self.assertNotIn('deep/deep', out)
 
     def test_restart_action_and_no_setup_side_effects(self):

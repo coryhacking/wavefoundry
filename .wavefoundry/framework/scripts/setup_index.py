@@ -2185,9 +2185,28 @@ def _resident_setup_embedder(model_name: str, *, diagnostic=None):
     return resident
 
 
+def _setup_semantic_work_is_current(
+    root: Path, *, full: bool, rechunk: bool, content: str,
+    include_tests: bool = False, include_generated: bool = False,
+) -> bool:
+    """A canonical current plan permits skipping preparation, never execution."""
+    if full or rechunk:
+        return False
+    try:
+        result = _load_indexer_module().build_index(
+            root, content=content, include_tests=include_tests,
+            include_generated=include_generated, dry_run=True,
+        )
+    except (Exception, SystemExit):
+        # A failed assessment grants no exemption. Do not expose arbitrary
+        # exception text; the normal guarded build owns the actionable failure.
+        print("Semantic work assessment unavailable; retaining normal preparation.", flush=True)
+        return False
+    return isinstance(result, dict) and result.get("up_to_date") is True and not result.get("failed")
+
+
 def _check_setup_precision(root: Path, model_name: str, resident, diagnostic: dict) -> None:
-    """Read-only update check; selection is no proof of native execution."""
-    import inference_provider
+    """Refuse a known conversion; optional service absence is not incompatibility."""
     indexer = _load_indexer_module()
     index_dir = root / ".wavefoundry" / "index"
     reason = diagnostic.get("reason", "selection_unknown")
@@ -2208,25 +2227,6 @@ def _check_setup_precision(root: Path, model_name: str, resident, diagnostic: di
             f"Implicit precision conversion refused before local preparation ({detail}; selection: {reason}). "
             f"{recovery} A deliberate `wf setup --full` "
             "is a separate rebuild choice. Existing published index retained.")
-    # Explicit local preparation and non-service policy keep their existing path.
-    if (resident is not None or inference_provider.mode() != "tensorwell"
-            or reason in {"disabled", "provider_policy", "unsupported_host"}
-            or os.environ.get(provider_policy.REQUESTED_PROVIDER_ENV, "auto").strip().lower() not in {"", "auto"}):
-        return
-    accel = indexer.accel_embedder
-    if accel is None or model_name not in accel.CLEAN_ONNX_SOURCES:
-        return
-    affected = [item for item in indexer._recognized_index_precisions(index_dir)
-                if item["model"] == model_name and item["recorded"] == "full"]
-    if not affected:
-        return
-    gpu = accel._available_gpu_providers()
-    if gpu and all(provider_policy._provider_requires_probe(provider) for provider in gpu):
-        layers = ", ".join(item["layer"] for item in affected)
-        raise ModelPrewarmError(
-            f"Local fallback compatibility unverified before native preparation ({layers}: recorded full; "
-            f"possible full/int8; selection: {reason}). GPU availability is not a successful model probe. "
-            f"{recovery} A deliberate `wf setup --full` is a separate rebuild choice. Existing published index retained.")
 
 
 def prewarm_models(*, include_code: bool, code_only: bool = False, precision_check=None) -> None:
@@ -2804,11 +2804,10 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(args.root).expanduser().resolve() if args.root else Path.cwd().resolve()
     import model_bundle
     model_bundle_path = args.model_bundle or (Path(os.environ["WAVEFOUNDRY_MODEL_BUNDLE"]) if os.environ.get("WAVEFOUNDRY_MODEL_BUNDLE") else None)
+    bundle_search_dirs = (root, Path.home(), Path("~/.wavefoundry").expanduser(),
+                          Path("~/.wavefoundry/dist").expanduser(), Path("~/Downloads").expanduser())
     if model_bundle_path is None:
-        model_bundle_path = model_bundle.find_local_bundle(
-            (root, Path.home(), Path("~/.wavefoundry").expanduser(),
-             Path("~/.wavefoundry/dist").expanduser(), Path("~/Downloads").expanduser())
-        )
+        model_bundle_path = model_bundle.find_local_bundle(bundle_search_dirs)
     if model_bundle_path is not None:
         materialized = model_bundle.materialize_source(
             model_bundle_path,
@@ -2818,6 +2817,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"Materialized model bundle {materialized['model_set_version']} ({materialized['published_components']} component(s) updated)", flush=True)
     else:
+        hint = model_bundle.unused_bundle_hint(bundle_search_dirs)
+        if hint:
+            print(hint, flush=True)
         model_status = model_bundle.local_model_set_status()
         if model_status == "older":
             print(
@@ -2839,6 +2841,9 @@ def main(argv: list[str] | None = None) -> int:
                 "Use the matching independently versioned wavefoundry-models asset to repair the declared model set.",
                 flush=True,
             )
+
+        if model_status in {"older", "unmanaged", "mixed", "incompatible"}:
+            print(model_bundle.manual_recovery_guidance(root=root), flush=True)
 
     print(f"Wavefoundry index setup: root={root}", flush=True)
     for ds in root.rglob(".DS_Store"):
@@ -2947,40 +2952,50 @@ def main(argv: list[str] | None = None) -> int:
     _include_code = not background_code and not args.docs_only
     precision_check = (None if args.full else
                        lambda model, resident, diagnostic: _check_setup_precision(root, model, resident, diagnostic))
-    try:
-        # Assess every requested semantic layer, including a detached layer,
-        # before any model preparation. Later selections are checked again.
-        if precision_check is not None:
-            requested_models = _indexer_models(
-                include_code=_include_code or background_code, code_only=_code_only and not background_docs)
-            for model in requested_models:
+    assessment_content = ("all" if background_code or background_docs else
+                          "code" if _code_only else "all" if _include_code else "docs")
+    gpu_fallbacks = []
+    if _setup_semantic_work_is_current(
+        root, full=args.full, rechunk=args.rechunk, content=assessment_content,
+        include_tests=args.include_tests, include_generated=args.include_generated,
+    ):
+        print("Requested semantic indexes are current; native embedding preparation skipped. "
+              "Normal index validation continues.", flush=True)
+    else:
+        try:
+            # Assess every requested semantic layer, including a detached layer,
+            # before any model preparation. Later selections are checked again.
+            if precision_check is not None:
+                requested_models = _indexer_models(
+                    include_code=_include_code or background_code, code_only=_code_only and not background_docs)
+                for model in requested_models:
+                    diagnostic = {}
+                    resident = _resident_setup_embedder(model, diagnostic=diagnostic)
+                    precision_check(model, resident, diagnostic)
+            # Download/verify the models BEFORE the provider probe — the probe loads with
+            # local_files_only and would transiently fail on a fresh/cleared cache (model absent),
+            # silently dropping the whole build to CPU. Order: download → probe → GPU accel prewarm.
+            prewarm_models(include_code=_include_code, code_only=_code_only, precision_check=precision_check)
+            models = _indexer_models(include_code=_include_code, code_only=_code_only)
+            local_models = []
+            for model in models:
                 diagnostic = {}
                 resident = _resident_setup_embedder(model, diagnostic=diagnostic)
-                precision_check(model, resident, diagnostic)
-        # Download/verify the models BEFORE the provider probe — the probe loads with
-        # local_files_only and would transiently fail on a fresh/cleared cache (model absent),
-        # silently dropping the whole build to CPU. Order: download → probe → GPU accel prewarm.
-        prewarm_models(include_code=_include_code, code_only=_code_only, precision_check=precision_check)
-        models = _indexer_models(include_code=_include_code, code_only=_code_only)
-        local_models = []
-        for model in models:
-            diagnostic = {}
-            resident = _resident_setup_embedder(model, diagnostic=diagnostic)
-            if precision_check is not None:
-                precision_check(model, resident, diagnostic)
-            if resident is None:
-                local_models.append(model)
-        if local_models:
-            # Probe only a model whose current selection requires local work.
-            report_embedding_provider_decision(model_name=local_models[0])
-        else:
-            print("Embedding preparation: qualified service covers the requested models; "
-                  "local embedding provider probe skipped (selection only).", flush=True)
-        with model_download_root(root):
-            gpu_fallbacks = _prewarm_gpu_accel(models, precision_check=precision_check)
-    except ModelPrewarmError as exc:
-        print(str(exc), file=sys.stderr)
-        return 2
+                if precision_check is not None:
+                    precision_check(model, resident, diagnostic)
+                if resident is None:
+                    local_models.append(model)
+            if local_models:
+                # Probe only a model whose current selection requires local work.
+                report_embedding_provider_decision(model_name=local_models[0])
+            else:
+                print("Embedding preparation: qualified service covers the requested models; "
+                      "local embedding provider probe skipped (selection only).", flush=True)
+            with model_download_root(root):
+                gpu_fallbacks = _prewarm_gpu_accel(models, precision_check=precision_check)
+        except ModelPrewarmError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
     if model_bundle_path is None and model_bundle.attest_online_cache():
         print("Verified downloaded model cache matches the declared model set.", flush=True)
     try:

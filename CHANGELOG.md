@@ -8,6 +8,17 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Setup uses the canonical incremental plan to avoid unnecessary model preparation, and permits compatible automatic local inference when optional Tensorwell is absent. Normal build validation, precision-conversion protection and successful-core-only setup stamping remain intact. Wave 22l9k / change 22l9j.
+- Checkbox tools keep the preview default, report normalized mode and whether bytes were applied, guide an explicit applying call and reject typo modes. Nonconflicting downstream `wf-` skills are supported with complete-name collision checks and ownership-based cleanup; downstream projects own their renames. Wave 22ob1 / changes 22lif and 22oay.
+- Owned work and review snapshots recover provable construction links and same-filesystem root renames while preserving foreign-file refusals and reboot-safe continuity without device-ID equality. Unsupported descriptor-safe hosts retain full-review fallback; native Windows work-area operation remains unqualified. Wave 22ob1 / change 22oax.
+- Distribution verification separates source-project assertions from portable contracts, respects display vocabulary and isolates home/WAL test state. Setup remedies name the repository launcher, diagnose a selected WindowsApps placeholder and explain explicit compatible model bundles without automatic selection. Windows launcher behavior has controlled branch evidence only. Wave 22ob1 / changes 22lt5 and 22oaz.
+
+### Changed
+
+- Envision treats imported research instructions as untrusted data while retaining attributed synthesis. Reconciliation guidance distinguishes its content-integrity token from operator authorization; existing signoff semantics and review gates remain unchanged. Wave 22ob1 / change 22ob0; this guidance does not establish general prompt-injection resistance.
+
 ## [1.39.0] - 2026-11-05
 
 ### Added

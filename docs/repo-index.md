@@ -35,22 +35,22 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 21911 |
-| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1636 |
-| upgrade | `.wavefoundry/framework/scripts` | code | 475 |
-| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 439 |
-| framework/scripts — update_graph_index | `.wavefoundry/framework/scripts` | code | 423 |
-| setup | `.wavefoundry/framework/scripts` | code | 363 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 317 |
-| framework/scripts — acquire | `.wavefoundry/framework/scripts` | code | 293 |
-| run_tests | `.wavefoundry/framework/scripts` | code | 256 |
-| docs/dashboard_lib | `.wavefoundry/framework/scripts` | code | 247 |
-| scripts/dashboard_lib | `.wavefoundry/framework/scripts` | code | 244 |
-| framework index | `.wavefoundry/framework/scripts` | code | 241 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 21997 |
+| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1658 |
+| framework/scripts — IndexStateStore | `.wavefoundry/framework/scripts` | code | 501 |
+| framework/scripts — update_graph_index | `.wavefoundry/framework/scripts` | code | 435 |
+| upgrade | `.wavefoundry/framework/scripts` | code | 431 |
+| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 428 |
+| setup | `.wavefoundry/framework/scripts` | code | 335 |
+| docs/dashboard_lib | `.wavefoundry/framework/scripts` | code | 332 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 324 |
+| indexer | `.wavefoundry/framework/scripts` | code | 296 |
+| build_pack | `.wavefoundry/framework/scripts` | code | 249 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 229 |
 | chunker | `.wavefoundry/framework/scripts` | code | 229 |
-| indexer | `.wavefoundry/framework/scripts` | code | 192 |
-| scripts/retrieval_eval | `.wavefoundry/framework/scripts` | code | 136 |
+| record_paths | `.wavefoundry/framework/scripts` | code | 111 |
+| scripts/retrieval_eval | `.wavefoundry/framework/scripts` | code | 105 |
+| tensorwell_client | `.wavefoundry/framework/scripts` | code | 68 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 52 |
 | oracle | `.wavefoundry/framework/scripts/tests/oracle` | code | 52 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 47 |

@@ -591,13 +591,62 @@ class ModelBundleTests(unittest.TestCase):
     def test_manual_recovery_guidance_uses_exact_asset_and_standard_locations(self):
         guidance = model_bundle.manual_recovery_guidance("2")
         self.assertIn("wavefoundry-models-2.zip", guidance)
-        self.assertIn("same Wavefoundry release", guidance)
+        self.assertIn("a Wavefoundry release", guidance)
+        self.assertNotIn("same Wavefoundry release", guidance)
         self.assertIn("target repository root, ~/", guidance)
         self.assertIn("~/.wavefoundry/", guidance)
         self.assertIn("~/.wavefoundry/dist/", guidance)
         self.assertIn("~/Downloads/", guidance)
         self.assertIn("leave it zipped", guidance)
         self.assertIn("leaves the verified cache unchanged", guidance)
+        self.assertIn('--model-bundle PATH', guidance)
+        self.assertIn('WAVEFOUNDRY_MODEL_BUNDLE=PATH', guidance)
+        self.assertIn('compatible model-set 2', guidance)
+        self.assertIn('releases may reuse the same model set', guidance)
+
+    def test_misnamed_bundle_hint_is_bounded_unverified_and_never_adopted(self):
+        candidate = self.out / ('private-models-' + model_bundle.MODEL_SET_VERSION + '-' + 'x' * 140 + '.zip')
+        candidate.write_bytes(b'not a zip')
+        with patch.object(zipfile, 'ZipFile', side_effect=AssertionError('diagnosis must not open archives')):
+            hint = model_bundle.unused_bundle_hint((self.out,))
+            self.assertIsNone(model_bundle.find_local_bundle((self.out,)))
+        self.assertIsNotNone(hint)
+        self.assertIn('Found but not used:', hint)
+        self.assertIn('unverified model archive candidate', hint)
+        self.assertIn('--model-bundle PATH', hint)
+        quoted = hint.removeprefix('Found but not used: ').split(' (unverified', 1)[0]
+        self.assertLessEqual(len(quoted), 120)
+        self.assertIsInstance(json.loads(quoted), str)
+        self.assertTrue(all(' ' <= ch <= '~' for ch in hint))
+        self.assertEqual(candidate.read_bytes(), b'not a zip')
+        for hostile in ('"\\' * 150, '\x1b\n\u202e' + 'x' * 200):
+            quoted = model_bundle._quoted_bundle_basename(hostile)
+            self.assertLessEqual(len(quoted), 120)
+            self.assertTrue(all(' ' <= ch <= '~' for ch in quoted))
+            self.assertIsInstance(json.loads(quoted), str)
+
+    def test_misnamed_hint_ignores_other_sets_directories_and_exact_asset(self):
+        (self.out / 'private-models-99.zip').touch()
+        (self.out / ('private-models-' + model_bundle.MODEL_SET_VERSION + '.1.zip')).touch()
+        (self.out / ('folder-models-' + model_bundle.MODEL_SET_VERSION + '.zip')).mkdir()
+        exact = self.out / model_bundle.bundle_name()
+        exact.touch()
+        self.assertIsNone(model_bundle.unused_bundle_hint((self.out,)))
+        self.assertEqual(model_bundle.find_local_bundle((self.out,)), exact)
+
+    def test_explicit_renamed_bundle_keeps_validation_and_cache_guards(self):
+        bundle = model_bundle.build_bundle(self.out, cache_root=self.cache)
+        renamed = self.out / 'arbitrary-offline-name.zip'
+        bundle.rename(renamed)
+        self.assertIsNone(model_bundle.find_local_bundle((self.out,)))
+        result = model_bundle.materialize_source(renamed, expected_model_set_version=model_bundle.MODEL_SET_VERSION)
+        self.assertEqual(result['model_set_version'], model_bundle.MODEL_SET_VERSION)
+        with self.assertRaisesRegex(RuntimeError, 'canonical model set'):
+            model_bundle.materialize_source(renamed, expected_model_set_version='99')
+        malformed = self.out / 'malformed.zip'
+        malformed.write_bytes(b'not a zip')
+        with self.assertRaises(zipfile.BadZipFile):
+            model_bundle.materialize_source(malformed)
 
     def test_attests_complete_online_cache_from_verification_manifest(self):
         bundle = model_bundle.build_bundle(self.out, cache_root=self.cache)

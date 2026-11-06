@@ -64,6 +64,72 @@ def _make_embedder_mock(dim: int = 384, calls: list[list[str]] | None = None):
     return mock
 
 
+
+def _snapshot_index_tables(index_dir: Path, store):
+    """Inspect a private copy, retaining committed WAL frames.
+
+    A read-only SQLite open can create WAL/SHM files beside its input. Copy the
+    quiescent test database and any existing sidecars first; all SQLite scratch
+    writes stay in the private directory. Never use immutable on a WAL database:
+    it silently discards committed rows that have not reached the main file.
+    This is a test assertion helper, not a runtime database read policy.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        copied = Path(tmp)
+        source = store.state_store_path(index_dir)
+        destination = store.state_store_path(copied)
+        for suffix in ("", "-wal", "-shm"):
+            candidate = Path(str(source) + suffix)
+            if candidate.exists():
+                shutil.copyfile(candidate, Path(str(destination) + suffix))
+        conn = store.open_read_only(copied)
+        assert conn is not None, "fixture must contain a readable state store"
+        try:
+            schema = list(conn.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name"))
+            tables = [row[1] for row in schema if row[0] == "table"]
+            return schema, {name: sorted(conn.execute('SELECT * FROM "' + name.replace('"', '""') + '"'), key=repr)
+                            for name in tables}
+        finally:
+            conn.close()
+
+
+class SnapshotSidecarIsolationTests(unittest.TestCase):
+    def test_all_sidecar_states_preserve_rows_and_original_directory(self):
+        store = _store_mod()
+        for state in ("none", "shm-only", "empty-wal", "populated-wal", "populated-wal-shm"):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                path = store.state_store_path(root)
+                writer = sqlite3.connect(path)
+                writer.execute("PRAGMA journal_mode=WAL")
+                writer.execute("PRAGMA wal_autocheckpoint=0")
+                writer.execute("CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT)")
+                writer.execute("INSERT INTO meta VALUES ('store_schema_version', ?)", (store.STATE_STORE_SCHEMA_VERSION,))
+                writer.execute("CREATE TABLE observed(value TEXT)")
+                writer.execute("INSERT INTO observed VALUES ('main')")
+                writer.commit()
+                writer.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                if state.startswith("populated"):
+                    writer.execute("INSERT INTO observed VALUES ('committed-in-wal')")
+                    writer.commit()
+                wal = Path(str(path) + "-wal").read_bytes()
+                shm = Path(str(path) + "-shm").read_bytes()
+                main = path.read_bytes()
+                writer.close()
+                path.write_bytes(main)
+                if state in ("empty-wal", "populated-wal", "populated-wal-shm"):
+                    Path(str(path) + "-wal").write_bytes(wal)
+                if state in ("shm-only", "populated-wal-shm"):
+                    Path(str(path) + "-shm").write_bytes(shm)
+                before = {p.name: p.read_bytes() for p in root.iterdir()}
+                _, rows = _snapshot_index_tables(root, store)
+                expected = [("main",)]
+                if state.startswith("populated"):
+                    expected.append(("committed-in-wal",))
+                self.assertEqual(sorted(rows["observed"]), sorted(expected))
+                self.assertEqual({p.name: p.read_bytes() for p in root.iterdir()}, before)
+
+
 def _read_index_chunks(index_dir: Path, table_name: str) -> list[dict]:
     import sqlite_vector_store as vectors
     if not (index_dir / vectors.FILENAME).is_file(): return []
@@ -2633,6 +2699,7 @@ class SetupLaunchedCorpusParityTests(unittest.TestCase):
 
         model_bundle = types.SimpleNamespace(
             find_local_bundle=lambda _dirs: None,
+            unused_bundle_hint=lambda _dirs: None,
             local_model_set_status=lambda: "current",
             attest_online_cache=lambda: False,
         )
@@ -2944,17 +3011,7 @@ class ExplicitPrecisionRebuildTests(unittest.TestCase):
         self.calls.clear()
 
     def _snapshot(self):
-        # Use the production APSW binding, including all canonical bookkeeping,
-        # provenance, vectors, graph, path state, and build epoch rows.
-        conn = self.bi._get_index_state_store().open_read_only(self.index_dir)
-        self.assertIsNotNone(conn)
-        try:
-            schema = list(conn.execute("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY name"))
-            tables = [row[1] for row in schema if row[0] == "table"]
-            return schema, {name: sorted(conn.execute('SELECT * FROM "' + name.replace('"', '""') + '"'), key=repr)
-                            for name in tables}
-        finally:
-            conn.close()
+        return _snapshot_index_tables(self.index_dir, self.bi._get_index_state_store())
 
     def _refuse(self, precision, **kwargs):
         before = self._snapshot()

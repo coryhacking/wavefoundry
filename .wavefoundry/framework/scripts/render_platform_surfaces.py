@@ -816,11 +816,15 @@ HOOK_BOOTSTRAP = dedent(
             _WF_VENV_UNAVAILABLE = "activation_failed"
     if _WF_VENV_UNAVAILABLE:
         try:
+            import setup_readiness as _wf_setup_readiness
+
             print(
                 "wavefoundry: hook running without the tool venv ("
                 + ("it was built for another Python version" if _WF_VENV_UNAVAILABLE == "version_mismatch"
                    else "its activation failed")
-                + "); run `wf setup` to rebuild it.",
+                + "); run " + _wf_setup_readiness.format_command(
+                    _wf_setup_readiness.repository_launcher_argv(
+                        _WfPath(__file__).resolve().parents[2], "setup")) + " to rebuild it.",
                 file=_wf_sys.stderr,
             )
         except Exception:
@@ -872,7 +876,9 @@ def compose_preactivation_script(body: str) -> str:
 
 
 def claude_modernization_briefing_source() -> str:
-    """Fixed, read-only SubagentStart context; no framework/bootstrap imports."""
+    """Read-only context with render-time display vocabulary; no hook bootstrap imports."""
+    import vocabulary_profile
+
     # No future import: disable bytecode before importing even stdlib modules.
     body = r'''
         import sys
@@ -889,7 +895,7 @@ def claude_modernization_briefing_source() -> str:
             ".wavefoundry/framework/seeds/180-implement-change.prompt.md, "
             "especially Host-neutral orchestration and its canonical retrieval rules "
             "(docs/agents/guru.md for code/documentation investigation). "
-            "Stay within the assigned change/ACs and owned paths; honor forbidden paths "
+            "Stay within the assigned __ITEM_NOUN__/ACs and owned paths; honor forbidden paths "
             "and read-only assignments. Investigation may precede readiness; implementation "
             "requires the repository stage gate. Verify your actual available tools; use "
             "Wavefoundry MCP first when available, and follow the documented fallback with "
@@ -923,7 +929,7 @@ def claude_modernization_briefing_source() -> str:
         '''
     return "#!/usr/bin/env python3\n" + dedent(body).strip().replace(
         "__AGENT_PATTERN__", repr(CLAUDE_MODERNIZATION_MATCHER)
-    ) + "\n"
+    ).replace("__ITEM_NOUN__", vocabulary_profile.tier_noun("item")) + "\n"
 
 
 def claude_session_start_source() -> str:
@@ -949,6 +955,16 @@ def claude_session_start_source() -> str:
         ASK = "Report this to the operator and ask before running any command."
 
 
+        def recovery_command(*arguments):
+            if str(_SCRIPTS) not in sys.path:
+                sys.path.insert(0, str(_SCRIPTS))
+            import setup_readiness
+
+            root = Path(os.environ.get("CLAUDE_PROJECT_DIR") or _ROOT)
+            return setup_readiness.format_command(setup_readiness.repository_launcher_argv(
+                root, "setup", "--root", str(root), *arguments))
+
+
         def _clean(text):
             text = "".join(ch if ch.isprintable() else " " for ch in str(text))
             return text[:MAX_LINE]
@@ -961,9 +977,12 @@ def claude_session_start_source() -> str:
             reasons = result.get("reasons") or []
             if status != "action_required":
                 first = reasons[0] if reasons else {"code": "unknown", "message": "no reason reported"}
+                command = recovery_command("--check", "--json")
+                if len(command) > MAX_LINE:
+                    command = "Run the repository's setup --check --json to display the full assessment."
                 return [_clean("Wavefoundry setup readiness could not be determined ("
-                               + str(first.get("code")) + ": " + str(first.get("message"))
-                               + "); run `wf setup --check --json` by hand.")]
+                               + str(first.get("code")) + ": " + str(first.get("message")) + ")."),
+                        command]
             lines = [HEADER]
             for item in reasons[:MAX_REASONS]:
                 lines.append(_clean("- " + str(item.get("code")) + ": " + str(item.get("message"))))
@@ -972,7 +991,7 @@ def claude_session_start_source() -> str:
             if any(item.get("code") == "dependencies_missing" for item in reasons):
                 # Wave 1zfd9: MCP startup installs missing declared dependencies itself.
                 lines.append("The MCP server attempts to install missing dependencies at startup; "
-                             "if it fails to start, run `wf setup`.")
+                             "if it fails to start, run " + recovery_command() + ".")
             for action in result.get("actions") or []:
                 kind = action.get("kind")
                 if kind == "restart":
@@ -981,7 +1000,7 @@ def claude_session_start_source() -> str:
                 command = "Recommended: " + format_command(action.get("argv") or [])
                 if len(command) > MAX_LINE:
                     # Never show a cut-off command; point at the full one instead.
-                    command = "Recommended: the command shown by `wf setup --check` (too long to show here)."
+                    command = "Recommended: run the repository's setup --check to display the full command (too long to show here)."
                 lines.append(_clean(command))
                 if kind == "setup":
                     lines.append("Setup ends by asking for an agent-host restart.")
@@ -1022,7 +1041,7 @@ def claude_session_start_source() -> str:
             except BaseException as exc:
                 try:
                     print(_clean("Wavefoundry setup readiness check failed (" + type(exc).__name__ + ": "
-                                 + str(exc) + "); run `wf setup --check` by hand."))
+                                 + str(exc) + "); restore the framework scripts and retry this check."))
                 except BaseException:
                     pass
             raise SystemExit(0)
@@ -2633,6 +2652,16 @@ def render_bin_launchers(repo_root: Path) -> None:
         'cd /d "%REPO_ROOT%"\r\n'
         'where.exe python3 >nul 2>nul\r\n'
         'if errorlevel 1 goto python_missing\r\n'
+        'set "WF_PYTHON3="\r\n'
+        'for /f "delims=" %%I in (\'where.exe python3 2^>nul\') do if not defined WF_PYTHON3 set "WF_PYTHON3=%%I"\r\n'
+        'if /i "%WF_PYTHON3%"=="%LOCALAPPDATA%\\Microsoft\\WindowsApps\\python3.exe" goto python_alias_probe\r\n'
+        'goto python_launch\r\n'
+        ':python_alias_probe\r\n'
+        'python3 -c "import sys" >nul 2>nul\r\n'
+        'if "%ERRORLEVEL%"=="0" goto python_launch\r\n'
+        'echo Wavefoundry: the WindowsApps python3 App execution alias cannot run Python. Disable the Python/Python3 App execution aliases in Settings and put a real Python 3.11 or newer python3 on PATH, then retry. 1>&2\r\n'
+        'exit /b 2\r\n'
+        ':python_launch\r\n'
         'python3 "%REPO_ROOT%\\.wavefoundry\\framework\\scripts\\wf_cli.py" %*\r\n'
         'set "WF_EXIT=%ERRORLEVEL%"\r\n'
         # Wave 1z2m8: subcommands exit 1 or 2 for ordinary results, so only a failed

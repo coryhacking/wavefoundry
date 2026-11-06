@@ -66,6 +66,28 @@ class SetupReadinessTests(unittest.TestCase):
     def assess(self, **kwargs):
         return readiness.assess_setup(self.root, **kwargs)
 
+    def test_setup_remedy_uses_checkout_launcher_and_round_trips_arguments(self):
+        with patch.object(readiness, '_dependencies', return_value=['missing>=1']):
+            result = self.assess()
+        action = next(action for action in result['actions'] if action['kind'] == 'setup')
+        self.assertEqual(action['argv'], [str(self.root / '.wavefoundry/bin/wf') if os.name != 'nt'
+                                        else str(self.root / '.wavefoundry/bin/wf.cmd'),
+                                        'setup', '--root', str(self.root)])
+        self.assertIn(readiness.format_command(action['argv']), readiness.format_text(result))
+        self.assertFalse((self.root / '.wavefoundry/bin').exists())
+
+    def test_repository_launcher_quotes_posix_and_windows_special_paths(self):
+        root = str(self.root / "repo space O'Brien & literal$()")
+        argv = readiness.repository_launcher_argv(root, 'setup', '--root', root, windows=False)
+        self.assertEqual(argv[0], root + '/.wavefoundry/bin/wf')
+        self.assertEqual(shlex.split(readiness.format_command(argv)), argv)
+        windows_root = "C:\\Repo space\\O'Brien & literal$()"
+        argv = readiness.repository_launcher_argv(windows_root, 'setup', '--root', windows_root, windows=True)
+        self.assertEqual(argv, [windows_root + '\\.wavefoundry\\bin\\wf.cmd', 'setup', '--root', windows_root])
+        with patch.object(readiness, 'os', SimpleNamespace(name='nt')):
+            self.assertEqual(readiness.format_command(argv), '& ' + ' '.join(
+                "'" + value.replace("'", "''") + "'" for value in argv))
+
     def test_deprecated_runtime_is_additive_and_retains_independent_failures(self):
         Version = namedtuple('Version', 'major minor micro')
         for minor in (11, 12, 13):

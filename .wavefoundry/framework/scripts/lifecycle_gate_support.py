@@ -340,7 +340,7 @@ def _change_id_shape_error(change_id: Any) -> Optional[dict[str, Any]]:
         return None
     return _diagnostic(
         "invalid_arguments",
-        f"change_id {reason}; pass the FULL admitted change id as listed by the wave record.",
+        f"change_id {reason}; pass the FULL admitted {_vocab.tier_noun('item')} id as listed by the {_vocab.tier_noun('container')} record.",
         recovery_tools=["wf_current_wave"],
         recovery_usage="wf_current_wave()",
     )
@@ -965,9 +965,9 @@ def receipt_supersession_attribution(
             else "no differing receipt_semantic_fields"
         ),
         (
-            "digested change ids: " + ", ".join(change_ids)
+            f"digested {_vocab.tier_noun('item')} ids: " + ", ".join(change_ids)
             if change_ids
-            else "digested change ids: none"
+            else f"digested {_vocab.tier_noun('item')} ids: none"
         ),
     ]
     old_inputs = current.get("policy_inputs")
@@ -979,7 +979,7 @@ def receipt_supersession_attribution(
             change_id for change_id in old_changes.keys() | new_changes.keys()
             if old_changes.get(change_id) != new_changes.get(change_id)
         )
-        parts.append("changed change docs: " + (", ".join(changed) or "none"))
+        parts.append(f"changed {_vocab.tier_noun('item')} docs: " + (", ".join(changed) or "none"))
         if old_inputs["project_policy_sha256"] != new_inputs["project_policy_sha256"]:
             parts.append("project policy inputs changed")
         comparison = review_policy.compare_receipt_sections(current, pending)
@@ -1081,7 +1081,7 @@ def _prepare_policy_state(
         except (OSError, UnicodeError) as exc:
             errors.append(PolicyInputError(
                 "read",
-                f"cannot read admitted change `{change_id}` for policy selection: {_read_error_detail(exc)}",
+                f"cannot read admitted {_vocab.tier_noun('item')} `{change_id}` for policy selection: {_read_error_detail(exc)}",
             ))
             continue
         kind = change_id.split("-", 1)[0].rsplit("-", 1)[-1]
@@ -1092,7 +1092,7 @@ def _prepare_policy_state(
         # existing (None, errors) channel already reaches the operator.
         for problem in ambiguous_excluded_headings(text):
             errors.append(PolicyInputError(
-                "ambiguous_headings", f"admitted change `{change_id}`: {problem}"
+                "ambiguous_headings", f"admitted {_vocab.tier_noun('item')} `{change_id}`: {problem}"
             ))
         change_inputs.append((change_id, kind, body))
         change_texts.append(text)
@@ -1251,7 +1251,7 @@ def _review_policy_receipt_diagnostics(
         diagnostics.append(
             _diagnostic(
                 "review_policy_receipt_stale",
-                "The current review-policy receipt does not match the wave/config/change inputs; re-Prepare."
+                f"The current review-policy receipt does not match the {_vocab.tier_noun('container')}/config/{_vocab.tier_noun('item')} inputs; re-Prepare."
                 + receipt_supersession_attribution(state, change_ids),
                 recovery_tools=["wf_prepare_wave"],
                 recovery_usage=f"wf_prepare_wave(wave_id={wave_md.parent.name!r}, mode='ready')",
@@ -1291,13 +1291,13 @@ def _select_prepare_council_rotating_seat(wave_text: str) -> tuple[str | None, s
     """
     probe = wave_text.casefold()
     if any(kw in probe for kw in ("seed", "prompt", "template", "doc authoring", "seed prompt")):
-        return "docs-contract-reviewer", "Wave references seed/prompt authoring or documentation changes"
+        return "docs-contract-reviewer", f"{_vocab.tier_noun('container', title=True)} references seed/prompt authoring or documentation changes"
     if any(kw in probe for kw in ("auth", "security", "trust boundary", "vulnerability", "credential", "permission", "secret")):
-        return "security-reviewer", "Wave references authentication, security, or trust boundary changes"
+        return "security-reviewer", f"{_vocab.tier_noun('container', title=True)} references authentication, security, or trust boundary changes"
     if any(kw in probe for kw in ("architecture", "boundary", "structural", "refactor", "layering")):
-        return "architecture-reviewer", "Wave references architectural or structural changes"
+        return "architecture-reviewer", f"{_vocab.tier_noun('container', title=True)} references architectural or structural changes"
     if any(kw in probe for kw in ("server_impl", "mcp tool", "mcp surface", "api endpoint", "tool registration")):
-        return "code-reviewer", "Wave references MCP tool or API surface changes"
+        return "code-reviewer", f"{_vocab.tier_noun('container', title=True)} references MCP tool or API surface changes"
     return None, "No clear domain signal; red-team fixed seat only"
 
 
@@ -1313,7 +1313,7 @@ def _prepare_council_instructions(rotating_seat: str | None, *, typed: bool = Fa
     """
 
     grounding = (
-        "Run each council seat in isolation against the admitted change docs and wave record. "
+        f"Run each council seat in isolation against the admitted {_vocab.tier_noun('item')} docs and {_vocab.tier_noun('container')} record. "
         "Verification must be code-grounded: verify each plan's load-bearing claims against the "
         "actual tree, not against the plan's own prose — cited file:line sites and symbols must "
         "resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' "
@@ -1321,7 +1321,7 @@ def _prepare_council_instructions(rotating_seat: str | None, *, typed: bool = Fa
         "its own text. When a seat writes a finding that cites code, cite a resolvable anchor — a "
         "function, class, method, constant, test name, or distinguishing expression — rather than "
         "a bare file:line, because a symbol anchor resolves to today's text while a line anchor "
-        "drifts hardest when a sibling wave edits the target concurrently. A line number is still "
+        f"drifts hardest when a sibling {_vocab.tier_noun('container')} edits the target concurrently. A line number is still "
         "correct for a module-level constant block, data file, specific line in a generated "
         "artifact, prose in a hand-authored markdown document, or deliberately historical "
         "citation; name that case inline so a reviewer can tell a deliberate line anchor from a "
@@ -1329,25 +1329,25 @@ def _prepare_council_instructions(rotating_seat: str | None, *, typed: bool = Fa
     )
     if typed:
         return grounding + (
-            "This wave's review authority is the typed ledger, so record the outcome there: first "
+            f"This {_vocab.tier_noun('container')}'s review authority is the typed ledger, so record the outcome there: first "
             "the readiness review run, then each required lane's readiness approval, then the "
             "council verdict as a typed approval, "
             "wf_review_event(event='approval', signoff_key='council-readiness', "
             "approval_phase='readiness', mode='create', ...), whose evidence names the seats "
             "actually run, each at most once, with per-seat evidence or an explicit no-findings "
             f"note, and whose `{review_evidence.INTENT_FIT_FIELD}` is the worst intent verdict "
-            "across every admitted change and the wave Objective "
+            f"across every admitted {_vocab.tier_noun('item')} and the {_vocab.tier_noun('container')} Objective "
             f"({', '.join(review_evidence.INTENT_FIT_VALUES_BY_PHASE['readiness'])}; a plan that "
             "will not establish its intent is a finding, not an approval) "
             f"(e.g. `{_prepare_council_verdict_template(rotating_seat, typed=True)}`). "
             "A ## Review Checkpoints narrative is optional and is not authority: the gate reads "
             "only the typed approval. Then call wf_prepare_wave(mode='ready'), or mode='create' "
-            "to also open the wave."
+            f"to also open the {_vocab.tier_noun('container')}."
         )
     return grounding + (
         "Record the verdict in ## Review Checkpoints with a structured 'prepare-council' line "
         "whose seats: field lists the seats actually run, each at most once, with per-seat "
-        "evidence (or an explicit no-findings note) recorded in the wave record "
+        f"evidence (or an explicit no-findings note) recorded in the {_vocab.tier_noun('container')} record "
         f"(e.g. `{_prepare_council_verdict_template(rotating_seat)}`) "
         "before calling wf_prepare_wave(mode='create')."
     )
@@ -1366,7 +1366,7 @@ def _prepare_council_verdict_template(rotating_seat: str | None, *, typed: bool 
     if typed:
         # Wave 1zime (1ziml): the typed approval is the record that counts.
         return (
-            "wf_review_event(wave_id=<wave id>, event='approval', "
+            f"wf_review_event(wave_id=<{_vocab.tier_noun('container')} id>, event='approval', "
             "signoff_key='council-readiness', approval_phase='readiness', "
             f"actor='{review_evidence.COUNCIL_ACTOR}', context_id=<fresh context id>, mode='create', "
             f"evidence={{'observed': 'Prepare-phase {_vocab.COUNCIL_DISPLAY_NAME} PASS "

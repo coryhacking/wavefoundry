@@ -8,6 +8,7 @@ and AC-8 the Review and Close evaluators.
 from __future__ import annotations
 
 import ast
+import re
 import sys
 import tempfile
 import unittest
@@ -31,6 +32,7 @@ from test_lifecycle_golden import (
     seed_state,
 )
 from test_review_evidence import executable_evidence
+from upstream_fixture_support import source_repository_fixture, upstream_fixture
 
 READINESS = subject.COUNCIL_READINESS_SIGNOFF_KEY
 DELIVERY = subject.COUNCIL_DELIVERY_SIGNOFF_KEY
@@ -42,9 +44,11 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def repository_ledgers(root: Path) -> list[Path]:
-    roots = (record_paths.WAVES_ROOT, record_paths.ARCHIVE_ROOT)
-    return sorted({path for rel in roots if rel
-                   for path in (root / rel).glob(f"**/{subject.EVENTS_FILENAME}")})
+    """All configured ledgers, including active ones, for an explicit record audit."""
+    layout = record_paths.load_record_roots(root)
+    roots = (layout.waves, layout.archive)
+    return sorted({path for base in roots if base is not None
+                   for path in base.glob(f"**/{subject.EVENTS_FILENAME}")})
 
 
 def _evidence(**extra: object) -> dict[str, object]:
@@ -286,6 +290,25 @@ class IntentFitWritePathTests(unittest.TestCase):
         self.assertIn("signing off accepts that outcome", missing[0]["message"])
 
 
+class IntentVocabularyTests(unittest.TestCase):
+    def test_alternate_tiers_reach_instructions_schema_and_approval_diagnostic(self):
+        with patch.multiple(vocabulary_profile, ITEM_NAME="Ticket", ITEM_NAME_PLURAL="Tickets",
+                            CONTAINER_NAME="Batch", CONTAINER_NAME_PLURAL="Batches"):
+            instructions = lifecycle_gate_support._prepare_council_instructions(None, typed=True)
+            self.assertIn("admitted ticket docs and batch record", instructions)
+            self.assertIn("admitted ticket and the batch Objective", instructions)
+            self.assertNotIn("admitted change", instructions)
+            self.assertIn("sibling batch edits", instructions)
+            self.assertIn("wave_id=<batch id>", instructions)
+            errors = subject._intent_fit_errors(READINESS, "readiness", {}, "approval", require_present=True)
+            self.assertIn("admitted ticket and the batch Objective", " ".join(errors))
+            schema = subject.review_action_input_schema()
+            self.assertIn("admitted ticket and the batch Objective", str(schema))
+            self.assertIn("intent_fit", str(schema))
+            self.assertIn("council-readiness", str(schema))
+            self.assertEqual(subject.EVENTS_FILENAME, "events.jsonl")
+
+
 class IntentFitLedgerTests(unittest.TestCase):
     """AC-2: optional on read, consistent with the write rules when present."""
 
@@ -299,40 +322,63 @@ class IntentFitLedgerTests(unittest.TestCase):
             f"approval-{key}-{phase}", f"approval:{key}", claim_kind="approval", actor=actor,
             required_for_approval=True, approval_phase=phase, **extra)
 
-    def test_every_repository_ledger_still_validates(self):
-        ledgers = repository_ledgers(REPO_ROOT)
-        self.assertGreater(len(ledgers), 100)
-        for path in ledgers:
+    def _assert_ledgers_validate(self, paths):
+        for path in paths:
             with self.subTest(ledger=path.parent.name):
                 records, parse_errors = subject.parse_review_event_bytes(path.read_bytes())
                 self.assertEqual(parse_errors, ())
                 self.assertEqual(subject.validate_review_evidence_records(records), ())
 
+    def test_closed_source_repository_ledgers_still_validate(self):
+        # This source-project corpus is not an audit of a consumer checkout.
+        # Active records are intentionally excluded; lifecycle tools audit those.
+        layout = record_paths.load_record_roots(REPO_ROOT)
+        source_repository_fixture(layout.waves, root=REPO_ROOT)
+        ledgers = []
+        for path in repository_ledgers(REPO_ROOT):
+            profile = (vocabulary_profile.archive_profile() if layout.archive is not None
+                       and path.is_relative_to(layout.archive) else vocabulary_profile)
+            record = path.parent / profile.RECORD_FILENAME
+            if record.is_file() and re.search(r"(?m)^Status:\s*`?closed`?\s*$", record.read_text()):
+                ledgers.append(upstream_fixture(path, root=REPO_ROOT))
+        self.assertTrue(ledgers, "upstream closed-ledger corpus is empty")
+        self._assert_ledgers_validate(ledgers)
+
+    def test_consumer_active_ledgers_are_not_a_source_corpus_prerequisite(self):
+        import json
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "docs").mkdir()
+            (root / "docs/workflow-config.json").write_text(json.dumps({"testing": {"upstream_fixtures_required": False}}))
+            path = root / record_paths.WAVES_ROOT / "in-progress" / subject.EVENTS_FILENAME
+            path.parent.mkdir(parents=True)
+            path.write_bytes(b"unfinished consumer ledger\n")
+            with patch.dict(self.test_closed_source_repository_ledgers_still_validate.__func__.__globals__, REPO_ROOT=root):
+                with self.assertRaises(unittest.SkipTest):
+                    self.test_closed_source_repository_ledgers_still_validate()
+            # An explicit consumer audit still sees its own active record.
+            self.assertEqual(repository_ledgers(root), [path])
+
     def test_live_and_archive_corpus_keeps_corruption_detection(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             paths = []
-            for index in range(101):
-                rel = "docs/live" if index == 0 else "docs/old"
+            for index, rel in enumerate(("docs/live", "docs/old")):
                 path = root / rel / str(index) / subject.EVENTS_FILENAME
                 path.parent.mkdir(parents=True)
                 path.write_bytes(b"")
                 paths.append(path)
             with patch.multiple(record_paths, WAVES_ROOT="docs/live", ARCHIVE_ROOT="docs/old"):
                 self.assertEqual(repository_ledgers(root), sorted(paths))
-                with patch.dict(self.test_every_repository_ledger_still_validates.__func__.__globals__, REPO_ROOT=root):
-                    self.test_every_repository_ledger_still_validates()
-                    paths[-1].write_bytes(b"not json\n")
-                    # Use a separate TestCase so its subtest failures are caught
-                    # as assertions rather than written to this test's result.
-                    check = IntentFitLedgerTests("test_every_repository_ledger_still_validates")
-                    result = unittest.TestResult()
-                    check.run(result)
-                    self.assertEqual(len(result.failures), 1)
-                    self.assertEqual(result.errors, [])
-                    self.assertIn("ledger=", result.failures[0][0].id())
+                self._assert_ledgers_validate(repository_ledgers(root))
+                paths[-1].write_bytes(b"not json\n")
+                # Capture the normal assertion oracle, including subtest failure.
+                with self.assertRaises(AssertionError):
+                    records, errors = subject.parse_review_event_bytes(paths[-1].read_bytes())
+                    self.assertEqual(errors, ())
                 with patch.object(record_paths, "ARCHIVE_ROOT", "docs/live"):
-                    self.assertEqual(repository_ledgers(root), [paths[0]])
+                    with self.assertRaises(record_paths.RecordLayoutInvalid):
+                        repository_ledgers(root)
                 with patch.object(record_paths, "ARCHIVE_ROOT", None):
                     self.assertEqual(repository_ledgers(root), [paths[0]])
 

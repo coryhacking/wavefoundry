@@ -20,7 +20,7 @@ import index_paths  # noqa: E402
 import indexer  # noqa: E402
 import retrieval_eval  # noqa: E402
 import graph_fixture_support as gfs  # noqa: E402
-from upstream_fixture_support import upstream_fixture  # noqa: E402
+from upstream_fixture_support import upstream_fixture, source_repository_fixture  # noqa: E402
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3].parent
@@ -1130,6 +1130,7 @@ class ReportSelfContaminationTests(unittest.TestCase):
 
     def test_the_shipped_report_paths_are_ignored(self):
         import indexer
+        source_repository_fixture(REPO_ROOT / ".aiignore", root=REPO_ROOT)
         patterns = indexer._load_ignore_patterns(REPO_ROOT)
         for rel in ("docs/reports/graph-quality-baseline.json",
                     "docs/reports/graph-quality-post.json"):
@@ -1137,13 +1138,21 @@ class ReportSelfContaminationTests(unittest.TestCase):
                 self.assertTrue(indexer._matches_ignore(rel, patterns),
                                 f"{rel} would enter the retrieval corpus")
 
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / "consumer"
+        self.root.mkdir()
+        (self.root / "docs/reports").mkdir(parents=True)
+        (self.root / ".aiignore").write_text("docs/reports/allowed.json\n")
+
     def _repo_probe(self, name: str) -> Path:
         """A repository destination that is cleaned up even when the guard fails.
 
         Without this, a run against a broken guard leaves a stray `.json` in
         `docs/reports/` -- which is the very contamination under test.
         """
-        target = REPO_ROOT / "docs" / "reports" / name
+        target = self.root / "docs" / "reports" / name
         self.assertFalse(target.exists(), "the probe path must not already exist")
         self.addCleanup(target.unlink, missing_ok=True)
         return target
@@ -1152,7 +1161,7 @@ class ReportSelfContaminationTests(unittest.TestCase):
         target = self._repo_probe("gq-unlisted-probe.json")
         with self.assertRaises(subject.GraphQualityInvalid) as caught:
             subject.write_report({"schema": subject.REPORT_SCHEMA},
-                                 target, root=REPO_ROOT)
+                                 target, root=self.root)
         self.assertEqual("self_contaminating_artifact", caught.exception.code)
         self.assertFalse(target.exists(), "a refused report must write nothing")
 
@@ -1160,20 +1169,28 @@ class ReportSelfContaminationTests(unittest.TestCase):
         # Scratch destinations cannot be indexed, so they are not contamination.
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "graph-quality-scratch.json"
-            subject.assert_report_is_excluded_from_the_corpus(path, REPO_ROOT)
+            subject.assert_report_is_excluded_from_the_corpus(path, self.root)
             written = subject.write_report(
-                {"schema": subject.REPORT_SCHEMA}, path, root=REPO_ROOT)
+                {"schema": subject.REPORT_SCHEMA}, path, root=self.root)
             self.assertGreater(written, 0)
             self.assertTrue(path.is_file())
 
     def test_the_cli_refuses_a_contaminating_destination(self):
-        if not CORPUS.is_file():
-            self.skipTest("graph corpus is not present in this tree")
         target = self._repo_probe("gq-cli-probe.json")
-        self.assertEqual(2, subject.main(
-            [f"--corpus={CORPUS}", f"--report={target}", "--label=post",
-             f"--root={REPO_ROOT}"]))
+        # The report writer is real; graph construction is unrelated to this
+        # CLI destination contract and needs no upstream corpus.
+        from unittest.mock import patch
+        with patch.object(subject, "build_report", return_value={"schema": subject.REPORT_SCHEMA}):
+            self.assertEqual(2, subject.main(
+                [f"--corpus={self.root / 'unused.json'}", f"--report={target}", "--label=post",
+                 f"--root={self.root}"]))
         self.assertFalse(target.exists(), "a refused run must write nothing")
+
+
+    def test_controlled_ignored_report_is_allowed(self):
+        path = self.root / "docs/reports/allowed.json"
+        self.assertGreater(subject.write_report({"schema": subject.REPORT_SCHEMA}, path, root=self.root), 0)
+        self.assertTrue(path.is_file())
 
 
 # --------------------------------------------------------------------------- #

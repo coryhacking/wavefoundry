@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-26
+Last verified: 2026-11-05
 
 ## Verification Commands
 
@@ -193,6 +193,8 @@ python3 .wavefoundry/framework/scripts/run_tests.py --reconcile <report-path> --
 
 An agent may execute acceptance only on that explicit instruction. The string
 records the judgment; it neither authenticates a human nor proves prose harmless.
+The inspection token binds the inspected inputs and differences; possession of
+that token proves neither operator identity nor authorization to accept them.
 A general instruction to run tests or implement a wave is not acceptance of a
 particular exception. Existing rendered prompt Markdown is eligible for review,
 not automatically harmless. Known gate closure is limited to boolean true-to-false
@@ -516,6 +518,10 @@ The managed `.gitignore` block includes `.wavefoundry/work/` on install and upgr
 Keep work through planned, ready, active and paused states. Before finalizing evidence, preserve unique proof in maintained records, tests or explicitly retained evidence; new durable approvals must not rely solely on scratch paths. For example, place a trial capture in `.wavefoundry/work/12345/tests/probe.log`, record its command, exact source identity, final result and limitations in that wave’s `wave.md`, and promote a unique reproducer into a maintained test or cited evidence outside work. After closure removes the capture, the final claim still has a durable explanation and reproducible basis. Do not rewrite immutable ledger references or migrate historical evidence automatically.
 
 Only successful operator-authorized whole-wave closure attempts cleanup of the verified owned area, after the lifecycle transition commits. Dry-run, failed close and single-change close preserve work; cleanup failure is advisory and an authorized repeated close may retry. Reopening creates a new generation protected from stale cleanup. Unsupported safe deletion preserves files with a notice; native Windows deletion remains unqualified. No sweeper, expiry, process killing or new approval authority is introduced.
+
+New owner records bind the root and work directory through nonzero inode continuity, permitting actual case aliases and same-filesystem root renames. Persisted device IDs are diagnostic history, never equality requirements across reboots. Legacy records without root identity preserve work when a rename cannot be proved. Snapshot reads may reuse a positively verified internal publisher construction link, with no deletion during reads; external or unproved links still require full review. Hosts without the required safe descriptor operations report unavailable work/snapshots and retain full-review fallback. Cross-volume moves and native Windows operation are not qualified by the POSIX checks.
+
+Setup recovery actions use the absolute repository launcher, including `.wavefoundry/bin/wf.cmd` on native Windows, rather than relying on bare `wf` lookup. Explicit `--model-bundle PATH` or `WAVEFOUNDRY_MODEL_BUNDLE=PATH` can select a bundle under any name; model-set, hashes and license validation still control adoption. A bounded filename-only hint may name one unverified current-model-set archive ignored by exact-name discovery. It selects nothing, and absence of a hint does not establish that no archive exists.
 
 ## Close gate: the framework test receipt
 

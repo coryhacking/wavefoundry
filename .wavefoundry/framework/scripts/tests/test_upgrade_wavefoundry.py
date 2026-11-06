@@ -890,6 +890,10 @@ class DryRunTests(unittest.TestCase):
         # Isolate from real ~/.wavefoundry/dist/ AND ~/Downloads/ so tests are not polluted by
         # actual release zips present on the developer's machine (1p5dk added ~/Downloads to the
         # search paths — a very common landing spot for real packs).
+        self._home_patch = patch.object(self.mod, "_HOME_DIR", self.root / "home")
+        self._home_patch.start()
+        self._home_framework_patch = patch.object(self.mod, "_HOME_WAVEFOUNDRY_DIR", self.root / "home-framework")
+        self._home_framework_patch.start()
         self._dist_patch = patch.object(self.mod, "_DIST_DIR", Path(self.tmp.name) / "dist")
         self._dist_patch.start()
         self._downloads_patch = patch.object(self.mod, "_DOWNLOADS_DIR", Path(self.tmp.name) / "downloads")
@@ -898,6 +902,8 @@ class DryRunTests(unittest.TestCase):
     def tearDown(self):
         self._downloads_patch.stop()
         self._dist_patch.stop()
+        self._home_patch.stop()
+        self._home_framework_patch.stop()
         self.mod._close_log()
         self.mod._log_file = self._saved_log_file  # restore (normally None)
         self.tmp.cleanup()
@@ -911,6 +917,17 @@ class DryRunTests(unittest.TestCase):
         finally:
             self.mod._log = orig_log
         return "\n".join(lines)
+
+    def test_archive_discovery_searches_only_fixture_roots(self):
+        visited = []
+        def scan(path):
+            self.assertTrue(path.is_relative_to(self.root), f"ambient discovery root: {path}")
+            visited.append(path)
+            return []
+        with patch.object(self.mod, "_scan_dir_entries", side_effect=scan):
+            self.mod._find_zip(self.root)
+        self.assertEqual(set(visited), {self.root, self.mod._HOME_DIR,
+                         self.mod._HOME_WAVEFOUNDRY_DIR, self.mod._DIST_DIR, self.mod._DOWNLOADS_DIR})
 
     def test_returns_zero(self):
         result = self.mod.phase_dry_run(self.root)
@@ -1781,7 +1798,9 @@ class PhaseCleanupSetupBaselineTests(unittest.TestCase):
         self.assertEqual(self.stamp.read_bytes(), before)
         self.assertIn('"setup_status": "action_required"', out)
         self.assertIn("setup_inputs_changed", out)
-        self.assertIn("next: wf setup --root", out)
+        command = self.readiness.format_command(self.readiness.repository_launcher_argv(
+            self.root, "setup", "--root", str(self.root)))
+        self.assertIn("next: " + command, out)
         self.assertNotIn('"setup_status": "ready"', out)
         later = self.readiness.assess_setup(self.root)
         self.assertEqual(later["status"], "action_required")

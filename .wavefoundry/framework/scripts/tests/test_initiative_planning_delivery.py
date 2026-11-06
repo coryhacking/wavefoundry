@@ -21,7 +21,8 @@ import vocabulary_profile as vp
 FRAMEWORK = SCRIPTS.parent
 PREFIX = ".wavefoundry/framework/"
 SEED = "seeds/171-plan-initiative.prompt.md"
-PROMPT = "docs/prompts/plan-arc.prompt.md"
+PROMPT = vp.prompt_doc("plan-arc")
+SHIPPED_PROMPT = "docs/prompts/plan-arc.prompt.md"
 ROUTES = (
     "seeds/050-agent-entry-surface-bootstrap.prompt.md",
     "seeds/100-project-prompt-surface-bootstrap.prompt.md",
@@ -58,7 +59,7 @@ class InitiativePlanningDeliveryTests(unittest.TestCase):
             self.assertEqual((root / (PREFIX + SEED)).read_bytes(), (FRAMEWORK / SEED).read_bytes())
             for name in ROUTES:
                 text = (root / (PREFIX + name)).read_text(encoding="utf-8")
-                self.assertIn(PROMPT, text, name)
+                self.assertIn(SHIPPED_PROMPT, text, name)
                 self.assertIn("171-plan-initiative.prompt.md", text, name)
             self.assertFalse((root / PROMPT).exists())
             self.assertFalse((root / ".codex/skills/wf-plan-initiative").exists())
@@ -103,6 +104,20 @@ class InitiativePlanningDeliveryTests(unittest.TestCase):
             self.assertEqual(upgrade_wavefoundry._compute_seed_diffs(target, candidate), [])
             # Extraction supplies the new canonical source; seed 160 directs
             # the separate agent merge and its explicit conflict handling.
+
+    def test_renamed_arc_prompt_uses_the_profile_lookup(self):
+        import copy
+        import runpy
+        from unittest.mock import patch
+        import importlib
+        current_profile = importlib.import_module("vocabulary_profile")
+        names = copy.deepcopy(current_profile.PROMPT_NAMES)
+        names["plan-arc"]["slug"] = "plan-outcome"
+        with patch.object(current_profile, "PROMPT_NAMES", names):
+            namespace = runpy.run_path(__file__, run_name="profile_fixture")
+            self.assertEqual(namespace["PROMPT"], "docs/prompts/plan-outcome.prompt.md")
+            case = namespace["InitiativePlanningDeliveryTests"]()
+            case.test_later_seed_revision_is_extracted_without_overwriting_custom_prompt()
 
     def test_initiative_names_reject_collisions_and_allow_adjacent_names(self):
         errors = vp.prompt_name_errors({"plan-change": {

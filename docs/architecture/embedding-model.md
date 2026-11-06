@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-26
+Last verified: 2026-11-05
 
 ## What This Document Covers
 
@@ -149,23 +149,32 @@ workload at the required precision; a mixed model list is assessed per workload.
 Local dependencies remain supported. Preparation messages describe selection,
 not proof that an indexing child executed inference.
 
-Before an ordinary existing-index update prepares local models, setup assesses
-recognized stored precision and the proposed fallback. A known precision change
-is refused before local warmup. In default Tensorwell mode, an unselected service
-also causes an early uncertainty refusal when a stored full-precision workload
-would depend on a GPU requiring a native probe whose CPU fallback is INT8.
-Availability alone cannot prove that native execution will succeed. This refusal
-reports unverified compatibility, not a measured GPU failure or proof that the
-service is stopped. Selection reasons belong to the setup process and the exact
-preparation decision; changed selection must be reassessed before local work.
+Before ordinary incremental setup prepares models, it asks the canonical indexer
+for a dry-run plan with the requested semantic scope and inclusion flags, including
+requested detached layers. Only an explicit successful current result permits
+skipping native embedding preparation. The normal index build still runs: its
+locking, source validation and maintenance remain authoritative. Full/rechunk,
+identity changes, pending work and uncertain assessments retain normal guarded
+preparation. A stale-path count alone never proves no work.
 
-Explicit local/extension policy, fresh setup, unrecognized legacy provenance and
-an explicit full rebuild retain their existing paths. Explicit local preparation
-is an operator choice, not a native-success guarantee. The early assessment does
-not replace the indexer's later all-layer precision guard: direct callers and a
-provider change after assessment remain subject to that guard. Setup neither
-silently rebuilds nor elevates permissions to resolve a refusal. Dependency-only,
-graph-only and migration prewarm-only paths retain their existing semantics.
+Tensorwell is optional per machine under the shipped automatic policy. An absent
+or unselected service permits the normal compatible local path without a tracked
+configuration edit or provider override. Setup refuses known stored/proposed
+precision changes before local preparation and checks again after bounded provider
+selection, which can change the precision decision. GPU availability alone is not
+native-success evidence; the existing isolated probes and full/int8 rules remain.
+A CPU execution label alone does not imply INT8: a GPU graph can fall back to
+full-precision FastEmbed. The actual precision oracle governs compatibility.
+
+The preliminary no-work observation grants no permission for incompatible work
+that appears later. The indexer retains its all-layer guard and actual execution
+checks; setup never silently rebuilds or elevates permissions. Its existing owner
+writes the setup stamp only after successful complete core setup, with partial
+and background semantics unchanged. Explicit local/extension policy, fresh and
+legacy provisioning, and dependency-only, graph-only and migration prewarm-only
+paths retain their existing contracts. Regression controls use real temporary
+SQLite publication and setup completion with controlled native/provider leaves;
+they do not qualify a new native platform or the operator's affected machine.
 
 The provider owns model acquisition and file integrity. Wavefoundry validates its
 supported model/configuration mapping, preprocessing, dimensions, response values

@@ -42,6 +42,12 @@ _STARTUP_ASSESSMENT: dict[str, Any] | None = None
 _STARTUP_ROOT: Path | None = None
 
 
+def _setup_command(root: Path | None = None) -> str:
+    root = root or _STARTUP_ROOT or repo_root.discover_root(None)
+    return setup_readiness.format_command(setup_readiness.repository_launcher_argv(
+        root, 'setup', '--root', str(root)))
+
+
 def _assess_startup(root: Path, *, report: bool = True) -> dict[str, Any]:
     result = setup_readiness.assess_setup(root, loaded_identity=_SETUP_LOADED_IDENTITY)
     if report and result["status"] != "ready":
@@ -90,11 +96,12 @@ def _startup_install_disabled() -> bool:
     return os.environ.get(STARTUP_INSTALL_OPT_OUT_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _startup_install_refused(assessment: dict[str, Any], specs: list[str], *, deferrable_only: bool) -> dict[str, Any]:
+def _startup_install_refused(assessment: dict[str, Any], specs: list[str], *, deferrable_only: bool,
+                             root: Path | None = None) -> dict[str, Any]:
     """Install nothing; report the blocked state with the ``wf setup`` remedy (change 2136x)."""
     packages = ", ".join(specs)
     message = (
-        f"{STARTUP_INSTALL_OPT_OUT_ENV} is set, so MCP startup did not install {packages}; run `wf setup`."
+        f"{STARTUP_INSTALL_OPT_OUT_ENV} is set, so MCP startup did not install {packages}; run {_setup_command(root)}."
     )
     print(f"wavefoundry: {message}", file=sys.stderr)
     _set_startup_install(mode="disabled", packages=list(specs), status="disabled", message=message)
@@ -136,7 +143,7 @@ def _startup_install_gate_unguarded(root: Path, assessment: dict[str, Any], *, d
 
     deferrable_only = all(spec in setup_requirements.STARTUP_DEFERRABLE_IMPORTS for spec in specs)
     if _startup_install_disabled():
-        return _startup_install_refused(assessment, specs, deferrable_only=deferrable_only)
+        return _startup_install_refused(assessment, specs, deferrable_only=deferrable_only, root=root)
     if deferrable_only:
         import process_info
 
@@ -152,7 +159,7 @@ def _startup_install_gate_unguarded(root: Path, assessment: dict[str, Any], *, d
         )
     print(
         "wavefoundry: installing missing dependencies before starting: " + " ".join(specs)
-        + ". If startup is interrupted, run `wf setup`.",
+        + ". If startup is interrupted, run " + _setup_command(root) + ".",
         file=sys.stderr,
     )
     _set_startup_install(mode="foreground", packages=list(specs), status="running", message="")
@@ -198,7 +205,7 @@ def _run_background_install(root: Path) -> None:
                 "The startup dependency install did not complete: " + outcome["message"],
             )
     except Exception as exc:  # noqa: BLE001 - a background install never breaks the server
-        _set_startup_install(status="failed", message=f"{type(exc).__name__}: {exc}; run `wf setup`")
+        _set_startup_install(status="failed", message=f"{type(exc).__name__}: {exc}; run {_setup_command(root)}")
         reassessed = None
     finally:
         process_info.set_startup_install_pending(None)
@@ -246,7 +253,7 @@ venv_bootstrap.activate_tool_venv()
 # producing an opaque -32000 JSON-RPC error from an unhandled ImportError during the MCP handshake.
 if not venv_bootstrap.tool_venv_python().exists():
     print(
-        "wavefoundry: the tool venv is not set up — run `wf setup` to install required packages.",
+        f"wavefoundry: the tool venv is not set up — run {_setup_command()} to install required packages.",
         file=sys.stderr,
     )
     sys.exit(2)
@@ -255,7 +262,7 @@ try:
     import server_impl
 except ImportError as exc:
     print(
-        f"wavefoundry: server dependency import failed ({exc}) — run `wf setup` to reinstall required packages.",
+        f"wavefoundry: server dependency import failed ({exc}) — run {_setup_command()} to reinstall required packages.",
         file=sys.stderr,
     )
     sys.exit(2)

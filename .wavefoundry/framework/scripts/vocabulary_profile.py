@@ -167,7 +167,11 @@ CORE_CHANGE_KINDS = ("bug", "feat", "enh", "change", "doc", "debt", "ref", "task
 # Tokens that already name other lifecycle ids, so never a change kind: the
 # lifecycle-id CLI's wave kind, memory ids, scanner finding ids, decision records,
 # and the migrated journal files the upgrade writes into wave folders.
-RESERVED_KIND_TOKENS = frozenset({"wave", "mem", "sec", "adr", "jrnl", "arc"}
+# Fixed historical kinds remain reserved after an arc rename so old record
+# IDs can never be minted as delivery items. The configured arc kind is also
+# reserved. Arc validation uses the same fixed set minus its own legacy token.
+_FIXED_ARTIFACT_KIND_TOKENS = frozenset({"wave", "mem", "sec", "adr", "jrnl", "arc"})
+RESERVED_KIND_TOKENS = frozenset(_FIXED_ARTIFACT_KIND_TOKENS
                                  | ({ARC_KIND} if isinstance(ARC_KIND, str) else set()))
 _EXTRA_CHANGE_KIND_RE = re.compile(r"[a-z][a-z0-9]{1,15}")
 # Derived only from a valid tuple; an invalid declaration is reported by
@@ -790,7 +794,7 @@ def arc_vocabulary_errors() -> list[str]:
     errors: list[str] = []
     if not isinstance(ARC_KIND, str) or not _EXTRA_CHANGE_KIND_RE.fullmatch(ARC_KIND):
         errors.append("ARC_KIND must be 2 to 16 lowercase ASCII letters/digits, starting with a letter")
-    elif ARC_KIND in CHANGE_KINDS or ARC_KIND in {"wave", "mem", "sec", "adr", "jrnl"}:
+    elif ARC_KIND in CHANGE_KINDS or ARC_KIND in (_FIXED_ARTIFACT_KIND_TOKENS - {"arc"}):
         errors.append("ARC_KIND collides with an existing lifecycle artifact kind")
     problem = _shortcut_problem(ARC_NAME)
     if problem:

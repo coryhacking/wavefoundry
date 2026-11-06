@@ -15,6 +15,13 @@ from pathlib import Path
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _expected_setup_command():
+    import setup_readiness
+
+    root = SCRIPTS_ROOT.parents[2]
+    return setup_readiness.format_command(setup_readiness.repository_launcher_argv(root, 'setup', '--root', str(root)))
+
+
 def _run_server_import(extra_setup: str = "") -> subprocess.CompletedProcess:
     """Execute `import server` in a subprocess with optional setup code injected first."""
     code = textwrap.dedent(f"""
@@ -26,7 +33,7 @@ def _run_server_import(extra_setup: str = "") -> subprocess.CompletedProcess:
         import server
     """)
     return subprocess.run(
-        [sys.executable, "-c", code],
+        [sys.executable, "-B", "-c", code],
         capture_output=True,
         text=True,
         timeout=30,
@@ -51,7 +58,7 @@ class MissingVenvGuardTests(unittest.TestCase):
 
     def test_stderr_mentions_wf_setup(self):
         result = _run_server_import(_MISSING_VENV_PATCH)
-        self.assertIn("wf setup", result.stderr)
+        self.assertIn(_expected_setup_command(), result.stderr)
 
     def test_stdout_is_clean(self):
         result = _run_server_import(_MISSING_VENV_PATCH)
@@ -72,7 +79,7 @@ class BrokenVenvImportGuardTests(unittest.TestCase):
             import server
         """)
         return subprocess.run(
-            [sys.executable, "-c", code],
+            [sys.executable, "-B", "-c", code],
             capture_output=True,
             text=True,
             timeout=30,
@@ -93,7 +100,7 @@ class BrokenVenvImportGuardTests(unittest.TestCase):
                 'raise ImportError("test: forced import failure")\n'
             )
             result = self._run_with_fake_server_impl(tmpdir)
-        self.assertIn("wf setup", result.stderr)
+        self.assertIn(_expected_setup_command(), result.stderr)
 
     def test_stdout_is_clean(self):
         with tempfile.TemporaryDirectory() as tmpdir:

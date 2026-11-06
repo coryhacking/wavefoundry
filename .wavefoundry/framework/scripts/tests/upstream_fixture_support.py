@@ -81,3 +81,34 @@ def upstream_fixture(path: "Path | str", *, root: "Path | None" = None) -> Path:
         raise AssertionError(f"upstream-only fixture absent: {fixture} "
                              f"({SECTION}.{KEY} is true in {CONFIG_REL})")
     raise unittest.SkipTest(f"{SKIP_PREFIX}{fixture}")
+
+
+def source_repository_fixture(path: "Path | str", *, root: "Path | None" = None) -> Path:
+    """Source-project prose/corpora require the explicit source opt-in.
+
+    Unlike upstream_fixture's existence probe, an arbitrary consumer file is
+    not evidence that its prose or records belong to the upstream project.
+    """
+    required, cause = fixtures_required(root)
+    if required is None:
+        raise AssertionError(cause)
+    if not required:
+        raise unittest.SkipTest("upstream-only source-project assertion: " + str(path))
+    return upstream_fixture(path, root=root)
+
+
+def source_carriers(test: unittest.TestCase, paths, *, root: Path):
+    """Yield canonical contracts everywhere; report project carriers as subtests.
+
+    A source-only subtest skip never skips its enclosing portable assertions.
+    """
+    for relative in paths:
+        if relative.startswith(".wavefoundry/framework/"):
+            yield relative
+        else:
+            available = False
+            with test.subTest(source_carrier=relative):
+                source_repository_fixture(root / relative, root=root)
+                available = True
+            if available:
+                yield relative

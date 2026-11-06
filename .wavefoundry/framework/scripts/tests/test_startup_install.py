@@ -38,6 +38,11 @@ from server_tools_support import _make_repo, load_server  # noqa: E402
 PSUTIL = setup_requirements.PSUTIL_REQUIREMENT
 
 
+def _setup_remedy():
+    root = Path('/r')
+    return setup_readiness.format_command(setup_readiness.repository_launcher_argv(root, 'setup', '--root', str(root)))
+
+
 def _assessment(*codes: str, missing=(), blocked=True, status="action_required") -> dict:
     reasons = []
     for code in codes:
@@ -747,7 +752,7 @@ class GateTests(unittest.TestCase):
         install.assert_called_once()
         self.assertEqual(assess.call_count, 1)
         self.assertTrue(result["startup_blocked"])
-        self.assertIn("If startup is interrupted, run `wf setup`", stderr.getvalue())
+        self.assertIn("If startup is interrupted, run " + _setup_remedy(), stderr.getvalue())
         self.assertIn("run `wf setup`", stderr.getvalue())
         self.assertEqual(self.server._startup_install_snapshot()["status"], "failed")
 
@@ -789,14 +794,14 @@ class GateTests(unittest.TestCase):
         self.assertIn("dependencies_missing", codes)
         disabled = [item for item in result["reasons"] if item["code"] == "startup_install_disabled"]
         self.assertEqual(len(disabled), 1)
-        self.assertIn("wf setup", disabled[0]["message"])
+        self.assertIn(_setup_remedy(), disabled[0]["message"])
         self.assertIn(PSUTIL, disabled[0]["message"])
         snapshot = self.server._startup_install_snapshot()
         self.assertEqual((snapshot["mode"], snapshot["status"]), ("disabled", "disabled"))
-        self.assertIn("wf setup", snapshot["message"])
+        self.assertIn(_setup_remedy(), snapshot["message"])
         self.assertEqual(len(stderr.splitlines()), 1)
         self.assertIn(self.OPT_OUT, stderr)
-        self.assertIn("wf setup", stderr)
+        self.assertIn(_setup_remedy(), stderr)
 
     def test_opt_out_with_a_non_deferrable_gap_stays_blocked_and_names_the_remedy(self):
         blocked = _assessment("dependencies_missing", missing=["numpy", PSUTIL])
@@ -805,7 +810,7 @@ class GateTests(unittest.TestCase):
         self.assertTrue(result["startup_blocked"])
         self.assertEqual(self.server._BACKGROUND_INSTALL_SPECS, [])  # so the entry exits
         self.assertIn("startup_install_disabled", [item["code"] for item in result["reasons"]])
-        self.assertIn("wf setup", stderr)
+        self.assertIn(_setup_remedy(), stderr)
 
     def test_without_the_opt_out_startup_installs_as_today(self):
         for value in (None, "", "0", "false", "off", "no"):
