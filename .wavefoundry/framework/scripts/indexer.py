@@ -2,6 +2,8 @@
 """Build and maintain the Wavefoundry semantic index at .wavefoundry/index/."""
 from __future__ import annotations
 
+from setup_commands import setup_command as _setup_command
+
 
 import argparse
 import datetime
@@ -3454,9 +3456,9 @@ def _implicit_precision_refusal(index_dir: Path, files) -> Optional[dict]:
         for item in precision_changes
     )
     result = _build_failed_result(files or [],
-        "Implicit precision conversion refused (" + detail + "). "
+        "Implicit precision conversion refused (" + detail + ("). "
         "Restore the compatible provider environment, or deliberately rebuild with "
-        "wf setup --full / index_build(mode='rebuild'). Existing published index retained.")
+        "wf setup --full / index_build(mode='rebuild'). Existing published index retained.").replace('wf setup --full', _setup_command(index_dir.parent.parent, '--full')))
     result["precision_changes"] = precision_changes
     return result
 
@@ -4508,7 +4510,7 @@ def _build_index_locked(
             if conn is not None:
                 conn.close()
         if reason:
-            return _build_failed_result(files, f"Targeted indexing refused: {reason}; run a complete walk with files=None (wf setup --full when rebuilding).")
+            return _build_failed_result(files, f"Targeted indexing refused: {reason}; run a complete walk with files=None ({_setup_command(root, '--full')} when rebuilding).")
 
     # --- 1sed6 review fix (reset-before-decisions): settle store schema
     # currency FIRST. The version-gated reset used to fire lazily at the
@@ -4535,14 +4537,14 @@ def _build_index_locked(
                                     f"PRAGMA foreign_key_check(vectors_{layer})").fetchone():
                                 return _build_failed_result(files or [],
                                     f"{layer}: orphan vector references require an explicit "
-                                    "all-layer rebuild; run wf setup --full. Canonical data retained.")
+                                    f"all-layer rebuild; run {_setup_command(root, '--full')}. Canonical data retained.")
                 finally:
                     _pre_store.close()
             except vector_store.runtime.CorruptionError as exc:
                 return _build_failed_result(files or [],
                     "Canonical SQLite index is corrupt. Stop all Wavefoundry database-owning "
                     "hosts; preserve index.sqlite and any sibling -wal/-shm files "
-                    "outside .wavefoundry/index, then run wf setup --full. Keep the separate "
+                    f"outside .wavefoundry/index, then run {_setup_command(root, '--full')}. Keep the separate "
                     "memory store and any migration receipt/rollback intact. "
                     f"If migration is pending, resume its recorded recovery first. Detail: {exc}")
             except index_compatibility.IndexCompatibilityError:
@@ -4551,6 +4553,23 @@ def _build_index_locked(
                 return _build_failed_result(
                     files or [], f"index-state store could not be brought current: {exc}"
                 )
+
+    if dry_run:
+        # Observe policy through the existing read-only owner: no store creation,
+        # migration or write connection is permitted in a preview.
+        _policy_conn = None
+        policy_needs_refresh = True
+        try:
+            _policy_conn = _get_index_state_store().open_read_only(index_dir)
+            if _policy_conn is not None:
+                policy_needs_refresh = (_policy_conn.execute(
+                    "SELECT value FROM meta WHERE key='targeted_corpus_policy'").fetchone()
+                    != (policy_identity,))
+        except Exception:
+            pass  # Unreadable currency cannot justify skipping preparation.
+        finally:
+            if _policy_conn is not None:
+                _policy_conn.close()
 
     # Load existing state first: graph-only and content-scoped runs preserve
     # the other layers' chunker_versions/model_versions/content provenance;
@@ -5256,6 +5275,7 @@ def _build_index_locked(
             if _iss_epoch.has_drift_state(index_dir):
                 _drift_state, _head = _iss_epoch._git_authority(root)
             _pending_maintenance = {
+                "corpus_policy": policy_needs_refresh,
                 "drift_clear": _drift_state == _iss_epoch._GIT_AUTHORITY_NON_GIT,
                 "stranded_reap": _needs_reap,
                 "chunk_heal": _needs_heal,

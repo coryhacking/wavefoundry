@@ -520,6 +520,59 @@ def compile_filter(expr: str) -> Any:
     return _AST_CACHE[expr]
 
 
+def filter_compatibility_issues(expr: str) -> list[str]:
+    """Inspect the implemented subset without evaluating a finding or caching imports.
+
+    Parsing accepts some names the evaluator does not implement. Report those
+    separately; successful inspection is not proof of upstream CEL equivalence.
+    """
+    if not isinstance(expr, str):
+        return ["filter_not_string"]
+    if len(expr) > 32768:
+        return ["filter_size_limit"]
+    try:
+        tree = _Parser(_tokenize(expr)).parse()
+    except (ValueError, TypeError, IndexError, RecursionError):
+        return ["filter_parse_error"]
+    issues: set[str] = set()
+    pending = [tree]
+    visited = 0
+    while pending:
+        visited += 1
+        if visited > 16384:
+            return sorted(issues | {"filter_node_limit"})
+        node = pending.pop()
+        if not isinstance(node, tuple):
+            continue
+        kind = node[0]
+        if kind == "call":
+            if node[1] not in _FUNCTIONS:
+                issues.add("unsupported_filter_function")
+            else:
+                import inspect
+                try:
+                    inspect.signature(_FUNCTIONS[node[1]]).bind(*([None] * len(node[2])))
+                except TypeError:
+                    issues.add("unsupported_filter_arity")
+            pending.extend(node[2])
+        elif kind == "method":
+            if node[2] != "orValue" or len(node[3]) != 1:
+                issues.add("unsupported_filter_method")
+            pending.append(node[1])
+            pending.extend(node[3])
+        elif kind == "attr":
+            issues.add("unsupported_filter_attribute")
+            pending.append(node[1])
+        elif kind == "var":
+            if node[1] not in ("finding", "attributes"):
+                issues.add("unsupported_filter_variable")
+        elif kind == "array":
+            pending.extend(node[1])
+        elif kind != "lit":
+            pending.extend(part for part in node[1:] if isinstance(part, tuple))
+    return sorted(issues)
+
+
 def eval_filter(
     expr: str,
     secret: str,

@@ -15008,6 +15008,37 @@ class DegradedFtsFallbackTests(unittest.TestCase):
 
     # --- AC-1: code_search FTS fallback with preserved filters ---
 
+    def test_setup_recovery_preserves_selected_root_and_shell_at_all_four_boundaries(self):
+        import setup_commands
+        original = {name: getattr(setup_commands, name) for name in
+                    ("repository_launcher_argv", "format_command", "command_shell")}
+        for windows in (False, True):
+            def forced(function):
+                def call(*args, **kwargs):
+                    kwargs["windows"] = windows
+                    return function(*args, **kwargs)
+                return call
+            with self.subTest(windows=windows), patch.multiple(setup_commands, **{
+                    name: forced(function) for name, function in original.items()}):
+                # The selected fixture root differs from the test process cwd.
+                self.assertNotEqual(str(self.root), os.getcwd())
+                index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
+                index.get_seed.side_effect = self.srv.IndexNotReadyError("index missing")
+                responses = [
+                    (self.srv.docs_search_response(index, "alpha_handler", epoch_state=self.COMPLETE), ()),
+                    (self.srv.code_search_response(index, "alpha_handler", epoch_state=self.COMPLETE), ("--include-code",)),
+                    (self.srv.code_search_response(index, "alpha_handler", epoch_state=None), ("--include-code",)),
+                    (self.srv.seed_get_response(index, "seed-170"), ()),
+                ]
+                for result, arguments in responses:
+                    diagnostic = next(item for item in result["diagnostics"] if "recovery_argv" in item)
+                    expected = setup_commands.setup_recovery(self.root, *arguments)
+                    self.assertEqual(diagnostic["recovery_argv"], expected["recovery_argv"])
+                    self.assertEqual(diagnostic["recovery_usage"], expected["recovery_usage"])
+                    self.assertEqual(diagnostic["recovery_shell"], "powershell" if windows else "posix")
+                    self.assertIn(str(self.root), diagnostic["recovery_argv"])
+                    self.assertNotIn("--root .", diagnostic["recovery_usage"])
+
     def test_code_search_serves_fts_on_model_unavailable(self):
         index = self._mock_index(self.srv.SemanticModelUnavailableOfflineError("offline"))
         result = self.srv.code_search_response(index, "alpha_handler", epoch_state=self.COMPLETE)

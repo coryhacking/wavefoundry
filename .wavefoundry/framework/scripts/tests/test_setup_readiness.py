@@ -80,13 +80,12 @@ class SetupReadinessTests(unittest.TestCase):
         root = str(self.root / "repo space O'Brien & literal$()")
         argv = readiness.repository_launcher_argv(root, 'setup', '--root', root, windows=False)
         self.assertEqual(argv[0], root + '/.wavefoundry/bin/wf')
-        self.assertEqual(shlex.split(readiness.format_command(argv)), argv)
+        self.assertEqual(shlex.split(readiness.format_command(argv, windows=False)), argv)
         windows_root = "C:\\Repo space\\O'Brien & literal$()"
         argv = readiness.repository_launcher_argv(windows_root, 'setup', '--root', windows_root, windows=True)
         self.assertEqual(argv, [windows_root + '\\.wavefoundry\\bin\\wf.cmd', 'setup', '--root', windows_root])
-        with patch.object(readiness, 'os', SimpleNamespace(name='nt')):
-            self.assertEqual(readiness.format_command(argv), '& ' + ' '.join(
-                "'" + value.replace("'", "''") + "'" for value in argv))
+        self.assertEqual(readiness.format_command(argv, windows=True), '& ' + ' '.join(
+            "'" + value.replace("'", "''") + "'" for value in argv))
 
     def test_deprecated_runtime_is_additive_and_retains_independent_failures(self):
         Version = namedtuple('Version', 'major minor micro')
@@ -590,10 +589,13 @@ class SetupReadinessTests(unittest.TestCase):
     def test_command_format_posix_and_windows_are_shell_correct(self):
         argv = ['python3', "C:\\repo space\\O'Brien\\setup.py", '--root', 'root with space']
         result = {'status': 'action_required', 'reasons': [], 'actions': [{'kind': 'resume', 'argv': argv}]}
-        with patch.object(readiness, 'os', SimpleNamespace(name='posix')):
+        formatter = readiness.format_command
+        with patch.object(readiness, 'format_command', side_effect=lambda args: formatter(args, windows=False)):
+            self.assertIs(readiness.os, os)
             posix = readiness.format_text(result).splitlines()[1]
         self.assertEqual(shlex.split(posix), argv)
-        with patch.object(readiness, 'os', SimpleNamespace(name='nt')):
+        with patch.object(readiness, 'format_command', side_effect=lambda args: formatter(args, windows=True)):
+            self.assertIs(readiness.os, os)
             windows = readiness.format_text(result).splitlines()[1]
         self.assertEqual(windows, '& ' + ' '.join("'" + value.replace("'", "''") + "'" for value in argv))
         self.assertIn("O''Brien", windows)

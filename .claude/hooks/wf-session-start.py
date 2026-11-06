@@ -39,11 +39,11 @@ def render(result, format_command):
     if status != "action_required":
         first = reasons[0] if reasons else {"code": "unknown", "message": "no reason reported"}
         command = recovery_command("--check", "--json")
-        if len(command) > MAX_LINE:
+        if len(command) > MAX_LINE or _clean(command) != command:
             command = "Run the repository's setup --check --json to display the full assessment."
         return [_clean("Wavefoundry setup readiness could not be determined ("
                        + str(first.get("code")) + ": " + str(first.get("message")) + ")."),
-                command]
+                _clean(command)]
     lines = [HEADER]
     for item in reasons[:MAX_REASONS]:
         lines.append(_clean("- " + str(item.get("code")) + ": " + str(item.get("message"))))
@@ -51,8 +51,11 @@ def render(result, format_command):
         lines.append("- (" + str(len(reasons) - MAX_REASONS) + " more reasons omitted)")
     if any(item.get("code") == "dependencies_missing" for item in reasons):
         # Wave 1zfd9: MCP startup installs missing declared dependencies itself.
-        lines.append("The MCP server attempts to install missing dependencies at startup; "
-                     "if it fails to start, run " + recovery_command() + ".")
+        command = recovery_command()
+        prefix = "The MCP server attempts to install missing dependencies at startup; if it fails to start, run "
+        if len(prefix + command + ".") > MAX_LINE or _clean(command) != command:
+            command = "the selected repository's local setup launcher (path cannot be displayed safely)"
+        lines.append(_clean(prefix + command + "."))
     for action in result.get("actions") or []:
         kind = action.get("kind")
         if kind == "restart":
@@ -62,6 +65,8 @@ def render(result, format_command):
         if len(command) > MAX_LINE:
             # Never show a cut-off command; point at the full one instead.
             command = "Recommended: run the repository's setup --check to display the full command (too long to show here)."
+        elif _clean(command) != command:
+            command = "Recommended: run the repository's setup --check to display the full command (path cannot be displayed safely here)."
         lines.append(_clean(command))
         if kind == "setup":
             lines.append("Setup ends by asking for an agent-host restart.")

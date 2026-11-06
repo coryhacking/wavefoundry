@@ -103,7 +103,10 @@ def source_carriers(test: unittest.TestCase, paths, *, root: Path):
     A source-only subtest skip never skips its enclosing portable assertions.
     """
     for relative in paths:
-        if relative.startswith(".wavefoundry/framework/"):
+        if (relative.startswith(".wavefoundry/framework/")
+                and not relative.startswith(".wavefoundry/framework/seeds/")):
+            if not (root / relative).is_file():
+                raise AssertionError(f"required canonical carrier missing: {relative}")
             yield relative
         else:
             available = False

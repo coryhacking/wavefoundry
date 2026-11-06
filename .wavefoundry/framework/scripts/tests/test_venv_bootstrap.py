@@ -421,8 +421,14 @@ class ActivateInProcessDeRiskTests(unittest.TestCase):
 class StdlibOnlyTests(unittest.TestCase):
     def test_imports_are_stdlib_only(self):
         # `site` is imported inside activate_tool_venv (lazy) — stdlib, allowed.
-        allowed = {"__future__", "os", "shutil", "subprocess", "sys", "pathlib", "site", "json"}
+        allowed = {"__future__", "os", "shutil", "subprocess", "sys", "pathlib", "site", "json", "setup_commands"}
         tree = ast.parse(VENV_BOOTSTRAP_PATH.read_text(encoding="utf-8"))
+        helper = ast.parse((VENV_BOOTSTRAP_PATH.parent / "setup_commands.py").read_text())
+        helper_imports = {n.module.split(".")[0] for n in ast.walk(helper)
+                          if isinstance(n, ast.ImportFrom) and n.module}
+        helper_imports.update(a.name.split(".")[0] for n in ast.walk(helper)
+                              if isinstance(n, ast.Import) for a in n.names)
+        self.assertLessEqual(helper_imports, {"__future__", "os", "shlex", "pathlib", "ntpath"})
         mods: set[str] = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):

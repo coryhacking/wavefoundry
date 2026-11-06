@@ -36,7 +36,7 @@ if _wf_venv_bootstrap is not None:
         _WF_VENV_UNAVAILABLE = "activation_failed"
 if _WF_VENV_UNAVAILABLE:
     try:
-        import setup_readiness as _wf_setup_readiness
+        import setup_commands as _wf_setup_readiness
 
         print(
             "wavefoundry: hook running without the tool venv ("
@@ -48,7 +48,7 @@ if _WF_VENV_UNAVAILABLE:
             file=_wf_sys.stderr,
         )
     except Exception:
-        pass
+        print("wavefoundry: hook running without the tool venv; select the repository and run its local Wavefoundry setup launcher to rebuild it.", file=_wf_sys.stderr)
 try:
     import cli_stdio as _wf_cli_stdio
 

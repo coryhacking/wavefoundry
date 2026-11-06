@@ -422,13 +422,18 @@ class UpgradeOutputTests(unittest.TestCase):
     def test_dependency_failure_remedies_keep_selected_root_in_every_field(self):
         import types
         import setup_readiness
+        import setup_commands
         target = _make_repo(self.root / "selected repo's & data")
         output = "WAVE_UPGRADE_SUMMARY_JSON:" + json.dumps({"dependency_provisioning_failed": True})
         for windows in (False, True):
             with self.subTest(windows=windows):
-                platform = types.SimpleNamespace(name="nt" if windows else "posix", path=os.path)
-                with patch.object(setup_readiness, "os", platform), \
+                platform = {name: (lambda *args, _original=getattr(setup_commands, name), **kw:
+                                     _original(*args, **{**kw, "windows": windows}))
+                            for name in ("repository_launcher_argv", "format_command", "command_shell")}
+                with patch.multiple(setup_commands, **platform), \
                      patch.object(self.server, "_mcp_subprocess_run", return_value=subprocess.CompletedProcess([], 1, output, "")) as child:
+                    self.assertIs(setup_readiness.os.environ, os.environ)
+                    self.assertEqual(setup_readiness.os.stat(target).st_mode, os.stat(target).st_mode)
                     response = self.server.wf_upgrade_response(target)
                 child.assert_called_once()
                 expected = self._expected_setup_command(target, windows)
@@ -443,13 +448,16 @@ class UpgradeOutputTests(unittest.TestCase):
     def test_absent_and_incompatible_index_remedies_keep_selected_root(self):
         import types
         import setup_readiness
+        import setup_commands
         target = _make_repo(self.root / "selected repo's & data")
         for windows in (False, True):
             for token in (None, (1, 1)):
                 with self.subTest(windows=windows, token=token):
                     index = self.server.WaveIndex(target)
-                    platform = types.SimpleNamespace(name="nt" if windows else "posix", path=os.path)
-                    with patch.object(setup_readiness, "os", platform), \
+                    platform = {name: (lambda *args, _original=getattr(setup_commands, name), **kw:
+                                         _original(*args, **{**kw, "windows": windows}))
+                                for name in ("repository_launcher_argv", "format_command", "command_shell")}
+                    with patch.multiple(setup_commands, **platform), \
                          patch.object(index, "_index_meta_signature", return_value=token), \
                          patch.object(index, "_open_vector_layer", return_value=None):
                         with self.assertRaises(self.server.IndexNotReadyError) as raised:

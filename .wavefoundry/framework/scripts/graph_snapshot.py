@@ -233,7 +233,7 @@ def _not_ready(layer: str) -> GraphSnapshot:
 
 
 
-def _read_failure(layer: str, exc: Exception) -> GraphSnapshot:
+def _read_failure(layer: str, exc: Exception, index_dir: Path | None = None) -> GraphSnapshot:
     """Keep actionable causes as data; never retain an exception traceback."""
     import sqlite_storage_migration
     from index_compatibility import INDEX_COMPATIBILITY_CODES
@@ -245,7 +245,10 @@ def _read_failure(layer: str, exc: Exception) -> GraphSnapshot:
         recovery = "Preserve the index and migration receipt; inspect wf_upgrade_status(), then resume Upgrade Wavefoundry."
         recovery_tools, recovery_usage = ["wf_upgrade_status"], "wf_upgrade_status()"
     elif code == "storage_runtime_unavailable":
-        recovery = "Run wf setup --root . in the repository to repair the native runtime, then restart the host."
+        from setup_commands import setup_recovery
+        command = setup_recovery(index_dir.parent.parent if index_dir is not None else None)
+        recovery = "Repair the native runtime using " + command["recovery_usage"] + "; then restart the host."
+        recovery_usage = command["recovery_usage"]
     elif code in INDEX_COMPATIBILITY_CODES:
         recovery = "Restart the affected Wavefoundry host; preserve the newer index instead of rebuilding it."
         recovery_usage = "Restart the affected Wavefoundry host, then call index_health()."
@@ -257,6 +260,7 @@ def _read_failure(layer: str, exc: Exception) -> GraphSnapshot:
     return GraphSnapshot(state=NOT_READY, layer=layer, diagnostic={
         "code": code, "message": f"{detail} {recovery}",
         "recovery_tools": recovery_tools, "recovery_usage": recovery_usage,
+        **({k: command[k] for k in ("recovery_argv", "recovery_shell")} if code == "storage_runtime_unavailable" else {}),
     })
 
 
@@ -328,10 +332,10 @@ def _read_pinned(index_dir: Path, layer: str, cached: "GraphSnapshot | None",
         if conn is None:
             sqlite_storage_migration.require_ready(index_dir)
     except Exception as exc:  # noqa: BLE001 - retain cause without crashing a reader
-        return _read_failure(layer, exc)
+        return _read_failure(layer, exc, index_dir)
     if conn is None:
         if iss.state_store_path(index_dir).exists():
-            return _read_failure(layer, RuntimeError("Existing index could not be read or has an incompatible schema."))
+            return _read_failure(layer, RuntimeError("Existing index could not be read or has an incompatible schema."), index_dir)
         return GraphSnapshot(state=ABSENT, layer=layer)
     try:
         sqlite_storage_migration.require_ready(index_dir)
@@ -417,7 +421,7 @@ def _read_pinned(index_dir: Path, layer: str, cached: "GraphSnapshot | None",
             with contextlib.suppress(Exception):
                 conn.execute("ROLLBACK")
     except Exception as exc:  # noqa: BLE001 - retain read failure and close below
-        return _read_failure(layer, exc)
+        return _read_failure(layer, exc, index_dir)
     finally:
         with contextlib.suppress(Exception):
             conn.close()

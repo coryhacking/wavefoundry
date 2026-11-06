@@ -1685,14 +1685,14 @@ class PhaseCleanupSetupBaselineTests(unittest.TestCase):
         with patch.object(self.readiness, "_dependencies", _REAL_DEPENDENCIES):
             out = self._cleanup()
         self.assertFalse(self.stamp.exists())
-        self.assertIn("setup readiness: action_required); run `wf setup`.", out)
+        self.assertIn(f"setup readiness: action_required); run `{self.readiness.format_command(self.readiness.repository_launcher_argv(self.root, 'setup', '--root', str(self.root)))}`.", out)
 
     def test_indeterminate_cleanup_names_the_check(self):
         with patch.object(self.readiness, "assess_setup",
                           return_value={"status": "indeterminate", "reasons": [], "actions": []}):
             out = self._cleanup()
         self.assertFalse(self.stamp.exists())
-        self.assertIn("run `wf setup --check`.", out)
+        self.assertIn(f"run `{self.readiness.format_command(self.readiness.repository_launcher_argv(self.root, 'setup', '--root', str(self.root), '--check'))}`.", out)
 
     # Wave 1z1vs: a transient readiness result at cleanup is retried, bounded.
     TRANSIENT = {"status": "indeterminate", "actions": [],
@@ -1734,7 +1734,7 @@ class PhaseCleanupSetupBaselineTests(unittest.TestCase):
         self.assertEqual(len(calls), 4)
         self.assertEqual(waits, [2.0, 5.0, 10.0])
         self.assertFalse(self.stamp.exists())
-        self.assertIn("Setup baseline not recorded (setup readiness: indeterminate); run `wf setup --check`.", out)
+        self.assertIn(f"Setup baseline not recorded (setup readiness: indeterminate); run `{self.readiness.format_command(self.readiness.repository_launcher_argv(self.root, 'setup', '--root', str(self.root), '--check'))}`.", out)
         self.assertIn("Upgrade complete", out)
 
     def test_non_transient_results_are_not_retried(self):
@@ -1764,7 +1764,7 @@ class PhaseCleanupSetupBaselineTests(unittest.TestCase):
     def test_index_update_failure_writes_nothing(self):
         out = self._cleanup(index_update_failed=True)
         self.assertFalse(self.stamp.exists())
-        self.assertIn("Setup baseline not recorded (index update did not complete); run `wf setup`.", out)
+        self.assertIn(f"Setup baseline not recorded (index update did not complete); run `{self.readiness.format_command(self.readiness.repository_launcher_argv(self.root, 'setup', '--root', str(self.root)))}`.", out)
         # Wave 1zfd9: still assessed (without stamping), so the summary reports setup.
         self.assertIn('"setup_status": "ready"', out)
 
@@ -9537,6 +9537,7 @@ class PrimaryPhaseSummaryTests(unittest.TestCase):
 
 _DELEGATE_CHILD_MODULES = (
     "upgrade_wavefoundry.py",
+    "setup_commands.py",  # pure recovery dependency used by the delegated producer
     "memory_backfill.py",  # 20t73: advisory rows in the delegated summary
     "upgrade_lib.py",
     "venv_bootstrap.py",

@@ -38,7 +38,7 @@ MAX_JSON_BYTES = 256 * 1024
 MAX_METADATA_BYTES = 256 * 1024
 MAX_ENV_ENTRIES = 4096
 SOURCE_FILES = (
-    'setup_readiness.py', 'runtime_advisory.py', 'setup_requirements.py', 'setup_wavefoundry.py', 'setup_index.py',
+    'setup_commands.py', 'setup_readiness.py', 'runtime_advisory.py', 'setup_requirements.py', 'setup_wavefoundry.py', 'setup_index.py',
     'setup_reconciliation.py', 'storage_identity.py', 'venv_bootstrap.py', 'subprocess_util.py', 'repo_root.py', 'wf_cli.py',
     'server.py', 'server_impl.py', 'wf_server/server_impl.py', 'index_compatibility.py', 'index_paths.py',
     'index_state_store.py', 'sqlite_vector_store.py', 'sqlite_runtime.py', 'chunker.py',
@@ -432,15 +432,8 @@ def _owner(root: Path, diagnostics: dict | None = None) -> tuple[bool, list[str]
 
 def repository_launcher_argv(root: Path | str, *arguments: str,
                              windows: bool | None = None) -> list[str]:
-    """Build an absolute checkout-local command without executing or probing it."""
-    windows = os.name == 'nt' if windows is None else windows
-    if windows:
-        import ntpath
-
-        launcher = ntpath.join(ntpath.abspath(str(root)), '.wavefoundry', 'bin', 'wf.cmd')
-    else:
-        launcher = os.path.join(os.path.abspath(os.path.expanduser(str(root))), '.wavefoundry', 'bin', 'wf')
-    return [launcher, *arguments]
+    from setup_commands import repository_launcher_argv as build
+    return build(root, *arguments, windows=windows)
 
 
 def assess_setup(root: Path, *, loaded_identity: dict | None = None,
@@ -709,13 +702,9 @@ def assess_setup_settled(root: Path, *, sleep=None, notify=None, **kwargs) -> di
     return result
 
 
-def format_command(argv: list) -> str:
-    """Render an action argv with the platform's shell quoting; empty means restart."""
-    if not argv:
-        return 'Restart the Wavefoundry host.'
-    if os.name == 'nt':
-        return '& ' + ' '.join("'" + arg.replace("'", "''") + "'" for arg in argv)
-    return shlex.join(argv)
+def format_command(argv: list, *, windows: bool | None = None) -> str:
+    from setup_commands import format_command as render
+    return render(argv, windows=windows)
 
 
 def format_text(result: dict) -> str:

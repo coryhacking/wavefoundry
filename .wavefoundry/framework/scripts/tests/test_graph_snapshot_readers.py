@@ -1030,7 +1030,14 @@ class GraphFailureRecoveryTests(_RootCase):
                             else "index_build_status" if code == "graph_publication_in_flight"
                             else "index_health")
                 self.assertIn(recovery, result["next_tools"])
-                self.assertEqual(result["usage"], recovery + "()")
+                if code == "storage_runtime_unavailable":
+                    from setup_commands import setup_recovery
+                    expected = setup_recovery(self.root)
+                    self.assertEqual(result["usage"], expected["recovery_usage"])
+                    self.assertEqual(result["diagnostics"][0]["recovery_argv"], expected["recovery_argv"])
+                    self.assertEqual(result["diagnostics"][0]["recovery_shell"], expected["recovery_shell"])
+                else:
+                    self.assertEqual(result["usage"], recovery + "()")
         payload = self.dash.read_graph_payload(self.root, "project")
         self.assertFalse(payload["present"])
         self.assertIsInstance(payload.get("diagnostic"), dict)
@@ -1122,7 +1129,7 @@ class GraphFailureRecoveryTests(_RootCase):
         """Injected old behavior must fail the same public diagnostic assertion."""
         import sqlite_runtime
         with patch.object(index_state_store, "open_read_only", side_effect=sqlite_runtime.RuntimeUnavailable("missing")), patch.object(
-                graph_snapshot, "_read_failure", side_effect=lambda layer, exc: graph_snapshot.GraphSnapshot(state=graph_snapshot.ABSENT, layer=layer)):
+                graph_snapshot, "_read_failure", side_effect=lambda layer, exc, index_dir=None: graph_snapshot.GraphSnapshot(state=graph_snapshot.ABSENT, layer=layer)):
             result = self.srv.code_graph_path_response(self.root, "a", "b")
             with self.assertRaises(AssertionError):
                 self.assertEqual(result["diagnostics"][0]["code"], "storage_runtime_unavailable")

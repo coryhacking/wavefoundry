@@ -816,7 +816,7 @@ HOOK_BOOTSTRAP = dedent(
             _WF_VENV_UNAVAILABLE = "activation_failed"
     if _WF_VENV_UNAVAILABLE:
         try:
-            import setup_readiness as _wf_setup_readiness
+            import setup_commands as _wf_setup_readiness
 
             print(
                 "wavefoundry: hook running without the tool venv ("
@@ -828,7 +828,7 @@ HOOK_BOOTSTRAP = dedent(
                 file=_wf_sys.stderr,
             )
         except Exception:
-            pass
+            print("wavefoundry: hook running without the tool venv; select the repository and run its local Wavefoundry setup launcher to rebuild it.", file=_wf_sys.stderr)
     try:
         import cli_stdio as _wf_cli_stdio
 
@@ -978,11 +978,11 @@ def claude_session_start_source() -> str:
             if status != "action_required":
                 first = reasons[0] if reasons else {"code": "unknown", "message": "no reason reported"}
                 command = recovery_command("--check", "--json")
-                if len(command) > MAX_LINE:
+                if len(command) > MAX_LINE or _clean(command) != command:
                     command = "Run the repository's setup --check --json to display the full assessment."
                 return [_clean("Wavefoundry setup readiness could not be determined ("
                                + str(first.get("code")) + ": " + str(first.get("message")) + ")."),
-                        command]
+                        _clean(command)]
             lines = [HEADER]
             for item in reasons[:MAX_REASONS]:
                 lines.append(_clean("- " + str(item.get("code")) + ": " + str(item.get("message"))))
@@ -990,8 +990,11 @@ def claude_session_start_source() -> str:
                 lines.append("- (" + str(len(reasons) - MAX_REASONS) + " more reasons omitted)")
             if any(item.get("code") == "dependencies_missing" for item in reasons):
                 # Wave 1zfd9: MCP startup installs missing declared dependencies itself.
-                lines.append("The MCP server attempts to install missing dependencies at startup; "
-                             "if it fails to start, run " + recovery_command() + ".")
+                command = recovery_command()
+                prefix = "The MCP server attempts to install missing dependencies at startup; if it fails to start, run "
+                if len(prefix + command + ".") > MAX_LINE or _clean(command) != command:
+                    command = "the selected repository's local setup launcher (path cannot be displayed safely)"
+                lines.append(_clean(prefix + command + "."))
             for action in result.get("actions") or []:
                 kind = action.get("kind")
                 if kind == "restart":
@@ -1001,6 +1004,8 @@ def claude_session_start_source() -> str:
                 if len(command) > MAX_LINE:
                     # Never show a cut-off command; point at the full one instead.
                     command = "Recommended: run the repository's setup --check to display the full command (too long to show here)."
+                elif _clean(command) != command:
+                    command = "Recommended: run the repository's setup --check to display the full command (path cannot be displayed safely here)."
                 lines.append(_clean(command))
                 if kind == "setup":
                     lines.append("Setup ends by asking for an agent-host restart.")
@@ -2637,8 +2642,19 @@ def render_bin_launchers(repo_root: Path) -> None:
         "# Wavefoundry operator CLI — .wavefoundry/bin/wf (wave 1p7tz)\n"
         "# Cross-OS dispatcher to the framework entry scripts. `wf <subcommand>` — see `wf --help`.\n"
         "set -euo pipefail\n"
-        'REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"\n'
-        'cd "$REPO_ROOT"\n'
+        "wf_root_error() { printf '%s\\n' 'Wavefoundry: cannot establish the launcher project directory. Setup was not started. Use the launcher inside the intended project.' >&2; exit 2; }\n"
+        'REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd -P && printf \'.\')" || wf_root_error\n'
+        'REPO_ROOT="${REPO_ROOT%$\'\\n.\'}"\n'
+        '[[ -f "$REPO_ROOT/.wavefoundry/framework/scripts/wf_cli.py" ]] || wf_root_error\n'
+        'CALLER_ROOT="$(pwd -P && printf \'.\')" || wf_root_error\n'
+        'CALLER_ROOT="${CALLER_ROOT%$\'\\n.\'}"\n'
+        'cd "$REPO_ROOT" 2>/dev/null || wf_root_error\n'
+        'if [[ "${1-}" == "setup" && "$CALLER_ROOT" != "$REPO_ROOT" ]]; then\n'
+        '  ROOT_NOTICE="${REPO_ROOT:0:512}"\n'
+        '  ROOT_SUFFIX=""\n'
+        '  if (( ${#REPO_ROOT} > 512 )); then ROOT_SUFFIX=" [path truncated]"; fi\n'
+        "  printf 'Wavefoundry: launcher working directory %q%s; explicit --root overrides the setup target.\\n' \"$ROOT_NOTICE\" \"$ROOT_SUFFIX\" >&2\n"
+        'fi\n'
         'exec python3 "$REPO_ROOT/.wavefoundry/framework/scripts/wf_cli.py" "$@"\n'
     )
 
@@ -2647,14 +2663,27 @@ def render_bin_launchers(repo_root: Path) -> None:
     wf_cmd_src = (
         "@echo off\r\n"
         "REM Wavefoundry operator CLI -- .wavefoundry\\bin\\wf.cmd (wave 1p7tz)\r\n"
-        "setlocal\r\n"
-        'set "REPO_ROOT=%~dp0..\\.."\r\n'
+        "setlocal DisableDelayedExpansion\r\n"
+        'for %%I in ("%~dp0..\\..") do set "REPO_ROOT=%%~fI"\r\n'
+        'if not exist "%REPO_ROOT%\\.wavefoundry\\framework\\scripts\\wf_cli.py" goto root_invalid\r\n'
+        'if exist "%REPO_ROOT%\\.wavefoundry\\framework\\scripts\\wf_cli.py\\" goto root_invalid\r\n'
+        'set "CALLER_ROOT=%CD%"\r\n'
         'cd /d "%REPO_ROOT%"\r\n'
+        'if errorlevel 1 goto root_invalid\r\n'
+        'if /i not "%CD%"=="%REPO_ROOT%" goto root_invalid\r\n'
+        'if /i not "%~1"=="setup" goto root_ready\r\n'
+        'if /i "%CALLER_ROOT%"=="%REPO_ROOT%" goto root_ready\r\n'
+        'set "ROOT_SUFFIX="\r\n'
+        'if not "%REPO_ROOT:~512,1%"=="" set "ROOT_SUFFIX= [path truncated]"\r\n'
+        'echo Wavefoundry: launcher working directory "%REPO_ROOT:~0,512%"%ROOT_SUFFIX%; explicit --root overrides the setup target. 1>&2\r\n'
+        ':root_ready\r\n'
         'where.exe python3 >nul 2>nul\r\n'
         'if errorlevel 1 goto python_missing\r\n'
         'set "WF_PYTHON3="\r\n'
         'for /f "delims=" %%I in (\'where.exe python3 2^>nul\') do if not defined WF_PYTHON3 set "WF_PYTHON3=%%I"\r\n'
-        'if /i "%WF_PYTHON3%"=="%LOCALAPPDATA%\\Microsoft\\WindowsApps\\python3.exe" goto python_alias_probe\r\n'
+        # Match whole trailing components, independent of the user profile root.
+        # An 8.3-shortened WindowsApps component is not recognized by this check.
+        'if /i "%WF_PYTHON3:~-24%"=="\\WindowsApps\\python3.exe" goto python_alias_probe\r\n'
         'goto python_launch\r\n'
         ':python_alias_probe\r\n'
         'python3 -c "import sys" >nul 2>nul\r\n'
@@ -2681,6 +2710,9 @@ def render_bin_launchers(repo_root: Path) -> None:
         'echo Run bounded diagnosis without Python or MCP: 1>&2\r\n'
         'echo powershell -NoProfile -File "%REPO_ROOT%\\.wavefoundry\\framework\\scripts\\diagnose_python.ps1" 1>&2\r\n'
         'echo If policy blocks diagnosis, give IT the command/path/error; do not bypass policy or reseed this checkout. 1>&2\r\n'
+        'exit /b 2\r\n'
+        ':root_invalid\r\n'
+        'echo Wavefoundry: cannot establish the launcher project directory. Setup was not started. Use the launcher inside the intended project. 1>&2\r\n'
         'exit /b 2\r\n'
     )
 

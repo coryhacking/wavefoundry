@@ -2,6 +2,8 @@
 """Check index dependencies and build the Wavefoundry semantic index."""
 from __future__ import annotations
 
+from setup_commands import setup_command as _setup_command
+
 import argparse
 import contextlib
 import contextvars
@@ -170,10 +172,10 @@ def _bootstrap_venv(root: Path | None = None, *, lock=None) -> Path:
     # Surface an actionable error instead of proceeding.
     if removal_attempted and venv_dir.exists():
         raise RuntimeError(
-            f"Could not recreate the tool venv at {venv_dir}: a previous version could not be fully "
+            (f"Could not recreate the tool venv at {venv_dir}: a previous version could not be fully "
             f"removed. On Windows this usually means a running process is holding a file open — close "
             f"the MCP host (quit/restart your agent), any IDE extension using this project, and other "
-            f"terminals, then rerun `wf setup`. If it persists, delete {venv_dir} manually and retry."
+            f"terminals, then rerun `wf setup`. If it persists, delete {venv_dir} manually and retry.").replace("wf setup", _setup_command(root))
         )
 
     if not venv_dir.exists():
@@ -191,12 +193,12 @@ def _bootstrap_venv(root: Path | None = None, *, lock=None) -> Path:
             # security scanning the new files, a slow/overloaded disk, or a filesystem lock — not the
             # network. Fail loud rather than hang.
             print(
-                f"Tool-venv creation timed out after {venv_timeout:g}s (`python -m venv {venv_dir}`). "
+                (f"Tool-venv creation timed out after {venv_timeout:g}s (`python -m venv {venv_dir}`). "
                 "A venv is a local operation, so a stall usually means realtime antivirus/endpoint "
                 "security is scanning the new files, the disk is slow/overloaded, or a filesystem lock "
                 "is held. Exclude the venv path from realtime AV / free the disk and rerun `wf setup`; "
                 "raise `setup.venv_create_timeout_seconds` in docs/workflow-config.json if the machine "
-                "is legitimately slow.",
+                "is legitimately slow.").replace("wf setup", _setup_command(root)),
                 file=sys.stderr,
             )
             raise SystemExit(2)
@@ -562,7 +564,7 @@ def _lock_passing_kwargs(lock) -> dict:
 
 
 @contextlib.contextmanager
-def _held_install_lock():
+def _held_install_lock(root=None):
     """Hold the shared install lock for an operator-run install (``wf setup``, upgrade).
 
     Blocks while another installer runs. A lock that cannot be opened (for
@@ -594,8 +596,8 @@ def _held_install_lock():
         # shared tool environment.
         where = getattr(lock, "path", None)
         print(
-            f"Dependency install lock unavailable ({exc}); nothing was installed. Fix the lock path"
-            f"{f' ({where})' if where else ''}, then rerun `wf setup`.",
+            (f"Dependency install lock unavailable ({exc}); nothing was installed. Fix the lock path"
+            f"{f' ({where})' if where else ''}, then rerun `wf setup`.").replace("wf setup", _setup_command(root)),
             file=sys.stderr,
         )
         raise SystemExit(2)
@@ -684,11 +686,12 @@ def install_requirement_specs(
     import runtime_lock
 
     packages = [str(spec) for spec in specs]
-    outcome = {"status": "failed", "packages": packages, "message": ""}
+    from setup_commands import setup_recovery
+    outcome = {"status": "failed", "packages": packages, "message": "", **setup_recovery(root)}
     # Absolute: uv runs from the tool-venv base, so a relative tool-venv override would misresolve.
     venv_python = Path(os.path.abspath(venv_bootstrap.tool_venv_python()))
     if not venv_python.exists():
-        outcome["message"] = "the tool environment is missing; run `wf setup`"
+        outcome["message"] = ("the tool environment is missing; run `wf setup`").replace("wf setup", _setup_command(root))
         return outcome
     if _STARTUP_UV_COMMAND is not None:
         uv_command = list(_STARTUP_UV_COMMAND)
@@ -699,15 +702,15 @@ def install_requirement_specs(
             skipped = []
             _trusted_path_uv(root, skipped=skipped)
             outcome["message"] = _uv_skipped_notice(skipped) + (
-                "uv is not available, and startup installs only through uv with its package-age "
-                "guard; run `wf setup`"
+                ("uv is not available, and startup installs only through uv with its package-age "
+                "guard; run `wf setup`").replace("wf setup", _setup_command(root))
             )
             return outcome
         uv_command = [str(uv_path)]
     try:
         lock = _dependency_install_lock(blocking=False)
     except OSError as exc:  # resolving the lock path failed
-        outcome["message"] = f"dependency install lock unavailable ({exc}); run `wf setup`"
+        outcome["message"] = (f"dependency install lock unavailable ({exc}); run `wf setup`").replace("wf setup", _setup_command(root))
         return outcome
     started = time.monotonic()
     while True:
@@ -717,11 +720,11 @@ def install_requirement_specs(
         except runtime_lock.RuntimeLockBusy:
             if lock_wait_seconds is not None and time.monotonic() - started >= lock_wait_seconds:
                 outcome["status"] = "busy"
-                outcome["message"] = "another dependency install is running; retry or run `wf setup`"
+                outcome["message"] = ("another dependency install is running; retry or run `wf setup`").replace("wf setup", _setup_command(root))
                 return outcome
             time.sleep(0.2)
         except OSError as exc:
-            outcome["message"] = f"dependency install lock unavailable ({exc}); run `wf setup`"
+            outcome["message"] = (f"dependency install lock unavailable ({exc}); run `wf setup`").replace("wf setup", _setup_command(root))
             return outcome
     try:
         remaining = packages
@@ -760,26 +763,26 @@ def install_requirement_specs(
             )
         except subprocess.TimeoutExpired:
             outcome["message"] = (
-                f"dependency install timed out after {timeout:g}s; check network, proxy or TLS "
-                "access to https://pypi.org, then run `wf setup`"
+                (f"dependency install timed out after {timeout:g}s; check network, proxy or TLS "
+                "access to https://pypi.org, then run `wf setup`").replace("wf setup", _setup_command(root))
             )
             return outcome
         except OSError as exc:
-            outcome["message"] = f"dependency install could not start ({exc}); run `wf setup`"
+            outcome["message"] = (f"dependency install could not start ({exc}); run `wf setup`").replace("wf setup", _setup_command(root))
             return outcome
         if completed.returncode != 0:
             message = (
-                f"uv install failed (exit {completed.returncode}); the usual cause is network, proxy "
-                "or TLS access to the package index (uv's output above has the detail); run `wf setup`"
+                (f"uv install failed (exit {completed.returncode}); the usual cause is network, proxy "
+                "or TLS access to the package index (uv's output above has the detail); run `wf setup`").replace("wf setup", _setup_command(root))
             )
             if os.name == "nt":
-                message += ". " + _WINDOWS_IN_USE_HINT
+                message += ". " + _WINDOWS_IN_USE_HINT.replace("wf setup", _setup_command(root))
             outcome["message"] = message
             return outcome
         outcome["status"] = "installed"
         return outcome
     except Exception as exc:  # noqa: BLE001 - never raise into MCP startup
-        outcome["message"] = f"dependency install failed ({type(exc).__name__}: {exc}); run `wf setup`"
+        outcome["message"] = (f"dependency install failed ({type(exc).__name__}: {exc}); run `wf setup`").replace("wf setup", _setup_command(root))
         return outcome
     finally:
         try:
@@ -788,11 +791,12 @@ def install_requirement_specs(
             pass
 
 
-def _uv_required_message(*, windows: bool | None = None, skipped: list[str] | None = None) -> str:
+def _uv_required_message(*, root=None, windows: bool | None = None, skipped: list[str] | None = None) -> str:
     """The refusal ``_install_deps`` prints when no uv can be found or installed (wave 1zls6)."""
     if windows is None:
         windows = os.name == "nt"
-    rerun = "`.\\.wavefoundry\\bin\\wf.cmd setup`" if windows else "`wf setup`"
+    rerun = ("`" + _setup_command(root, windows=windows) + "`" if root is not None
+             else "setup through the selected repository's local setup launcher")
     shim_names = set()
     if windows:
         for entry in os.environ.get("PATH", "").split(os.pathsep):
@@ -842,7 +846,7 @@ def _install_deps(missing: list[str], venv_python: Path, root: Path | None = Non
         # context manager releases on the way out.
         skipped = []
         _trusted_path_uv(root, skipped=skipped)
-        print(_uv_required_message(skipped=skipped), file=sys.stderr)
+        print(_uv_required_message(root=root, skipped=skipped), file=sys.stderr)
         raise SystemExit(2)
 
     cutoff = _exclude_newer_cutoff(days=21)
@@ -871,21 +875,21 @@ def _install_deps(missing: list[str], venv_python: Path, root: Path | None = Non
         # proxy) is a Phase-1 hang path. Fail loud with network/proxy/TLS guidance rather than blocking
         # setup forever.
         print(
-            f"Dependency install timed out after {deps_timeout:g}s (uv). A stalled package "
+            (f"Dependency install timed out after {deps_timeout:g}s (uv). A stalled package "
             "download/resolve is almost always a network/proxy/TLS problem — check reachability to "
             "https://pypi.org (corp MITM / flaky proxy / offline). Fix connectivity and rerun "
             "`wf setup`; raise `setup.dep_install_timeout_seconds` in docs/workflow-config.json (at most "
             f"{_LOCK_HELD_DEADLINE_CAPS['dep_install_timeout_seconds']:g}s) if a legitimately slow link "
-            "needs longer.",
+            "needs longer.").replace("wf setup", _setup_command(root)),
             file=sys.stderr,
         )
         raise SystemExit(2)
     if result.returncode != 0:
         print(
-            f"uv install failed (exit {result.returncode}). "
+            (f"uv install failed (exit {result.returncode}). "
             "Check uv's output above (usually network, proxy or TLS access to the package index), "
             "fix the cause, then rerun `wf setup`; do not install the dependencies with pip by hand, "
-            "which bypasses the package-age guard.",
+            "which bypasses the package-age guard.").replace("wf setup", _setup_command(root)),
             file=sys.stderr,
         )
         if SQLITE_VEC_REQUIREMENT in missing:
@@ -920,7 +924,7 @@ def ensure_deps(root: Path | None = None) -> None:
     if _satisfied_without_lock(required_imports):
         print(f"Dependencies satisfied ({', '.join(required_imports)})", flush=True)
         return
-    with _held_install_lock() as lock:
+    with _held_install_lock(root) as lock:
         venv_python = _bootstrap_venv(root, lock=lock)
         missing = _missing_in_venv(venv_python, required_imports)
         if not missing:
@@ -944,7 +948,7 @@ def ensure_migration_deps(root: Path) -> None:
     requirements = {f"lancedb=={LEGACY_READER_VERSION}": "lancedb"}
     if _satisfied_without_lock(requirements):
         return
-    with _held_install_lock() as lock:
+    with _held_install_lock(root) as lock:
         venv_python = _bootstrap_venv(root, lock=lock)
         missing = _missing_in_venv(venv_python, requirements)
         if missing:
@@ -1663,7 +1667,7 @@ _COREML_TEMPDIR_RECOVERY = (
     "CoreML could not create its model-compile working directory (macOS may have reaped the "
     "per-user temp dir under /var/folders while a stale path lingered in TMPDIR); a bounded "
     "repair+retry already ran. Recovery: open a fresh shell (re-resolves TMPDIR) or clear a stale "
-    "TMPDIR override, then rerun `wf setup`. The build continues on CPU (slower, correct)."
+    "TMPDIR override, then rerun setup using the selected repository's local launcher. The build continues on CPU (slower, correct)."
 )
 
 
@@ -2227,9 +2231,9 @@ def _check_setup_precision(root: Path, model_name: str, resident, diagnostic: di
     if changes:
         detail = "; ".join(f"{item['layer']}: recorded {item['recorded']}, requested {item['requested']}" for item in changes)
         raise ModelPrewarmError(
-            f"Implicit precision conversion refused before local preparation ({detail}; selection: {reason}). "
+            (f"Implicit precision conversion refused before local preparation ({detail}; selection: {reason}). "
             f"{recovery} A deliberate `wf setup --full` "
-            "is a separate rebuild choice. Existing published index retained.")
+            "is a separate rebuild choice. Existing published index retained.").replace('wf setup --full', _setup_command(root, '--full')))
 
 
 def prewarm_models(*, include_code: bool, code_only: bool = False, precision_check=None, root: Path | None = None) -> None:
@@ -3038,9 +3042,9 @@ def main(argv: list[str] | None = None) -> int:
     # list (a test double, None) counts as no fallbacks.
     for workload, model_name in gpu_fallbacks if isinstance(gpu_fallbacks, list) else []:
         print(
-            f"GPU acceleration NOT used for the {workload} ({model_name}): its isolated CoreML probe "
+            (f"GPU acceleration NOT used for the {workload} ({model_name}): its isolated CoreML probe "
             "failed (see the WARNING above), so it runs on the CPU. Indexing and search still work; "
-            "diagnose with `wf setup --check-gpu`.",
+            "diagnose with `wf setup --check-gpu`.").replace('wf setup --check-gpu', _setup_command(root, '--check-gpu')),
             flush=True,
         )
     print(

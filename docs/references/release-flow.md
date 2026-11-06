@@ -2,11 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-17
+Last verified: 2026-11-06
 
 How Wavefoundry ships a release. Single-maintainer project; the release happens from the maintainer's machine via `build_pack.py --release`.
 
 ## The release command
+
+List any newly introduced core skill names in the tagged release notes. Downstream owners can compare their declarations before upgrading; a complete-name collision preserves that name and reports partial rendering while unrelated skills remain available. Wave 22o92 adds no core skill names.
 
 ```bash
 python3 .wavefoundry/framework/scripts/build_pack.py --version <X.Y.Z> --release --with-models

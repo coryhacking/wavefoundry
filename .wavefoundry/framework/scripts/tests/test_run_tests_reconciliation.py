@@ -73,7 +73,15 @@ class ReconciliationCLITests(guard.RepoGuardTestBase):
         code, result, err = self.cli("--reconcile", self.path)
         self.assertEqual(code, 0, str(result) + err)
         self.assertTrue(result["eligible"])
+        self.assertIn('binds inspected inputs', result['token_notice'])
+        self.assertIn('neither operator identity nor authorization', result['token_notice'])
         return result
+
+    def test_help_explains_token_integrity_without_authority(self):
+        code, text, err = self.cli('--help')
+        self.assertEqual(code, 0, err)
+        self.assertIn('binds inspected inputs', text)
+        self.assertIn('operator identity nor authorization', text)
 
     def accept(self, token):
         return self.cli("--reconcile", self.path, "--accept", token, "--operator-reviewed", self.note)

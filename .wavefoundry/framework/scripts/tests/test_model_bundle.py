@@ -617,6 +617,7 @@ class ModelBundleTests(unittest.TestCase):
         quoted = hint.removeprefix('Found but not used: ').split(' (unverified', 1)[0]
         self.assertLessEqual(len(quoted), 120)
         self.assertIsInstance(json.loads(quoted), str)
+        self.assertTrue(json.loads(quoted).endswith('...'))
         self.assertTrue(all(' ' <= ch <= '~' for ch in hint))
         self.assertEqual(candidate.read_bytes(), b'not a zip')
         for hostile in ('"\\' * 150, '\x1b\n\u202e' + 'x' * 200):
@@ -624,6 +625,40 @@ class ModelBundleTests(unittest.TestCase):
             self.assertLessEqual(len(quoted), 120)
             self.assertTrue(all(' ' <= ch <= '~' for ch in quoted))
             self.assertIsInstance(json.loads(quoted), str)
+            self.assertTrue(json.loads(quoted).endswith('...'))
+
+    def test_hint_reaches_downloads_after_crowded_dirs_with_finite_deduplicated_budgets(self):
+        from contextlib import contextmanager
+        from types import SimpleNamespace
+
+        home, dist, downloads = (self.tmp / name for name in ('home', 'dist', 'Downloads'))
+        visited, counts = [], {}
+        candidate = SimpleNamespace(name='private-models-' + model_bundle.MODEL_SET_VERSION + ' (1).zip',
+                                    is_file=lambda **kwargs: True)
+
+        @contextmanager
+        def scan(directory):
+            visited.append(directory)
+            counts[directory] = 0
+
+            def entries():
+                if directory == downloads:
+                    counts[directory] += 1
+                    yield candidate
+                else:
+                    for _ in range(2000):
+                        counts[directory] += 1
+                        if counts[directory] > 512:
+                            raise AssertionError('directory budget exceeded')
+                        yield SimpleNamespace(name='irrelevant.txt')
+            yield entries()
+
+        with patch.object(model_bundle.os, 'scandir', side_effect=scan), \
+                patch.object(Path, 'open', side_effect=AssertionError('hint read file bytes')):
+            hint = model_bundle.unused_bundle_hint((home, dist, home, downloads))
+        self.assertIn(candidate.name, hint)
+        self.assertEqual(visited, [home, dist, downloads])
+        self.assertEqual(counts, {home: 512, dist: 512, downloads: 1})
 
     def test_misnamed_hint_ignores_other_sets_directories_and_exact_asset(self):
         (self.out / 'private-models-99.zip').touch()

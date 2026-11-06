@@ -149,6 +149,7 @@ class UnavailablePsutilBuildPathTests(_Repo):
         import shlex
         import types
         import setup_readiness
+        import setup_commands
 
         for windows in (False, True):
             for pending in (False, True):
@@ -158,10 +159,14 @@ class UnavailablePsutilBuildPathTests(_Repo):
                     index.root = target
                     index.docs_health.return_value = {"semantic_ready": True, "stale_layers": [], "missing_layers": [], "has_any_index": True, "compatible_chunks": True, "readiness_overview": "ready", "project": {"readiness": "current"}}
                     failure = process_info.ProcessInfoUnavailable("psutil fixture unavailable; " + process_info._SETUP_HINT)
-                    platform = types.SimpleNamespace(name="nt" if windows else "posix", path=os.path)
+                    platform = {name: (lambda *args, _original=getattr(setup_commands, name), **kw:
+                                         _original(*args, **{**kw, "windows": windows}))
+                                for name in ("repository_launcher_argv", "format_command", "command_shell")}
                     with patch.object(process_info, "_load", side_effect=failure), \
                          patch.object(process_info, "_STARTUP_INSTALL_PENDING", "installing" if pending else None), \
-                         patch.object(setup_readiness, "os", platform):
+                         patch.multiple(setup_commands, **platform):
+                        self.assertIs(setup_readiness.os.environ, os.environ)
+                        self.assertEqual(setup_readiness.os.stat(target).st_mode, os.stat(target).st_mode)
                         responses = (self.h.index_build_status_response(target), self.h.index_health_response(index), self.impl.wf_server_info_response(target))
                     if windows:
                         launcher = ntpath.join(ntpath.abspath(str(target)), ".wavefoundry", "bin", "wf.cmd")

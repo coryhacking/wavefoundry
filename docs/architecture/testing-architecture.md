@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-05
+Last verified: 2026-11-06
 
 ## Tensorwell qualification
 
@@ -289,7 +289,7 @@ Reconcile expectations use literal canonical keys. The hook-contract test reads 
 
 ### Upstream-only fixtures (change 21ile)
 
-Source-project prose and closed-ledger assertions use `source_repository_fixture`, which requires the explicit `testing.upstream_fixtures_required` opt-in even when a consuming project's file exists. An existing file is not upstream provenance. `source_carriers` skips only source-specific subtests, keeping canonical seed/renderer assertions and their negative controls running. Missing or malformed opt-in configuration still fails closed. The source corpus uses configured live/archive roots and closed records; lifecycle validation remains responsible for active records. Portable synthetic corruption checks run independently of that corpus.
+Source-project prose and closed-ledger assertions use `source_repository_fixture`, which requires the explicit `testing.upstream_fixtures_required` opt-in even when a consuming project's file exists. An existing file is not upstream provenance. `source_carriers` skips only source-specific subtests, including exact overridable seed prose. Portable template and renderer checks still run, and a missing required canonical asset fails. Lifecycle template paths resolve through the vocabulary profile. The committed lifecycle golden pins default display nouns during capture; separate alternate-profile tests retain coverage of renamed output, and changed diagnostics still fail comparison. Missing or malformed opt-in configuration still fails closed. The source corpus uses configured live/archive roots and closed records; lifecycle validation remains responsible for active records. Portable synthetic corruption checks run independently of that corpus.
 
 The state-table snapshot helper and the reported `DryRunIdleMaintenanceTests._snapshot` consumer copy quiescent SQLite fixtures and their existing WAL/SHM sidecars to private scratch before opening them. This retains committed WAL rows without letting SQLite create or change sidecars beside the original fixture. Explicit absent/SHM-only/empty-WAL/populated-WAL controls invoke the original snapshot caller with multiple databases and check both committed-row visibility and unchanged original entries and bytes; non-SQLite artifact comparisons remain effective. This helper changes no runtime database policy. Archive-discovery fixtures likewise pin all dist, downloads and home search roots rather than inspect the developer's actual folders.
 

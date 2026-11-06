@@ -70,16 +70,53 @@ class UpstreamFixtureHelperTests(unittest.TestCase):
 
     def test_source_subtest_skip_keeps_following_portable_contracts(self):
         self._config_obj({})
+        portable = ".wavefoundry/framework/scripts/contract.py"
+        target = self.root / portable
+        target.parent.mkdir(parents=True)
+        target.write_text("# portable")
         check = unittest.TestCase()
         result = unittest.TestResult()
         seen = []
         def exercise():
             seen.extend(ufs.source_carriers(check,
-                ("docs/custom.md", ".wavefoundry/framework/seeds/example.md"), root=self.root))
+                ("docs/custom.md", ".wavefoundry/framework/seeds/example.md", portable), root=self.root))
         check.runTest = exercise
         check.run(result)
-        self.assertEqual(seen, [".wavefoundry/framework/seeds/example.md"])
-        self.assertEqual(len(result.skipped), 1)
+        self.assertEqual(seen, [portable])
+        self.assertEqual(len(result.skipped), 2)
+        self.assertEqual(result.errors + result.failures, [])
+
+    def test_missing_canonical_carrier_never_skips(self):
+        self._config_obj({})
+        with self.assertRaisesRegex(AssertionError, "required canonical carrier missing"):
+            list(ufs.source_carriers(self, [".wavefoundry/framework/install/missing.md"], root=self.root))
+
+    def test_renamed_distribution_runs_intent_carriers_without_upstream_seeds(self):
+        import copy
+        import runpy
+        import vocabulary_profile as vp
+
+        self._config_obj({})
+        names = copy.deepcopy(vp.PROMPT_NAMES)
+        for key in ("prepare-wave", "review-wave", "close-wave"):
+            source = REPO_ROOT / ".wavefoundry/framework/install/lifecycle-prompts" / (vp.prompt_slug(key) + ".prompt.md")
+            names[key]["slug"] = key.replace("wave", "set")
+            target = self.root / ".wavefoundry/framework/install/lifecycle-prompts" / (names[key]["slug"] + ".prompt.md")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(source.read_bytes())
+        # Deliberately customized seeds cannot satisfy upstream prose pins.
+        seeds = self.root / ".wavefoundry/framework/seeds"
+        seeds.mkdir()
+        (seeds / "100-project-prompt-surface-bootstrap.prompt.md").write_text("Local distribution guidance")
+        with mock.patch.object(vp, "PROMPT_NAMES", names):
+            namespace = runpy.run_path(str(TESTS_DIR / "test_render_agent_surfaces.py"))
+            result = unittest.TestResult()
+            for name in ("IntentFitCarrierTests", "IntentFitApprovalCarrierTests"):
+                cls = namespace[name]
+                cls.ROOT = self.root
+                unittest.defaultTestLoader.loadTestsFromTestCase(cls).run(result)
+        self.assertGreater(result.testsRun, 4)
+        self.assertTrue(result.skipped)  # Only source-owned assertions are skipped.
         self.assertEqual(result.errors + result.failures, [])
 
     def test_absent_with_the_key_true_fails(self):

@@ -30,6 +30,8 @@ Exit codes:
 """
 from __future__ import annotations
 
+from setup_commands import setup_command as _setup_command
+
 import argparse
 import time
 import math
@@ -1706,6 +1708,7 @@ def phase_dry_run(root: Path, *, explicit_pack: Path | None = None,
     else:
         _log("No changes were made. Run without --dry-run to execute the upgrade.")
     dry_summary = _build_upgrade_summary(
+        root=root,
         from_version=from_version,
         to_version=to_version,
         zip_path=zip_path,
@@ -2148,7 +2151,14 @@ def phase_surface_rendering(root: Path) -> None:
     if result.returncode != 0:
         _err(_child_failure("Surface rendering failed.", result))
         sys.exit(2)
-    _log("  Surfaces rendered.")
+    partial_skills = [line for line in (result.stderr or "").splitlines()
+                      if line.startswith("render_agent_surfaces: PARTIAL - ")]
+    if partial_skills:
+        _log("  Surfaces rendered with partial skill delivery; conflicting names were preserved.")
+        for diagnostic in partial_skills:
+            _log("  " + diagnostic)
+    else:
+        _log("  Surfaces rendered.")
     try:
         allow_after = _read_permissions_allow(root)
         _PERMISSIONS_DELTA = _permissions_delta_record(root, allow_before, allow_after)
@@ -2834,9 +2844,9 @@ def _run_dependency_install(root: Path, install) -> bool:
     except _DEPENDENCY_INSTALL_FAILURES as exc:
         failed = True
         _err(
-            f"Dependency provisioning FAILED ({type(exc).__name__}: {exc}); the index "
+            (f"Dependency provisioning FAILED ({type(exc).__name__}: {exc}); the index "
             "update did not run. Fix network, proxy or TLS access to the package index, "
-            "then run `wf setup`."
+            "then run `wf setup`.").replace("wf setup", _setup_command(root))
         )
     try:
         upgrade_lib.update_upgrade_lock(root, dependency_provisioning_failed=failed)
@@ -2922,7 +2932,7 @@ def phase_index_update(root: Path) -> bool:
     rebuild_storage = migration_pending and migration_receipt.get("strategy") == "rebuild"
     if not _provision_upgrade_dependencies(root):
         if migration_pending:
-            raise RuntimeError(_MIGRATION_DEPENDENCY_FAILURE)
+            raise RuntimeError(_MIGRATION_DEPENDENCY_FAILURE.replace("wf setup", _setup_command(root)))
         return False
     migration_state = sqlite_storage_migration.detect(root / ".wavefoundry/index")
     if migration_state["migration_required"]:
@@ -2940,7 +2950,7 @@ def phase_index_update(root: Path) -> bool:
                 setup_index.ensure_migration_deps(root)
 
         if not _run_dependency_install(root, _install_migration_dependencies):
-            raise RuntimeError(_MIGRATION_DEPENDENCY_FAILURE)
+            raise RuntimeError(_MIGRATION_DEPENDENCY_FAILURE.replace("wf setup", _setup_command(root)))
         if rebuild_storage:
             # Validate the normal setup model path before replacing the live
             # database. This process must not attempt indexing a legacy store.
@@ -3591,7 +3601,7 @@ def _record_setup_baseline(root: Path, *, sleep=None, stamp: bool = True) -> dic
         result = assess(use_stamp=False)
         status = result.get("status")
         if status != "ready":
-            command = "wf setup" if status == "action_required" else "wf setup --check"
+            command = _setup_command(root) if status == "action_required" else _setup_command(root, "--check")
             _log(f"  Setup baseline not recorded (setup readiness: {status}); run `{command}`.")
             return result
         if not stamp:
@@ -3602,15 +3612,15 @@ def _record_setup_baseline(root: Path, *, sleep=None, stamp: bool = True) -> dic
             != setup_readiness.projected_environment(setup_readiness._environment_identity())
         ):
             _log(
-                "  Setup baseline not recorded: the environment differs from the one setup "
-                "last recorded; run `wf setup`."
+                ("  Setup baseline not recorded: the environment differs from the one setup "
+                "last recorded; run `wf setup`.").replace("wf setup", _setup_command(root))
             )
             return assess()
         setup_readiness.write_setup_stamp(root, provenance="upgrade", identity=identity)
         _log("  Setup baseline recorded.")
         return result
     except Exception as exc:  # the stamp is advisory; never fail the upgrade on it
-        _log(f"  ⚠  Setup baseline not recorded: {exc}; run `wf setup --check`.")
+        _log(f"  ⚠  Setup baseline not recorded: {exc}; run `{_setup_command(root, '--check')}`.")
         return None
 
 
@@ -3813,7 +3823,7 @@ def phase_cleanup(
     stamp_baseline = not index_update_failed and not dependency_provisioning_failed
     setup_assessment = _record_setup_baseline(root, stamp=stamp_baseline)
     if not stamp_baseline:
-        _log("  Setup baseline not recorded (index update did not complete); run `wf setup`.")
+        _log(("  Setup baseline not recorded (index update did not complete); run `wf setup`.").replace("wf setup", _setup_command(root)))
 
     try:
         _print_operator_summary(
@@ -3837,7 +3847,7 @@ def phase_cleanup(
         # or prevent owned-resource cleanup. Recovery uses already held facts.
         summary = _build_upgrade_summary(
             from_version, to_version, zip_path, pruned_count, ran_index_rebuild,
-            failed_phase, [], review_sidecar_cleanup=review_sidecar_cleanup,
+            failed_phase, [], root=root, review_sidecar_cleanup=review_sidecar_cleanup,
             lifecycle_baseline_drift=_cl_baseline_drift,
             permissions_delta=_cl_permissions, index_update_failed=index_update_failed,
             retired_model_cleanup=retired_model_cleanup, setup_assessment=setup_assessment,
@@ -4535,6 +4545,7 @@ def _build_upgrade_summary(
     dependency_provisioning_failed: bool = False,
     historical_memory: dict | None = None,
     lifecycle_baseline_drift: list[dict] | None = None,
+    root: Path | None = None,
 ) -> dict:
     """Wave 1p8eu — assemble the operator summary ONCE as a dict.
 
@@ -4587,7 +4598,7 @@ def _build_upgrade_summary(
             "docs and code layers complete"
             if ran_index_rebuild
             else (
-                "not run: dependency provisioning failed; run wf setup"
+                "not run: dependency provisioning failed; " + _setup_command(root)
                 if dependency_provisioning_failed
                 else (
                     "publication failed: semantic index epoch incomplete; run "
@@ -4600,7 +4611,7 @@ def _build_upgrade_summary(
         # Wave 1zfd9: flat fields (ADR 1u49j); produced by the new-code --cleanup
         # process, not_assessed in the primary-phase summary.
         "dependency_provisioning_failed": bool(dependency_provisioning_failed),
-        **_setup_summary_fields(setup_assessment),
+        **_setup_summary_fields(setup_assessment, root=root),
         "failed_phase": failed_phase,
         "is_major_or_minor": _is_major_or_minor_upgrade(from_version, to_version),
         "reconciliation": reconciliation,
@@ -4638,7 +4649,7 @@ def _build_upgrade_summary(
     }
 
 
-def _setup_summary_fields(result: dict | None) -> dict:
+def _setup_summary_fields(result: dict | None, *, root=None) -> dict:
     """``setup_status``, ``setup_reasons`` and ``setup_command`` from a readiness result (wave 1zfd9)."""
     if not isinstance(result, dict):
         return {"setup_status": "not_assessed", "setup_reasons": [], "setup_command": None}
@@ -4649,6 +4660,8 @@ def _setup_summary_fields(result: dict | None) -> dict:
         if isinstance(item, dict) and item.get("code")
     ]
     command = None
+    command_argv = []
+    command_dialect = None
     if status != "ready":
         for action in result.get("actions") or []:
             if not isinstance(action, dict):
@@ -4658,14 +4671,22 @@ def _setup_summary_fields(result: dict | None) -> dict:
                 # Platform quoting, so a root with spaces stays one argument.
                 import setup_readiness
 
-                command = setup_readiness.format_command([str(part) for part in argv])
+                from setup_commands import command_shell
+                command_argv = [str(part) for part in argv]
+                command = setup_readiness.format_command(command_argv)
+                command_dialect = command_shell()
                 break
             if action.get("kind") == "restart":
                 command = "restart the Wavefoundry host"
                 break
         if command is None:
-            command = "wf setup --check"
-    return {"setup_status": status, "setup_reasons": reasons, "setup_command": command}
+            from setup_commands import setup_recovery
+            remedy = setup_recovery(root, "--check")
+            command = remedy["recovery_usage"]
+            command_argv = remedy["recovery_argv"]
+            command_dialect = remedy["recovery_shell"]
+    return {"setup_status": status, "setup_reasons": reasons, "setup_command": command,
+            "setup_argv": command_argv, "setup_shell": command_dialect}
 
 
 def _emit_summary_line(summary: dict) -> None:
@@ -4715,6 +4736,7 @@ def _emit_primary_phase_summary(
     disposition_diagnostics = report["disposition_diagnostics"]
     renderer_warnings = report["renderer_warnings"]
     summary = _build_upgrade_summary(
+        root=root,
         lifecycle_baseline_drift=_lifecycle_baseline_findings(root),
         historical_memory=_historical_memory_report(root),
         from_version=from_version,
@@ -4962,6 +4984,7 @@ def _emit_delegated_summary(root: Path) -> int:
     disposition_diagnostics = report["disposition_diagnostics"]
     renderer_warnings = report["renderer_warnings"]
     summary = _build_upgrade_summary(
+        root=root,
         lifecycle_baseline_drift=_lifecycle_baseline_findings(root),
         historical_memory=_historical_memory_report(root),
         from_version=from_version if isinstance(from_version, str) else None,
@@ -5032,6 +5055,7 @@ def _print_operator_summary(
     disposition_diagnostics = report["disposition_diagnostics"]
     renderer_warnings = report["renderer_warnings"]
     summary = _build_upgrade_summary(
+        root=root,
         lifecycle_baseline_drift=(lifecycle_baseline_drift if lifecycle_baseline_drift is not None else _lifecycle_baseline_findings(root)),
         historical_memory=_historical_memory_report(root),
         from_version=from_version,

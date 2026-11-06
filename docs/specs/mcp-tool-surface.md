@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-05
+Last verified: 2026-11-06
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -726,11 +726,8 @@ backslash, colon, absolute form, or empty, `.` or `..` segment is refused on eve
 renderer also refuses complete effective core names, including configured and doc-gated skills,
 and retired managed skill paths. A distribution-specific prefix reduces future collision risk
 but is optional: new nonconflicting `wf-` skills are supported, like shared MCP tool prefixes.
-A later core-name collision refuses rendering until the distribution resolves it; skills gain
-no override or alias mechanism. Downstream projects own their `wfs-` to `wf-` renames.
-The render preflight
-runs this check before the first write of any render, including `render_platform_surfaces`, so an
-invalid declaration refuses the whole render with every problem named and writes nothing.
+A complete-name collision refuses only that name: both render paths preserve its existing bytes across writes and cleanup while rendering unrelated eligible skills. A bounded `PARTIAL` notice identifies the conflict and downstream rename remedy; render, sync and upgrade reporting preserve that partial result. Skills gain no override or alias mechanism. Downstream projects own their renames, including `wfs-` to `wf-`.
+Malformed declarations, invalid registry entries and unsafe shared destinations still refuse before any writes. Name-local handling does not waive those preflight checks.
 Declared skill folders are distribution-owned: they are not framework-maintenance surfaces.
 
 **Declared-skill ownership (wave `1zyb3`).** Every `SKILL.md` rendered for a declared skill carries
@@ -1597,9 +1594,9 @@ The area is disposable: preserve unique long-term proof in maintained records be
 
 New ownership records bind the repository root and work directory by nonzero inode continuity. Stored device numbers and repository spelling are historical diagnostics; a device-ID change across reboots does not invalidate ownership. Case aliases must name the same directory, and same-filesystem root renames retain ownership. Legacy records without root identity remain usable at their verified original root or alias; an unprovable rename preserves work with a move-aside remedy. This is not cross-volume qualification or globally unique identity. Within-operation descriptor and substitution checks remain strict.
 
-Snapshot reads also accept one positively verified regular publisher construction link in the pinned receipts directory, preserving immutable publication and content/receipt validation. Reads delete nothing and tolerate the active publisher removing that link. Unknown, external or excess links still force full-review fallback. Hosts lacking the required descriptor-safe I/O report unavailable work/snapshots and use full review; native Windows operation remains unqualified.
+Snapshot reads also accept one positively verified regular publisher construction link in the pinned receipts directory, preserving immutable publication and content/receipt validation. Reads delete nothing and tolerate the active publisher removing that link. Unknown, external or excess links still force full-review fallback. Hosts lacking the required descriptor-safe I/O, including current native Windows, report unavailable work/snapshots and use full review. No native work-area implementation is provided.
 
-Missing/incompatible-index and failed-upgrade-dependency setup advice also uses the selected repository launcher, including the upgrade error reason and diagnostic recovery field. Commands are quoted for the host shell and never executed by reporting. Model-preparation failure guidance retains the explicit target root through ordinary and prewarm-only setup. These paths have controlled POSIX/Windows formatting coverage; native Windows execution is separate qualification.
+Missing/incompatible-index and failed-upgrade-dependency setup advice also uses the selected repository launcher, including the upgrade error reason and diagnostic recovery field. Structured remedies carry `recovery_argv` and `recovery_shell` beside `recovery_usage`. The display dialect is `powershell` on Windows and `posix` elsewhere; it does not infer the agent host's shell. Git Bash consumers can use argv instead of treating PowerShell text as shell-neutral. Reporting executes nothing and never replaces a selected root with the working directory. Model-preparation failure guidance retains the explicit target root through ordinary and prewarm-only setup. These paths have controlled POSIX/Windows formatting coverage; native Windows execution is separate qualification.
 
 ### Wave Inspection
 
@@ -2481,7 +2478,9 @@ Python runtime advice is available under `index_health().data.setup_readiness.ad
 
 `wf_scan_secrets(mode: str = "incremental")`
 
-- Scans project files for hardcoded secrets, API keys, and credentials using the merged ruleset from `.wavefoundry/scan-rules.toml` (framework Gitleaks-based rules) and `docs/scan-rules.toml` (project overrides and additions).
+- Scans project files for hardcoded secrets, API keys, and credentials using `.wavefoundry/framework/scan-rules.toml` (Betterleaks-derived rules adapted for the local Python engine) and `docs/scan-rules.toml` (project overrides and additions). A same-ID project rule replaces the framework rule at its existing position; unrelated rules retain their order. Existing disabled-rule and policy precedence is unchanged.
+- The Sourcegraph detector alone adopts pinned Betterleaks `8f376ff9c31ed5309ac448fe601c5dd21b376155`. It detects the qualified `sgp_` modern/local/instance forms and intentionally omits legacy unprefixed 40-hex tokens, including named credential assignments. Other families retain their existing provenance; this is not a full upstream refresh.
+- Rule import qualification is an opt-in local inspection of supported fields and filter constructs, not a new MCP tool or a runtime loading gate. Unsupported metadata is reported; imported validation/revocation instructions remain inert. A compatible report does not prove extraction, regex equivalence, performance or absence of secrets. Existing project test/spec exclusions remain coverage limits.
 - `mode="incremental"` (default): scans git-changed files only (`git diff --name-only HEAD`). **Auto-escalates to a full scan when either TOML rules file changed since the last scan** (SHA-256 hash stored in `.wavefoundry/index/scan/scan-state.json`); no manual intervention needed after a framework upgrade or project rule edit.
 - `mode="full"`: scans all git-tracked files regardless of change state. Use after initial install or when you want a baseline across the whole repo.
 - Findings are written to and read from `docs/scan-findings.json`. New matches with no existing entry are auto-appended with `status: "pending"`. Existing entries keep their status and confirmation history.

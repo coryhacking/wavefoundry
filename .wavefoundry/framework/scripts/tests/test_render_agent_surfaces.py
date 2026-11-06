@@ -681,7 +681,7 @@ class EfficacyCheckCarrierTests(unittest.TestCase):
     )
     CLOSE_CARRIERS = (
         ".wavefoundry/framework/seeds/190-close-wave.prompt.md",
-        ".wavefoundry/framework/install/lifecycle-prompts/close-wave.prompt.md",
+        f".wavefoundry/framework/install/lifecycle-prompts/{vp.prompt_slug('close-wave')}.prompt.md",
         vp.prompt_doc("close-wave"),
     )
     MEASURE_CLAUSE = "When the plan states a measure of success, cite it and say whether it can be read yet."
@@ -744,7 +744,7 @@ class EfficacyCheckCarrierTests(unittest.TestCase):
 
     def test_primer_carrier_list_matches_the_census(self) -> None:
         expected = set(source_carriers(self, self.PRIMER_CARRIERS, root=self.ROOT))
-        roots = self.CENSUS_ROOTS if any(p.startswith("docs/") for p in expected) else self.CENSUS_ROOTS[:2]
+        roots = self.CENSUS_ROOTS if any(p.startswith("docs/") for p in expected) else (self.CENSUS_ROOTS[1],)
         with patch.object(self, "CENSUS_ROOTS", roots):
             self.assertEqual(self._census(self.ROOT), expected)
 
@@ -776,13 +776,13 @@ class IntentFitCarrierTests(unittest.TestCase):
         "docs/agents/specialists/council-chair.md": (
             "- `intent_fit`: at readiness, for each admitted change and the wave Objective",
         ),
-        ".wavefoundry/framework/install/lifecycle-prompts/prepare-wave.prompt.md": (
+        f".wavefoundry/framework/install/lifecycle-prompts/{vp.prompt_slug('prepare-wave')}.prompt.md": (
             "`intent_fit`: for each admitted change and the wave Objective, whether meeting its Requirements and ACs would establish its Product Intent",
         ),
         vp.prompt_doc("prepare-wave"): (
             "`intent_fit` states, for each admitted change and the wave Objective, whether meeting its Requirements and ACs would establish its Product Intent",
         ),
-        ".wavefoundry/framework/install/lifecycle-prompts/review-wave.prompt.md": (
+        f".wavefoundry/framework/install/lifecycle-prompts/{vp.prompt_slug('review-wave')}.prompt.md": (
             "On every delivery review, the coordinator first drafts one `Intent outcome:` paragraph",
         ),
         vp.prompt_doc("review-wave"): (
@@ -844,7 +844,7 @@ class IntentFitCarrierTests(unittest.TestCase):
 
     def test_delivery_intent_check_is_outside_the_conditional_council_step(self) -> None:
         for relative in source_carriers(self, (
-            ".wavefoundry/framework/install/lifecycle-prompts/review-wave.prompt.md",
+            f".wavefoundry/framework/install/lifecycle-prompts/{vp.prompt_slug('review-wave')}.prompt.md",
             vp.prompt_doc("review-wave"),
         ), root=self.ROOT):
             text = (self.ROOT / relative).read_text(encoding="utf-8")
@@ -925,14 +925,14 @@ class IntentFitApprovalCarrierTests(unittest.TestCase):
         ),
         ".wavefoundry/framework/seeds/239-qa-reviewer.prompt.md": QA_DUTY,
         "docs/agents/qa-reviewer.md": QA_DUTY,
-        ".wavefoundry/framework/install/lifecycle-prompts/prepare-wave.prompt.md": (APPROVAL,),
+        f".wavefoundry/framework/install/lifecycle-prompts/{vp.prompt_slug('prepare-wave')}.prompt.md": (APPROVAL,),
         vp.prompt_doc("prepare-wave"): (APPROVAL,),
-        ".wavefoundry/framework/install/lifecycle-prompts/review-wave.prompt.md": (
+        f".wavefoundry/framework/install/lifecycle-prompts/{vp.prompt_slug('review-wave')}.prompt.md": (
             APPROVAL, "a `does_not` verdict does not block",
         ),
         vp.prompt_doc("review-wave"): (APPROVAL, "a `does_not` verdict does not block"),
         ".wavefoundry/framework/seeds/190-close-wave.prompt.md": (ADVISORY,),
-        ".wavefoundry/framework/install/lifecycle-prompts/close-wave.prompt.md": (ADVISORY,),
+        f".wavefoundry/framework/install/lifecycle-prompts/{vp.prompt_slug('close-wave')}.prompt.md": (ADVISORY,),
         vp.prompt_doc("close-wave"): (ADVISORY,),
         ".wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md": (APPROVAL,),
         ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md": (

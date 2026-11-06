@@ -3038,7 +3038,8 @@ class ExplicitPrecisionRebuildTests(unittest.TestCase):
         self.assertTrue(result.get("failed"), result)
         self.assertFalse(result["up_to_date"])
         self.assertIn("Implicit precision conversion refused", result["failure"])
-        self.assertIn("wf setup --full", result["failure"])
+        import setup_commands
+        self.assertIn(setup_commands.setup_command(self.root, "--full"), result["failure"])
         self.assertIn("provider environment", result["failure"])
         resolve.assert_not_called()
         self.last_factory.assert_not_called()
@@ -5751,6 +5752,91 @@ class DryRunIdleMaintenanceTests(_EpochBuildCase):
         else:
             self.assertFalse(any(result["pending_maintenance"].values()), result)
         return result
+
+    def test_policy_change_is_read_only_pending_and_setup_keeps_preparation(self):
+        self._seed()
+        self._preview()
+        self._sql("INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)",
+                  ("targeted_corpus_policy", "older-policy"))
+        self._preview("corpus_policy")
+        import setup_index
+        with patch.object(setup_index, "_load_indexer_module", return_value=self.bi):
+            self.assertFalse(setup_index._setup_semantic_work_is_current(
+                self.root, full=False, rechunk=False, content="all"))
+        generation = self._generation()
+        with patch.object(self.bi, "_get_embedder", side_effect=AssertionError("maintenance embedded")):
+            self.bi.build_index(self.root, content="all")
+        self.assertGreater(self._generation(), generation)
+        self._preview()
+
+    def test_unreadable_policy_never_justifies_setup_preparation_exemption(self):
+        self._seed()
+        store = self.bi._get_index_state_store()
+        original = store.open_read_only
+
+        class PolicyUnreadable:
+            def __init__(self, connection):
+                self.connection = connection
+            def __getattr__(self, name):
+                return getattr(self.connection, name)
+            def execute(self, sql, *args, **kwargs):
+                if "targeted_corpus_policy" in sql:
+                    raise OSError("policy observation unavailable")
+                return self.connection.execute(sql, *args, **kwargs)
+
+        with patch.object(store, "open_read_only", side_effect=lambda *a, **kw: PolicyUnreadable(original(*a, **kw))):
+            self._preview("corpus_policy")
+
+    def test_newly_included_test_file_requires_embeddings_after_read_only_plan(self):
+        self._seed()
+        path = self.root / "tests/test_extra.py"
+        path.parent.mkdir()
+        path.write_text("def test_extra():\n    assert True\n")
+        self._run_build()
+        before = self._snapshot()
+        result = self.bi.build_index(self.root, content="all", include_tests=True, dry_run=True)
+        self.assertFalse(result.get("up_to_date"), result)
+        self.assertEqual(self._snapshot(), before)
+        import setup_index
+        with patch.object(setup_index, "_load_indexer_module", return_value=self.bi):
+            self.assertFalse(setup_index._setup_semantic_work_is_current(
+                self.root, full=False, rechunk=False, content="all", include_tests=True))
+        docs_mock = _make_embedder_mock(dim=4)
+        code_mock = _make_embedder_mock(dim=4)
+        with patch.object(self.bi, "_get_embedder", side_effect=[docs_mock, code_mock]) as embedding:
+            result = self.bi.build_index(self.root, content="all", include_tests=True)
+        self.assertFalse(result.get("failed"), result)
+        self.assertTrue(embedding.called)
+
+    def test_removed_policy_observation_is_rejected_by_the_same_currency_oracle(self):
+        import ast
+        import __future__
+        self._seed()
+        self._sql("INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)",
+                  ("targeted_corpus_policy", "older-policy"))
+        tree = ast.parse(Path(self.bi.__file__).read_text())
+        function = next(node for node in tree.body
+                        if isinstance(node, ast.FunctionDef) and node.name == "_build_index_locked")
+        original_count = len(function.body)
+        function.body = [node for node in function.body if not (
+            isinstance(node, ast.If) and isinstance(node.test, ast.Name) and node.test.id == "dry_run"
+            and any(isinstance(child, ast.Assign) and isinstance(child.value, ast.Constant)
+                    and child.value.value is True
+                    and any(isinstance(target, ast.Name) and target.id == "policy_needs_refresh"
+                            for target in child.targets) for child in node.body))]
+        self.assertEqual(len(function.body), original_count - 1)
+        namespace = dict(self.bi.__dict__)
+        exec(compile(ast.Module(body=[function], type_ignores=[]), "missing-policy-observation", "exec",
+                     flags=__future__.annotations.compiler_flag), namespace)
+        with patch.object(self.bi, "_build_index_locked", namespace["_build_index_locked"]):
+            with self.assertRaises(AssertionError):
+                self._preview("corpus_policy")
+        self._preview("corpus_policy")
+
+    def test_missing_policy_is_pending_without_creating_or_migrating_a_store(self):
+        self._seed()
+        self._sql("DELETE FROM meta WHERE key='targeted_corpus_policy'")
+        self._preview("corpus_policy")
 
     def test_dirty_epoch_dry_run_is_byte_identical_and_reports_recovery(self):
         self._seed()

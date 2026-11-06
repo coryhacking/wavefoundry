@@ -430,7 +430,7 @@ def review_protocol_carriers(repo_root: Path | None = None) -> tuple[ReviewProto
                 ReviewProtocolCarrier(carrier.source_seed, destination, conditional_existing=True)
             )
             seen.add(destination)
-    return tuple(carriers)
+    return tuple(carrier for carrier in carriers if not _collision_path(carrier.destination))
 
 
 def review_protocol_carrier_manifest(repo_root: Path | None = None) -> tuple[str, ...]:
@@ -974,52 +974,76 @@ def has_declared_skill_marker(text: str) -> bool:
     return False
 
 
-def declared_skill_problems(skills: object = None) -> list[str]:
-    """Every problem with the distribution's skill declaration (wave 1zv8c,
-    change 1zv89): ``mcp_tool_extensions.skill_declaration_problems`` plus a
-    effective core name or retired managed path, both owned by this renderer. ``EXTENSION_SKILLS`` is read now when ``skills`` is None."""
-
+def skill_name_collisions(skills: object = None) -> dict[str, str]:
+    """Typed name-local refusals; declaration/schema errors remain fatal."""
     if skills is None:
         skills = getattr(mcp_tool_extensions, "EXTENSION_SKILLS", {})
-    if not skills:
-        return []
-    problems = list(mcp_tool_extensions.skill_declaration_problems(skills))
-    if isinstance(skills, Mapping):
-        core_names = {skill.name.casefold() for skill in SKILL_REGISTRY}
-        for name in skills:
-            if not isinstance(name, str):
-                continue
-            if name.casefold() in core_names:
-                problems.append(f"skill {name!r}: the complete name conflicts with a core skill")
-            for _host_root, skills_dir in SKILL_HOSTS:
-                folder = f"{skills_dir}/{name}"
-                if any(rel.casefold() == folder.casefold() or rel.casefold().startswith(f"{folder.casefold()}/")
-                       for rel in stale_skill_paths()):
-                    problems.append(
-                        f"skill {name!r}: the name renders to the retired skill path {folder}, "
-                        "which every render removes"
-                    )
-                    break
-    return problems
+    collisions: dict[str, str] = {}
+    if not isinstance(skills, Mapping):
+        return collisions
+    core_names = {skill.name.casefold() for skill in SKILL_REGISTRY}
+    for name in skills:
+        if not isinstance(name, str):
+            continue
+        if name.casefold() in core_names:
+            collisions[name] = "the complete name conflicts with a core skill"
+        for _host, folder in SKILL_HOSTS:
+            prefix = f"{folder}/{name}".casefold()
+            if any(rel.casefold() == prefix or rel.casefold().startswith(prefix + "/")
+                   for rel in stale_skill_paths()):
+                collisions[name] = f"the name renders to the retired skill path {folder}/{name}"
+                break
+    return collisions
+
+
+def declared_skill_problems(skills: object = None) -> list[str]:
+    """Complete declaration diagnostics, including name-local collisions."""
+    if skills is None:
+        skills = getattr(mcp_tool_extensions, "EXTENSION_SKILLS", {})
+    return [*mcp_tool_extensions.skill_declaration_problems(skills),
+            *(f"skill {name!r}: {reason}" for name, reason in skill_name_collisions(skills).items())]
+
+
+def skill_collision_diagnostics() -> list[str]:
+    return [f"skill {name!r}: {reason}; core and declared output at this name preserved; "
+            "rename the downstream declaration and rerun rendering"
+            for name, reason in skill_name_collisions().items()]
+
+
+def _collision_path(path: str) -> bool:
+    blocked = {name.casefold() for name in skill_name_collisions()}
+    folded = path.casefold()
+    return any(folded == f"{folder}/{name}".casefold()
+               or folded.startswith(f"{folder}/{name}/".casefold())
+               for _host, folder in SKILL_HOSTS for name in blocked)
+
+
+class SkillRenderResult(list):
+    """Changed paths, with additive diagnostics for partial skill delivery."""
+    def __init__(self, paths=()):
+        super().__init__(paths)
+        self.diagnostics = skill_collision_diagnostics()
+        self.partial = bool(self.diagnostics)
 
 
 def declared_skills() -> "tuple[Skill, ...]":
     """The distribution's declared skills as registry entries, read from
     ``mcp_tool_extensions.EXTENSION_SKILLS`` at call time (never a
     from-import, so a test base declaration and the upgrade old-code window
-    see the current module). Raises ``RuntimeError`` naming every problem.
+    see the current module). Schema errors raise ``RuntimeError`` before writes;
+    colliding names are omitted and reported as partial delivery.
     Each renders a thin-pointer body labelled "skill", gated on its prompt doc.
     """
 
     skills = getattr(mcp_tool_extensions, "EXTENSION_SKILLS", {})
-    if not skills:
-        return ()
-    problems = declared_skill_problems(skills)
+    problems = mcp_tool_extensions.skill_declaration_problems(skills)
     if problems:
+        problems = declared_skill_problems(skills)
         raise RuntimeError(
             "invalid EXTENSION_SKILLS declaration in mcp_tool_extensions; nothing was rendered: "
             + "; ".join(problems)
         )
+    collisions = skill_name_collisions(skills)
     return tuple(
         Skill(
             name=name,
@@ -1031,7 +1055,7 @@ def declared_skills() -> "tuple[Skill, ...]":
             declared=True,
             prompt_doc_template=spec.get("prompt_doc_template"),
         )
-        for name, spec in skills.items()
+        for name, spec in skills.items() if name not in collisions
     )
 
 
@@ -1077,7 +1101,12 @@ def _skill_is_eligible(repo_root: Path, skill: Skill, creations: "Mapping[str, P
 def _all_skills() -> "tuple[Skill, ...]":
     """The framework registry followed by the declared skills."""
 
-    return (*SKILL_REGISTRY, *declared_skills())
+    names = [skill.name.casefold() for skill in SKILL_REGISTRY]
+    if len(names) != len(set(names)) or any(not _SKILL_NAME_PATTERN.fullmatch(skill.name) for skill in SKILL_REGISTRY):
+        raise RuntimeError("invalid core skill registry; nothing was rendered")
+    declared = declared_skills()  # Validate before filtering any core output.
+    blocked = {name.casefold() for name in skill_name_collisions()}
+    return (*(skill for skill in SKILL_REGISTRY if skill.name.casefold() not in blocked), *declared)
 
 
 def _operator_skill_policy_path(skill: Skill, skills_dir: str) -> "str | None":
@@ -1516,11 +1545,16 @@ def render_skills(repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()
             )
         active_skill_roots[skills_dir] = declared_root
 
+    for name in skill_name_collisions():
+        for skills_dir in active_skill_roots:
+            if _skill_path_has_symlink_component(root, root / skills_dir / name / "SKILL.md"):
+                raise RuntimeError("colliding skill output path contains a symlink: " + f"{skills_dir}/{name}")
+
     # Validate every cleanup and write destination before mutating any host.
     # This preserves all hosts if one later lexical path redirects through a
     # symlink, including a per-skill directory symlink inside a valid root.
-    stale_paths = stale_skill_paths()
-    retired_policy_paths = _stale_operator_skill_policy_paths(root)
+    stale_paths = tuple(rel for rel in stale_skill_paths() if not _collision_path(rel))
+    retired_policy_paths = [rel for rel in _stale_operator_skill_policy_paths(root) if not _collision_path(rel)]
     for rel in retired_policy_paths:
         if _skill_path_has_symlink_component(root, root / rel):
             raise RuntimeError(f"stale skill policy path contains a symlink: {_display_name(rel)}")
@@ -1567,7 +1601,9 @@ def render_skills(repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()
     }
     retired_policies = _judge_retired_skill_policies(root, retired_policy_paths)
 
-    written: list[str] = []
+    written = SkillRenderResult()
+    for diagnostic in written.diagnostics:
+        print("render_agent_surfaces: PARTIAL - " + diagnostic, file=sys.stderr)
     for rel in stale_paths:
         stale = root / rel
         skills_dir = next(
@@ -4330,6 +4366,13 @@ def preflight_agent_surface_paths(repo_root: Path) -> None:
     """Refuse every registered/native agent escape before the first write."""
 
     skill_destinations = [*_skill_output_destinations(repo_root), *_stale_operator_skill_policy_paths(repo_root)]
+    # Collision-local omission never hides a dangerous shared destination from
+    # the whole-render preflight, which runs before prompt migrations.
+    skill_destinations.extend(
+        f"{folder}/{name}/SKILL.md"
+        for name in skill_name_collisions()
+        for host, folder in SKILL_HOSTS if (repo_root / host).is_dir()
+    )
     root = repo_root.resolve()
     for destination in skill_destinations:
         if destination.endswith("/agents/openai.yaml") and _skill_path_has_symlink_component(root, root / destination):
@@ -5173,7 +5216,7 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
         )
     )
     if not guru_available(repo_root):
-        return framework_written
+        return SkillRenderResult(framework_written)
 
     # Preflight every path this Guru-enabled pass may write before the first
     # native/thin-pointer mutation.  The initial carrier census intentionally
@@ -5305,7 +5348,7 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     for rel in written:
         if rel not in deduped:
             deduped.append(rel)
-    return deduped
+    return SkillRenderResult(deduped)
 
 
 def main() -> int:

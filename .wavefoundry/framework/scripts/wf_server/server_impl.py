@@ -104,6 +104,7 @@ for _wll_key in list(sys.modules):
             "contained_files",  # wave 200ey: contained repository reads and writes
             "wave_work",  # disposable work/snapshot helpers follow the loaded framework
             "child_tee",  # wave 20b3a: current canonical child-output sanitization
+            "setup_commands",  # stateless recovery formatting follows loaded source
             "advisory_lint_identity",
             "mcp_tool_extensions",
             "inference_profile",
@@ -2015,13 +2016,13 @@ class WaveIndex:
                     self._inference_selection("query_embedding", None, "local_model_unavailable")
                     raise SemanticModelUnavailableOfflineError(
                         f"Semantic query model '{model_name}' is unavailable offline. "
-                        "Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root ."
+                        f"Run: {_setup_recovery_command(self.root)}"
                     ) from exc
             except Exception as exc:
                 self._inference_selection("query_embedding", None, "local_model_unavailable")
                 raise SemanticModelUnavailableOfflineError(
                     f"Semantic query model '{model_name}' is unavailable offline. "
-                    "Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root ."
+                    f"Run: {_setup_recovery_command(self.root)}"
                 ) from exc
             self._embedders[model_name] = embedder
             return self._inference_selection("query_embedding", embedder, selection_reason)
@@ -2064,7 +2065,7 @@ class WaveIndex:
             tensorwell_client.finish_attempt(token, returned=False, accepted=False, reason="inference_failed")
             raise SemanticModelUnavailableOfflineError(
                 f"Semantic query model '{model_name}' is unavailable offline. "
-                "Run: python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root ."
+                f"Run: {_setup_recovery_command(self.root)}"
             ) from exc
 
     def _get_reranker(self):
@@ -6282,12 +6283,12 @@ def docs_search_response(index: WaveIndex, query: str, kind: str = "", limit: in
             search_mode = _MODE_LEXICAL_FALLBACK
             fallback_reason = reason
             results = serve["results"]
-            diagnostics.append(_diagnostic(
+            diagnostics.append(_setup_diagnostic(index.root,
                 "semantic_model_unavailable_offline" if reason == _REASON_MODEL_UNAVAILABLE else reason,
                 f"{exc_msg} Serving BM25 results from the published FTS layer "
                 "(exact-token recall; semantic recall returns when the cause clears).",
                 recovery_tools=["wf_help"],
-                recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root .",
+                arguments=(),
             ))
         else:
             search_mode = _MODE_LEXICAL_FALLBACK
@@ -6462,12 +6463,12 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
             return None
         search_mode = _MODE_LEXICAL_FALLBACK
         fallback_reason = reason
-        diagnostics.append(_diagnostic(
+        diagnostics.append(_setup_diagnostic(index.root,
             "semantic_model_unavailable_offline" if reason == _REASON_MODEL_UNAVAILABLE else reason,
             f"{exc_msg} Serving BM25 results from the published FTS layer with the "
             "requested filters (exact-token recall; semantic recall returns when the cause clears).",
             recovery_tools=["wf_help"],
-            recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root . --include-code",
+            arguments=("--include-code",),
         ))
         return serve["results"]
 
@@ -6477,11 +6478,11 @@ def code_search_response(index: WaveIndex, query: str, language: str = "", limit
         d["fallback_reason"] = reason
         d["coverage"] = coverage  # required on every degraded/failed envelope ({} = unavailable)
         diags = [
-            _diagnostic(
+            _setup_diagnostic(index.root,
                 code,
                 exc_msg,
                 recovery_tools=["wf_help"],
-                recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root . --include-code",
+                arguments=("--include-code",),
             )
         ]
         if reason == _REASON_QUERY_FAILED and _fts_attempted[0]:
@@ -6632,11 +6633,11 @@ def seed_get_response(index: WaveIndex, name: str) -> dict[str, Any]:
             "error",
             {"name": name},
             diagnostics=[
-                _diagnostic(
+                _setup_diagnostic(index.root,
                     _REASON_INDEX_NOT_READY,
                     str(exc),
                     recovery_tools=["wf_help"],
-                    recovery_usage="python3 .wavefoundry/framework/scripts/setup_wavefoundry.py --root .",
+                    arguments=(),
                 )
             ],
             next_tools=["wf_help"],
@@ -20216,12 +20217,17 @@ def _declared_skills_for_response() -> dict[str, Any]:
     return out
 
 
-def _setup_recovery_command(root: Path) -> str:
-    """Render the selected checkout's setup remedy without running it."""
-    import setup_readiness
+def _setup_recovery_command(root: Path | None) -> str:
+    """Render selected-root recovery; a missing root yields no guessed command."""
+    from setup_commands import setup_command
+    return setup_command(root)
 
-    return setup_readiness.format_command(setup_readiness.repository_launcher_argv(
-        root, "setup", "--root", str(root)))
+
+def _setup_diagnostic(root, *args, arguments=(), **kwargs):
+    from setup_commands import setup_recovery
+    result = _diagnostic(*args, **kwargs)
+    result.update(setup_recovery(root, *arguments))
+    return result
 
 
 def _process_info_status(root: Path | None = None) -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
@@ -20242,12 +20248,12 @@ def _process_info_status(root: Path | None = None) -> tuple[dict[str, Any], Opti
     # The low-level import error has no repository context. Keep its cause,
     # replacing only its known rootless setup hint at this response boundary.
     detail = detail.replace(process_info._SETUP_HINT, "").rstrip("; .")
-    command = _setup_recovery_command(root if root is not None else Path.cwd())
+    command = _setup_recovery_command(root)
     remedy = (
         "It becomes available when the startup install finishes; wf_server_info shows its progress."
         if pending else f"Run `{command}` to install or repair psutil."
     )
-    return {"available": False, "reason": detail}, _diagnostic(
+    diagnostic = _diagnostic(
         "process_info_unavailable",
         f"Process information is unavailable: {detail}. Until it is fixed, process status may show "
         "a running build or dashboard as not running; index builds still run because the OS locks "
@@ -20255,6 +20261,10 @@ def _process_info_status(root: Path | None = None) -> tuple[dict[str, Any], Opti
         recovery_tools=["wf_server_info"] if pending else [],
         recovery_usage="wf_server_info()" if pending else command,
     )
+    if not pending:
+        from setup_commands import setup_recovery
+        diagnostic.update(setup_recovery(root))
+    return {"available": False, "reason": detail}, diagnostic
 
 
 def server_process_identity(root: Path) -> dict[str, Any]:

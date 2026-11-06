@@ -202,6 +202,81 @@ class TestInlineSuppression(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestLoadMergedRuleset(unittest.TestCase):
+    def test_same_id_override_changes_actual_scanning_and_preserves_order_and_policy(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write_framework_toml(root, '''[policy]
+false_positive_confirmations_required = 2
+confirmation_valid_days = 91
+[[rules]]
+id = "replaced"
+regex = "OLD_SYNTHETIC_VALUE"
+[[rules]]
+id = "unrelated"
+regex = "UNRELATED_SYNTHETIC_VALUE"
+[[rules]]
+id = "disabled"
+regex = "DISABLED_SYNTHETIC_VALUE"
+''')
+            _write_project_toml(root, '''[policy]
+false_positive_confirmations_required = 1
+disabled_rules = ["disabled"]
+[[rules]]
+id = "replaced"
+regex = "NEW_SYNTHETIC_VALUE"
+[[rules]]
+id = "added"
+regex = "ADDED_SYNTHETIC_VALUE"
+''')
+            rules, policy, errors = load_merged_ruleset(root)
+            self.assertEqual(errors, [])
+            self.assertEqual([r['id'] for r in rules], ['replaced', 'unrelated', 'added'])
+            self.assertEqual(policy['confirmation_valid_days'], 91)
+            self.assertEqual(policy['false_positive_confirmations_required'], 1)
+            sample = root / 'sample.txt'
+            sample.write_text('OLD_SYNTHETIC_VALUE NEW_SYNTHETIC_VALUE UNRELATED_SYNTHETIC_VALUE ADDED_SYNTHETIC_VALUE DISABLED_SYNTHETIC_VALUE')
+            compiled = [(r['id'], [], re.compile(r['regex']), [], [], '') for r in rules]
+            _, _, hits = scan_file_raw(sample, 'sample.txt', compiled, [], set())
+            self.assertEqual([h['rule_id'] for h in hits], ['replaced', 'unrelated', 'added'])
+            self.assertEqual(hits[0]['matched_text'], 'NEW_SYNTHETIC_VALUE')
+            failures = check_hardcoded_secrets(root, files=[sample], publish=False)
+            self.assertTrue(failures)
+            self.assertFalse(any('OLD_SYNTHETIC_VALUE' in line for line in failures))
+            self.assertFalse(any('NEW_SYNTHETIC_VALUE' in line for line in failures))
+            self.assertFalse((root / SCAN_FINDINGS_PATH).exists())
+
+    def test_disabled_framework_rule_can_still_be_explicitly_added_by_project(self):
+        # Preserve the established disable-framework-first, then project-add order.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write_framework_toml(root)
+            _write_project_toml(root, _PROJECT_TOML_DISABLE + '''
+[[rules]]
+id = "test-stripe-key"
+regex = "EXPLICIT_PROJECT_VALUE"
+''')
+            rules, _, errors = load_merged_ruleset(root)
+            self.assertEqual(errors, [])
+            self.assertEqual([r['id'] for r in rules], ['test-generic-secret', 'test-stripe-key'])
+            self.assertEqual(rules[-1]['regex'], 'EXPLICIT_PROJECT_VALUE')
+
+    def test_malformed_rule_containers_report_errors_without_partial_rules(self):
+        for bad in ('rules = "wrong"', 'rules = [1]', 'policy = "wrong"',
+                    '[policy]\ndisabled_rules = "wrong"',
+                    '[[rules]]\nid = 123\nregex = "valid"',
+                    '[[rules]]\nid = "x"\nregex = 123',
+                    '[[rules]]\nid = "x"\nkeywords = [123]', '[[rules'):
+            for project in (False, True):
+                with self.subTest(bad=bad, project=project), tempfile.TemporaryDirectory() as td:
+                    root = Path(td)
+                    _write_framework_toml(root, _FRAMEWORK_TOML if project else bad)
+                    if project:
+                        _write_project_toml(root, bad)
+                    rules, policy, errors = load_merged_ruleset(root)
+                    self.assertEqual((rules, policy), ([], {}))
+                    self.assertEqual(len(errors), 1)
+                    self.assertIn('secrets scan:', errors[0])
+
     def test_framework_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_str:
             tmp = Path(tmp_str)
@@ -1845,6 +1920,133 @@ class TestLineHashMatching(unittest.TestCase):
             # Line 2 should be suppressed (false-positive confirmed); line 4 triggers new pending
             self.assertFalse(any("line 2" in e or ":2:" in e for e in errors), errors)
             self.assertTrue(any(":4:" in e for e in errors), errors)
+
+
+class SourcegraphPrefixedRuleTests(unittest.TestCase):
+    """Exercise only the shipped detector: unrelated rules cannot rescue a miss."""
+
+    def test_modern_formats_boundaries_and_deliberate_legacy_gap(self):
+        data = tomllib.loads((SCRIPTS_ROOT.parent / 'scan-rules.toml').read_text())
+        rule = next(r for r in data['rules'] if r['id'] == 'sourcegraph-access-token')
+        # Synthetic, balanced hex alphabet; never a live token.
+        value = '0123456789abcdef' * 2 + '01234567'
+        forms = ['sgp_' + value, 'sgp_local_' + value,
+                 'sgp_' + '0123456789abcdef' + '_' + value]
+        compiled = [(rule['id'], rule['keywords'], re.compile(rule['regex']), [], [], rule['filter'])]
+        with tempfile.TemporaryDirectory() as td:
+            sample = Path(td) / 'sample.txt'
+            for token in forms:
+                for suffix in ('', ' ', ';', '"', "'", '`', r'\n', r'\r', r'\"'):
+                    with self.subTest(form=token[:12], suffix=suffix):
+                        sample.write_text('access_token = "' + token + suffix)
+                        _, _, hits = scan_file_raw(sample, 'sample.txt', compiled, [], set())
+                        self.assertEqual(len(hits), 1)
+                        self.assertEqual(hits[0]['rule_id'], rule['id'])
+                for bad in ('x' + token, '_' + token, token + 'a', token + 'g', token[:-1]):
+                    sample.write_text(bad)
+                    self.assertEqual(scan_file_raw(sample, 'sample.txt', compiled, [], set())[2], [], bad)
+            for text in (value, 'source_commit = "' + value + '"',
+                         'sha1 = "' + value + '"', 'sourcegraph_token = "' + value + '"',
+                         'sgp_' + 'z' * 40, 'sgp_' + '0' * 40,
+                         'sgp_' + '0123456789abcde' + '_' + value):
+                sample.write_text(text)
+                self.assertEqual(scan_file_raw(sample, 'sample.txt', compiled, [], set())[2], [], text)
+
+    def test_local_public_scan_redacts_and_does_not_run_imported_actions(self):
+        import socket
+        import urllib.request
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _write_framework_toml(root, '''[[rules]]
+id = "inert-actions"
+regex = "SYNTHETIC_LOCAL_VALUE"
+[rules.validate]
+command = "NEVER_EXECUTE"
+[rules.analyze]
+url = "https://invalid.example/NEVER_REQUEST"
+[rules.revoke]
+command = "NEVER_EXECUTE"
+''')
+            sample = root / 'sample.txt'
+            sample.write_text('SYNTHETIC_LOCAL_VALUE')
+            with patch.object(socket, 'create_connection', side_effect=AssertionError('network')) as connect, \
+                 patch.object(urllib.request, 'urlopen', side_effect=AssertionError('network')) as urlopen, \
+                 patch.object(_sv.subprocess_util, 'isolated_run', side_effect=AssertionError('subprocess')) as execute, \
+                 patch.object(_sv, 'get_current_git_user_email', return_value='fixture@example.com'):
+                failures = check_hardcoded_secrets(root, files=[sample], publish=False)
+            connect.assert_not_called()
+            urlopen.assert_not_called()
+            execute.assert_not_called()
+            self.assertTrue(failures)
+            self.assertNotIn('SYNTHETIC_LOCAL_VALUE', '\n'.join(failures))
+            self.assertFalse((root / SCAN_FINDINGS_PATH).exists())
+
+
+class RulesetCompatibilityInspectionTests(unittest.TestCase):
+    def test_checked_subset_and_unsupported_controls_are_distinct(self):
+        from wave_lint_lib import cel_filter
+        supported = {'rules': [{'id': 'fixture', 'regex': '(SYNTHETIC_VALUE)',
+                               'filter': 'entropy(finding["secret"]) <= 2 || attributes[?"flag"].orValue(false)'}]}
+        cache = dict(cel_filter._AST_CACHE)
+        with patch.object(cel_filter, '_eval', side_effect=AssertionError('evaluation')):
+            result = _sv.inspect_ruleset_compatibility(supported)
+        self.assertEqual(result['status'], 'within_checked_subset')
+        self.assertTrue(result['complete'])
+        self.assertEqual(cel_filter._AST_CACHE, cache)
+        self.assertTrue(result['limitations'])
+        for field in ('validate', 'analyze', 'revoke', 'secretGroup', 'entropy', 'path', 'prefilter'):
+            candidate = {'rules': [dict(supported['rules'][0], **{field: {'command': 'DO_NOT_SHOW_OR_EXECUTE'}})]}
+            result = _sv.inspect_ruleset_compatibility(candidate)
+            self.assertEqual(result['status'], 'unsupported', field)
+            self.assertIn('unsupported_field', result['issue_counts'])
+            self.assertNotIn('DO_NOT_SHOW_OR_EXECUTE', json.dumps(result))
+        controls = {
+            'mystery(finding["secret"])': 'unsupported_filter_function',
+            'finding["secret"].matches("x")': 'unsupported_filter_method',
+            'finding.secret == "x"': 'unsupported_filter_attribute',
+            'secret == "x"': 'unsupported_filter_variable',
+            'entropy() > 2': 'unsupported_filter_arity',
+            'entropy(': 'filter_parse_error',
+            False: 'filter_not_string',
+        }
+        for expression, code in controls.items():
+            with self.subTest(expression=expression):
+                result = _sv.inspect_ruleset_compatibility({'rules': [dict(supported['rules'][0], filter=expression)]})
+                self.assertIn(code, result['issue_counts'])
+                self.assertEqual(result['status'], 'unsupported')
+
+    def test_truncation_is_incomplete_and_reports_stay_bounded(self):
+        valid = {'id': 'fixture', 'regex': 'SYNTHETIC_VALUE'}
+        controls = [
+            ({'rules': [valid] * 1025}, 'rule_count_limit'),
+            ({'rules': [dict(valid, regex='x' * 16385)]}, 'regex_size_limit'),
+            ({'rules': [dict(valid, filter='x' * 32769)]}, 'filter_size_limit'),
+            ({'rules': [dict(valid, keywords=['x'] * 257)]}, 'keyword_count_limit'),
+            ({'rules': [dict(valid, allowlists=[{}] * 33)]}, 'allowlist_count_limit'),
+            ({'rules': [dict(valid, **{f'unknown{i}': 0 for i in range(65)})]}, 'field_count_limit'),
+        ]
+        for data, code in controls:
+            with self.subTest(code=code):
+                result = _sv.inspect_ruleset_compatibility(data)
+                self.assertFalse(result['complete'])
+                self.assertEqual(result['status'], 'incomplete')
+                self.assertIn(code, result['issue_counts'])
+                self.assertLessEqual(len(result['issues']), 4096)
+        many = {'rules': [dict(valid, **{f'unknown{i}': 0 for i in range(10)})] * 1024}
+        result = _sv.inspect_ruleset_compatibility(many)
+        self.assertFalse(result['complete'])
+        self.assertEqual(len(result['issues']), 4096)
+
+    def test_invalid_shapes_and_regexes_do_not_look_qualified(self):
+        for data in (None, {'rules': 'wrong'}, {'rules': [42]},
+                     {'rules': [{'id': 'bad', 'regex': '['}]},
+                     {'rules': [{'id': 'bad', 'regex': 'x', 'keywords': 42}]},
+                     {'rules': [{'id': 'bad', 'regex': 'x', 'allowlists': 'wrong'}]},
+                     {'filter': 'false', 'rules': []}):
+            with self.subTest(data=data):
+                result = _sv.inspect_ruleset_compatibility(data)
+                self.assertEqual(result['status'], 'unsupported')
+                self.assertTrue(result['issues'])
 
 
 class TestFrameworkRuleset(unittest.TestCase):

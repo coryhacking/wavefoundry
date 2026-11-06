@@ -10,6 +10,10 @@
 #
 # Upstream:   https://github.com/betterleaks/betterleaks/blob/main/config/betterleaks.toml
 # Commit:     3ac987600af0 (downloaded 2026-06-06)
+# Targeted update: sourcegraph-access-token regex/keywords only, Betterleaks
+# 8f376ff9c31ed5309ac448fe601c5dd21b376155 (2026-11-04), wave 22o93.
+# Requires sgp_ prefixes; legacy bare 40-hex tokens are intentionally not detected
+# by this rule, even in named Sourcegraph credential assignments.
 # License:    the upstream rule definitions are MIT, © 2026 Zachary Rice
 #             (https://github.com/betterleaks/betterleaks/blob/main/LICENSE)
 # Background: https://lookingatcomputer.substack.com/p/regex-is-almost-all-you-need
@@ -18,10 +22,12 @@
 # root — never edit this framework file in a consumer repo.
 #
 # ── Updating to a newer upstream ruleset ────────────────────────────────────
-#   1. Re-download betterleaks; update the Commit SHA above.
-#   2. The [[rules]] bodies may be replaced wholesale — but RE-APPLY every entry
-#      under "Local additions" below, and keep the [allowlist] self-exclusion in
-#      sync with the SCAN_* path constants in wave_lint_lib/constants.py.
+#   1. Pin the upstream commit and inspect_ruleset_compatibility before importing.
+#      Unsupported fields/filters are qualification gaps, not executable instructions.
+#   2. Qualify each changed detector with extraction, filter, false-positive and
+#      bounded-cost controls. Regex compilation alone does not prove compatibility.
+#      Preserve the local additions and [allowlist] self-exclusions below; this file
+#      is not a wholesale refresh of the newer upstream engine or ruleset.
 #   3. Patterns stay in Gitleaks/RE2 schema — do NOT hand-port them to Python. The
 #      engine translates at load (see "Engine — RE2→Python"). If a fresh pattern
 #      uses RE2 syntax the shim does not yet handle, EXTEND THE SHIM.
@@ -5361,10 +5367,9 @@ keywords = ["sonar"]
 [[rules]]
 id = "sourcegraph-access-token"
 description = "Sourcegraph is a code search and navigation engine."
-regex = '''(?i)\b(\b(sgp_(?:[a-fA-F0-9]{16}|local)_[a-fA-F0-9]{40}|sgp_[a-fA-F0-9]{40}|[a-fA-F0-9]{40})\b)(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
+regex = '''(?i)\b(sgp_(?:[a-fA-F0-9]{16}|local)_[a-fA-F0-9]{40}|sgp_[a-fA-F0-9]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)'''
 keywords = [
     "sgp_",
-    "sourcegraph",
 ]
 filter = '''
 entropy(finding["secret"]) <= 3.0

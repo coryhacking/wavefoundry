@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-26
+Last verified: 2026-11-06
 
 ## Domains
 
@@ -37,6 +37,8 @@ The composition root, the tool registry and the ten handler modules live in the 
 `wf_server/codenav_handlers.py`, `wf_server/graph_handlers.py`, `wf_server/techdocs_handlers.py` and `wf_server/memory_handlers.py` own response computation for code navigation, graph, TechDocs and memory tools. Memory services and their caps/caches move together. `wf_server/context_efficiency_handlers.py` owns projection and crediting extractors; `wf_server/docs_handlers.py`, `wf_server/dashboard_handlers.py`, `wf_server/edit_gate_handlers.py` and `wf_server/upgrade_handlers.py` own their named response families. `wf_server/index_handlers.py` owns index responses, refresh execution and child-PID registries; monitor policy stays with `ImplHandler`, while `indexer`, `index_state_store` and `index_source_guard` retain build and persistence ownership. Lifecycle close-gate compositions, `wf_audit`, the secrets close gate and lint substrate stay in the composition root because they compose lifecycle policy or retain shared fixture seams. `memory_cli.py` imports the memory handlers directly, with composition-root loading deferred to the first call; `memory_eval.py` retains its shared server handle. `wf_server/server_impl.py` owns their decorated registration, shared helpers, loader seams and invocation-time aliases. Sibling handlers use a function-local public import for shared helper lookup; module-top imports back to the composition root are prohibited. Every handler sibling participates in purge-and-reimport reload. The registry continues to describe the unchanged decorated tool surface.
 
 ## Local setup assessment
+
+`setup_commands.py` owns pure repository-launcher argv, display formatting and shell-dialect metadata. It imports only the standard library and is safe for pre-3.11 hook diagnostics; `setup_readiness.py` retains compatible wrappers. Reporting never executes these commands or guesses a selected root.
 
 `setup_readiness.py` owns the bootstrap-safe assessment contract shared by setup,
 MCP startup, monitoring and health. `setup_requirements.py` owns canonical runtime

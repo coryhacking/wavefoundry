@@ -30,6 +30,7 @@ deterministic if a later fixture does.
 from __future__ import annotations
 
 import copy
+import importlib
 import json
 import os
 import shutil
@@ -41,6 +42,13 @@ from unittest.mock import patch
 
 from server_tools_support import _make_repo, load_server
 from review_evidence import COUNCIL_ACTOR, requires_intent_fit
+import vocabulary_profile
+
+_GOLDEN_NOUNS = {
+    "CONTAINER_NAME": "Wave", "CONTAINER_NAME_PLURAL": "Waves",
+    "ITEM_NAME": "Change", "ITEM_NAME_PLURAL": "Changes",
+    "CONTAINER_NAME_ARTICLE": "a", "ITEM_NAME_ARTICLE": "a",
+}
 
 TESTS_DIR = Path(__file__).resolve().parent
 GOLDEN_PATH = TESTS_DIR / "fixtures" / "lifecycle-gate-golden.json"
@@ -375,11 +383,17 @@ class LifecycleGoldenTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
 
     def surface(self) -> dict:
-        fixtures = build_fixtures(self.base, self.srv)
-        document = {"fixture_schema": FIXTURE_SCHEMA, "fixtures": {}}
-        for name, (root, wave_id) in sorted(fixtures.items()):
-            document["fixtures"][name] = capture(self.srv, root, wave_id)
+        with patch.multiple(importlib.import_module("vocabulary_profile"), **_GOLDEN_NOUNS):
+            fixtures = build_fixtures(self.base, self.srv)
+            document = {"fixture_schema": FIXTURE_SCHEMA, "fixtures": {}}
+            for name, (root, wave_id) in sorted(fixtures.items()):
+                document["fixtures"][name] = capture(self.srv, root, wave_id)
         return document
+
+    def test_golden_ignores_ambient_display_nouns(self):
+        with patch.multiple(importlib.import_module("vocabulary_profile"), CONTAINER_NAME="Set", ITEM_NAME="Unit",
+                            CONTAINER_NAME_PLURAL="Sets", ITEM_NAME_PLURAL="Units"):
+            self.assertEqual(check_golden(self.surface(), GOLDEN_PATH, environ={}), [])
 
     def test_lifecycle_envelopes_match_the_committed_golden(self):
         # 1yd98 AC-8: an empty environment mapping, not the ambient one.  The

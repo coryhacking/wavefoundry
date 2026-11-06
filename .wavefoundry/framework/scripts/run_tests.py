@@ -244,6 +244,8 @@ Run the framework test suite, one subprocess per test file.
   --help                    show this message
   --reconcile REPORT        inspect a preserved guard-refused complete run;
                             no workers or bytecode warming
+                            The token binds inspected inputs; it proves neither
+                            operator identity nor authorization.
   --accept TOKEN --operator-reviewed TEXT
                             accept the inspected exact differences on the
                             operator's explicit editorial-review instruction;
@@ -2156,7 +2158,10 @@ def _reconcile(opts):
             original, inspection = _inspect_reconciliation(opts["reconcile"])
             token, note = opts["accept"], opts["operator_reviewed"]
             if token is None:
-                print(json.dumps(inspection, sort_keys=True))
+                print(json.dumps(dict(inspection, token_notice=(
+                    "The token binds inspected inputs; it proves neither operator identity nor authorization. "
+                    "Acceptance requires the operator's explicit editorial-review instruction."
+                )), sort_keys=True))
                 return 0
             if token != inspection["token"]:
                 raise ValueError("inspection binding changed or acceptance token does not match")

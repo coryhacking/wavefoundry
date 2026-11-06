@@ -42,6 +42,7 @@ import shutil
 import subprocess  # used by ensure_python_resolves' interpreter-version probe (NOT for any re-exec).
 import sys
 from pathlib import Path
+from setup_commands import setup_command as _setup_command
 
 __all__ = [
     "tool_venv_base",
@@ -243,7 +244,7 @@ def activate_tool_venv(*, allow_version_mismatch: bool = False) -> None:
             return  # Setup deferred activation in this process; it rebuilds the venv next.
         print(
             f"wavefoundry: the tool venv was built for Python {built_for[0]}.{built_for[1]} "
-            f"but this is {running[0]}.{running[1]} — run `wf setup` to rebuild it.",
+            f"but this is {running[0]}.{running[1]} — run `{_setup_command(Path(__file__).resolve().parents[3])}` to rebuild it.",
             file=sys.stderr,
         )
         sys.exit(2)
@@ -252,7 +253,7 @@ def activate_tool_venv(*, allow_version_mismatch: bool = False) -> None:
     if not site_packages.is_dir():
         print(
             f"wavefoundry: the tool venv site-packages ({site_packages}) is missing — "
-            "run `wf setup` to rebuild it.",
+            f"run `{_setup_command(Path(__file__).resolve().parents[3])}` to rebuild it.",
             file=sys.stderr,
         )
         sys.exit(2)

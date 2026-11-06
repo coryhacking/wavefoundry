@@ -281,7 +281,7 @@ class VenvBootstrapTests(unittest.TestCase):
                             with self.assertRaises(RuntimeError) as ctx:
                                 self.mod._bootstrap_venv()
         msg = str(ctx.exception)
-        self.assertIn("wf setup", msg)
+        self.assertIn("local Wavefoundry setup launcher", msg)
         self.assertIn(str(venv_dir), msg)
         run.assert_not_called()  # never proceeds to venv creation with a broken venv
 
@@ -924,6 +924,7 @@ class SetupIndexTests(unittest.TestCase):
         import model_bundle
         import ntpath
         import setup_readiness
+        import setup_commands
         import shlex
 
         for windows in (False, True):
@@ -934,9 +935,11 @@ class SetupIndexTests(unittest.TestCase):
                     target.mkdir()
                     caller.mkdir()
                     stderr = io.StringIO()
-                    platform = types.SimpleNamespace(name="nt" if windows else "posix", path=os.path)
+                    platform = {name: (lambda *args, _original=getattr(setup_commands, name), **kw:
+                                         _original(*args, **{**kw, "windows": windows}))
+                                for name in ("repository_launcher_argv", "format_command", "command_shell")}
                     with ExitStack() as stack:
-                        stack.enter_context(patch.object(setup_readiness, "os", platform))
+                        stack.enter_context(patch.multiple(setup_commands, **platform))
                         stack.enter_context(patch.object(self.mod, "_reexec_with_venv_if_needed"))
                         stack.enter_context(patch.object(self.mod, "ensure_deps"))
                         stack.enter_context(patch.object(model_bundle, "find_local_bundle", return_value=None))
@@ -1158,7 +1161,8 @@ class SetupIndexTests(unittest.TestCase):
         out = self._main_output([("embedder", "Snowflake/snowflake-arctic-embed-s")])
         notice = out.index("GPU acceleration NOT used for the embedder (Snowflake/snowflake-arctic-embed-s)")
         self.assertLess(notice, out.index("Done. Project index update complete."))
-        self.assertIn("wf setup --check-gpu", out)
+        self.assertIn("--check-gpu", out)
+        self.assertIn("/.wavefoundry/bin/wf setup --root /private/tmp/repo", out)
 
     def test_main_prints_no_fallback_line_without_a_failed_probe(self):
         for fallbacks in ([], None):
@@ -2030,19 +2034,14 @@ class InstallIsolationTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, 2)
         return run.call_args_list, err.getvalue()
 
-    @staticmethod
-    def platform_setup_command():
-        # Wave 1zlu5: the same platform rule _uv_required_message applies.
-        return "`.\\.wavefoundry\\bin\\wf.cmd setup`" if os.name == "nt" else "`wf setup`"
-
     def assert_uv_required_refusal(self, message, command=None):
         # Wave 1zls6 (Requirement 1): what the refusal must tell the operator.
         if command is None:
-            command = self.platform_setup_command()
+            command = "the selected repository's local setup launcher"
         self.assertIn("only through uv", message)
         self.assertIn("package-age guard", message)
         self.assertIn("nothing was installed", message)
-        self.assertIn(f"rerun {command}", message)
+        self.assertIn(command, message)
         self.assertIn("hash-verified uv bootstrap", message)
         self.assertIn("UV_INDEX_URL", message)
         self.assertIn("pip's settings", message)
@@ -2052,12 +2051,10 @@ class InstallIsolationTests(unittest.TestCase):
         self.assertIn("Do not install the dependencies with pip by hand", message)
         self.assertNotIn("Falling back", message)
 
-    def test_the_default_expected_command_follows_the_platform(self):
-        # Wave 1zlu5: callers that pass no command expect what this platform's message says.
-        for os_name, expected in (("nt", "`.\\.wavefoundry\\bin\\wf.cmd setup`"), ("posix", "`wf setup`")):
-            with self.subTest(os_name=os_name), patch.object(os, "name", os_name):
-                self.assertEqual(self.platform_setup_command(), expected)
-                self.assert_uv_required_refusal(self.mod._uv_required_message())
+    def test_unknown_repository_refusal_is_non_executable_on_both_platforms(self):
+        for windows in (True, False):
+            with self.subTest(windows=windows):
+                self.assert_uv_required_refusal(self.mod._uv_required_message(windows=windows))
 
     def test_no_uv_refuses_without_running_any_install(self):
         # Wave 1zls6 (AC-1): with no uv and the bootstrap returning None, nothing runs and setup stops.
@@ -2066,10 +2063,11 @@ class InstallIsolationTests(unittest.TestCase):
         self.assert_uv_required_refusal(err)
 
     def test_the_refusal_names_the_windows_command_form(self):
-        message = self.mod._uv_required_message(windows=True)
-        self.assert_uv_required_refusal(message, command="`.\\.wavefoundry\\bin\\wf.cmd setup`")
+        from setup_commands import setup_command
+        root = "C:\\Chosen project"
+        message = self.mod._uv_required_message(root=root, windows=True)
+        self.assert_uv_required_refusal(message, command=setup_command(root, windows=True))
         self.assertNotIn("`wf setup`", message)
-        self.assert_uv_required_refusal(self.mod._uv_required_message(windows=False), command="`wf setup`")
 
     def test_a_relative_interpreter_path_is_made_absolute(self):
         relative = Path("rel") / "venv" / "bin" / "python"
@@ -2085,7 +2083,7 @@ class InstallIsolationTests(unittest.TestCase):
         events = []
 
         @contextlib.contextmanager
-        def held():
+        def held(root=None):
             events.append("acquire")
             try:
                 yield "lock"
@@ -2114,7 +2112,7 @@ class InstallIsolationTests(unittest.TestCase):
                 self.assertEqual(raised.exception.code, 2)
                 run.assert_not_called()
                 self.assertEqual(events, ["acquire", "bootstrap", "release"])
-                self.assert_uv_required_refusal(err.getvalue())
+                self.assert_uv_required_refusal(err.getvalue(), command=self.mod._setup_command(Path(self.tmp.name)))
 
     def test_the_only_pip_install_is_the_hash_pinned_uv_bootstrap(self):
         # Wave 1zls6 (AC-4): setup_index.py holds exactly one ``"-m", "pip", "install"`` command, inside
@@ -2383,6 +2381,11 @@ class SetupPhase1DeadlineTests(unittest.TestCase):
 
     def setUp(self):
         self.mod = load_setup_index()
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        env = patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": temporary.name})
+        env.start()
+        self.addCleanup(env.stop)
 
     # --- AC-4: config loader (override honored; missing/malformed -> defaults, never raises) ----------
 
@@ -3097,7 +3100,7 @@ class CoremlProbeTempdirRetryTests(unittest.TestCase):
         self.assertFalse(probe.ok)
         self.assertEqual(len(calls), 2)  # bounded: initial + one retry, never more
         self.assertIn("working directory", probe.reason)
-        self.assertIn("wf setup", probe.reason)  # recovery guidance present
+        self.assertIn("selected repository's local launcher", probe.reason)  # recovery guidance present
 
     def test_non_tempdir_failure_gets_no_retry_or_repair(self):
         # AC-5: a non-temp-dir failure shape is not retried and not repaired — fail-safe CPU.

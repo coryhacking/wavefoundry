@@ -2,6 +2,17 @@
 # Wavefoundry operator CLI — .wavefoundry/bin/wf (wave 1p7tz)
 # Cross-OS dispatcher to the framework entry scripts. `wf <subcommand>` — see `wf --help`.
 set -euo pipefail
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$REPO_ROOT"
+wf_root_error() { printf '%s\n' 'Wavefoundry: cannot establish the launcher project directory. Setup was not started. Use the launcher inside the intended project.' >&2; exit 2; }
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd -P && printf '.')" || wf_root_error
+REPO_ROOT="${REPO_ROOT%$'\n.'}"
+[[ -f "$REPO_ROOT/.wavefoundry/framework/scripts/wf_cli.py" ]] || wf_root_error
+CALLER_ROOT="$(pwd -P && printf '.')" || wf_root_error
+CALLER_ROOT="${CALLER_ROOT%$'\n.'}"
+cd "$REPO_ROOT" 2>/dev/null || wf_root_error
+if [[ "${1-}" == "setup" && "$CALLER_ROOT" != "$REPO_ROOT" ]]; then
+  ROOT_NOTICE="${REPO_ROOT:0:512}"
+  ROOT_SUFFIX=""
+  if (( ${#REPO_ROOT} > 512 )); then ROOT_SUFFIX=" [path truncated]"; fi
+  printf 'Wavefoundry: launcher working directory %q%s; explicit --root overrides the setup target.\n' "$ROOT_NOTICE" "$ROOT_SUFFIX" >&2
+fi
 exec python3 "$REPO_ROOT/.wavefoundry/framework/scripts/wf_cli.py" "$@"

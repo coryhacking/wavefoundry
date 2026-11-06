@@ -638,6 +638,124 @@ class RenderBinLaunchersTests(unittest.TestCase):
         # The cmd comment must be ASCII-safe on legacy Windows codepages (no em-dash).
         self.assertNotIn("—".encode("utf-8"), wf_cmd_bytes)
 
+    @unittest.skipUnless(os.name != "nt" and shutil.which("bash"), "requires POSIX bash")
+    def test_public_wf_selects_its_owner_and_preserves_arguments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve() / "project space '$()\n"
+            foreign = Path(tmp) / "foreign"
+            nested = root / "docs" / "nested"
+            foreign.mkdir()
+            nested.mkdir(parents=True)
+            self._load_rps().render_bin_launchers(root)
+            dispatcher = root / ".wavefoundry/framework/scripts/wf_cli.py"
+            dispatcher.parent.mkdir(parents=True)
+            dispatcher.write_text(
+                "import json, os, sys\n"
+                "print(json.dumps({'cwd':os.getcwd(),'args':sys.argv[1:]}))\n"
+                "raise SystemExit(7 if '--probe-exit' in sys.argv else 0)\n")
+            env = {**os.environ, "PATH": str(root / ".wavefoundry/bin") + os.pathsep + os.environ["PATH"]}
+            for cwd in (root, nested, foreign):
+                for args in (["setup"], ["setup", "--root", str(foreign / "explicit target")],
+                             ["setup", "--root=" + str(foreign)], ["setup", "--help"],
+                             ["setup", "--probe-exit"], ["--help"]):
+                    with self.subTest(cwd=cwd, args=args):
+                        before = sorted(str(p.relative_to(foreign)) for p in foreign.rglob("*"))
+                        run = subprocess.run(["wf", *args], cwd=cwd, env=env,
+                                             text=True, capture_output=True, timeout=10)
+                        self.assertEqual(run.returncode, 7 if "--probe-exit" in args else 0, run.stderr)
+                        observed = json.loads(run.stdout)
+                        self.assertEqual(Path(observed["cwd"]), root)
+                        self.assertEqual(observed["args"], args)
+                        if cwd != root and args[0] == "setup":
+                            self.assertIn("launcher working directory", run.stderr)
+                            self.assertIn("explicit --root overrides", run.stderr)
+                            self.assertEqual(len(run.stderr.splitlines()), 1)
+                            self.assertLess(len(run.stderr), 2200)
+                        else:
+                            self.assertEqual(run.stderr, "")
+                        self.assertEqual(sorted(str(p.relative_to(foreign)) for p in foreign.rglob("*")), before)
+
+    @unittest.skipUnless(os.name != "nt" and shutil.which("bash"), "requires POSIX bash")
+    def test_public_wf_refuses_missing_dispatcher_and_directory_failure_before_python(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp).resolve()
+            root, foreign, probes = base / "owner", base / "foreign", base / "probes"
+            root.mkdir()
+            foreign.mkdir()
+            probes.mkdir()
+            self._load_rps().render_bin_launchers(root)
+            marker = probes / "python-invoked"
+            interpreter = probes / "python3"
+            interpreter.write_text('#!/bin/sh\nprintf invoked > "$WF_TEST_MARKER"\n')
+            interpreter.chmod(0o755)
+            launcher = root / ".wavefoundry/bin/wf"
+            env = {**os.environ, "PATH": str(probes) + os.pathsep + os.environ["PATH"],
+                   "WF_TEST_MARKER": str(marker), "WF_TEST_ROOT": str(root)}
+            dispatcher = root / ".wavefoundry/framework/scripts/wf_cli.py"
+            for case in ("missing", "directory", "resolve_failure", "cd_failure"):
+                with self.subTest(case=case):
+                    if case == "directory":
+                        dispatcher.mkdir(parents=True)
+                    elif case == "resolve_failure":
+                        dispatcher.rmdir()
+                        dispatcher.write_text("must not execute")
+                    prefix = ""
+                    if case == "resolve_failure":
+                        prefix = 'cd() { return 1; }; export -f cd; '
+                    elif case == "cd_failure":
+                        prefix = 'cd() { if [[ "$1" == "$WF_TEST_ROOT" ]]; then return 1; fi; builtin cd "$@"; }; export -f cd; '
+                    run = subprocess.run(["bash", "-c", prefix + 'exec "$@"', "probe", str(launcher), "setup"],
+                                         cwd=foreign, env=env, text=True, capture_output=True, timeout=10)
+                    self.assertEqual(run.returncode, 2, run.stderr)
+                    self.assertIn("cannot establish the launcher project directory", run.stderr)
+                    self.assertEqual(run.stdout, "")
+                    self.assertFalse(marker.exists(), "root refusal must precede any Python invocation")
+                    self.assertEqual(list(foreign.iterdir()), [])
+
+    @unittest.skipUnless(os.name != "nt" and shutil.which("bash"), "requires POSIX bash")
+    def test_public_wf_bounds_notice_without_truncating_the_real_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve() / ("a" * 180) / ("b" * 180) / ("c" * 180)
+            root.mkdir(parents=True)
+            self._load_rps().render_bin_launchers(root)
+            dispatcher = root / ".wavefoundry/framework/scripts/wf_cli.py"
+            dispatcher.parent.mkdir(parents=True)
+            dispatcher.write_text("import os, json\nprint(json.dumps(os.getcwd()))\n")
+            run = subprocess.run([str(root / ".wavefoundry/bin/wf"), "setup"],
+                                 cwd=tmp, text=True, capture_output=True, timeout=10)
+            self.assertEqual(run.returncode, 0, run.stderr)
+            self.assertEqual(json.loads(run.stdout), str(root))
+            self.assertIn("[path truncated]", run.stderr)
+            self.assertLess(len(run.stderr), 2200)
+            self.assertEqual(len(run.stderr.splitlines()), 1)
+
+    def test_windows_owner_guards_precede_interpreter_and_preserve_dispatch(self):
+        """Inspect the emitted cmd contract; no native Windows execution claim."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._load_rps().render_bin_launchers(root)
+            lines = (root / ".wavefoundry/bin/wf.cmd").read_text().splitlines()
+        self.assertIn("setlocal DisableDelayedExpansion", lines)
+        owner = lines.index('for %%I in ("%~dp0..\\..") do set "REPO_ROOT=%%~fI"')
+        guard = lines.index('if not exist "%REPO_ROOT%\\.wavefoundry\\framework\\scripts\\wf_cli.py" goto root_invalid')
+        directory = lines.index('if exist "%REPO_ROOT%\\.wavefoundry\\framework\\scripts\\wf_cli.py\\" goto root_invalid')
+        change = lines.index('cd /d "%REPO_ROOT%"')
+        self.assertLess(owner, guard)
+        self.assertLess(guard, directory)
+        self.assertLess(directory, change)
+        self.assertEqual(lines[change + 1], 'if errorlevel 1 goto root_invalid')
+        self.assertEqual(lines[change + 2], 'if /i not "%CD%"=="%REPO_ROOT%" goto root_invalid')
+        notice = next(i for i, line in enumerate(lines) if "launcher working directory" in line)
+        first_probe = lines.index('where.exe python3 >nul 2>nul')
+        self.assertLess(change + 2, notice)
+        self.assertLess(notice, first_probe)
+        self.assertIn('"%REPO_ROOT:~0,512%"', lines[notice])
+        self.assertTrue(lines[notice].endswith('1>&2'))
+        self.assertIn('python3 "%REPO_ROOT%\\.wavefoundry\\framework\\scripts\\wf_cli.py" %*', lines)
+        refusal = lines[lines.index(':root_invalid') + 1:]
+        self.assertIn("Setup was not started", refusal[0])
+        self.assertEqual(refusal[1], "exit /b 2")
+
     def test_wf_cmd_hints_only_when_python_cannot_start(self):
         # Wave 1z2m8: ordinary non-zero exits pass through with no Python hint.
         rps = self._load_rps()
@@ -668,8 +786,13 @@ class RenderBinLaunchersTests(unittest.TestCase):
             root = Path(tmp)
             rps.render_bin_launchers(root)
             lines = (root / '.wavefoundry/bin/wf.cmd').read_text().splitlines()
-        select = next(line for line in lines if line.startswith('if /i "%WF_PYTHON3%"'))
-        self.assertEqual(select, 'if /i "%WF_PYTHON3%"=="%LOCALAPPDATA%\\Microsoft\\WindowsApps\\python3.exe" goto python_alias_probe')
+        select = next(line for line in lines if line.startswith('if /i "%WF_PYTHON3:'))
+        import re
+        selection = re.fullmatch(r'if /i "%WF_PYTHON3:~-(\d+)%"=="([^"]+)" goto python_alias_probe', select)
+        self.assertIsNotNone(selection)
+        suffix_length, expected = int(selection[1]), selection[2]
+        self.assertEqual(expected, r'\WindowsApps\python3.exe')
+        self.assertEqual(suffix_length, len(expected))
         self.assertIn('for /f "delims=" %%I in (\'where.exe python3 2^>nul\') do if not defined WF_PYTHON3 set "WF_PYTHON3=%%I"', lines)
         probe_block = lines[lines.index(':python_alias_probe') + 1:lines.index(':python_launch')]
         self.assertEqual(probe_block[0], 'python3 -c "import sys" >nul 2>nul')
@@ -680,15 +803,18 @@ class RenderBinLaunchersTests(unittest.TestCase):
         self.assertIn('Disable the Python/Python3 App execution aliases', remedies[0])
         self.assertIn('real Python 3.11 or newer python3 on PATH', remedies[0])
         self.assertNotIn('admin', remedies[0].lower())
-        local = r'C:\Users\Some User\AppData\Local'
-        expected = select.split('=="', 1)[1].split('" goto', 1)[0].replace('%LOCALAPPDATA%', local)
-        fixtures = [(expected, True), (expected.upper(), True),
+        fixtures = [(r'C:\Users\Some User\AppData\Local\Microsoft\WindowsApps\python3.exe', True),
+                    (r'D:\Redirected Profile\WindowsApps\python3.exe', True),
+                    (r'C:\USERS\SOMEUS~1\APPDATA\LOCAL\MICROS~1\WINDOWSAPPS\PYTHON3.EXE', True),
                     (r'C:\Approved Python\python3.exe', False),
-                    (r'C:\Other\WindowsApps\python3.exe', False),
+                    (r'C:\Other\WindowsApps\python3.exe', True),
+                    (r'C:\Other\NotWindowsApps\python3.exe', False),
+                    (r'C:\Other\WindowsApps\python3.exe.old', False),
+                    (r'C:\Other\WINDOW~1\python3.exe', False),
                     (r'C:\Approved Python\python3.cmd', False)]
         for selected, alias in fixtures:
             with self.subTest(selected=selected):
-                self.assertEqual(selected.lower() == expected.lower(), alias)
+                self.assertEqual(selected[-suffix_length:].lower() == expected.lower(), alias)
         # Real-interpreter success still reaches the dispatcher without any -c probe.
         normal_path = lines[lines.index('goto python_launch'):lines.index(':python_alias_probe')]
         self.assertEqual(normal_path, ['goto python_launch'])

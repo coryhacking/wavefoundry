@@ -194,20 +194,27 @@ def find_local_bundle(search_dirs: tuple[Path, ...], model_set_version: str = MO
 
 def _quoted_bundle_basename(name: str) -> str:
     """Bound an untrusted diagnostic label, including its JSON quotes and escaping."""
-    name = ''.join(ch if ' ' <= ch <= '~' else '?' for ch in name[:116])
-    while len(json.dumps(name, ensure_ascii=True)) > 120:
+    truncated = len(name) > 118
+    name = ''.join(ch if ' ' <= ch <= '~' else '?' for ch in name[:118])
+    while len(json.dumps(name + ('...' if truncated else ''), ensure_ascii=True)) > 120:
         name = name[:-1]
-    return json.dumps(name, ensure_ascii=True)
+        truncated = True
+    return json.dumps(name + ('...' if truncated else ''), ensure_ascii=True)
 
 
 def unused_bundle_hint(search_dirs: tuple[Path, ...], model_set_version: str = MODEL_SET_VERSION) -> str | None:
-    """Suggest one misnamed asset by filename only; never inspect or select its bytes."""
+    """Suggest by filename only; inspect at most 512 entries per distinct directory.
+
+    Aggregate work is bounded by 512 times the number of supplied distinct search
+    directories. Crowded earlier locations cannot consume a later one's budget.
+    Never inspect or select archive bytes.
+    """
+    from itertools import islice
     import re
 
     expected = bundle_name(model_set_version)
     pattern = re.compile(r".+-models-" + re.escape(model_set_version) + r"(?:[ _-].*)?\.zip$", re.IGNORECASE | re.DOTALL)
     seen: set[Path] = set()
-    remaining = 512
     for directory in search_dirs:
         directory = directory.expanduser()
         if directory in seen:
@@ -215,10 +222,7 @@ def unused_bundle_hint(search_dirs: tuple[Path, ...], model_set_version: str = M
         seen.add(directory)
         try:
             with os.scandir(directory) as entries:
-                for entry in entries:
-                    remaining -= 1
-                    if remaining < 0:
-                        return None
+                for entry in islice(entries, 512):
                     if entry.name != expected and pattern.fullmatch(entry.name) and entry.is_file(follow_symlinks=False):
                         # JSON quoting is display only; never interpolate the filename into a command.
                         quoted = _quoted_bundle_basename(entry.name)

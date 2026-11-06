@@ -1,0 +1,13 @@
+{
+  ".wavefoundry/framework/scan-rules.toml": "3c2d92a673174fbd2077752351bda99d300350c8",
+  ".wavefoundry/framework/scripts/scan_secrets.py": "ef59d03c2368ac244ccf5d440003a22479ecbf56",
+  ".wavefoundry/framework/scripts/tests/test_scan_secrets.py": "6c601f67be75f373f382cb091ce6ba7fb557e977",
+  ".wavefoundry/framework/scripts/tests/test_secrets_prefix_collapse.py": "ed07af75e90f234a7e74bcc6740735783bd3343b",
+  ".wavefoundry/framework/scripts/tests/test_secrets_validators.py": "a133e2021176c2f025f52176001bf719258c97ef",
+  ".wavefoundry/framework/scripts/wave_lint_lib/cel_filter.py": "75c8d641b3139553e19af83ec319642a9870980b",
+  ".wavefoundry/framework/scripts/wave_lint_lib/secrets_validators.py": "a7838218301c5bcaf6258d6827c0e18c6e43db5d",
+  "CHANGELOG.md": "80616ffe922c18013d8b61e89e5925b4631b6436",
+  "docs/architecture/threat-model.md": "05394fee0f264756d429b676b577bf66de0be281",
+  "docs/contributing/build-and-verification.md": "ed018f7ebfc167a580047763ae772ea8c6fed4b6",
+  "docs/specs/mcp-tool-surface.md": "145ca54da7b4b775908f04312b2958e9864aeae6"
+}

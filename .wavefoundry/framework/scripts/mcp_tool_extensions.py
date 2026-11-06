@@ -277,7 +277,7 @@ FRAMEWORK_SCRIPT_MODULE_NAMES = frozenset({
     'review_plan_prompt_check', 'review_evidence', 'review_policy', 'review_policy_reconcile', 'review_policy_upgrade',
     'run_secrets_scan', 'run_tests', 'runtime_advisory', 'runtime_lock', 'scan_secrets',
     'scanner_skips', 'score_context_efficiency_pairs', 'sensor_runner', 'server', 'server_impl',
-    'setup_index', 'setup_readiness', 'setup_reconciliation', 'setup_requirements',
+    'setup_commands', 'setup_index', 'setup_readiness', 'setup_reconciliation', 'setup_requirements',
     'setup_wavefoundry', 'sqlite_runtime', 'sqlite_storage_migration', 'sqlite_vector_store',
     'storage_identity', 'subprocess_util', 'techdocs_audit', 'techdocs_audit_lib',
     'inference_profile', 'inference_provider', 'techdocs_baseline', 'tensorwell_client', 'test_worker_guard', 'tree_sitter_cache', 'upgrade_bridge_bootstrap', 'upgrade_bundle',

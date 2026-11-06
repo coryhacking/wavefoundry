@@ -1,6 +1,8 @@
 """Tests for rules-hash auto-escalation in scan_secrets.py and run_secrets_scan.py."""
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import sys
 import tempfile
@@ -396,6 +398,97 @@ class TestRunSecretsScanMainEscalation(unittest.TestCase):
             self._run_main(root, "incremental")
             state = run_secrets_scan._load_scan_state(root)
             self.assertEqual(state.get("rules_hash"), run_secrets_scan._compute_rules_hash(root))
+
+
+class ActualRulesChangeConsumers(unittest.TestCase):
+    """Both cache producers must rescan unchanged content after a rule edit."""
+
+    def _run_owner(self, owner, root):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), \
+             patch.object(scan_secrets, "_auto_max_workers", return_value=1), \
+             patch.object(run_secrets_scan, "_auto_max_workers", return_value=1):
+            if owner == "indexer":
+                return scan_secrets.update_secrets_scan(
+                    root=root, scan_dir=_make_scan_dir(root),
+                    changed=set(), removed=set(), full=False,
+                )
+            with patch.object(sys, "argv", [
+                "run_secrets_scan.py", "--root", str(root), "--mode", "incremental"
+            ]):
+                self.assertEqual(run_secrets_scan.main(), 0)
+            return json.loads(output.getvalue().splitlines()[-1])
+
+    def _exercise(self, owner, *, frozen_fingerprint=False):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            _make_root(root)
+            framework = root / ".wavefoundry/framework/scan-rules.toml"
+            framework.write_text(
+                '[policy]\nfalse_positive_confirmations_required = 1\n'
+                '[allowlist]\npaths = ["^\\\\.wavefoundry/", "^docs/"]\n'
+                '[[rules]]\nid = "synthetic-probe"\n'
+                "regex = '''SYNTH_ALPHA_[0-9]{3}'''\n",
+                encoding="utf-8",
+            )
+            content = b"SYNTH_ALPHA_001\nSYNTH_BETA_002\n"
+            subject = root / "unchanged.txt"
+            subject.write_bytes(content)
+            findings = root / _FINDINGS_RELPATH
+            self._run_owner(owner, root)
+            initial = json.loads(findings.read_text())
+            self.assertEqual(len(initial), 1)
+            self.assertEqual(initial[0]["file"], "unchanged.txt")
+            # Seed a pre-existing synthetic disposition, never a live finding.
+            history = [{"confirmed_by": "fixture-reviewer", "confirmed_at": "2026-01-01"}]
+            initial[0].update(status="false-positive", confirmations=history,
+                              override_reason="Synthetic fixture disposition")
+            findings.write_text(json.dumps(initial), encoding="utf-8")
+            stable_id = initial[0]["id"]
+            old_hash = scan_secrets._compute_rules_hash(root)
+            unchanged = self._run_owner(owner, root)
+            if owner == "indexer":
+                self.assertTrue(unchanged["up_to_date"])
+            else:
+                self.assertFalse(unchanged["rules_hash_changed"])
+                self.assertGreaterEqual(unchanged["files_skipped"], 1)
+
+            (root / "docs/scan-rules.toml").write_text(
+                '[[rules]]\nid = "synthetic-probe"\n'
+                "regex = '''SYNTH_(?:ALPHA|BETA)_[0-9]{3}'''\n",
+                encoding="utf-8",
+            )
+            module = scan_secrets if owner == "indexer" else run_secrets_scan
+            control = (patch.object(module, "_compute_rules_hash", return_value=old_hash)
+                       if frozen_fingerprint else contextlib.nullcontext())
+            with control:
+                result = self._run_owner(owner, root)
+            current = json.loads(findings.read_text())
+            self.assertEqual(len(current), 2, "newly detected unchanged file must survive cache reuse")
+            self.assertEqual({row["line"] for row in current}, {1, 2})
+            retained = next(row for row in current if row["id"] == stable_id)
+            self.assertEqual(retained["status"], "false-positive")
+            self.assertEqual(retained["confirmations"], history)
+            self.assertEqual(retained["override_reason"], "Synthetic fixture disposition")
+            self.assertTrue(result["rules_change_escalation"] if owner == "indexer"
+                            else result["escalated_to_full"])
+            self.assertEqual(subject.read_bytes(), content)
+            self.assertNotIn("SYNTH_BETA_002", findings.read_text())
+            self.assertEqual(scan_secrets._compute_rules_hash(root),
+                             run_secrets_scan._load_scan_state(root)["rules_hash"])
+
+    def test_indexer_rule_change_rescans_and_preserves_disposition(self):
+        self._exercise("indexer")
+
+    def test_cli_rule_change_rescans_and_preserves_disposition(self):
+        self._exercise("cli")
+
+    def test_stale_fingerprint_mutants_lose_the_new_finding(self):
+        for owner in ("indexer", "cli"):
+            with self.subTest(owner=owner), self.assertRaisesRegex(
+                AssertionError, "newly detected unchanged file"
+            ):
+                self._exercise(owner, frozen_fingerprint=True)
 
 
 if __name__ == "__main__":

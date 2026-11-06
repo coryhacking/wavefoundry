@@ -81,6 +81,28 @@ def _load_toml(path: Path) -> dict:
         return tomllib.load(f)
 
 
+def _ruleset_shape_error(data: dict) -> str | None:
+    """Reject malformed runtime containers without interpreting upstream actions."""
+    if not isinstance(data.get("policy", {}), dict):
+        return "policy must be a table"
+    disabled = data.get("policy", {}).get("disabled_rules", [])
+    if not isinstance(disabled, list) or any(not isinstance(item, str) for item in disabled):
+        return "policy.disabled_rules must be an array of strings"
+    rules = data.get("rules", [])
+    if not isinstance(rules, list):
+        return "rules must be an array of tables"
+    for i, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            return f"rules[{i}] must be a table"
+        for key in ("id", "regex", "filter"):
+            if key in rule and not isinstance(rule[key], str):
+                return f"rules[{i}].{key} must be a string"
+        keywords = rule.get("keywords", [])
+        if not isinstance(keywords, list) or any(not isinstance(item, str) for item in keywords):
+            return f"rules[{i}].keywords must be an array of strings"
+    return None
+
+
 def load_merged_ruleset(root: Path) -> tuple[list[dict], dict, list[str]]:
     """Return (rules, policy, errors).
 
@@ -97,10 +119,11 @@ def load_merged_ruleset(root: Path) -> tuple[list[dict], dict, list[str]]:
         fw_data = _load_toml(framework_path)
     except Exception as exc:
         return [], {}, [f"secrets scan: failed to parse {SCAN_RULES_FRAMEWORK_PATH}: {exc}"]
+    if error := _ruleset_shape_error(fw_data):
+        return [], {}, [f"secrets scan: invalid {SCAN_RULES_FRAMEWORK_PATH}: {error}"]
 
     rules: list[dict] = list(fw_data.get("rules", []))
     policy: dict = dict(fw_data.get("policy", {}))
-    global_allowlist: dict = fw_data.get("allowlist", {})
 
     project_path = root / SCAN_RULES_PROJECT_PATH
     if project_path.exists():
@@ -108,6 +131,8 @@ def load_merged_ruleset(root: Path) -> tuple[list[dict], dict, list[str]]:
             proj_data = _load_toml(project_path)
         except Exception as exc:
             return [], {}, [f"secrets scan: failed to parse {SCAN_RULES_PROJECT_PATH}: {exc}"]
+        if error := _ruleset_shape_error(proj_data):
+            return [], {}, [f"secrets scan: invalid {SCAN_RULES_PROJECT_PATH}: {error}"]
 
         proj_policy = proj_data.get("policy", {})
         policy.update(proj_policy)
@@ -118,14 +143,147 @@ def load_merged_ruleset(root: Path) -> tuple[list[dict], dict, list[str]]:
 
         proj_rules = proj_data.get("rules", [])
         existing_ids = {r.get("id") for r in rules}
-        for r in proj_rules:
-            rid = r.get("id")
+        for project_rule in proj_rules:
+            rid = project_rule.get("id")
             if rid and rid in existing_ids:
-                rules = [r if r.get("id") != rid else r for r in rules]
+                rules = [existing if existing.get("id") != rid else project_rule for existing in rules]
             else:
-                rules.append(r)
+                rules.append(project_rule)
 
     return rules, policy, []
+
+
+def inspect_ruleset_compatibility(data: Any) -> dict:
+    """Opt-in, bounded import inspection; never scan, evaluate actions or change files.
+
+    Runtime loading intentionally does not call this: historical upstream fields
+    remain inert. A clean report covers only checked syntax/fields, not detector
+    correctness, Python/RE2 equivalence, performance or credential coverage.
+    """
+    from .cel_filter import filter_compatibility_issues
+
+    issues: list[dict] = []
+    counts: dict[str, int] = {}
+    complete = True
+    checked = 0
+
+    def add(location: str, code: str) -> None:
+        nonlocal complete
+        counts[code] = counts.get(code, 0) + 1
+        if code.endswith("_limit"):
+            complete = False
+        if len(issues) < 4096:
+            issues.append({"location": location, "code": code})
+        else:
+            complete = False
+
+    def fields(table: dict, allowed: set[str], location: str) -> None:
+        if len(table) > 64:
+            add(location, "field_count_limit")
+            return
+        for key in table:
+            if key not in allowed:
+                # Identify the field without printing its potentially sensitive value.
+                label = ascii(str(key)[:80])
+                add(f"{location}[{label}]", "unsupported_field")
+
+    def pattern(value: Any, location: str, rule_pattern: bool = False) -> None:
+        import warnings
+        if not isinstance(value, str) or not value:
+            add(location, "regex_missing_or_not_string")
+            return
+        if len(value) > 16384:
+            add(location, "regex_size_limit")
+            return
+        try:
+            if rule_pattern:
+                value = collapse_redundant_prefix(value)
+            with warnings.catch_warnings(record=True) as notices:
+                warnings.simplefilter("always", FutureWarning)
+                try:
+                    re.compile(value)
+                except re.error:
+                    if not rule_pattern:
+                        raise
+                    re.compile(_re2_to_re(value))
+            if notices:
+                add(location, "regex_compile_warning")
+        except (re.error, RecursionError, OverflowError, ValueError):
+            add(location, "regex_compile_error")
+
+    def allowlists(value: Any, location: str, global_scope: bool = False) -> None:
+        if not isinstance(value, list):
+            add(location, "allowlists_not_array")
+            return
+        if len(value) > 32:
+            add(location, "allowlist_count_limit")
+        for index, table in enumerate(value[:32]):
+            where = f"{location}[{index}]"
+            if not isinstance(table, dict):
+                add(where, "allowlist_not_table")
+                continue
+            allowed = {"paths", "regexes", "stopwords"} if global_scope else {"paths", "regexes"}
+            fields(table, allowed, where)
+            for key in allowed:
+                values = table.get(key, [])
+                if not isinstance(values, list) or len(values) > 256:
+                    add(f"{where}.{key}", "allowlist_values_limit" if isinstance(values, list) else "allowlist_values_not_array")
+                    continue
+                for number, entry in enumerate(values):
+                    if not isinstance(entry, str):
+                        add(f"{where}.{key}[{number}]", "allowlist_value_not_string")
+                    elif key != "stopwords":
+                        pattern(entry, f"{where}.{key}[{number}]")
+
+    if not isinstance(data, dict):
+        add("$", "ruleset_not_table")
+    else:
+        fields(data, {"title", "rules", "policy", "allowlist"}, "$")
+        if "allowlist" in data:
+            allowlists([data["allowlist"]], "$.allowlist", True)
+        rules = data.get("rules", [])
+        if not isinstance(rules, list):
+            add("$.rules", "rules_not_array")
+        else:
+            if len(rules) > 1024:
+                add("$.rules", "rule_count_limit")
+            for index, rule in enumerate(rules[:1024]):
+                checked += 1
+                where = f"$.rules[{index}]"
+                if not isinstance(rule, dict):
+                    add(where, "rule_not_table")
+                    continue
+                fields(rule, {"id", "description", "regex", "keywords", "filter", "allowlists"}, where)
+                if not isinstance(rule.get("id"), str) or not rule["id"]:
+                    add(where + ".id", "rule_id_missing_or_not_string")
+                pattern(rule.get("regex"), where + ".regex", True)
+                keywords = rule.get("keywords", [])
+                if not isinstance(keywords, list):
+                    add(where + ".keywords", "keywords_not_array")
+                elif len(keywords) > 256:
+                    add(where + ".keywords", "keyword_count_limit")
+                elif any(not isinstance(word, str) for word in keywords):
+                    add(where + ".keywords", "keyword_not_string")
+                expression = rule.get("filter", "")
+                if expression != "":
+                    for code in filter_compatibility_issues(expression):
+                        add(where + ".filter", code)
+                if "allowlists" in rule:
+                    allowlists(rule["allowlists"], where + ".allowlists")
+    return {
+        "status": "incomplete" if not complete else "unsupported" if counts else "within_checked_subset",
+        "complete": complete,
+        "rules_checked": checked,
+        "issues": issues,
+        "issue_counts": counts,
+        "limits": {"rules": 1024, "fields_per_table": 64, "regex_characters": 16384,
+                   "filter_characters": 32768, "reported_issues": 4096},
+        "limitations": [
+            "Checks fields, regex compilation and implemented filter constructs only; no match or filter execution.",
+            "No proof of upstream semantic equivalence, extraction correctness, bounded match time or credential coverage.",
+            "Local policy and version requirements are not qualified; runtime scanning and triage are unchanged.",
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------

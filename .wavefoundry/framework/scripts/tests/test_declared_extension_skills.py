@@ -212,47 +212,96 @@ class SharedPrefixSkillTests(unittest.TestCase):
                 self.assertFalse((root / host / "skills/wf-synthetic-deploy").exists())
             self.assertEqual(custom.read_text(), "# Unmarked local skill\n")
 
-    def test_configured_core_name_is_reserved_without_its_backing_doc(self):
+    def test_collisions_preserve_name_and_render_unrelated_on_both_paths(self):
+        from dataclasses import replace
+        from unittest.mock import patch
+        gated = next(skill for skill in ras.SKILL_REGISTRY if skill.requires_doc)
+        for entrypoint in (ras.render_skills, ras.render_agent_surfaces):
+            for name in (gated.name, vp.skill_name("close-wave"), "wf-guru", "wf-plan-feature", "auto-guru", "wf-synthetic-upgrade"):
+                with self.subTest(entrypoint=entrypoint.__name__, name=name), tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    _repo(root)
+                    preserved = {}
+                    for host in HOSTS:
+                        target = root / host / "skills" / name / "SKILL.md"
+                        target.parent.mkdir(parents=True)
+                        target.write_text(MARKER + "\nOwner's existing skill\n")
+                        preserved[target] = target.read_bytes()
+                        policy = target.parent / "agents/openai.yaml"
+                        policy.parent.mkdir()
+                        policy.write_text("# Existing operator policy must survive\n")
+                        preserved[policy] = policy.read_bytes()
+                    registry = ras.SKILL_REGISTRY
+                    if name == "wf-synthetic-upgrade":
+                        registry = (*registry, replace(gated, name=name))
+                    declaration = {name: _spec(prompt_doc_template="missing-template.prompt.md"), "wf-independent": VALID_SPEC}
+                    with patch.object(ras, "SKILL_REGISTRY", registry), base_declaration(EXTENSION_SKILLS=declaration):
+                        result = entrypoint(root)
+                        self.assertTrue(result.partial)
+                        self.assertTrue(any(name in note and "rename" in note for note in result.diagnostics))
+                        for target, before in preserved.items():
+                            self.assertEqual(target.read_bytes(), before)
+                        for host in HOSTS:
+                            self.assertTrue((root / host / "skills/wf-independent/SKILL.md").is_file())
+                            self.assertTrue((root / host / "skills" / vp.skill_name("review-wave") / "SKILL.md").is_file())
+                        entrypoint(root)
+                        for target, before in preserved.items():
+                            self.assertEqual(target.read_bytes(), before)
+                    with base_declaration(EXTENSION_SKILLS={"wf-renamed": VALID_SPEC, "wf-independent": VALID_SPEC}):
+                        resumed = entrypoint(root)
+                        self.assertFalse(resumed.partial)
+                        self.assertTrue((root / ".claude/skills/wf-renamed/SKILL.md").is_file())
+
+    def test_colliding_link_still_refuses_before_any_mutation(self):
+        for entrypoint in (ras.render_skills, ras.render_agent_surfaces):
+            with tempfile.TemporaryDirectory() as temp, base_declaration(EXTENSION_SKILLS={"wf-guru": VALID_SPEC, "wf-independent": VALID_SPEC}):
+                root = Path(temp)
+                _repo(root)
+                target = root / ".codex/skills/wf-guru"
+                target.parent.mkdir(parents=True)
+                outside = root / "untouched"
+                outside.mkdir()
+                (outside / "SKILL.md").write_text("owner bytes")
+                target.symlink_to(outside, target_is_directory=True)
+                before = _snapshot(root)
+                with self.assertRaises((RuntimeError, OSError)):
+                    entrypoint(root)
+                self.assertEqual(_snapshot(root), before)
+
+    def test_reconciliation_registry_remains_usable_with_collision(self):
+        from types import SimpleNamespace
+        import reconcile_scan
+        class Work:
+            limits = SimpleNamespace(entries=10000)
+            result = SimpleNamespace(visited_entries=0)
+            def entry(self):
+                self.result.visited_entries += 1
+        with base_declaration(EXTENSION_SKILLS={"wf-guru": VALID_SPEC, "wf-independent": VALID_SPEC}):
+            paths = list(reconcile_scan._mandatory_paths(Work()))
+            self.assertIn(".claude/skills/wf-independent/SKILL.md", paths)
+            self.assertNotIn(".claude/skills/wf-guru/SKILL.md", paths)
+
+    def test_case_variant_existing_collision_survives(self):
+        with tempfile.TemporaryDirectory() as temp, base_declaration(EXTENSION_SKILLS={"wf-plan-feature": VALID_SPEC}):
+            root = Path(temp)
+            _repo(root)
+            target = root / ".codex/skills/WF-PLAN-FEATURE/SKILL.md"
+            target.parent.mkdir(parents=True)
+            target.write_text(MARKER + "\nOwner bytes")
+            before = target.read_bytes()
+            self.assertTrue(ras.render_agent_surfaces(root).partial)
+            self.assertEqual(target.read_bytes(), before)
+
+    def test_configured_core_collision_is_protected_even_without_gate_doc(self):
         from dataclasses import replace
         from unittest.mock import patch
         gated = next(skill for skill in ras.SKILL_REGISTRY if skill.requires_doc)
         configured = replace(gated, name="wf-configured-synthetic")
         registry = tuple(configured if skill is gated else skill for skill in ras.SKILL_REGISTRY)
         with patch.object(ras, "SKILL_REGISTRY", registry), base_declaration(EXTENSION_SKILLS={configured.name: VALID_SPEC}):
-            for entrypoint in (ras.render_skills, ras.render_agent_surfaces):
-                with self.subTest(entrypoint=entrypoint.__name__), tempfile.TemporaryDirectory() as temp:
-                    root = Path(temp)
-                    _repo(root)
-                    before = _snapshot(root)
-                    with self.assertRaisesRegex(RuntimeError, configured.name):
-                        entrypoint(root)
-                    self.assertEqual(_snapshot(root), before)
+            self.assertNotIn(configured.name, [skill.name for skill in ras._all_skills()])
+            self.assertIn(configured.name, ras.skill_name_collisions())
 
-    def test_effective_doc_gated_retired_and_upgrade_collisions_refuse_before_mutation(self):
-        from dataclasses import replace
-        from unittest.mock import patch
-        gated = next(skill for skill in ras.SKILL_REGISTRY if skill.requires_doc)
-        for entrypoint in (ras.render_skills, ras.render_agent_surfaces):
-            for name in (gated.name, "wf-plan-feature", "wf-plan-initiative", "auto-guru"):
-                with self.subTest(entrypoint=entrypoint.__name__, name=name), tempfile.TemporaryDirectory() as temp:
-                    root = Path(temp)
-                    _repo(root)
-                    before = _snapshot(root)
-                    with base_declaration(EXTENSION_SKILLS={name: VALID_SPEC}):
-                        with self.assertRaisesRegex(RuntimeError, name):
-                            entrypoint(root)
-                    self.assertEqual(_snapshot(root), before)
-            with tempfile.TemporaryDirectory() as temp:
-                root = Path(temp)
-                _repo(root)
-                name = "wf-synthetic-upgrade"
-                with base_declaration(EXTENSION_SKILLS={name: VALID_SPEC}):
-                    ras.render_skills(root)
-                    before = _snapshot(root)
-                    with patch.object(ras, "SKILL_REGISTRY", (*ras.SKILL_REGISTRY, replace(gated, name=name))):
-                        with self.assertRaisesRegex(RuntimeError, name):
-                            entrypoint(root)
-                    self.assertEqual(_snapshot(root), before)
 
 
 class SkillDeclarationProblemTests(unittest.TestCase):
@@ -393,14 +442,14 @@ class InvalidDeclarationRefusesRenderTests(unittest.TestCase):
             self.assert_names_every_problem(str(caught.exception))
             self.assertEqual(_snapshot(root), before)
 
-    def test_preflight_refuses_each_rule_the_renderer_owns(self) -> None:
+    def test_preflight_allows_name_collisions_only(self):
         for declaration in ({vp.skill_name("plan-change"): VALID_SPEC}, {"auto-guru": VALID_SPEC}):
-            with self.subTest(declaration=list(declaration)), tempfile.TemporaryDirectory() as temp_dir:
+            with tempfile.TemporaryDirectory() as temp_dir, base_declaration(EXTENSION_SKILLS=declaration):
                 root = Path(temp_dir)
                 _repo(root)
-                with base_declaration(EXTENSION_SKILLS=declaration), self.assertRaises(RuntimeError) as caught:
-                    ras.preflight_agent_surface_paths(root)
-                self.assertIn(repr(next(iter(declaration))), str(caught.exception))
+                before = _snapshot(root)
+                ras.preflight_agent_surface_paths(root)
+                self.assertEqual(_snapshot(root), before)
 
     def _run_main(self, module: str, root: Path, declaration: dict) -> subprocess.CompletedProcess:
         driver = (
@@ -436,6 +485,38 @@ class InvalidDeclarationRefusesRenderTests(unittest.TestCase):
                 self.assertNotIn("Traceback", result.stderr)
                 self.assert_names_every_problem(result.stderr)
                 self.assertEqual(_snapshot(root), before)
+
+    def test_partial_render_diagnostic_reaches_sync_and_upgrade_consumers(self):
+        from unittest.mock import patch
+        from server_tools_support import load_server
+        from test_upgrade_wavefoundry import load_upgrade_module
+        from wf_server.docs_handlers import run_sync_surfaces
+        declaration = {"wf-plan-feature": VALID_SPEC, "wf-independent": VALID_SPEC}
+        for module in ("render_platform_surfaces", "render_agent_surfaces"):
+            with tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                _repo(root)
+                result = self._run_main(module, root, declaration)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("PARTIAL", result.stderr)
+                self.assertIn("wf-plan-feature", result.stderr)
+                self.assertTrue((root / ".claude/skills/wf-independent/SKILL.md").is_file())
+                srv = load_server()
+                with patch.object(srv, "_mcp_subprocess_run", return_value=result):
+                    summary = run_sync_surfaces(root)
+                self.assertTrue(summary["passed"])
+                self.assertIn("PARTIAL", summary["output"])
+                self.assertIn("rename", summary["output"])
+                upgrade = load_upgrade_module()
+                with patch.object(upgrade, "_run_upgrade_child", return_value=result), \
+                     patch.object(upgrade.venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                     patch.object(upgrade, "_persist_permissions_delta"), \
+                     patch.object(upgrade, "_log") as log:
+                    upgrade.phase_surface_rendering(root)
+                lines = [str(call.args[0]) for call in log.call_args_list]
+                self.assertTrue(any("partial skill delivery" in line for line in lines), lines)
+                self.assertTrue(any("wf-plan-feature" in line for line in lines), lines)
+                self.assertNotIn("  Surfaces rendered.", lines)
 
     def test_platform_entry_point_renders_a_valid_declaration(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

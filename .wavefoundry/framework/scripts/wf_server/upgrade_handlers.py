@@ -1363,6 +1363,9 @@ def wf_upgrade_response(
         if _deps_failed
         else None
     )
+    if _deps_diag is not None:
+        from setup_commands import setup_recovery
+        _deps_diag.update(setup_recovery(root))
     _retired_cleanup_failed = bool(
         (
             summary is not None

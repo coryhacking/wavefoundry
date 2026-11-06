@@ -1,13 +1,24 @@
 @echo off
 REM Wavefoundry operator CLI -- .wavefoundry\bin\wf.cmd (wave 1p7tz)
-setlocal
-set "REPO_ROOT=%~dp0..\.."
+setlocal DisableDelayedExpansion
+for %%I in ("%~dp0..\..") do set "REPO_ROOT=%%~fI"
+if not exist "%REPO_ROOT%\.wavefoundry\framework\scripts\wf_cli.py" goto root_invalid
+if exist "%REPO_ROOT%\.wavefoundry\framework\scripts\wf_cli.py\" goto root_invalid
+set "CALLER_ROOT=%CD%"
 cd /d "%REPO_ROOT%"
+if errorlevel 1 goto root_invalid
+if /i not "%CD%"=="%REPO_ROOT%" goto root_invalid
+if /i not "%~1"=="setup" goto root_ready
+if /i "%CALLER_ROOT%"=="%REPO_ROOT%" goto root_ready
+set "ROOT_SUFFIX="
+if not "%REPO_ROOT:~512,1%"=="" set "ROOT_SUFFIX= [path truncated]"
+echo Wavefoundry: launcher working directory "%REPO_ROOT:~0,512%"%ROOT_SUFFIX%; explicit --root overrides the setup target. 1>&2
+:root_ready
 where.exe python3 >nul 2>nul
 if errorlevel 1 goto python_missing
 set "WF_PYTHON3="
 for /f "delims=" %%I in ('where.exe python3 2^>nul') do if not defined WF_PYTHON3 set "WF_PYTHON3=%%I"
-if /i "%WF_PYTHON3%"=="%LOCALAPPDATA%\Microsoft\WindowsApps\python3.exe" goto python_alias_probe
+if /i "%WF_PYTHON3:~-24%"=="\WindowsApps\python3.exe" goto python_alias_probe
 goto python_launch
 :python_alias_probe
 python3 -c "import sys" >nul 2>nul
@@ -30,4 +41,7 @@ where.exe python 1>&2 2>nul
 echo Run bounded diagnosis without Python or MCP: 1>&2
 echo powershell -NoProfile -File "%REPO_ROOT%\.wavefoundry\framework\scripts\diagnose_python.ps1" 1>&2
 echo If policy blocks diagnosis, give IT the command/path/error; do not bypass policy or reseed this checkout. 1>&2
+exit /b 2
+:root_invalid
+echo Wavefoundry: cannot establish the launcher project directory. Setup was not started. Use the launcher inside the intended project. 1>&2
 exit /b 2

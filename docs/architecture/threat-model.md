@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-05
+Last verified: 2026-11-06
 
 ## Trust Boundaries
 
@@ -29,6 +29,14 @@ Cleanup is attempted only after successful operator-authorized whole-wave closur
 New owner records retain nonzero inode identities for both repository root and work directory, permitting a same-filesystem root rename or actual case alias. Persisted device numbers never gate equality across runs; within-operation descriptor checks stay strict. Legacy owners without root identity cannot prove an unavailable old root and preserve the work with a remedy. Copying only work into another repository does not transfer ownership; cross-volume continuity and globally unique identity are not promised.
 
 A snapshot with two hard links is readable only when the additional link is positively verified as the same regular publisher temporary file inside the pinned receipts directory. The reader rechecks that proof around publisher unlink races and never deletes files. External, unknown, linked or excess construction names remain unproven, as do invalid receipt/content bindings. These are local integrity checks within the existing same-user trust model, not authentication or a filesystem sandbox.
+
+## Secret scanner
+
+The scanner evaluates local patterns and a limited local filter language. Imported rule configuration is data: `validate`, `analyze` and `revoke` blocks do not authorize provider requests, credential testing or revocation. The opt-in compatibility inspector reports unsupported fields and filter constructs without executing them. It does not change runtime loading or establish semantic equivalence, extraction accuracy or safe regex cost merely because a pattern compiles.
+
+The framework rules remain adapted from Betterleaks commit `3ac987600af0` (2026-06-06). Only the Sourcegraph detector is updated from pinned commit `8f376ff9c31ed5309ac448fe601c5dd21b376155`: it requires the `sgp_` prefix and supports the qualified modern, local and instance-specific forms. By operator choice, an unprefixed 40-character hexadecimal token is no longer detected by this rule, even in a named Sourcegraph credential assignment. Reducing commit-hash noise does not establish that an unmatched value is harmless.
+
+Project rules can replace framework rules by ID. Existing disabled-rule precedence, local policy, redaction, JWT handling and confirmation authority remain unchanged. This repository's project allowlist broadly excludes test and specification paths; that is a coverage limit, not evidence those paths contain no credentials. A clean scan is limited by the loaded rules, exclusions and recorded skips. Rule changes follow the existing full-rescan route without rewriting classification history outside its owning workflow.
 
 ## Optional Tensorwell client
 

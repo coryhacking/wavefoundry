@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-19
+Last verified: 2026-11-06
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -745,6 +745,8 @@ other `.ts` source.
 ---
 
 ## Stage 4: Embedding
+
+Setup may skip precision preflight and model preparation only when the canonical read-only build plan is current, including the stored targeted-corpus policy. A changed policy remains pending maintenance in both dry-run and applying paths. Planning reads metadata without migrating storage, preparing models or publishing an epoch; the applying build retains its own checks.
 
 Chunks are converted to dense vectors using an ONNX-based sentence-transformer model. Document
 and code selectors remain independent, but both currently name Arctic S and reuse one process-local

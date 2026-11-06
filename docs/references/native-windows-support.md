@@ -2,13 +2,21 @@
 
 Owner: Engineering
 Status: supported
-Last verified: 2026-11-05
+Last verified: 2026-11-06
 
 ## SQLite conversion qualification (1xjmm)
 
 Native Windows support currently requires an x64 Python environment for the pinned sqlite-vec 0.1.9 binary. Native ARM64 and 32-bit Python have no matching wheel or source distribution; they are unavailable through this pinned setup path, not merely untested. WSL2 uses the Linux dependency path (glibc 2.28 or newer for APSW); keep the checkout on its local Linux filesystem. A compatible wheel does not prove native execution: Windows package tests for this conversion remain pending.
 
 The project index needs local WAL-capable storage. Since wave `1xny6` one database, `.wavefoundry/index/index.sqlite`, holds both the semantic layers and the code graph, so that requirement now covers graph work too and Windows file-sharing locks matter for a single file rather than several. If setup reports WAL/runtime failure, correct the filesystem or native environment and retry without deleting the index. On cutover access/sharing failure, release database handles or correct permissions and resume the ordinary upgrade; the migration receipt and recoverable data remain, and recovery is forward — re-run the standard upgrade rather than reverting to the previous runner. A checkout reached through a trusted resolved profile/junction is distinct from an unowned reparse point inside its index tree; cleanup continues to refuse the latter.
+
+## Current diagnostic limits
+
+The launcher recognizes the selected `python3.exe` by a case-insensitive `\WindowsApps\python3.exe` path ending and probes that alias silently. Redirected profiles and short ancestor components are covered by controlled tests. An 8.3-shortened WindowsApps component is not recognized; native cmd execution remains unqualified by these tests. Ordinary real interpreter paths avoid the extra probe.
+
+Native Windows lacks the descriptor-safe operations required by the wave work area. Work areas and snapshots report unavailable, and focused re-review uses full review. This limitation does not block the lifecycle.
+
+Recovery responses provide argv and label Windows display strings as PowerShell. Git Bash callers must translate the argv for their shell instead of copying the PowerShell `&` invocation.
 
 ## Context
 

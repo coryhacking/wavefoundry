@@ -144,7 +144,7 @@ class InstallerTests(_Tmp):
                 patch.object(setup_index, "_run_install_step") as run:
             outcome = setup_index.install_requirement_specs([PSUTIL])
         self.assertEqual(outcome["status"], "no_uv")
-        self.assertIn("wf setup", outcome["message"])
+        self.assertIn("local Wavefoundry setup launcher", outcome["message"])
         bootstrap.assert_not_called()
         run.assert_not_called()
 
@@ -152,7 +152,7 @@ class InstallerTests(_Tmp):
         with patch.dict(os.environ, {"FAKE_UV_EXIT": "1"}):
             outcome = setup_index.install_requirement_specs([PSUTIL])
         self.assertEqual(outcome["status"], "failed")
-        self.assertIn("wf setup", outcome["message"])
+        self.assertIn("local Wavefoundry setup launcher", outcome["message"])
 
         class _Nt:
             name = "nt"
@@ -173,7 +173,7 @@ class InstallerTests(_Tmp):
         self.assertEqual(outcome["status"], "failed")
         self.assertIn("exit 2", outcome["message"])
         self.assertIn("network, proxy or TLS access to the package index", outcome["message"])
-        self.assertIn("run `wf setup`", outcome["message"])
+        self.assertIn("local Wavefoundry setup launcher", outcome["message"])
 
     def test_the_interpreter_path_is_absolute_for_a_relative_tool_venv(self):
         calls = []
@@ -355,7 +355,7 @@ class LockOwnershipTests(_Tmp):
             outcome = setup_index.install_requirement_specs([PSUTIL])
         self.assertEqual(outcome["status"], "failed")
         self.assertIn("lock unavailable", outcome["message"])
-        self.assertIn("wf setup", outcome["message"])
+        self.assertIn("local Wavefoundry setup launcher", outcome["message"])
         run.assert_not_called()
         with patch.object(setup_index, "dependency_install_lock_path", side_effect=unresolvable), \
                 patch.object(setup_index, "_venv_needs_bootstrap", return_value=True), \

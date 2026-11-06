@@ -2,15 +2,29 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-05
+Last verified: 2026-11-06
 
 ## Current state
 
-Idle. Last closed wave: **22nu3 reported-caller-recovery-corrections**. Shipped the exact reported SQLite snapshot caller repair, selected-root model-failure guidance and the identified MCP setup remedies. All three ACs/tasks are complete, required specialist/Council approvals are current, and operator signoff and canonical closure succeeded. The operator authorized the scoped commit and push; no build or release was requested.
+No wave is open. Waves **22o92 distribution-followup-corrections** and **22o93 scanner-rule-corrections** are closed by the operator's explicit direction on 2026-11-06. All admitted ACs/tasks are complete, technical and Council delivery approvals are current, and operator signoffs are recorded. Commit and push are authorized and are the root coordinator's next actions; neither has occurred yet.
 
-The matching green receipt covers 12,374 tests across 217 files, with 12 skips, in 544.962s. Independent code/QA cleared the test-only platform-oracle repair; all twelve semantic bad variants were detected. The earlier coordinator evidence-file edit caused a guard refusal, followed by a clean frozen rerun; no qualification shortcut was used. Unique proof and reviewer conclusions remain in the wave's delivery-evidence.json and authoritative events.jsonl. Closure removed owned disposable work; edit gates remain closed.
+### Next
 
-Native Windows, live model execution and downstream patch removal remain unqualified. No setup, download, provider override or machine change ran. Prior 22ob1/22l9k work is committed and pushed as 614ac8a2. The unrelated 51-byte :memory:.ses artifact remains untouched and excluded. Existing deferred setup/field qualification items remain below.
+Review and commit the two waves' exact delivered scope, then push. Preserve earlier README.md, docs/index.md and docs/references/wavefoundry-overview.md edits separately. The operator also authorized preparing, reviewing and implementing `docs/plans/22o94-enh adopt-current-betterleaks-ruleset.md`; it is currently staged, not admitted or readied. Its construct census, engine decision and cost qualification precede implementation. No package or release was requested.
+
+### Test state and operational limits
+
+The canonical suite exits 0: **12,411 tests / 218 files / 12 expected skips / 614.796 seconds**. Receipt inputs_hash: `7ad25d4f851118e37ffb85dc82560b9e25438bd328aa61ee0d55d43c1b964161`, recorded 2026-11-06T09:05:21.019783+00:00. Both canonical close calls verified this matching green receipt. Source gates are closed. Native Windows/Git Bash, actual Python 3.9, live providers and field savings remain unqualified. Sourcegraph bare-token detection is deliberately excluded; compatibility inspection does not establish full upstream semantics or absence of secrets.
+
+The MCP runner remains stale after in-process reload. Its memory handler refused producer compatibility, so the unchanged public memory/close handlers ran successfully in fresh Python processes with all normal checks. No setup or index rebuild ran; restart the host before relying on indexed operations. Both memory proposal inspections returned zero candidates, and no wave-linked pending memory record exists. The operator-deleted :memory:.ses remains absent.
+
+## Last closed waves — 22o93 and 22o92
+
+22o92 delivered bootstrap-safe selected-root recovery, policy-aware setup planning, profile-portable tests, bounded diagnostics and collision-local skill rendering. Public launchers preserve owner-root inference, warn when changing directory and refuse invalid ownership/cd before Python; explicit arguments remain intact.
+
+22o93 delivered actual same-ID scanner overrides, pinned prefixed Sourcegraph coverage and bounded inert compatibility inspection. Both actual cache consumers rescan unchanged files after rule changes while preserving dispositions. Full upstream refresh is separate22o94.
+
+Both canonical closes succeeded without diagnostics and removed their verified owned work areas. Unique delivery manifests now live in each wave's evidence/delivery-manifest.json. Decisive observations, maintained test identities, negative controls, review conclusions and limitations remain in wave/change records and typed ledgers. Routine work-area logs were disposable. Shared changes include CHANGELOG.md, build-and-verification.md, mcp-tool-surface.md and this handoff. Scanner observations in docs/scan-findings.json are tool-owned; preserve classifications.
 
 ## Last closed wave — 22ob1 distribution integration follow-ups
 
