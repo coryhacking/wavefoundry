@@ -35,29 +35,29 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 22058 |
-| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1739 |
-| 1xny3 sqlite-graph-consolidation-evaluation/graph_eval | `.wavefoundry/framework/scripts` | code | 543 |
-| upgrade | `.wavefoundry/framework/scripts` | code | 448 |
-| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 447 |
-| setup | `.wavefoundry/framework/scripts` | code | 429 |
-| graph | `.wavefoundry/framework/scripts` | code | 428 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 328 |
-| scripts/graph_eval | `.wavefoundry/framework/scripts` | code | 319 |
-| docs/dashboard_lib | `.wavefoundry/framework/scripts` | code | 258 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 22176 |
+| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1632 |
+| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 452 |
+| upgrade | `.wavefoundry/framework/scripts` | code | 438 |
+| graph | `.wavefoundry/framework/scripts` | code | 423 |
+| scripts/wave_lint_lib — check_hardcoded_secrets | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 365 |
+| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 321 |
+| setup | `.wavefoundry/framework/scripts` | code | 309 |
+| 1xny3 sqlite-graph-consolidation-evaluation/graph_eval | `.wavefoundry/framework/scripts` | code | 285 |
+| store | `.wavefoundry/framework/scripts` | code | 274 |
+| docs/dashboard_lib | `.wavefoundry/framework/scripts` | code | 262 |
+| build_pack | `.wavefoundry/framework/scripts` | code | 256 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 229 |
 | chunker | `.wavefoundry/framework/scripts` | code | 229 |
-| scripts/retrieval_eval | `.wavefoundry/framework/scripts` | code | 105 |
-| build_pack | `.wavefoundry/framework/scripts` | code | 103 |
+| scripts/retrieval_eval | `.wavefoundry/framework/scripts` | code | 110 |
 | memory_records | `.wavefoundry/framework/scripts` | code | 92 |
-| client | `.wavefoundry/framework/scripts` | code | 68 |
+| tensorwell_client | `.wavefoundry/framework/scripts` | code | 68 |
+| scripts/wave_lint_lib — entropy | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 64 |
+| memory_eval | `.wavefoundry/framework/scripts` | code | 55 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 52 |
 | oracle | `.wavefoundry/framework/scripts/tests/oracle` | code | 52 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 47 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
-| vendored_integrity | `.wavefoundry/framework/scripts` | code | 30 |
-| scripts/tensorwell_client | `.wavefoundry/framework/scripts` | code | 25 |
-| 1yd24 fixture-fidelity | `docs/waves/1yd24 fixture-fidelity` | code | 7 |
 | configuration | `(root)` | config | 27 |
 <!-- wave:repo-index-modules end -->
 
