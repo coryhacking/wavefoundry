@@ -1471,7 +1471,11 @@ def _scan_upstream_raw(content, rel, lines, policy, global_regexes, global_stopw
         _record_scan_skip(rel, "upstream scan incomplete", getattr(exc, "code", "worker_failure"))
         return []
     if not result["complete"]:
-        _record_scan_skip(rel, "upstream scan incomplete", "detection_or_filter_work_incomplete")
+        # Change 22r96: a deterministic work limit is named by a fixed detail
+        # chosen by exact membership; worker text is never copied.
+        from scanner_skips import work_limit_detail
+        _record_scan_skip(rel, "upstream scan incomplete",
+                          work_limit_detail(result["diagnostics"]) or "detection_or_filter_work_incomplete")
     if outcome is not None:
         outcome["complete"] = result["complete"]
     costs = result.get("costs", {})
@@ -1571,7 +1575,12 @@ def scan_file_raw(
                     _outcome["complete"] = True  # Explicit current policy exclusion.
                 return [], None, []
         except Exception as exc:
-            _record_scan_skip(rel, "upstream scan incomplete", getattr(exc, "code", "worker_failure"))
+            # Change 22r96: a path-check timeout is told apart from a scan-time
+            # timeout, because a path entry cannot clear the check that evaluates it.
+            from scanner_skips import PATH_CHECK_TIMEOUT_DETAIL, SCAN_TIMEOUT_DETAIL
+            code = getattr(exc, "code", "worker_failure")
+            _record_scan_skip(rel, "upstream scan incomplete",
+                              PATH_CHECK_TIMEOUT_DETAIL if code == SCAN_TIMEOUT_DETAIL else code)
             return [], None, []
     elif _path_matches_allowlist(rel, global_allowlist_paths):
         if _outcome is not None:

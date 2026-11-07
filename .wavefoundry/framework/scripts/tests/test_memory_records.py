@@ -4559,6 +4559,14 @@ class MemoryQueryQualificationTests(_MemoryCase):
         for expected in ("disable setting", "wf setup", "restart the MCP server", "index refresh alone"):
             self.assertIn(expected, wording)
         self.assertEqual(response["data"]["retrieval"]["qualification"], "unavailable")
+        # Change 22r96 (AC-3): structured recovery is the repository-selected
+        # setup command alone; the explanation stays in the message.
+        from setup_commands import setup_recovery
+        expected = setup_recovery(self.root)
+        for key in ("recovery_usage", "recovery_argv", "recovery_shell"):
+            self.assertEqual(diagnostic[key], expected[key], key)
+        self.assertIn("run " + expected["recovery_usage"] + " if provisioning", diagnostic["message"])
+        self.assertNotIn("run wf setup", diagnostic["message"])
 
     def test_five_summary_checks_no_refill_and_rrf_order_is_preserved(self):
         for i in range(7):

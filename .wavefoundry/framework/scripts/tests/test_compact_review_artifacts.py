@@ -143,7 +143,7 @@ class CompactReviewArtifactContractTests(unittest.TestCase):
         template = template_path.read_text(encoding="utf-8")
         completion = template.split("## Completion\n", 1)[1].split("\nImplementation is complete", 1)[0]
         phrases = (
-            "the lifecycle-reported disposable wave work area",
+            "the lifecycle-reported disposable work area",
             "preserve cited and unique proof",
             "Consume successful typed-write continuation actions",
             "successful receipt matching current inputs",

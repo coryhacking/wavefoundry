@@ -240,10 +240,20 @@ def _read_failure(layer: str, exc: Exception, index_dir: Path | None = None) -> 
     code = getattr(exc, "code", "")
     detail = str(exc)
     recovery_tools, recovery_usage = ["index_health"], "index_health()"
+    command = None
     if isinstance(exc, sqlite_storage_migration.MigrationRequired):
         code = detail.split(":", 1)[0] or "storage_migration_required"
-        recovery = "Preserve the index and migration receipt; inspect wf_upgrade_status(), then resume Upgrade Wavefoundry."
-        recovery_tools, recovery_usage = ["wf_upgrade_status"], "wf_upgrade_status()"
+        if code == "storage_migration_required" and _setup_owns_migration(index_dir):
+            # Change 22r96: a setup-owned migration resumes through the
+            # repository-selected setup launcher, not Upgrade.
+            from setup_commands import setup_recovery
+            command = setup_recovery(index_dir.parent.parent)
+            recovery = ("Preserve the index and migration receipt; run " + command["recovery_usage"]
+                        + ", then restart old hosts.")
+            recovery_usage = command["recovery_usage"]
+        else:
+            recovery = "Preserve the index and migration receipt; inspect wf_upgrade_status(), then resume Upgrade Wavefoundry."
+            recovery_tools, recovery_usage = ["wf_upgrade_status"], "wf_upgrade_status()"
     elif code == "storage_runtime_unavailable":
         from setup_commands import setup_recovery
         command = setup_recovery(index_dir.parent.parent if index_dir is not None else None)
@@ -260,8 +270,20 @@ def _read_failure(layer: str, exc: Exception, index_dir: Path | None = None) -> 
     return GraphSnapshot(state=NOT_READY, layer=layer, diagnostic={
         "code": code, "message": f"{detail} {recovery}",
         "recovery_tools": recovery_tools, "recovery_usage": recovery_usage,
-        **({k: command[k] for k in ("recovery_argv", "recovery_shell")} if code == "storage_runtime_unavailable" else {}),
+        **({k: command[k] for k in ("recovery_argv", "recovery_shell")} if command is not None else {}),
     })
+
+
+def _setup_owns_migration(index_dir: Path | None) -> bool:
+    """Reuse require_ready's owner predicate; an unreadable receipt keeps Upgrade."""
+    if index_dir is None:
+        return False
+    import sqlite_storage_migration
+    try:
+        receipt = sqlite_storage_migration.read_receipt(Path(index_dir))
+    except Exception:
+        return False
+    return sqlite_storage_migration.migration_owned_by_setup(receipt)
 
 
 def _cache_disabled() -> bool:

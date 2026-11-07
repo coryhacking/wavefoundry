@@ -161,5 +161,66 @@ class IncomingScannerTests(unittest.TestCase):
         import json as stdlib_json
         self.assertIn(real(Path(stdlib_json.__file__).parents[1]),[real(p) for p in kept])
 
+
+class ProjectRulesParseErrorTests(unittest.TestCase):
+    """Change 22r96 (AC-2): a broken project rule file is named as such."""
+
+    # Share the incoming-pack fixture without rerunning its tests.
+    setUpClass = classmethod(IncomingScannerTests.setUpClass.__func__)
+    tearDownClass = classmethod(IncomingScannerTests.tearDownClass.__func__)
+    setUp = IncomingScannerTests.setUp
+    inspect = IncomingScannerTests.inspect
+
+    BROKEN = '[[rules]\nid="SYNTHETIC_PARSE_SENTINEL_22R96"\nregex="SYNTHETIC"\n'
+
+    def assert_no_parser_or_file_text(self, result):
+        text = str(result)
+        for leaked in ('SYNTHETIC_PARSE_SENTINEL_22R96', 'regex', 'line 1', 'Expected', 'column'):
+            self.assertNotIn(leaked, text)
+
+    def inspect_root_in_process(self, project, framework='wavefoundryProfile="betterleaks-v2-8f376ff9"\n[[rules]]\nid="framework-fixture"\nregex="SYNTHETIC"\n'):
+        self.local.write_text(project)
+        self.installed.write_text(framework)
+        from wave_lint_lib import betterleaks_worker
+        self.addCleanup(betterleaks_worker.close_worker)
+        with patch.object(sys, 'path', list(sys.path)):  # _inspect_root replaces sys.path.
+            return preflight._inspect_root(self.root)
+
+    def test_parse_error_is_named_by_both_entry_points_without_parser_text(self):
+        result = self.inspect(self.BROKEN)
+        self.assertEqual(result['issues'], [{'file': preflight.PROJECT_RULES, 'field': '$', 'code': 'project_rules_parse_error'}], result)
+        self.assert_no_parser_or_file_text(result)
+        child = self.inspect_root_in_process(self.BROKEN)
+        self.assertEqual([i['code'] for i in child['issues']], ['project_rules_parse_error'], child)
+        self.assertEqual(child['status'], result['status'])
+        # An operator-fixable rule-file defect, not a validator outage.
+        self.assertEqual(result['status'], 'unsupported', result)
+        self.assert_no_parser_or_file_text(child)
+
+    def test_other_worker_failures_and_a_broken_framework_file_keep_validator_unavailable(self):
+        from wave_lint_lib import secrets_validators as scanner
+        from wave_lint_lib import betterleaks_worker as live
+        original = scanner._load_toml
+
+        def project_timeout(path):
+            if Path(path) == self.local:
+                raise live.WorkerError('worker_timeout')
+            return original(path)
+        for raised in (project_timeout, lambda path: (_ for _ in ()).throw(live.WorkerError('worker_input_too_large')),
+                       lambda path: (_ for _ in ()).throw(ValueError('configuration_size_limit')),
+                       lambda path: (_ for _ in ()).throw(UnicodeDecodeError('utf-8', b'\xff', 0, 1, 'x'))):
+            with self.subTest(raised=raised), patch.object(scanner, '_load_toml', side_effect=raised):
+                child = self.inspect_root_in_process('[[rules]]\nid="custom"\nregex="SYNTHETIC_OTHER"\n')
+                self.assertEqual([i['code'] for i in child['issues']], ['incoming_validator_unavailable'], child)
+        child = self.inspect_root_in_process('[[rules]]\nid="custom"\nregex="SYNTHETIC_OTHER"\n', framework='[[rules]\n')
+        self.assertEqual([i['code'] for i in child['issues']], ['incoming_validator_unavailable'], child)
+        broken = Path(self.tmp.name)/'broken-framework.zip'
+        with zipfile.ZipFile(self.pack) as source, zipfile.ZipFile(broken, 'w') as archive:
+            for name in source.namelist():
+                archive.writestr(name, '[[rules]\n' if name.endswith('/scan-rules.toml') and '/scan/' not in name else source.read(name))
+        self.local.write_text('[[rules]]\nid="custom"\nregex="SYNTHETIC_OTHER"\n')
+        result = preflight.inspect_project_rules(self.root, broken)
+        self.assertEqual([i['code'] for i in result['issues']], ['incoming_validator_unavailable'], result)
+
 if __name__ == '__main__':
     unittest.main()

@@ -575,6 +575,74 @@ class InvalidDeclarationRefusesRenderTests(unittest.TestCase):
                 self.assertIsNone(result["partial_skill_delivery"])
                 self.assertIsNone(upgrade._skill_delivery_fields(payload)["partial_skill_delivery"])
 
+    def _render_argv(self, root: Path, declaration: dict, argv: "list[str]") -> subprocess.CompletedProcess:
+        driver = (
+            "import json, sys\n"
+            "sys.path.insert(0, sys.argv[1])\n"
+            "import mcp_tool_extensions\n"
+            "mcp_tool_extensions.EXTENSION_SKILLS = json.loads(sys.argv[2])\n"
+            "import render_platform_surfaces as target\n"
+            "sys.exit(target.main(json.loads(sys.argv[3])))\n"
+        )
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        env["WAVEFOUNDRY_SKIP_PYTHON_HEAL"] = "1"
+        return subprocess.run(
+            [sys.executable, "-B", "-c", driver, str(SCRIPTS_ROOT), json.dumps(declaration), json.dumps(argv)],
+            cwd=str(SCRIPTS_ROOT), env=env, capture_output=True, text=True, encoding="utf-8",
+            errors="replace", check=False, timeout=300,
+        )
+
+    def test_partial_skill_delivery_summary_is_one_line_without_manifest(self):
+        # Change 22r96 (AC-4): setup and the CLI read stderr; manifest callers do not.
+        from unittest.mock import patch
+        import render_platform_surfaces as rps
+        import setup_wavefoundry
+        prefix = "render_platform_surfaces: PARTIAL SKILL DELIVERY - "
+        declaration = {"wf-plan-feature": VALID_SPEC, "wf-guru": VALID_SPEC, "wf-independent": VALID_SPEC}
+
+        def summaries(stderr: str) -> "list[str]":
+            return [line for line in stderr.splitlines() if line.startswith(prefix)]
+
+        def assert_one_summary(result):
+            self.assertEqual(result.returncode, 0, result.stderr)
+            lines = summaries(result.stderr)
+            self.assertEqual(len(lines), 1, result.stderr)
+            for name in ("wf-plan-feature", "wf-guru"):
+                self.assertIn(name, lines[0])
+            self.assertNotIn("wf-independent", lines[0])
+            self.assertIn("rename", lines[0])
+            # The per-collision lines are unchanged.
+            self.assertEqual(sum(line.startswith("render_agent_surfaces: PARTIAL - ")
+                                 for line in result.stderr.splitlines()), 2, result.stderr)
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            _repo(root)
+            assert_one_summary(self._render_argv(root, declaration, ["--repo-root", str(root)]))
+            observed = []
+
+            def setup_child(argv, **kwargs):
+                self.assertNotIn("--manifest", argv)
+                self.assertEqual(Path(argv[1]).name, "render_platform_surfaces.py")
+                result = self._render_argv(root, declaration, list(argv[2:]))
+                observed.append(result)
+                return subprocess.CompletedProcess(argv, result.returncode, result.stdout, result.stderr)
+
+            with patch.object(setup_wavefoundry.subprocess_util, "isolated_run", side_effect=setup_child):
+                self.assertEqual(setup_wavefoundry._run_render_platform_surfaces(root), 0)
+            self.assertEqual(len(observed), 1)
+            assert_one_summary(observed[0])
+            manifest = Path(temp) / "manifest.json"
+            result = self._render_argv(root, declaration, ["--repo-root", str(root), "--manifest", str(manifest)])
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(summaries(result.stderr), [])
+            self.assertTrue(json.loads(manifest.read_text())["partial_skill_delivery"])
+            clean = self._render_argv(root, {"wf-independent": VALID_SPEC}, ["--repo-root", str(root)])
+            self.assertEqual(clean.returncode, 0, clean.stderr)
+            self.assertEqual(summaries(clean.stderr), [])
+        self.assertEqual(rps.PARTIAL_SKILL_DELIVERY_PREFIX, prefix)
+
     def test_platform_entry_point_renders_a_valid_declaration(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

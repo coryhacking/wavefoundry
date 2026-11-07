@@ -59,34 +59,121 @@ def _remedy(entry: str) -> str:
     )
 
 
+# Change 22r96: deterministic work limits reached during detection. The scanner
+# records one of these fixed details, chosen by exact membership, never by
+# copying worker text. Rescanning the same content reaches the same limit.
+UPSTREAM_INCOMPLETE_REASON = "upstream scan incomplete"
+MATCH_LIMIT_DETAIL = "match_limit"
+RESULT_LIMIT_DETAIL = "result_limit"
+COMPONENT_SET_LIMIT_DETAIL = "component_set_limit"
+RESPONSE_TOO_LARGE_DETAIL = "worker_response_too_large"
+WORK_LIMIT_DETAILS = frozenset({
+    MATCH_LIMIT_DETAIL, RESULT_LIMIT_DETAIL, COMPONENT_SET_LIMIT_DETAIL, RESPONSE_TOO_LARGE_DETAIL,
+})
+# When the engine reports several limits, the first in this order names the
+# row: a raised limit (no findings returned) outranks the composite-set limit.
+WORK_LIMIT_PRECEDENCE = (RESULT_LIMIT_DETAIL, MATCH_LIMIT_DETAIL, COMPONENT_SET_LIMIT_DETAIL)
+# A scan-time timeout may depend on load; a path-check timeout happens in the
+# check that would evaluate a path entry, so it is recorded separately.
+SCAN_TIMEOUT_DETAIL = "worker_timeout"
+PATH_CHECK_TIMEOUT_DETAIL = "path_check_worker_timeout"
+
+
+def work_limit_detail(diagnostics: object) -> str | None:
+    """The fixed detail for the first known work-limit token, else None."""
+    if not isinstance(diagnostics, list):
+        return None
+    present = {token for token in diagnostics if isinstance(token, str)}
+    return next((detail for detail in WORK_LIMIT_PRECEDENCE if detail in present), None)
+
+
+def _add_entry(entry: str) -> str:
+    return f"add {entry} to the project [allowlist] paths in {_PROJECT_RULES_REL}"
+
+
+def _work_limit_remedy(detail: str, entry: str) -> str:
+    if detail == MATCH_LIMIT_DETAIL:
+        return ("Rescanning alone will not clear a fixed scanner work limit: the file produced "
+                "more raw rule matches than one scan evaluates. Convert or split the file, or, "
+                f"after confirming it holds no secrets, {_add_entry(entry)}.")
+    if detail == COMPONENT_SET_LIMIT_DETAIL:
+        return ("Rescanning alone will not clear a fixed scanner work limit: the scan stopped "
+                "combining related findings. The findings it reported stand, and a path entry "
+                "would also suppress them. Resolve the reported findings, or narrow the rule, "
+                f"first; only after confirming they are false positives, {_add_entry(entry)}.")
+    return ("Rescanning alone will not clear a fixed scanner work limit: the file holds more "
+            "candidate findings, after filtering, than one scan can return, so none are shown "
+            "and they are unreviewed candidate secrets. Split the file and rescan the parts so "
+            f"the findings appear; only after those findings are reviewed, {_add_entry(entry)}.")
+
+
+def _scan_timeout_guidance(entry: str) -> str:
+    return ("The scan of this file timed out. Retry the scan first. If it times out again on "
+            "unchanged content, convert or split the file, or, after confirming it holds no "
+            f"secrets, {_add_entry(entry)}.")
+
+
+PATH_CHECK_TIMEOUT_GUIDANCE = (
+    "The path-exclusion check for this file timed out. Retry the scan; a path entry cannot "
+    "clear this, because the same check evaluates it."
+)
+
+
+def _is_fixed_limit(row: dict) -> bool:
+    """Input or work limits; timeouts are never counted as fixed limits."""
+    if row.get("reason") in FIXED_LIMIT_REASONS:
+        return True
+    return row.get("reason") == UPSTREAM_INCOMPLETE_REASON and row.get("detail") in WORK_LIMIT_DETAILS
+
+
 def fixed_limit_remedy(row: dict) -> str | None:
-    """Remedy for a fixed-limit incomplete row; None keeps a reason's own text.
+    """Per-row remedy for an incomplete row; None keeps a reason's own text.
 
     This is the one projection every ``[scan-incomplete]`` producer uses: the
     completion row names the exact entry, and summaries stay path-free.
+    Input limits, work limits and worker timeouts each get their own text.
     """
-    if row.get("reason") not in FIXED_LIMIT_REASONS:
+    reason, detail = row.get("reason"), row.get("detail")
+    upstream = reason == UPSTREAM_INCOMPLETE_REASON
+    if reason not in FIXED_LIMIT_REASONS and not (
+            upstream and detail in WORK_LIMIT_DETAILS | {SCAN_TIMEOUT_DETAIL, PATH_CHECK_TIMEOUT_DETAIL}):
         return None
+    if upstream and detail == PATH_CHECK_TIMEOUT_DETAIL:
+        return PATH_CHECK_TIMEOUT_GUIDANCE
     rel = row.get("file")
     if not isinstance(rel, str) or not rel:
-        return _remedy("an entry anchored to that one path ('^' + escaped path + '$')")
-    return _remedy(allowlist_entry(rel))
+        entry = "an entry anchored to that one path ('^' + escaped path + '$')"
+    else:
+        entry = allowlist_entry(rel)
+    if upstream and detail == SCAN_TIMEOUT_DETAIL:
+        return _scan_timeout_guidance(entry)
+    if upstream:
+        return _work_limit_remedy(detail, entry)
+    return _remedy(entry)
 
 
 def incomplete_guidance(rows: list[dict], retry: str = "inspect completion details and retry.") -> str:
     """Closing guidance for a ``[scan-incomplete]`` summary of *rows*.
 
     Without a fixed-limit row the producer's own *retry* text is unchanged.
+    Worker timeouts are retry candidates here, never fixed limits.
     """
     incomplete = incomplete_rows(rows)
-    fixed = {row["file"] for row in incomplete if fixed_limit_remedy(row)}
-    other = {row["file"] for row in incomplete} - fixed
-    if not fixed:
+    inputs = {row["file"] for row in incomplete if row.get("reason") in FIXED_LIMIT_REASONS}
+    work = {row["file"] for row in incomplete if _is_fixed_limit(row)} - inputs
+    other = {row["file"] for row in incomplete} - inputs - work
+    if not inputs and not work:
         return retry
-    remedy = fixed_limit_remedy({"reason": FILE_TOO_LARGE_REASON})
+    parts = []
+    if inputs:
+        remedy = fixed_limit_remedy({"reason": FILE_TOO_LARGE_REASON})
+        parts.append(f"{len(inputs)} of them exceed a fixed scanner input limit. {remedy} "
+                     "Each file's completion details name its exact entry.")
+    if work:
+        parts.append(f"{len(work)} of them reached a fixed scanner work limit, which rescanning "
+                     "alone will not clear; each file's completion details give its remedy and exact entry.")
     rest = " Inspect completion details and retry the other file(s)." if other else ""
-    return (f"{len(fixed)} of them exceed a fixed scanner input limit. {remedy} "
-            f"Each file's completion details name its exact entry.{rest}")
+    return " ".join(parts) + rest
 
 
 def incomplete_paths(root: Path) -> set[str]:

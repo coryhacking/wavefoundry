@@ -188,8 +188,14 @@ def _checkpoint_recovery_tail(checkpoint: dict[str, Any], root: Path | None = No
     if checkpoint.get("entry_path") == "setup":
         action = checkpoint.get("action_required") or {}
         continuation = action.get("command") if isinstance(action, dict) else None
-        return ("resume the recorded wf setup continuation: " + continuation if continuation
-                else "rerun ordinary wf setup to finish installed-checkout reconciliation; retain the checkpoint and index")
+        if continuation:
+            return "resume the recorded wf setup continuation: " + continuation
+        # Change 22r96: the repository-selected setup launcher, never a bare command.
+        from setup_commands import setup_recovery
+        command = setup_recovery(root)["recovery_usage"]
+        if root is None:
+            return command.rstrip(".") + " to finish installed-checkout reconciliation; retain the checkpoint and index"
+        return "rerun " + command + " to finish installed-checkout reconciliation; retain the checkpoint and index"
     from sqlite_storage_migration import legacy_memory_pause, resume_guidance
     action = checkpoint.get("action_required")
     foreign = (isinstance(action, dict) and action.get("kind") in {"storage_migration", "index_guard_handoff"}

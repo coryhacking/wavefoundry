@@ -1787,20 +1787,27 @@ def memory_search_response(
     diagnostics = []
     if retrieval["qualification"] == "unavailable":
         model_unavailable = retrieval["fallback_reason"] == "memory_relevance_model_unavailable"
+        # Change 22r96: the repository-selected setup launcher, as structured
+        # recovery; the explanation stays in the message.
+        from setup_commands import setup_recovery
+        setup = setup_recovery(root) if model_unavailable else None
         recovery = (
             "Check the reranker disable setting and local model/runtime availability; "
-            "run wf setup if provisioning is needed. After correcting availability, "
+            "run " + setup["recovery_usage"] + " if provisioning is needed. After correcting availability, "
             "restart the MCP server to clear any cached model-load failure; "
             "an index refresh alone does not clear that cache."
             if model_unavailable else "Run index_health() and follow its index recovery guidance."
         )
-        diagnostics.append(_diagnostic(
+        fallback = _diagnostic(
             "memory_query_fallback", "Memory relevance screening is unavailable; "
             "results use all-token lexical matching and policy ordering. "
             "The calling agent must assess each record's relevance and support. " + recovery,
             recovery_tools=[] if model_unavailable else ["index_health"],
-            recovery_usage=recovery if model_unavailable else "index_health()",
-        ))
+            recovery_usage=setup["recovery_usage"] if model_unavailable else "index_health()",
+        )
+        if setup is not None:
+            fallback.update(recovery_argv=setup["recovery_argv"], recovery_shell=setup["recovery_shell"])
+        diagnostics.append(fallback)
     if not views:
         diagnostics.append(_diagnostic(
             "no_memory_matches",

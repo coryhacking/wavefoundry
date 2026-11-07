@@ -206,7 +206,10 @@ class FixedInputLimitTests(unittest.TestCase):
             failures = self.scan()
         rows = self.rows()
         self.assertEqual(rows[0]["detail"], "worker_timeout")
-        self.assertNotIn("remedy", rows[0])
+        # Change 22r96: a timeout row carries retry-first guidance, never the
+        # fixed-limit remedy, and is not counted as a fixed limit.
+        self.assertTrue(rows[0]["remedy"].startswith("The scan of this file timed out. Retry the scan first."))
+        self.assertNotIn(REMEDY_MARK, rows[0]["remedy"])
         self.assertFalse(any(REMEDY_MARK in f for f in failures), failures)
         self.assertFalse(any(REMEDY_MARK in f for f in scanner_skips.scanner_completion_failures(self.root)))
 

@@ -1,0 +1,93 @@
+{
+  "wave_id": "22r97 waveforge-pre-tag-follow-ups",
+  "change_id": "22r96-bug waveforge-pre-tag-follow-ups",
+  "seat": "red-team",
+  "mode": "council-adversarial-primer",
+  "depth": "standard",
+  "receipt": "review-policy-51715db8d7867df71ee0",
+  "tools": "wavefoundry MCP loaded via ToolSearch and used (code_keyword limit=0 census). Gapfill: most source reads used sed/grep via Bash for speed over code_read; one read-only live probe of scanner_upgrade.inspect_project_rules in the scratchpad.",
+  "strongest_challenge": "Item 1 fixes one deterministic engine limit and leaves its siblings unclearable. betterleaks_engine.scan raises WorkLimit('result_limit') when accumulated full+value+line bytes exceed MAX_RESULT_BYTES (8 MiB), and it sets component_set_limit; both are as deterministic for the same content, path and rule configuration as match_limit. result_limit is the likelier one in practice: each surviving hit adds its whole line, so a minified single-line file of a few MiB reaches 8 MiB after two or three hits. Requirement 1 says 'other residual reasons keep their current text', so such a file stays on retry advice and blocks docs-lint and close. That is the same defect the wave's Objective promises to fix ('a lasting remedy for deterministic scan limits').",
+  "best_alternative": "Map the engine's diagnostics to a closed set in the parent. In secrets_validators._scan_upstream_raw, if any of {'match_limit','result_limit'} appears in result['diagnostics'] (exact string membership; never copy worker text), record detail 'engine_work_limit:<token>' or one fixed detail per token. scanner_skips then treats those details, along with FIXED_LIMIT_REASONS, as fixed, using wording that does not call them 'input limits'. Put the timeout guidance in scanner_skips as a separate per-row 'guidance' field that incomplete_guidance does not count as fixed. Put the partial-delivery line only in render_platform_surfaces.main, printed when --manifest is absent, so setup inherits it and the manifest-reading callers do not duplicate it.",
+  "primer_questions": [
+    "Should result_limit (and component_set_limit) get the same fixed-limit remedy as match_limit, given that both are deterministic for the same content, path and configuration? If not, what remedy do they get?",
+    "AC-1 says 'a file that reaches the engine match cap'. Will the test drive the real worker and engine to MAX_MATCHES with a real file, or mock worker_request to return diagnostics=['match_limit']? A mock passes even if the engine-to-parent path is broken.",
+    "For a setup-owned or legacy storage_migration_required, graph_snapshot._read_failure still appends 'resume Upgrade Wavefoundry' with recovery_usage wf_upgrade_status(). Is fixing only the exception string in require_ready enough for AC-3, or must the graph and index_build structured recovery follow the setup-owned branch too?",
+    "Which layer prints the partial-delivery line? render_platform_surfaces.main already has agent_written.partial and skill_collisions without --manifest, and setup inherits the child's stdout. Upgrade (via child_tee) and wf_sync_surfaces (output = stdout+stderr) both pass --manifest and report collisions themselves. Should the CLI print only when --manifest is absent, with setup adding nothing of its own?"
+  ],
+  "efficacy_replay": [
+    {
+      "item": 1,
+      "motivating_case": "File always hits MAX_MATCHES; file always times out",
+      "replay": "The engine's basic() counts every regex match across rules (work[0]), before any filter, allowlist regex or stopword applies, and raises WorkLimit('match_limit'). scan() catches it, sets complete=False and appends 'match_limit' to diagnostics (betterleaks_engine.scan, except WorkLimit). The worker _Runtime._run returns the dict unchanged, and _valid_upstream_result checks only that diagnostics is a list. So the token does reach _scan_upstream_raw, which today discards it ('detection_or_filter_work_incomplete'). The count depends on content, the path (rule path regexes and per-rule allow paths) and the merged rule set (keywords, disabled_rules). So 'deterministic for the same content' holds for the same content, path and configuration. Only a path exclusion or a rule change clears it; [allowlist] regexes and stopwords do not, because counting precedes them. That makes the anchored-path remedy correct. The project path check runs first in scan_file_raw (_upstream_path_excluded marks complete=True), and update_scanner_skips pops the row, so the remedy does clear the row. Timeouts arrive as WorkerError('worker_timeout') (parent deadline in _Client.request) and are recorded through getattr(exc,'code') at both _scan_upstream_raw and the path_excluded call in scan_file_raw. Both record the same reason/detail, so a timeout in path assessment is indistinguishable, and there the path-entry remedy would not help. The ledger keeps no occurrence count, so 'recurring' can only be static text, which the plan accepts. Result: the match-cap case gets a lasting fix; the timeout case gets workable guidance; the result_limit case stays unclearable (see finding F1).",
+      "verdict": "partially effective"
+    },
+    {
+      "item": 2,
+      "motivating_case": "Malformed docs/scan-rules.toml",
+      "replay": "TOML is parsed only in the child, _inspect_root, through secrets_validators._load_toml, which sends the text to worker_request('parse_toml'). The worker's tomllib error becomes WorkerError('invalid_configuration'): code only, no parser text, so leakage is structurally prevented. inspect_project_rules (the parent) never parses; it reads bytes, stages them, runs the child and passes the child's JSON result through. Live probe on the current tree: the parent returned 'incoming_validator_unavailable' (the child's catch-all), not 'validation_unavailable'. The change doc's premise that the parent catch-all is reached is therefore wrong. Classification belongs only in _inspect_root, around the project _load_toml call, not the framework one. The same invalid_configuration code also covers a non-tree or oversized parse result (_validate_tree), and data.decode('utf-8') raises UnicodeDecodeError in the parent of the worker call. Both should be included or excluded on purpose.",
+      "verdict": "effective if scoped to the child"
+    },
+    {
+      "item": 3,
+      "motivating_case": "Bare 'wf setup' remedies",
+      "replay": "Root is available at both sites: require_ready(index_dir) can use index_dir.parent.parent, the idiom already used by indexer and graph_snapshot; memory_handlers receives root. A limit=0 census of non-test scripts found one more bare runtime remedy: publication_control._checkpoint_recovery_tail, 'rerun ordinary wf setup to finish installed-checkout reconciliation', where root is a parameter. Softer sites: runtime_advisory guidance 'before running wf setup with that Python' (no root in scope), and setup_index._WINDOWS_IN_USE_HINT, which is replaced at its only use. The intentional ones are LEGACY_RECOVERY_GUIDANCE (it refers to an older framework's own setup) and the 'resume the recorded wf setup continuation' strings (they point at a recorded command). The graph read path overrides recovery to wf_upgrade_status for every MigrationRequired (graph_snapshot._read_failure; the test_graph_snapshot_readers._assert_public_failure pin), so the 'structured recovery' half of Requirement 3 contradicts the setup-owned text. Test pitfall: on POSIX, setup_recovery output '/abs/.wavefoundry/bin/wf setup --root /abs' still contains the substring 'wf setup'. A naive assertNotIn fails a correct fix, and an assertIn('--root') passes on any rooted string.",
+      "verdict": "effective for the two named sites; census incomplete by one"
+    },
+    {
+      "item": 4,
+      "motivating_case": "Declared-skill collision during wf setup",
+      "replay": "render_platform_surfaces.main holds agent_written, a SkillRenderResult with .partial and .skill_collisions[*].message, whether or not --manifest is given; the manifest only serializes them. setup_wavefoundry._run_render_platform_surfaces uses isolated_run without capture, so anything the CLI prints reaches the setup user. A CLI-side line therefore covers both surfaces without a manifest. Upgrade (child_tee, --manifest) and wf_sync_surfaces (--manifest, output includes stdout+stderr) already report collisions from the manifest and would show a duplicate line if the CLI printed unconditionally.",
+      "verdict": "effective; placement must be pinned"
+    }
+  ],
+  "readiness_findings": [
+    {
+      "id": "F1",
+      "type": "intent_gap",
+      "severity": "medium",
+      "summary": "Requirement 1 excludes result_limit and component_set_limit, which are as deterministic as match_limit. The wave Objective promises 'a lasting remedy for deterministic scan limits'.",
+      "evidence": "betterleaks_engine.scan: WorkLimit('result_limit') at work[1] > MAX_RESULT_BYTES (two sites); component_set_limit diagnostic; secrets_validators._scan_upstream_raw collapses all of them to detection_or_filter_work_incomplete.",
+      "repair": "Change Requirement 1 to: 'When the engine stops on a deterministic work limit (diagnostic match_limit or result_limit), the parent records a distinct detail naming that limit, which fixed_limit_remedy treats as a fixed limit with the shared remedy.' Add a result_limit case to AC-1, or record an explicit Decision Log entry deferring result_limit and component_set_limit, and narrow the Objective wording to the match cap."
+    },
+    {
+      "id": "F2",
+      "type": "false_premise",
+      "severity": "low",
+      "summary": "inspect_project_rules does not parse TOML and does not reach its validation_unavailable catch-all on a parse error. It passes the child's incoming_validator_unavailable through (live probe). An implementer told to classify in 'both entry points' may add a parent-side tomllib parse, contrary to the 'never parse in this process' design.",
+      "evidence": "scanner_upgrade.inspect_project_rules passes json.loads(proc.stdout) through; secrets_validators._load_toml parses only via worker_request('parse_toml'); WorkerError carries codes only. Probe output: {'code': 'incoming_validator_unavailable'}.",
+      "repair": "Requirement 2: 'scanner_upgrade._inspect_root classifies a WorkerError(invalid_configuration) from the project _load_toml call (not the framework one) as project_rules_parse_error; inspect_project_rules returns it by passing the child result through and does not parse TOML itself.' Fix the AC-2 known-bad control: the current code gives incoming_validator_unavailable from both entry points."
+    },
+    {
+      "id": "F3",
+      "type": "incomplete_census",
+      "severity": "low",
+      "summary": "There is a third bare runtime setup remedy with root in scope: publication_control._checkpoint_recovery_tail, 'rerun ordinary wf setup to finish installed-checkout reconciliation'.",
+      "evidence": "code_keyword('wf setup', limit=0) over non-test framework scripts; publication_control._checkpoint_recovery_tail(checkpoint, root) receives root.",
+      "repair": "Add publication_control._checkpoint_recovery_tail's no-continuation branch to Requirement 3 and AC-3, with setup_command(root) when root is not None. Record runtime_advisory guidance (no root) and the LEGACY_RECOVERY_GUIDANCE and 'recorded continuation' strings as intentional exclusions in the change doc."
+    },
+    {
+      "id": "F4",
+      "type": "no_op_ac",
+      "severity": "medium",
+      "summary": "AC-3 can pass with the MigrationRequired string fixed, while graph reads of the same storage_migration_required still advise 'resume Upgrade Wavefoundry' and recovery_usage wf_upgrade_status() for a setup-owned or legacy migration. Requirement 3's 'with argv and shell where the response carries structured recovery' then has no carrier that changes.",
+      "evidence": "graph_snapshot._read_failure: every MigrationRequired maps to wf_upgrade_status; pinned by tests/test_graph_snapshot_readers._assert_public_failure. indexer.build_index returns _build_failed_result(str(exc)) with no structured recovery.",
+      "repair": "Either (a) add to Requirement 3: 'graph_snapshot._read_failure uses setup_recovery(root) fields when the MigrationRequired names the setup owner', with a graph-read assertion in AC-3; or (b) state that only the exception text changes and the structured graph recovery stays wf_upgrade_status by design, and drop the argv/shell clause for this site. In either case, write the AC-3 assertion as the absence of 'run wf setup' plus equality with setup_recovery(root)['recovery_usage'], not a 'wf setup' substring check, which POSIX launcher paths contain."
+    },
+    {
+      "id": "F5",
+      "type": "no_op_ac",
+      "severity": "low",
+      "summary": "AC-1 can be satisfied by mocking worker_request to return diagnostics=['match_limit'], which never exercises the engine-to-worker-to-parent path. The existing residual test already uses this mock style.",
+      "evidence": "tests/test_scanner_input_limits.test_residual_engine_incompleteness_keeps_retry_text_without_remedy mutates the live result. MAX_MATCHES cannot be patched in the worker child from the parent.",
+      "repair": "In AC-1, require the live worker with a real file that exceeds 20,000 matches of a cheap fixture project rule (with a keyword present), asserting the detail, the remedy, and completeness after the anchored entry. Allow a mock only for the timeout case. Also require that the parent maps exact diagnostic tokens to fixed detail strings and never copies worker diagnostic text into the ledger."
+    },
+    {
+      "id": "F6",
+      "type": "ambiguity",
+      "severity": "low",
+      "summary": "Requirement 4 says setup and the CLI each print a line. Setup inherits the CLI's stdout, and upgrade and wf_sync_surfaces already report from the manifest, so an unconditional CLI print plus a setup-side print duplicates the line in setup and upgrade output.",
+      "evidence": "setup_wavefoundry._run_render_platform_surfaces (isolated_run, no capture); upgrade_wavefoundry surface render (child_tee, --manifest, own collision lines); docs_handlers sync runner (--manifest, output=stdout+stderr).",
+      "repair": "Requirement 4: 'render_platform_surfaces.main prints one summary line from agent_written.skill_collisions when partial is true and --manifest is absent; setup adds no line of its own.' AC-4 adds: exactly one summary line in wf setup output, and none added to upgrade output."
+    }
+  ]
+}

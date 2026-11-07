@@ -1,0 +1,45 @@
+{
+ "wave_id": "22r97 waveforge-pre-tag-follow-ups",
+ "change_id": "22r96-bug waveforge-pre-tag-follow-ups",
+ "seat": "council-chair",
+ "phase": "readiness",
+ "context_id": "22r97-ready-chair-1",
+ "receipt": "review-policy-4ef7cc10582f8f0cbf70",
+ "primer_depth": "standard",
+ "seats": ["red-team (primer)", "security-reviewer (rotating seat, required lane)", "code-reviewer", "qa-reviewer"],
+ "verdict": "PASS",
+ "seat_agreement_aggregate": {"seat_agreement": "unanimous", "max_severity": "medium"},
+ "lane_state": "wf_review_wave(phase='prepare'): code-reviewer, qa-reviewer, security-reviewer approved and current on this receipt; lint_passed true; only council-readiness outstanding. The wave.md Review Evidence projection still shows pending/withheld and lags the ledger.",
+ "intent_fit": {
+  "change_22r96": {
+   "verdict": "establishes",
+   "measure_of_success": "Each of Waveforge's four cases has a discriminating AC with a stated known-bad on the current tree: a live-worker file past MAX_MATCHES records the match-limit detail and clears with an anchored [allowlist] paths entry (AC-1); a broken project scan-rules.toml yields project_rules_parse_error from both entry points, with negative controls (AC-2); structured carriers equal setup_recovery(root) exactly and prose carriers embed its recovery_usage (AC-3); exactly one PARTIAL SKILL DELIVERY line without --manifest and zero with it, exit 0 (AC-4). Readable after release: Waveforge re-verifies the next tag under their profile, and the known-bad states are observable in their output."
+  },
+  "objective": {
+   "verdict": "establishes",
+   "measure_of_success": "The Objective's four outcomes map one-to-one onto Requirements 1-4, and 'completion policy, readiness policy and exit codes unchanged' is held by Requirement 1 (incomplete rows still block; only detail and remedy text change) and AC-4 (exit 0). The repaired Requirement 1 covers every deterministic engine/worker work limit the lanes found (match_limit, result_limit, component_set_limit, worker_response_too_large)."
+  },
+  "worst": "establishes"
+ },
+ "primer_summary": "Red-team (standard depth) found F1-F6: missing sibling work limits, parent-side parse classification premise wrong, a third bare remedy and the graph-read recovery override, mock-only AC-1 oracle, and unpinned summary-line placement. All repaired before approvals; seats confirmed the repairs and extended them (S1 per-token remedies, C1 fixed prefix, QA oracle split and response-cap token).",
+ "strongest_challenge": "Requirement 1's 'confirm no secrets, then path-allowlist' route is a suppression lever on a secrets scanner, and for result_limit/worker_response_too_large the operator sees zero findings to confirm against. Answered by S1's per-token remedies (split and rescan first so findings surface; component_set_limit findings resolved first), one anchored path per entry, and incomplete rows still blocking until an operator acts. Residual: filter_evaluation_error residuals are also deterministic and keep current text; they are rule defects, cleared by fixing the rule, not work limits, so they are outside the Objective.",
+ "strongest_alternative": "Raise or make configurable the engine caps (MAX_MATCHES, MAX_RESULT_BYTES, the 250,000-node response cap) so the files simply complete. Not stronger: it changes completion policy the Objective holds fixed, widens worker resource exposure, and still leaves a ceiling with the same unclearable-retry text; accurate per-token remedies are the smaller, policy-neutral fix Waveforge asked for.",
+ "spot_checks": [
+  "secrets_validators._scan_upstream_raw (lines 1457-1476): the `if not result[\"complete\"]` branch records the fixed 'detection_or_filter_work_incomplete', discarding diagnostics; the exception branch records getattr(exc,'code'), which is how worker_timeout/worker_response_too_large arrive. Confirms Requirement 1's premise and that exact-membership mapping has a source.",
+  "betterleaks_engine: MAX_MATCHES=20000, MAX_RESULT_BYTES=8 MiB, WorkLimit('match_limit') at 249, WorkLimit('result_limit') at 285 and 339, component_set_limit appended (not raised) at 344-345. Confirms the token set and that component_set_limit coexists with reported findings.",
+  "scanner_upgrade._inspect_root: project _load_toml (186) and framework _load_toml (187) are separate calls inside one try whose catch-all returns incoming_validator_unavailable (236). Confirms Requirement 2's child-only, project-call-only classification is implementable and that the framework negative control is meaningful.",
+  "render_platform_surfaces.main writes partial_skill_delivery/skill_collisions only into the --manifest JSON (3293-3311); render_agent_surfaces prints per-collision 'render_agent_surfaces: PARTIAL -' (1611). Confirms C1 and the need for a distinct fixed prefix.",
+  "Bare remedies exist: sqlite_storage_migration.py:582, wf_server/memory_handlers.py:1792, publication_control.py:192; graph_snapshot._read_failure forces wf_upgrade_status for every MigrationRequired (243-246); setup_commands.setup_recovery exists (38)."
+ ],
+ "finding_synthesis": [
+  {"finding": "22r97-qa-ac3-oracle", "disposition": "do_now", "rationale": "required_ac oracle undefined for prose carriers; repaired by structured vs prose oracles; reverified by qa-reviewer, terminal", "red_team": "held"},
+  {"finding": "22r97-qa-ac2-overbroad-control", "disposition": "maybe_later", "rationale": "important_ac; negative controls already written into AC-2; ledger head repair state still pending", "red_team": "held; record repair completion so the head is terminal before close"},
+  {"finding": "22r97-qa-response-cap-intent-gap", "disposition": "maybe_later", "rationale": "important_ac availability gap; worker_response_too_large now in Requirement 1 and AC-1; ledger head still pending", "red_team": "held; same bookkeeping note"}
+ ],
+ "improvements_recommended": [
+  "State the multi-token precedence order explicitly at delivery (for example component_set_limit, then result_limit, worker_response_too_large, match_limit) and pin it in AC-1's multi-token case.",
+  "Bring the two maybe_later finding heads to a terminal state during delivery, since their repairs are already in the plan text.",
+  "Track the PowerShell curly-quote quoting gap in setup_recovery.format_command as a follow-up (security advisory, pre-existing)."
+ ],
+ "falsification_check": "Working verdict PASS / establishes. Strongest counter: the timeout guidance cannot detect recurrence (no occurrence count), so 'recurring' is static text. Does not change verdict: timeouts are not deterministic limits under the Objective, and retry-first static guidance is the accepted Decision Log choice."
+}

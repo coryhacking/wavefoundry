@@ -2,19 +2,18 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-06
+Last verified: 2026-11-07
 
 ## Current state
 
-No wave is OPEN. **22qr6 post-release-review-fixes closed on 2026-11-06** by explicit operator approval. 22qky closed earlier the same day (`1ef5e0c9`). 22qr6 fixed the verified findings from the post-release `/code-review` of `v1.36.0..HEAD`: 22qoz (fixed-limit scan reasons and anchored-allowlist remedy, idle-alarm fix), 22qr5 (config sent once per worker by digest), 22qp0 (Go-invalid nested and flag-fused quantifiers refused), 22qr4 (work-owner restore, truthful reload monitors, staged-only inspection) and 22qoy (framework imports moved back below the bytecode guard in four entry scripts, plus a real-tree bytecode census in `run_tests.py`). Review findings 4 (not a defect) and 10 (accepted setup cost) were excluded.
-
-Council intent fit is `partially`. 22qoy AC-1 is `[~]` by operator decision, because the any-process trace (sudo `fs_usage`) was not run; this is tracked as non-blocking finding `22qr6-chair-22qoy-writer-exhaustiveness`. Readiness took three operator-authorized bounded repairs. Verification: default suite 12,557 tests / 227 files / 12 skips green (receipt inputs `750d42c76b707c1ced5439c1b1096300cfbd5d640cd91ec8c7d1711b1d684401`); `second` profile 227/227 files green with no framework bytecode. macOS only.
+No wave is OPEN. **22r97 waveforge-pre-tag-follow-ups closed on 2026-11-07** by explicit operator approval. Its single change, 22r96, delivers Waveforge's four pre-tag items against `2b6b985a`: limit-specific remedies for the four deterministic scanner work limits (`match_limit`, `result_limit`, `component_set_limit`, `worker_response_too_large`), retry-first scan-timeout and retry-only path-check-timeout guidance; `project_rules_parse_error` for a malformed project `docs/scan-rules.toml`; `setup_recovery(root)` remedies at the remaining bare `wf setup` sites; and one `PARTIAL SKILL DELIVERY` summary line. The implement-wave prompt now says "disposable work area" (Waveforge renamed wave to set). Council intent fit `establishes`. Default suite 12,568 tests / 228 files / 12 skips green (receipt inputs `51e75d5665bcc13cba99c9901f94f16cd8d290884e625fdf7c05fecaeb02b97a`); `second` and `declared` profiles green on the tree before that prose-only edit. macOS only. 22qr6 closed earlier (`2b6b985a`).
 
 ### Next
 
-1. The planned follow-ups are unstarted: `22qr7-debt scanner-review-minor-follow-ups` (test isolation, guidance undercount, trailing-newline anchor) and `22r95-enh review-event-accepted-not-repaired` (expose `promotion_trigger`).
-2. Optional: an operator-approved `fs_usage` trace during a full qualification run, to close the 22qoy exhaustiveness gap.
-3. Release readiness: the declared-profile run, exact profile comparisons per the package prompt, and a Waveforge response draft. **No official release until Waveforge responds.** Version selection remains operator-owned.
+1. Rename the remaining "Disposable wave work" section headings in shipped prompts and seeds to a generic term (operator request 2026-11-07). Keep the `.gitignore` block header: its comment line is a managed line.
+2. Release readiness for **1.40.0** (operator-chosen): version stamp, changelog heading, packaging and checksums. Waveforge said to go ahead with the tag; confirm with the operator before tagging and publishing.
+3. Planned follow-ups, unstarted: `22qr7-debt` (now five items, including two test-bytecode hygiene items) and `22r95-enh`. Two `maybe_later` readiness findings in 22r97 remain open in the ledger; the tool offers no action to close them.
+4. Optional: an operator-approved `fs_usage` trace for the 22qoy exhaustiveness gap.
 
 ### Preserved dirt
 

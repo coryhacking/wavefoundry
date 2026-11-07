@@ -183,7 +183,15 @@ def _inspect_root(root):
     sys.path[:] = _staged_import_path(root / FRAMEWORK / 'scripts')
     try:
         from wave_lint_lib import secrets_validators as scanner
-        project = scanner._load_toml(root / PROJECT_RULES)
+        from wave_lint_lib.betterleaks_worker import WorkerError
+        try:
+            project = scanner._load_toml(root / PROJECT_RULES)
+        except WorkerError as exc:
+            # Change 22r96: only the worker's TOML parse refusal names the
+            # project file; the code is a fixed literal, never parser text.
+            if exc.code != 'invalid_configuration':
+                raise
+            return _result('unsupported', [_issue('$', 'project_rules_parse_error')])
         framework = scanner._load_toml(root / FRAMEWORK / 'scan-rules.toml')
         profile = framework.get('wavefoundryProfile', 'legacy-cel')
         issues = []

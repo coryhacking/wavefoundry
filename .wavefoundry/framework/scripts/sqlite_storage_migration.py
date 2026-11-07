@@ -579,8 +579,18 @@ def require_ready(index_dir: Path, allow_migration: bool = False) -> None:
             "receipt proves which is authority. Both files are preserved; recover the intended "
             "one through its owning recovery records rather than deleting either.")
     if state["migration_required"]:
-        command = "wf_upgrade" if receipt and receipt.get("entry_path") != "setup" else "wf setup"
+        if migration_owned_by_setup(receipt):
+            # Change 22r96: the repository-selected launcher, never a bare command.
+            from setup_commands import setup_recovery
+            command = setup_recovery(Path(index_dir).parent.parent)["recovery_usage"]
+        else:
+            command = "wf_upgrade"
         raise MigrationRequired(f"storage_migration_required: run {command}; restart old hosts and resume the retained checkpoint")
+
+
+def migration_owned_by_setup(receipt: dict | None) -> bool:
+    """No receipt, or a setup-entry receipt, means setup owns the migration."""
+    return not receipt or receipt.get("entry_path") == "setup"
 
 
 def restore_checkpoint(root: Path) -> dict | None:

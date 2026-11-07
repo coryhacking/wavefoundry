@@ -1,0 +1,10 @@
+{
+  "wave": "22r97",
+  "platform": "macOS only",
+  "runs": [
+    {"profile": "default", "command": "python3 .wavefoundry/framework/scripts/run_tests.py", "tests": 12568, "files": 228, "skipped": 12, "result": "OK", "note": "final run after the disposable-work-area wording edit; receipt inputs_hash 51e75d5665bcc13cba99c9901f94f16cd8d290884e625fdf7c05fecaeb02b97a"},
+    {"profile": "second", "command": "python3 .wavefoundry/framework/scripts/run_tests.py --qualify-profile second", "files_passed": 228, "result": "OK", "note": "pre-rename tree"},
+    {"profile": "declared", "command": "python3 .wavefoundry/framework/scripts/run_tests.py --qualify-profile declared", "files_passed": 228, "result": "OK", "note": "pre-rename tree"}
+  ],
+  "framework_bytecode": "none under .wavefoundry/framework/"
+}

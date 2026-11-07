@@ -4,7 +4,7 @@ Change ID: `22qr7-debt scanner-review-minor-follow-ups`
 Change Status: `planned`
 Owner: Engineering
 Status: planned
-Last verified: 2026-11-06
+Last verified: 2026-11-07
 Wave: TBD
 
 ## Rationale
@@ -14,6 +14,8 @@ Wave 22qr6's delivery reviewers recorded three low-impact, non-blocking observat
 1. **Test isolation.** `tests/test_scanner_input_limits.py` calls `load_server()`, which reloads the `wave_lint_lib` worker module. When `tests/test_scanner_worker_config.py` runs later in the same `unittest` process, it patches a stale module object: 1 failure and 2 errors. `run_tests.py` runs each file in its own process, so the canonical suite is green.
 2. **Guidance undercount.** `scanner_skips.incomplete_guidance` counts fixed-limit files from the completion `incomplete` list, which is truncated to 50 rows. Beyond 50 such files, its "N of them" figure undercounts. Each row's remedy is still correct.
 3. **Trailing-newline anchor.** In the non-upstream (Python `re`) path matcher, `$` also matches before a trailing newline. The suggested anchored entry for path `x` therefore also excludes a path named `x` followed by a newline. The upstream translator emits `\Z` and is exact. The security reviewer judged this not a defect.
+4. **Unguarded test child.** `tests/test_memory_records.py` (`_child_dirty`) spawns `sys.executable -c ...` without `-B`. Under a bare `unittest` run that lacks `PYTHONDONTWRITEBYTECODE`, it writes 11 framework `.pyc` files beside the sources (reproduced on 2026-11-07). The canonical runner is unaffected, because its workers set the variable.
+5. **Runner tests read the live tree's bytecode census.** In-process `run_tests.main` tests in `tests/test_run_tests_cache.py` (for example `CacheReadOnceTests`, `FocusedRunTests`, `ScheduleControlTests`) take the real `.wavefoundry/framework/` census, so any stray bytecode in the checkout flips their exit code to 1 (observed in wave 22r97's first full run).
 
 ## Product Intent
 
@@ -24,6 +26,7 @@ Maintainers can run the scanner tests in any runner without false failures, oper
 1. The two scanner test modules pass when run together in one `unittest` process.
 2. The fixed-limit count in `incomplete_guidance` reflects every outstanding fixed-limit file, not only the truncated rows.
 3. A suggested allowlist entry matches exactly its own path on both the Python and the upstream path matchers.
+4. Test-spawned Python children never write framework bytecode, and runner unit tests do not depend on the live checkout's bytecode census.
 
 ## Scope
 

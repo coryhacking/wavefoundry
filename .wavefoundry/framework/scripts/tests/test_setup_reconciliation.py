@@ -348,16 +348,56 @@ class SetupReceiptTests(unittest.TestCase):
         self.assertEqual(before, upgrade_lib.upgrade_lock_path(self.root).read_bytes())
 
     def test_require_ready_dispatches_to_receipt_owner(self):
+        # Change 22r96 (AC-3): a setup-owned migration names the repository-
+        # selected launcher, in the prose and in the graph-read diagnostic.
+        import graph_snapshot
+        from setup_commands import setup_recovery
+        expected = setup_recovery(self.root)
+        self.assertNotEqual(expected["recovery_usage"], "wf setup")
+
+        def refusal():
+            with self.assertRaises(setup.MigrationRequired) as raised:
+                migration.require_ready(self.index)
+            return raised.exception
+
+        def assert_setup_owned(exc):
+            self.assertIn("run " + expected["recovery_usage"] + ";", str(exc))
+            self.assertNotIn("run wf setup", str(exc))
+            diagnostic = graph_snapshot._read_failure("project", exc, self.index).diagnostic
+            self.assertEqual(diagnostic["code"], "storage_migration_required")
+            for key in ("recovery_usage", "recovery_argv", "recovery_shell"):
+                self.assertEqual(diagnostic[key], expected[key], key)
+            self.assertNotIn("run wf setup", diagnostic["message"])
+
         self.legacy()
-        with self.assertRaisesRegex(setup.MigrationRequired, "run wf setup"):
-            migration.require_ready(self.index)
+        assert_setup_owned(refusal())
         receipt = self.pause()
-        with self.assertRaisesRegex(setup.MigrationRequired, "run wf setup"):
-            migration.require_ready(self.index)
+        assert_setup_owned(refusal())
         receipt.pop("entry_path")
         migration._write(self.index, receipt)
-        with self.assertRaisesRegex(setup.MigrationRequired, "run wf_upgrade"):
-            migration.require_ready(self.index)
+        upgrade_owned = refusal()
+        self.assertIn("run wf_upgrade", str(upgrade_owned))
+        diagnostic = graph_snapshot._read_failure("project", upgrade_owned, self.index).diagnostic
+        self.assertEqual(diagnostic["recovery_usage"], "wf_upgrade_status()")
+        self.assertEqual(diagnostic["recovery_tools"], ["wf_upgrade_status"])
+        self.assertNotIn("recovery_argv", diagnostic)
+
+    def test_setup_checkpoint_publication_tail_names_selected_setup_launcher(self):
+        # Change 22r96 (AC-3): the prose tail embeds the selected command.
+        import publication_control
+        from setup_commands import setup_recovery
+        command = setup_recovery(self.root)["recovery_usage"]
+        self.assertNotEqual(command, "wf setup")
+        tail = publication_control._checkpoint_recovery_tail({"entry_path": "setup"}, self.root)
+        self.assertIn(command, tail)
+        for bare in ("run wf setup", "rerun ordinary wf setup"):
+            self.assertNotIn(bare, tail)
+        recorded = publication_control._checkpoint_recovery_tail(
+            {"entry_path": "setup", "action_required": {"command": "RECORDED"}}, self.root)
+        self.assertEqual(recorded, "resume the recorded wf setup continuation: RECORDED")
+        rootless = publication_control._checkpoint_recovery_tail({"entry_path": "setup"})
+        self.assertNotIn("rerun ordinary wf setup", rootless)
+        self.assertTrue(rootless.startswith("Select the repository"), rootless)
 
 
 class NativeSetupTests(unittest.TestCase):

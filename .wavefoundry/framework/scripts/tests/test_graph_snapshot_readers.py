@@ -1026,11 +1026,12 @@ class GraphFailureRecoveryTests(_RootCase):
                 self.assertEqual(result["diagnostics"][0]["code"], code)
                 self.assertNotIn("index_build", result.get("next_tools", []))
                 self.assertNotIn("mode='create'", result.get("usage", ""))
-                recovery = ("wf_upgrade_status" if code == "storage_migration_required"
-                            else "index_build_status" if code == "graph_publication_in_flight"
+                # Change 22r96: with no receipt the migration is setup-owned, so
+                # it recovers through the repository-selected setup launcher.
+                recovery = ("index_build_status" if code == "graph_publication_in_flight"
                             else "index_health")
                 self.assertIn(recovery, result["next_tools"])
-                if code == "storage_runtime_unavailable":
+                if code in ("storage_runtime_unavailable", "storage_migration_required"):
                     from setup_commands import setup_recovery
                     expected = setup_recovery(self.root)
                     self.assertEqual(result["usage"], expected["recovery_usage"])

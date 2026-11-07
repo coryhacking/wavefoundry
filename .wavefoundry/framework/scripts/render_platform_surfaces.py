@@ -3164,6 +3164,10 @@ def render_platform_entrypoints(repo_root: Path, platform: str) -> None:
         render_codex_mcp_config(repo_root)
 
 
+# Change 22r96: the fixed prefix of the one partial-delivery summary line.
+PARTIAL_SKILL_DELIVERY_PREFIX = "render_platform_surfaces: PARTIAL SKILL DELIVERY - "
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Render repo-local hook/config surfaces from the wave framework.")
     parser.add_argument("--repo-root", default="", help="Override the repository root.")
@@ -3290,6 +3294,15 @@ def main(argv: list[str] | None = None) -> int:
             ds.unlink()
         except OSError:
             pass
+    if not args.manifest:
+        # Change 22r96: one summary line for callers that read stderr (setup,
+        # the render-surfaces CLI); manifest callers read the structured record.
+        withheld = [c["name"] for c in getattr(agent_written, "skill_collisions", []) or []
+                    if isinstance(c, dict) and isinstance(c.get("name"), str)]
+        if getattr(agent_written, "partial", False) and withheld:
+            print(PARTIAL_SKILL_DELIVERY_PREFIX + ", ".join(withheld)
+                  + " withheld; rename each downstream skill declaration and rerun rendering.",
+                  file=sys.stderr)
     if args.manifest:
         # render_agent_surfaces already returns changed-only paths (its writers
         # compare before writing); merge with this module's chokepoint records.

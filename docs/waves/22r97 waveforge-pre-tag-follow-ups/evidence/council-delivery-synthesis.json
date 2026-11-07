@@ -1,0 +1,55 @@
+{
+  "wave_id": "22r97",
+  "phase": "delivery",
+  "actor": "council-chair",
+  "context_id": "22r97-del-chair-1",
+  "fresh_context": true,
+  "independent": true,
+  "intent_fit": {
+    "change_22r96-bug": "establishes",
+    "wave_objective": "establishes",
+    "worst": "establishes",
+    "intent_outcome_confirmed": "achieved",
+    "note": "wave.md ## Review Checkpoints has no drafted 'Intent outcome:' paragraph yet; the coordinator should add one stating 'achieved' before close."
+  },
+  "waveforge_items": [
+    {"item": "1. Lasting remedy for recurring match-cap and timeout incompletes", "status": "met",
+     "evidence": "scanner_skips.work_limit_detail + fixed_limit_remedy; secrets_validators records match_limit/result_limit/component_set_limit by exact membership, worker_response_too_large via WorkerError.code; scan-time worker_timeout gets retry-first then allowlist guidance; path-check timeout recorded as path_check_worker_timeout with retry only. test_scanner_work_limits (live 20,001-match fixture becomes complete after an anchored allowlist entry). Chair spot-check confirmed exact membership, precedence, per-token cautions, no input-limit wording, timeouts excluded from fixed-limit guidance."},
+    {"item": "2. Distinct project_rules_parse_error", "status": "met",
+     "evidence": "scanner_upgrade._inspect_root classifies only WorkerError('invalid_configuration') from the project _load_toml call. Chair spot-check ran the real parent inspect_project_rules -> child subprocess on a broken docs/scan-rules.toml containing canary text: status unsupported, code project_rules_parse_error, no canary or parser text; a valid file gives compatible."},
+    {"item": "3. Two bare wf setup remedies (sqlite_storage_migration, memory_handlers)", "status": "met",
+     "evidence": "require_ready and graph_snapshot._read_failure use setup_recovery via migration_owned_by_setup (upgrade-owned keeps wf_upgrade_status); memory_query_fallback recovery_usage is the command with argv/shell; publication_control._checkpoint_recovery_tail also fixed. test_setup_reconciliation, test_graph_snapshot_readers, test_memory_records."},
+    {"item": "4. One-line skill-collision summary from wf setup and wf render-surfaces", "status": "met",
+     "evidence": "render_platform_surfaces.main prints one PARTIAL_SKILL_DELIVERY_PREFIX line from skill_collisions records when partial and --manifest absent; exit codes unchanged. test_declared_extension_skills::test_partial_skill_delivery_summary_is_one_line_without_manifest (real renderer, CLI and setup argv)."}
+  ],
+  "verification": {
+    "default_suite": ".wavefoundry/work/22r97/full-suite-2.log: 12568 tests / 228 files / 12 skips, OK, exit=0 (first run red only from a stray __pycache__ from a test-only python -c child, filed in plan 22qr7)",
+    "profile_second": ".wavefoundry/work/22r97/profile-second.log: 0 of 228 files failed, second exit=0",
+    "profile_declared": ".wavefoundry/work/22r97/profile-declared.log: 0 of 228 files failed, declared exit=0",
+    "bytecode_after_runs": "find .wavefoundry/framework -name __pycache__ -o -name '*.pyc': none",
+    "lane_approvals": "code-reviewer ev-approval-code-reviewer-2, security-reviewer ev-approval-security-reviewer-2, qa-reviewer ev-approval-qa-reviewer-2: all current",
+    "delivery_finding": "22r97-qa-del-response-cap-mapping-untested: terminal (repair completed, no unresolved lanes)"
+  },
+  "chair_spot_check": {
+    "script": "/private/tmp/claude-502/-Users-coryhacking-Developer-wavefoundry/9399b39d-a552-4f69-8e58-2f5d2d54d71e/scratchpad/del22r97-chair/spot.py",
+    "interpreter": "env -u PYTHONPYCACHEPREFIX PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=<repo>/.wavefoundry/framework/scripts /Users/coryhacking/.wavefoundry/venv/bin/python -B",
+    "results": {
+      "work_limit_detail": "trailing-space, uppercase and bare-string inputs -> None; [component_set_limit, match_limit] -> match_limit; all three -> result_limit",
+      "remedies": "None only for detection_or_filter_work_incomplete and worker_failure; no remedy says 'input limit'; split precedes allowlist for result_limit and worker_response_too_large; resolve precedes allowlist for component_set_limit; worker_timeout says Retry before allowlist; path-check timeout offers no entry",
+      "incomplete_guidance": "timeout-only rows return the caller's retry text unchanged; work-limit + timeout gives the work-limit sentence plus retry for the other file",
+      "parse_error_live": "real parent+child subprocess: project_rules_parse_error, no leaked canary; valid control compatible"
+    }
+  },
+  "limitations": [
+    "Native Windows not executed; setup_recovery PowerShell form covered by host-relative assertions only.",
+    "The live response-cap (worker_response_too_large) path is exercised with a raised WorkerError, not a live ~10,000-finding fixture; worker timeouts are mocked.",
+    "A path-check timeout that recurs has retry guidance only and no lasting remedy, by design (a path entry is evaluated by the same check).",
+    "Readiness findings 22r97-qa-ac2-overbroad-control and 22r97-qa-response-cap-intent-gap still have maybe_later heads with pending repair state (no unresolved lanes, not blocking), though both were addressed in readiness repair; the coordinator may reclassify them.",
+    "wave.md Review Checkpoints lacks the drafted Intent outcome paragraph.",
+    "Chair did not re-run suites; it relied on the recorded logs plus its own spot-check."
+  ],
+  "close_blockers": [
+    "operator-signoff is withheld (needs a fresh operator approval after repaired findings 22r97-qa-ac3-oracle and 22r97-qa-del-response-cap-mapping-untested).",
+    "Intent outcome paragraph should be drafted in wave.md Review Checkpoints before close."
+  ]
+}
