@@ -139,9 +139,48 @@ def inspect_project_rules(root: Path, pack: Path | None = None) -> dict:
         return _result('incomplete', [_issue('$', 'validation_unavailable')])
 
 
+def _staged_import_path(staged_scripts):
+    """Staged scripts first, then stdlib/site; never an installed scripts tree.
+
+    Change 22qr4: the child's own directory (the installed scripts) and any
+    inherited PYTHONPATH entry outside stdlib/site are dropped, so a module
+    missing from an incomplete pack cannot resolve from the installed copy.
+    Bootstrap modules this process already imported stay loaded.
+    """
+    import site
+    import sysconfig
+
+    def norm(entry):
+        return os.path.normcase(os.path.realpath(entry or os.getcwd()))
+
+    installed = norm(str(Path(__file__).resolve().parent))
+    inherited = {norm(p) for p in os.environ.get('PYTHONPATH', '').split(os.pathsep) if p}
+    bases = {norm(p) for scheme in (sysconfig.get_paths(), sysconfig.get_paths(vars={
+        'base': sys.base_prefix, 'platbase': sys.base_exec_prefix}))
+        for key, p in scheme.items() if key in {'stdlib', 'platstdlib', 'purelib', 'platlib'}}
+    try:
+        bases.update(norm(p) for p in site.getsitepackages())
+    except AttributeError:
+        pass
+    user_site = getattr(site, 'USER_SITE', None)
+    if user_site:
+        bases.add(norm(user_site))
+
+    def standard(real):
+        return any(real == base or real.startswith(base.rstrip(os.sep) + os.sep) for base in bases)
+
+    kept = [str(staged_scripts)]
+    for entry in sys.path:
+        real = norm(entry)
+        if real == installed or (real in inherited and not standard(real)):
+            continue
+        kept.append(entry)
+    return kept
+
+
 def _inspect_root(root):
     # Import the incoming dependency closure, never cached installed modules.
-    sys.path.insert(0, str(root / FRAMEWORK / 'scripts'))
+    sys.path[:] = _staged_import_path(root / FRAMEWORK / 'scripts')
     try:
         from wave_lint_lib import secrets_validators as scanner
         project = scanner._load_toml(root / PROJECT_RULES)

@@ -1650,6 +1650,21 @@ def scan_file_raw(
     except Exception:
         _record_scan_skip(rel, "input unreadable", "decode_failed")
         return [], None, []
+    if upstream:
+        # Replacement decoding can grow invalid bytes threefold. Check the
+        # engine's own fixed limits on the exact text that would be sent, so
+        # the outcome names the limit instead of a worker refusal or "retry".
+        from scanner_skips import DECODED_TOO_LARGE_REASON, TOO_MANY_LINES_REASON
+        from .betterleaks_engine import MAX_CONTENT_BYTES, MAX_LINES, exceeded_input_limit
+        limit = exceeded_input_limit(content)
+        if limit == "decoded_size":
+            _record_scan_skip(rel, DECODED_TOO_LARGE_REASON,
+                              f"{len(content.encode('utf-8'))} bytes > {MAX_CONTENT_BYTES} decoded cap")
+            return [], None, []
+        if limit == "line_count":
+            _record_scan_skip(rel, TOO_MANY_LINES_REASON,
+                              f"{content.count(chr(10))} newlines > {MAX_LINES} cap")
+            return [], None, []
 
     lines = content.splitlines()
     long_lines = [i for i, line in enumerate(lines, 1) if len(line) > MAX_LINE_BYTES]
@@ -2191,7 +2206,7 @@ def check_hardcoded_secrets(
     if files is None:
         files = get_scan_files(root, scan_all)
 
-    from scanner_skips import incomplete_rows, scanner_skip_notice, scanner_completion_failures
+    from scanner_skips import incomplete_guidance, incomplete_rows, scanner_skip_notice, scanner_completion_failures
     # Reconcile explicit current exclusions even when an incremental request
     # does not revisit the previously failed file. No content is read here.
     policy_outcomes = {}
@@ -2372,7 +2387,7 @@ def check_hardcoded_secrets(
 
     incomplete_paths = {row["file"] for row in incomplete_rows(_SCANNER_SKIPS)}
     if incomplete_paths:
-        failures.append(f"[scan-incomplete] {len(incomplete_paths)} eligible file(s) could not be completely scanned; inspect completion details and retry.")
+        failures.append(f"[scan-incomplete] {len(incomplete_paths)} eligible file(s) could not be completely scanned; {incomplete_guidance(_SCANNER_SKIPS)}")
 
     if not publish:
         _SCANNER_SKIPS_UNPUBLISHED.extend(scan_outcomes)

@@ -337,6 +337,41 @@ def _clean_pycache() -> None:
                 pass
 
 
+def framework_bytecode_paths(framework_dir: Path | None = None) -> list[str]:
+    """Change 22qoy: ``__pycache__`` directories and ``.pyc`` files under the framework.
+
+    Framework bytecode belongs only in ``.wavefoundry/cache/pycache/`` (changes
+    ``1zyv1``, ``206fi``), so anything found here was written beside the sources.
+    Links are not followed. Returns sorted paths relative to the framework
+    directory; empty when clean.
+    """
+    base = framework_dir or _FRAMEWORK_DIR
+    found: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(base):
+        for name in dirnames:
+            if name == "__pycache__":
+                found.append(os.path.relpath(os.path.join(dirpath, name), base))
+        for name in filenames:
+            if name.endswith((".pyc", ".pyo")) and os.path.basename(dirpath) != "__pycache__":
+                found.append(os.path.relpath(os.path.join(dirpath, name), base))
+    return sorted(Path(p).as_posix() for p in found)
+
+
+def _framework_bytecode_failure(framework_dir: Path | None = None) -> str | None:
+    """The census failure message when bytecode exists beside the framework sources."""
+    paths = framework_bytecode_paths(framework_dir)
+    if not paths:
+        return None
+    shown = paths[:20]
+    more = f"\n  ... and {len(paths) - len(shown)} more" if len(paths) > len(shown) else ""
+    return (
+        "FRAMEWORK BYTECODE BESIDE THE SOURCES (change 22qoy): a process wrote Python "
+        f"bytecode under {framework_dir or _FRAMEWORK_DIR} instead of .wavefoundry/cache/pycache:\n  "
+        + "\n  ".join(shown) + more
+        + "\nFind the entry point that imports a framework module before its bytecode guard."
+    )
+
+
 def stray_artifact_paths(scripts_dir: Path | None = None) -> list[str]:
     """Wave 1t3ek (1t231): paths of stray state artifacts a test run created.
 
@@ -1495,6 +1530,11 @@ def _execute_files(ordered_files: list[Path]) -> tuple[int, list[FileResult]]:
         # Evaluated before the failed-files branch so a failing run still
         # names any repository path it changed (wave 1z8ox, 1z8ov).
         stray_failure = _stray_artifact_failure(preexisting_strays, repo_before)
+        # Change 22qoy: census the real framework tree after the pool and before
+        # the exit clean below removes the evidence; it can fail every outcome.
+        bytecode_failure = _framework_bytecode_failure()
+        if bytecode_failure is not None:
+            print(f"\n{bytecode_failure}", file=sys.stderr)
         if failed_files:
             if stray_failure is not None:
                 print(f"\n{stray_failure}", file=sys.stderr)
@@ -1507,6 +1547,12 @@ def _execute_files(ordered_files: list[Path]) -> tuple[int, list[FileResult]]:
             print(f"\n{stray_failure}", file=sys.stderr)
             print(f"Ran {total_tests} tests across {len(ordered_files)} files in {wall_elapsed:.3f}s")
             print("FAILED (stray test artifacts or repository changes)")
+            _clean_pycache()
+            return 1, file_results
+
+        if bytecode_failure is not None:
+            print(f"Ran {total_tests} tests across {len(ordered_files)} files in {wall_elapsed:.3f}s")
+            print("FAILED (framework bytecode beside the sources)")
             _clean_pycache()
             return 1, file_results
 
@@ -1884,6 +1930,12 @@ def _run_profile(name: str, selectors: "list[str]", qualification_path=None, *, 
     receipt_after = _CACHE_FILE.read_bytes() if _CACHE_FILE.exists() else None
     if receipt_after != receipt_before:
         print(f"run_tests: {_CACHE_FILE} changed during the second-profile run", file=sys.stderr)
+        rc = 1
+    # Change 22qoy: the profile run never cleans the real tree, so any bytecode
+    # beside the real framework sources is reported and fails the run.
+    bytecode_failure = _framework_bytecode_failure(_SCRIPT_DIR.parent)
+    if bytecode_failure is not None:
+        print(f"run_tests: {bytecode_failure}", file=sys.stderr)
         rc = 1
     if ran:
         _print_profile_report(name, _profile_run_report(output), expected)

@@ -2,8 +2,6 @@
 """Check index dependencies and build the Wavefoundry semantic index."""
 from __future__ import annotations
 
-from setup_commands import setup_command as _setup_command
-
 import argparse
 import contextlib
 import contextvars
@@ -44,6 +42,9 @@ import bytecode_cache  # noqa: E402
 if __name__ == "__main__":
     bytecode_cache.configure()
 
+# Change 22qoy: framework imports follow the bytecode guard, or a direct run writes
+# ``setup_commands`` bytecode beside the sources.
+from setup_commands import setup_command as _setup_command  # noqa: E402
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import provider_policy
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)

@@ -12,11 +12,81 @@ from runtime_lock import RuntimeFileLock
 
 LEDGER_REL = ".wavefoundry/index/scan/guard-skips.json"
 INTENTIONAL_SKIP_REASONS = frozenset({"binary file", "binary file (extension)"})
+# Fixed input limits checked before detection. Rescanning cannot clear them;
+# they are failures, not exclusions, until the file changes or is excluded.
+FILE_TOO_LARGE_REASON = "file too large"
+DECODED_TOO_LARGE_REASON = "decoded content too large"
+TOO_MANY_LINES_REASON = "too many lines"
+FIXED_LIMIT_REASONS = frozenset({
+    FILE_TOO_LARGE_REASON, DECODED_TOO_LARGE_REASON, TOO_MANY_LINES_REASON,
+})
+_PROJECT_RULES_REL = "docs/scan-rules.toml"
 
 
 def incomplete_rows(rows: list[dict]) -> list[dict]:
     """Policy omissions are disclosed separately from failed eligible scans."""
     return [row for row in rows if row.get("reason") not in INTENTIONAL_SKIP_REASONS]
+
+
+def _toml_string(text: str) -> str:
+    """Quote *text* as a TOML string that parses back to exactly *text*."""
+    if "'" not in text and not any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in text):
+        return "'" + text + "'"  # A literal string keeps regex escapes readable.
+    quoted = ['"']
+    for ch in text:
+        if ch in '"\\':
+            quoted.append("\\" + ch)
+        elif ord(ch) < 0x20 or ord(ch) == 0x7F:
+            quoted.append(f"\\u{ord(ch):04X}")
+        else:
+            quoted.append(ch)
+    quoted.append('"')
+    return "".join(quoted)
+
+
+def allowlist_entry(rel: str) -> str:
+    """The TOML array element that excludes exactly *rel* and no other path."""
+    import re
+
+    return _toml_string("^" + re.escape(rel) + "$")
+
+
+def _remedy(entry: str) -> str:
+    return (
+        "Rescanning alone will not clear a fixed scanner input limit. Convert or split "
+        "the file, or, after confirming it holds no secrets, add "
+        f"{entry} to the project [allowlist] paths in {_PROJECT_RULES_REL}."
+    )
+
+
+def fixed_limit_remedy(row: dict) -> str | None:
+    """Remedy for a fixed-limit incomplete row; None keeps a reason's own text.
+
+    This is the one projection every ``[scan-incomplete]`` producer uses: the
+    completion row names the exact entry, and summaries stay path-free.
+    """
+    if row.get("reason") not in FIXED_LIMIT_REASONS:
+        return None
+    rel = row.get("file")
+    if not isinstance(rel, str) or not rel:
+        return _remedy("an entry anchored to that one path ('^' + escaped path + '$')")
+    return _remedy(allowlist_entry(rel))
+
+
+def incomplete_guidance(rows: list[dict], retry: str = "inspect completion details and retry.") -> str:
+    """Closing guidance for a ``[scan-incomplete]`` summary of *rows*.
+
+    Without a fixed-limit row the producer's own *retry* text is unchanged.
+    """
+    incomplete = incomplete_rows(rows)
+    fixed = {row["file"] for row in incomplete if fixed_limit_remedy(row)}
+    other = {row["file"] for row in incomplete} - fixed
+    if not fixed:
+        return retry
+    remedy = fixed_limit_remedy({"reason": FILE_TOO_LARGE_REASON})
+    rest = " Inspect completion details and retry the other file(s)." if other else ""
+    return (f"{len(fixed)} of them exceed a fixed scanner input limit. {remedy} "
+            f"Each file's completion details name its exact entry.{rest}")
 
 
 def incomplete_paths(root: Path) -> set[str]:
@@ -189,7 +259,10 @@ def scanner_completion(root: Path, failures=(), *, limit: int = 50) -> dict:
     """
     notice = scanner_skip_notice(root)
     rows = notice.get("scanner_skips", [])
-    incomplete = incomplete_rows(rows)
+    incomplete = [
+        {**row, "remedy": remedy} if (remedy := fixed_limit_remedy(row)) else row
+        for row in incomplete_rows(rows)
+    ]
     error = notice.get("scanner_skips_error")
     current_error = any("[secrets]" not in failure for failure in failures)
     return {
@@ -209,5 +282,7 @@ def scanner_completion_failures(root: Path) -> list[str]:
     if coverage.get("coverage_error"):
         return ["[scan-incomplete] Scanner coverage history is malformed or unreadable; restore it and rerun the scan."]
     if coverage["incomplete_files"]:
-        return [f"[scan-incomplete] {coverage['incomplete_files']} eligible file(s) have unresolved incomplete scans; inspect scanner completion details and retry."]
+        rows = scanner_skip_notice(root).get("scanner_skips", [])
+        guidance = incomplete_guidance(rows, "inspect scanner completion details and retry.")
+        return [f"[scan-incomplete] {coverage['incomplete_files']} eligible file(s) have unresolved incomplete scans; {guidance}"]
     return []

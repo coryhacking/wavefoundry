@@ -40,6 +40,21 @@ def _bytes(value: str) -> bytes:
     return value.encode("utf-8", "surrogateescape")
 
 
+def exceeded_input_limit(content: str) -> str | None:
+    """Name the fixed input limit *content* exceeds, or None.
+
+    The scanner parent and this engine share this one predicate so a file the
+    parent sends can never fail the engine's own size or newline bound. The
+    newline count is the engine's bound; it is not a line count. Every string
+    the parent sends encodes strictly, where surrogateescape changes nothing.
+    """
+    if len(_bytes(content)) > MAX_CONTENT_BYTES:
+        return "decoded_size"
+    if content.count("\n") > MAX_LINES:
+        return "line_count"
+    return None
+
+
 def _window(text: str) -> tuple[int, int, int, int, bool] | None:
     """Directional context grammar: line counts include the matching line."""
     if text.strip() in ("", "0"):
@@ -186,9 +201,9 @@ class BetterleaksEngine:
             raise ConfigurationError("invalid_scan_input")
         if self.path_excluded(path):
             return result
-        raw = _bytes(content)
-        if len(raw) > MAX_CONTENT_BYTES or raw.count(b"\n") > MAX_LINES:
+        if exceeded_input_limit(content) is not None:
             return {**result, "complete": False, "diagnostics": ["input_limit"]}
+        raw = _bytes(content)
         try:
             if evaluate_filter(self.prefilter, {}, {"path": path}):
                 result["prefilter_skipped"] = True

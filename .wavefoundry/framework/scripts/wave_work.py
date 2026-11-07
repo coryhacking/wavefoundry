@@ -332,12 +332,18 @@ def cleanup_work(root, wave_md, *, expected_generation: str | None) -> dict:
                     _anchor(root, identities, parent)
                     _entry(parent, key, directory)
                     os.rmdir(key, dir_fd=parent)
-                except OSError:
-                    # Keep retry authority after a late partial-I/O failure.
-                    _anchor(root, identities, parent)
-                    _entry(parent, key, directory)
-                    _write_owner(fd, owner)
-                    raise
+                except (OSError, _Refused) as exc:
+                    # Keep retry authority after any post-unlink failure. The
+                    # retained descriptor names the owned directory wherever it
+                    # now is, so restore first and re-check nothing beforehand.
+                    # Every outcome here is "preserved", never "absent".
+                    restore = {}
+                    try:
+                        _write_owner(fd, owner)
+                    except OSError as restore_exc:
+                        restore = {"owner_restore": "failed:" + errno.errorcode.get(
+                            restore_exc.errno or 0, "io_error")}
+                    return {**_failure(key, exc, outcome="preserved"), **restore}
                 return _result(key, outcome="removed")
             finally:
                 os.close(fd)

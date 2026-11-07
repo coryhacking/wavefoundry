@@ -429,6 +429,93 @@ class WaveWorkTests(unittest.TestCase):
         self.assertEqual(work.describe_work(self.root, self.wave)["generation"], generation)
         self.assertEqual(self.cleanup(generation)["outcome"], "removed")
 
+    def _post_unlink_failure(self, *, rmdir_fails, anchor_exc=None, entry_exc=None):
+        """Inject a failure after `.owner.json` is unlinked (change 22qr4)."""
+        generation = self.ensure()
+        state = {"unlinked": False}
+        real_unlink, real_rmdir = os.unlink, os.rmdir
+        real_anchor, real_entry = work._anchor, work._entry
+
+        def unlink(name, *args, **kwargs):
+            real_unlink(name, *args, **kwargs)
+            if name == work.OWNER_FILE:
+                state["unlinked"] = True
+
+        def rmdir(name, *args, **kwargs):
+            if rmdir_fails and name == "abc12":
+                state["rmdir_failed"] = True
+                raise PermissionError(errno.EACCES, "denied")
+            return real_rmdir(name, *args, **kwargs)
+
+        def anchor(*args, **kwargs):
+            if anchor_exc is not None and state.get("rmdir_failed"):
+                raise anchor_exc
+            return real_anchor(*args, **kwargs)
+
+        def entry(*args, **kwargs):
+            if entry_exc is not None and state["unlinked"]:
+                raise entry_exc
+            return real_entry(*args, **kwargs)
+
+        with mock.patch.object(work.os, "unlink", side_effect=unlink), \
+                mock.patch.object(work.os, "rmdir", side_effect=rmdir), \
+                mock.patch.object(work, "_anchor", side_effect=anchor), \
+                mock.patch.object(work, "_entry", side_effect=entry):
+            result = self.cleanup(generation)
+        self.assertTrue(state["unlinked"])
+        self.assertEqual(result["outcome"], "preserved", result)
+        self.assertNotIn("owner_restore", result)
+        self.assertTrue((self.path / work.OWNER_FILE).is_file())
+        self.assertEqual(work.describe_work(self.root, self.wave)["generation"], generation)
+        self.assertEqual(self.cleanup(generation)["outcome"], "removed")
+        self.assertFalse(self.path.exists())
+        return result
+
+    def test_rmdir_failure_then_anchor_refusal_restores_owner(self):
+        result = self._post_unlink_failure(
+            rmdir_fails=True, anchor_exc=work._Refused("work_parent_changed; work preserved"))
+        self.assertIn("EACCES", result["notice"])
+
+    def test_entry_refusal_before_rmdir_restores_owner(self):
+        result = self._post_unlink_failure(
+            rmdir_fails=False, entry_exc=work._Refused("work_identity_changed; work preserved"))
+        self.assertIn("work_identity_changed", result["notice"])
+
+    def test_rmdir_failure_then_anchor_oserror_restores_owner(self):
+        result = self._post_unlink_failure(
+            rmdir_fails=True, anchor_exc=OSError(errno.EIO, "io"))
+        self.assertIn("EACCES", result["notice"])
+
+    def test_post_unlink_not_found_is_preserved_not_absent(self):
+        result = self._post_unlink_failure(
+            rmdir_fails=False, entry_exc=FileNotFoundError(errno.ENOENT, "gone"))
+        self.assertIn("ENOENT", result["notice"])
+
+    def test_failed_owner_restore_keeps_original_refusal_and_reports_restore(self):
+        generation = self.ensure()
+        real_entry = work._entry
+        state = {"unlinked": False}
+        real_unlink = os.unlink
+
+        def unlink(name, *args, **kwargs):
+            real_unlink(name, *args, **kwargs)
+            if name == work.OWNER_FILE:
+                state["unlinked"] = True
+
+        def entry(*args, **kwargs):
+            if state["unlinked"]:
+                raise work._Refused("work_identity_changed; work preserved")
+            return real_entry(*args, **kwargs)
+
+        with mock.patch.object(work.os, "unlink", side_effect=unlink), \
+                mock.patch.object(work, "_entry", side_effect=entry), \
+                mock.patch.object(work, "_write_owner", side_effect=OSError(errno.ENOSPC, "full")):
+            result = self.cleanup(generation)
+        self.assertEqual(result["outcome"], "preserved")
+        self.assertIn("work_identity_changed", result["notice"])
+        self.assertEqual(result["owner_restore"], "failed:ENOSPC")
+        self.assertTrue(self.path.is_dir())
+
     def test_unsupported_host_preserves_with_explicit_notice(self):
         generation = self.ensure()
         with mock.patch.object(work, "_SAFE_DELETE", False):

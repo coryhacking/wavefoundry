@@ -62,8 +62,12 @@ _ERROR_CODES = frozenset({
     "worker_timeout", "worker_crashed", "worker_protocol", "worker_unavailable",
     "worker_closed", "worker_busy", "worker_input_too_large",
     "worker_response_too_large", "invalid_configuration", "invalid_operation",
-    "worker_operation_failed",
+    "worker_operation_failed", "configuration_not_held",
 })
+# A digest-only request names a configuration this child does not hold. The
+# child is healthy; the parent forgets what it believed it held and keeps it.
+_NOT_HELD = "configuration_not_held"
+_CONFIGURED_OPERATIONS = frozenset({"path_excluded", "scan"})
 
 
 class WorkerError(RuntimeError):
@@ -122,6 +126,15 @@ def _encode(value, limit: int) -> bytes:
     except (ValueError, TypeError, RecursionError):
         raise WorkerError("worker_protocol") from None
     return raw
+
+
+def config_digest(config: dict, cache_key: str) -> str:
+    """Identity of the exact configuration and execution key sent to a child.
+
+    The parent computes it from what it would send and the child recomputes it
+    from what it received; ``cache_key`` alone never identifies a configuration.
+    """
+    return hashlib.sha256(_encode(config, MAX_REQUEST_BYTES) + cache_key.encode()).hexdigest()
 
 
 def _reject_constant(_value):
@@ -184,6 +197,7 @@ class _Client:
             self._command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, bufsize=0, close_fds=True,
         )
+        process.config_digest = None  # A fresh child holds no configuration.
         with self._state_lock:
             if cancel.is_set() or self._closed:
                 _dispose(process)
@@ -191,13 +205,55 @@ class _Client:
             self._process = process
         return process
 
+    def _encode_request(self, operation: str, payload: dict, budget: float) -> tuple[int, bytes]:
+        self._sequence += 1
+        return self._sequence, _encode({"id": self._sequence, "op": operation, "payload": payload,
+                                        "budget": budget}, MAX_REQUEST_BYTES)
+
+    @staticmethod
+    def _roundtrip(process, sequence: int, request: bytes) -> dict:
+        view = memoryview(request)
+        while view:
+            written = process.stdin.write(view)
+            if not written:
+                raise WorkerError("worker_crashed")
+            view = view[written:]
+        raw = process.stdout.readline(MAX_RESPONSE_BYTES + 1)
+        if not raw:
+            raise WorkerError("worker_crashed")
+        if len(raw) > MAX_RESPONSE_BYTES:
+            raise WorkerError("worker_response_too_large")
+        if not raw.endswith(b"\n"):
+            raise WorkerError("worker_protocol")
+        response = _decode(raw)
+        if (type(response) is not dict or response.get("id") != sequence
+                or type(response.get("id")) is not int
+                or type(response.get("ok")) is not bool):
+            raise WorkerError("worker_protocol")
+        _validate_tree(response, byte_limit=MAX_RESPONSE_BYTES)
+        if response["ok"]:
+            if set(response) != {"id", "ok", "result"} or type(response["result"]) is not dict:
+                raise WorkerError("worker_protocol")
+            return response["result"]
+        if (set(response) != {"id", "ok", "error"}
+                or type(response["error"]) is not str or response["error"] not in _ERROR_CODES):
+            raise WorkerError("worker_protocol")
+        raise WorkerError(response["error"])
+
     def _exchange(self, operation: str, payload: dict, timeout: float,
                   cancel: threading.Event, done: threading.Event, box: list) -> None:
         try:
-            self._sequence += 1
-            sequence = self._sequence
-            request = _encode({"id": sequence, "op": operation, "payload": payload,
-                               "budget": timeout}, MAX_REQUEST_BYTES)
+            config, cache_key = payload.get("config"), payload.get("cache_key", "")
+            digest = None
+            sent = payload
+            if operation in _CONFIGURED_OPERATIONS | {"configure"} and type(config) is dict and type(cache_key) is str:
+                digest = config_digest(config, cache_key)
+            if digest is not None and operation in _CONFIGURED_OPERATIONS:
+                # Configure each child once per digest; later requests carry
+                # only the digest, which the child checks against its own.
+                sent = {key: value for key, value in payload.items() if key not in ("config", "cache_key")}
+                sent["config_digest"] = digest
+            sequence, request = self._encode_request(operation, sent, timeout)
             if cancel.is_set():
                 raise WorkerError("worker_timeout")
             # The caller fingerprints engine code and assets as well as rules.
@@ -213,34 +269,25 @@ class _Client:
             if process is None or process.poll() is not None:
                 _dispose(process)
                 process = self._start(cancel)
-            view = memoryview(request)
-            while view:
-                written = process.stdin.write(view)
-                if not written:
-                    raise WorkerError("worker_crashed")
-                view = view[written:]
-            raw = process.stdout.readline(MAX_RESPONSE_BYTES + 1)
-            if not raw:
-                raise WorkerError("worker_crashed")
-            if len(raw) > MAX_RESPONSE_BYTES:
-                raise WorkerError("worker_response_too_large")
-            if not raw.endswith(b"\n"):
-                raise WorkerError("worker_protocol")
-            response = _decode(raw)
-            if (type(response) is not dict or response.get("id") != sequence
-                    or type(response.get("id")) is not int
-                    or type(response.get("ok")) is not bool):
-                raise WorkerError("worker_protocol")
-            _validate_tree(response, byte_limit=MAX_RESPONSE_BYTES)
-            if response["ok"]:
-                if set(response) != {"id", "ok", "result"} or type(response["result"]) is not dict:
+            if sent is not payload and process.config_digest != digest:
+                # Same exchange, same deadline: the caller's timeout covers both.
+                configure_sequence, configure = self._encode_request(
+                    "configure", {"config": config, "cache_key": cache_key}, timeout)
+                if cancel.is_set():
+                    raise WorkerError("worker_timeout")
+                result = self._roundtrip(process, configure_sequence, configure)
+                if result.get("configured") is not True or result.get("config_digest") != digest:
                     raise WorkerError("worker_protocol")
-                box.append(response["result"])
-            else:
-                if (set(response) != {"id", "ok", "error"}
-                        or type(response["error"]) is not str or response["error"] not in _ERROR_CODES):
-                    raise WorkerError("worker_protocol")
-                raise WorkerError(response["error"])
+                process.config_digest = digest
+            try:
+                result = self._roundtrip(process, sequence, request)
+            except WorkerError as exc:
+                if exc.code == _NOT_HELD:
+                    process.config_digest = None
+                raise
+            if operation == "configure" and digest is not None and result.get("config_digest") == digest:
+                process.config_digest = digest
+            box.append(result)
         except WorkerError as exc:
             box.append(exc)
         except Exception:
@@ -257,6 +304,7 @@ class _Client:
         if not self._lock.acquire(timeout=timeout):
             raise WorkerError("worker_busy")
         thread = None
+        keep_process = False
         try:
             if self._closed or os.getpid() != self._owner:
                 raise WorkerError("worker_closed")
@@ -278,10 +326,15 @@ class _Client:
                 self._drop_process()
                 raise WorkerError("worker_protocol")
             if isinstance(box[0], WorkerError):
-                self._drop_process()
+                # The exchange finished; a not-held refusal leaves a healthy child.
+                keep_process = box[0].code == _NOT_HELD
+                if not keep_process:
+                    self._drop_process()
                 raise box[0]
             return box[0]
         except BaseException:
+            if keep_process:
+                raise
             with self._state_lock:
                 if self._cancel is not None:
                     self._cancel.set()
@@ -297,6 +350,8 @@ class _Client:
     def _drop_process(self) -> None:
         with self._state_lock:
             process, self._process = self._process, None
+        if process is not None:
+            process.config_digest = None
         _dispose(process)
 
     def close(self) -> None:
@@ -363,6 +418,13 @@ def _alarm(seconds: float) -> None:
         signal.setitimer(signal.ITIMER_REAL, seconds)
 
 
+def _disarm() -> None:
+    # An idle reusable child waits for the next request without a deadline; it
+    # exits when the parent closes its input. Only request work is bounded.
+    if hasattr(signal, "setitimer"):
+        signal.setitimer(signal.ITIMER_REAL, 0)
+
+
 class _Runtime:
     def __init__(self):
         self.key = None
@@ -381,11 +443,16 @@ class _Runtime:
                 raise WorkerError("invalid_configuration") from None
         if operation not in {"configure", "path_excluded", "scan"}:
             raise WorkerError("invalid_operation")
+        if operation != "configure" and "config" not in payload:
+            # A digest names configuration this child built and hashed itself.
+            digest = payload.get("config_digest")
+            if type(digest) is not str or self.key is None or digest != self.key:
+                raise WorkerError(_NOT_HELD)
+            return self._run(operation, payload)
         config, cache_key = payload.get("config"), payload.get("cache_key", "")
         if type(config) is not dict or type(cache_key) is not str or len(cache_key) > 512:
             raise WorkerError("invalid_configuration")
-        encoded = _encode(config, MAX_REQUEST_BYTES)
-        identity = hashlib.sha256(encoded + cache_key.encode()).digest()
+        identity = config_digest(config, cache_key)
         if identity != self.key:
             from wave_lint_lib.betterleaks_engine import BetterleaksEngine
             self.engine, self.key = None, None
@@ -395,7 +462,11 @@ class _Runtime:
                 raise WorkerError("invalid_configuration") from None
             self.engine, self.key = candidate, identity
         if operation == "configure":
-            return {"configured": True, "rule_count": len(config.get("rules", []))}
+            return {"configured": True, "rule_count": len(config.get("rules", [])),
+                    "config_digest": identity}
+        return self._run(operation, payload)
+
+    def _run(self, operation: str, payload: dict) -> dict:
         if operation == "path_excluded":
             path = payload.get("path")
             if type(path) is not str or len(path) > 8192:
@@ -422,10 +493,13 @@ def _serve() -> int:
     sys.addaudithook(_offline_audit)
     runtime = _Runtime()
     while True:
-        _alarm(MAX_TIMEOUT_SECONDS)
+        _disarm()
         raw = sys.stdin.buffer.readline(MAX_REQUEST_BYTES + 1)
         if not raw:
             return 0
+        # Bound decoding until the request's own budget is known. The request
+        # alarm then stays armed through the response write below.
+        _alarm(MAX_TIMEOUT_SECONDS)
         if len(raw) > MAX_REQUEST_BYTES or not raw.endswith(b"\n"):
             return 2
         sequence = 0

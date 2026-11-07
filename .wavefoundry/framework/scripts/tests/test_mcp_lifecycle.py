@@ -409,6 +409,59 @@ class RunnerCleanupTests(unittest.TestCase):
             reload_module.assert_called_once()
             build.assert_called_once_with(self.root)
 
+    def _real_handler(self):
+        import inference_provider
+        with patch.object(inference_provider, "start_background"):
+            self.runner.build_server(self.root)
+        return self.runner._get_handler()
+
+    def test_cleanup_incomplete_reload_names_stopped_monitors_and_recovery(self):
+        # Change 22qr4: the retained handler restarts no monitor; say so.
+        handler = self._real_handler()
+        with patch.object(handler.telemetry, "close", side_effect=OSError("fixture failure")), \
+             patch.object(self.runner.importlib, "reload") as reload_module, \
+             patch.object(self.impl, "build_handler") as build:
+            result = self.runner.perform_mcp_reload()
+        reload_module.assert_not_called()
+        build.assert_not_called()
+        self.assertIs(self.runner._get_handler(), handler)
+        reload = result["data"]["reload"]
+        self.assertEqual(reload["phase"], "cleanup")
+        self.assertEqual(reload["monitors_stopped"], ["index_monitor", "ce_projection_monitor"])
+        for text in ("index_monitor", "ce_projection_monitor", "wf_reload_mcp", "restart"):
+            self.assertIn(text, reload["message"])
+        status = handler.background_monitor_status()
+        for row in (status["index"], status["context_efficiency_projection"]):
+            self.assertFalse(row["alive"])
+            self.assertTrue(row["paused"])
+            self.assertIn("stopped_for_reload", row["reason"])
+
+    def test_monitor_stop_timeout_status_is_paused_not_unqualified_alive(self):
+        handler = self._real_handler()
+        handler._stop_staleness_monitor()
+        handler._stop_ce_projection_monitor()
+        released = threading.Event()
+        thread = threading.Thread(target=released.wait, daemon=True)
+        handler._monitor_stop, handler._monitor_thread = threading.Event(), thread
+        thread.start()
+        try:
+            self.assertTrue(handler.prepare_reload()["complete"])
+            result = handler.close()
+            self.assertIn({"resource": "index_monitor", "reason": "TimeoutError"}, result["warnings"])
+            row = handler.background_monitor_status()["index"]
+            self.assertTrue(row["alive"])
+            self.assertTrue(row["paused"])
+            self.assertIn("stopped_for_reload", row["reason"])
+        finally:
+            released.set()
+            thread.join(timeout=2)
+
+    def test_running_monitor_status_is_not_marked_paused(self):
+        handler = self._real_handler()
+        status = handler.background_monitor_status()
+        self.assertNotIn("paused", status["context_efficiency_projection"])
+        self.assertNotIn("paused", status["index"])
+
     def test_registered_preparation_refusal_preserves_workers_resources_and_resumes(self):
         for blocked in ("index_monitor", "ce_projection_monitor"):
             with self.subTest(blocked=blocked):

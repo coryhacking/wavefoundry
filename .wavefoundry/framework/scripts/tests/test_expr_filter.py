@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import re
 import sys
 import tomllib
 import unittest
@@ -119,6 +120,63 @@ class TestRegexProfile(unittest.TestCase):
         match = expr.compile_regex(r"(?P<one>a)?(?P<two>b)\z").search("b")
         self.assertEqual(match.groups(), (None, "b"))
         self.assertIsNone(expr.compile_regex(r"b\z").search("b\n"))
+
+    def test_nested_repetition_is_refused_as_go_does(self):
+        # Go regexp/syntax: "invalid nested repetition operator". Python 3.11+
+        # would otherwise read these as possessive or doubly lazy quantifiers.
+        for pattern in ("a*+", "a++", "a?+", "a{2}+", "a*??", "a{2}{3}", "a+*", "(ab)*+"):
+            with self.subTest(pattern=pattern):
+                with self.assertRaisesRegex(expr.CompileError, "invalid nested repetition"):
+                    expr.compile_regex(pattern)
+
+    def test_repetition_never_fuses_across_flag_only_groups(self):
+        # A flag-only group emits nothing, so the next quantifier would fuse
+        # with the earlier one in the Python pattern.
+        for pattern in ("a*(?i)+", "a*(?i)?", "a*(?i)(?s)+", "a{2}(?i)+", "a*(?i){2}", "a+?(?-i)(?m)*"):
+            with self.subTest(pattern=pattern):
+                with self.assertRaisesRegex(expr.CompileError, "flag group"):
+                    expr.compile_regex(pattern)
+        # A flag group before an atom, or between plain atoms, is unaffected.
+        self.assertEqual(expr.compile_regex("a*(?i)b+").findall("aaBB a b"), ["aaBB", "b"])
+        self.assertEqual(expr.compile_regex("(?i)a+").findall("aA"), ["aA"])
+
+    def test_valid_lazy_and_literal_quantifier_characters_are_unchanged(self):
+        cases = [
+            ("xa*?", "xaa", ["x"]),
+            ("xa*?y", "xaay", ["xaay"]),
+            ("a+?", "aaa", ["a", "a", "a"]),
+            ("ba??", "baa", ["b"]),
+            ("ba??c", "bac", ["bac"]),
+            ("a{2,3}?", "aaaaa", ["aa", "aa"]),
+            (r"a\*+", "a** a*", ["a**", "a*"]),
+            (r"a[*+?]+", "a*+? a?", ["a*+?", "a?"]),
+            ("a*{", "aa{", ["aa{"]),
+            ("(a*)+b", "aab", ["aab"]),
+        ]
+        for pattern, text, expected in cases:
+            with self.subTest(pattern=pattern):
+                self.assertEqual([m.group() for m in expr.compile_regex(pattern).finditer(text)], expected)
+        self.assertEqual(expr.compile_regex("a*?").pattern, "a*?")
+        self.assertEqual(expr.compile_regex("a{2,3}?").pattern, "a{2,3}?")
+
+    def test_every_shipped_rule_regex_still_compiles(self):
+        config = tomllib.loads((Path(__file__).resolve().parents[2] / "scan-rules.toml").read_text())
+        sources = []
+        for rule in config["rules"]:
+            sources += [(rule["id"], rule[key]) for key in ("regex", "path") if key in rule]
+            sources += [(rule["id"], lit) for lit in re.findall(r"`([^`]*)`", rule.get("filter", ""))]
+            for allow in rule.get("allowlists", []):
+                sources += [(rule["id"], s) for key in ("regexes", "paths") for s in allow.get(key, [])]
+        sources += [("allowlist", s) for key in ("regexes", "paths") for s in config["allowlist"].get(key, [])]
+        sources += [(kind, lit) for kind in ("filter", "prefilter") for lit in re.findall(r"`([^`]*)`", config[kind])]
+        self.assertGreater(len(sources), 800)
+        refused = []
+        for name, source in sources:
+            try:
+                expr.compile_regex(source)
+            except expr.CompileError as exc:
+                refused.append((name, source, str(exc)))
+        self.assertEqual([], refused)
 
 
 class TestExprLimits(unittest.TestCase):

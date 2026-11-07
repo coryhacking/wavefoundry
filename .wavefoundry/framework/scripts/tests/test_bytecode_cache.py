@@ -483,6 +483,7 @@ def census_problems(scripts_root: Path) -> "tuple[list[str], set[str]]":
         by_name.setdefault(Path(rel).name, []).append(rel)
     entries = {rel for rel, tree in files.items() if _has_main_block(tree)}
     problems: list[str] = []
+    framework = _framework_module_names(scripts_root)
     for name in sorted(named):
         for rel in by_name.get(name, []):
             if rel not in entries:
@@ -517,6 +518,18 @@ def census_problems(scripts_root: Path) -> "tuple[list[str], set[str]]":
                 continue
             if min(line for line, _t in sites) > min(line for line, _g in imports):
                 problems.append(f"{rel}: entry imports bytecode_cache before setting the flag")
+            # Change 22qoy: a direct run of the entry compiles every framework module
+            # it imports before the flag, so that bytecode lands beside the sources.
+            first_flag = min(line for line, _t in sites)
+            for node in tree.body:
+                if node.lineno >= first_flag or not isinstance(node, (ast.Import, ast.ImportFrom)):
+                    continue
+                names = ([a.name for a in node.names] if isinstance(node, ast.Import)
+                         else [node.module or ""] if node.level == 0 else [])
+                for name in names:
+                    if name.split(".")[0] in framework:
+                        problems.append(f"{rel}:{node.lineno}: entry imports framework module "
+                                        f"{name} before setting the flag")
             if not _calls_configure(tree):
                 problems.append(f"{rel}: entry never calls bytecode_cache.configure()")
             for line, test in sites:
@@ -528,7 +541,6 @@ def census_problems(scripts_root: Path) -> "tuple[list[str], set[str]]":
             for line, test in sites:
                 if test is None or "pycache_prefix" not in test:
                     problems.append(f"{rel}:{line}: library flag without the no-prefix guard")
-    framework = _framework_module_names(scripts_root)
     for rel, tree in sorted(files.items()):
         problems += c_program_sites(rel, tree, framework, entries)[0]
     return problems, entries
@@ -598,6 +610,19 @@ class CallSiteCensusTests(unittest.TestCase):
                 bytecode_cache.configure()
             """})
         self.assertEqual(problems, ["tool.py: entry imports bytecode_cache before setting the flag"])
+
+    def test_a_framework_import_before_the_flag_is_reported(self):
+        problems = self._fixture({"helper.py": "x = 1\n", "tool.py": """\
+            from __future__ import annotations
+            from helper import x
+            import sys
+            if __name__ == "__main__" or sys.pycache_prefix is None:
+                sys.dont_write_bytecode = True
+            import bytecode_cache
+            if __name__ == "__main__":
+                bytecode_cache.configure()
+            """})
+        self.assertEqual(problems, ["tool.py:2: entry imports framework module helper before setting the flag"])
 
     def test_an_argv_named_script_without_a_main_entry_is_reported(self):
         problems = self._fixture({

@@ -14364,7 +14364,7 @@ def _close_open_work_records(wave_text: str) -> list[tuple[Optional[str], Option
 @_configured_phase_envelope
 @_fail_closed_on_record_layout("wf_close_wave")
 def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
-    from scanner_skips import scanner_skip_notice, scanner_completion
+    from scanner_skips import incomplete_guidance, scanner_skip_notice, scanner_completion
 
     configured_gates: list[dict[str, Any]] = []
 
@@ -14498,7 +14498,8 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
         diagnostics.append(_diagnostic(
             "secret_scan_incomplete",
             "Eligible content has outstanding incomplete scans or unavailable coverage evidence. "
-            "Resolve the reported scan failures and rerun scanning before closing.",
+            + incomplete_guidance(coverage.get("incomplete", []),
+                                  "Resolve the reported scan failures and rerun scanning before closing."),
             recovery_tools=["wf_scan_secrets"],
             recovery_usage="wf_scan_secrets(mode='full')",
         ))
@@ -20040,17 +20041,26 @@ class ImplHandler:
         thread.start()
 
     def background_monitor_status(self) -> dict[str, Any]:
+        # Change 22qr4: after a successful reload preparation, scheduling stays
+        # paused until the handler is replaced. A worker whose stop timed out may
+        # still be alive, but it runs no callbacks, so qualify that state.
+        paused = (
+            {"paused": True, "reason": "stopped_for_reload; retry wf_reload_mcp or restart the MCP host"}
+            if getattr(self, "_monitors_paused", False) else {}
+        )
         return {
             "setup_readiness": self._setup_assessment_result,
             "index": {
                 **dict(self._index_monitor_status),
                 "alive": bool(self._monitor_thread and self._monitor_thread.is_alive()),
+                **(paused if self._index_monitor_status.get("configured", True) else {}),
             },
             "context_efficiency_projection": {
                 **dict(self._ce_projection_status),
                 "alive": bool(
                     self._ce_projection_thread and self._ce_projection_thread.is_alive()
                 ),
+                **paused,
                 "quiet_period_seconds": _read_ce_projection_config(self.root)[
                     "quiet_period_seconds"
                 ],

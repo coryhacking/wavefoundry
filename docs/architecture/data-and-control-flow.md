@@ -83,7 +83,10 @@ thread and stop-event references for retry. Reload refuses before module
 re-execution or handler replacement when cleanup is incomplete, leaving the same
 handler installed. Other independent resources may already have been released;
 this is a retryable cleanup failure (phase `cleanup`, `handler_preserved: false`),
-not a promise of uninterrupted service. Failures after destructive cleanup begins
+not a promise of uninterrupted service. Both background monitors are already
+stopped or paused and the retained handler restarts neither; the response names
+them in `monitors_stopped` and says to retry `wf_reload_mcp` or restart the host,
+and `index_health` reports each as `paused` even when a timed-out worker is alive. Failures after destructive cleanup begins
 are not rolled back; the preservation guarantee applies only to preparation.
 Shutdown failures are reported on stderr without replacing the serving error.
 

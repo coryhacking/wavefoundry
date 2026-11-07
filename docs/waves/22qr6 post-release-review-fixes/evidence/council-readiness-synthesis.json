@@ -1,0 +1,151 @@
+{
+ "wave_id": "22qr6 post-release-review-fixes",
+ "phase": "readiness",
+ "moderator": "council-chair",
+ "context_id": "22qr6-ready-chair-1",
+ "receipt": "review-policy-c06cee90732967e2f56f",
+ "primer_depth": "standard",
+ "seats_run": [
+  "red-team (primer)",
+  "security-reviewer (rotating seat + required lane)",
+  "code-reviewer",
+  "qa-reviewer"
+ ],
+ "tooling": "Wavefoundry MCP tools loaded via ToolSearch and callable (seed_get, wf_review_wave, wf_review_event, code_read, code_keyword). Gapfill: shell grep/sed for targeted reads of already-located files; one read-only scratchpad probe with python3 -B, PYTHONDONTWRITEBYTECODE=1, PYTHONPYCACHEPREFIX unset.",
+ "final_verdict": "PASS (round 3): see round3",
+ "lane_state": "code-reviewer, qa-reviewer and security-reviewer hold current readiness approvals on the current receipt. 22qr6-qa-22qoy-trace-scope is terminal (repair completed, reverified by qa-reviewer in a fresh context).",
+ "red_team_primer_summary": "RT-1 to RT-8 (premise check, efficacy replay, no-op AC probe). The strongest findings were RT-6 (22qr5 cache_key is rules_fingerprint, not a config digest, so allowlists would go stale) and RT-2 (flag-group quantifier fusion in 22qp0). All of them were repaired in the plans before approval, and the code-reviewer confirmed each repair on HEAD.",
+ "seat_agreement_aggregate": {
+  "seat_agreement": "unanimous",
+  "max_severity": "medium",
+  "note": "All lanes now approve. QA's medium blocking finding QA-1 was repaired and is terminal. The chair's new finding is moderator-originated, not a seat disagreement, so no challenge round was triggered."
+ },
+ "correlated_findings": "Code-reviewer and qa-reviewer both flagged the 22qr4 AC-1 third variant (it already fails on HEAD) and the 22qr4 AC-3 bytecode_cache fixture trap; security note N6 is the same trap. Treat each as one signal. The security, QA and code seats all derive the 22qp0 fusion probe from RT-2.",
+ "intent_fit": {
+  "22qoz-bug scanner-false-incomplete-outcomes": {
+   "verdict": "partially",
+   "measure": "The scanner_skips ledger reason/detail and the [scan-incomplete] remedy text in docs-lint, CLI and MCP output for the decoded-oversize, >5 MiB and idle-worker cases. These can be read after release from the ledger and from command output.",
+   "why": "The Requirements and ACs establish the motivating cases: decoded-size expansion, the idle SIGALRM, and the remedy for files over 5 MiB. But the intent promises that operators with large text files are told the true cause and a working remedy. A file under 5 MiB with more than 200,000 lines (the engine MAX_LINES) still gets detection_or_filter_work_incomplete with 'retry'. That is deterministic, and the chair reproduced it on HEAD. Requirement 3 scopes it out because engine caps share one detail, but that reason does not apply to the line cap: the parent can count newlines on the same normalised content, as Requirement 1 does for decoded size. Finding 22qr6-chair-22qoz-line-cap-remedy."
+  },
+  "22qp0-bug go-regex-nested-repetition": {
+   "verdict": "establishes",
+   "measure": "CompileError for Go-rejected nested repetition through the public compile path. The 474 shipped rules still compile (security probe: 811 regex sources, 0 hits). Readable in the suite and from rule-load diagnostics.",
+   "why": "Req 1-3 and AC-1/2/2a cover direct and flag-group fusion. Rejecting the Go-valid a*(?i)+ is a fail-closed divergence that the intent permits."
+  },
+  "22qr4-bug work-owner-and-reload-recovery": {
+   "verdict": "establishes",
+   "measure": ".owner.json is present after the injected failures, a retry succeeds, and the reload response and background_monitors reasons, plus the inspection verdict, are readable in tool output after release.",
+   "why": "The chair confirmed on HEAD that cleanup_work's post-unlink _anchor/_entry raise _Refused outside 'except OSError', and that the recovery path re-runs them before _write_owner. Req 1 restores through the retained fd. AC-2 and AC-3 are important, not required, so a [~] on either would make the delivered outcome partial."
+  },
+  "22qr5-debt scanner-config-sent-once-per-worker": {
+   "verdict": "establishes",
+   "measure": "Configuration bytes per worker and the worker process count, both independent of N (request accounting in tests), plus unchanged reference findings. Readable in the suite; there is no production telemetry.",
+   "why": "The digest of the exact config (RT-6) and AC-1a guard staleness. AC-2 keeps in-flight death reported as incomplete."
+  },
+  "22qoy-bug stray-framework-bytecode-during-qualification": {
+   "verdict": "establishes",
+   "measure": "The AC-3 end-of-run census of the real framework tree, at the end of the default full run and of _run_profile, with a planted-file known-bad. It runs on every full run after release.",
+   "why": "Meeting AC-1 (writer identified and reproduced), AC-2 and AC-3 establishes the intent. The sanctioned [~] path on AC-1 would leave Req 2 unclaimed, so the delivered outcome would then be partial (code-reviewer note). setup_commands.cpython-314.pyc (19:37) is still present in the real tree."
+  },
+  "objective": {
+   "verdict": "partially",
+   "why": "The Objective ('true cause and a working remedy') inherits the 22qoz line-cap gap. The other clauses map to 22qp0, 22qr4 and 22qoy, and 'completion policy unchanged' holds."
+  },
+  "worst": "partially"
+ },
+ "strongest_challenge": "22qoz's Requirement 3 scopes out every engine cap on the grounds that _scan_upstream_raw collapses them into one detail. The line cap (MAX_LINES 200,000) is deterministic and parent-checkable exactly like decoded size, so the plan leaves a class of large text files with a misleading 'retry' that blocks close. That contradicts its own Product Intent and the Objective. The chair executed this on HEAD with a 1.26 MB, 210,000-line file.",
+ "strongest_alternative": "Generalise 22qoz Requirement 1 into a parent-side pre-send check of every deterministic engine input cap (decoded bytes against MAX_CONTENT_BYTES and newline count against MAX_LINES), each with a distinct reason and the same remedy projection. This would be better: it closes the line-cap gap at the same small cost and with no ledger schema change, and it keeps the 22q2w policy. The red-team's surrogateescape alternative (scan such files fully) stays rejected for the line-hash churn the Decision Log records.",
+ "improvements_recommended": [
+  "22qoz: add the MAX_LINES pre-send check and reason beside the decoded-size check, with a just-under-cap control (needs an operator-approved plan amendment and re-Prepare).",
+  "22qoz AC-1: include QA's just-under-cap decoded fixture, and AC-2 evidence that a mutant removing the request-time alarm fails (QA note).",
+  "22qoz security N1/N2: any suggested allowlist entry is '^' + re.escape(rel) + '$'; keep the request alarm armed through the response write.",
+  "22qr5 N4: the worker computes the digest itself and refuses a mismatch with a new error code; the configured set lives on the process object.",
+  "22qr4 N6: filter the inspect child's sys.path/PYTHONPATH and do not use bytecode_cache as the missing module; assert that all three AC-1 variants fail on HEAD.",
+  "22qoy: Rationale says the file 'appeared twice' at 18:10 and 19:07, while Scope cites three writes (18:10 and 19:37 outside runs). Reconcile at the next permitted edit (Progress Log only after readiness). If AC-1 ends [~], disposition Req 2 explicitly."
+ ],
+ "finding_synthesis": [
+  {
+   "finding": "22qr6-qa-22qoy-trace-scope",
+   "disposition": "do_now",
+   "state": "repair completed, terminal",
+   "rationale": "Trace scope widened to hooks, servers and launchers with a real-tree method; AC-3 census targets the real tree, including _run_profile.",
+   "red_team": "held; repair closes the defect"
+  },
+  {
+   "finding": "22qr6-chair-22qoz-line-cap-remedy",
+   "disposition": "do_now (derived, blocking)",
+   "state": "pending, non-terminal",
+   "rationale": "real, admitted, important_ac, material impact, detect_only containment, safe bounded repair, not introduced by the wave",
+   "red_team": "new; extends RT-1, whose repair over-scoped the exclusion"
+  }
+ ],
+ "falsification_check": {
+  "working_verdict": "Not ready: the 22qoz line-cap intent gap is a blocking readiness finding that needs an operator decision.",
+  "strongest_argument_against": "The population is narrow (under 5 MiB with more than 200,000 lines, so average lines under about 26 bytes); the plan scoped engine caps out deliberately at the RT-1 repair; and the gap is pre-existing, not introduced by the wave, so it could be a follow-up.",
+  "why_it_does_not_change": "The RT-1 scoping rationale (a shared detail) is factually inapplicable to the line cap, so the narrowing is a defect, not an accepted design choice. The plan's own AC priority treats 'no remedy' as required ('operators cannot recover'). The seed-209 derivation yields blocking do_now, and the chair may not reclassify to dodge it. The operator can still choose a follow-up via an explicit waiver or scope amendment."
+ },
+ "operator_handoff": {
+  "blocking": "22qr6-chair-22qoz-line-cap-remedy (pending). Decisive evidence: the chair's HEAD probe (scratchpad ready-chair/probe_lines.py) recorded detection_or_filter_work_incomplete with 'retry' for a 210,000-line, 1.26 MB file.",
+  "approvals": "The three lane approvals are current; council-readiness is absent.",
+  "options": [
+   "Authorise a named bounded repair: amend 22qoz Req 1/3 and the ACs to cover MAX_LINES, re-Prepare, then a focused verification by the lanes and council",
+   "Amend scope to defer the line cap to a follow-up change and re-Prepare (record the decision in Review Checkpoints)",
+   "Explicit operator waiver with waiver_id/scope/reason/risk"
+  ]
+ },
+ "round2": {
+  "context_id": "22qr6-ready-chair-2",
+  "receipt": "review-policy-c49b3308081b1f15dea1",
+  "operator_decision": "bounded repair of 22qoz (wave.md Review Checkpoints)",
+  "reverification": {
+   "finding": "22qr6-chair-22qoz-line-cap-remedy",
+   "record": "ev-22qr6-chair-22qoz-line-cap-remedy-3 / syn-22qr6-chair-22qoz-line-cap-remedy-2-2",
+   "result": "repair completed, terminal; convergence checkpoint run-convergence-2 auto-minted",
+   "basis": "Req 1 checks decoded bytes and MAX_LINES in the parent with engine constants; Req 3 shares the remedy; required AC-1b pins over-limit reason, an exactly-at-limit complete scan (engine uses '>'), and a HEAD known-bad. engine _bytes is a utf-8 surrogateescape encode, so the parent newline count equals the engine's."
+  },
+  "residual_note": "22qoz 'In scope' line still names only the decoded-size check; Req 1/AC-1b govern (wording lag, not a defect). Match-time caps remain a documented follow-up.",
+  "intent_fit": {
+   "22qoz-bug scanner-false-incomplete-outcomes": "establishes",
+   "22qp0-bug go-regex-nested-repetition": "establishes",
+   "22qr4-bug work-owner-and-reload-recovery": "establishes",
+   "22qr5-debt scanner-config-sent-once-per-worker": "establishes",
+   "22qoy-bug stray-framework-bytecode-during-qualification": "establishes",
+   "objective": "establishes",
+   "worst": "establishes"
+  },
+  "intent_note": "22qoz now covers every fixed input limit that can be checked before sending; the remaining match-time caps are not 'large text file' input limits and are out of scope by a sound rationale. 22qr4 AC-2/AC-3 (important) and 22qoy AC-1 [~] would make the delivered outcome partial; delivery must report that honestly.",
+  "strongest_challenge": "22qoy's root cause is still unknown; if AC-1 ends [~], Requirement 2 (prevent at source) is unclaimed, and AC-2 could pass by chance against an intermittent writer outside the runs. The AC-3 real-tree census bounds this to detection during runs.",
+  "strongest_alternative": "Generalise 22qoz into one parent-side pre-send check of every fixed engine input limit. This is now adopted. Remaining alternative: surrogateescape decoding to scan such files fully, still rejected for the line-hash churn.",
+  "final_verdict": "PASS: council-readiness ev-approval-council-readiness recorded on review-policy-c49b3308081b1f15dea1, intent_fit establishes",
+  "repair_3": "Operator-authorized wording repair: Req 1 states the exact engine predicates after path exclusion (content.count('\\n') > MAX_LINES; len(content.encode('utf-8')) > MAX_CONTENT_BYTES), the remedy uses an anchored allowlist entry, and AC-1b adds at-limit, form-feed and residual-reason controls. The chair's reverification holds against this text.",
+  "lane_approvals": [
+   "ev-approval-code-reviewer-3",
+   "ev-approval-qa-reviewer-2",
+   "ev-approval-security-reviewer-4"
+  ]
+ },
+ "round3": {
+  "context_id": "22qr6-ready-chair-3",
+  "receipt": "review-policy-4c76b20ba3060c39a6b9",
+  "delta": "22qoy AC-1 marked [~] by operator decision: no any-process real-tree trace; writer path reproduced (indexer.py/setup_index.py/upgrade_wavefoundry.py import setup_commands before the bytecode guard) and fixed at the source; historical writes not attributed.",
+  "finding": {
+   "id": "22qr6-chair-22qoy-writer-exhaustiveness",
+   "record": "ev-22qr6-chair-22qoy-writer-exhaustiveness",
+   "disposition": "maybe_later (derived, non-blocking)",
+   "note": "An evidence-based rejection basis needs promotion_trigger, which the wf_review_event MCP schema does not expose; judgment recorded as a cheap read-only follow-up (fs_usage trace with operator approval)."
+  },
+  "intent_fit": {
+   "22qoz": "establishes",
+   "22qp0": "establishes",
+   "22qr4": "establishes",
+   "22qr5": "establishes",
+   "22qoy": "partially",
+   "objective": "partially",
+   "worst": "partially"
+  },
+  "strongest_challenge": "Only a static census supports the claim that the three identified entry scripts were the only writers; the AC-3 census bounds the residual to detection during runs.",
+  "strongest_alternative": "An operator-approved fs_usage trace over the real tree during a full qualification run.",
+  "lane_approvals": "code, QA and security current on 4c76b20b",
+  "approval": "ev-approval-council-readiness-2 (intent_fit partially)"
+ }
+}

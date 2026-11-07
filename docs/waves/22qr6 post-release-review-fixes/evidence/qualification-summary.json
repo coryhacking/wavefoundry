@@ -1,0 +1,19 @@
+{
+ "wave": "22qr6",
+ "framework_receipt_inputs_hash": "750d42c76b707c1ced5439c1b1096300cfbd5d640cd91ec8c7d1711b1d684401",
+ "default": [
+  "Worker service time: 3035.792s across 227 files; skipped 12 tests",
+  "Ran 12557 tests across 227 files in 632.911s",
+  "OK",
+  "exit=0"
+ ],
+ "second": [
+  "Ran 12539 tests across 227 files in 603.447s",
+  "OK",
+  "Second-profile per-file result (profile 'second'; expected profile: the shipped defaults, then 'second' from WAVEFOUNDRY_TEST_PROFILE): 0 of 227 files failed",
+  "Total failures and errors: 0 in 0 files; 227 files passed",
+  "exit=0"
+ ],
+ "bytecode_root_cause_trace": ".wavefoundry/work/22qr6/22qoy-audit-trace.tsv summarized in 22qoy Progress Log",
+ "note": "events.jsonl is the review authority; these are run summaries and chair syntheses only."
+}

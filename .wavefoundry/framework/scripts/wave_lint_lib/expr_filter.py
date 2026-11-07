@@ -33,6 +33,7 @@ class EvaluationError(ValueError):
 _PERL = {"d": "0-9", "w": "A-Za-z0-9_", "s": " \\t\\n\\f\\r"}
 _POSIX = {"alnum": "A-Za-z0-9", "alpha": "A-Za-z", "ascii": "\\x00-\\x7f", "blank": " \\t", "cntrl": "\\x00-\\x1f\\x7f", "digit": "0-9", "graph": "!-~", "lower": "a-z", "print": " -~", "punct": "!-/:-@\\[-`{-~", "space": " \\t\\n\\v\\f\\r", "upper": "A-Z", "word": "A-Za-z0-9_", "xdigit": "A-Fa-f0-9"}
 _WORD = "A-Za-z0-9_"
+_REPEAT = re.compile(r"\{\d+(?:,\d*)?\}")
 
 
 def _complement_class(body: str) -> str:
@@ -160,8 +161,12 @@ class _Regex:
         if depth > MAX_DEPTH:
             raise CompileError("regex nesting limit exceeded")
         out = []
+        # "quantified" after a repetition; "flagged" once flag-only groups,
+        # which emit nothing, follow it. Any other token clears the state.
+        after_repeat = ""
         while self.pos < len(self.source):
             c = self.source[self.pos]
+            state, after_repeat = after_repeat, ""
             if c == ")":
                 if not depth:
                     raise CompileError("unmatched regex closing group")
@@ -180,6 +185,7 @@ class _Regex:
                         self.pos += len(m[0])
                         if m[3] == ")":
                             flags = child_flags
+                            after_repeat = "flagged" if state else ""
                             continue
                         prefix = "(?:"
                     else:
@@ -199,7 +205,11 @@ class _Regex:
             elif c in "^$":
                 out.append("(?m:" + c + ")" if "m" in flags else r"\A" if c == "^" else r"\Z")
                 self.pos += 1
-            elif c in "*+?" or (c == "{" and re.match(r"\{\d+(?:,\d*)?\}", self.source[self.pos:])):
+            elif c in "*+?" or (c == "{" and _REPEAT.match(self.source, self.pos)):
+                if state == "flagged":
+                    # Python would fuse this with the earlier quantifier into
+                    # a possessive or lazy form that Go never produces.
+                    raise CompileError("unsupported repetition after a flag group that follows a repetition")
                 m = re.match(r"\{\d+(?:,\d*)?\}|[+*?]", self.source[self.pos:])
                 quantifier = m[0]
                 if quantifier.startswith("{") and any(int(n) > 1000 for n in re.findall(r"\d+", quantifier)):
@@ -208,6 +218,10 @@ class _Regex:
                 lazy = self.source[self.pos:self.pos + 1] == "?"
                 if lazy:
                     self.pos += 1
+                following = self.source[self.pos:self.pos + 1]
+                if following and (following in "*+?" or _REPEAT.match(self.source, self.pos)):
+                    raise CompileError("invalid nested repetition operator")
+                after_repeat = "quantified"
                 out.append(quantifier + ("?" if lazy != ("U" in flags) else ""))
             elif c == "|":
                 out.append(c)

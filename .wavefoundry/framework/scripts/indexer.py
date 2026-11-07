@@ -2,9 +2,6 @@
 """Build and maintain the Wavefoundry semantic index at .wavefoundry/index/."""
 from __future__ import annotations
 
-from setup_commands import setup_command as _setup_command
-
-
 import argparse
 import datetime
 import errno as errno_module
@@ -38,6 +35,9 @@ import bytecode_cache  # noqa: E402
 if __name__ == "__main__":
     bytecode_cache.configure()
 
+# Change 22qoy: framework imports follow the bytecode guard, or a direct run writes
+# ``setup_commands`` bytecode beside the sources.
+from setup_commands import setup_command as _setup_command  # noqa: E402
 from setup_index import ModelDownloadDeadline, model_download_root
 import index_compatibility
 index_compatibility.register_loaded_source()

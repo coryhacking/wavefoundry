@@ -6,7 +6,6 @@ import json
 import os
 import sys
 import unittest
-import test_worker_guard
 
 # Workers always stay read-only, including direct invocations without -B.
 if __name__ == "__main__" or sys.pycache_prefix is None:
@@ -15,6 +14,9 @@ import bytecode_cache  # noqa: E402
 
 if __name__ == "__main__":
     bytecode_cache.configure(read_only=True)
+
+# Change 22qoy: framework imports follow the bytecode guard.
+import test_worker_guard  # noqa: E402
 
 MAX_SKIPS = 20000
 MAX_FIELD = 4096

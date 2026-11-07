@@ -200,6 +200,120 @@ class CleanPycacheTests(unittest.TestCase):
         run_tests._clean_pycache()  # must not raise
 
 
+class FrameworkBytecodeCensusTests(unittest.TestCase):
+    """Change 22qoy: bytecode beside the framework sources fails the run."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self.tmp = Path(self._tmp)
+        self.framework = self.tmp / ".wavefoundry" / "framework"
+        (self.framework / "scripts").mkdir(parents=True)
+        (self.framework / "scripts" / "setup_commands.py").write_text("x = 1\n", encoding="utf-8")
+
+    def tearDown(self):
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _plant(self):
+        pycache = self.framework / "scripts" / "__pycache__"
+        pycache.mkdir(exist_ok=True)
+        (pycache / "setup_commands.cpython-314.pyc").write_bytes(b"bytecode")
+
+    def test_census_names_pycache_and_loose_pyc(self):
+        self.assertEqual(run_tests.framework_bytecode_paths(self.framework), [])
+        self.assertIsNone(run_tests._framework_bytecode_failure(self.framework))
+        self._plant()
+        (self.framework / "scripts" / "loose.pyc").write_bytes(b"bytecode")
+        self.assertEqual(run_tests.framework_bytecode_paths(self.framework),
+                         ["scripts/__pycache__", "scripts/loose.pyc"])
+        message = run_tests._framework_bytecode_failure(self.framework)
+        self.assertIn("FRAMEWORK BYTECODE BESIDE THE SOURCES", message)
+        self.assertIn("scripts/__pycache__", message)
+
+    def _execute(self, plant: bool):
+        def run_file(path):
+            if plant:
+                self._plant()  # a writer that runs after the start clean
+            return run_tests.FileResult(path.name, 0, "", 1, 0.1, 0)
+
+        out, err = io.StringIO(), io.StringIO()
+        with patch.object(run_tests, "_FRAMEWORK_DIR", self.framework), \
+                patch.object(run_tests, "_wait_for_index_build", return_value=None), \
+                patch.object(run_tests, "_acquire_run_lock", return_value=(object(), None)), \
+                patch.object(run_tests, "_release_run_lock"), \
+                patch.object(run_tests, "_probe_index_build_lock", return_value=(False, None)), \
+                patch.object(run_tests, "repo_state_snapshot", return_value=None), \
+                patch.object(run_tests, "_stray_artifact_failure", return_value=None), \
+                patch.object(run_tests, "_run_file", side_effect=run_file), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc, _results = run_tests._execute_files([self.tmp / "test_fake.py"])
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_known_bad_planted_after_start_clean_fails_the_run(self):
+        # A stale tree is cleaned at start, so only the run's own writes count.
+        self._plant()
+        rc, out, err = self._execute(plant=True)
+        self.assertEqual(rc, 1)
+        self.assertIn("FAILED (framework bytecode beside the sources)", out)
+        self.assertIn("scripts/__pycache__", err)
+        # The exit clean still runs after the census took its evidence.
+        self.assertFalse((self.framework / "scripts" / "__pycache__").exists())
+
+    def test_clean_run_passes_after_start_clean(self):
+        self._plant()  # removed by the start clean
+        rc, out, err = self._execute(plant=False)
+        self.assertEqual(rc, 0, err)
+        self.assertIn("OK", out)
+        self.assertNotIn("FRAMEWORK BYTECODE", err)
+
+    def test_failing_run_still_reports_the_census(self):
+        def run_file(path):
+            self._plant()
+            return run_tests.FileResult(path.name, 1, "boom", 1, 0.1, 0)
+
+        err = io.StringIO()
+        with patch.object(run_tests, "_FRAMEWORK_DIR", self.framework), \
+                patch.object(run_tests, "_wait_for_index_build", return_value=None), \
+                patch.object(run_tests, "_acquire_run_lock", return_value=(object(), None)), \
+                patch.object(run_tests, "_release_run_lock"), \
+                patch.object(run_tests, "_probe_index_build_lock", return_value=(False, None)), \
+                patch.object(run_tests, "repo_state_snapshot", return_value=None), \
+                patch.object(run_tests, "_stray_artifact_failure", return_value=None), \
+                patch.object(run_tests, "_run_file", side_effect=run_file), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            rc, _results = run_tests._execute_files([self.tmp / "test_fake.py"])
+        self.assertEqual(rc, 1)
+        self.assertIn("FRAMEWORK BYTECODE BESIDE THE SOURCES", err.getvalue())
+
+    def test_profile_run_fails_on_bytecode_in_the_real_tree(self):
+        scripts = self.framework / "scripts"
+
+        def profile_run_in(work, name, profile, profiles, scripts_rel, selectors, state):
+            self._plant()  # the profile run never cleans the real tree
+            return 0, "", False
+
+        err = io.StringIO()
+        with patch.object(run_tests, "_REPO_ROOT", self.tmp), \
+                patch.object(run_tests, "_SCRIPT_DIR", scripts), \
+                patch.object(run_tests, "_CACHE_FILE", self.framework / "test-cache.json"), \
+                patch.object(run_tests, "_profile_run_in", side_effect=profile_run_in), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            rc = run_tests._run_profile("second", [])
+        self.assertEqual(rc, 1)
+        self.assertIn("FRAMEWORK BYTECODE BESIDE THE SOURCES", err.getvalue())
+        self.assertTrue((scripts / "__pycache__").exists(), "the profile run must not clean the real tree")
+
+    def test_profile_run_passes_with_a_clean_tree(self):
+        scripts = self.framework / "scripts"
+        err = io.StringIO()
+        with patch.object(run_tests, "_REPO_ROOT", self.tmp), \
+                patch.object(run_tests, "_SCRIPT_DIR", scripts), \
+                patch.object(run_tests, "_CACHE_FILE", self.framework / "test-cache.json"), \
+                patch.object(run_tests, "_profile_run_in", return_value=(0, "", False)), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            rc = run_tests._run_profile("second", [])
+        self.assertEqual(rc, 0, err.getvalue())
+
+
 class CacheFileTests(unittest.TestCase):
     """Unit tests for _read_cache, _write_cache, and _cache_hit."""
 
@@ -364,14 +478,21 @@ class MainCacheBehaviorTests(unittest.TestCase):
         self._patcher_repo_snapshot = patch.object(
             run_tests, "repo_state_snapshot", return_value={}
         )
+        # Change 22qoy: the bytecode census is covered by FrameworkBytecodeCensusTests;
+        # these cache tests must not depend on the live framework tree.
+        self._patcher_bytecode = patch.object(
+            run_tests, "_framework_bytecode_failure", return_value=None
+        )
         self._patcher_clean.start()
         self._patcher_lock.start()
         self._patcher_release.start()
         self._patcher_build_wait.start()
         self._patcher_build_probe.start()
         self._patcher_repo_snapshot.start()
+        self._patcher_bytecode.start()
 
     def tearDown(self):
+        self._patcher_bytecode.stop()
         self._patcher_clean.stop()
         self._patcher_lock.stop()
         self._patcher_release.stop()
@@ -906,6 +1027,8 @@ class FocusedCallOrderTests(unittest.TestCase):
                 patch.object(run_tests, "repo_state_snapshot", return_value={}), \
                 patch.object(run_tests, "_stray_artifact_failure",
                              side_effect=recorder("_stray_artifact_failure", None)), \
+                patch.object(run_tests, "_framework_bytecode_failure",
+                             side_effect=recorder("_framework_bytecode_failure", None)), \
                 patch.object(run_tests, "_release_run_lock",
                              side_effect=recorder("_release_run_lock", None)), \
                 patch.object(sys, "argv", ["run_tests.py", "--file", "test_fake.py"]), \
@@ -919,6 +1042,7 @@ class FocusedCallOrderTests(unittest.TestCase):
             "_clean_pycache",
             "_run_file",
             "_stray_artifact_failure",
+            "_framework_bytecode_failure",
             "_clean_pycache",
             "_release_run_lock",
         ])

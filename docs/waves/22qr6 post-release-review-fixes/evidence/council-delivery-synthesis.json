@@ -1,0 +1,61 @@
+{
+  "wave_id": "22qr6 post-release-review-fixes",
+  "phase": "delivery",
+  "actor": "council-chair",
+  "context_id": "22qr6-del-chair-1",
+  "final_verdict": "approve council-delivery, intent_fit partially",
+  "intent_fit": {
+    "22qoz-bug scanner-false-incomplete-outcomes": {"verdict": "establishes", "why": "Parent-side shared predicate betterleaks_engine.exceeded_input_limit gives decoded-size and line-count reasons with an anchored allowlist remedy; idle alarm disarmed; remedy reaches docs-lint, CLI, MCP and close message. Chair probe confirmed predicate boundaries (MAX_LINES+1 newlines -> line_count; MAX_LINES newlines plus tail -> None; form feeds -> None; 2 Mi U+FFFD -> decoded_size; just-under-cap -> None)."},
+    "22qp0-bug go-regex-nested-repetition": {"verdict": "establishes", "why": "Chair probe: a*+, a++, a?+, a{2}+, a*?? and a*(?i)+ raise CompileError via compile_regex; a*?, a+?, a??, a{2,3}? compile."},
+    "22qr4-bug work-owner-and-reload-recovery": {"verdict": "establishes", "why": "Owner restored on every post-unlink path, reload response names stopped monitors, inspect child import path restricted to staged tree; known-bad HEAD controls recorded in Progress Log; security owner-restore probes in ev-approval-security-reviewer-5."},
+    "22qr5-debt scanner-config-sent-once-per-worker": {"verdict": "establishes", "why": "Digest-keyed configure; 50-file wire bytes 45.4 MB -> 1.38 MB; AC-1a stale-allowlist control and respawn controls pass."},
+    "22qoy-bug stray-framework-bytecode-during-qualification": {"verdict": "partially", "why": "Writer path (setup_commands import before the bytecode guard in indexer.py, setup_index.py, upgrade_wavefoundry.py) reproduced and fixed; AC-3 census in run_tests.py; default and second profile runs leave no framework bytecode. AC-1 is [~] by operator decision: the any-process real-tree trace was not run and the three historical writes are not attributed; writer exhaustiveness remains open as maybe_later finding 22qr6-chair-22qoy-writer-exhaustiveness. The census detects recurrence during test runs only, not from hooks or servers outside a run."},
+    "objective": {"verdict": "partially", "why": "Scanner, regex, work-area, reload and inspection clauses are established. 'No framework process writes bytecode beside the sources' is established for the identified writer and guarded during test runs, but not proven exhaustive across all processes (22qoy AC-1 [~])."},
+    "worst": "partially"
+  },
+  "original_request_checklist": [
+    {"finding": 1, "topic": "decoded-size expansion mislabelled worker_input_too_large", "change": "22qoz", "status": "fixed", "evidence": "22qoz AC-1; chair predicate probe"},
+    {"finding": 2, "topic": "idle SIGALRM kills reusable worker", "change": "22qoz", "status": "fixed", "evidence": "22qoz AC-2 tests (idle same-pid, request alarm still fires, EOF exit 0)"},
+    {"finding": 3, "topic": "no remedy for deterministic incomplete scans", "change": "22qoz", "status": "fixed", "evidence": "22qoz AC-3 plus readiness repair AC-1b for MAX_LINES"},
+    {"finding": 4, "topic": "Expr string indexing should return string", "change": null, "status": "excluded: not a defect (Go Expr indexing yields a byte; port mirrors upstream)", "evidence": "wave.md Wave Summary; 22qp0 Rationale and Progress Log"},
+    {"finding": 5, "topic": "Go nested repetition accepted locally", "change": "22qp0", "status": "fixed", "evidence": "22qp0 AC-1/AC-2/AC-2a; chair compile probe"},
+    {"finding": 6, "topic": "reload leaves monitors stopped silently", "change": "22qr4", "status": "fixed (truthful report, no auto-restart by decision)", "evidence": "22qr4 AC-2"},
+    {"finding": 7, "topic": "work owner file lost on post-unlink refusal", "change": "22qr4", "status": "fixed", "evidence": "22qr4 AC-1"},
+    {"finding": 8, "topic": "inspect child falls back to installed modules", "change": "22qr4", "status": "fixed", "evidence": "22qr4 AC-3"},
+    {"finding": 9, "topic": "full config sent with every worker request", "change": "22qr5", "status": "fixed", "evidence": "22qr5 AC-1/AC-1a/AC-2/AC-3"},
+    {"finding": 10, "topic": "setup index dry-run/real-build duplicate cost", "change": null, "status": "excluded: accepted measured 3-6 s cost", "evidence": "wave.md Wave Summary; 22qr5 Decision Log"},
+    {"finding": "22qoy", "topic": "stray framework bytecode", "change": "22qoy", "status": "fixed for identified writer; exhaustiveness open (maybe_later)", "evidence": "full-suite-1.log, profile-second.log, chair HEAD-vs-fixed reproduction"}
+  ],
+  "verification": {
+    "full_default_suite": ".wavefoundry/work/22qr6/full-suite-1.log: 12557 tests, 227 files, 12 skipped, OK, exit=0; receipt result ok inputs 750d42c7",
+    "second_profile": ".wavefoundry/work/22qr6/profile-second.log: 12539 tests, 227 files, 0 failed files, 30 skipped, OK, exit=0; nothing listed after exit= line; chair find under .wavefoundry/framework for __pycache__/*.pyc returned nothing",
+    "chair_spot_checks": [
+      "probe1.py (scratchpad del-chair): expr_filter refusals and lazy-quantifier passes; exceeded_input_limit boundary values at MAX_LINES=200000 and MAX_CONTENT_BYTES=5242880",
+      "Bytecode reproduction in scratch copies of the scripts tree: running indexer.py, setup_index.py, upgrade_wavefoundry.py --help with PYTHONPYCACHEPREFIX and PYTHONDONTWRITEBYTECODE unset. HEAD versions (git show HEAD:) wrote scripts/__pycache__/setup_commands.cpython-314.pyc (known-bad detected); the working-tree versions wrote nothing."
+    ],
+    "approvals_verified_in_ledger": ["ev-approval-code-reviewer-4 (22qr6-del-code-1)", "ev-approval-security-reviewer-5 (22qr6-del-sec-1)", "ev-approval-qa-reviewer-4 (22qr6-del-qa-2)"],
+    "findings": {
+      "22qr6-del-qa-22qoy-ac1-method": "terminal (completed, cycle 3)",
+      "22qr6-qa-22qoy-trace-scope": "terminal",
+      "22qr6-chair-22qoz-line-cap-remedy": "terminal",
+      "22qr6-chair-22qoy-writer-exhaustiveness": "maybe_later, open, non-blocking"
+    }
+  },
+  "limitations": [
+    "All execution on macOS only; no native Windows, Linux or WSL2 run. Windows has no setitimer, so the 22qoz idle-alarm fix is a no-op there; 22qr4 owner restore is unreachable on native Windows (refused before unlink).",
+    "22qoy writer exhaustiveness not proven: AC-1 [~], no fs_usage or in-checkout any-process trace; the three historical writes are not attributed; the AC-3 census only observes test runs, not hooks or long-lived servers between runs.",
+    "Chair spot-checks were read-only scratch probes; the chair did not re-run the suites or mutants and relies on the lane approvals for mutant evidence."
+  ],
+  "close_blockers_and_followups": [
+    "22qoy AC-2 and its third task are still [ ] in the change doc; the second profile run is now green with no bytecode, so the coordinator can mark them [x] (close requires [x] or [~]).",
+    "Every Change Status in wave.md and the change docs still reads planned; update before close.",
+    "Seed 215 expects a coordinator-drafted 'Intent outcome:' paragraph in wave.md Review Checkpoints for the chair to confirm; none exists. It should state partial (22qoy exhaustiveness) consistent with this verdict.",
+    "operator-signoff is withheld pending a fresh operator approval; wf_review_wave reports max_severity high from sensor findings for operator attention.",
+    "Marking AC/task checkboxes rotates the framework test receipt only if framework files change; change-doc edits may affect review receipt per prior lessons, so re-run wf_review_wave after the doc updates."
+  ],
+  "strongest_alternative": "For 22qoy, an always-on guard (e.g. setting sys.dont_write_bytecode in a shared first-import shim) would cover unknown writers; not stronger now because the static census already rejects framework imports before the flag in entry scripts.",
+  "improvements_recommended": [
+    "Follow up 22qr6-chair-22qoy-writer-exhaustiveness with a one-time any-process trace or a server/hook-side census.",
+    "Run the scanner and work-area suites on native Windows before release."
+  ]
+}

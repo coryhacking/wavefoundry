@@ -6,20 +6,19 @@ Last verified: 2026-11-06
 
 ## Current state
 
-No wave is OPEN. **22qky distribution-scan-delivery-followup closed on 2026-11-06** by explicit operator approval. It delivered 22q2u (selected-root health recovery), 22q2v (structured partial skill delivery) and 22q2w (scan completion and incoming scan-rule compatibility). All four delivery findings are terminal. Fresh independent reviewers cleared bytecode bootstrap, cache retry and malformed-ID disclosure in cycle 1, and suite fixtures in cycle 2: one tree-kill census row and one regenerated `.claude/hooks/pre-edit.py` digest. All seven delivery lanes and operator signoff are current. The docs-contract approval was re-recorded on an executed claims check, because the first approval's integrity booleans were not backed by a run. Council intent fit is `partially`: every change establishes, but native Windows, real downstream upgrade and external alert reduction remain unqualified.
+No wave is OPEN. **22qr6 post-release-review-fixes closed on 2026-11-06** by explicit operator approval. 22qky closed earlier the same day (`1ef5e0c9`). 22qr6 fixed the verified findings from the post-release `/code-review` of `v1.36.0..HEAD`: 22qoz (fixed-limit scan reasons and anchored-allowlist remedy, idle-alarm fix), 22qr5 (config sent once per worker by digest), 22qp0 (Go-invalid nested and flag-fused quantifiers refused), 22qr4 (work-owner restore, truthful reload monitors, staged-only inspection) and 22qoy (framework imports moved back below the bytecode guard in four entry scripts, plus a real-tree bytecode census in `run_tests.py`). Review findings 4 (not a defect) and 10 (accepted setup cost) were excluded.
 
-Verification: the final default suite passed 12,516 tests across 225 files with 12 skips in 566.7s (receipt inputs `fe270c2b66fb5aa4ae05a73fa71afab947e10c37bc3f597a6cf0079048f0b9f0`). The renamed `second` profile passed 12,498 tests with 30 skips. The declared profile passed 12,516 tests with 12 skips. Full docs validation passes. Run summaries, the Council synthesis and the docs-claims check are retained in the wave's `evidence/`; `events.jsonl` is the authority. CHANGELOG now states that `wf secrets-scan` exits 2 instead of 0 on an incomplete scan.
+Council intent fit is `partially`. 22qoy AC-1 is `[~]` by operator decision, because the any-process trace (sudo `fs_usage`) was not run; this is tracked as non-blocking finding `22qr6-chair-22qoy-writer-exhaustiveness`. Readiness took three operator-authorized bounded repairs. Verification: default suite 12,557 tests / 227 files / 12 skips green (receipt inputs `750d42c76b707c1ced5439c1b1096300cfbd5d640cd91ec8c7d1711b1d684401`); `second` profile 227/227 files green with no framework bytecode. macOS only.
 
 ### Next
 
-1. Scoped commit of 22qky (operator-authorized). Exclude the pre-existing VERSION, docs/index.md, overview, prompt-manifest and README product edits; stage only the README scanner paragraph.
-2. `/code-review` of the changes since v1.36.0 (1.37.0 inclusive; there is no v1.37.0 tag), as the operator requested.
-3. Release readiness: exact profile comparisons per the package prompt, then draft the Waveforge response. **No official release until Waveforge responds.** Version selection remains operator-owned.
+1. The planned follow-ups are unstarted: `22qr7-debt scanner-review-minor-follow-ups` (test isolation, guidance undercount, trailing-newline anchor) and `22r95-enh review-event-accepted-not-repaired` (expose `promotion_trigger`).
+2. Optional: an operator-approved `fs_usage` trace during a full qualification run, to close the 22qoy exhaustiveness gap.
+3. Release readiness: the declared-profile run, exact profile comparisons per the package prompt, and a Waveforge response draft. **No official release until Waveforge responds.** Version selection remains operator-owned.
 
-### Open
+### Preserved dirt
 
-- Bug **22qoy** (`docs/plans/`): a stray `setup_commands.cpython-314.pyc` is written beside the framework sources during qualification runs (seen about one minute into the `second` profile run). It is git-ignored and was never committed; the runner deletes it at the start of each run. The root cause is untraced.
-- Optional test tightening, not required: the `UpstreamIncompleteCacheTests` CLI subtests do not assert `complete=false` per failure mode.
+Pre-existing uncommitted edits stay out of commits: `.wavefoundry/framework/VERSION`, the README product text, `docs/index.md`, `docs/references/wavefoundry-overview.md` and `docs/prompts/prompt-surface-manifest.json`.
 
 ## Previous completion — 22lli
 

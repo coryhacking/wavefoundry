@@ -127,5 +127,39 @@ class IncomingScannerTests(unittest.TestCase):
         with patch.object(preflight,'MAX_STAGE_BYTES',1):
             self.assertEqual(preflight.inspect_project_rules(self.root,self.pack)['status'],'incomplete')
 
+    def test_pack_missing_a_scanner_module_is_incomplete_not_installed_fallback(self):
+        # Change 22qr4: `lifecycle_id` is imported by the scanner and is not a
+        # child bootstrap module, so only the installed copy could supply it.
+        missing=preflight.FRAMEWORK+'/scripts/lifecycle_id.py'
+        partial=Path(self.tmp.name)/'partial.zip'
+        with zipfile.ZipFile(self.pack) as source, zipfile.ZipFile(partial,'w') as archive:
+            names=source.namelist()
+            self.assertIn(missing,names)
+            for name in names:
+                if name!=missing:
+                    archive.writestr(name,source.read(name))
+        config='[[rules]]\nid="custom"\nregex="SYNTHETIC_OTHER"\n'
+        self.assertEqual(self.inspect(config)['status'],'compatible')
+        import os
+        for env in ({}, {'PYTHONPATH': str(SCRIPTS)}):
+            with self.subTest(env=env), patch.dict(os.environ, env):
+                self.local.write_text(config)
+                result=preflight.inspect_project_rules(self.root,partial)
+                self.assertEqual(result['status'],'incomplete',result)
+                self.assertEqual(result['issues'][0]['code'],'incoming_validator_unavailable')
+
+    def test_staged_import_path_drops_installed_and_inherited_scripts(self):
+        import os
+        staged=Path(self.tmp.name)/'staged'
+        with patch.dict(os.environ,{'PYTHONPATH':os.pathsep.join([str(SCRIPTS),self.tmp.name])}), \
+             patch.object(sys,'path',[str(SCRIPTS),self.tmp.name,*sys.path]):
+            kept=preflight._staged_import_path(staged)
+        self.assertEqual(kept[0],str(staged))
+        real=lambda p: os.path.normcase(os.path.realpath(p))
+        self.assertNotIn(real(SCRIPTS),[real(p) for p in kept[1:]])
+        self.assertNotIn(real(self.tmp.name),[real(p) for p in kept[1:]])
+        import json as stdlib_json
+        self.assertIn(real(Path(stdlib_json.__file__).parents[1]),[real(p) for p in kept])
+
 if __name__ == '__main__':
     unittest.main()

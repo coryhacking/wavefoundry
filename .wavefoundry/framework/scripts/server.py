@@ -726,6 +726,9 @@ def perform_mcp_reload(*, notify: str = "schedule") -> dict[str, Any]:
                 server_impl._diagnostic("handler_close_warning", f"Old handler close raised: {cause}")
             )
         if close_warnings:
+            # Change 22qr4: preparation paused both monitors and close stopped
+            # them; the retained handler restarts neither, so say so.
+            stopped = ["index_monitor", "ce_projection_monitor"]
             return server_impl._response(
                 "error",
                 {
@@ -734,7 +737,10 @@ def perform_mcp_reload(*, notify: str = "schedule") -> dict[str, Any]:
                     "reload": {
                         "mode": "in_process", "process_restarted": False,
                         "phase": "cleanup", "handler_preserved": False,
-                        "message": "Implementation unchanged; cleanup incomplete.",
+                        "monitors_stopped": stopped,
+                        "message": "Implementation unchanged; cleanup incomplete. "
+                        f"Background monitors stopped or paused and not restarted: {', '.join(stopped)}. "
+                        "Retry wf_reload_mcp to recover them, or restart the MCP host.",
                     },
                 },
                 diagnostics=close_warnings, usage="wf_reload_mcp()",
