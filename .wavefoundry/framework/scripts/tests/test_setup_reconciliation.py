@@ -808,9 +808,9 @@ class StuckPrestagingRecordTests(NativeSetupTests):
         upgrade_lib.remove_upgrade_lock(self.root)
         receipt_before = (self.index / migration.RECEIPT).read_bytes()
         with self.assertRaisesRegex(setup.MigrationRequired,
-                                    "^storage_setup_source_changed: restore the recorded installed framework "
-                                    "before rerunning wf setup"):
+                                    "^storage_setup_source_changed: restore the recorded installed framework ") as failure:
             setup.session(self.root, []).__enter__()
+        self.assertIn("before rerunning " + setup.setup_command(self.root), str(failure.exception))
         self.assertEqual((self.index / migration.RECEIPT).read_bytes(), receipt_before)
         self.assertIsNone(upgrade_lib.read_upgrade_lock(self.root))
 
@@ -824,8 +824,9 @@ class StuckPrestagingRecordTests(NativeSetupTests):
         receipt_before = (self.index / migration.RECEIPT).read_bytes()
         self.assertEqual(upgrade_lib.read_upgrade_lock(self.root)["storage_migration_id"], parent["migration_id"])
         with self.assertRaisesRegex(setup.MigrationRequired,
-                                    "^storage_setup_source_changed: restore the recorded framework before wf setup$"):
+                                    "^storage_setup_source_changed: restore the recorded framework before ") as failure:
             setup.session(self.root, []).__enter__()
+        self.assertEqual(str(failure.exception), "storage_setup_source_changed: restore the recorded framework before " + setup.setup_command(self.root))
         self.assertEqual(checkpoint_path.read_bytes(), checkpoint_before)
         self.assertEqual((self.index / migration.RECEIPT).read_bytes(), receipt_before)
 

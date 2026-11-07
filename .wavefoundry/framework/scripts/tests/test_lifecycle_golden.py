@@ -558,9 +558,25 @@ class LifecycleGoldenTests(unittest.TestCase):
                     if new_diag.get('code') in hint_message_codes:
                         new_diag['message'] = old_diag['message']
         additions = []
+        completion_paths = {
+            f"$.fixtures.{name}.{route}.data"
+            for name in ("active_typed_approvals", "missing_lane", "planned_with_verdict")
+            for route in ("close:create", "close:dry_run")
+        }
+        completion_additions = set()
         def strip(old, new, path="$"):
             if isinstance(old, dict) and isinstance(new, dict):
                 for key in set(new) - set(old):
+                    if key == "scanner_completion":
+                        self.assertIn(path, completion_paths)
+                        self.assertEqual(new[key], {
+                            "complete": True,
+                            "completion_scope": "requested scan and recorded outstanding failures",
+                            "incomplete": [], "incomplete_files": 0,
+                            "incomplete_omitted": 0, "policy_excluded_files": 0,
+                        }, path)
+                        completion_additions.add(path)
+                        continue
                     self.assertEqual(key, "configured_gates", path)
                     self.assertEqual(new[key], [], path)
                     additions.append(path)
@@ -572,6 +588,7 @@ class LifecycleGoldenTests(unittest.TestCase):
             return new
         self.assertEqual(strip(before, after), before)
         self.assertTrue(additions)
+        self.assertEqual(completion_additions, completion_paths)
 
     def test_capture_ignores_ambient_clock_and_prior_id_allocation(self):
         ids = self.srv._lifecycle_module()

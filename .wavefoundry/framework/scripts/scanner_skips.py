@@ -11,6 +11,22 @@ from runtime_lock import RuntimeFileLock
 
 
 LEDGER_REL = ".wavefoundry/index/scan/guard-skips.json"
+INTENTIONAL_SKIP_REASONS = frozenset({"binary file", "binary file (extension)"})
+
+
+def incomplete_rows(rows: list[dict]) -> list[dict]:
+    """Policy omissions are disclosed separately from failed eligible scans."""
+    return [row for row in rows if row.get("reason") not in INTENTIONAL_SKIP_REASONS]
+
+
+def incomplete_paths(root: Path) -> set[str]:
+    """Return validated outstanding retry candidates, including absent paths.
+
+    The scanner owns current-policy and removal reconciliation. A malformed
+    ledger supplies no paths and still fails the completion assessment.
+    """
+    return {row["file"] for row in incomplete_rows(
+        scanner_skip_notice(root).get("scanner_skips", []))}
 
 
 def _validate_path(value: object) -> str:
@@ -163,3 +179,35 @@ def scanner_skip_notice(root: Path) -> dict:
         }
     rows = [{"file": rel, **row} for rel in sorted(files) for row in files[rel]]
     return {"scanner_skips": rows} if rows else {}
+
+
+def scanner_completion(root: Path, failures=(), *, limit: int = 50) -> dict:
+    """Project outstanding coverage facts, never claim a whole-tree scan ran.
+
+    Missing history means no recorded failures, not proof of prior coverage.
+    Consumers combine this with their actual scan scope and current failures.
+    """
+    notice = scanner_skip_notice(root)
+    rows = notice.get("scanner_skips", [])
+    incomplete = incomplete_rows(rows)
+    error = notice.get("scanner_skips_error")
+    current_error = any("[secrets]" not in failure for failure in failures)
+    return {
+        "complete": not (incomplete or error or current_error),
+        "completion_scope": "requested scan and recorded outstanding failures",
+        "incomplete_files": len({row["file"] for row in incomplete}),
+        "incomplete": incomplete[:limit],
+        "incomplete_omitted": max(0, len(incomplete) - limit),
+        "policy_excluded_files": len({row["file"] for row in rows
+                                      if row["reason"] in INTENTIONAL_SKIP_REASONS}),
+        **({"coverage_error": error} if error else {}),
+    }
+
+
+def scanner_completion_failures(root: Path) -> list[str]:
+    coverage = scanner_completion(root)
+    if coverage.get("coverage_error"):
+        return ["[scan-incomplete] Scanner coverage history is malformed or unreadable; restore it and rerun the scan."]
+    if coverage["incomplete_files"]:
+        return [f"[scan-incomplete] {coverage['incomplete_files']} eligible file(s) have unresolved incomplete scans; inspect scanner completion details and retry."]
+    return []

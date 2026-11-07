@@ -1567,11 +1567,15 @@ def scan_file_raw(
     if upstream:
         try:
             if _upstream_path_excluded(rel, policy, global_allowlist_paths):
+                if _outcome is not None:
+                    _outcome["complete"] = True  # Explicit current policy exclusion.
                 return [], None, []
         except Exception as exc:
             _record_scan_skip(rel, "upstream scan incomplete", getattr(exc, "code", "worker_failure"))
             return [], None, []
     elif _path_matches_allowlist(rel, global_allowlist_paths):
+        if _outcome is not None:
+            _outcome["complete"] = True
         return [], None, []
     # Wave 1p5qp — extension fast-skip BEFORE any stat/read: known-binary/data
     # artifacts (archives, shared objects, LanceDB segments, media, model weights)
@@ -1579,7 +1583,7 @@ def scan_file_raw(
     # over ~300 such files made docs-lint / wave_* tools spin (~54s).
     if _is_binary_path(file_path):
         _record_scan_skip(rel, "binary file (extension)", "".join(file_path.suffixes).lower() or file_path.name)
-        hits = _scan_upstream_raw("", rel, [], policy, global_regexes, global_stopwords, metadata_only=True) if upstream and file_path.is_file() else []
+        hits = _scan_upstream_raw("", rel, [], policy, global_regexes, global_stopwords, metadata_only=True, outcome=_outcome) if upstream and file_path.is_file() else []
         return [], None, hits
     # Wave 1p44s — input guards BEFORE reading the file. Each returns the same
     # ([], None, []) shape as a clean skip so phase-2 short-circuits without a
@@ -1600,8 +1604,11 @@ def scan_file_raw(
     else:
         try:
             size = file_path.stat().st_size
+        except FileNotFoundError:
+            return [], None, []  # Publication confirms absence before clearing history.
         except OSError:
-            return [], None, []  # vanished mid-scan (stat race) — treat as a clean skip
+            _record_scan_skip(rel, "input unreadable", "stat_failed")
+            return [], None, []
     if size > MAX_FILE_BYTES:
         _record_scan_skip(rel, "file too large", f"{size} bytes > {MAX_FILE_BYTES} cap")
         return [], None, []
@@ -1631,18 +1638,22 @@ def scan_file_raw(
             _record_scan_skip(
                 rel, "binary file", f"NUL byte in first {BINARY_SNIFF_BYTES} bytes"
             )
-            hits = _scan_upstream_raw("", rel, [], policy, global_regexes, global_stopwords, metadata_only=True) if upstream else []
+            hits = _scan_upstream_raw("", rel, [], policy, global_regexes, global_stopwords, metadata_only=True, outcome=_outcome) if upstream else []
             return [], None, hits
+    except FileNotFoundError:
+        return [], None, []
     except OSError:
-        return [], None, []  # disappeared between stat and read — clean skip
+        _record_scan_skip(rel, "input unreadable", "read_failed")
+        return [], None, []
     try:
         content = head.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
     except Exception:
+        _record_scan_skip(rel, "input unreadable", "decode_failed")
         return [], None, []
 
     lines = content.splitlines()
     long_lines = [i for i, line in enumerate(lines, 1) if len(line) > MAX_LINE_BYTES]
-    if long_lines:
+    if long_lines and not upstream:
         _record_scan_skip(
             rel, "line too long",
             f"{len(long_lines)} line(s) over {MAX_LINE_BYTES} characters; first at {long_lines[0]}",
@@ -1656,11 +1667,8 @@ def scan_file_raw(
     else:
         file_sha256 = _sha256_file(file_path)
     if upstream:
-        if long_lines:
-            # A long line may contain a required component. Omitting it and
-            # reporting the rest as complete would change correlation semantics.
-            _record_scan_skip(rel, "upstream scan incomplete", "line_guard_prevents_complete_fragment")
-            return lines, file_sha256, []
+        # The isolated full-fragment engine owns byte/line/match/time bounds.
+        # Applying the legacy per-line omission would hide the rest of a bundle.
         lines = content.split("\n")
         if lines and not lines[-1]:
             lines.pop()
@@ -1990,8 +1998,8 @@ def check_hardcoded_secrets(
     record_only: wave 1p5pz — when True, secret *findings* (new/pending/suspected/
         confirmed/under-confirmed-false-positive, all tagged ``[secrets]``) are still
         detected and recorded to scan-findings.json, but are NOT returned as failures
-        — only genuine lint errors (a bare ``wavefoundry-ignore`` directive) are. The
-        secrets gate is enforced solely at ``wf_close_wave`` (`_check_secrets_gate`), so
+        — lint errors, invalid configuration and incomplete eligible scans still fail.
+        The findings gate is enforced at ``wf_close_wave`` (`_check_secrets_gate`), so
         docs-lint (post-edit hook, ``wf_validate_docs``, the upgrade docs gate) must not
         block on secret findings. A non-fatal stderr notice surfaces the recorded count.
 
@@ -2183,7 +2191,25 @@ def check_hardcoded_secrets(
     if files is None:
         files = get_scan_files(root, scan_all)
 
-    # Build (file_path, rel) pairs, filtering non-existent and out-of-root paths.
+    from scanner_skips import incomplete_rows, scanner_skip_notice, scanner_completion_failures
+    # Reconcile explicit current exclusions even when an incremental request
+    # does not revisit the previously failed file. No content is read here.
+    policy_outcomes = {}
+    outstanding = scanner_skip_notice(root)
+    try:
+        for rel in {row["file"] for row in incomplete_rows(outstanding.get("scanner_skips", []))}:
+            excluded = is_scanner_excluded_path(rel)
+            if not excluded:
+                excluded = (_upstream_path_excluded(rel, policy, global_allowlist_paths)
+                            if policy.get("_betterleaks_config")
+                            else _path_matches_allowlist(rel, global_allowlist_paths))
+            if excluded:
+                policy_outcomes[rel] = {"complete": True, "skips": []}
+    except Exception as exc:
+        return ["[scan-incomplete] Prior scan failures could not be checked against current exclusions ("
+                + getattr(exc, "code", "worker_failure") + "); prior evidence retained"]
+
+    # Build (file_path, rel) pairs, filtering explicitly excluded paths.
     file_scan_list: list[tuple[Path, str]] = []
     # Wave 200xy (200v1): record documents are read through the member-doc rule.
     record_rels: set[str] = set()
@@ -2197,6 +2223,7 @@ def check_hardcoded_secrets(
             rel = file_path.as_posix()
         # Explicit file lists receive the same exclusion before content reads.
         if is_scanner_excluded_path(rel):
+            policy_outcomes[rel] = {"complete": True, "skips": []}
             continue
         if is_record_document(root, file_path):
             record_rels.add(rel)
@@ -2264,7 +2291,7 @@ def check_hardcoded_secrets(
 
     # Phase 2: serial exception matching — mutates exceptions list and collects failures.
     failures: list[str] = []
-    scan_outcomes: dict[str, dict] = {}
+    scan_outcomes: dict[str, dict] = dict(policy_outcomes)
     # Serial and worker paths now carry the same per-file payload. Rebuild the
     # public per-run list once so serial rows are not counted a second time.
     _SCANNER_SKIPS.clear()
@@ -2277,9 +2304,18 @@ def check_hardcoded_secrets(
             _SCANNER_COSTS.append(_res[3])
         if len(_res) > 4:
             outcome = _res[4]
-            _SCANNER_SKIPS.extend(outcome["skips"])
             if rules_degraded:
                 outcome["complete"] = False
+            if not outcome["complete"] and not outcome["skips"]:
+                try:
+                    _fp.lstat()
+                except FileNotFoundError:
+                    pass  # update_scanner_skips confirms removal under its lock.
+                except OSError:
+                    outcome["skips"].append({"file": rel, "reason": "input unreadable", "detail": "lstat_failed"})
+                else:
+                    outcome["skips"].append({"file": rel, "reason": "scan incomplete", "detail": "coverage_unproven"})
+            _SCANNER_SKIPS.extend(outcome["skips"])
             # Explicit files= callers historically can supply outside-root paths;
             # keep their finding behavior, but root-local history stays root-local.
             # Wave 1x5tr (delivery review) — validate per path HERE, so one name the
@@ -2289,7 +2325,7 @@ def check_hardcoded_secrets(
                 # Wave 200xy (200v1): a refused record document is never
                 # cached as a clean scan; it is re-observed on the next run.
                 _SCANNER_SKIPS_UNPUBLISHED.append(rel)
-            if any(row.get("reason") == "upstream scan incomplete" for row in outcome["skips"]):
+            if incomplete_rows(outcome["skips"]):
                 # Transient worker failures must be retried even if the skip
                 # ledger successfully records the incomplete observation.
                 _SCANNER_SKIPS_UNPUBLISHED.append(rel)
@@ -2334,6 +2370,10 @@ def check_hardcoded_secrets(
         if is_recordable_path(rel):
             scan_outcomes[rel] = {"complete": False, "skips": _SCANNER_SKIPS[before:]}
 
+    incomplete_paths = {row["file"] for row in incomplete_rows(_SCANNER_SKIPS)}
+    if incomplete_paths:
+        failures.append(f"[scan-incomplete] {len(incomplete_paths)} eligible file(s) could not be completely scanned; inspect completion details and retry.")
+
     if not publish:
         _SCANNER_SKIPS_UNPUBLISHED.extend(scan_outcomes)
         findings = [f for f in failures if "[secrets]" in f]
@@ -2356,6 +2396,9 @@ def check_hardcoded_secrets(
             f"({type(exc).__name__}); prior evidence retained where present.",
             file=sys.stderr, flush=True,
         )
+        failures.append("[scan-incomplete] Scanner coverage outcomes could not be persisted; prior evidence retained.")
+
+    failures.extend(scanner_completion_failures(root))
 
     if exceptions_changed:
         save_exceptions(root, exceptions)

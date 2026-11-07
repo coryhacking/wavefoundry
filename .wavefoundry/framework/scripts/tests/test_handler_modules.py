@@ -434,13 +434,15 @@ class HandlerResponseTests(unittest.TestCase):
         run.assert_called_once()
         self.assertEqual(result['status'], 'ok')
         self.assertEqual(result['data']['written'], ['docs/changed.md'])
+        finding = '[secrets] ordinary.txt:1: fixture-probe requires disposition'
         with patch.object(self.server, '_mcp_subprocess_run', return_value=
-                          subprocess.CompletedProcess([], 0, json.dumps({'failures': ['sentinel finding']}), '')) as run:
+                          subprocess.CompletedProcess([], 0, json.dumps({'complete': True, 'failures': [finding]}), '')) as run:
             result = docs.wf_scan_secrets_response(self.root, mode='full')
         run.assert_called_once()
         self.assertIn('run_secrets_scan.py', run.call_args.args[0][1])
         self.assertEqual(result['status'], 'error')
-        self.assertEqual(result['data']['failures'], ['sentinel finding'])
+        self.assertEqual(result['data']['failures'], [finding])
+        self.assertTrue(result['data']['complete'], 'a detected secret is not incomplete coverage')
 
 
 

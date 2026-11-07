@@ -7440,6 +7440,31 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         self.assertEqual(parsed["pruned_count"], 2)
         self.assertNotIn("summary_source_degraded", parsed)
 
+    def test_partial_skill_summary_reaches_mcp_even_when_details_are_bounded(self):
+        for partial, count in ((True, 1), (True, 2000), (False, 0), (None, 0)):
+            with self.subTest(partial=partial, count=count):
+                fields = {"skill_collisions": [
+                    {"code": "skill_collision", "name": f"wf-collision-{n}",
+                     "reason": "core collision", "message": "Rename the declaration."}
+                    for n in range(count)]}
+                if partial is not None:
+                    fields["partial_skill_delivery"] = partial
+                output = self._summary_output(**fields)
+                proc = MagicMock(returncode=0, stdout=output, stderr="")
+                with patch("subprocess.run", return_value=proc):
+                    result = self.srv.wf_upgrade_response(self.root, phase="update_index")
+                self.assertEqual(result["status"], "ok")
+                summary = result["data"]["summary"]
+                self.assertIs(summary["partial_skill_delivery"], partial)
+                self.assertEqual("skill_collision" in [d["code"] for d in result["diagnostics"]],
+                                 partial is True)
+                if count == 1:
+                    self.assertEqual(summary["skill_collisions"][0]["name"], "wf-collision-0")
+                if count == 2000:
+                    self.assertEqual(summary["skill_collisions_total"], count)
+                    self.assertTrue(summary["skill_collisions_truncated"])
+                    self.assertGreater(summary["skill_collisions_remaining"], 0)
+
     def test_new_schema_probe_field_survives_into_response_summary(self):
         # Wave 1u44o AC-1 (parser-side end to end): a field the current server
         # cannot itself produce must survive _parse_upgrade_summary +

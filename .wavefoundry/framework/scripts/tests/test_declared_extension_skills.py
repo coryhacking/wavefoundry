@@ -451,7 +451,7 @@ class InvalidDeclarationRefusesRenderTests(unittest.TestCase):
                 ras.preflight_agent_surface_paths(root)
                 self.assertEqual(_snapshot(root), before)
 
-    def _run_main(self, module: str, root: Path, declaration: dict) -> subprocess.CompletedProcess:
+    def _run_main(self, module: str, root: Path, declaration: dict, manifest: str | None = None) -> subprocess.CompletedProcess:
         driver = (
             "import json, sys\n"
             "sys.path.insert(0, sys.argv[1])\n"
@@ -459,6 +459,7 @@ class InvalidDeclarationRefusesRenderTests(unittest.TestCase):
             "mcp_tool_extensions.EXTENSION_SKILLS = json.loads(sys.argv[2])\n"
             f"import {module} as target\n"
             "argv = ['--repo-root', sys.argv[3]]\n"
+            "if len(sys.argv) > 4: argv += ['--manifest', sys.argv[4]]\n"
             "sys.exit(target.main(argv) if target.main.__code__.co_argcount else "
             "(sys.argv.__setitem__(slice(1, None), argv) or target.main()))\n"
         )
@@ -466,7 +467,8 @@ class InvalidDeclarationRefusesRenderTests(unittest.TestCase):
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["WAVEFOUNDRY_SKIP_PYTHON_HEAL"] = "1"
         return subprocess.run(
-            [sys.executable, "-B", "-c", driver, str(SCRIPTS_ROOT), json.dumps(declaration), str(root)],
+            [sys.executable, "-B", "-c", driver, str(SCRIPTS_ROOT), json.dumps(declaration), str(root),
+             *([manifest] if manifest else [])],
             cwd=str(SCRIPTS_ROOT), env=env, capture_output=True, text=True, encoding="utf-8",
             errors="replace", check=False, timeout=300,
         )
@@ -490,33 +492,88 @@ class InvalidDeclarationRefusesRenderTests(unittest.TestCase):
         from unittest.mock import patch
         from server_tools_support import load_server
         from test_upgrade_wavefoundry import load_upgrade_module
-        from wf_server.docs_handlers import run_sync_surfaces
+        from wf_server.docs_handlers import wf_sync_surfaces_response
+        import upgrade_lib
         declaration = {"wf-plan-feature": VALID_SPEC, "wf-independent": VALID_SPEC}
-        for module in ("render_platform_surfaces", "render_agent_surfaces"):
-            with tempfile.TemporaryDirectory() as temp:
-                root = Path(temp)
-                _repo(root)
-                result = self._run_main(module, root, declaration)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            _repo(root)
+            srv = load_server()
+
+            def render_child(argv, **kwargs):
+                result = self._run_main("render_platform_surfaces", root, declaration,
+                                        manifest=argv[argv.index("--manifest") + 1])
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn("PARTIAL", result.stderr)
-                self.assertIn("wf-plan-feature", result.stderr)
-                self.assertTrue((root / ".claude/skills/wf-independent/SKILL.md").is_file())
-                srv = load_server()
-                with patch.object(srv, "_mcp_subprocess_run", return_value=result):
-                    summary = run_sync_surfaces(root)
-                self.assertTrue(summary["passed"])
-                self.assertIn("PARTIAL", summary["output"])
-                self.assertIn("rename", summary["output"])
-                upgrade = load_upgrade_module()
-                with patch.object(upgrade, "_run_upgrade_child", return_value=result), \
-                     patch.object(upgrade.venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
-                     patch.object(upgrade, "_persist_permissions_delta"), \
-                     patch.object(upgrade, "_log") as log:
-                    upgrade.phase_surface_rendering(root)
-                lines = [str(call.args[0]) for call in log.call_args_list]
-                self.assertTrue(any("partial skill delivery" in line for line in lines), lines)
-                self.assertTrue(any("wf-plan-feature" in line for line in lines), lines)
-                self.assertNotIn("  Surfaces rendered.", lines)
+                # No prose available: every consumer must use the manifest.
+                return subprocess.CompletedProcess(argv, result.returncode, "", "")
+
+            with patch.object(srv, "_mcp_subprocess_run", side_effect=render_child), \
+                 patch.object(srv, "_attach_lint_to_response", side_effect=lambda envelope, *_: envelope):
+                response = wf_sync_surfaces_response(root, "run")
+            self.assertEqual(response["status"], "ok")
+            self.assertTrue(response["data"]["partial_skill_delivery"])
+            self.assertEqual(response["data"]["skill_collisions"][0]["name"], "wf-plan-feature")
+            self.assertIn("skill_collision", [d["code"] for d in response["diagnostics"]])
+            self.assertTrue((root / ".claude/skills/wf-independent/SKILL.md").is_file())
+            upgrade_lib.write_upgrade_lock(root, "1.38.0", "1.39.0")
+            upgrade = load_upgrade_module()
+            with patch.object(upgrade, "_run_upgrade_child", side_effect=render_child), \
+                 patch.object(upgrade.venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                 patch.object(upgrade, "_log"):
+                upgrade.phase_surface_rendering(root)
+            # Reloaded module represents the separate cleanup/summary process.
+            fresh = load_upgrade_module()
+            observed = fresh._read_skill_delivery(root)
+            self.assertTrue(observed["partial_skill_delivery"])
+            self.assertEqual(observed["skill_collisions"][0]["name"], "wf-plan-feature")
+            summary = fresh._build_upgrade_summary("1.38.0", "1.39.0", None, 0, False, None, [], root=root)
+            self.assertTrue(summary["partial_skill_delivery"])
+            # Cleanup holds this record before deleting its checkpoint.
+            upgrade_lib.upgrade_lock_path(root).unlink()
+            summary = fresh._build_upgrade_summary("1.38.0", "1.39.0", None, 0, False, None, [],
+                                                  root=root, skill_delivery=observed)
+            self.assertTrue(summary["partial_skill_delivery"])
+            self.assertIsNone(fresh._read_skill_delivery(root)["partial_skill_delivery"])
+            upgrade_lib.write_upgrade_lock(root, "1.38.0", "1.39.0")
+            declaration = {"wf-renamed": VALID_SPEC, "wf-independent": VALID_SPEC}
+            with patch.object(upgrade, "_run_upgrade_child", side_effect=render_child), \
+                 patch.object(upgrade.venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                 patch.object(upgrade, "_log"):
+                upgrade.phase_surface_rendering(root)
+            self.assertEqual(fresh._read_skill_delivery(root),
+                             {"partial_skill_delivery": False, "skill_collisions": []})
+            with patch.object(srv, "_mcp_subprocess_run", side_effect=render_child), \
+                 patch.object(srv, "_attach_lint_to_response", side_effect=lambda envelope, *_: envelope):
+                response = wf_sync_surfaces_response(root, "run")
+            self.assertFalse(response["data"]["partial_skill_delivery"])
+            self.assertNotIn("skill_collision", [d["code"] for d in response["diagnostics"]])
+            with tempfile.TemporaryDirectory() as other:
+                self.assertIsNone(fresh._read_skill_delivery(Path(other))["partial_skill_delivery"])
+            upgrade_lib.update_upgrade_lock(root, skill_delivery=observed)
+            with patch.object(upgrade, "_run_upgrade_child", return_value=subprocess.CompletedProcess([], 2, "", "failed")), \
+                 patch.object(upgrade.venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                 patch.object(upgrade, "_log"), patch.object(upgrade, "_err"), self.assertRaises(SystemExit):
+                upgrade.phase_surface_rendering(root)
+            self.assertIsNone(fresh._read_skill_delivery(root)["partial_skill_delivery"])
+
+    def test_legacy_and_malformed_skill_manifest_do_not_claim_complete_delivery(self):
+        from unittest.mock import patch
+        from server_tools_support import load_server
+        from wf_server.docs_handlers import run_sync_surfaces
+        from test_upgrade_wavefoundry import load_upgrade_module
+        srv = load_server()
+        upgrade = load_upgrade_module()
+        for payload in ({"written": []}, {"partial_skill_delivery": True},
+                        {"partial_skill_delivery": False, "skill_collisions": None}):
+            with self.subTest(payload=payload), tempfile.TemporaryDirectory() as temp:
+                def child(argv, **kwargs):
+                    Path(argv[argv.index("--manifest") + 1]).write_text(json.dumps(payload))
+                    return subprocess.CompletedProcess(argv, 0, "", "")
+                with patch.object(srv, "_mcp_subprocess_run", side_effect=child):
+                    result = run_sync_surfaces(Path(temp))
+                self.assertTrue(result["passed"])
+                self.assertIsNone(result["partial_skill_delivery"])
+                self.assertIsNone(upgrade._skill_delivery_fields(payload)["partial_skill_delivery"])
 
     def test_platform_entry_point_renders_a_valid_declaration(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

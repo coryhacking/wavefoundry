@@ -6,6 +6,23 @@ Last verified: 2026-11-06
 
 ## Current state
 
+No wave is OPEN. **22qky distribution-scan-delivery-followup closed on 2026-11-06** by explicit operator approval. It delivered 22q2u (selected-root health recovery), 22q2v (structured partial skill delivery) and 22q2w (scan completion and incoming scan-rule compatibility). All four delivery findings are terminal. Fresh independent reviewers cleared bytecode bootstrap, cache retry and malformed-ID disclosure in cycle 1, and suite fixtures in cycle 2: one tree-kill census row and one regenerated `.claude/hooks/pre-edit.py` digest. All seven delivery lanes and operator signoff are current. The docs-contract approval was re-recorded on an executed claims check, because the first approval's integrity booleans were not backed by a run. Council intent fit is `partially`: every change establishes, but native Windows, real downstream upgrade and external alert reduction remain unqualified.
+
+Verification: the final default suite passed 12,516 tests across 225 files with 12 skips in 566.7s (receipt inputs `fe270c2b66fb5aa4ae05a73fa71afab947e10c37bc3f597a6cf0079048f0b9f0`). The renamed `second` profile passed 12,498 tests with 30 skips. The declared profile passed 12,516 tests with 12 skips. Full docs validation passes. Run summaries, the Council synthesis and the docs-claims check are retained in the wave's `evidence/`; `events.jsonl` is the authority. CHANGELOG now states that `wf secrets-scan` exits 2 instead of 0 on an incomplete scan.
+
+### Next
+
+1. Scoped commit of 22qky (operator-authorized). Exclude the pre-existing VERSION, docs/index.md, overview, prompt-manifest and README product edits; stage only the README scanner paragraph.
+2. `/code-review` of the changes since v1.36.0 (1.37.0 inclusive; there is no v1.37.0 tag), as the operator requested.
+3. Release readiness: exact profile comparisons per the package prompt, then draft the Waveforge response. **No official release until Waveforge responds.** Version selection remains operator-owned.
+
+### Open
+
+- Bug **22qoy** (`docs/plans/`): a stray `setup_commands.cpython-314.pyc` is written beside the framework sources during qualification runs (seen about one minute into the `second` profile run). It is git-ignored and was never committed; the runner deletes it at the start of each run. The root cause is untraced.
+- Optional test tightening, not required: the `UpstreamIncompleteCacheTests` CLI subtests do not assert `complete=false` per failure mode.
+
+## Previous completion — 22lli
+
 No wave is OPEN. **22lli renamed-profile-review-parity closed on 2026-11-06.** It ships profile-aware review and hook assertions plus one configured-noun diagnostic; all four ACs and tasks are complete. Code, QA, architecture and Council approvals are current, with no findings and intent fit `establishes`. The operator directed closure, commit and push. Canonical closure accepted the existing green receipt, reported no diagnostics and removed the owned work area. The scoped commit includes this repair, closure records and the requested 22lwp evidence cleanup; unrelated website and local-build stamps remain outside it. No new package or release is part of this request.
 
 Full qualification passes: default 12,485 tests / 221 files / 12 skips / 716.508 seconds; renamed 12,467 / 221 / 30 / 700.315; declared-extension 12,485 / 221 / 12 / 705.813. Both exact profile comparisons pass, including the existing 18 default-only renamed cases. Six scoped negative controls and four independent reviewer controls reject deliberately broken behavior. Source and gates stayed fixed during qualification; default receipt inputs are `67a67641b3d521a84201c9d318c66ab5d99255154c35956e47d613cd4709cb63`. An earlier focused run passed its tests but refused a receipt because the coordinator closed a gate during it; it was not repeated solely for that refusal. The full default run was already required.

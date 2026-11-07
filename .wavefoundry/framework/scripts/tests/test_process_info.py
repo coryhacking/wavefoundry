@@ -109,12 +109,13 @@ class BrokenOrMissingPsutilTests(_Reset):
     def _fresh(self):
         process_info._PSUTIL = None
 
-    def test_any_import_failure_is_unavailable_and_names_wf_setup(self):
+    def test_any_import_failure_is_unavailable_and_requests_repository_setup(self):
         self._fresh()
         with patch.object(process_info.importlib, "import_module", side_effect=OSError("blocked dll")):
             with self.assertRaises(process_info.ProcessInfoUnavailable) as raised:
                 process_info.pid_state(os.getpid())
-            self.assertIn("wf setup", str(raised.exception))
+            self.assertIn("select the repository and use its local setup launcher", str(raised.exception))
+            self.assertNotIn("`wf setup`", str(raised.exception))
             self.assertEqual(process_info.available()[0], False)
 
     def test_below_the_floor_is_unavailable(self):

@@ -1573,7 +1573,9 @@ def index_health_response(
     index.  Intended as an explicit diagnostic tool; not on the search hot path.
     """
     from wf_server import server_impl
-    setup_usage = "wf setup --root ."
+    from setup_commands import setup_recovery
+    setup_remedy = setup_recovery(index.root)
+    setup_usage = setup_remedy["recovery_usage"]
     update_usage = "index_build(content='all', mode='update')"
     rebuild_usage = "index_build(content='all', mode='rebuild')"
     preserve_usage = (
@@ -1597,6 +1599,14 @@ def index_health_response(
         else:
             recovery_usage = "Resolve the reported error before retrying index_health(). " + preserve_usage
             message = str(exc)
+        diagnostic = _diagnostic(
+            code,
+            f"Could not compute index health: {message}",
+            recovery_tools=["wf_help"],
+            recovery_usage=recovery_usage,
+        )
+        if code == "storage_runtime_unavailable":
+            diagnostic.update(setup_remedy)
         return server_impl._response(
             "error",
             {
@@ -1607,14 +1617,7 @@ def index_health_response(
                     else {}
                 ),
             },
-            diagnostics=[
-                _diagnostic(
-                    code,
-                    f"Could not compute index health: {message}",
-                    recovery_tools=["wf_help"],
-                    recovery_usage=recovery_usage,
-                )
-            ],
+            diagnostics=[diagnostic],
             next_tools=["wf_help"],
             usage=recovery_usage,
         )
@@ -1870,6 +1873,11 @@ def index_health_response(
         next_tools, usage = ["index_build"], update_usage
     else:
         next_tools, usage = ["docs_search"], "docs_search(query='...')"
+    for diagnostic in diagnostics:
+        if diagnostic.get("recovery_usage") == setup_usage:
+            diagnostic.update(setup_remedy)
+    if usage == setup_usage:
+        health.update(setup_remedy)
     return server_impl._response("ok", health, diagnostics=diagnostics, next_tools=next_tools, usage=usage)
 
 

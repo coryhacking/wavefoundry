@@ -11,10 +11,14 @@ This folder is Wavefoundry's canonical Wave Framework source for initializing, u
 ## Setup after a clone or pull
 
 `wf upgrade` installs a framework release; `wf setup` makes the framework
-currently checked out usable on this machine. After pulling a teammate's
-committed upgrade, run `wf setup`. It selects no archive and preserves project
-customizations. Missing indexes build, compatible indexes update, and supported
-obsolete storage uses the existing staged migration and verified cleanup.
+currently checked out usable on this machine. A pull or merge does not by itself
+require setup. Check readiness after checkout changes: ordinary product edits
+need index refresh when stale; an installed framework version, configuration or
+local environment change may require the reported setup action. Source-only
+framework changes at unchanged VERSION do not automatically request setup.
+Setup selects no archive and preserves project customizations. Missing indexes
+build, compatible indexes update, and supported obsolete storage uses the
+existing staged migration and verified cleanup.
 
 A pending archive-owned upgrade cannot be adopted by setup: keep its original
 archive and exact continuation. A setup-owned handoff retains the installed
@@ -612,3 +616,67 @@ Older non-wave context footprints should be treated as legacy source material du
 - `160-upgrade-wavefoundry.prompt.md` should be able to initialize missing wave-context artifacts in repos that already use the legacy framework
 - `220-legacy-framework-migration.prompt.md` defines the migration helper behavior
 - delete the legacy framework only after the migration path is validated
+
+## Secret scanner compatibility
+
+Wavefoundry implements its offline secret scanner in Python. It ships no upstream
+scanner executable and does not wait for an upstream final release. The pinned
+rule/asset origins and applicable notices live in [scan/NOTICE.md](scan/NOTICE.md).
+Keep that provenance with redistributed rules and assets.
+
+An upgrade checks project rules against the incoming scanner before publishing
+on supported updated-runner paths. Existing runners do not acquire that check
+retroactively: use the updated runner or review compatibility before adoption.
+Do not silently discard unsupported fields or translate CEL expressions as Expr.
+`secretGroup` and `withinLines` from older rule schemas are not accepted by the
+current profile; reconsider capture extraction and component proximity against
+its supported schema, then test positive and negative examples. CEL `filter`
+expressions need an explicit semantic rewrite and tests. Project-wide `filter`
+or `prefilter` overrides are unsupported; use supported per-rule filters or
+project allowlists only where they preserve the intended policy. A project file
+without a profile inherits the incoming framework profile. Omitted project rules
+and supported allowlist-only files remain valid.
+
+Rule, profile or asset changes can force a full rescan and produce new findings.
+Matching prior dispositions remain; classify new findings individually. Do not
+exempt review evidence or disable generic detectors merely to reduce the count.
+Processing failures are incomplete coverage, distinct from intentional exclusions;
+they cannot establish a clean scan or satisfy the close coverage gate. Retry after
+addressing the reported limit or cause. A documented exclusion changes coverage,
+not the safety of the excluded content.
+
+### Synthetic fixtures and other scanners
+
+Source-only scanner fixtures contain synthetic credential-shaped data to test
+positive detection. They are excluded from distribution packages. Rule files
+represent example-value allowlists as equivalent regex patterns rather than
+contiguous credential-shaped literals; the rules themselves remain packaged.
+This removes literal patterns from current source; fewer alerts in other tools
+remain unverified. Earlier commits still contain the original examples, so a
+history scan may still report them. Classify those findings through the scanner
+owner; this change does not rewrite Git history.
+
+For a scanner that actually invokes Gitleaks, use its report's exact `Fingerprint`
+for a verified synthetic finding in a root `.gitleaksignore`, or pass
+`--gitleaks-ignore-path <path>` explicitly. Do not invent fingerprints from paths:
+Git history and archive-member findings have different identities. Recheck entries
+when files change, and verify a nearby non-fixture positive still reports.
+See [Gitleaks configuration](https://github.com/gitleaks/gitleaks/blob/master/README.md).
+Wavefoundry does not consume this file as a second local allowlist.
+
+GitHub documents its own [secret-scanning configuration](https://docs.github.com/en/code-security/how-tos/secure-your-secrets/customize-leak-detection/exclude-folders-and-files):
+`.github/secret_scanning.yml` with `paths-ignore`. It closes matching alerts and
+excludes those paths from push protection. If a project chooses this policy,
+name only verified synthetic fixture files, explain each exception, and avoid
+source-tree or evidence-directory wildcards. Wavefoundry does not install these
+exceptions automatically.
+
+[Wiz describes granular ignore rules](https://www.wiz.io/blog/secrets-found-owners-identified-issues-resolved),
+but that does not establish a repository `.gitleaksignore` contract. Veracode's
+[Container and IaC secret scanner](https://docs.veracode.com/r/Run_Container_Security_scans)
+documents its own configuration and detection exclusions, including test/example
+paths and Markdown; check the exact product and scan mode before adding exceptions.
+Public documentation checked on 2026-11-06 did not establish `.gitleaksignore`
+support in either product. Confirm narrowly scoped policy with the scanner's
+administrator. No GitHub, Wiz or Veracode server behavior was qualified by local
+scanner tests.

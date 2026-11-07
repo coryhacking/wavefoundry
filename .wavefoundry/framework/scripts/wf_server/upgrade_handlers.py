@@ -115,6 +115,7 @@ UPGRADE_SUMMARY_TERMINAL_KEYS = {
     "setup_status",
     "setup_command",
     "dependency_provisioning_failed",
+    "partial_skill_delivery",
     *RETIRED_MODEL_CLEANUP_KEYS,
 }
 
@@ -509,6 +510,7 @@ def _bounded_upgrade_summary(summary: Mapping[str, Any]) -> dict[str, Any]:
     """
     from wf_server import server_impl
     summary = {
+        "partial_skill_delivery": None,
         **dict(summary),
         **_project_retired_model_cleanup_fields(summary),
     }
@@ -701,6 +703,19 @@ def _upgrade_error_tail(output: str) -> str:
 def _bounded_upgrade_response_envelope(response: dict[str, Any]) -> dict[str, Any]:
     """Keep the complete public upgrade envelope within its named host cap."""
 
+    summary = (response.get("data") or {}).get("summary")
+    if isinstance(summary, dict) and summary.get("partial_skill_delivery") is True:
+        names = [entry.get("name") for entry in summary.get("skill_collisions", [])
+                 if isinstance(entry, dict) and isinstance(entry.get("name"), str)]
+        diagnostics = response.setdefault("diagnostics", [])
+        if not any(d.get("code") == "skill_collision" for d in diagnostics if isinstance(d, dict)):
+            diagnostics.append(_diagnostic(
+                "skill_collision",
+                "Skill delivery is partial; rename the colliding downstream declarations and rerun rendering. "
+                + ("Reported names: " + ", ".join(names[:20]) + ". " if names else "")
+                + "See summary.skill_collisions and its counts, or the upgrade log for omitted details.",
+                recovery_tools=["wf_sync_surfaces"], recovery_usage="wf_sync_surfaces(mode='run')",
+            ))
     diagnostics = response.get("diagnostics")
     if isinstance(diagnostics, list):
         bounded_diagnostics: list[dict[str, Any]] = []

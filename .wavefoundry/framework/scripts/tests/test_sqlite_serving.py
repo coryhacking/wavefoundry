@@ -100,10 +100,11 @@ class SQLiteServingTests(unittest.TestCase):
             self.assertEqual(coverage["docs"], {"vector_rows": count, "registry_rows": 4})
 
     def test_registered_health_errors_offer_cause_specific_recovery(self):
+        from setup_commands import setup_command
         health = self._registered_epoch_tools()["index_health"]
         advice = "WAL refused; move to local storage and preserve the migration receipt."
         cases = [
-            (runtime.RuntimeUnavailable("binding version mismatch"), "storage_runtime_unavailable", "wf setup --root ."),
+            (runtime.RuntimeUnavailable("binding version mismatch"), "storage_runtime_unavailable", setup_command(self.root)),
             (runtime.StorageRecoveryRequired(advice), "storage_recovery_required", advice),
             (OSError("permission denied"), "index_health_error", None),
         ]
@@ -216,6 +217,7 @@ class SQLiteServingTests(unittest.TestCase):
             loader.assert_not_called()
 
     def test_registered_health_actions_match_condition_and_preserve_corruption(self):
+        from setup_commands import setup_command
         health = self._registered_epoch_tools()["index_health"]
         base = dict(semantic_ready=False, stale_layers=[], missing_layers=[],
                     readiness_overview="needs_update", chunker_version_mismatch_layers=[])
@@ -224,8 +226,8 @@ class SQLiteServingTests(unittest.TestCase):
             ({"chunker_version_mismatch_layers": ["project"], "stale_layers": ["project"]}, {},
              "chunker_version_mismatch", "index_build(content='all', mode='rebuild')"),
             ({"missing_layers": ["project"], "readiness_overview": "absent"}, {},
-             "index_missing", "wf setup --root ."),
-            ({"readiness_overview": "degraded"}, {}, "index_degraded", "wf setup --root ."),
+             "index_missing", setup_command(self.root)),
+            ({"readiness_overview": "degraded"}, {}, "index_degraded", setup_command(self.root)),
             ({"stale_layers": ["project"], "chunker_version_mismatch_layers": ["project"]},
              {"integrity": "structural-fail", "fts": {"code": {"ok": False, "reason": "probe_failed", "fts_rows": 3, "registry_rows": 3}}},
              "state_store_structural_fail", None),

@@ -446,6 +446,19 @@ class SetupReadinessTests(unittest.TestCase):
                       'live checks decided readiness.', result['limitations'])
         self.assertNotIn(readiness.SOURCE_ONLY_STAMP_LIMITATION, self.assess(use_stamp=False)['limitations'])
 
+    def test_application_edits_do_not_request_setup_or_rewrite_stamp(self):
+        readiness.write_setup_stamp(self.root)
+        stamp_path = self.index / 'setup-state.json'
+        before = stamp_path.read_bytes()
+        source = self.root / 'application.py'
+        source.write_text('print("changed application")\n')
+        result = self.assess()
+        self.assertEqual(result['status'], 'ready', result)
+        self.assertEqual(result['actions'], [])
+        self.assertNotIn('setup_inputs_changed', [reason['code'] for reason in result['reasons']])
+        self.assertEqual(stamp_path.read_bytes(), before)
+        self.assertEqual(source.read_text(), 'print("changed application")\n')
+
     def test_source_difference_with_another_input_change_still_requests_setup(self):
         version = self.root / '.wavefoundry/framework/VERSION'
         changed = 'coreml' if os.environ.get(readiness.REQUESTED_PROVIDER_ENV) == 'cpu' else 'cpu'

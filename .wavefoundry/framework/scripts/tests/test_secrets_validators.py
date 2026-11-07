@@ -2082,7 +2082,10 @@ class TestFrameworkRuleset(unittest.TestCase):
         if not path.exists():
             self.skipTest(f"{SCAN_RULES_FRAMEWORK_PATH} not found")
         content = path.read_text(encoding="utf-8")
-        self.assertIn("8f376ff9c31ed5309ac448fe601c5dd21b376155", content)
+        self.assertIn("scan/NOTICE.md", content)
+        notice = (path.parent / "scan" / "NOTICE.md").read_text(encoding="utf-8")
+        self.assertIn("8f376ff9c31ed5309ac448fe601c5dd21b376155", notice)
+        self.assertIn("MIT License", notice)
         self.assertIn("gitleaks", content.lower())
 
 
@@ -2551,7 +2554,7 @@ regex = 'GUARDFIXTURE_[A-Z]{10}'
         pool.assert_called_once()
         self._assert_guard_records(failures)
 
-    def test_skip_retained_on_reskip_unrelated_allowlisted_and_unreadable_scans(self):
+    def test_skip_retained_until_current_policy_or_read_outcome_replaces_it(self):
         path = self._write("omitted.txt", b"\0binary")
         self._scan([path])
         original = self.ledger.read_bytes()
@@ -2561,7 +2564,7 @@ regex = 'GUARDFIXTURE_[A-Z]{10}'
         self.assertEqual(self.ledger.read_bytes(), original)
         _write_project_toml(self.root, '[allowlist]\npaths = ["omitted.txt"]\n')
         self._scan([path])
-        self.assertEqual(self.ledger.read_bytes(), original)
+        self.assertEqual(self.notice(), {})  # Explicit policy exclusion retires the old guard.
         (self.root / SCAN_RULES_PROJECT_PATH).unlink()
         real_read = Path.open
         def unreadable(file, *args, **kwargs):
@@ -2570,20 +2573,22 @@ regex = 'GUARDFIXTURE_[A-Z]{10}'
             return real_read(file, *args, **kwargs)
         path.write_text("now text")
         with patch.object(Path, "open", unreadable):
-            self._scan([path])
-        self.assertEqual(self.ledger.read_bytes(), original)
+            failures = self._scan([path])
+        self.assertTrue(any("[scan-incomplete]" in item for item in failures))
+        self.assertEqual(self.notice()["scanner_skips"][0]["reason"], "input unreadable")
         path.write_bytes(b"")
         self._scan([path])  # Empty successfully read text is a complete outcome.
         self.assertEqual(self.notice(), {})
 
-    def test_degraded_rules_do_not_retire_history_and_removed_path_does(self):
+    def test_degraded_rules_cannot_establish_coverage_and_removed_path_retires_it(self):
         path = self._write("omitted.txt", b"\0binary")
         self._scan([path])
         original = self.ledger.read_bytes()
         path.write_text("clean")
         _write_project_toml(self.root, '[[rules]]\nid="broken"\nregex="["\n')
-        self._scan([path])
-        self.assertEqual(self.ledger.read_bytes(), original)
+        failures = self._scan([path])
+        self.assertTrue(any("[scan-incomplete]" in item for item in failures))
+        self.assertEqual(self.notice()["scanner_skips"][0]["reason"], "scan incomplete")
         path.unlink()
         self._scan([])
         self.assertEqual(self.notice(), {})
@@ -2598,7 +2603,7 @@ regex = 'GUARDFIXTURE_[A-Z]{10}'
         rows = self.notice()["scanner_skips"]
         self.assertEqual({row["file"] for row in rows}, {"big.txt", "long.txt", "image.png", "nul.txt"})
         self.assertNotIn("win.txt", self.ledger.read_text())
-        self.assertEqual(_sv.unpublished_scanner_skips(), ["fixtures\\win.txt"])
+        self.assertEqual(_sv.unpublished_scanner_skips(), ["big.txt", "fixtures\\win.txt", "long.txt"])
         self.assertEqual(len(_sv._SCANNER_SKIPS), 5)
         self.assertIn("could not be recorded for a path the ledger cannot name", output.getvalue())
         self.assertNotIn("could not be persisted", output.getvalue())
@@ -2684,14 +2689,14 @@ regex = 'GUARDFIXTURE_[A-Z]{10}'
             self.assertEqual(scan_secrets._load_scan_state(scan_dir)["scan_type"], "full")
             self.assertEqual(self.notice()["scanner_skips"][0]["file"], path.name)
 
-    def test_malformed_history_is_preserved_and_warned_without_scan_failure(self):
+    def test_malformed_history_is_preserved_and_blocks_complete_coverage(self):
         path = self._write("omitted.txt", b"\0binary")
         self.ledger.parent.mkdir(parents=True)
         self.ledger.write_bytes(b"malformed")
         output = io.StringIO()
         with contextlib.redirect_stderr(output):
             failures = self._scan([path])
-        self.assertEqual(failures, [])
+        self.assertTrue(any("[scan-incomplete]" in item for item in failures))
         self.assertEqual(self.ledger.read_bytes(), b"malformed")
         self.assertIn("WARNING: secrets scanner guard coverage", output.getvalue())
         self.assertIn("scanner_skips_error", self.notice())

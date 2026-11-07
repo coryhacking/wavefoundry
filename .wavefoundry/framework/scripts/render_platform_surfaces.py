@@ -3306,7 +3306,9 @@ def main(argv: list[str] | None = None) -> int:
         manifest_path = Path(args.manifest)
         ensure_parent(manifest_path)
         manifest_path.write_text(
-            json.dumps({"written": sorted(dict.fromkeys(written))}, indent=1),
+            json.dumps({"written": sorted(dict.fromkeys(written)),
+                        "partial_skill_delivery": getattr(agent_written, "partial", None),
+                        "skill_collisions": getattr(agent_written, "skill_collisions", [])}, indent=1),
             encoding="utf-8",
         )
     return 0

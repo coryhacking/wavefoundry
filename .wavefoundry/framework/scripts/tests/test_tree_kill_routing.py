@@ -103,6 +103,8 @@ ROUTED = {
     # Wave 204mp: incoming role-link preview is a bounded private Python child;
     # route through the incoming helper so timeout also ends its descendants.
     ("upgrade_extensions.py", "_incoming_renderer_query", "run_with_tree_kill"): 1,
+    # Change 22q2w: incoming scan-rule compatibility runs in a bounded private child.
+    ("scanner_upgrade.py", "inspect_project_rules", "run_with_tree_kill"): 1,
     # index_state_store._run_git resolves the helper and keeps the sanitized git env (wave 1z8ox).
     ("commit_provenance.py", "_git", "_run_git"): 1,
     ("index_state_store.py", "_batch_git_blobs", "_run_git"): 1,

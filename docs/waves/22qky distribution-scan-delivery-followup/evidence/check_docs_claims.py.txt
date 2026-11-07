@@ -1,0 +1,59 @@
+"""Extract machine-checkable claims from 22qky doc text and verify against source.
+Usage: check_docs_claims.py [--docs-root DIR]  (DIR overrides doc location for falsified copies)"""
+import re, sys, pathlib
+R = pathlib.Path("/Users/coryhacking/Developer/wavefoundry")
+S = R/".wavefoundry/framework/scripts"
+root = R
+if "--docs-root" in sys.argv: root = pathlib.Path(sys.argv[sys.argv.index("--docs-root")+1])
+DOCS = ["CHANGELOG.md","README.md",".wavefoundry/framework/README.md","docs/agents/platform-mapping.md",
+ "docs/architecture/data-and-control-flow.md","docs/architecture/threat-model.md",
+ "docs/contributing/build-and-verification.md","docs/specs/mcp-tool-surface.md"]
+src = "\n".join(p.read_text(errors="ignore") for p in S.rglob("*.py") if "/tests/" not in str(p))
+text = {d:(root/d).read_text() if (root/d).exists() else (R/d).read_text() for d in DOCS}
+alltext = "\n".join(text.values())
+fails=[]
+def chk(name, ok):
+    print(("PASS " if ok else "FAIL ")+name)
+    if not ok: fails.append(name)
+# identifiers claimed in docs: must appear in doc AND in source
+for ident in ["complete","completion_scope","incomplete_files","incomplete_omitted","policy_excluded_files","coverage_error",
+  "scan_incomplete","secret_scan_incomplete","scanner_completion","scanner_skips","partial_skill_delivery","skill_collisions",
+  "skill_collision","recovery_argv","recovery_shell","recovery_usage","guard-skips.json","betterleaks-v2-8f376ff9","setup_recovery"]:
+    indoc = re.search(r"`?"+re.escape(ident)+r"`?", alltext) is not None
+    chk(f"ident {ident}: in docs={indoc}, in source", indoc and f'{ident}' in src)
+# collision row fields
+for f in ["code","name","reason","message"]:
+    chk(f"skill collision field '{f}' in renderer", re.search(r"[\"']"+f+r"[\"']", (S/"render_agent_surfaces.py").read_text()) is not None)
+# exit code claim
+rs = (S/"run_secrets_scan.py").read_text()
+m = re.search(r'exits? (\d)', text["CHANGELOG.md"][text["CHANGELOG.md"].find("22qky")-3000:]) 
+cl = text["CHANGELOG.md"]
+claimed = re.search(r"`wf secrets-scan` now exits (\d) instead of (\d) when a scan is incomplete", cl)
+chk("changelog exit-code sentence present", bool(claimed))
+if claimed:
+    inc, comp = claimed.groups()
+    chk(f"run_secrets_scan returns {comp} if complete else {inc}", f'return {comp} if completion["complete"] else {inc}' in rs)
+# MCP error + diagnostic
+chk("wf_scan_secrets error w/ scan_incomplete diagnostic claimed", "`wf_scan_secrets` returns an error with a `scan_incomplete` diagnostic" in cl)
+dh = (S/"wf_server/docs_handlers.py").read_text()
+chk("wf_scan_secrets handler emits _diagnostic('scan_incomplete'", bool(re.search(r'_diagnostic\(\s*"scan_incomplete"', dh)))
+i = dh.find('_diagnostic("scan_incomplete", "The scan did not establish')
+seg = dh[max(0,i-1700):i+100]
+chk("scan_incomplete diagnostic is on an error response (ok=False / error status)", bool(re.search(r'"ok"\s+if\s+all_ok\s+else\s+"error"', seg)))
+# rules[index] location form
+chk("rules[index] form in source", bool(re.search(r"rules\[\{?\w+\}?\]|rules\[%", src)))
+# upgrade call sites
+up = (S/"upgrade_wavefoundry.py").read_text()
+n = len(re.findall(r"\b_check_project_scan_rules\(", up))
+chk(f"upgrade _check_project_scan_rules call sites==3 (def + 3 = 4 matches, got {n})", n==4)
+# extracted: every backticked snake_case token in the scan/skill bullets must exist in source
+spec = text["docs/specs/mcp-tool-surface.md"]
+for key in ["- **Scan completion:**","- **Close coverage:**","- Run results carry `partial_skill_delivery`"]:
+    i = spec.find(key); line = spec[i:spec.find("\n", i)] if i>=0 else ""
+    chk(f"spec bullet found: {key[:30]}", bool(line))
+    for tok in sorted(set(re.findall(r"`([a-z]+(?:_[a-z]+)+)`", line))):
+        chk(f"extracted token {tok} in source", tok in src)
+# close gate
+chk("close refuses secret_scan_incomplete", "secret_scan_incomplete" in src)
+print("RESULT", "FAIL" if fails else "OK", fails)
+sys.exit(1 if fails else 0)

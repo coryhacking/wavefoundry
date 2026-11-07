@@ -41,7 +41,7 @@ All exposed as MCP tools — `docs_search`, `code_search`, `code_ask`, `code_lex
 
 **A codebase map.** A generated, graceful-scaling orientation map of your code (`docs/references/codebase-map.md`) routes the agent to the right area — and its per-area `AGENTS.md` conventions — before it starts exploring.
 
-**Built-in secrets detection.** The framework scans your project for hardcoded credentials, API keys, and tokens on every wave using a [Gitleaks](https://github.com/gitleaks/gitleaks)-based TOML ruleset (MIT licensed, community maintained). Findings land in `docs/scan-findings.json` with a lifecycle — `pending` → `false-positive` (requires multi-reviewer confirmation) or `confirmed-secret` (requires per-wave operator acknowledgment). `Close wave` refuses until every finding is resolved. Call `wf_scan_secrets` for an on-demand scan at any time; incremental mode automatically escalates to a full scan when the ruleset changes.
+**Built-in secrets detection.** Wavefoundry's local Python scanner checks project files with configurable offline rules and records findings in `docs/scan-findings.json`. Unclassified findings block closure; classified real secrets remain visible and need remediation before distribution. Failed scans of eligible files are reported separately from intentional exclusions. Call `wf_scan_secrets` for an on-demand scan; rule changes force a full rescan while retaining matching dispositions. Detection is a guardrail, not proof that a repository contains no secrets. [Rule and asset provenance](.wavefoundry/framework/scan/NOTICE.md).
 
 ---
 

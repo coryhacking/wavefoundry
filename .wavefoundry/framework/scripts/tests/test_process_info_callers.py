@@ -26,7 +26,7 @@ from server_tools_support import _make_repo, load_server  # noqa: E402
 
 
 def _refuse():
-    raise process_info.ProcessInfoUnavailable("fixture: psutil blocked; run `wf setup`")
+    raise process_info.ProcessInfoUnavailable("fixture: psutil blocked; " + process_info._SETUP_HINT)
 
 
 def _unavailable():
@@ -390,6 +390,131 @@ class NoSpawnOnStatusTests(_Repo):
         self.assertGreaterEqual(len(calls), 1)
         queries = {"ps", "tasklist", "powershell", "lsof"}
         self.assertFalse([c for c in spawned if Path(c).name.lower().split(".")[0] in queries], spawned)
+
+
+class SelectedRootHealthRecoveryTests(_Repo):
+    def _health(self, *, error=None, missing=False, overview='ready', stale=False, structural=False):
+        from unittest.mock import MagicMock
+        index = MagicMock()
+        index.root = self.root / "selected repo's & data"
+        if error:
+            index.docs_health.side_effect = error
+        else:
+            index.docs_health.return_value = {
+                'semantic_ready': not (missing or stale),
+                'stale_layers': ['project'] if stale else [],
+                'missing_layers': ['project'] if missing else [],
+                'has_any_index': not missing, 'compatible_chunks': True,
+                'readiness_overview': overview, 'project': {'readiness': 'stale' if stale else 'current'},
+            }
+        with patch.object(self.h, '_background_build_status', return_value='idle'):
+            return self.h.index_health_response(index), index.root
+
+    def _assert_setup(self, response, root, windows):
+        import setup_commands
+        expected = setup_commands.setup_recovery(root, windows=windows)
+        setup_diags = [d for d in response['diagnostics'] if d['code'] in {
+            'storage_runtime_unavailable', 'index_missing', 'index_absent', 'index_degraded'}]
+        self.assertTrue(setup_diags, response)
+        for diag in setup_diags:
+            for key, value in expected.items():
+                self.assertEqual(diag.get(key), value, diag)
+            self.assertNotIn('wf setup --root .', diag['message'])
+        self.assertEqual(response['usage'], expected['recovery_usage'])
+
+    def test_health_setup_branches_keep_selected_root_and_shell(self):
+        import setup_commands
+        import sqlite_runtime
+        for windows in (False, True):
+            platform = {name: (lambda *args, _original=getattr(setup_commands, name), **kw:
+                                  _original(*args, **{**kw, 'windows': windows}))
+                        for name in ('repository_launcher_argv', 'format_command', 'command_shell')}
+            for options in ({'error': sqlite_runtime.RuntimeUnavailable('runtime missing')},
+                            {'missing': True}, {'overview': 'absent'}, {'overview': 'degraded'},
+                            {'overview': 'incomplete', 'missing': True}):
+                with self.subTest(windows=windows, options=options), patch.multiple(setup_commands, **platform):
+                    response, root = self._health(**options)
+                    self._assert_setup(response, root, windows)
+
+    def test_old_root_dot_recovery_is_rejected_by_response_oracle(self):
+        import setup_commands
+        import sqlite_runtime
+        with patch.object(setup_commands, 'setup_recovery', return_value={'recovery_usage': 'wf setup --root .'}):
+            response, root = self._health(error=sqlite_runtime.RuntimeUnavailable('runtime missing'))
+        with self.assertRaises(AssertionError):
+            self._assert_setup(response, root, False)
+
+    def test_stale_and_owned_recovery_paths_do_not_become_setup(self):
+        import sqlite_runtime
+        response, _ = self._health(stale=True)
+        self.assertEqual(response['usage'], "index_build(content='all', mode='update')")
+        diagnostic = next(d for d in response['diagnostics'] if d['code'] == 'index_stale')
+        self.assertNotIn('recovery_argv', diagnostic)
+        error = RuntimeError('restart fixture'); error.code = 'index_runtime_stale'
+        response, _ = self._health(error=error)
+        self.assertIn('Restart', response['usage'])
+        self.assertNotIn('recovery_argv', response['diagnostics'][0])
+        response, _ = self._health(error=sqlite_runtime.StorageRecoveryRequired('Resume the owned upgrade; preserve its receipt.'))
+        self.assertEqual(response['usage'], 'Resume the owned upgrade; preserve its receipt.')
+        self.assertNotIn('recovery_argv', response['diagnostics'][0])
+
+    def test_rootless_process_remedy_is_prose_and_pending_install_is_progress(self):
+        with _unavailable(), patch.object(process_info, '_STARTUP_INSTALL_PENDING', None):
+            _, diagnostic = self.impl._process_info_status(None)
+        self.assertEqual(diagnostic['recovery_argv'], [])
+        self.assertIsNone(diagnostic['recovery_shell'])
+        self.assertIn('Select the repository', diagnostic['message'])
+        self.assertNotIn('Run `Select', diagnostic['message'])
+        self.assertNotIn('`wf setup`', diagnostic['message'])
+        with _unavailable(), patch.object(process_info, '_STARTUP_INSTALL_PENDING', 'installing'):
+            _, diagnostic = self.impl._process_info_status(None)
+        self.assertEqual(diagnostic['recovery_usage'], 'wf_server_info()')
+        self.assertNotIn('recovery_argv', diagnostic)
+        self.assertNotIn('Select the repository', diagnostic['message'])
+
+    def test_rootless_storage_exceptions_do_not_guess_commands(self):
+        from unittest.mock import MagicMock
+        import sqlite_runtime
+        import sqlite_vector_store
+        with patch.object(sqlite_runtime, 'apsw', None):
+            with self.assertRaises(sqlite_runtime.RuntimeUnavailable) as failure:
+                sqlite_runtime.connect(Path('/unrelated/database.sqlite'))
+        self.assertIn("repository's local setup launcher", str(failure.exception))
+        self.assertNotIn('wf setup', str(failure.exception))
+        for operation in ('_open', 'read_snapshot'):
+            conn = MagicMock()
+            conn.execute.return_value.fetchone.return_value = ('invalid-schema',)
+            with self.subTest(operation=operation), patch.object(sqlite_runtime, 'connect', return_value=conn):
+                with self.assertRaises(sqlite_runtime.StorageRecoveryRequired) as failure:
+                    if operation == '_open':
+                        sqlite_vector_store._open(self.root / '.wavefoundry/index')
+                    else:
+                        with sqlite_vector_store.read_snapshot(self.root / '.wavefoundry/index'):
+                            self.fail('invalid schema was accepted')
+                self.assertNotIn('wf setup', str(failure.exception))
+                self.assertIn("repository's local setup launcher", str(failure.exception))
+            conn.close.assert_called_once()
+
+    def test_setup_reconciliation_uses_known_root_without_replacing_upgrade_owner(self):
+        import setup_reconciliation as reconciliation
+        import setup_commands
+        root = self.root / "selected repo's & data"
+        expected = setup_commands.setup_command(root)
+        with patch.object(reconciliation, 'framework_fingerprint', return_value='changed'):
+            with self.assertRaises(reconciliation.MigrationRequired) as failure:
+                reconciliation.validate_source_binding(root, {'entry_path': 'setup', 'state': 'started', 'installed_framework_sha256': 'old'})
+        self.assertIn(expected, str(failure.exception))
+        self.assertIn('restore the recorded installed framework', str(failure.exception))
+        session = object.__new__(reconciliation.session)
+        session.root, session.requires_index, session._published = root, True, False
+        session._validate = lambda: None
+        with self.assertRaises(reconciliation.MigrationRequired) as failure:
+            session.complete()
+        self.assertIn(expected, str(failure.exception))
+        with patch.object(reconciliation.migration, 'resume_guidance', return_value={'guidance': 'resume-owned-upgrade'}):
+            message = reconciliation._foreign_upgrade_guidance(root, {}, 'finish the recorded upgrade before repository setup')
+        self.assertIn('resume-owned-upgrade', message)
+        self.assertNotIn(expected, message)
 
 
 if __name__ == "__main__":

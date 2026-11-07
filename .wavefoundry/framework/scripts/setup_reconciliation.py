@@ -18,6 +18,7 @@ import uuid
 import sqlite_storage_migration as migration
 import upgrade_lib
 import storage_identity
+from setup_commands import setup_command
 
 MigrationRequired = migration.MigrationRequired
 _TRANSIENT_DIRS = {"__pycache__", ".pytest_cache", "index"}
@@ -58,7 +59,7 @@ def validate_source_binding(root: Path, receipt: dict) -> None:
     if not expected or framework_fingerprint(root) != expected:
         raise MigrationRequired(
             "storage_setup_source_changed: restore the recorded installed framework "
-            "before rerunning wf setup; index, receipt and recovery sources are retained")
+            f"before rerunning {setup_command(root)}; index, receipt and recovery sources are retained")
 
 
 @contextmanager
@@ -132,9 +133,9 @@ class session:
         if checkpoint is not None:
             if (not isinstance(checkpoint, dict) or checkpoint.get("entry_path") != "setup"
                     or checkpoint.get("zip_path")):
-                raise MigrationRequired(_foreign_upgrade_guidance(self.root, checkpoint, "storage_setup_foreign_upgrade: finish the recorded upgrade before wf setup; checkpoint retained"))
+                raise MigrationRequired(_foreign_upgrade_guidance(self.root, checkpoint, "storage_setup_foreign_upgrade: finish the recorded upgrade before repository setup; checkpoint retained"))
             if not prestaging_noop and checkpoint.get("installed_framework_sha256") != framework_fingerprint(self.root):
-                raise MigrationRequired("storage_setup_source_changed: restore the recorded framework before wf setup")
+                raise MigrationRequired(f"storage_setup_source_changed: restore the recorded framework before {setup_command(self.root)}")
             if not storage_identity.compare_identity(checkpoint.get("root_identity"), migration._identity(self.root))["matches"]:
                 raise MigrationRequired("storage_setup_checkpoint_mismatch: repository identity changed")
             if (receipt and checkpoint.get("storage_migration_id") != receipt["migration_id"]):
@@ -189,7 +190,7 @@ class session:
                 raise MigrationRequired("storage_rebuild_not_applicable: no pending storage conversion")
             if self.requires_index:
                 if any(arg in self.args for arg in {"--deps-only", "--prewarm-only"}):
-                    raise MigrationRequired("storage_setup_publication_required: rerun ordinary wf setup to reconcile all layers")
+                    raise MigrationRequired(f"storage_setup_publication_required: rerun {setup_command(self.root)} to reconcile all layers")
                 self._fingerprint = framework_fingerprint(self.root)
                 version_file = self.root / ".wavefoundry/framework/VERSION"
                 version = version_file.read_text().strip() if version_file.exists() else "installed"
@@ -252,7 +253,7 @@ class session:
             # that would start a spurious kind; refuse before any receipt write.
             raise MigrationRequired(
                 "storage_setup_runtime_unavailable: the tool venv was not activated after "
-                "dependency provisioning; rerun wf setup. Index and receipt are unchanged")
+                f"dependency provisioning; rerun {setup_command(self.root)}. Index and receipt are unchanged")
         if (state["receipt"] and state["receipt"]["state"] != "complete"
                 and migration.retire_prestaging_noop(self.root, self._fingerprint,
                                                      before_restore=self._bind_restored_parent)):
@@ -311,7 +312,7 @@ class session:
             return
         self._validate()
         if not self._published:
-            raise MigrationRequired("storage_all_layer_publication_unverified: rerun wf setup")
+            raise MigrationRequired(f"storage_all_layer_publication_unverified: rerun {setup_command(self.root)}")
         migration.record_upgrade_publication(self.root)
         import subprocess_util
         import venv_bootstrap
@@ -322,12 +323,12 @@ class session:
              "--verify", str(self.root)], cwd=str(self.root), check=False,
             capture_output=True, text=True)
         if result.returncode:
-            raise MigrationRequired("storage_new_process_verification_failed: rerun wf setup; cleanup remains blocked. "
+            raise MigrationRequired(f"storage_new_process_verification_failed: rerun {setup_command(self.root)}; cleanup remains blocked. "
                                     + str(getattr(result, "stderr", "") or "").strip())
         self._validate()
         cleaned = migration.cleanup_legacy(self.root)
         if cleaned.get("state") != "complete":
-            raise MigrationRequired("storage_cleanup_incomplete: rerun wf setup; checkpoint retained")
+            raise MigrationRequired(f"storage_cleanup_incomplete: rerun {setup_command(self.root)}; checkpoint retained")
         self._inspect()
         upgrade_lib.remove_upgrade_lock(self.root)
         self._completed = True

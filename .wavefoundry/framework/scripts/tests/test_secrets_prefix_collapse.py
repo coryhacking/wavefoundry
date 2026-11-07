@@ -43,7 +43,10 @@ LEGACY_RULES = FIXTURES / "betterleaks" / "baseline.toml"
 def _legacy_ruleset():
     """The 280-rule input paired with the frozen prefix-collapse evidence."""
     raw = LEGACY_RULES.read_bytes()
-    if hashlib.sha256(raw).hexdigest() != "d81f3cefc668df8a22492848224b7908c3eac33ea3fd45eb4fb48278af1bb9ec":
+    # The original d81f3cef fixture now has provenance comments and equivalent
+    # singleton-character classes in 16 example allowlist patterns. Detection
+    # regexes and the frozen differential oracle are unchanged; pin adapted bytes.
+    if hashlib.sha256(raw).hexdigest() != "67af61358caa2f274e3c17529f126cd7a5a058e48981f3fd8660453b986dd1f2":
         raise AssertionError("historical ruleset fixture changed")
     data = tomllib.loads(raw.decode("utf-8"))
     return data["rules"], data.get("policy", {}), []
@@ -441,7 +444,30 @@ keywords = ["zztoken-"]
         src = Path(sv.__file__).read_text(encoding="utf-8")
         calls = re.findall(r'_record_scan_skip\(\s*rel,\s*"([^"]+)"', src)
         self.assertTrue(calls)
-        self.assertEqual(self.PRE_EXISTING_SKIP_REASONS | {"upstream scan incomplete"}, set(calls))
+        self.assertEqual(self.PRE_EXISTING_SKIP_REASONS | {
+            "upstream scan incomplete", "input unreadable",
+        }, set(calls))
+
+    def test_unreadable_input_remains_incomplete_not_policy_excluded(self):
+        from scanner_skips import scanner_completion, update_scanner_skips
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "ordinary.txt"
+            target.write_text("plain text\n", encoding="utf-8")
+            outcome = {}
+            with patch.object(Path, "open", side_effect=PermissionError("fixture read denied")), \
+                 patch.object(sv, "_record_scan_skip") as record:
+                result = sv.scan_file_raw(target, "ordinary.txt", [], [], set(), _outcome=outcome)
+            self.assertEqual(result, ([], None, []))
+            self.assertFalse(outcome["complete"])
+            record.assert_called_once_with("ordinary.txt", "input unreadable", "read_failed")
+            outcome["skips"] = [{"file": "ordinary.txt", "reason": "input unreadable", "detail": "read_failed"}]
+            update_scanner_skips(root, {"ordinary.txt": outcome})
+            completion = scanner_completion(root)
+            self.assertFalse(completion["complete"])
+            self.assertEqual(completion["incomplete_files"], 1)
+            self.assertEqual(completion["policy_excluded_files"], 0)
 
     def test_upstream_filter_failure_is_explicit_incomplete_coverage(self):
         from wave_lint_lib import betterleaks_worker

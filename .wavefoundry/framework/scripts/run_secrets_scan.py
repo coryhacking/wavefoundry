@@ -167,6 +167,9 @@ def main() -> int:
     scan_all = args.mode == "full" or rules_changed
     files = get_scan_files(root, True)
     rel_paths = [str(p.relative_to(root)).replace("\\", "/") for p in files]
+    from scanner_skips import incomplete_paths
+    retry_paths = incomplete_paths(root)
+    rel_paths = sorted(set(rel_paths) | retry_paths)
     files_skipped = 0
     content_hashes: dict = {}
     index_dir = root / ".wavefoundry" / "index"
@@ -179,10 +182,11 @@ def main() -> int:
     if iss is not None and not scan_all:
         try:
             rel_paths, files_skipped, content_hashes = iss.secret_scan_filter(
-                index_dir, root, rel_paths, current_rules_hash
+                index_dir, root, [rel for rel in rel_paths if rel not in retry_paths], current_rules_hash
             )
         except Exception as exc:  # noqa: BLE001 - fail toward scanning
             print(f"secrets scan cache filter skipped ({exc})", file=sys.stderr)
+        rel_paths = sorted(set(rel_paths) | retry_paths)
     scan_files = [root / p for p in rel_paths]
     max_workers = _auto_max_workers(len(scan_files))
     t0 = time.monotonic()
@@ -193,7 +197,8 @@ def main() -> int:
     unpublished = set(unpublished_scanner_skips())
     if unpublished:
         rel_paths = [rel for rel in rel_paths if rel not in unpublished]
-    if iss is not None and rel_paths:
+    evicted = unpublished | {rel for rel in retry_paths if not (root / rel).exists()}
+    if iss is not None and (rel_paths or evicted):
         try:
             iss.secret_scan_record(
                 index_dir,
@@ -202,11 +207,14 @@ def main() -> int:
                 rules_fingerprint=current_rules_hash,
                 findings_by_file=scan_secrets._findings_by_file(root),
                 content_hashes=content_hashes,
+                removed_rel_paths=sorted(evicted),
                 rule_catalog=scan_secrets._rule_catalog(root),
             )
         except Exception as exc:  # noqa: BLE001 - record failure = re-scan next time
             print(f"secrets scan cache record skipped ({exc})", file=sys.stderr)
     _save_rules_hash(root, current_rules_hash)
+    from scanner_skips import scanner_completion
+    completion = scanner_completion(root, failures)
     print(json.dumps({
         "failures": failures,
         "files_scanned": len(scan_files),
@@ -214,8 +222,11 @@ def main() -> int:
         "rules_hash_changed": rules_changed,
         "escalated_to_full": rules_changed and args.mode != "full",
         "elapsed_s": round(time.monotonic() - t0, 3),
+        **completion,
     }), flush=True)
-    return 0
+    # Findings retain the existing JSON contract. An operationally incomplete
+    # scan also fails shell/CI callers that inspect only the process status.
+    return 0 if completion["complete"] else 2
 
 
 if __name__ == "__main__":

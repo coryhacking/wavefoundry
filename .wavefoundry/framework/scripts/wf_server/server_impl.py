@@ -14364,7 +14364,7 @@ def _close_open_work_records(wave_text: str) -> list[tuple[Optional[str], Option
 @_configured_phase_envelope
 @_fail_closed_on_record_layout("wf_close_wave")
 def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
-    from scanner_skips import scanner_skip_notice
+    from scanner_skips import scanner_skip_notice, scanner_completion
 
     configured_gates: list[dict[str, Any]] = []
 
@@ -14492,6 +14492,16 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     diagnostics.extend(_memory_validation_diagnostics(root, canonical_wave_id))
     diagnostics.extend(_check_secrets_gate(root, canonical_wave_id))
     secrets_notice = _confirmed_secret_notice(root) or {}
+    coverage = scanner_completion(root)
+    secrets_notice["scanner_completion"] = coverage
+    if not coverage["complete"]:
+        diagnostics.append(_diagnostic(
+            "secret_scan_incomplete",
+            "Eligible content has outstanding incomplete scans or unavailable coverage evidence. "
+            "Resolve the reported scan failures and rerun scanning before closing.",
+            recovery_tools=["wf_scan_secrets"],
+            recovery_usage="wf_scan_secrets(mode='full')",
+        ))
     # Wave 1t3ek (1t230): retrieval-posture sensor at close — surfaced in DATA
     # (the secrets_notice pattern), never a diagnostic, because close hard-blocks
     # on any diagnostic and this advisory must never block by itself.
@@ -20249,10 +20259,12 @@ def _process_info_status(root: Path | None = None) -> tuple[dict[str, Any], Opti
     # replacing only its known rootless setup hint at this response boundary.
     detail = detail.replace(process_info._SETUP_HINT, "").rstrip("; .")
     command = _setup_recovery_command(root)
-    remedy = (
-        "It becomes available when the startup install finishes; wf_server_info shows its progress."
-        if pending else f"Run `{command}` to install or repair psutil."
-    )
+    if pending:
+        remedy = "It becomes available when the startup install finishes; wf_server_info shows its progress."
+    elif root is None:
+        remedy = command
+    else:
+        remedy = f"Run `{command}` to install or repair psutil."
     diagnostic = _diagnostic(
         "process_info_unavailable",
         f"Process information is unavailable: {detail}. Until it is fixed, process status may show "

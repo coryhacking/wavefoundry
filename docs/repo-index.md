@@ -35,25 +35,25 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 22176 |
-| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1632 |
-| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 452 |
-| upgrade | `.wavefoundry/framework/scripts` | code | 438 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 22231 |
+| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1680 |
+| sqlite_storage_migration | `.wavefoundry/framework/scripts` | code | 463 |
+| store | `.wavefoundry/framework/scripts` | code | 443 |
+| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 433 |
 | graph | `.wavefoundry/framework/scripts` | code | 423 |
-| scripts/wave_lint_lib — check_hardcoded_secrets | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 365 |
-| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 321 |
-| setup | `.wavefoundry/framework/scripts` | code | 309 |
-| 1xny3 sqlite-graph-consolidation-evaluation/graph_eval | `.wavefoundry/framework/scripts` | code | 285 |
-| store | `.wavefoundry/framework/scripts` | code | 274 |
-| docs/dashboard_lib | `.wavefoundry/framework/scripts` | code | 262 |
-| build_pack | `.wavefoundry/framework/scripts` | code | 256 |
+| docs/dashboard_lib | `.wavefoundry/framework/scripts` | code | 376 |
+| setup | `.wavefoundry/framework/scripts` | code | 333 |
+| scripts/wave_lint_lib — relative_to_root | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 317 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 229 |
 | chunker | `.wavefoundry/framework/scripts` | code | 229 |
-| scripts/retrieval_eval | `.wavefoundry/framework/scripts` | code | 110 |
+| tensorwell_client | `.wavefoundry/framework/scripts` | code | 189 |
+| framework/scripts — collect_files | `.wavefoundry/framework/scripts` | code | 183 |
+| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 179 |
+| scripts/wave_lint_lib — check_hardcoded_secrets | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 157 |
+| scripts/retrieval_eval | `.wavefoundry/framework/scripts` | code | 135 |
+| framework/scripts — write_report | `.wavefoundry/framework/scripts` | code | 103 |
 | memory_records | `.wavefoundry/framework/scripts` | code | 92 |
-| tensorwell_client | `.wavefoundry/framework/scripts` | code | 68 |
 | scripts/wave_lint_lib — entropy | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 64 |
-| memory_eval | `.wavefoundry/framework/scripts` | code | 55 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 52 |
 | oracle | `.wavefoundry/framework/scripts/tests/oracle` | code | 52 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 47 |

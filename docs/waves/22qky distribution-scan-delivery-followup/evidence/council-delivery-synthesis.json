@@ -1,0 +1,73 @@
+{
+  "wave_id": "22qky",
+  "phase": "delivery",
+  "review_run": "post-repair targeted delivery synthesis",
+  "receipt": "review-policy-63d387d4eb5b7dcc4bfe",
+  "verification_context": {"actor": "council-chair", "context_id": "22qky-delivery-chair-2", "fresh_context": true, "independent": true, "model_identity": "unverified"},
+  "scope": "Targeted synthesis per chair-synthesis.json reuse policy. Unaffected initial-round evidence reused; repaired findings checked via ledger chain_summary plus one independent executed spot-check. No lane re-run, no test-suite run, no source edits.",
+  "ledger_state": {
+    "findings_terminal": {
+      "22qky-scanner-upgrade-bytecode-bootstrap": "cycle 1, completed, code+architecture reverified, terminal",
+      "22qky-qa-stale-clean-cache-blocks-retry": "cycle 1, completed, qa reverified, terminal",
+      "22qky-security-malformed-rule-id-disclosure": "cycle 1, completed, security reverified, terminal",
+      "22qky-suite-contract-fixtures": "cycle 2, completed, qa reverified, terminal; convergence_checkpoint run-convergence-2 present"
+    },
+    "lane_approvals_current": ["code-reviewer", "qa-reviewer", "architecture-reviewer", "security-reviewer", "docs-contract-reviewer", "release-reviewer"],
+    "pending": ["council-delivery", "operator-signoff (withheld, operator-owned)"]
+  },
+  "chair_spot_checks": [
+    {
+      "id": "malformed-rule-id-disclosure",
+      "method": "Scratch root (scratchpad) with symlinked framework; docs/scan-rules.toml containing a table-valued rule id with nested sentinel, an unsupported field, and a valid-id rule with broken filter; called scanner_upgrade._inspect_root in a -B process.",
+      "observed": "status unsupported, complete true; issues invalid_rule_id rule=rules[0], unsupported_rule_field nope rule=rules[0], invalid_expression_syntax rule=valid-id; sentinel absent from output.",
+      "known_bad": "Same _issue() fed the raw id object (pre-repair coercion shape) emits the sentinel: SENTINEL_IN_KNOWN_BAD True. The assertion discriminates.",
+      "limitation": "In-process call of the incoming-root inspector, not the full upgrade subprocess/staging path; that path is covered by the security reverification and tests."
+    },
+    {"id": "bytecode-bootstrap", "observed": "scanner_upgrade.py sets dont_write_bytecode and calls bytecode_cache.configure at entry; 'scanner_upgrade' present in mcp_tool_extensions framework module names (line 279)."},
+    {"id": "preflight-call-sites", "observed": "_check_project_scan_rules invoked at upgrade_wavefoundry.py lines 1612, 1934, 6705 before publication."},
+    {"id": "literal-removal", "observed": "Contiguous AIza now appears only in the detection regex in each of the three TOMLs; allowlist examples use [A]Iza."},
+    {"id": "selected-root", "observed": "index_handlers uses setup_commands.setup_recovery(index.root); no root-dot literal found."},
+    {"id": "suite", "observed": "full-suite-3.log: 12516 tests / 225 files / 12 skipped, OK, exit=0; test-cache.json result ok, inputs_hash fe270c2b..."}
+  ],
+  "intent_fit": {
+    "22q2u-bug selected-root-health-recovery": {"verdict": "establishes", "evidence": "Response-boundary tests across five setup states with POSIX/Windows shape controls and injected root-dot rejection (reality seat, implementer focused run); setup_recovery(index.root) in source; rootless guidance has no argv; readiness policy unchanged."},
+    "22q2v-bug structured-partial-skill-delivery": {"verdict": "establishes", "evidence": "Real platform render with collision yields manifest partial_skill_delivery + collision; sync advisory with empty console; upgrade summary/MCP bounded with retained flag; reset on rename; legacy maps to unknown. No repair finding touched this change."},
+    "22q2w-bug scan-completion-upgrade-compatibility": {"verdict": "establishes", "evidence": "Initial partial verdict was carried by the cache-retry and diagnostic-disclosure findings; both now terminal with independent reverification, and the chair spot-check reproduces the disclosure repair with a discriminating known-bad. Preflight at three pre-publication sites; literals removed from allowlists only. AC-6 checkbox and final task still [ ] pending renamed/declared profile qualification; external-scanner effect not claimed by any AC."},
+    "wave_objective": {"verdict": "partially", "evidence": "All in-repo outcomes are established. The Objective's distribution-facing claims (downstream distributions receive these behaviours) are qualified only by the renamed 'second' and 'declared' profile runs, which were in progress at synthesis time; no real downstream upgrade, native Windows run or external-scanner observation exists. Partial is the honest Objective verdict until profile qualification lands."},
+    "worst": "partially"
+  },
+  "original_request_checklist": [
+    {"item": "Health recovery targets the selected repository with launcher/argv/shell metadata (Waveforge: root-dot remedy, Windows Firewall collision)", "status": "delivered", "evidence": "22q2u AC-1..3; setup_recovery(index.root)"},
+    {"item": "Rootless process failure is guidance, not an executable-looking command", "status": "delivered", "evidence": "22q2u AC-2 tests"},
+    {"item": "Ordinary Git changes do not automatically require setup; no hooks/auto-setup", "status": "delivered", "evidence": "22q2u AC-3 readiness controls; docs-contract confirmed docs agree"},
+    {"item": "Partial skill delivery visible in manifest, sync and upgrade summary; unrelated skills still render", "status": "delivered", "evidence": "22q2v AC-1..4"},
+    {"item": "Incomplete eligible scans never report clean; findings retained; retry eligible in both cache producers", "status": "delivered", "evidence": "22q2w AC-1; QA finding repaired and reverified"},
+    {"item": "CLI/MCP/close reject outstanding eligible incompleteness; intentional exclusions remain admissible", "status": "delivered", "evidence": "22q2w AC-2; docs-contract field confirmation"},
+    {"item": "Upgrade checks project rules against incoming profile before publication, safe diagnostics, bytes preserved", "status": "delivered", "evidence": "22q2w AC-3; release seat pre-extract hook + bypass mutant; chair disclosure spot-check"},
+    {"item": "Migration guidance, rescan noise and disposition behaviour documented", "status": "delivered", "evidence": "22q2w AC-4; docs-contract approval"},
+    {"item": "Python scanner presentation, consolidated provenance/notices retained", "status": "delivered", "evidence": "22q2w AC-5; NOTICE/manifest/oracle bytes unchanged"},
+    {"item": "Remove contiguous credential-shaped example literals; equivalent suppression; positives detectable", "status": "delivered", "evidence": "hygiene test 48 cases + mutant; chair grep"},
+    {"item": "Synthetic fixture and .gitleaksignore guidance without fabricated fingerprints", "status": "delivered", "evidence": "tests/fixtures/betterleaks/README.md; no fingerprint file"},
+    {"item": "Reduction of third-party (GitHub/Wiz/Veracode) alerts", "status": "out of scope", "evidence": "Explicitly not claimed by AC-5; unobserved"},
+    {"item": "Renamed-distribution profile regression controls (AC-6)", "status": "partially", "evidence": "Focused renamed controls exist; canonical second/declared profile runs in progress at synthesis (second at 129/225, declared not started)"},
+    {"item": "No upstream release prerequisite", "status": "delivered", "evidence": "No binary/upstream dependency added"}
+  ],
+  "docs_contract_integrity_weighting": "The docs-contract delivery approval records all five integrity booleans true while stating that its executed check was wf_validate_docs and no unit tests ran; its known-bad method is a verification-method control (fabricated field name returns no hits). For a documentation lane, a full docs validation plus source-grounded claim comparison is a reasonable executed check, so test_ran_without_unintended_skip is defensible only in that sense. The recorder's refusal of false values means these booleans carry less evidentiary weight than in test-executing lanes. It does not change this verdict: behavioural claims rest on QA, code, security and release executed evidence and the green canonical suite, not on the docs lane booleans.",
+  "full_council_retrigger": "None. No review_boundaries_changed entries in the ledger; all trust_boundary_changed fields false; repairs stayed within the original findings' scopes.",
+  "limitations": [
+    "Renamed (second) and declared profile qualification was in progress at approval time: second at test 129/225 with no failures so far; declared not started. AC-6 and the final 22q2w task remain [ ].",
+    "Native Windows shell execution not exercised; command shapes covered by fixtures only.",
+    "External scanner alert reduction (GitHub, Wiz, Veracode) unobserved and unclaimed.",
+    "No real downstream upgrade; older runners are not retroactively protected (documented).",
+    "Stray .wavefoundry/framework/scripts/__pycache__/setup_commands.cpython-314.pyc appeared at 19:07:39, about one minute after the profile runs started at 19:06:35 and before this chair's probe (19:09). Origin unattributed; AGENTS.md treats this as a defect to report. It should be attributed before close.",
+    "Docs-contract integrity booleans are recorder-coerced; weighted accordingly (see above).",
+    "Chair ran one discriminating spot-check plus static confirmations; repaired cache-retry behaviour relies on QA reverification and the canonical suite."
+  ],
+  "verdict": "approve council-delivery with intent_fit partially (Objective), conditional facts recorded in limitations",
+  "should_block_close": [
+    "Wait for profile-second.log and profile-declared.log to finish green; a red result invalidates the AC-6 basis of this approval.",
+    "Mark 22q2w AC-6 and its final task only after those results.",
+    "Attribute and report the stray framework __pycache__.",
+    "Operator-signoff remains operator-owned."
+  ]
+}

@@ -3,7 +3,7 @@
 ``psutil`` is a required dependency, imported by a loader so that importing this
 module never fails. When ``psutil`` cannot be imported, or is older than the
 declared floor, the first call that needs it raises ``ProcessInfoUnavailable``
-naming ``wf setup``; there is no hand-rolled fallback. A failed import is not
+requesting repository setup; there is no hand-rolled fallback. A failed import is not
 cached, so installing ``psutil`` while a server runs takes effect on the next
 call.
 
@@ -30,11 +30,11 @@ ALIVE = "alive"
 DEAD = "dead"
 UNKNOWN = "unknown"
 
-_SETUP_HINT = "run `wf setup` to install or repair it"
+_SETUP_HINT = "select the repository and use its local setup launcher to install or repair it"
 
 
 class ProcessInfoUnavailable(RuntimeError):
-    """``psutil`` cannot be used in this process; the message names ``wf setup``."""
+    """``psutil`` cannot be used; callers with repository context supply its setup command."""
 
 
 _LOCK = threading.Lock()

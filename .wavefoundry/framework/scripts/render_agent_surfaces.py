@@ -1024,6 +1024,11 @@ class SkillRenderResult(list):
         super().__init__(paths)
         self.diagnostics = skill_collision_diagnostics()
         self.partial = bool(self.diagnostics)
+        self.skill_collisions = [
+            {"code": "skill_collision", "name": name, "reason": reason,
+             "message": f"Skill {name!r} withheld: {reason}. Rename the downstream declaration and rerun rendering."}
+            for name, reason in skill_name_collisions().items()
+        ]
 
 
 def declared_skills() -> "tuple[Skill, ...]":

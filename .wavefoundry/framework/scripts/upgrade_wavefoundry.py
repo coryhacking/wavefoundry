@@ -1553,6 +1553,21 @@ def _check_installed_review_plan_prompt(root: Path) -> None:
         raise SystemExit(3)
 
 
+def _check_project_scan_rules(root: Path, zip_path: Path | None) -> bool:
+    """Refuse incompatible incoming rules before the framework is published."""
+    from scanner_upgrade import inspect_project_rules
+    result = inspect_project_rules(root, zip_path)
+    if result["status"] in {"compatible", "not_applicable"}:
+        return True
+    _err("scan_rules_incompatible: incoming scanner validation is " + result["status"] + ".")
+    for issue in result.get("issues", []):
+        _err("  " + json.dumps(issue, ensure_ascii=True, sort_keys=True))
+    _err("Review docs/scan-rules.toml against the incoming Python scanner profile. "
+         "Convert unsupported fields or filter syntax explicitly, then retry the same upgrade. "
+         "No rule has been rewritten or discarded.")
+    return False
+
+
 def phase_dry_run(root: Path, *, explicit_pack: Path | None = None,
                   confirm_hosts_stopped: bool = False) -> int:
     """Report retained state, or preview the selected pack without applying it.
@@ -1593,6 +1608,9 @@ def phase_dry_run(root: Path, *, explicit_pack: Path | None = None,
         to_version = _read_zip_version(zip_path) or "unknown"
     else:
         to_version = _read_pack_version(root) or "unknown"
+
+    if not _check_project_scan_rules(root, zip_path):
+        return 3
 
     # Version direction (advisory)
     from check_version import compare_versions
@@ -1913,6 +1931,8 @@ def phase_preflight(
         )
 
     # Prompt file detection (R9)
+    if not _check_project_scan_rules(root, zip_path):
+        sys.exit(3)
     prompt_files = _detect_prompt_files(root)
 
     # Seed diff (12r1b) — computed from zip vs disk before any extraction.
@@ -2123,9 +2143,46 @@ def _persist_permissions_delta(root: Path, delta: dict) -> None:
         pass
 
 
+def _skill_delivery_fields(payload: object) -> dict:
+    """Normalize additive renderer fields; old/missing reports make no completeness claim."""
+    if not isinstance(payload, dict) or type(payload.get("partial_skill_delivery")) is not bool:
+        return {"partial_skill_delivery": None, "skill_collisions": []}
+    collisions = payload.get("skill_collisions")
+    if (not isinstance(collisions, list)
+            or any(not isinstance(entry, dict) or entry.get("code") != "skill_collision"
+                   or not all(isinstance(entry.get(key), str) for key in ("name", "reason", "message"))
+                   for entry in collisions)
+            or bool(collisions) != payload["partial_skill_delivery"]):
+        return {"partial_skill_delivery": None, "skill_collisions": []}
+    return {
+        "partial_skill_delivery": payload["partial_skill_delivery"],
+        "skill_collisions": collisions,
+    }
+
+
+def _read_skill_delivery(root: Path | None) -> dict:
+    import upgrade_lib
+    try:
+        lock = upgrade_lib.read_upgrade_lock(root) if root is not None else None
+    except Exception:
+        lock = None
+    return _skill_delivery_fields((lock or {}).get("skill_delivery"))
+
+
+def _persist_skill_delivery(root: Path, payload: object) -> None:
+    import upgrade_lib
+    try:
+        if not upgrade_lib.update_upgrade_lock(root, skill_delivery=_skill_delivery_fields(payload)):
+            _log("  Skill delivery reporting unavailable: no owning upgrade checkpoint.")
+    except Exception:
+        _log("  Skill delivery reporting could not be retained for cleanup; inspect the render output.")
+
+
 def phase_surface_rendering(root: Path) -> None:
     global _PERMISSIONS_DELTA
     _log("\n── Phase 1: Surface rendering ──")
+    # Clear this attempt's prior observation before launch, including failed retries.
+    _persist_skill_delivery(root, None)
     # Wave 1p88t (1p7pb-adr): VERIFY the committed `command: "python3"` launchers resolve on every
     # upgrade (detect + guide — no shim/symlink creation, no PATH edit). strict=False — warn
     # (non-fatal) if `python3` does not resolve; the upgrade does not abort on it.
@@ -2144,19 +2201,30 @@ def phase_surface_rendering(root: Path) -> None:
     # explicit operator consent line, never folded into the generic
     # surfaces-rendered line.
     allow_before = _read_permissions_allow(root)
-    result = _run_upgrade_child(
-        [_preferred_python(), str(script), "--repo-root", str(root), "--include-permissions"],
-        cwd=str(root),
-        check=False, root=root, phase="surface-render")
+    with tempfile.TemporaryDirectory(prefix="wavefoundry-surface-report-") as report_dir:
+        manifest = Path(report_dir) / "render.json"
+        result = _run_upgrade_child(
+            [_preferred_python(), str(script), "--repo-root", str(root), "--include-permissions",
+             "--manifest", str(manifest)],
+            cwd=str(root), check=False, root=root, phase="surface-render")
+        try:
+            skill_delivery = _skill_delivery_fields(json.loads(manifest.read_text(encoding="utf-8")))
+        except (OSError, ValueError, TypeError):
+            skill_delivery = _skill_delivery_fields(None)
     if result.returncode != 0:
         _err(_child_failure("Surface rendering failed.", result))
         sys.exit(2)
-    partial_skills = [line for line in (result.stderr or "").splitlines()
-                      if line.startswith("render_agent_surfaces: PARTIAL - ")]
-    if partial_skills:
+    _persist_skill_delivery(root, skill_delivery)
+    if skill_delivery["partial_skill_delivery"] is True:
         _log("  Surfaces rendered with partial skill delivery; conflicting names were preserved.")
-        for diagnostic in partial_skills:
-            _log("  " + diagnostic)
+        for diagnostic in skill_delivery["skill_collisions"]:
+            _log("  " + diagnostic["message"])
+    elif skill_delivery["partial_skill_delivery"] is None:
+        _log("  Surfaces rendered; structured skill delivery reporting unavailable.")
+        # Retain useful old-renderer prose without interpreting it as typed evidence.
+        for line in (result.stderr or "").splitlines():
+            if line.startswith("render_agent_surfaces: PARTIAL - "):
+                _log("  " + line)
     else:
         _log("  Surfaces rendered.")
     try:
@@ -3664,6 +3732,7 @@ def phase_cleanup(
     # summary builder accepts; anything else degrades to "no claim".
     _cl_baseline_drift = _lifecycle_baseline_findings(root)
     _cl_permissions = lock_state.get(_PERMISSIONS_DELTA_LOCK_FIELD)
+    _cl_skill_delivery = _skill_delivery_fields(lock_state.get("skill_delivery"))
     if not isinstance(_cl_permissions, dict):
         _cl_permissions = None
     if failed_phase:
@@ -3709,7 +3778,7 @@ def phase_cleanup(
             root=root,
             review_sidecar_cleanup=review_sidecar_cleanup,
             lifecycle_baseline_drift=_cl_baseline_drift,
-            permissions_delta=_cl_permissions,
+            permissions_delta=_cl_permissions, skill_delivery=_cl_skill_delivery,
             index_update_failed=index_update_failed,
             retired_model_cleanup=retired_model_cleanup,
             dependency_provisioning_failed=dependency_provisioning_failed,
@@ -3836,7 +3905,7 @@ def phase_cleanup(
             root=root,
             review_sidecar_cleanup=review_sidecar_cleanup,
             lifecycle_baseline_drift=_cl_baseline_drift,
-            permissions_delta=_cl_permissions,
+            permissions_delta=_cl_permissions, skill_delivery=_cl_skill_delivery,
             index_update_failed=index_update_failed,
             retired_model_cleanup=retired_model_cleanup,
             setup_assessment=setup_assessment,
@@ -3849,7 +3918,8 @@ def phase_cleanup(
             from_version, to_version, zip_path, pruned_count, ran_index_rebuild,
             failed_phase, [], root=root, review_sidecar_cleanup=review_sidecar_cleanup,
             lifecycle_baseline_drift=_cl_baseline_drift,
-            permissions_delta=_cl_permissions, index_update_failed=index_update_failed,
+            permissions_delta=_cl_permissions, skill_delivery=_cl_skill_delivery,
+            index_update_failed=index_update_failed,
             retired_model_cleanup=retired_model_cleanup, setup_assessment=setup_assessment,
             dependency_provisioning_failed=dependency_provisioning_failed)
         summary.update(_report_fields(_empty_reporting("error", "emitter_" + type(exc).__name__)))
@@ -4546,6 +4616,7 @@ def _build_upgrade_summary(
     historical_memory: dict | None = None,
     lifecycle_baseline_drift: list[dict] | None = None,
     root: Path | None = None,
+    skill_delivery: dict | None = None,
 ) -> dict:
     """Wave 1p8eu — assemble the operator summary ONCE as a dict.
 
@@ -4587,6 +4658,7 @@ def _build_upgrade_summary(
     permissions_removed = [str(rule) for rule in (delta or {}).get("removed") or []]
     cleanup = _retired_model_cleanup_from_mapping(retired_model_cleanup)
     return {
+        **(_skill_delivery_fields(skill_delivery) if skill_delivery is not None else _read_skill_delivery(root)),
         "historical_memory": historical_memory,
         "review_sidecar_cleanup": review_sidecar_cleanup,
         "from_version": from_version,
@@ -5043,6 +5115,7 @@ def _print_operator_summary(
     setup_assessment: dict | None = None,
     dependency_provisioning_failed: bool = False,
     lifecycle_baseline_drift: list[dict] | None = None,
+    skill_delivery: dict | None = None,
 ) -> None:
     # Wave 1p8et/1p8kz: run the shipped retired-surface reconciliation scan on EVERY upgrade (operator
     # direction — a patch or same-version build-successor can change/retire a surface too), report-only
@@ -5071,6 +5144,7 @@ def _print_operator_summary(
         renderer_provenance_flags=renderer_provenance_flags,
         renderer_warnings=renderer_warnings,
         permissions_delta=permissions_delta,
+        skill_delivery=skill_delivery,
         index_update_failed=index_update_failed,
         retired_model_cleanup=retired_model_cleanup,
         setup_assessment=setup_assessment,
@@ -5088,6 +5162,10 @@ def _print_operator_summary(
     else:
         _log("Upgrade complete")
     _log("Historical memory: " + json.dumps(summary.get("historical_memory"), sort_keys=True))
+    if summary.get("partial_skill_delivery") is True:
+        _log("Skills: partial delivery; rename colliding downstream declarations and rerun rendering.")
+        for collision in summary.get("skill_collisions") or []:
+            _log("  " + collision["message"])
     _log("=" * 40)
     _log(f"Version:            {from_str} → {to_str}")
     if zip_path:
@@ -6622,6 +6700,10 @@ def main(argv: list[str] | None = None) -> int:
             if zip_path:
                 current_phase = "extract"
                 _run_hook("pre_extract", ctx, ext_mod)
+                # Recheck the private verified pack and current project data
+                # after hooks; the preview/initial check is not publication authority.
+                if not _check_project_scan_rules(root, zip_path):
+                    raise SystemExit(3)
                 # Wave 1p44r — extract idempotence: if the on-disk framework already
                 # equals to_version, do NOT destructively re-extract (e.g. when retrying
                 # preflight_to_docs_gate after a docs-gate failure on an at-target tree).

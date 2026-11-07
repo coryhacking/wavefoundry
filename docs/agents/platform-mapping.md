@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-03
+Last verified: 2026-11-06
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
@@ -43,6 +43,8 @@ Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neut
 | Codex | `.codex/skills/wf-guru/SKILL.md` | `.codex/config.toml` (project-local, committed) |
 
 ### Skills (`wf-` namespace, registry-rendered)
+
+A declared skill whose full name collides is withheld while unrelated skills render. Renderer manifests and `wf_sync_surfaces` report `partial_skill_delivery` and structured `skill_collisions`; MCP adds an advisory `skill_collision` diagnostic. Upgrade saves that report in its owned checkpoint and carries it through summary and cleanup. A missing older report is unknown, not proof of complete delivery. A clean later render clears the partial report. This changes reporting, not name ownership or permission rules.
 
 One registry (`render_agent_surfaces.render_skills`, wave `1p6lp`) renders every Wavefoundry skill as standard `SKILL.md` (frontmatter `name`/`description` + thin-pointer body) into each **active** skill host directory. A host is active when its root directory exists. On the Claude host only, the operator-owned skills `wf-close-wave`, `wf-close-change`, `wf-package` and `wf-upgrade` also carry `disable-model-invocation: true` (wave `2136r`), so Claude runs them only when the operator invokes them by name.
 

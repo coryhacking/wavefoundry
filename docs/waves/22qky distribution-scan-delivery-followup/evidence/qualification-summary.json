@@ -1,0 +1,35 @@
+{
+ "wave": "22qky",
+ "framework_receipt_inputs_hash": "fe270c2b66fb5aa4ae05a73fa71afab947e10c37bc3f597a6cf0079048f0b9f0",
+ "runs": {
+  "default_post_repair_cycle1_red": [
+   "Worker service time: 2874.978s across 225 files; skipped 12 tests",
+   "FAILED (test_render_platform_surfaces.py, test_tree_kill_routing.py)",
+   "Ran 12516 tests across 225 files in 608.147s",
+   "exit=1"
+  ],
+  "default_final": [
+   "Worker service time: 2617.407s across 225 files; skipped 12 tests",
+   "Ran 12516 tests across 225 files in 566.735s",
+   "OK",
+   "exit=0"
+  ],
+  "second": [
+   "Worker service time: 3353.028s across 225 files; skipped 30 tests",
+   "Ran 12498 tests across 225 files in 686.129s",
+   "OK",
+   "second exit=0"
+  ],
+  "declared": [
+   "Worker service time: 3012.530s across 225 files; skipped 12 tests",
+   "Ran 12516 tests across 225 files in 626.672s",
+   "OK",
+   "declared exit=0"
+  ]
+ },
+ "cycle2_red_causes": [
+  "test_tree_kill_routing census lacked ('scanner_upgrade.py','inspect_project_rules','run_with_tree_kill') row",
+  "committed .claude/hooks/pre-edit.py carried stale mcp_tool_extensions.py digest"
+ ],
+ "note": "Typed approvals and findings in ../events.jsonl are the review authority; this file retains run summaries only."
+}

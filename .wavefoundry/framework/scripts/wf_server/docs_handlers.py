@@ -110,18 +110,33 @@ def run_sync_surfaces(root: Path) -> dict:
                 "output": _subprocess_timeout_summary("surface_render", timeout_s),
             }
         written: list[str] = []
+        partial_skill_delivery = None
+        skill_collisions: list[dict] = []
         try:
             payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("invalid render manifest")
             written = [
                 str(entry) for entry in payload.get("written") or []
                 if isinstance(entry, str)
             ]
+            if type(payload.get("partial_skill_delivery")) is bool:
+                collisions = payload.get("skill_collisions")
+                if (isinstance(collisions, list)
+                        and all(isinstance(entry, dict) and entry.get("code") == "skill_collision"
+                                and all(isinstance(entry.get(key), str) for key in ("name", "reason", "message"))
+                                for entry in collisions)
+                        and bool(collisions) == payload["partial_skill_delivery"]):
+                    partial_skill_delivery = payload["partial_skill_delivery"]
+                    skill_collisions = collisions
         except (OSError, ValueError):
             written = []
     output, truncated = server_impl._bounded_subprocess_output(result.stdout + result.stderr)
     summary = {
         "passed": result.returncode == 0,
         "written": written,
+        "partial_skill_delivery": partial_skill_delivery,
+        "skill_collisions": skill_collisions,
         "output": output,
     }
     if truncated:
@@ -235,6 +250,15 @@ def wf_sync_surfaces_response(root: Path, mode: str = "dry_run", cache: Optional
             recovery_usage="wf_validate_docs()",
         )
     ]
+    if result.get("partial_skill_delivery") is True:
+        collisions = result.get("skill_collisions") or []
+        names = [entry["name"] for entry in collisions]
+        diagnostics.append(_diagnostic(
+            "skill_collision",
+            "Skill delivery is partial. Rename the colliding downstream declarations and rerun rendering: "
+            + ", ".join(names),
+            recovery_tools=["wf_sync_surfaces"], recovery_usage="wf_sync_surfaces(mode='run')",
+        ))
     if cache and result["passed"]:
         cache.invalidate()
     envelope = server_impl._response(
@@ -288,25 +312,26 @@ def wf_scan_secrets_response(root: Path, mode: str = "incremental") -> dict[str,
             [server_impl._preferred_python(), str(scan_script), "--root", str(root), "--mode", mode],
             timeout=300, cwd=str(root),
         )
-        if proc.returncode != 0:
+        if proc.returncode not in (0, 2):
             raise RuntimeError(proc.stderr.strip() or f"exit {proc.returncode}")
+        if len(proc.stdout) > 4 * 1024 * 1024:
+            raise ValueError("scanner result exceeds response budget")
         _out = _json.loads(proc.stdout)
-        failures = _out.get("failures", [])
+        if not isinstance(_out, dict) or type(_out.get("complete")) is not bool:
+            raise ValueError("scanner completion response missing")
+        failures = _out.get("failures")
+        if not isinstance(failures, list) or any(not isinstance(item, str) for item in failures):
+            raise ValueError("scanner failures response malformed")
+        if proc.returncode == 2 and _out.get("complete") is not False:
+            raise ValueError("scanner completion response missing")
         rules_hash_changed = _out.get("rules_hash_changed", False)
         escalated_to_full = _out.get("escalated_to_full", False)
     except Exception as _exc:
-        # Subprocess unavailable or failed — fall back to in-process serial scan.
-        rules_hash_changed = False
-        escalated_to_full = False
-        try:
-            from wave_lint_lib.secrets_validators import check_hardcoded_secrets
-            failures = check_hardcoded_secrets(root, scan_all=(mode == "full"), max_workers=1)
-        except Exception:
-            return server_impl._response(
-                "error",
-                {"error": f"secrets scan failed: {_exc}"},
-                diagnostics=[_diagnostic("scan_error", str(_exc))],
-            )
+        # A failed bounded attempt is not permission to repeat it synchronously.
+        return server_impl._response(
+            "error", {"mode": mode, "clean": False, "complete": False},
+            diagnostics=[_diagnostic("scan_incomplete", "The scanner process did not return a complete result; retry after resolving the reported runtime failure.")],
+        )
 
     elapsed_s = round(_time.monotonic() - _t0, 3)
 
@@ -326,7 +351,13 @@ def wf_scan_secrets_response(root: Path, mode: str = "incremental") -> dict[str,
         s = entry.get("status", "unknown")
         by_status[s] = by_status.get(s, 0) + 1
 
-    all_ok = len(failures) == 0
+    from scanner_skips import scanner_completion
+    completion = scanner_completion(root, failures)
+    # The current process may have failed to persist its observations. Its
+    # explicit incomplete result must survive even if the ledger looks empty.
+    if _out.get("complete") is False:
+        completion["complete"] = False
+    all_ok = len(failures) == 0 and completion["complete"]
     return server_impl._response(
         "ok" if all_ok else "error",
         {
@@ -341,6 +372,7 @@ def wf_scan_secrets_response(root: Path, mode: str = "incremental") -> dict[str,
             "failures_total": len(failures),
             "failures": failures[:20] if failures else [],
             "findings_file": SCAN_FINDINGS_PATH,
+            **completion,
         },
         diagnostics=[
             _diagnostic(
@@ -349,7 +381,10 @@ def wf_scan_secrets_response(root: Path, mode: str = "incremental") -> dict[str,
                 recovery_tools=["wf_scan_secrets"],
                 recovery_usage="wf_scan_secrets(mode='full')",
             )
-        ] if failures else [],
+        ] if completion["complete"] and failures else ([
+            _diagnostic("scan_incomplete", "The scan did not establish complete coverage of eligible content; inspect incomplete paths or coverage_error and retry.",
+                        recovery_tools=["wf_scan_secrets"], recovery_usage="wf_scan_secrets(mode='full')")
+        ] if not completion["complete"] else []),
         next_tools=["wf_audit"] if all_ok else ["wf_scan_secrets"],
         usage="wf_audit()" if all_ok else "wf_scan_secrets(mode='full')",
     )

@@ -17,7 +17,7 @@ BINARY_SUPPORT_GUIDANCE = (
     "x86_64/aarch64, and Windows x64; no sdist or wheels for Linux musl, "
     "Windows ARM64 or Windows 32-bit. APSW also requires glibc >=2.28 on Linux. "
     "Wheel availability is not native platform qualification. Use a compatible "
-    "Python environment and rerun wf setup; do not remove the existing index."
+    "Python environment and the repository's local setup launcher; do not remove the existing index."
 )
 
 import venv_bootstrap
@@ -60,18 +60,18 @@ def connect(path: Path, *, read_only: bool = False,
     """Open a native connection; transactions and changes() belong to callers."""
     if apsw is None:
         raise RuntimeUnavailable(
-            f"SQLite index runtime missing; run wf setup to install apsw=={APSW_VERSION} "
+            f"SQLite index runtime missing; use the repository's local setup launcher to install apsw=={APSW_VERSION} "
             f"and sqlite-vec=={SQLITE_VEC_VERSION} in the Wavefoundry tool environment. "
             "After installation, restart the process and resume the ordinary command.")
     from importlib.metadata import version
     if apsw.apswversion() != APSW_VERSION or apsw.sqlitelibversion() != SQLITE_VERSION:
-        raise RuntimeUnavailable("SQLite index runtime version mismatch; run wf setup.")
+        raise RuntimeUnavailable("SQLite index runtime version mismatch; use the repository's local setup launcher.")
     try:
         import sqlite_vec
         if version("sqlite-vec") != SQLITE_VEC_VERSION:
-            raise RuntimeUnavailable("sqlite-vec version mismatch; run wf setup.")
+            raise RuntimeUnavailable("sqlite-vec version mismatch; use the repository's local setup launcher.")
     except ImportError as exc:
-        raise RuntimeUnavailable("sqlite-vec missing; run wf setup.") from exc
+        raise RuntimeUnavailable("sqlite-vec missing; use the repository's local setup launcher.") from exc
     path = Path(path)
     creating = not path.exists() or path.stat().st_size == 0
     flags = apsw.SQLITE_OPEN_READONLY if read_only else (
@@ -85,7 +85,7 @@ def connect(path: Path, *, read_only: bool = False,
                 conn.load_extension(sqlite_vec.loadable_path())
             except Exception as exc:
                 raise RuntimeUnavailable(
-                    "SQLite vector extension could not load; run wf setup with a compatible "
+                    "SQLite vector extension could not load; use the repository's local setup launcher with a compatible "
                     "native Python/runtime, then restart the host. " + BINARY_SUPPORT_GUIDANCE
                 ) from exc
         finally:

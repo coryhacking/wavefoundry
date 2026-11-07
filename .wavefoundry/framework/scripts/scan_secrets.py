@@ -241,6 +241,8 @@ def update_secrets_scan(
     )
     scanner_runtime_roots()  # Validate before a cached/no-work return.
     from wave_lint_lib.constants import SCAN_FINDINGS_PATH
+    from scanner_skips import scanner_completion, incomplete_paths
+    retry_paths = incomplete_paths(root)
 
     scan_state = _load_scan_state(scan_dir)
     findings_path = root / SCAN_FINDINGS_PATH
@@ -285,11 +287,14 @@ def update_secrets_scan(
                 for p in get_scan_files(root, True)
             ]
     else:
-        if not changed and not removed:
+        if not changed and not removed and not retry_paths:
             if verbose:
                 print("build_index: secrets scan — nothing changed", flush=True)
-            return {"files_scanned": 0, "files_skipped": 0, "failures": 0, "up_to_date": True}
-        candidate_rel = [p for p in sorted(changed)
+            completion = scanner_completion(root)
+            return {"files_scanned": 0, "files_skipped": 0,
+                    "failures": 0 if completion["complete"] else 1,
+                    "up_to_date": completion["complete"], **completion}
+        candidate_rel = [p for p in sorted(changed - retry_paths)
                          if not is_scanner_excluded_path(p) and (root / p).is_file()]
         if iss is not None:
             try:
@@ -299,6 +304,9 @@ def update_secrets_scan(
             except Exception as exc:  # noqa: BLE001 - fail toward scanning
                 print(f"build_index: secrets scan cache filter skipped ({exc})",
                       file=sys.stderr)
+        # Retry recorded eligible failures even with unchanged bytes or no
+        # changed-file delta. The scanner applies current exclusions/removals.
+        candidate_rel = sorted(set(candidate_rel) | retry_paths)
         if verbose:
             print(
                 f"build_index: secrets scan — incremental "
@@ -327,7 +335,8 @@ def update_secrets_scan(
     # store so the removed file's cache row is deleted; otherwise an identical
     # restore cache-hits while the ledger prune already dropped its guard row,
     # and the skip becomes invisible at close.
-    if iss is not None and (scanned_rel or removed):
+    evicted = set(removed) | unpublished | {rel for rel in retry_paths if not (root / rel).exists()}
+    if iss is not None and (scanned_rel or evicted):
         iss.secret_scan_record(
             index_dir,
             root,
@@ -335,13 +344,14 @@ def update_secrets_scan(
             rules_fingerprint=current_rules_hash,
             findings_by_file=_findings_by_file(root),
             content_hashes=content_hashes,
-            removed_rel_paths=sorted(removed or ()),
+            removed_rel_paths=sorted(evicted),
             rule_catalog=_rule_catalog(root),
         )
 
     elapsed = time.monotonic() - t0
+    completion = scanner_completion(root, failures)
     print(
-        f"build_index: secrets scan complete ({scan_type}) — "
+        f"build_index: secrets scan {'complete' if completion['complete'] else 'incomplete'} ({scan_type}) — "
         f"{len(failures)} finding(s), {files_skipped} cache-skipped, in {elapsed:.1f}s",
         flush=True,
     )
@@ -369,6 +379,7 @@ def update_secrets_scan(
         "rules_change_escalation": rules_changed,
         "rules_hash": current_rules_hash,
         "most_expensive": most_expensive,  # wave 1x4ol cost report
+        **completion,
     })
 
     return {
@@ -377,4 +388,5 @@ def update_secrets_scan(
         "rules_change_escalation": rules_changed,
         "failures": len(failures),
         "up_to_date": False,
+        **completion,
     }

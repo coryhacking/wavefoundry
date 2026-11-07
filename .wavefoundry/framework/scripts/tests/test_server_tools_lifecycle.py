@@ -16629,7 +16629,7 @@ class WaveCloseSecretsGateTests(unittest.TestCase):
         self.assertIn("secrets_gate_unresolved", self._diagnostic_codes(result))
         self.assertEqual(result["data"]["scanner_skips"], [row])
 
-    def test_absent_and_malformed_guard_history_do_not_change_close_status(self):
+    def test_absent_history_is_not_proof_and_malformed_history_blocks_close(self):
         from scanner_skips import LEDGER_REL
         ledger = self.root / LEDGER_REL
         result = self._close()
@@ -16639,10 +16639,25 @@ class WaveCloseSecretsGateTests(unittest.TestCase):
         ledger.parent.mkdir(parents=True, exist_ok=True)
         ledger.write_bytes(b"malformed")
         result = self._close()
-        self.assertEqual(result["status"], "dry_run", result)
+        self.assertEqual(result["status"], "error", result)
+        self.assertIn("secret_scan_incomplete", self._diagnostic_codes(result))
         self.assertNotIn("scanner_skips", result["data"])
         self.assertIn("coverage unavailable", result["data"]["scanner_skips_error"].lower())
         self.assertEqual(ledger.read_bytes(), b"malformed")
+
+    def test_eligible_guard_failure_blocks_close_until_complete_retry(self):
+        from scanner_skips import update_scanner_skips
+        (self.root / "incomplete.txt").write_text("ordinary fixture")
+        update_scanner_skips(self.root, {"incomplete.txt": {"complete": False, "skips": [
+            {"file": "incomplete.txt", "reason": "upstream scan incomplete", "detail": "worker_timeout"}
+        ]}})
+        for mode in ("dry_run", "create"):
+            result = self._close(mode)
+            self.assertEqual(result["status"], "error", result)
+            self.assertIn("secret_scan_incomplete", self._diagnostic_codes(result))
+            self.assertFalse(result["data"]["scanner_completion"]["complete"])
+        update_scanner_skips(self.root, {"incomplete.txt": {"complete": True, "skips": []}})
+        self.assertNotIn("secret_scan_incomplete", self._diagnostic_codes(self._close()))
 
     def test_guard_advisory_reads_observations_after_existing_validation(self):
         def validation(root):

@@ -16,6 +16,14 @@
           "required_council_signoffs": [
             "council-readiness"
           ],
+          "scanner_completion": {
+            "complete": true,
+            "completion_scope": "requested scan and recorded outstanding failures",
+            "incomplete": [],
+            "incomplete_files": 0,
+            "incomplete_omitted": 0,
+            "policy_excluded_files": 0
+          },
           "wave_id": "0exxl fixture-active"
         },
         "diagnostics": [
@@ -95,6 +103,14 @@
           "required_council_signoffs": [
             "council-readiness"
           ],
+          "scanner_completion": {
+            "complete": true,
+            "completion_scope": "requested scan and recorded outstanding failures",
+            "incomplete": [],
+            "incomplete_files": 0,
+            "incomplete_omitted": 0,
+            "policy_excluded_files": 0
+          },
           "wave_id": "0exxl fixture-active"
         },
         "diagnostics": [
@@ -806,6 +822,14 @@
           "required_council_signoffs": [
             "council-readiness"
           ],
+          "scanner_completion": {
+            "complete": true,
+            "completion_scope": "requested scan and recorded outstanding failures",
+            "incomplete": [],
+            "incomplete_files": 0,
+            "incomplete_omitted": 0,
+            "policy_excluded_files": 0
+          },
           "wave_id": "0exxm fixture-missing-lane"
         },
         "diagnostics": [
@@ -894,6 +918,14 @@
           "required_council_signoffs": [
             "council-readiness"
           ],
+          "scanner_completion": {
+            "complete": true,
+            "completion_scope": "requested scan and recorded outstanding failures",
+            "incomplete": [],
+            "incomplete_files": 0,
+            "incomplete_omitted": 0,
+            "policy_excluded_files": 0
+          },
           "wave_id": "0exxm fixture-missing-lane"
         },
         "diagnostics": [
@@ -1725,6 +1757,14 @@
           "required_council_signoffs": [
             "council-readiness"
           ],
+          "scanner_completion": {
+            "complete": true,
+            "completion_scope": "requested scan and recorded outstanding failures",
+            "incomplete": [],
+            "incomplete_files": 0,
+            "incomplete_omitted": 0,
+            "policy_excluded_files": 0
+          },
           "wave_id": "0exxk fixture-planned"
         },
         "diagnostics": [
@@ -1804,6 +1844,14 @@
           "required_council_signoffs": [
             "council-readiness"
           ],
+          "scanner_completion": {
+            "complete": true,
+            "completion_scope": "requested scan and recorded outstanding failures",
+            "incomplete": [],
+            "incomplete_files": 0,
+            "incomplete_omitted": 0,
+            "policy_excluded_files": 0
+          },
           "wave_id": "0exxk fixture-planned"
         },
         "diagnostics": [

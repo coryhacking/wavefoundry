@@ -500,7 +500,8 @@ class UpstreamIncompleteCacheTests(_CacheCase):
 
     def _run_owner(self, owner):
         run_scan = _load("run_secrets_scan")
-        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()), \
+        output = io.StringIO()
+        with redirect_stdout(output), redirect_stderr(io.StringIO()), \
              patch.object(run_scan, "_auto_max_workers", return_value=1), \
              patch.object(self.scan_secrets, "_auto_max_workers", return_value=1):
             if owner == "indexer":
@@ -510,7 +511,9 @@ class UpstreamIncompleteCacheTests(_CacheCase):
             else:
                 with patch.object(sys, "argv", ["run_secrets_scan.py", "--root", str(self.root),
                                                 "--mode", "full"]):
-                    self.assertEqual(run_scan.main(), 0)
+                    code = run_scan.main()
+                result = json.loads(output.getvalue().strip().splitlines()[-1])
+                self.assertEqual(code, 0 if result["complete"] else 2)
 
     def _configure(self, regex):
         self._write(".wavefoundry/framework/scan-rules.toml",
@@ -618,8 +621,10 @@ class RunSecretsScanGuardHistoryTests(_CacheCase):
         out = io.StringIO()
         argv = ["run_secrets_scan.py", "--root", str(self.root), "--mode", mode]
         with patch.object(sys, "argv", argv), redirect_stdout(out), redirect_stderr(io.StringIO()):
-            self.assertEqual(run_scan.main(), 0)
-        return json.loads(out.getvalue().strip().splitlines()[-1])
+            code = run_scan.main()
+        result = json.loads(out.getvalue().strip().splitlines()[-1])
+        self.assertEqual(code, 0 if result["complete"] else 2)
+        return result
 
     def _cached(self):
         db = index_paths.runtime_database_path(self.index_dir)

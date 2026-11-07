@@ -253,7 +253,7 @@ def read_snapshot(index_dir):
         conn.execute("BEGIN")
         version = conn.execute("SELECT value FROM meta WHERE key='store_schema_version'").fetchone()
         if version != (SCHEMA_VERSION,):
-            raise runtime.StorageRecoveryRequired("Semantic index migration required; run wf setup.")
+            raise runtime.StorageRecoveryRequired("Semantic index migration required; use the repository's local setup launcher.")
         conn.execute("SELECT status FROM build_state WHERE id=1").fetchone()
         index_compatibility.check_connection(conn)
         token = _READ_SNAPSHOT.set((_snapshot_key(path), conn))
@@ -277,7 +277,7 @@ def _open(index_dir):
     try:
         version = conn.execute("SELECT value FROM meta WHERE key='store_schema_version'").fetchone()
         if version != (SCHEMA_VERSION,):
-            raise runtime.StorageRecoveryRequired("Semantic index migration required; run wf setup.")
+            raise runtime.StorageRecoveryRequired("Semantic index migration required; use the repository's local setup launcher.")
         return conn
     except BaseException:
         conn.close()
