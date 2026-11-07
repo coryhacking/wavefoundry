@@ -117,5 +117,31 @@ builtins.__import__ = guarded
         self.assertIn("local Wavefoundry setup launcher", result.stderr)
 
 
+# Wave 22r99 (change 22r98): PowerShell ends a single-quoted string at any of five
+# characters, so each one is doubled. Escapes keep the source unambiguous.
+FIVE_QUOTES = ("\u0027", "\u2018", "\u2019", "\u201a", "\u201b")
+
+
+class PowerShellQuoteTests(unittest.TestCase):
+    def test_each_single_quote_character_is_doubled_with_an_exact_string(self):
+        for quote in FIVE_QUOTES:
+            with self.subTest(codepoint=f"U+{ord(quote):04X}"):
+                self.assertEqual(commands.format_command(["C:\\Users\\O" + quote + "Brien\\wf.cmd"], windows=True),
+                                 "& 'C:\\Users\\O" + quote + quote + "Brien\\wf.cmd'")
+
+    def test_all_five_in_one_argument_and_posix_output_is_unchanged(self):
+        argument = "a\u0027b\u2018c\u2019d\u201ae\u201bf"
+        self.assertEqual(commands.format_command([argument, "plain"], windows=True),
+                         "& 'a\u0027\u0027b\u2018\u2018c\u2019\u2019d\u201a\u201ae\u201b\u201bf' 'plain'")
+        self.assertEqual(commands.format_command([argument, "plain"], windows=False),
+                         shlex.join([argument, "plain"]))
+
+    def test_setup_recovery_quotes_a_typographic_apostrophe_in_the_root(self):
+        root = "C:\\Users\\O\u2019Brien\\repo"
+        usage = commands.setup_recovery(root, windows=True)["recovery_usage"]
+        self.assertEqual(usage, "& 'C:\\Users\\O\u2019\u2019Brien\\repo\\.wavefoundry\\bin\\wf.cmd' 'setup' "
+                                "'--root' 'C:\\Users\\O\u2019\u2019Brien\\repo'")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -21,6 +21,17 @@ def repository_launcher_argv(root: Path | str, *arguments: str,
     return [launcher, *arguments]
 
 
+# PowerShell ends a single-quoted string at any of these five characters, and
+# reads each one doubled as a literal: ' (U+0027), U+2018, U+2019, U+201A, U+201B.
+_POWERSHELL_SINGLE_QUOTES = ("\u0027", "\u2018", "\u2019", "\u201a", "\u201b")
+_POWERSHELL_QUOTE_DOUBLING = str.maketrans({quote: quote * 2 for quote in _POWERSHELL_SINGLE_QUOTES})
+
+
+def powershell_quote(value) -> str:
+    """Single-quote one argument for PowerShell, doubling every single-quote character."""
+    return "'" + str(value).translate(_POWERSHELL_QUOTE_DOUBLING) + "'"
+
+
 def command_shell(*, windows=None):
     """Name the dialect used by format_command; OS does not imply caller shell."""
     return "powershell" if (os.name == "nt" if windows is None else windows) else "posix"
@@ -31,7 +42,7 @@ def format_command(argv, *, windows=None):
     if not argv:
         return "Restart the Wavefoundry host."
     if command_shell(windows=windows) == "powershell":
-        return "& " + " ".join("'" + str(arg).replace("'", "''") + "'" for arg in argv)
+        return "& " + " ".join(powershell_quote(arg) for arg in argv)
     return shlex.join([str(arg) for arg in argv])
 
 

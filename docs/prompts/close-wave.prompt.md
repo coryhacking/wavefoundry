@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-04
+Last verified: 2026-11-07
 
 Shortcut: **`Close wave`**
 
@@ -106,6 +106,6 @@ recompute a parallel review policy.
 
 Declared compatible Prepare/close overrides may opt in through `EXTENSION_UPGRADE_PREVIEW_TOOLS`. Only supported dry-run modes run during a compatible retained upgrade with current loaded core, launcher, declaration, module and helper provenance. `mcp.upgrade_preview_active()` exposes the inherited no-publication context, including through `core_handler`. Framework publication APIs refuse writes; trusted extension code is responsible for direct I/O. This preview grants no mutation or recovery authority.
 
-## Disposable wave work
+## Disposable work
 
-Use the lifecycle-reported `.wavefoundry/work/<wave-id>/`, keyed by the resolved unique prefix, for shared temporary work; include the path and availability notices in coordinator briefs. Follow seed 180’s **Disposable wave work** and seed 209’s **Review Artifact Discipline**. Reads and dry-runs create nothing; unavailable work is advisory and existing host permissions apply. Before finalizing evidence, preserve unique long-term proof in maintained wave records, tests or explicitly retained evidence; new durable approvals must not rely solely on disposable paths. Only successful operator-authorized whole-wave closure attempts owned cleanup after its transition. Failure is advisory; unsupported safe deletion preserves files. Dry-run, failed close and single-change close preserve work. Authorized repeated close may retry; stale cleanup cannot remove a reopened generation. Ordinary wave-folder evidence is protected.
+Use the lifecycle-reported `.wavefoundry/work/<wave-id>/`, keyed by the resolved unique prefix, for shared temporary work; include the path and availability notices in coordinator briefs. Follow seed 180’s **Disposable work** and seed 209’s **Review Artifact Discipline**. Reads and dry-runs create nothing; unavailable work is advisory and existing host permissions apply. Before finalizing evidence, preserve unique long-term proof in maintained wave records, tests or explicitly retained evidence; new durable approvals must not rely solely on disposable paths. Only successful operator-authorized whole-wave closure attempts owned cleanup after its transition. Failure is advisory; unsupported safe deletion preserves files. Dry-run, failed close and single-change close preserve work. Authorized repeated close may retry; stale cleanup cannot remove a reopened generation. Ordinary wave-folder evidence is protected.

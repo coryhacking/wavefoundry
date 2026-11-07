@@ -92,7 +92,7 @@ Readiness handoff:
 
 `Prepare wave` owns the single pre-code critique: failure-first analysis, packet completeness, and the current readiness approval. Before editing, consume that approval and the ordered implementation plan. Do not repeat the critique or mint a second approval inside `Implement wave`.
 
-### Disposable wave work
+### Disposable work
 
 Use the lifecycle-reported `.wavefoundry/work/<wave-id>/`, keyed by the resolved unique lifecycle prefix, for shared temporary work. The coordinator includes this path and any availability notice in briefs. Successful mutating Create/Prepare/Implement/Reopen calls establish an owned area as needed; reads and dry-runs only report it. Worktrees have separate repository-local areas. Do not adopt an unrelated pre-existing directory, migrate old evidence automatically, or treat this path as a sandbox or tool grant. Existing host permissions apply; an unavailable area is advisory, not a new gate.
 

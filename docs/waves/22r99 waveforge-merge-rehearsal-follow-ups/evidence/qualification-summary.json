@@ -1,0 +1,10 @@
+{
+  "wave": "22r99",
+  "platform": "macOS only",
+  "runs": [
+    {"profile": "default", "command": "python3 .wavefoundry/framework/scripts/run_tests.py", "tests": 12590, "files": 231, "skipped": 12, "result": "OK", "note": "final run after delivery repair cycle 2"}
+  ],
+  "earlier_runs": ["first full run 12,590 tests: 1 failure in test_server_package (flat glob in the new zip test), fixed", "second full run OK before delivery review"],
+  "framework_bytecode": "none under .wavefoundry/framework/",
+  "not_run": "second and declared profiles (release readiness runs them)"
+}

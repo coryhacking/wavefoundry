@@ -166,6 +166,28 @@ def stop_process(proc: subprocess.Popen) -> None:
     proc.wait(timeout=10)
 
 
+def _container_fixture_call(call, tool_name, root, arguments):
+    # Resolved at call time so a distribution's edit, or a test's patch, applies.
+    import container_fixture_profile
+
+    extra = container_fixture_profile.container_fixture_args(tool_name, Path(root))
+    collisions = sorted(set(extra) & set(arguments))
+    if collisions:
+        raise ValueError(f"container fixture profile argument(s) {collisions} collide with the "
+                         f"{tool_name} call's own arguments")
+    return call(tool_name, **arguments, **extra)
+
+
+def create_container(call, root, slug, **kwargs):
+    """Call the served ``wf_create_wave`` with the container fixture profile's arguments (wave 22r99)."""
+    return _container_fixture_call(call, "wf_create_wave", root, {"slug": slug, **kwargs})
+
+
+def close_container(call, root, wave_id, **kwargs):
+    """Call the served ``wf_close_wave`` with the container fixture profile's arguments (wave 22r99)."""
+    return _container_fixture_call(call, "wf_close_wave", root, {"wave_id": wave_id, **kwargs})
+
+
 def review_policy_config(**overrides) -> dict:
     """Return a complete policy block; install under workflow-config's wave_review."""
     return {"enabled": True, "delivery_mode": "targeted", **overrides}

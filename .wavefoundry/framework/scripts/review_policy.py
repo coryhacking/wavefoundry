@@ -21,7 +21,11 @@ import vocabulary_profile  # lifecycle prompt names (wave 1zyb4)
 
 # Captured with the imported normalizer, rather than re-reading mutable source
 # when an old snapshot is opened later in this process.
-_NORMALIZER_SIGNATURE = hashlib.sha256(Path(gardener_metadata.__file__).read_bytes()).hexdigest()
+# Read through the module's loader so a zipped framework imports too: under
+# zipimport ``__file__`` lies inside the archive and has no filesystem bytes.
+_NORMALIZER_SIGNATURE = hashlib.sha256(
+    gardener_metadata.__loader__.get_data(gardener_metadata.__file__)
+).hexdigest()
 _REVIEW_CONTEXT_MAX_DOCUMENTS = 128
 _REVIEW_CONTEXT_MAX_SECTIONS = 512
 

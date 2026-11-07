@@ -2851,7 +2851,7 @@ _GITIGNORE_BLOCK = [
     "# Wavefoundry runtime caches, including the Python bytecode cache (per-machine; never commit)",
     ".wavefoundry/cache/",
     "",
-    "# Wavefoundry disposable wave work (local review aids and scratch — never commit)",
+    "# Wavefoundry disposable work (local review aids and scratch — never commit)",
     ".wavefoundry/work/",
     "",
     "# Wavefoundry upgrade recovery assets (generated locally — never commit)",
@@ -2863,6 +2863,12 @@ _GITIGNORE_BLOCK = [
     "/wavefoundry-*.zip",
 ]
 _GITIGNORE_MANAGED_LINES = frozenset(line.strip() for line in _GITIGNORE_BLOCK if line.strip())
+# Previous managed comment lines (wave 22r99): dropped as loose copies on render so
+# an existing install ends with exactly one current comment. Never part of
+# ``_GITIGNORE_BLOCK``, whose pattern lines also feed the tracked-runtime census.
+_GITIGNORE_LEGACY_LINES = frozenset({
+    "# Wavefoundry disposable wave work (local review aids and scratch — never commit)",
+})
 
 
 def _run_tree_kill(cmd, **kwargs):
@@ -2965,7 +2971,7 @@ def render_gitignore_block(repo_root: Path) -> None:
             continue
         # Drop loose copies of managed lines (patterns + our comment headers) so we don't duplicate
         # them alongside the managed block; everything else is operator content — keep it verbatim.
-        if stripped in _GITIGNORE_MANAGED_LINES:
+        if stripped in _GITIGNORE_MANAGED_LINES or stripped in _GITIGNORE_LEGACY_LINES:
             continue
         preserved.append(line)
     while preserved and preserved[-1] == "":

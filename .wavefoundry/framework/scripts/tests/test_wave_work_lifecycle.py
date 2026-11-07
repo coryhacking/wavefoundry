@@ -17,8 +17,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from server_tools_support import (
-    _make_repo, declared_wave_doc_gates, integrity_checks, load_server,
-    make_declared_wave, review_policy_config,
+    _make_repo, close_container, create_container, declared_wave_doc_gates, integrity_checks,
+    load_server, make_declared_wave, review_policy_config,
 )
 from declaration_support import RecordingFastMCP
 import vocabulary_profile as vp
@@ -128,12 +128,12 @@ class WaveWorkLifecycleTests(unittest.TestCase):
         self.ok(self.call("wf_close_change", wave_id=wid, change_id=cid, mode="create"))
 
     def test_registered_create_preview_does_not_create_and_paths_use_resolved_prefix(self):
-        preview = self.call("wf_create_wave", slug="first", mode="dry_run")
+        preview = create_container(self.call, self.root, "first", mode="dry_run")
         self.assertEqual(preview["status"], "dry_run", preview)
         self.assertFalse(self.area(preview)["available"])
         self.assertFalse((self.root / ".wavefoundry/work").exists())
-        first = self.call("wf_create_wave", slug="first", mode="create")
-        second = self.call("wf_create_wave", slug="second", mode="create")
+        first = create_container(self.call, self.root, "first", mode="create")
+        second = create_container(self.call, self.root, "second", mode="create")
         first_id, second_id = self.ok(first)["wave_id"], self.ok(second)["wave_id"]
         a, b = self.area(first), self.area(second)
         self.assertEqual(a["path"], f".wavefoundry/work/{first_id.split()[0]}")
@@ -187,20 +187,20 @@ class WaveWorkLifecycleTests(unittest.TestCase):
     def test_failed_and_preview_close_and_single_change_close_preserve_scratch(self):
         wid, wave_md, cid = self.wave()
         scratch = self.scratch(wid)
-        blocked = self.call("wf_close_wave", wave_id=wid, mode="create")
+        blocked = close_container(self.call, self.root, wid, mode="create")
         self.assertEqual(blocked["status"], "error", blocked)
         self.assertTrue(scratch.exists())
         self.assertNotIn("Status: closed", wave_md.read_text())
         self.finish(wid, cid)
         self.assertTrue(scratch.exists(), "single-change close must preserve wave scratch")
-        preview = self.call("wf_close_wave", wave_id=wid, mode="dry_run")
+        preview = close_container(self.call, self.root, wid, mode="dry_run")
         self.assertEqual(preview["status"], "dry_run", preview)
         self.assertTrue(scratch.exists())
         self.assertNotIn("Status: closed", wave_md.read_text())
 
     def test_registered_whole_wave_close_removes_only_owned_scratch(self):
         wid, wave_md, cid = self.wave()
-        other = self.ok(self.call("wf_create_wave", slug="neighbor", mode="create"))["wave_id"]
+        other = self.ok(create_container(self.call, self.root, "neighbor", mode="create"))["wave_id"]
         neighbor = self.scratch(other, "neighbor")
         scratch = self.scratch(wid)
         durable = wave_md.parent / "final-proof.txt"
@@ -210,7 +210,7 @@ class WaveWorkLifecycleTests(unittest.TestCase):
         self.finish(wid, cid)
         ledger = wave_md.parent / "events.jsonl"
         ledger_before = ledger.read_bytes()
-        result = self.call("wf_close_wave", wave_id=wid.split()[0], mode="create")
+        result = close_container(self.call, self.root, wid.split()[0], mode="create")
         self.ok(result)
         self.assertIn("work_cleanup", result["data"])
         self.assertIn("Status: closed", wave_md.read_text())
@@ -237,7 +237,7 @@ class WaveWorkLifecycleTests(unittest.TestCase):
         self.assertTrue(current["work_area"]["available"], current)
         self.assertEqual(current["work_area"]["generation"], original_generation)
         self.assertEqual(marker.read_bytes(), before)
-        result = self.call("wf_close_wave", wave_id=wid, mode="create")
+        result = close_container(self.call, self.root, wid, mode="create")
         self.ok(result)
         self.assertEqual(result["data"]["work_cleanup"]["outcome"], "removed", result)
         self.assertIn("Status: closed", wave_md.read_text())
@@ -264,7 +264,7 @@ class WaveWorkLifecycleTests(unittest.TestCase):
         self.assertTrue(current["work_area"]["available"], current)
         self.assertEqual(current["work_area"]["generation"], owner["generation"])
         self.assertEqual((moved / marker.relative_to(old_root)).read_bytes(), before)
-        result = self.call("wf_close_wave", wave_id=wid, mode="create")
+        result = close_container(self.call, self.root, wid, mode="create")
         self.ok(result)
         self.assertEqual(result["data"]["work_cleanup"]["outcome"], "removed", result)
         self.assertFalse((moved / scratch.relative_to(old_root)).exists())
@@ -288,7 +288,7 @@ class WaveWorkLifecycleTests(unittest.TestCase):
         current = next(entry for entry in self.ok(self.call("wf_current_wave"))["waves"]
                        if entry["wave_id"] == wid)
         self.assertFalse(current["work_area"]["available"], current)
-        result = self.call("wf_close_wave", wave_id=wid, mode="create")
+        result = close_container(self.call, self.root, wid, mode="create")
         self.ok(result)
         self.assertEqual(result["data"]["work_cleanup"]["outcome"], "preserved", result)
         self.assertEqual((destination / "scratch/result.txt").read_text(), "foreign must survive")
@@ -304,7 +304,7 @@ class WaveWorkLifecycleTests(unittest.TestCase):
         owner = json.loads(marker.read_text())
         original_generation = owner["generation"]
         with patch.object(wave_work, "cleanup_work", side_effect=OSError("retain fixture")):
-            self.ok(self.call("wf_close_wave", wave_id=wid, mode="create"))
+            self.ok(close_container(self.call, self.root, wid, mode="create"))
         owner["directory"][0] += 1
         marker.write_text(json.dumps(owner))
         reopened = self.call("wf_reopen_wave", wave_id=wid, purpose="implement")
@@ -338,7 +338,7 @@ class WaveWorkLifecycleTests(unittest.TestCase):
                 current = next(entry for entry in entries if entry["wave_id"] == wid)
                 self.assertFalse(current["work_area"]["available"], current)
                 self.assertIn("work_ownership_unproven", current["work_area"]["notice"])
-                result = self.call("wf_close_wave", wave_id=wid, mode="create")
+                result = close_container(self.call, self.root, wid, mode="create")
                 self.ok(result)
                 cleanup = result["data"]["work_cleanup"]
                 self.assertEqual(cleanup["outcome"], "preserved", result)
@@ -354,12 +354,12 @@ class WaveWorkLifecycleTests(unittest.TestCase):
         scratch = self.scratch(wid)
         self.finish(wid, cid)
         with patch.object(wave_work, "cleanup_work", side_effect=OSError("fixture I/O failure")):
-            result = self.call("wf_close_wave", wave_id=wid, mode="create")
+            result = close_container(self.call, self.root, wid, mode="create")
         self.ok(result)
         self.assertIn("Status: closed", wave_md.read_text())
         self.assertTrue(scratch.exists())
         self.assertTrue(result["data"]["work_cleanup"]["notice"])
-        self.ok(self.call("wf_close_wave", wave_id=wid, mode="create"))
+        self.ok(close_container(self.call, self.root, wid, mode="create"))
         self.assertFalse(self.work(wid).exists())
 
     def test_missing_work_area_is_an_idempotent_close_noop(self):
@@ -368,7 +368,7 @@ class WaveWorkLifecycleTests(unittest.TestCase):
         shutil.rmtree(self.work(wid))
         for attempt in range(2):
             with self.subTest(attempt=attempt):
-                result = self.call("wf_close_wave", wave_id=wid, mode="create")
+                result = close_container(self.call, self.root, wid, mode="create")
                 self.ok(result)
                 self.assertIn("work_cleanup", result["data"])
                 self.assertIn("Status: closed", wave_md.read_text())
@@ -393,7 +393,7 @@ class WaveWorkLifecycleTests(unittest.TestCase):
 
         def close():
             try:
-                results.append(self.call("wf_close_wave", wave_id=wid, mode="create"))
+                results.append(close_container(self.call, self.root, wid, mode="create"))
             except BaseException as exc:
                 errors.append(exc)
 
@@ -428,7 +428,7 @@ class WaveWorkLifecycleTests(unittest.TestCase):
         old = self.ok(self.call("wf_current_wave"))["waves"][0]["work_area"]["generation"]
         scratch = self.scratch(wid, "left behind")
         with patch.object(wave_work, "cleanup_work", side_effect=OSError("cleanup unavailable")):
-            self.ok(self.call("wf_close_wave", wave_id=wid, mode="create"))
+            self.ok(close_container(self.call, self.root, wid, mode="create"))
         reopened = self.call("wf_reopen_wave", wave_id=wid, purpose="implement")
         self.ok(reopened)
         self.assertNotEqual(self.area(reopened)["generation"], old)

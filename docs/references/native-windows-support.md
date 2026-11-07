@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: supported
-Last verified: 2026-11-06
+Last verified: 2026-11-07
 
 ## SQLite conversion qualification (1xjmm)
 
@@ -14,7 +14,7 @@ The project index needs local WAL-capable storage. Since wave `1xny6` one databa
 
 The launcher recognizes the selected `python3.exe` by a case-insensitive `\WindowsApps\python3.exe` path ending and probes that alias silently. Redirected profiles and short ancestor components are covered by controlled tests. An 8.3-shortened WindowsApps component is not recognized; native cmd execution remains unqualified by these tests. Ordinary real interpreter paths avoid the extra probe.
 
-Native Windows lacks the descriptor-safe operations required by the wave work area. Work areas and snapshots report unavailable, and focused re-review uses full review. This limitation does not block the lifecycle.
+Native Windows lacks the descriptor-safe operations required by the disposable work area. Work areas and snapshots report unavailable, and focused re-review uses full review. This limitation does not block the lifecycle.
 
 Recovery responses provide argv and label Windows display strings as PowerShell. Git Bash callers must translate the argv for their shell instead of copying the PowerShell `&` invocation.
 

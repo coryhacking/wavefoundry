@@ -616,6 +616,30 @@ class ReceiptTests(unittest.TestCase):
         self.assertIn("'C:/packs/it''s $literal.zip'", command["command"])
         self.assertTrue(command["command"].startswith("& "))
 
+    def test_powershell_quoting_doubles_all_five_single_quotes(self):
+        # Wave 22r99 (change 22r98): the shared setup_commands helper, POSIX unchanged.
+        quotes = ("\u0027", "\u2018", "\u2019", "\u201a", "\u201b")
+        with patch.object(migration, "os", SimpleNamespace(name="nt")):
+            for quote in quotes:
+                with self.subTest(codepoint=f"U+{ord(quote):04X}"):
+                    self.assertEqual(migration._quote_argument("O" + quote + "Brien $x"),
+                                     "'O" + quote + quote + "Brien $x'")
+            command = migration.restart_command(self.root, "C:/packs/it\u2019s.zip")
+            guidance = migration.accounting_gap_guidance(Path("/repo/O\u2018Brien"))
+        self.assertIn("'--pack' 'C:/packs/it\u2019\u2019s.zip'", command["command"])
+        self.assertIn("From the repository root '" + str(Path("/repo/O\u2018Brien").resolve()).replace("\u2018", "\u2018\u2018") + "', run ",
+                      guidance)
+        # POSIX output is unchanged; pin the dialect so this holds on any host.
+        with patch.object(migration, "os", SimpleNamespace(name="posix")):
+            self.assertEqual(migration._quote_argument("O\u2019Brien"), "'O\u2019Brien'")
+            self.assertEqual(migration._quote_argument("it's"), "'it'\"'\"'s'")
+
+    def test_quote_argument_falls_back_when_an_older_setup_commands_is_loaded(self):
+        import setup_commands
+        with patch.object(migration, "os", SimpleNamespace(name="nt")), \
+                patch.object(setup_commands, "powershell_quote", None):
+            self.assertEqual(migration._quote_argument("it's"), "'it''s'")
+
     def test_old_runner_stops_even_with_confirmation_before_downstream(self):
         downstream = []
         with patch.dict(os.environ, {migration.CONFIRM_ENV: "1"}), contextlib.redirect_stdout(io.StringIO()):

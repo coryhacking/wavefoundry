@@ -18258,7 +18258,7 @@ class ReceiptSnapshotPublicIntegrationTests(unittest.TestCase):
         self.handler = types.SimpleNamespace(root=self.root, cache=None, telemetry=telemetry)
         self.mcp = RecordingFastMCP()
         self.srv.register_mcp_surface(self.mcp, lambda: self.handler)
-        made = self.ok(self.call("wf_create_wave", slug="snapshot-public", mode="create"))
+        made = self.ok(server_tools_support.create_container(self.call, self.root, "snapshot-public", mode="create"))
         self.wave_id = made["wave_id"]
         self.wave_md = self.root / made["path"]
         child = self.ok(self.srv._change_create_response(self.root, "enh", "snapshot-public-child", mode="create"))

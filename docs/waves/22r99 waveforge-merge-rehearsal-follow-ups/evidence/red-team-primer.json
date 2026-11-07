@@ -1,0 +1,99 @@
+{
+  "seat": "red-team",
+  "verdict": "repair_needed",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "important",
+      "claim": "Requirement 2 / AC-2 fix only setup_commands.format_command, but a second PowerShell argument formatter has the same ASCII-only gap and also quotes the repository root.",
+      "evidence": "sqlite_storage_migration._quote_argument (line ~816: \"'\" + value.replace(\"'\", \"''\") + \"'\" when os.name == 'nt'), used by restart_command (the '& ' PowerShell upgrade restart command), resume_guidance and accounting_gap_guidance (which quotes str(Path(root).resolve())). Other \"''\" doublings (indexer.py:2330, server_impl.py:2384/2954/2995, index_handlers.py:1049) are SQL literal escaping, not PowerShell, and are out of scope. diagnose_python.ps1 has a fixed literal.",
+      "recommended_plan_repair": "Extend Requirement 2 and AC-2 to sqlite_storage_migration._quote_argument, preferably by having it call one shared PowerShell quoting helper in setup_commands (for example a quote_powershell(arg) that format_command also uses), and assert the restart_command and accounting_gap_guidance output for a root that contains U+2019. Add it to Serialization Points."
+    },
+    {
+      "id": "F2",
+      "severity": "important",
+      "claim": "Requirement 5 leaves the hook location open ('one declared hook ... or its extension module, if the readiness review prefers'). The implementer cannot act on this, and both obvious homes are wrong.",
+      "evidence": "vocabulary_profile.py is a shipped product module: strings and regex fragments only, 'Nothing is read from configuration', and read by production readers. mcp_tool_extensions.py is a shipped production declaration that declared(), declaration_problems and validate_declaration check, and render_agent_surfaces reads it, so test-only data there would ship to every target. tests/server_tools_support.py is a large, frequently changed upstream file, so editing it in a fork creates a recurring merge-conflict surface.",
+      "recommended_plan_repair": "Name one concrete location: a new test-only module tests/container_fixture_profile.py with a module docstring calling it fork-editable (the same convention as vocabulary_profile), holding the empty-by-default hook and nothing else. server_tools_support.create_container and close_container read it through the module attribute at call time. Upstream commits to never editing it beyond the defaults, so a distribution's one edit never conflicts. Delete the 'or its extension module' alternative."
+    },
+    {
+      "id": "F3",
+      "severity": "important",
+      "claim": "The hook's shape is unspecified, and a static kwargs dict may not be enough for Waveforge: their create needs a parent `feature`, which probably has to exist in the temporary fixture repo. Merge precedence between hook extras and test kwargs is also undefined.",
+      "evidence": "Rationale item 5 says Waveforge needs a parent `feature` and `kind` on creation and scope=\"set\" to close. The fixtures build repos with _make_repo and make_declared_wave, and none creates a feature parent. Requirement 5 says only 'merging distribution-supplied extra arguments'.",
+      "recommended_plan_repair": "Specify the hook as a callable, for example container_fixture_args(tool_name, root) -> dict, defaulting to {}. That lets a fork provision a parent record in `root` before returning arguments. State that a key collision between hook extras and an explicit test kwarg raises (no silent override). Confirm with Waveforge whether a static dict suffices; if it does, state that explicitly instead."
+    },
+    {
+      "id": "F4",
+      "severity": "important",
+      "claim": "'Calls whose arguments are the behavior under test stay direct' is ambiguous. By my count no call in scope has an argument under test that Waveforge's extras would change, so any call left direct still fails downstream. AC-5's 'every converted fixture call' cannot be falsified without a census.",
+      "evidence": "test_wave_work_lifecycle.py has 4 wf_create_wave calls (lines 131 dry_run, 135, 136, 203) and 13 wf_close_wave calls (190, 196, 213, 240, 267, 291, 307, 341, 357, 362, 371, 396, 431), all through the local call(). ReceiptSnapshotPublicIntegrationTests has exactly 1 wf_create_wave call (setUp area, 'snapshot-public') and no wf_close_wave. That is 18 calls in total; the 'about 21 tests' figure cannot be checked here. The close calls are the behavior under test (cleanup on close), but their arguments are not. Most containers in these files come from make_declared_wave, not from the served tool.",
+      "recommended_plan_repair": "Enumerate the calls: convert all 18, or list each exception with its reason. Add to AC-5 an AST census of both files that fails on any direct call(\"wf_create_wave\"|\"wf_close_wave\", ...) outside an explicit allowlist, plus the existing hook-driven stub check."
+    },
+    {
+      "id": "F5",
+      "severity": "important",
+      "claim": "The plan says the 22r97 CHANGELOG bullet's gitignore claim stays true, but this change makes it false, and the plan does not say to revise it.",
+      "evidence": "The uncommitted CHANGELOG.md diff (Unreleased, wave 22r97 / change 22r96) says: 'the managed `.gitignore` comment is unchanged so existing blocks still match.' Requirement 3 renames that comment. The comment's rationale is also wrong: render_gitignore_block rewrites everything between _GITIGNORE_BEGIN and _GITIGNORE_END, so only loose copies outside the fence depend on _GITIGNORE_MANAGED_LINES.",
+      "recommended_plan_repair": "Add a task to revise that 22r97 sentence (or fold it into the new 22r98 bullet) so the Unreleased notes do not contradict each other."
+    },
+    {
+      "id": "F6",
+      "severity": "important",
+      "claim": "The plan's census of other import-time `__file__` readers is incomplete, so Product Intent's 'including a zipped framework' overclaims.",
+      "evidence": "Scratch experiment: zip of the scripts with review_policy patched to __loader__.get_data, then python3 -B in a subprocess. These now import from the zip: review_policy, lifecycle_gate_support, review_evidence, upgrade_wavefoundry, upgrade_protocol, upgrade_extensions, setup_readiness, setup_commands. These still raise NotADirectoryError at import: index_compatibility (_SOURCE_BYTES = {(_SOURCE_ROOT / name + '.py').read_bytes()} at module level, line 30), so indexer, graph_*, memory_supply, model_bundle, sqlite_vector_store and others fail; server.py line 262 and wf_server/server_impl.py line 180, so server and dashboard fail. The plan names only ann_reference_eval.py and retrieval_eval.py as other readers.",
+      "recommended_plan_repair": "Narrow Product Intent and the Objective to 'the lifecycle and upgrade import closure can run zipped'. Record index_compatibility, server.py and wf_server/server_impl.py as known, out-of-scope zip blockers, because the index and the MCP server do not run zipped. Make AC-1 import both review_policy and lifecycle_gate_support (the path Waveforge reported) from the zip."
+    },
+    {
+      "id": "F7",
+      "severity": "minor",
+      "claim": "Requirement 3 says 'everywhere it ships', but shipped script text keeps the old phrase, and AC-3 checks only templates, seeds and rendered prompts.",
+      "evidence": "scripts/wave_work.py:1 docstring 'Disposable wave work, ...' and scripts/run_tests.py:60 comment '... and disposable wave work)'. The 'wave work area' sense also appears in the 22r97 CHANGELOG bullet ('Restore a wave work area's owner record'). seeds/009 'planned wave work' is a different sense and should stay. The old comment also remains in seed 050 line 345, render_platform_surfaces line 2854 and this repo's .gitignore line 58.",
+      "recommended_plan_repair": "Either include wave_work.py's docstring and run_tests.py's comment in the sweep, or say that code comments and docstrings are excluded. Keep the module name wave_work, which is an identifier."
+    },
+    {
+      "id": "F8",
+      "severity": "minor",
+      "claim": "The legacy-line design works, provided the legacy text is added only to the drop filter and never to _GITIGNORE_BLOCK.",
+      "evidence": "render_gitignore_block drops loose lines by exact match on stripped in _GITIGNORE_MANAGED_LINES, which is derived from _GITIGNORE_BLOCK. tracked_runtime_diagnostics builds its --exclude patterns from _GITIGNORE_BLOCK while skipping lines that start with '#'. test_render_platform_surfaces.test_seed_050_canonical_block_matches_the_renderer_constant requires seed 050's fenced block to equal _GITIGNORE_BLOCK verbatim. test_bytecode_cache (around lines 1516 and 1537) reads _GITIGNORE_BLOCK. No other reader of the comment text exists. There is no precedent: the 2ebce84e rename of the 'runtime caches' comment added no legacy line.",
+      "recommended_plan_repair": "Specify a separate _GITIGNORE_LEGACY_LINES frozenset that is joined with _GITIGNORE_MANAGED_LINES only in the drop check. AC-3's two fixtures (an old fenced block, and a loose old comment outside it) are then falsifiable: on the current code the fenced case already yields the old comment, and a renamed-without-legacy build leaves the loose old comment in place."
+    },
+    {
+      "id": "F9",
+      "severity": "minor",
+      "claim": "The rules-only pin is sound, but the 'no brand token' claim needs one qualification.",
+      "evidence": "The parsed `rules` (280 [[rules]] plus 8 [[rules.required]]) contain no 'wavefoundry', '.wavefoundry' or 'waveforge'. The generic-api-key filter's stopword list does contain the bare words 'wave', 'work' and 'foundry'. _legacy_ruleset returns (rules, policy, []), but every caller discards policy (rules, _p, _e). test_betterleaks_engine.test_shipped_profile_preserves_local_policy_and_declared_filter_correction compares policy and allowlist paths/regexes/stopwords with scan-rules.toml, which covers the risk-table claim. The top-level `filter`, `prefilter` and `title` of baseline.toml are compared by nothing, but the oracle does not consume them.",
+      "recommended_plan_repair": "State that the pin covers every field of every rule (a canonical json.dumps(sort_keys=True, ensure_ascii=False) of data['rules']), not only regexes. Note that a vocabulary sweep must not rewrite the generic-api-key stopword 'wave'. AC-4's known-bad control should mutate a regex and, separately, a filter or keyword."
+    },
+    {
+      "id": "F10",
+      "severity": "minor",
+      "claim": "The plan's sweep scope covers the uncommitted 2026-11-07 diff, but the working tree also holds unrelated vision copy that is not part of this change.",
+      "evidence": "git diff: README.md (+18) and docs/index.md / docs/references/wavefoundry-overview.md (vision and autonomous-laboratory copy), and VERSION / prompt-surface-manifest framework_revision bumps. None of these is a wording-sweep edit.",
+      "recommended_plan_repair": "Name the sweep's files explicitly in Scope, and mark README.md, docs/index.md and the overview's vision copy as outside 22r98, so delivery review does not attribute them to this change."
+    },
+    {
+      "id": "F11",
+      "severity": "minor",
+      "claim": "One get_data edge case: a sourceless or compiled-only zip would hash bytecode, not source.",
+      "evidence": "In a compileall-only archive, gardener_metadata.__file__ ends in .pyc, so __loader__.get_data returns bytecode and normalizer_signature() differs from a source install. review_policy line ~122 compares normalizer_sha256 across contexts, and wave_work.py:369 consumes it.",
+      "recommended_plan_repair": "Document that the zip must carry .py sources, or derive the path with __spec__.origin. No code change is needed if Waveforge ships sources."
+    }
+  ],
+  "strongest_challenge": "Requirement 2's intent is that Windows recovery commands paste correctly whatever the path contains, but the plan fixes only one of the two PowerShell formatters. sqlite_storage_migration._quote_argument renders the operator-run upgrade restart command (restart_command, resume_guidance) and quotes the repository root in accounting_gap_guidance with the same ASCII-only doubling. A user folder containing a right single quote would still get a broken upgrade recovery command after this change ships.",
+  "strongest_alternative": "For item 5, a better design than a merge-helper plus kwargs hook in server_tools_support: a test-only, fork-editable module tests/container_fixture_profile.py exposing one callable container_fixture_args(tool_name, root) -> dict (default {}). create_container and close_container read it at call time, raise on any key collision with explicit kwargs, and an AST census forbids direct served-tool fixture calls in the two files. The distribution's only edit is that one small file, which upstream never touches again.",
+  "verified_claims": [
+    "Under zipimport the current code raises NotADirectoryError on `import review_policy` (and lifecycle_gate_support, review_evidence); checked by experiment in the scratchpad",
+    "hashlib.sha256(gardener_metadata.__loader__.get_data(gardener_metadata.__file__)) equals the current Path(...).read_bytes() digest under SourceFileLoader and under zipimporter (identical hex 3537c761...)",
+    "With that one-line fix, review_policy, lifecycle_gate_support, review_evidence, upgrade_wavefoundry, upgrade_protocol, upgrade_extensions and setup_readiness import from a zip; no other import-time read in review_policy's transitive closure (gardener_metadata, record_paths, vocabulary_profile, contained_files, path_containment, change_doc_checklist)",
+    "AC-1's test is feasible: build a zip of scripts/*.py in a temp dir and import it in a subprocess with python -B and PYTHONPYCACHEPREFIX unset; -B satisfies the test_bytecode_cache -c census (test_minus_b_or_a_leading_flag_satisfies_the_c_census), and zipimport writes no __pycache__",
+    "Doubling each of U+0027, U+2018, U+2019, U+201A, U+201B inside a PowerShell single-quoted string is correct escaping: the tokenizer treats any of the five as a quote and any quote followed by another quote as one literal character; str.translate with a five-entry map is sufficient, and the POSIX branch (shlex.join) is untouched",
+    "render_gitignore_block rewrites the fenced region and drops loose lines only by exact match against _GITIGNORE_MANAGED_LINES, so the legacy-line design removes stale loose copies without duplication",
+    "seed 050's fenced gitignore block must equal _GITIGNORE_BLOCK verbatim (test_seed_050_canonical_block_matches_the_renderer_constant); both must change together",
+    "baseline.toml's parsed rules contain no wavefoundry, .wavefoundry or waveforge token; the .wavefoundry runtime paths and brand comments are in the header comments and the [allowlist] section",
+    "_legacy_ruleset returns policy, but every frozen prefix-collapse test discards it; the oracle consumes only rules",
+    "test_betterleaks_engine compares policy and allowlist paths/regexes/stopwords with the shipped scan-rules.toml, which is what makes the rules-only pin safe",
+    "test_compact_review_artifacts already pins 'the lifecycle-reported disposable work area' (line 146); no shipped template or seed still contains 'disposable wave work' apart from seed 050's gitignore comment",
+    "Fixture-call census: 4 wf_create_wave and 13 wf_close_wave calls in test_wave_work_lifecycle.py; 1 wf_create_wave and 0 wf_close_wave in ReceiptSnapshotPublicIntegrationTests"
+  ]
+}

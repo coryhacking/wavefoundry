@@ -57,7 +57,7 @@ _CACHE_FILE = _FRAMEWORK_DIR / "test-cache.json"
 _LOCK_FILE = _FRAMEWORK_DIR / "test-run.lock"
 # Wave 1z8ox (1z8ov): the repository the standing repository-state guard
 # snapshots, the edit-gate file it always includes, and the only paths it
-# excludes (the receipt and lock this runner writes itself, and disposable wave work).
+# excludes (the receipt and lock this runner writes itself, and the disposable work area).
 _REPO_ROOT = _FRAMEWORK_DIR.parent.parent
 _GUARD_OVERRIDES_REL = ".wavefoundry/guard-overrides.json"
 _REPO_GUARD_EXCLUDE = frozenset({

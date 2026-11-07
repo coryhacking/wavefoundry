@@ -1,0 +1,101 @@
+{
+  "lane": "qa-reviewer",
+  "verdict": "approved",
+  "findings": [
+    {
+      "id": "22r99-qa-del-posix-asserts-unguarded-on-windows",
+      "severity": "medium",
+      "claim": "test_sqlite_storage_migration.test_powershell_quoting_doubles_all_five_single_quotes asserts POSIX shlex output for _quote_argument on its last two lines (632-633) without patching migration.os, so the AC-2 test fails on native Windows.",
+      "evidence": "With migration.os patched to name='nt', _quote_argument('O’Brien') -> \"'O’’Brien'\" and _quote_argument(\"it's\") -> \"'it''s'\"; the test expects the POSIX forms. Passes on macOS only because the host is POSIX.",
+      "recommended_fix": "Wrap the two POSIX assertions in patch.object(migration, 'os', SimpleNamespace(name='posix')) (or compare against shlex.quote under that patch).",
+      "status": "repaired and reverified in cycle 2 (context 22r99-del-qa-2)"
+    },
+    {
+      "id": "22r99-qa-del-zip-signature-content-unpinned",
+      "severity": "low",
+      "claim": "test_review_policy_zip_import checks only zip-vs-tree signature equality, not that the signature hashes gardener_metadata's source as Requirement 1 names; no other test reads normalizer_signature().",
+      "evidence": "Mutant M13 (review_policy hashes its own source via __loader__.get_data(__file__)) survives test_review_policy_zip_import and test_review_policy.",
+      "recommended_fix": "Assert from_tree['signature'] == hashlib.sha256((SCRIPTS / 'gardener_metadata.py').read_bytes()).hexdigest().",
+      "status": "repaired and reverified in cycle 2 (context 22r99-del-qa-2)"
+    }
+  ],
+  "mutants": [
+    {
+      "mutation": "M1 review_policy reverted to Path(gardener_metadata.__file__).read_bytes()",
+      "killed": true
+    },
+    {
+      "mutation": "M2 powershell_quote doubles only ASCII ' (setup_commands tests)",
+      "killed": true
+    },
+    {
+      "mutation": "M2b same, sqlite_storage_migration five-quote test",
+      "killed": true
+    },
+    {
+      "mutation": "M2c U+201B dropped from the quote set",
+      "killed": true
+    },
+    {
+      "mutation": "M2d format_command bypasses the shared helper",
+      "killed": true
+    },
+    {
+      "mutation": "M3 _quote_argument looks up a wrong attribute name (always falls back to ASCII)",
+      "killed": true
+    },
+    {
+      "mutation": "M4 renderer loose-line drop ignores _GITIGNORE_LEGACY_LINES",
+      "killed": true
+    },
+    {
+      "mutation": "M5 old comment restored in _GITIGNORE_BLOCK",
+      "killed": true
+    },
+    {
+      "mutation": "M6 container helper drops profile arguments",
+      "killed": true
+    },
+    {
+      "mutation": "M7 container helper collision check disabled",
+      "killed": true
+    },
+    {
+      "mutation": "M8 one wf_close_wave call in test_wave_work_lifecycle reverted to a direct call",
+      "killed": true
+    },
+    {
+      "mutation": "M8b snapshot create reverted to call(name='wf_create_wave', ...)",
+      "killed": true
+    },
+    {
+      "mutation": "M9 baseline.toml rule entropy 3 -> 3.01",
+      "killed": true
+    },
+    {
+      "mutation": "M10 pin digest covers only regex fields",
+      "killed": true
+    },
+    {
+      "mutation": "M11 close-wave template heading -> '## Disposable work area'",
+      "killed": true
+    },
+    {
+      "mutation": "M12 seed 209 cross-reference -> 'seed 180, **Disposable work**'",
+      "killed": true
+    },
+    {
+      "mutation": "M13 normalizer signature hashes review_policy's own source (survived before the cycle-2 repair; killed after)",
+      "killed": true
+    },
+    {
+      "mutation": "M14 mcp-tool-surface.md heading -> 'Disposable Work Area'",
+      "killed": true
+    },
+    {
+      "mutation": "Windows simulation (os.name='nt') on the repaired AC-2 sqlite test; the pre-repair form fails as a control",
+      "killed": true
+    }
+  ],
+  "notes": "All probes ran in a git-archive-HEAD scratch tree overlaid with the working-tree changes, with python3 -B and PYTHONPYCACHEPREFIX unset; no __pycache__ under .wavefoundry/framework/. AC-1 zip test is genuine: it asserts __file__ of both modules lies inside the archive and that the old read raises NotADirectoryError from the zip. AC-3 census file list is a fixed tuple and a missing file is reported as a problem, so it cannot shrink silently; @default_profile_only skips only the repository-document census under a renamed profile, while the census-rejection self-test always runs. AC-4 pin hashes data['rules'], the same table _legacy_ruleset returns; policy is returned but unused by callers. AC-5 guard scopes are fixed, the class lookup raises if missing, and helper counts are exact (17 and 1). Minor non-blocking notes: the guard does not detect a tool name passed through a variable (by design per AC-5), and the helper count is a combined 17 rather than 4 create + 13 close. Cycle 2: both findings were repaired in tests only and reverified from context 22r99-del-qa-2; delivery approval recorded."
+}

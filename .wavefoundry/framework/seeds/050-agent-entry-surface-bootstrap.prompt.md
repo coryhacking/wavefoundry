@@ -342,7 +342,7 @@ Preserve the personal-override carve-out (the framework tree can be tracked, but
 # Wavefoundry runtime caches, including the Python bytecode cache (per-machine; never commit)
 .wavefoundry/cache/
 
-# Wavefoundry disposable wave work (local review aids and scratch — never commit)
+# Wavefoundry disposable work (local review aids and scratch — never commit)
 .wavefoundry/work/
 
 # Wavefoundry upgrade recovery assets (generated locally — never commit)

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-06
+Last verified: 2026-11-07
 
 ## Verification Commands
 
@@ -541,7 +541,7 @@ python3 -B .wavefoundry/framework/scripts/run_tests.py
 
 A stray `__pycache__` under `.wavefoundry/framework/` is a defect to report, not routine cleanup. `run_tests.py` still removes any it finds under the framework directory before and after each run.
 
-## Disposable wave work
+## Disposable work
 
 Use the lifecycle-reported `.wavefoundry/work/<wave-id>/` (resolved unique prefix, without a `waves/` subdirectory) for shared temporary files. Include its path and availability notice in coordinator briefs. Optional `receipts/`, `reviews/`, `tests/` and `scratch/` directories are created only when needed. Successful mutating Create/Prepare/Implement/Reopen calls establish ownership lazily; read-only calls and dry-runs create nothing. Existing host permissions apply. Unavailable work adds no lifecycle gate, and unrelated pre-existing directories are never adopted silently.
 

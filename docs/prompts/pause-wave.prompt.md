@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-26
+Last verified: 2026-11-07
 
 Shortcut: **`Pause wave`**
 
@@ -60,6 +60,6 @@ At next session start, read `docs/agents/session-handoff.md` and the wave record
 
 Alongside parking working state in the handoff, consider proposing agent memory candidates for durable lessons discovered mid-wave (`memory_add(status='candidate', ...)`) — a paused wave may resume in a different session, and typed, evidence-backed records survive where prose context does not. Optional and judgment-based; the close-time distillation checkpoint decides every candidate. Never store secrets, raw transcripts, or personal facts (docs-lint enforces this).
 
-## Disposable wave work
+## Disposable work
 
-Use the lifecycle-reported `.wavefoundry/work/<wave-id>/`, keyed by the resolved unique prefix, for shared temporary work; include the path and availability notices in coordinator briefs. Follow seed 180’s **Disposable wave work** and seed 209’s **Review Artifact Discipline**. Reads and dry-runs create nothing; unavailable work is advisory and existing host permissions apply. Pause retains this work; record its path in the handoff. Reopening uses a fresh owned generation after closure.
+Use the lifecycle-reported `.wavefoundry/work/<wave-id>/`, keyed by the resolved unique prefix, for shared temporary work; include the path and availability notices in coordinator briefs. Follow seed 180’s **Disposable work** and seed 209’s **Review Artifact Discipline**. Reads and dry-runs create nothing; unavailable work is advisory and existing host permissions apply. Pause retains this work; record its path in the handoff. Reopening uses a fresh owned generation after closure.

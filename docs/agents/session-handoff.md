@@ -10,7 +10,7 @@ No wave is OPEN. **22r97 waveforge-pre-tag-follow-ups closed on 2026-11-07** by 
 
 ### Next
 
-1. Rename the remaining "Disposable wave work" section headings in shipped prompts and seeds to a generic term (operator request 2026-11-07). Keep the `.gitignore` block header: its comment line is a managed line.
+1. Wave **22r99 waveforge-merge-rehearsal-follow-ups** (change 22r98) CLOSED 2026-11-07 by operator approval: zip-safe `review_policy` import, five-quote PowerShell quoting in both quoters, container-neutral work-area wording (headings "Disposable work", managed `.gitignore` comment "disposable work" with a legacy line), a rules-table baseline pin, and `tests/container_fixture_profile.py` with 18 fixture calls converted. Default suite 12,590 / 231 / 12 skips green; council-delivery `establishes`. Follow-up candidates: convert `RetainedUpgradePreviewTests` direct calls; other import-time source readers remain zip-incompatible.
 2. Release readiness for **1.40.0** (operator-chosen): version stamp, changelog heading, packaging and checksums. Waveforge said to go ahead with the tag; confirm with the operator before tagging and publishing.
 3. Planned follow-ups, unstarted: `22qr7-debt` (now five items, including two test-bytecode hygiene items) and `22r95-enh`. Two `maybe_later` readiness findings in 22r97 remain open in the ledger; the tool offers no action to close them.
 4. Optional: an operator-approved `fs_usage` trace for the 22qoy exhaustiveness gap.

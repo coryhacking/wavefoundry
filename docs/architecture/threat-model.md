@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-06
+Last verified: 2026-11-07
 
 ## Trust Boundaries
 
@@ -20,7 +20,7 @@ The source qualification worker shim loads `test_worker_guard.py` directly from 
 
 Review events may record the current local OS process account as separately labeled attribution. Native account lookup ignores username environment overrides; missing or unsafe results remain a nonblocking advisory. Only the bounded account name and a fixed source label are stored, without hostname, home path or email. Shared accounts and agent delegation mean this is not authentication of the human reviewer, owner-separation enforcement or evidence of reviewer independence. Replay retains the original attribution; historical records need no backfill and metadata does not rotate approval identity. POSIX behavior is locally exercised; native Windows execution remains unqualified.
 
-## Disposable wave work
+## Disposable work
 
 The owned `.wavefoundry/work/<wave-id>/` area is disposable filesystem state, not a sandbox, execution grant or review authority. Its key comes from the resolved unique lifecycle prefix, and ownership binds the configured repository, wave and generation. Existing unrelated directories are not silently adopted. Creation and cleanup reject traversal, links/reparse points, identity substitution and ownership mismatch. The persisted directory identity tolerates device renumbering only with a well-formed record and matching nonzero inode at the owned path; within-operation device and inode checks stay strict. Cleanup checks parent and directory identity at the destructive boundary and is coordinated with lifecycle publication so an older close cannot remove a reopened generation. It never follows links to delete their targets. Unsupported safe-I/O paths preserve files with an explicit notice; native Windows deletion is not qualified.
 

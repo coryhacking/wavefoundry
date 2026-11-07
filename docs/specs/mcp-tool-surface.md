@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-06
+Last verified: 2026-11-07
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -1584,7 +1584,7 @@ once envelope migration is complete.
 
 - **`confidence_basis` (wave `1wscp`):** names WHY the reported `confidence` has the value it does, so a caller can tell a strong answer from a merely long candidate list. One of five values: `semantic_lead` (the confidence follows the LEAD citation's reranked score), `exact_owner` (an exact owner row answered the question directly), `no_citations` (nothing was retrieved), `unranked_similarity` (the cross-encoder did not run, so ordering is vector or coverage based), and `lexical_fallback` (the semantic store was not servable and BM25 answered). The basis reads the LEAD citation, never the maximum over the set: a high-scoring citation buried at rank 7 does not raise confidence in the answer the response actually leads with.
 
-### Disposable wave work
+### Disposable work
 
 Current-wave entries expose `data.waves[].work_area`; Create/Prepare/Implement/Review/Reopen responses expose `data.work_area`. The object contains a repository-relative `path` (`.wavefoundry/work/<resolved-wave-prefix>/`) and Boolean `available`, with `generation` and `notice` when present. The prefix comes from the uniquely resolved lifecycle record, not arbitrary caller text or its descriptive slug. Read-only calls and dry-runs inspect without creating. Successful mutating Create/Prepare/Implement/Reopen calls establish owned work lazily. An absent/unwritable area is advisory and grants no approval or execution authority.
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-26
+Last verified: 2026-11-07
 
 Shortcut: **`Implement change`**
 
@@ -28,9 +28,9 @@ Before the first implementation edit of each change, record a concise `Readback:
 
 Correct an agent-only misreading directly from the established requirement. Route an actual contract contradiction or missing consequential decision back to planning under existing escalation rules, pausing only dependent work. A readback correction is not automatically Level 3 and adds no second approval. Refresh only materially changed understanding after scope changes or handoff; do not repeat an unchanged readback or create another artifact.
 
-## Disposable wave work
+## Disposable work
 
-Use the lifecycle-reported `.wavefoundry/work/<wave-id>/` and include it in coordinator briefs. Follow seed 180’s **Disposable wave work** lifetime and seed 209’s preservation duties; new durable approvals must not depend solely on scratch paths.
+Use the lifecycle-reported `.wavefoundry/work/<wave-id>/` and include it in coordinator briefs. Follow seed 180’s **Disposable work** lifetime and seed 209’s preservation duties; new durable approvals must not depend solely on scratch paths.
 
 ## Steps
 

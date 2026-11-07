@@ -40,15 +40,30 @@ FROZEN = FIXTURES / "secrets_prefix_collapse_baseline.json"
 LEGACY_RULES = FIXTURES / "betterleaks" / "baseline.toml"
 
 
+# Wave 22r99 (change 22r98): the pin covers the parsed ``rules`` table, every field
+# of every rule, rather than the file's bytes. The table carries no brand or
+# runtime-path token, so a renamed distribution can rewrite the fixture's
+# allowlist entries and comments; the frozen oracle consumes only the rules. The
+# allowlist and policy stay guarded by test_betterleaks_engine's comparison with
+# the shipped rules.
+LEGACY_RULES_SHA256 = "efa742f09dac3a1beaa0b91f8a9ae5fe0249280c2506dc62fb3369f0a535b750"
+
+
+def _rules_digest(rules) -> str:
+    canonical = json.dumps(rules, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _parse_pinned_rules(text: str):
+    data = tomllib.loads(text)
+    if _rules_digest(data["rules"]) != LEGACY_RULES_SHA256:
+        raise AssertionError("historical ruleset fixture changed")
+    return data
+
+
 def _legacy_ruleset():
     """The 280-rule input paired with the frozen prefix-collapse evidence."""
-    raw = LEGACY_RULES.read_bytes()
-    # The original d81f3cef fixture now has provenance comments and equivalent
-    # singleton-character classes in 16 example allowlist patterns. Detection
-    # regexes and the frozen differential oracle are unchanged; pin adapted bytes.
-    if hashlib.sha256(raw).hexdigest() != "67af61358caa2f274e3c17529f126cd7a5a058e48981f3fd8660453b986dd1f2":
-        raise AssertionError("historical ruleset fixture changed")
-    data = tomllib.loads(raw.decode("utf-8"))
+    data = _parse_pinned_rules(LEGACY_RULES.read_text(encoding="utf-8"))
     return data["rules"], data.get("policy", {}), []
 
 NESTED = "[\\w.-]{0,50}?(?i:[\\w.-]{0,50}?"
@@ -617,6 +632,51 @@ keywords = ["test_upgrade"]
             suite = unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])
             self.assertFalse(any(type(test).__name__ == "CheckoutAudit" for group in suite for test in group))
 
+
+
+class LegacyRulesPinTests(unittest.TestCase):
+    """The pin survives a rebrand of the fixture and catches any rule change."""
+
+    def setUp(self):
+        self.text = LEGACY_RULES.read_text(encoding="utf-8")
+        self.rules = tomllib.loads(self.text)["rules"]
+
+    def test_rewritten_runtime_paths_and_brand_comments_keep_the_pin(self):
+        renamed = self.text.replace(".wavefoundry/", ".forgeroot/").replace("wavefoundry", "renamedtool")
+        self.assertNotEqual(renamed, self.text)
+        self.assertNotIn(".wavefoundry/", renamed)
+        _parse_pinned_rules(renamed)
+
+    def _assert_pin_fails(self, rules):
+        self.assertNotEqual(_rules_digest(rules), LEGACY_RULES_SHA256)
+
+    def _first(self, field):
+        return next(i for i, rule in enumerate(self.rules) if field in rule)
+
+    def test_any_rule_change_fails_the_pin(self):
+        import copy
+        self.assertEqual(_rules_digest(self.rules), LEGACY_RULES_SHA256)
+        cases = {
+            "regex": lambda r: r[self._first("regex")].__setitem__("regex", r[self._first("regex")]["regex"] + "x"),
+            "filter": lambda r: r[self._first("filter")].__setitem__("filter", str(r[self._first("filter")]["filter"]) + " "),
+            "keywords": lambda r: r[self._first("keywords")]["keywords"].append("extra"),
+            "required": lambda r: r[self._first("required")].__setitem__("required", []),
+            "validate": lambda r: r[self._first("validate")].__setitem__("validate", "changed"),
+            "added": lambda r: r.append({"id": "added-rule", "regex": "x"}),
+            "removed": lambda r: r.pop(),
+        }
+        for name, mutate in cases.items():
+            with self.subTest(change=name):
+                rules = copy.deepcopy(self.rules)
+                mutate(rules)
+                self._assert_pin_fails(rules)
+
+    def test_a_regex_edit_in_the_fixture_text_fails_the_parse(self):
+        rule = self.rules[0]
+        mutated = self.text.replace(rule["regex"], rule["regex"] + "x", 1)
+        self.assertNotEqual(mutated, self.text)
+        with self.assertRaisesRegex(AssertionError, "historical ruleset fixture changed"):
+            _parse_pinned_rules(mutated)
 
 if __name__ == "__main__":
     raise SystemExit(_main())

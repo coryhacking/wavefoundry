@@ -1,0 +1,32 @@
+{
+  "seat": "council-chair",
+  "phase": "delivery",
+  "wave_id": "22r99",
+  "change_ids": ["22r98-bug"],
+  "moderator": "council-chair",
+  "seats": ["red-team", "docs-contract-reviewer"],
+  "lanes": {
+    "code-reviewer": "approve, no findings; delivery approval current (delivery/code.json)",
+    "qa-reviewer": "approved; 2 findings (posix-asserts-unguarded-on-windows medium, zip-signature-content-unpinned low) repaired in cycle 2 and reverified, terminal; mutants M1-M6+ killed (delivery/qa.json)",
+    "docs-contract-reviewer": "approve, no findings; one non-blocking note: session-handoff Next item 1 still describes the superseded sweep (delivery/docs-contract.json)"
+  },
+  "ledger": "wf_review_wave(22r99): code, qa, docs-contract delivery approvals current, no unresolved blocking findings; council-delivery and operator-signoff pending",
+  "chair_spot_checks": {
+    "item1_zip_import": "review_policy._NORMALIZER_SIGNATURE hashes gardener_metadata.__loader__.get_data(__file__); new test_review_policy_zip_import imports review_policy and lifecycle_gate_support from a sources zip and pins the signature to gardener_metadata.py's SHA-256. Delivered.",
+    "item2_powershell_quoting": "setup_commands.powershell_quote doubles U+0027, U+2018, U+2019, U+201A, U+201B via str.translate; format_command and sqlite_storage_migration._quote_argument both use it (latter at call time with ASCII getattr fallback); POSIX branches untouched. Delivered.",
+    "item3_work_area_wording": "Templates and seed 180 carry '## Disposable work' / '### Disposable work' and 'seed 180’s **Disposable work**'; no 'disposable wave work' or 'Disposable work area' remains in shipped surfaces except the single _GITIGNORE_LEGACY_LINES entry; _GITIGNORE_BLOCK, seed 050 and the tracked .gitignore carry the new comment; render drops loose legacy copies. Delivered.",
+    "item4_baseline_pin": "_legacy_ruleset pins SHA-256 of canonical JSON over the parsed rules table; that table contains no 'wavefoundry' token (checked), so a rebrand of allowlist paths and comments keeps the pin; LegacyRulesPinTests cover rebrand-keeps and per-field changes failing. Delivered.",
+    "item5_container_fixture_profile": "tests/container_fixture_profile.py returns {} by default; server_tools_support.create_container/close_container resolve it at call time and raise on collision; test_wave_work_lifecycle.py has 4 create_container + 13 close_container calls and no direct 'wf_create_wave'/'wf_close_wave' literals; ReceiptSnapshotPublicIntegrationTests' one create converted. 18/18. Delivered."
+  },
+  "objective_unchanged_claim": "Holds for tool signatures: no wf_server/server.py/server_impl.py file is modified and the helpers are test-only. Behavior is unchanged apart from the two intended, Objective-named changes: PowerShell recovery commands now double the four typographic quotes, and the rendered .gitignore comment text changes (with a one-time rewrite of the previous comment). review_policy's signature value is byte-identical on filesystem imports.",
+  "intent_fit": "establishes",
+  "intent_fit_rationale": "All five Waveforge items are delivered in code with known-bad controls recorded (HEAD scratch copy) and lane mutants killed; the Objective's zipped lifecycle/upgrade import, renamed-vocabulary survival and Windows quoting clauses each map to delivered code; the zip scope was explicitly narrowed at readiness so indexer/server/dashboard zip loading is not a gap.",
+  "known_limits": [
+    "Verification ran on macOS only (full suite 12,590 tests / 231 files / 12 skips, coordinator); alternate vocabulary/fixture profiles were not rerun in this wave.",
+    "PowerShell quoting is asserted on the formatted string only; no command was executed in PowerShell.",
+    "RetainedUpgradePreviewTests keeps its direct wf_create_wave/wf_close_wave calls by readiness decision; a distribution with stricter served signatures still needs local handling there.",
+    "Other import-time source readers (index_compatibility, server, server_impl, eval scripts) remain zip-incompatible, out of scope by design."
+  ],
+  "advisory": "docs/agents/session-handoff.md Next item 1 is stale (docs lane note); refresh at pause/close.",
+  "intent_outcome_line": "Intent outcome: establishes. All five Waveforge merge-rehearsal items are delivered (zipped lifecycle/upgrade import, five-quote PowerShell quoting in both quoters, container-neutral work-area wording with legacy .gitignore line, rules-table baseline pin, fixture profile with 18/18 calls converted); tool signatures unchanged; limits: macOS-only verification, PowerShell checked as strings only, RetainedUpgradePreviewTests left direct."
+}

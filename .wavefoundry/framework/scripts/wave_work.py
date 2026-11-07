@@ -1,4 +1,4 @@
-"""Disposable wave work, with identity-bound ownership and advisory failures.
+"""The disposable work area, with identity-bound ownership and advisory failures.
 
 Callers serialize ``ensure_work`` and ``cleanup_work`` with the existing
 lifecycle/publication transaction. Reads never create files. Cleanup requires

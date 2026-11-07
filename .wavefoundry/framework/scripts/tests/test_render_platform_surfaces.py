@@ -3031,6 +3031,49 @@ class RenderGitignoreBlockTests(unittest.TestCase):
         self.assertIn(".wavefoundry/**/*.lock", text,
                       "the lock-file wildcard must be retained alongside the directory rule")
 
+    # Wave 22r99 (change 22r98): the work-area comment names no container tier.
+    _NEW_WORK_COMMENT = "# Wavefoundry disposable work (local review aids and scratch — never commit)"
+    _OLD_WORK_COMMENT = "# Wavefoundry disposable wave work (local review aids and scratch — never commit)"
+
+    def _render_lines(self, existing: str) -> list[str]:
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            (root / ".gitignore").write_text(existing, encoding="utf-8")
+            self.mod.render_gitignore_block(root)
+            once = (root / ".gitignore").read_text(encoding="utf-8")
+            self.mod.render_gitignore_block(root)
+            self.assertEqual((root / ".gitignore").read_text(encoding="utf-8"), once)
+        return [line.strip() for line in once.splitlines()]
+
+    def test_previous_managed_block_is_rewritten_with_one_new_work_comment(self):
+        old_block = [self.mod._GITIGNORE_BEGIN,
+                     *[self._OLD_WORK_COMMENT if line == self._NEW_WORK_COMMENT else line
+                       for line in self.mod._GITIGNORE_BLOCK],
+                     self.mod._GITIGNORE_END]
+        self.assertIn(self._OLD_WORK_COMMENT, old_block)
+        lines = self._render_lines("node_modules/\n\n" + "\n".join(old_block) + "\n")
+        self.assertEqual(lines.count(self._NEW_WORK_COMMENT), 1)
+        self.assertNotIn(self._OLD_WORK_COMMENT, lines)
+        self.assertIn("node_modules/", lines)
+
+    def test_loose_previous_work_comment_is_dropped(self):
+        lines = self._render_lines("node_modules/\n" + self._OLD_WORK_COMMENT + "\n.wavefoundry/work/\n")
+        self.assertEqual(lines.count(self._NEW_WORK_COMMENT), 1)
+        self.assertNotIn(self._OLD_WORK_COMMENT, lines)
+        self.assertEqual(lines.count(".wavefoundry/work/"), 1)
+
+    def test_legacy_comment_stays_out_of_the_managed_block_and_this_repository_carries_the_new_one(self):
+        self.assertIn(self._NEW_WORK_COMMENT, self.mod._GITIGNORE_BLOCK)
+        self.assertNotIn(self._OLD_WORK_COMMENT, self.mod._GITIGNORE_BLOCK)
+        self.assertEqual(self.mod._GITIGNORE_LEGACY_LINES, frozenset({self._OLD_WORK_COMMENT}))
+        self.assertFalse(self.mod._GITIGNORE_LEGACY_LINES & self.mod._GITIGNORE_MANAGED_LINES)
+        tracked = TESTS_ROOT.parents[3] / ".gitignore"
+        if not tracked.is_file():
+            self.skipTest("no repository .gitignore beside this framework")
+        repo_lines = [line.strip() for line in tracked.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(repo_lines.count(self._NEW_WORK_COMMENT), 1)
+        self.assertNotIn(self._OLD_WORK_COMMENT, repo_lines)
+
     def test_main_wires_gitignore_render(self):
         # AC-5: render_platform_surfaces.main() calls render_gitignore_block (runs on every
         # render / setup / upgrade) so the block is enforced and self-heals.

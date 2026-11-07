@@ -1,0 +1,28 @@
+{
+  "seat": "council-chair",
+  "wave_id": "22r99",
+  "change_ids": ["22r98-bug"],
+  "primer_depth": "standard",
+  "seats_run": [
+    {"seat": "red-team", "role": "fixed", "evidence": "primer.json", "outcome": "repair_needed: 6 important (F1-F6), 5 minor (F7-F11); all repaired before any approval (Decision Log row 2)"},
+    {"seat": "docs-contract-reviewer", "role": "rotating", "evidence": "docs-contract.json", "outcome": "findings DC-1, DC-2 recorded in the ledger, repaired (cycle 1) and terminal; readiness approval current"}
+  ],
+  "required_lanes": {
+    "code-reviewer": "CR-1 terminal; readiness approval current (code.json)",
+    "qa-reviewer": "QA-1, QA-2 terminal; readiness approval current (qa.json)",
+    "docs-contract-reviewer": "DC-1, DC-2 terminal; readiness approval current"
+  },
+  "primer_spot_check": {
+    "F1": "reflected: Req 2 and AC-2 cover sqlite_storage_migration._quote_argument via one shared helper; file in Serialization Points (verified _quote_argument at :816 feeds restart_command and accounting_gap_guidance)",
+    "F2": "reflected: Req 5 names tests/container_fixture_profile.py, fork-editable; extension-module alternative removed",
+    "F3": "reflected: callable container_fixture_args(tool_name, root) -> dict, default {}, collision raises",
+    "F4": "reflected: all 18 calls enumerated (verified 4 create + 13 close in test_wave_work_lifecycle.py), AST guard with known-bad counts 17 and 1",
+    "F5": "reflected: changelog task revises the 22r97 gitignore bullet",
+    "F6": "reflected: Product Intent and Objective narrowed to the lifecycle and upgrade import path; index_compatibility, server.py, server_impl.py and eval scripts named as out-of-scope blockers; AC-1 imports both review_policy and lifecycle_gate_support"
+  },
+  "strongest_challenge": "Red-team F1: the plan originally fixed only one of two PowerShell quoters, so upgrade restart/resume commands and the accounting-gap root would still break on a path with a typographic quote; repaired by a shared five-quote helper used by both.",
+  "strongest_alternative": "Red-team: a test-only fork-editable tests/container_fixture_profile.py callable read at call time, with collision checks and an AST census, instead of a kwargs hook in server_tools_support or the extension module; adopted.",
+  "intent_fit": "establishes",
+  "intent_fit_rationale": "Each Objective clause maps to a required or important AC with a known-bad control: zipped lifecycle/upgrade import (AC-1), Windows quoting in both quoters (AC-2), wording divergence and gitignore migration (AC-3), rename-robust baseline pin (AC-4), container fixture profile (AC-5). 'Behavior and signatures unchanged' is held by out-of-scope bounds, default-empty profile and AC-6 regression. The intent was narrowed (F6) so it no longer overclaims zipped indexer/server loading.",
+  "residual_notes": "PowerShell behavior is asserted on formatted strings on macOS only, not executed in PowerShell (stated in Platform Behavior). RetainedUpgradePreviewTests direct calls remain a declared follow-up."
+}

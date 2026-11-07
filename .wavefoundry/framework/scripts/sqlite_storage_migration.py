@@ -814,7 +814,14 @@ _RESUME_FLAGS = frozenset({"--resume-after-gate", "--resume-after-memory", "--up
 
 
 def _quote_argument(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'" if os.name == "nt" else shlex.quote(value)
+    if os.name != "nt":
+        return shlex.quote(value)
+    # Resolved at call time (wave 22r99): an MCP reload purges ``setup_commands``
+    # but not this module, and an upgrade runner may hold an older copy without
+    # the shared helper.
+    import setup_commands
+    quote = getattr(setup_commands, "powershell_quote", None)
+    return quote(value) if quote is not None else "'" + value.replace("'", "''") + "'"
 
 
 def _checkpoint_resume_flag(checkpoint: dict) -> str | None:

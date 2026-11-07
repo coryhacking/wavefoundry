@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-06
+Last verified: 2026-11-07
 
 ## Tensorwell qualification
 
@@ -405,6 +405,15 @@ four pieces, all test infrastructure in
   the member-doc containment test uses a literal review config, and the
   council key test derives the earlier spellings from `review_evidence`.
   These tests are the pattern for new ones.
+- **Container fixture profile (wave 22r99).** `tests/container_fixture_profile.py`
+  is fork-editable like `vocabulary_profile.py`: its
+  `container_fixture_args(tool_name, root)` returns the extra arguments a
+  distribution's served `wf_create_wave` or `wf_close_wave` needs, and `{}` by
+  default. Upstream changes nothing beyond the defaults. `create_container` and
+  `close_container` in `tests/server_tools_support.py` read it at each call,
+  merge its arguments into the served call and raise when a key collides with
+  one the test passes. A guard test keeps `test_wave_work_lifecycle.py` and
+  `ReceiptSnapshotPublicIntegrationTests` free of direct container calls.
 
 **Declared-alias run (change 1zim4).** A distribution also edits the tool
 declarations in `mcp_tool_extensions.py`, so a profile asset may name that
