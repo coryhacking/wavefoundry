@@ -8,6 +8,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.40.0] - 2026-11-08
+
 ### Fixed
 
 - Complete selected-root setup advice in index health and lower-level diagnostics, retaining argv and the named shell dialect. A Git change prompts a readiness check, not automatic setup; ordinary product edits do not by themselves require setup. Wave 22qky / change 22q2u.
