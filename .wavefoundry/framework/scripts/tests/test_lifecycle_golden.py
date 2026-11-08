@@ -564,9 +564,26 @@ class LifecycleGoldenTests(unittest.TestCase):
             for route in ("close:create", "close:dry_run")
         }
         completion_additions = set()
+        # Wave 22u26 (22r95): the guided schema names promotion_trigger for finding evidence.
+        trigger_paths = {
+            f"$.fixtures.{name}.review:implementation.data.review_actions.caller_input_schema.evidence.finding"
+            for name in ("active_typed_approvals", "missing_lane", "planned_with_verdict")
+        }
+        trigger_additions = set()
         def strip(old, new, path="$"):
             if isinstance(old, dict) and isinstance(new, dict):
                 for key in set(new) - set(old):
+                    if key == "conditional_fields":
+                        self.assertIn(path, trigger_paths)
+                        self.assertEqual(new[key], {"promotion_trigger": {
+                            "kind": "non-empty string",
+                            "required_when": {"rejection_basis": [
+                                "disproportionate_repair", "insufficient_evidence", "unsupported_reachability"]},
+                            "refused_otherwise": True,
+                            "meaning": "what evidence would reopen an accepted finding",
+                        }}, path)
+                        trigger_additions.add(path)
+                        continue
                     if key == "scanner_completion":
                         self.assertIn(path, completion_paths)
                         self.assertEqual(new[key], {
@@ -589,6 +606,7 @@ class LifecycleGoldenTests(unittest.TestCase):
         self.assertEqual(strip(before, after), before)
         self.assertTrue(additions)
         self.assertEqual(completion_additions, completion_paths)
+        self.assertEqual(trigger_additions, trigger_paths)
 
     def test_capture_ignores_ambient_clock_and_prior_id_allocation(self):
         ids = self.srv._lifecycle_module()

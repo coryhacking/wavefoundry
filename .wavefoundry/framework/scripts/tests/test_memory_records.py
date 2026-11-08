@@ -2771,7 +2771,7 @@ class RealChildProcessCoherenceTests(_MemoryCase):
             "print(json.dumps(st))\n"
         )
         out = subprocess.run(
-            [sys.executable, "-c", code], capture_output=True, text=True, timeout=60,
+            [sys.executable, "-B", "-c", code], capture_output=True, text=True, timeout=60,
         )
         self.assertEqual(out.returncode, 0, out.stderr)
         return json.loads(out.stdout.strip())["dirty"]

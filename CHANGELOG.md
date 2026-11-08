@@ -8,6 +8,20 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- `wf setup` now bootstraps uv 0.13.5 (was 0.12.22) when neither the tool environment nor `PATH` has a uv, verified against its 18 published wheel hashes. Every uv before 0.13.4 trusts a compromised root CA in its vendored certificate bundle (GHSA-hq85-5cpj-mr62), which setup's dependency installs rely on when no CA variable is set; 0.13.5 also rejects chains through the compromised intermediates. The pin is an exception to the 21-day package-age window. An existing uv, including one an earlier setup installed into the tool environment, is still used as-is and keeps the advisory until it is removed. uv 0.13 changes its cache format, so the first install after the change may download again, and extracts source archives more strictly. Wave 22u26 / change 22u27.
+
+### Fixed
+
+- Suggest scanner allowlist entries that end in `\z` instead of `$`, so an entry excludes exactly its own path; `$` also matched the same path followed by a newline. The Python path matcher now retries a path pattern it cannot compile through the same RE2 translation rule patterns use, so an RE2-only path entry, such as one ending in `\z` on Python before 3.14, is honoured instead of silently skipped, matching the upstream matcher. Existing `$` entries are unchanged. The close and `wf_scan_secrets` diagnostics now count every file stopped on a fixed scanner limit, not at most 50. Wave 22u26 / change 22qr7.
+- Import `index_compatibility` from a zipped framework: it reads the index producers' sources through its module loader, so the indexer's compatibility capture works from a zip as it does on disk. The filesystem capture and staleness check are unchanged. Wave 22u26 / change 22u24.
+
+### Changed
+
+- The `wf_review_event` description, its guided input schema and the tool-surface spec now say where `promotion_trigger` goes (`evidence`) and that it is required for the `insufficient_evidence`, `unsupported_reachability` and `disproportionate_repair` rejection bases and refused for any other. Seed 209 no longer calls it optional for `categorical`, which the validator has always refused. Ledger behaviour is unchanged. Wave 22u26 / change 22r95.
+- The upgrade-preview tests' `wf_close_wave` calls go through the container fixture profile helper, so a distribution's required close arguments reach them too. Wave 22u26 / change 22sfu.
+
 ## [1.40.0] - 2026-11-08
 
 ### Fixed

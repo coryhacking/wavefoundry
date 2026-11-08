@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -26,8 +27,20 @@ INDEX_COMPATIBILITY_CODES = frozenset({
 _ACTIVE_WRITERS = ContextVar("index_compatibility_writers", default=frozenset())
 _SOURCE_NAMES = ("indexer", "chunker", "graph_indexer", "graph_store",
                  "sqlite_vector_store", "index_state_store", "model_bundle", "marker_namespaces", "operational_evidence")
-_SOURCE_ROOT = Path(__file__).resolve().parent
-_SOURCE_BYTES = {name: (_SOURCE_ROOT / (name + ".py")).read_bytes() for name in _SOURCE_NAMES}
+# Wave 22u26 (22u24): producer bytes are read through this module's own loader, so the capture also
+# works from a zipped framework. On a filesystem install the directory stays resolved, as before.
+# Inside an archive it is ``__file__``'s own directory as a plain string, never resolved and never
+# a ``Path``: resolving can leave the archive's prefix (a symlinked temporary directory), and
+# ``Path`` drops a leading ``./`` that ``zipimporter.get_data`` needs to recognise the archive.
+_LOADER = __loader__
+_SOURCE_ROOT = Path(__file__).resolve().parent if os.path.isfile(__file__) else os.path.dirname(__file__)
+
+
+def _read_source(name):
+    return _LOADER.get_data(os.path.join(os.fspath(_SOURCE_ROOT), name + ".py"))
+
+
+_SOURCE_BYTES = {name: _read_source(name) for name in _SOURCE_NAMES}
 _SOURCE_HASHES = {name: hashlib.sha256(value).hexdigest() for name, value in _SOURCE_BYTES.items()}
 
 
@@ -47,8 +60,8 @@ def ensure_runtime_current():
     """Verify installed producer bytes against this runtime's immutable capture."""
     for name, expected in _SOURCE_HASHES.items():
         try:
-            actual = hashlib.sha256((_SOURCE_ROOT / (name + ".py")).read_bytes()).hexdigest()
-        except OSError:
+            actual = hashlib.sha256(_read_source(name)).hexdigest()
+        except (OSError, ImportError):  # ImportError covers zipimport.ZipImportError (damaged archive)
             actual = None
         if actual != expected:
             raise IndexCompatibilityError("index_runtime_stale", name, actual, expected)

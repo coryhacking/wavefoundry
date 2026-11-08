@@ -20,7 +20,7 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parents[1]
 if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-from framework_files import framework_source_files  # noqa: E402
+from framework_files import framework_source_files, source_path  # noqa: E402
 
 # argv[1] is the import root (a zip or the scripts directory). Paths travel through
 # argv, never through the program text.
@@ -75,6 +75,112 @@ class ZippedFrameworkImportTests(unittest.TestCase):
         # Known-bad control: the previous filesystem read cannot work from the zip.
         self.assertEqual(from_zip["old_form"], "NotADirectoryError")
         self.assertEqual(from_tree["old_form"], "ok")
+
+
+# Wave 22u26 (22u24): index_compatibility captures nine producer sources at import. argv[1] is the
+# sys.path entry, exactly as given (it may be relative to the probe's working directory).
+_INDEX_PROBE = """\
+import json, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import index_compatibility, operational_evidence
+index_compatibility.ensure_runtime_current()
+old_form = "ok"
+try:
+    (Path(index_compatibility.__file__).resolve().parent / "indexer.py").read_bytes()
+except OSError as exc:
+    old_form = type(exc).__name__
+print(json.dumps({
+    "index_compatibility": index_compatibility.__file__,
+    "operational_evidence": operational_evidence.__file__,
+    "hashes": index_compatibility._SOURCE_HASHES,
+    "supported": index_compatibility.SUPPORTED,
+    "old_form": old_form,
+}))
+"""
+
+
+def _index_probe(import_entry: str, cwd: Path) -> dict:
+    env = dict(os.environ)
+    env.pop("PYTHONPYCACHEPREFIX", None)
+    done = subprocess.run(
+        [sys.executable, "-B", "-c", _INDEX_PROBE, import_entry],
+        capture_output=True, text=True, env=env, timeout=60, cwd=str(cwd),
+    )
+    if done.returncode != 0:
+        raise AssertionError(f"index probe failed ({done.returncode}):\n{done.stderr}")
+    return json.loads(done.stdout.strip().splitlines()[-1])
+
+
+def _write_sources_zip(archive: Path) -> None:
+    with zipfile.ZipFile(archive, "w") as zipped:
+        for source in framework_source_files(include_aliases=True):
+            zipped.write(source, source.relative_to(SCRIPTS).as_posix())
+
+
+class ZippedIndexCompatibilityImportTests(unittest.TestCase):
+    def test_index_compatibility_captures_the_same_sources_from_a_zip(self):
+        from_tree = _index_probe(str(SCRIPTS), SCRIPTS.parent)
+        self.assertEqual(from_tree["old_form"], "ok")
+        with tempfile.TemporaryDirectory() as tmp:
+            real = Path(tmp) / "real"
+            real.mkdir()
+            archive = real / "framework-scripts.zip"
+            _write_sources_zip(archive)
+            cases = [("absolute", str(archive), Path(tmp)), ("relative", "./framework-scripts.zip", real)]
+            link = Path(tmp) / "link"
+            try:
+                link.symlink_to(real, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                link = None  # Windows without symlink privilege: the other two cases still run
+            if link is not None:
+                cases.append(("symlinked", str(link / "framework-scripts.zip"), Path(tmp)))
+            for label, entry, cwd in cases:
+                with self.subTest(case=label):
+                    from_zip = _index_probe(entry, cwd)
+                    # Both modules came from inside the archive, as the entry spells it.
+                    for module in ("index_compatibility", "operational_evidence"):
+                        self.assertTrue(from_zip[module].startswith(entry + os.sep)
+                                        or from_zip[module].startswith(entry + "/"), from_zip)
+                    self.assertEqual(from_zip["hashes"], from_tree["hashes"])
+                    self.assertEqual(from_zip["supported"], from_tree["supported"])
+                    # Known-bad control: the previous filesystem read cannot work from the zip.
+                    self.assertEqual(from_zip["old_form"], "NotADirectoryError")
+        self.assertEqual(sorted(from_tree["hashes"]), sorted(
+            ("indexer", "chunker", "graph_indexer", "graph_store", "sqlite_vector_store",
+             "index_state_store", "model_bundle", "marker_namespaces", "operational_evidence")))
+
+
+class FilesystemSourceCaptureTests(unittest.TestCase):
+    """Non-regression guard: the filesystem capture and staleness check are unchanged."""
+
+    def setUp(self):
+        if str(SCRIPTS) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS))
+        import index_compatibility
+        self.ic = index_compatibility
+
+    def test_each_captured_hash_is_the_producer_file_hash(self):
+        for name, digest in self.ic._SOURCE_HASHES.items():
+            with self.subTest(producer=name):
+                self.assertEqual(digest, hashlib.sha256(source_path(name).read_bytes()).hexdigest())
+
+    def test_a_changed_or_missing_producer_is_reported_stale(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            copies = Path(tmp)
+            for name in self.ic._SOURCE_NAMES:
+                (copies / f"{name}.py").write_bytes(source_path(name).read_bytes())
+            with mock.patch.object(self.ic, "_SOURCE_ROOT", copies):
+                self.ic.ensure_runtime_current()
+                (copies / "chunker.py").write_bytes(source_path("chunker").read_bytes() + b"\n# changed\n")
+                with self.assertRaises(self.ic.IndexCompatibilityError) as changed:
+                    self.ic.ensure_runtime_current()
+                self.assertEqual((changed.exception.code, changed.exception.component), ("index_runtime_stale", "chunker"))
+                (copies / "chunker.py").unlink()
+                with self.assertRaises(self.ic.IndexCompatibilityError) as missing:
+                    self.ic.ensure_runtime_current()
+                self.assertEqual((missing.exception.code, missing.exception.persisted), ("index_runtime_stale", None))
 
 
 if __name__ == "__main__":

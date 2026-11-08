@@ -221,9 +221,10 @@ class RemedyProjectionTests(unittest.TestCase):
             with self.subTest(rel=rel):
                 entry = scanner_skips.allowlist_entry(rel)
                 pattern = tomllib.loads(f"paths=[{entry}]\n")["paths"][0]
-                self.assertEqual(pattern, "^" + re.escape(rel) + "$")
+                self.assertEqual(pattern, "^" + re.escape(rel) + "\\z")  # wave 22u26 (22qr7)
                 compiled = engine.compile_regex(pattern)
                 self.assertTrue(compiled.search(rel))
+                self.assertFalse(compiled.search(rel + "\n"))
                 self.assertFalse(compiled.search(rel + ".bak"))
                 self.assertFalse(compiled.search("x/" + rel))
 

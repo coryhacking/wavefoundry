@@ -445,6 +445,11 @@ BENEFIT_VS_FIX_RISKS = frozenset({"greater", "equal", "less", "unverified"})
 REJECTION_BASES = frozenset(
     {"none", "categorical", "insufficient_evidence", "unsupported_reachability", "disproportionate_repair"}
 )
+# The rejection bases that require a ``promotion_trigger``; every other basis refuses one. The
+# trigger travels in a review event's ``evidence`` (wave 22u26, change 22r95).
+PROMOTION_TRIGGER_REJECTION_BASES = frozenset(
+    {"insufficient_evidence", "unsupported_reachability", "disproportionate_repair"}
+)
 DISPOSITIONS = frozenset({"do_now", "maybe_later", "dont_do_later", "not_issue"})
 DECISION_AUTHORITIES = frozenset({"moderator", "required_specialist", "operator"})
 REVIEW_DEPTHS = frozenset({"none", "focused", "full"})
@@ -699,6 +704,17 @@ def review_action_input_schema() -> dict[str, Any]:
             "finding": {
                 "required_fields": list(REVIEW_FINDING_REQUIRED_EVIDENCE_FIELDS),
                 "field_kind": "non-empty string",
+                # Wave 22u26 (22r95): required by judgment.rejection_basis, refused otherwise.
+                "conditional_fields": {
+                    "promotion_trigger": {
+                        "kind": "non-empty string",
+                        "required_when": {
+                            "rejection_basis": sorted(PROMOTION_TRIGGER_REJECTION_BASES),
+                        },
+                        "refused_otherwise": True,
+                        "meaning": "what evidence would reopen an accepted finding",
+                    },
+                },
             },
             "approval": {
                 "required_fields": list(REVIEW_APPROVAL_REQUIRED_EVIDENCE_FIELDS),
@@ -3932,7 +3948,7 @@ def build_compact_review_event(
     elif validation_status in {"invalid", "conforming"}:
         provisional["rejection_basis"] = "none"
     promotion_trigger = event.get("promotion_trigger")
-    if provisional.get("rejection_basis") in {"insufficient_evidence", "unsupported_reachability", "disproportionate_repair"} and not _nonempty_string(promotion_trigger):
+    if provisional.get("rejection_basis") in PROMOTION_TRIGGER_REJECTION_BASES and not _nonempty_string(promotion_trigger):
         return (), ("selected rejection_basis requires promotion_trigger",)
 
     source_lanes = list(event["source_lanes"])
@@ -4718,7 +4734,7 @@ def _validate_synthesis_shape(record: Mapping[str, Any], index: int, *, closure:
         errors.append(f"{label}: {disposition} requires rejection_basis `none`")
     if disposition == "dont_do_later" and rejection_basis == "none":
         errors.append(f"{label}: dont_do_later requires a non-none rejection_basis")
-    if rejection_basis in {"insufficient_evidence", "unsupported_reachability", "disproportionate_repair"}:
+    if rejection_basis in PROMOTION_TRIGGER_REJECTION_BASES:
         if not _nonempty_string(record.get("promotion_trigger")):
             errors.append(f"{label}: rejection basis `{rejection_basis}` requires promotion_trigger")
     elif "promotion_trigger" in record:

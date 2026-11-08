@@ -544,6 +544,20 @@
                   ]
                 },
                 "finding": {
+                  "conditional_fields": {
+                    "promotion_trigger": {
+                      "kind": "non-empty string",
+                      "meaning": "what evidence would reopen an accepted finding",
+                      "refused_otherwise": true,
+                      "required_when": {
+                        "rejection_basis": [
+                          "disproportionate_repair",
+                          "insufficient_evidence",
+                          "unsupported_reachability"
+                        ]
+                      }
+                    }
+                  },
                   "field_kind": "non-empty string",
                   "required_fields": [
                     "proposition",
@@ -1479,6 +1493,20 @@
                   ]
                 },
                 "finding": {
+                  "conditional_fields": {
+                    "promotion_trigger": {
+                      "kind": "non-empty string",
+                      "meaning": "what evidence would reopen an accepted finding",
+                      "refused_otherwise": true,
+                      "required_when": {
+                        "rejection_basis": [
+                          "disproportionate_repair",
+                          "insufficient_evidence",
+                          "unsupported_reachability"
+                        ]
+                      }
+                    }
+                  },
                   "field_kind": "non-empty string",
                   "required_fields": [
                     "proposition",
@@ -2382,6 +2410,20 @@
                   ]
                 },
                 "finding": {
+                  "conditional_fields": {
+                    "promotion_trigger": {
+                      "kind": "non-empty string",
+                      "meaning": "what evidence would reopen an accepted finding",
+                      "refused_otherwise": true,
+                      "required_when": {
+                        "rejection_basis": [
+                          "disproportionate_repair",
+                          "insufficient_evidence",
+                          "unsupported_reachability"
+                        ]
+                      }
+                    }
+                  },
                   "field_kind": "non-empty string",
                   "required_fields": [
                     "proposition",

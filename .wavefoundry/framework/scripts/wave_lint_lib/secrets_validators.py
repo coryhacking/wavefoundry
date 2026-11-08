@@ -728,7 +728,13 @@ def get_scan_files(root: Path, scan_all: bool = False) -> list[Path]:
 def _path_matches_allowlist(rel_path: str, allowlist_paths: list[str]) -> bool:
     for pattern in allowlist_paths:
         try:
-            if re.search(pattern, rel_path):
+            try:
+                compiled = re.compile(pattern)
+            except re.error:
+                # An RE2-only form, such as the ``\\z`` end anchor before Python 3.14, goes through
+                # the same translation rule patterns use (wave 22u26, change 22qr7).
+                compiled = re.compile(_re2_to_re(pattern))
+            if compiled.search(rel_path):
                 return True
         except re.error:
             pass

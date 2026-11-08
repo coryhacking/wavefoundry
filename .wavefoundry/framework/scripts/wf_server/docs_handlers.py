@@ -351,7 +351,7 @@ def wf_scan_secrets_response(root: Path, mode: str = "incremental") -> dict[str,
         s = entry.get("status", "unknown")
         by_status[s] = by_status.get(s, 0) + 1
 
-    from scanner_skips import incomplete_guidance, scanner_completion
+    from scanner_skips import incomplete_guidance, scanner_completion, scanner_skip_notice
     completion = scanner_completion(root, failures)
     # The current process may have failed to persist its observations. Its
     # explicit incomplete result must survive even if the ledger looks empty.
@@ -383,7 +383,9 @@ def wf_scan_secrets_response(root: Path, mode: str = "incremental") -> dict[str,
             )
         ] if completion["complete"] and failures else ([
             _diagnostic("scan_incomplete", "The scan did not establish complete coverage of eligible content; " + incomplete_guidance(
-                completion.get("incomplete", []), "inspect incomplete paths or coverage_error and retry."),
+                # Every outstanding row, not the display-truncated list (wave 22u26, 22qr7).
+                scanner_skip_notice(root).get("scanner_skips", []),
+                "inspect incomplete paths or coverage_error and retry."),
                         recovery_tools=["wf_scan_secrets"], recovery_usage="wf_scan_secrets(mode='full')")
         ] if not completion["complete"] else []),
         next_tools=["wf_audit"] if all_ok else ["wf_scan_secrets"],

@@ -7118,7 +7118,7 @@ class EpochOrderingAndFaultTests(_EpochBuildCase):
             f"mod.begin_build_epoch(Path({str(self.index_dir)!r}), 'kill:test')\n"
             "os._exit(9)\n"
         )
-        proc = subprocess.run([sys.executable, "-c", script], capture_output=True)
+        proc = subprocess.run([sys.executable, "-B", "-c", script], capture_output=True)
         self.assertEqual(proc.returncode, 9)
         # Fresh reader view: interrupted build = building + fail-closed token.
         state = self.iss.read_build_state(self.index_dir)

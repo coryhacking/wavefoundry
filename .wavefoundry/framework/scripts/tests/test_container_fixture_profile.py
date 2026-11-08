@@ -29,6 +29,7 @@ HELPERS = frozenset({"create_container", "close_container"})
 WAVE_WORK = TESTS / "test_wave_work_lifecycle.py"
 LIFECYCLE = TESTS / "test_server_tools_lifecycle.py"
 SNAPSHOT_CLASS = "ReceiptSnapshotPublicIntegrationTests"
+PREVIEW_CLASS = "RetainedUpgradePreviewTests"
 
 
 def _string(node) -> str | None:
@@ -137,7 +138,7 @@ class ContainerFixtureHelperTests(unittest.TestCase):
 
 
 class ConvertedFixtureCallGuardTests(unittest.TestCase):
-    SCOPES = ((WAVE_WORK, None, 17), (LIFECYCLE, SNAPSHOT_CLASS, 1))
+    SCOPES = ((WAVE_WORK, None, 17), (LIFECYCLE, SNAPSHOT_CLASS, 1), (LIFECYCLE, PREVIEW_CLASS, 3))
 
     def test_converted_scopes_make_no_direct_container_call(self):
         for path, class_name, _expected in self.SCOPES:
@@ -163,6 +164,56 @@ class ConvertedFixtureCallGuardTests(unittest.TestCase):
         self.assertEqual(direct_container_calls(source), [3, 4, 5])
         self.assertEqual(direct_container_calls(source, "Sample"), [3, 4, 5])
         self.assertEqual(helper_calls(source), 1)
+
+
+class RetainedUpgradePreviewProfileTests(unittest.TestCase):
+    """The upgrade-preview close sites carry the profile's arguments (wave 22u26, change 22sfu)."""
+
+    SITES = (
+        "test_registered_actual_lint_previews_are_read_only_for_default_and_positional_modes",
+        "test_mutations_unknown_corrupt_and_stale_code_remain_refused",
+        "test_close_reports_new_unpublished_secrets_in_same_lint_pass",
+    )
+
+    def test_each_close_site_passes_profile_arguments_and_keeps_positional_modes(self):
+        import test_server_tools_lifecycle as lifecycle
+
+        preview = lifecycle.RetainedUpgradePreviewTests
+        original = preview.positional_call
+        calls = []
+
+        def spy(test, name, **kwargs):
+            # The served tool would refuse the profile's `extra`; record it, then call through.
+            extra = kwargs.pop("extra", None)
+            tool = test.mcp._tool_manager._tools[name]
+            served = tool.fn
+
+            def recorder(*args, **keywords):
+                calls.append((name, args, keywords, extra))
+                return served(*args, **keywords)
+
+            tool.fn = recorder
+            try:
+                return original(test, name, **kwargs)
+            finally:
+                tool.fn = served
+
+        def profile(tool_name, root):
+            return {"extra": 1} if tool_name == "wf_close_wave" else {}
+
+        suite = unittest.TestSuite(preview(name) for name in self.SITES)
+        with patch.object(container_fixture_profile, "container_fixture_args", profile), \
+                patch.object(preview, "positional_call", spy):
+            outcome = unittest.TestResult()
+            suite.run(outcome)
+        self.assertEqual((outcome.failures, outcome.errors), ([], []))
+        wave_id = "00057 preview"
+        self.assertEqual(calls, [
+            ("wf_close_wave", (wave_id, "dry_run"), {}, 1),
+            ("wf_close_wave", (wave_id, "apply"), {}, 1),
+            ("wf_close_wave", (wave_id, "evaluate"), {}, 1),
+            ("wf_close_wave", (wave_id,), {}, 1),
+        ])
 
 
 if __name__ == "__main__":

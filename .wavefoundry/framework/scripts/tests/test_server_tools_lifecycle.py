@@ -3720,6 +3720,12 @@ class RetainedUpgradePreviewTests(unittest.TestCase):
     def snapshot(self):
         return {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
 
+    def positional_call(self, name, **kwargs):
+        # The container fixture helper passes keywords; these tests cover the served tools'
+        # positional form, so wave id and mode go back to positions (wave 22u26, change 22sfu).
+        args = (kwargs.pop("wave_id"),) + ((kwargs.pop("mode"),) if "mode" in kwargs else ())
+        return self.mcp._tool_manager._tools[name].fn(*args, **kwargs)
+
     def test_registered_actual_lint_previews_are_read_only_for_default_and_positional_modes(self):
         before = self.snapshot()
         with contextlib.ExitStack() as stack:
@@ -3727,9 +3733,13 @@ class RetainedUpgradePreviewTests(unittest.TestCase):
                          "_trigger_background_index_refresh_for_paths"):
                 stack.enter_context(patch.object(self.srv, name, side_effect=AssertionError(name)))
             for name, args in (("wf_prepare_wave", (self.wave_id,)), ("wf_prepare_wave", (self.wave_id, "evaluate")),
-                               ("wf_close_wave", (self.wave_id, "dry_run"))):
+                               ("close", (self.wave_id, "dry_run"))):
                 with self.subTest(name=name, args=args):
-                    result = self.mcp._tool_manager._tools[name].fn(*args)
+                    if name == "close":
+                        result = server_tools_support.close_container(
+                            self.positional_call, self.root, self.wave_id, mode="dry_run")
+                    else:
+                        result = self.mcp._tool_manager._tools[name].fn(*args)
                     self.assertTrue(result["data"].get("read_only_preview"), result)
                     self.assertFalse(result["data"]["publication_applied"])
                     self.assertNotIn("upgrade_in_progress", [d.get("code") for d in result.get("diagnostics", [])])
@@ -3739,9 +3749,13 @@ class RetainedUpgradePreviewTests(unittest.TestCase):
     def test_mutations_unknown_corrupt_and_stale_code_remain_refused(self):
         before = self.snapshot()
         for name, mode in (("wf_prepare_wave", "create"), ("wf_prepare_wave", "ready"),
-                           ("wf_close_wave", "apply"), ("wf_close_wave", "evaluate"),
+                           ("close", "apply"), ("close", "evaluate"),
                            ("wf_prepare_wave", "unknown"), ("wf_pause_wave", "dry_run")):
-            result = self.mcp._tool_manager._tools[name].fn(self.wave_id, mode)
+            if name == "close":
+                result = server_tools_support.close_container(
+                    self.positional_call, self.root, self.wave_id, mode=mode)
+            else:
+                result = self.mcp._tool_manager._tools[name].fn(self.wave_id, mode)
             self.assertTrue(result["data"].get("upgrade_in_progress"), result)
         with patch.object(self.handler, "_setup_loaded_identity", {}):
             result = self.mcp._tool_manager._tools["wf_prepare_wave"].fn(self.wave_id)
@@ -3814,7 +3828,7 @@ class RetainedUpgradePreviewTests(unittest.TestCase):
         (self.root / "sample.py").write_text('token = "' + 'FAKEKEY-' + 'A' * 12 + '"\n')
         before = self.snapshot()
         with patch.object(self.srv, "run_validate", wraps=self.srv.run_validate) as lint:
-            result = self.mcp._tool_manager._tools["wf_close_wave"].fn(self.wave_id)
+            result = server_tools_support.close_container(self.positional_call, self.root, self.wave_id)
         self.assertTrue(result["data"].get("read_only_preview"), result)
         self.assertEqual(lint.call_count, 1)
         self.assertTrue(lint.call_args.kwargs["read_only"])

@@ -14498,7 +14498,8 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
         diagnostics.append(_diagnostic(
             "secret_scan_incomplete",
             "Eligible content has outstanding incomplete scans or unavailable coverage evidence. "
-            + incomplete_guidance(coverage.get("incomplete", []),
+            # Every outstanding row, not the display-truncated coverage list (wave 22u26, 22qr7).
+            + incomplete_guidance(scanner_skip_notice(root).get("scanner_skips", []),
                                   "Resolve the reported scan failures and rerun scanning before closing."),
             recovery_tools=["wf_scan_secrets"],
             recovery_usage="wf_scan_secrets(mode='full')",
@@ -24794,7 +24795,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         ``failure_condition``, ``public_path``, ``command_or_fixture``,
         ``expected``, ``observed``, ``artifact_or_test_id``,
         ``known_bad_detection_method``, ``limitations``,
-        ``safety_and_authorization``, ``disposition_rationale``). Lane lists
+        ``safety_and_authorization``, ``disposition_rationale``, and
+        ``promotion_trigger`` when it applies). ``promotion_trigger`` is
+        required when ``judgment.rejection_basis`` is
+        ``insufficient_evidence``, ``unsupported_reachability`` or
+        ``disproportionate_repair``, and refused for any other basis. A real
+        finding that needs no action and carries one of those bases records
+        as accepted (``dont_do_later``) with no repair pending; an
+        action-required finding refuses any basis but ``none``. Lane lists
         (``source_lanes``, ``blocking_required_lanes``,
         ``approval_recheck_lanes``) are top-level parameters. ``approval_recheck_lanes`` names only the approvals affected
         by that finding; unrelated lane approvals remain current. Approval events require the exact

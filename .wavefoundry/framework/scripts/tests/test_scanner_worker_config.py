@@ -28,6 +28,15 @@ if str(SCRIPTS) not in sys.path:
 from wave_lint_lib import betterleaks_worker as worker
 from wave_lint_lib import secrets_validators as scanner
 
+
+def setUpModule():
+    # Another test module in the same process may reload the scanner package (``load_server``),
+    # which would leave the objects imported above stale: patches would land on modules the scan
+    # no longer uses. Bind the current ones before these tests run (wave 22u26, change 22qr7).
+    global worker, scanner
+    from wave_lint_lib import betterleaks_worker as worker
+    from wave_lint_lib import secrets_validators as scanner
+
 RULES = ('wavefoundryProfile="betterleaks-v2-8f376ff9"\n[allowlist]\npaths=["^ignored/"]\n'
          '[[rules]]\nid="synthetic"\nregex="SYNTHETIC_TOKEN"\n')
 

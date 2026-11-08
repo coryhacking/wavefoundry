@@ -409,49 +409,52 @@ def _run_install_step(cmd, **kwargs):
 # The exact uv a bootstrap installs when neither the tool venv nor PATH has one (wave 1zicq). An
 # existing uv of any version is used as-is. Review and bump at release (package-wavefoundry checklist)
 # to a release public for at least the package-age window.
-UV_BOOTSTRAP_REQUIREMENT = "uv==0.12.22"
+# Wave 22u26 (22u27): 0.13.5 is an operator-approved security exception to that window. Every uv
+# before 0.13.4 trusts a compromised root CA in its vendored bundle (GHSA-hq85-5cpj-mr62); 0.13.5
+# also rejects chains through the compromised intermediates. Later bumps return to the window.
+UV_BOOTSTRAP_REQUIREMENT = "uv==0.13.5"
 
 # Every wheel PyPI publishes for UV_BOOTSTRAP_REQUIREMENT, as (filename, sha256) from
 # https://pypi.org/pypi/uv/<version>/json (wave 1zimd). pip installs only a wheel matching one of
 # these hashes; the filenames are for review. A version bump replaces the whole table in the same
 # commit (package-wavefoundry checklist step 3); the suite fails on a filename for another version.
 UV_BOOTSTRAP_WHEEL_SHA256 = (
-    ("uv-0.12.22-py3-none-linux_armv6l.whl",
-     "3e1e70abbeeb85ad6589e9b8c2cee2785782a26ec220705b60ac8d3d802deb83"),
-    ("uv-0.12.22-py3-none-macosx_10_12_x86_64.whl",
-     "0247b8795348fe16fec7d143b2e4d91a953e69644993a557bb5238b9f53b6a28"),
-    ("uv-0.12.22-py3-none-macosx_11_0_arm64.whl",
-     "72516e1edef5950b556bdaf3b382f537e4249e06362378daa811a6eefc165a14"),
-    ("uv-0.12.22-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.musllinux_1_1_aarch64.whl",
-     "972cb556d34372f4c19f5c8bba246c92c5a8bfda3f30b2a5b8e12fddd81ba441"),
-    ("uv-0.12.22-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.musllinux_1_1_armv7l.whl",
-     "0621be2adfedf7673e46a708b1c781b0e4c61e715e33b3196ad32afffcc5aef6"),
-    ("uv-0.12.22-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.whl",
-     "53992ea1a64344bc887e3aec8d016488b9f185d96d881ea8e4e2a8ab0a259a39"),
-    ("uv-0.12.22-py3-none-manylinux_2_17_i686.manylinux2014_i686.whl",
-     "82911ca7a8310181f382a8f614f00a45f0403561e2aa92aa135c1fa773b0fc44"),
-    ("uv-0.12.22-py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl",
-     "db53a974617ca520cfdbf95fbbcd9cf5ab95016d601c1ecf788295c01053b8d6"),
-    ("uv-0.12.22-py3-none-manylinux_2_17_s390x.manylinux2014_s390x.whl",
-     "6acf7c5e4c28075c074a104953d61f48fef05e0075d9eb4180e5e6430e4eacfa"),
-    ("uv-0.12.22-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
-     "680769ef701922dd93426b73476073411941f51ac46991a6e5c5a6efbf68a713"),
-    ("uv-0.12.22-py3-none-manylinux_2_28_aarch64.whl",
-     "04af20f84c122039c16a006b497ea25d4850543b3ac2bd879d96d36d9890bebc"),
-    ("uv-0.12.22-py3-none-manylinux_2_31_riscv64.musllinux_1_1_riscv64.whl",
-     "699c673c780037e19a623dd66d00c12853def679b5c8f383359012d582721870"),
-    ("uv-0.12.22-py3-none-manylinux_2_31_riscv64.whl",
-     "02774878a9c0ddc374ff1cdb7fc2dee5cd499307223c2d2f0a730274b5794546"),
-    ("uv-0.12.22-py3-none-musllinux_1_1_i686.whl",
-     "cbfc9dab909f0e7fec63ae13e4215abd53636a5424aabc988fd4974ea124a3ad"),
-    ("uv-0.12.22-py3-none-musllinux_1_1_x86_64.whl",
-     "31096da4ffd7d532909e046cf8acb606ad8e770019404b710a58310bec073119"),
-    ("uv-0.12.22-py3-none-win32.whl",
-     "992956578af9ec09d9c9d8967527dcf43e07b43dea8aecba74a20d37087feeb2"),
-    ("uv-0.12.22-py3-none-win_amd64.whl",
-     "1c45b1e544901b9eef14806ad964cd1aca49338748e3d8030e41c4aed8b17b00"),
-    ("uv-0.12.22-py3-none-win_arm64.whl",
-     "daff5ceafdee5cb268b6d4e991ea150fcad5dff72b97d3e5b84d78d04fcf8482"),
+    ("uv-0.13.5-py3-none-linux_armv6l.whl",
+     "8d092d07d2389909027c2ed4965ade1bd46bbcecceb26686ff40927684f8c457"),
+    ("uv-0.13.5-py3-none-macosx_10_12_x86_64.whl",
+     "337a14829bb499e114989df4f908f134ff37f1fb6c33497541cfb05b28080e39"),
+    ("uv-0.13.5-py3-none-macosx_11_0_arm64.whl",
+     "a42c85fa8156e1e5e2cecdbc77bb818ea1dcf5f78b8e2a8f84c7fe4f16f0702e"),
+    ("uv-0.13.5-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.musllinux_1_1_aarch64.whl",
+     "2386c2dc9b59fc1d39b1c500e4319d71d3268232eb3b38e29cd6775d6269e8d4"),
+    ("uv-0.13.5-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.musllinux_1_1_armv7l.whl",
+     "4f62680fe58c5a83fd539e38f1956c2b577b1f5939c9020aa4c7f0addda2f4ad"),
+    ("uv-0.13.5-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.whl",
+     "0e03f5717bdaaf5ab4e2df361d2395e36b515946f56ef4bed88801aeb9959fb0"),
+    ("uv-0.13.5-py3-none-manylinux_2_17_i686.manylinux2014_i686.whl",
+     "f867c5ec24c563afaae730a13e46cdf74a1a0b64c134286ff99762a96e2abf40"),
+    ("uv-0.13.5-py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl",
+     "d3fd5db55c20feb672ea457361aba29ab68b9ae69a14d98ad6c138b5f86dcca4"),
+    ("uv-0.13.5-py3-none-manylinux_2_17_s390x.manylinux2014_s390x.whl",
+     "e01481ae5212e45ee7c85fad5fc67f06b0ee0329a7c3c289dc529da884b03881"),
+    ("uv-0.13.5-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+     "fa8d26e08e34c29c0c4e820cf3181757086d547240b4f4d31ff1d8bd810ca946"),
+    ("uv-0.13.5-py3-none-manylinux_2_28_aarch64.whl",
+     "91e58e304b63b6c91bac5561459ab0c3ea24f17bc01ea9359d69fed72142978f"),
+    ("uv-0.13.5-py3-none-manylinux_2_31_riscv64.musllinux_1_1_riscv64.whl",
+     "309a74d3c488bfaa3ba7bff759da73193d8781729c0a01274f4940fd32bb5712"),
+    ("uv-0.13.5-py3-none-manylinux_2_31_riscv64.whl",
+     "469cca66de1b17c75b9b9de806a64cffb57cba5e42b1e30d0bba6fa72a146f58"),
+    ("uv-0.13.5-py3-none-musllinux_1_1_i686.whl",
+     "2386e8dbfe110ff2f8ec8bd344dd18bf39eb9eb54e1edeeb87c3b85c34229cd3"),
+    ("uv-0.13.5-py3-none-musllinux_1_1_x86_64.whl",
+     "d162669e3a7811c584b03690eaa11e796ad1d309aa8229d5dfe3cbcd68a90400"),
+    ("uv-0.13.5-py3-none-win32.whl",
+     "f4e55a6e2a1089fe74ed50fbdf2df0f6f336ee148ad232b05932db5deee8007e"),
+    ("uv-0.13.5-py3-none-win_amd64.whl",
+     "1fb29fc46ba12033e2ef95a95ac79d649e71bbb1358419bbbcbd19d86026ef2f"),
+    ("uv-0.13.5-py3-none-win_arm64.whl",
+     "0548460d46c8667488b1f089e936f29f0edfb1cc753f9152ffbd8bc84a46aa20"),
 )
 
 

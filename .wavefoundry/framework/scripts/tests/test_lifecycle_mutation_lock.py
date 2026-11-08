@@ -94,7 +94,7 @@ class MutationLockTests(unittest.TestCase):
             # fcntl record locks do not conflict intra-process, so the
             # contended path is exercised through a REAL second process.
             probe = subprocess.run(
-                [sys.executable, "-c", (
+                [sys.executable, "-B", "-c", (
                     "import sys, json; sys.path.insert(0, sys.argv[1]);\n"
                     "from types import SimpleNamespace\n"
                     "import importlib.util\n"

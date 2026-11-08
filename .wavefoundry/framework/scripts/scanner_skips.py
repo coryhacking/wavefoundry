@@ -45,10 +45,15 @@ def _toml_string(text: str) -> str:
 
 
 def allowlist_entry(rel: str) -> str:
-    """The TOML array element that excludes exactly *rel* and no other path."""
+    """The TOML array element that excludes exactly *rel* and no other path.
+
+    ``\\z`` is end of text in RE2, so it is exact on the upstream matcher; ``$`` would also
+    match before a trailing newline on Python's. Python 3.14 reads ``\\z`` natively and older
+    interpreters reach it through the matcher's RE2 translation (wave 22u26, change 22qr7).
+    """
     import re
 
-    return _toml_string("^" + re.escape(rel) + "$")
+    return _toml_string("^" + re.escape(rel) + "\\z")
 
 
 def _remedy(entry: str) -> str:
@@ -142,7 +147,7 @@ def fixed_limit_remedy(row: dict) -> str | None:
         return PATH_CHECK_TIMEOUT_GUIDANCE
     rel = row.get("file")
     if not isinstance(rel, str) or not rel:
-        entry = "an entry anchored to that one path ('^' + escaped path + '$')"
+        entry = "an entry anchored to that one path ('^' + escaped path + '\\z')"
     else:
         entry = allowlist_entry(rel)
     if upstream and detail == SCAN_TIMEOUT_DETAIL:

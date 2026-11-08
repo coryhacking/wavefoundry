@@ -25,7 +25,7 @@ from wave_lint_lib import betterleaks_worker as worker
 from wave_lint_lib import secrets_validators as scanner
 
 UPSTREAM_RULES = 'wavefoundryProfile="betterleaks-v2-8f376ff9"\n[[rules]]\nid="synthetic"\nregex="SYNTHETIC_TOKEN"\n'
-ENTRY = "'^data\\ dir/many\\-matches\\.txt$'"
+ENTRY = "'^data\\ dir/many\\-matches\\.txt\\z'"
 ADD = f"add {ENTRY} to the project [allowlist] paths in docs/scan-rules.toml."
 MATCH_REMEDY = (
     "Rescanning alone will not clear a fixed scanner work limit: the file produced more raw rule "

@@ -683,6 +683,11 @@ class TelemetrySummaryTests(unittest.TestCase):
             patch.object(run_tests, "_probe_index_build_lock", return_value=(False, None)),
             # Wave 1z8ox (1z8ov): never snapshot the live repository here.
             patch.object(run_tests, "repo_state_snapshot", return_value={}),
+            # Wave 22u26 (22qr7): census a scratch framework tree, never the live checkout, so
+            # stray bytecode elsewhere in the repository cannot flip these tests' exit codes.
+            patch.object(run_tests, "_framework_bytecode_failure",
+                         side_effect=lambda framework_dir=None, _census=run_tests._framework_bytecode_failure:
+                         _census(self.tmp / "framework")),
         ]
         for p in self._patchers:
             p.start()
@@ -773,6 +778,11 @@ class _MainScaffoldTests(unittest.TestCase):
             patch.object(run_tests, "_probe_index_build_lock", return_value=(False, None)),
             # Wave 1z8ox (1z8ov): never snapshot the live repository here.
             patch.object(run_tests, "repo_state_snapshot", return_value={}),
+            # Wave 22u26 (22qr7): census a scratch framework tree, never the live checkout, so
+            # stray bytecode elsewhere in the repository cannot flip these tests' exit codes.
+            patch.object(run_tests, "_framework_bytecode_failure",
+                         side_effect=lambda framework_dir=None, _census=run_tests._framework_bytecode_failure:
+                         _census(self.tmp / "framework")),
         ]
         for p in self._patchers:
             p.start()
