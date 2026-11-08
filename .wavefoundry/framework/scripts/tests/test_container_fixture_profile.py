@@ -22,6 +22,7 @@ if str(TESTS) not in sys.path:
 import container_fixture_profile
 import server_tools_support
 from server_tools_support import close_container, create_container
+from record_layout_support import default_profile_only
 
 CONTAINER_TOOLS = frozenset({"wf_create_wave", "wf_close_wave"})
 HELPERS = frozenset({"create_container", "close_container"})
@@ -83,12 +84,19 @@ class ContainerFixtureHelperTests(unittest.TestCase):
         self.calls.append((name, kwargs))
         return {"status": "ok"}
 
-    def test_default_profile_adds_nothing(self):
+    @default_profile_only("checks upstream's shipped profile, which a distribution fills in with its own arguments")
+    def test_shipped_profile_adds_nothing(self):
         root = Path("/fixture/root")
         self.assertEqual(container_fixture_profile.container_fixture_args("wf_create_wave", root), {})
         self.assertEqual(container_fixture_profile.container_fixture_args("wf_close_wave", root), {})
-        create_container(self.fake_call, root, "first", mode="create")
-        close_container(self.fake_call, root, "abcde first", mode="dry_run")
+
+    def test_an_empty_profile_passes_the_test_arguments_through_unchanged(self):
+        # Patch the shipped default in, so this holds on any tree, including a
+        # distribution whose profile supplies its own arguments (change 22rmf).
+        root = Path("/fixture/root")
+        with patch.object(container_fixture_profile, "container_fixture_args", lambda tool_name, root: {}):
+            create_container(self.fake_call, root, "first", mode="create")
+            close_container(self.fake_call, root, "abcde first", mode="dry_run")
         self.assertEqual(self.calls, [("wf_create_wave", {"slug": "first", "mode": "create"}),
                                       ("wf_close_wave", {"wave_id": "abcde first", "mode": "dry_run"})])
 
