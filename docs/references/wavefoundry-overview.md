@@ -1,8 +1,16 @@
-# Wavefoundry: The Agent Harness for Software Repositories
+# Wavefoundry: From Product Intent to Continuing Delivery
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-24
+Last verified: 2026-11-07
+
+## Vision and Roadmap
+
+Wavefoundry's purpose is to give one engineer or a small team greater capacity to create and care for significant software: building a new product, inheriting an unfamiliar system, improving or modernizing what runs today, or replacing what no longer serves its users. The long-term destination is an autonomous engineering laboratory that turns human intent into independently tested outcomes and preserves responsibility across changing contributors and tools. People retain control of purpose, consequential tradeoffs and authority.
+
+Today's product supplies the local foundation: code intelligence, planning, a reviewed delivery lifecycle, typed memory and cross-agent handoffs. Envision turns a product destination into useful horizons, and optional arcs connect a bounded outcome to several waves. Broader autonomous coordination and stewardship are future capabilities to demonstrate, not current product claims. The repository's [Vision and Roadmap](https://github.com/coryhacking/wavefoundry/blob/main/VISION.md) sets that direction.
+
+The planning relationship is **vision → horizon → arc → waves containing changes**. A horizon can contain several arcs; an arc can span several waves. Use an arc when the outcome benefits from continuity across waves. A small or unrelated change needs only its normal change plan and wave.
 
 ---
 
@@ -18,7 +26,7 @@ The typical failure modes are not dramatic. They are quiet:
 - A wave of changes ships with no record of what was decided, why a particular approach was chosen, or what risks were accepted.
 - An operator discovers weeks later that a guardrail was bypassed because the agent couldn't find the constraint, not because it chose to ignore it.
 
-These aren't model failures. They are *harness failures* — failures of the operating context in which the agent works.
+These failures can come from the operating context as well as the model. A useful harness preserves intent and state, makes verification visible and supports the next contributor.
 
 ---
 
@@ -49,14 +57,14 @@ Waves address this by making the lifecycle explicit:
 
 ```
 Plan change       → Author a change document with rationale, requirements, ACs, and scope
-Create wave        → Open a delivery unit and admit the change
+Create wave        → Create a delivery record and admit the change
 Prepare wave       → Run a readiness check; the gate must pass before any code is touched
-Implement wave     → Execute the admitted changes under coordinator oversight
+Implement wave     → Open a readied wave and execute its admitted changes
 Review wave        → Run required reviewer lanes; record structured verdicts with severity
 Close wave         → Seal with operator signoff; validate memory candidates; promote durable memory
 ```
 
-Each step has a gate. Gates are enforced by the server — not by agent instruction, not by convention, and not by hoping the agent remembers. `wf_close_wave` will not succeed without operator signoff. If the project declares `security-review` as a required lane, `wf_close_wave` will not succeed without a recorded `security-review` signoff. The agent cannot talk its way past these checks.
+Readiness, activation and closure have mechanical gates; workflow guidance directs the surrounding authoring and review work. `wf_close_wave` will not succeed without operator signoff. If the project declares `security-review` as a required lane, `wf_close_wave` will not succeed without a recorded `security-review` signoff. The agent cannot talk its way past these checks.
 
 ### The change document
 

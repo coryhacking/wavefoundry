@@ -6,7 +6,11 @@
 [![Python](https://img.shields.io/badge/python-%E2%89%A53.11-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-Your AI coding agent forgets what it did last session, skips review steps you told it to follow, and ships work that drifts from the plan. Wavefoundry is a local harness for all three. It runs on your machine. No required service, no account, no telemetry.
+**Wavefoundry helps one engineer or a small team build, take over, improve, modernize, replace and sustain significant software systems with AI agents.** It connects intent, project knowledge, delivery and continuing care in records your team owns and can carry between sessions and agent hosts.
+
+Our vision is an **autonomous engineering laboratory** that gives a small team the capacity of an exceptional engineering organization: independently tested outcomes, continuity across contributors and tools, and the knowledge needed to care for the result. People retain control of purpose, consequential tradeoffs and authority. This is the destination; today's product supplies the local harness, planning workflows, code intelligence, review evidence and handoffs that support it. See the [Vision and Roadmap](VISION.md).
+
+Wavefoundry runs locally. There is no required hosted service, account or telemetry.
 
 An installed, qualified local Tensorwell service can optionally share the pinned embedding
 and reranking models. MCP startup can start its existing configuration in the background;
@@ -15,15 +19,17 @@ and reranking models. MCP startup can start its existing configuration in the ba
 
 ## Who this is for
 
-- Teams or solo engineers **shipping production work with an AI coding agent**.
-- Codebases where review discipline, traceability, and "what was decided?" matter.
-- Teams **without much engineering process yet** but with code that's going to live for a while: Wavefoundry adds the structure you'd otherwise have to invent, and the MCP intelligence is useful from day one even before the lifecycle gates kick in.
+- Solo engineers and small teams building a new product or operating software that will live for years.
+- Teams inheriting unfamiliar systems, reducing technical debt, modernizing components or replacing an existing product.
+- Engineers coordinating work across sessions, contributors and AI hosts while preserving decisions and review evidence.
 
-Anything that's going to live for a while can benefit.
+Start with code intelligence or a bounded change. Add longer-horizon planning when the work needs it; a small fix does not need a new hierarchy.
 
 ---
 
 ## What you get
+
+**A path from vision to delivery.** `Envision project` establishes the product destination and an adaptable roadmap. Optional `Plan arc` records a bounded outcome that can span multiple waves. `Plan change` defines the individual changes, and waves carry those changes through implementation and review. Horizons describe progress toward the vision; arcs connect useful outcomes to the waves that advance them. These records support planning today; autonomous coordination of a program remains part of the roadmap.
 
 **A structured delivery lifecycle** — plan change(s) → prepare wave → implement → review → close. Two phases are enforced gates. `Prepare wave` refuses to advance an incomplete change doc. `Close wave` refuses without operator signoff.
 
@@ -33,7 +39,7 @@ Anything that's going to live for a while can benefit.
 - **Exact lexical search** — a BM25 full-text layer over the same corpus for the queries intent search is weakest at: compound identifiers, error strings, rare tokens.
 - **Code-graph queries** — call hierarchies, impact analysis, references, dependency walks, community clustering.
 
-All exposed as MCP tools — `docs_search`, `code_search`, `code_ask`, `code_lexical`, `code_callhierarchy`, `code_impact`, `code_references`, `code_graph_community`, `wf_graph_report`, and others. They work before any wave runs. The agent stops inventing functions that don't exist and starts answering "where do we handle X?" from your actual code. Why three index layers instead of one is covered in [How the code intelligence fits together](#how-the-code-intelligence-fits-together).
+All exposed as MCP tools — `docs_search`, `code_search`, `code_ask`, `code_lexical`, `code_callhierarchy`, `code_impact`, `code_references`, `code_graph_community`, `wf_graph_report`, and others. They work before any wave runs. The agent can answer "where do we handle X?" using retrieved source and citations, with coverage limits made explicit. Why three index layers instead of one is covered in [How the code intelligence fits together](#how-the-code-intelligence-fits-together).
 
 **An append-only review ledger.** Every review event on a wave — lane approvals, council verdicts, findings, repairs, operator signoff — is a typed record in that wave's `events.jsonl`. The ledger is the sole review authority: the wave record renders a projection of it, and approvals are bound to a digest of the plan text they approved, so editing the contract after approval lapses the approval instead of silently keeping it.
 
