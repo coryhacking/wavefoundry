@@ -6,6 +6,18 @@ Last verified: 2026-11-09
 
 ## Current state
 
+No wave is OPEN. **1.41.0 RELEASED** 2026-11-09T15:58:39Z: https://github.com/coryhacking/wavefoundry/releases/tag/v1.41.0, build 1.41.0+q2d9, tag on stamp commit `d7ab7aad` (source `e157da0c`, clean). Assets: feature zip sha256 `6fccf8e1858194334c177d5b283f9a8e43b800f783fecc82abc34e0930f479a6`; models-3 sha256 `f061d5f107125bb0baa2c73846bfda10061664c73383a97980bc77e46b1537d7`; SHA256SUMS matches both. Qualification: default 12,656 / 238 files / 12 skips, second 12,638 / 34, declared 12,656 / 12; both comparisons equal, no exception. Vendored dashboard scripts verified against npm. uv pin 0.13.5 (bumped in 22u26).
+
+Waves in this release since 1.40.0: 22u26 (post-1.40 follow-ups), 22upa (`security_unsettled` disposition, uv advisory and `--upgrade-uv`, scanner worker `-I`, work-area note), 22sqj (governing-thought writing guidance) and 22vgm (the ledger census test from 22upa errored under the second profile; now `default_profile_only`). The vision document was revised in `c12f9174`.
+
+### Next
+
+1. Tell Waveforge 1.41.0 is published, if wanted.
+2. Follow-ups from 22upa: the operator close actor is self-declared; the wave-resource call site of `_validate_review_evidence_as_recorded` has no direct test; `--upgrade-uv` is missing from the onboarding docs; `wf_review_event` can append to closed waves (preexisting); the closed-record regex is duplicated in three places.
+3. Still planned, unstarted: `22qr7-debt`.
+
+## Previous completion — 1.40.0
+
 No wave is OPEN. **22r97 waveforge-pre-tag-follow-ups closed on 2026-11-07** by explicit operator approval. Its single change, 22r96, delivers Waveforge's four pre-tag items against `2b6b985a`: limit-specific remedies for the four deterministic scanner work limits (`match_limit`, `result_limit`, `component_set_limit`, `worker_response_too_large`), retry-first scan-timeout and retry-only path-check-timeout guidance; `project_rules_parse_error` for a malformed project `docs/scan-rules.toml`; `setup_recovery(root)` remedies at the remaining bare `wf setup` sites; and one `PARTIAL SKILL DELIVERY` summary line. The implement-wave prompt now says "disposable work area" (Waveforge renamed wave to set). Council intent fit `establishes`. Default suite 12,568 tests / 228 files / 12 skips green (receipt inputs `51e75d5665bcc13cba99c9901f94f16cd8d290884e625fdf7c05fecaeb02b97a`); `second` and `declared` profiles green on the tree before that prose-only edit. macOS only. 22qr6 closed earlier (`2b6b985a`).
 
 ### Next
@@ -15,10 +27,6 @@ No wave is OPEN. **22r97 waveforge-pre-tag-follow-ups closed on 2026-11-07** by 
 2. **1.40.0 RELEASED** 2026-11-08T02:52:27Z: https://github.com/coryhacking/wavefoundry/releases/tag/v1.40.0, build 1.40.0+q20x, tag on stamp commit 909c83f7 (source 0b52f234, clean). Assets: feature zip sha256 db7728eba40e5c35c5936b61d505c37a0fd06c3a5d40a1d53ec59462c1a56273; models-3 sha256 ffb13f417504aa14cab49103c9e7b38afda5b252802730cdf5a0455bdea0c080; SHA256SUMS matches both. Qualification default 12,591/12 skips, second 12,573/33, declared 12,591/12, comparisons equal. uv pin kept at 0.12.22 (operator). Next: tell Waveforge the tag is published.
 3. Planned follow-ups, unstarted: `22qr7-debt` (now five items, including two test-bytecode hygiene items) and `22r95-enh`. Two `maybe_later` readiness findings in 22r97 remain open in the ledger; the tool offers no action to close them.
 4. Optional: an operator-approved `fs_usage` trace for the 22qoy exhaustiveness gap.
-
-### Preserved dirt
-
-Pre-existing uncommitted edits stay out of commits: `.wavefoundry/framework/VERSION`, the README product text, `docs/index.md`, `docs/references/wavefoundry-overview.md` and `docs/prompts/prompt-surface-manifest.json`.
 
 ## Previous completion — 22lli
 
