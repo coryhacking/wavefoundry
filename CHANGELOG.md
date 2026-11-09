@@ -20,6 +20,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - The `wf_review_event` description, its guided input schema and the tool-surface spec now say where `promotion_trigger` goes (`evidence`) and that it is required for the `insufficient_evidence`, `unsupported_reachability` and `disproportionate_repair` rejection bases and refused for any other. Seed 209 no longer calls it optional for `categorical`, which the validator has always refused. Ledger behaviour is unchanged. Wave 22u26 / change 22r95.
+- Organize explanatory writing around a governing thought, logically grouped support and proportionate evidence. Envision applies the same guidance to its vision and roadmap, with the existing staged reader checking their connection; alternatives-first exploration, uncertainty, required formats and review limits are preserved. Wave 22sqj / change 22sqi.
 - The upgrade-preview tests' `wf_close_wave` calls go through the container fixture profile helper, so a distribution's required close arguments reach them too. Wave 22u26 / change 22sfu.
 
 ## [1.40.0] - 2026-11-08

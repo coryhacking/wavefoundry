@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-04
+Last verified: 2026-11-08
 
 Internal phase guidance before reviewer briefing or findings repair. Apply the core's authority and selected coverage.
 
@@ -12,8 +12,8 @@ Retain the reviewed, pre-repair text until both verification and delivery finish
 
 Supply the applicable role protocol and write boundaries, then use this input order:
 
-- Within one selected product-strategy or domain/workflow review, use a fresh context for understanding. Give the opening alone; ask what purpose, future and beneficiary value it conveys. Retain that answer, then supply the roadmap overview and ask what advance comes next, how it serves the destination and which uncertainty matters most. Retain both reconstructions before supplying the full draft, brief, sources, explanations or judging criteria. Do not coach the answers.
-- That reader then continues its ordinary role review with the full packet. Other reviewers receive the full packet directly. Compare reconstructed meaning with the brief and selected/provisional status; collect consequential misunderstandings alongside other initial findings. Understanding is neither strategic endorsement nor customer validation.
+- Within one selected product-strategy or domain/workflow review, use a fresh context for understanding. Give the opening alone; ask what purpose, future and beneficiary value it conveys. Retain that answer, then supply the roadmap overview and ask what advance comes next, how the useful advances together support the destination and which uncertainty matters most. Retain both reconstructions before supplying the full draft, brief, sources, explanations or judging criteria. Do not coach the answers.
+- That reader then continues its ordinary role review with the full packet. Other reviewers receive the full packet directly. With the full packet, check whether consequential conclusions follow from their supporting reasons and evidence, and whether summaries preserve decision-relevant uncertainty. Compare reconstructed meaning with the brief and selected/provisional status; collect consequential misunderstandings alongside other initial findings. Understanding is neither strategic endorsement nor customer validation.
 - This adds no reviewer or council. If scope excludes an appropriate independent reader or capability is unavailable, disclose the omission and any author self-check; do not enlarge agreed scope or imply independence.
 
 Use project role instructions where present; assignments are responsibilities, not credentials or stakeholder representation. Ground findings in evidence and distinguish hypotheses. Test alternatives, recommendation, horizons and immediate advances. Product strategy and challenge also check that consequential choices received guided discussion or honored deferral/no-interview scope, and actual operator answers shaped the result.

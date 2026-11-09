@@ -20,6 +20,8 @@ Order the document around the reader's questions. Give the main point first, the
 
 Use paragraphs for connected reasoning, lists for sequences or genuinely parallel items, and tables for comparisons. Choose diagrams when they make a relationship easier to inspect. Avoid splitting one argument across many tiny sections or making readers assemble its meaning from disconnected bullets. Keep one canonical owner for reusable guidance.
 
+When developing an argument, identify its governing thought: the answer, intended outcome, recommendation or unresolved decision relevant to the reader. Develop distinct supporting points that together explain or justify it. Each summary must follow from the reasons or evidence beneath it. Group comparable ideas and order them by dependency, time, structure or importance. Check for missing support, repetition and conclusions stronger than the evidence. Keep consequential uncertainty and contrary evidence visible. Cross-cutting concerns may need explicit connections; the reader's task determines the grouping and number of points. Situation, complication and question can clarify that task when useful, without adding a compulsory introduction or displacing a requested answer-first opening. Evidence and exploration shape the recommendation before presentation is organized; required reference layouts, procedural order and artifact contracts retain precedence.
+
 ## Understandable: make meaning explicit
 
 Use familiar words and direct verbs. Name the actor when responsibility matters. Keep a term consistent for the same concept, and distinguish concepts that have different effects. Retain necessary technical vocabulary; explain it for the audience instead of replacing it with an inaccurate everyday word. Make pronoun references clear.
@@ -46,13 +48,15 @@ Match the artifact to its purpose while preserving its existing contract:
 | Wave or status record | Current objective, actual progress, blockers, unresolved decisions and next authorized action, with evidence for completion claims. |
 | Review finding | The concrete failure, affected behavior, evidence, consequence and actionable correction; distinguish an error from an editorial preference. |
 | Handoff or release note | What changed, why it matters, verification and limits, remaining work, and the next step or operator action when needed. |
+| Memory | The future action, when it applies, supporting evidence and consequential limits. |
+| Prompt | The task and intended outcome, necessary inputs, ordered instructions, boundaries and expected result. |
 
 ## Check the reader's task
 
-Before delivery, read the artifact as its intended reader. Can you find and explain the main point, relevant obligation or choice, consequential limits and next action without reconstructing the author's work history? Check the explanation against its source: a fluent summary that changes meaning is a defect. Repair that defect before polishing style.
+Before delivery, read the artifact as its intended reader. Can you find and explain the main point, how its supporting points justify it, the relevant obligation or choice, consequential limits and next action without reconstructing the author's work history? Check the explanation against its source: a fluent summary that changes meaning is a defect. Repair that defect before polishing style.
 
 Existing applicable reviewers use these same reader tasks within their assigned remit and normal stop rules. Ask for a reconstruction of meaning, not a readability score or a shorter version. Keep factual and contractual findings distinct from preferences. This guide adds no review lane, council, approval gate or prose linter. Agent reconstructions provide bounded evidence; they do not establish human comprehension. Later operator feedback can inform ordinary revisions without a separate survey process.
 
 ## Basis and limits
 
-This original guidance uses the relevant, findable, understandable and usable principles described by [ISO 24495-1:2023](https://www.iso.org/standard/78907.html), with selected precision practices informed by [ASD-STE100](https://www.asd-ste100.org/about.html). It is not a reproduction of either standard, an implementation of the full STE dictionary, or a claim of certified or fully verified compliance. The guide is locally usable without fetching those sources.
+This original guidance uses the relevant, findable, understandable and usable principles described by [ISO 24495-1:2023](https://www.iso.org/standard/78907.html), with selected precision practices informed by [ASD-STE100](https://www.asd-ste100.org/about.html). It is not a reproduction of either standard, an implementation of the full STE dictionary, or a claim of certified or fully verified compliance. Argument organization also draws on Barbara Minto's [Pyramid Principle](https://www.barbaraminto.com/). The guide is locally usable without fetching those sources.
