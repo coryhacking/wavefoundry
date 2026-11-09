@@ -458,6 +458,102 @@ UV_BOOTSTRAP_WHEEL_SHA256 = (
 )
 
 
+# Every uv before 0.13.4 trusts a compromised root CA in its vendored TLS bundle
+# (GHSA-hq85-5cpj-mr62). ``wf setup`` advises upgrading such a uv and never replaces one
+# unless asked with ``--upgrade-uv`` (wave 22upa, change 22ube).
+UV_TLS_ADVISORY_ID = "GHSA-hq85-5cpj-mr62"
+UV_TLS_ADVISORY_FIXED_IN = (0, 13, 4)
+UV_VERSION_PROBE_TIMEOUT_SECONDS = 10.0
+_UV_VERSION_RE = re.compile(r"^uv (\d+)\.(\d+)\.(\d+)(?:\s|$)")
+# Test seam: a command prefix replacing the resolved uv for the version probe only
+# (for example ``[sys.executable, "fake_uv.py"]``), so a fake uv runs on every platform.
+_UV_PROBE_COMMAND: list[str] | None = None
+
+
+def _pinned_uv_version() -> tuple[int, int, int]:
+    return tuple(int(part) for part in UV_BOOTSTRAP_REQUIREMENT.split("==", 1)[1].split("."))  # type: ignore[return-value]
+
+
+def _venv_uv_path(venv_python: Path) -> Path:
+    venv_dir = Path(os.path.abspath(venv_python)).parent.parent
+    return venv_dir / ("Scripts" if os.name == "nt" else "bin") / ("uv.exe" if os.name == "nt" else "uv")
+
+
+def _uv_version(uv_path: Path) -> tuple[int, int, int] | None:
+    """The version ``uv --version`` reports, or None when it cannot be read. Never raises."""
+    command = list(_UV_PROBE_COMMAND) if _UV_PROBE_COMMAND is not None else [str(uv_path)]
+    try:
+        result = _run_install_step(
+            [*command, "--version"], capture_output=True, text=True,
+            timeout=UV_VERSION_PROBE_TIMEOUT_SECONDS, check=False)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    match = _UV_VERSION_RE.match((result.stdout or "").strip())
+    return tuple(int(part) for part in match.groups()) if match else None  # type: ignore[return-value]
+
+
+def _version_text(version: tuple[int, int, int]) -> str:
+    return ".".join(str(part) for part in version)
+
+
+def uv_tls_advisory(uv_path: Path, version: tuple[int, int, int], *, in_tool_venv: bool,
+                    root: Path | None = None) -> str:
+    """The advisory text for an affected uv; the remedy depends on where that uv lives."""
+    upgrade = _setup_command(root, "--upgrade-uv")
+    fixed = _version_text(UV_TLS_ADVISORY_FIXED_IN)
+    lines = [
+        f"ADVISORY: uv {_version_text(version)} at {uv_path} is affected by {UV_TLS_ADVISORY_ID}: "
+        f"uv before {fixed} trusts a compromised TLS root certificate for package downloads.",
+    ]
+    if in_tool_venv:
+        lines.append(f"To upgrade it to the pinned, hash-verified uv, run: {upgrade}")
+    else:
+        lines.append(
+            "This uv is on PATH. Update it with the installer that provided it "
+            "(for example `uv self update`, your package manager, or `pipx upgrade uv`), "
+            f"or run {upgrade} so setup uses a pinned uv in its tool environment ahead of PATH.")
+    lines.append("Setup does not change uv unless asked; an agent can run the upgrade with your approval.")
+    return "\n".join(lines)
+
+
+def uv_tls_step(root: Path | None = None, *, upgrade: bool = False) -> tuple[int, str | None]:
+    """The once-per-``wf setup`` uv check, run before any dependency install.
+
+    Returns ``(exit_code, advisory)``. Without ``upgrade`` it only probes, takes no lock and
+    never fails setup. With ``upgrade`` it replaces an affected or older tool-venv uv with the
+    pinned, hash-verified one under the install lock; a failed install returns exit code 2.
+    """
+    if upgrade:
+        with _held_install_lock(root) as lock:
+            venv_python = _bootstrap_venv(root, lock=lock)
+            venv_uv = _venv_uv_path(venv_python)
+            pinned = _pinned_uv_version()
+            current = _uv_version(venv_uv) if venv_uv.is_file() else None
+            if current is not None and current >= pinned:
+                print(f"uv {_version_text(current)} in the tool environment already satisfies "
+                      f"{UV_BOOTSTRAP_REQUIREMENT}; nothing to upgrade.", flush=True)
+            else:
+                print(f"Upgrading uv to the pinned {UV_BOOTSTRAP_REQUIREMENT} ({UV_TLS_ADVISORY_ID}) ...",
+                      flush=True)
+                if _install_pinned_uv(venv_python, root, lock=lock) is None:
+                    return 2, None
+                installed = _uv_version(venv_uv)
+                print(f"uv in the tool environment is now "
+                      f"{_version_text(installed) if installed else 'installed (version unreadable)'}.",
+                      flush=True)
+    venv_python = Path(os.path.abspath(_tool_venv_python()))
+    uv_path = _uv_bin(venv_python, root)
+    if uv_path is None:
+        return 0, None
+    version = _uv_version(uv_path)
+    if version is None or version >= UV_TLS_ADVISORY_FIXED_IN:
+        return 0, None
+    in_tool_venv = os.path.abspath(uv_path) == os.path.abspath(_venv_uv_path(venv_python))
+    return 0, uv_tls_advisory(uv_path, version, in_tool_venv=in_tool_venv, root=root)
+
+
 def _uv_bootstrap_failed(detail: str = "", *, pip_ran: bool = True) -> None:
     # pip_ran=False (the requirements file could not be written): there is no pip output to point at.
     pointer = "; see pip's output above" if pip_ran else ""
@@ -476,6 +572,16 @@ def _bootstrap_uv(venv_python: Path, root: Path | None = None, *, lock=None) -> 
     any other bytes, so a failure here never leaves an unverified uv behind (wave 1zimd).
     """
     print("uv not found — installing uv for package age enforcement ...", flush=True)
+    return _install_pinned_uv(venv_python, root, lock=lock)
+
+
+def _install_pinned_uv(venv_python: Path, root: Path | None = None, *, lock=None) -> Path | None:
+    """Install ``UV_BOOTSTRAP_REQUIREMENT`` into the tool venv with its recorded hashes.
+
+    Shared by the no-uv bootstrap and ``wf setup --upgrade-uv`` (wave 22upa, change 22ube).
+    pip replaces an older pip-installed uv because the exact pin is unsatisfied, and it
+    verifies the download before replacing anything. Returns the uv path, or None on failure.
+    """
     venv_python = Path(os.path.abspath(venv_python))
     uv_timeout = _setup_deadlines(root)["uv_bootstrap_timeout_seconds"]
     # pip accepts --hash only inside a requirements file, and ignores --hash options on lines of

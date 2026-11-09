@@ -82,6 +82,7 @@ def _print_help() -> None:
         "  --check-gpu    print the provider diagnostic without running setup\n"
         "  --confirm-hosts-stopped  confirm all repository MCP hosts are stopped\n"
         "  --rebuild-storage  rebuild local storage instead of transferring it\n"
+        "  --upgrade-uv   replace an affected or older uv in the tool environment with the pinned, hash-verified uv\n"
         "  -h, --help     show this help without changing the project\n\n"
         "Other index/provider options, including --background-code and "
         "--background-docs, are forwarded to setup_index.py. Run Review memories "
@@ -343,6 +344,10 @@ def main(argv: list[str] | None = None) -> int:
     if "-h" in args or "--help" in args:
         _print_help()
         return 0
+    # Wave 22upa (22ube): `--upgrade-uv` belongs to this entry point. It is removed before
+    # reconciliation parses the arguments and is never forwarded to setup_index.
+    upgrade_uv = "--upgrade-uv" in args
+    args = [arg for arg in args if arg != "--upgrade-uv"]
     # Setup writes host settings, hooks and permissions into its root, so it
     # refuses a root without the framework copy before any check or write.
     if "--check-gpu" not in args and not _root_has_framework(args):
@@ -356,15 +361,27 @@ def main(argv: list[str] | None = None) -> int:
     repo_root = _resolve_setup_root(args)
     import setup_reconciliation
 
+    advisories: list[str] = []
     try:
         with setup_reconciliation.session(repo_root, args) as reconciliation:
-            return _run_setup(repo_root, reconciliation.args, reconciliation)
+            return _run_setup(repo_root, reconciliation.args, reconciliation,
+                              upgrade_uv=upgrade_uv, advisories=advisories)
     except setup_reconciliation.MigrationRequired as exc:
         print(f"\nERROR: {exc}", file=sys.stderr)
         return 1
+    finally:
+        # The uv advisory is the last output of the run, so setup's progress output does not bury it.
+        for advisory in advisories:
+            print("\n" + advisory, file=sys.stderr, flush=True)
 
 
-def _run_setup(repo_root: Path, args: list[str], reconciliation) -> int:
+def _run_uv_tls_step(setup_index, repo_root: Path, upgrade: bool) -> tuple[int, str | None]:
+    """The once-per-run uv check and optional upgrade (wave 22upa, change 22ube); a seam for tests."""
+    return setup_index.uv_tls_step(repo_root, upgrade=upgrade)
+
+
+def _run_setup(repo_root: Path, args: list[str], reconciliation, *, upgrade_uv: bool = False,
+               advisories: list[str] | None = None) -> int:
     # Step 0: provision lifecycle policy and required workflow defaults.
     # Runs BEFORE indexing so no ID is ever minted pre-policy and the docs index
     # embeds the final config. No-op when a policy block already exists.
@@ -416,6 +433,17 @@ def _run_setup(repo_root: Path, args: list[str], reconciliation) -> int:
     # smoke test or index reader that could encounter the old format.
     _print_step("Step 2/4: provision framework dependencies (no index publication)")
     setup_index = _load_setup_index()
+    # Wave 22upa (22ube): once per run, before any dependency install, check the uv setup
+    # will use; `--upgrade-uv` replaces an affected tool-environment uv first.
+    rc, advisory = _run_uv_tls_step(setup_index, repo_root, upgrade_uv)
+    if advisory and advisories is not None:
+        advisories.append(advisory)
+    if rc != 0:
+        print(
+            f"\nERROR: the uv upgrade failed with rc={rc}; no dependencies were installed. Harness setup aborted.",
+            file=sys.stderr,
+        )
+        return rc
     rc = int(setup_index.main([*args, "--deps-only"]))
     if rc != 0:
         print(

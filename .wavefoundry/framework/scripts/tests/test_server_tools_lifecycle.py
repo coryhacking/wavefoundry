@@ -11348,6 +11348,10 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 ("required_sensors_gate", "_diagnostic", "phase_sensor_not_executed"),
                 # Wave 21j63: a delivery that does not establish its intent never blocks.
                 ("_evaluate_shared_delivery_state", "_diagnostic", "delivery_intent_not_established"),
+                # Wave 22upa (22ubf): a waived or pre-rule security candidate is reported,
+                # never blocking; an unsettled one blocks separately.
+                ("_security_candidate_diagnostics", "_diagnostic", "security_candidate_waived"),
+                ("_security_candidate_diagnostics", "_diagnostic", "security_candidate_predates_rule"),
                 ("wf_prepare_wave_response", "_diagnostic", "prepare_council_verdict_missing"),
                 ("wf_prepare_wave_response", "_diagnostic", "review_policy_receipt_superseded"),
                 ("wf_review_wave_response", "_diagnostic", "review_policy_receipt_superseded"),
@@ -17360,6 +17364,7 @@ class SharedDeliveryEvaluatorContractTests(unittest.TestCase):
                 "missing_wave_council_signoff",
                 "review_policy_receipt_stale",
                 "review_policy_reprepare_required",
+                "unsettled_security_candidate",
             ),
         )
         self.assertEqual(len(self.srv.CLOSURE_ONLY_DIAGNOSTIC_CODES), 11)

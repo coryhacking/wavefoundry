@@ -581,6 +581,18 @@ class LifecycleGoldenTests(unittest.TestCase):
                                 "disproportionate_repair", "insufficient_evidence", "unsupported_reachability"]},
                             "refused_otherwise": True,
                             "meaning": "what evidence would reopen an accepted finding",
+                        },
+                            # Wave 22upa (22ubf): the operator close of a
+                            # security_unsettled head is the second declared entry.
+                            "waiver": {
+                            "kind": "object",
+                            "fields": ["waiver_id", "waiver_scope", "waiver_reason", "waiver_risk"],
+                            "required_when": {"actor": "operator", "run_kind": "reverification",
+                                              "head_disposition": "security_unsettled"},
+                            "refused_otherwise": True,
+                            "meaning": ("the operator closes an unsettled security candidate by name; "
+                                        "record it only on the operator's explicit instruction in the "
+                                        "current request"),
                         }}, path)
                         trigger_additions.add(path)
                         continue

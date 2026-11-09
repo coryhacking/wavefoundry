@@ -1,11 +1,11 @@
 # Note That the Work Area Is Not Secret-Scanned
 
 Change ID: `22up9-doc work-area-not-secret-scanned-note`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
 Status: planned
 Last verified: 2026-11-08
-Wave: TBD
+Wave: 22upa security-candidates-and-uv-advisory
 
 ## Rationale
 
@@ -41,12 +41,12 @@ Prose only; no platform difference.
 
 ## Acceptance Criteria
 
-- [ ] AC-1: Seed 180's Disposable work section states that the work area is not secret-scanned and must not hold credentials. Seed 209's work-area bullet references it.
-- [ ] AC-2: The seeds and the documents this change edits validate with `wf_validate_docs`.
+- [x] AC-1: Seed 180's Disposable work section states that the work area is not secret-scanned and must not hold credentials. Seed 209's work-area bullet references it.
+- [x] AC-2: The seeds and the documents this change edits validate with `wf_validate_docs`.
 
 ## Tasks
 
-- [ ] Edit seeds 180 and 209 under `seed_edit_allowed`.
+- [x] Edit seeds 180 and 209 under `seed_edit_allowed`.
 
 ## Agent Execution Graph
 
@@ -74,6 +74,7 @@ N/A: guidance only.
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-11-08 | Planned from Waveforge item 3. | operator answer |
+| 2026-11-08 | Implemented under `seed_edit_allowed` (opened and closed). Seed 180 **Disposable work** first paragraph gains: "The work area is gitignored and not secret-scanned, so never copy credentials or other secret values into it; redact them, as the safe-execution rule requires." Seed 209's work-area bullet already points to seed 180's **Disposable work** ("(seed 180’s **Disposable work**)"), so requirement 2 needed no edit. No rendered copy holds the sentence. Full `wf_validate_docs` passes. | seed diff, docs-lint |
 
 ## Decision Log
 

@@ -2115,8 +2115,9 @@ class InstallIsolationTests(unittest.TestCase):
                 self.assert_uv_required_refusal(err.getvalue(), command=self.mod._setup_command(Path(self.tmp.name)))
 
     def test_the_only_pip_install_is_the_hash_pinned_uv_bootstrap(self):
-        # Wave 1zls6 (AC-4): setup_index.py holds exactly one ``"-m", "pip", "install"`` command, inside
-        # _bootstrap_uv and carrying --require-hashes, so a plain-pip dependency fallback cannot return.
+        # Wave 1zls6 (AC-4): setup_index.py holds exactly one ``"-m", "pip", "install"`` command,
+        # carrying --require-hashes, so a plain-pip dependency fallback cannot return. Wave 22upa
+        # (22ube) moved it into _install_pinned_uv, shared by _bootstrap_uv and `--upgrade-uv`.
         import ast
 
         tree = ast.parse(SETUP_INDEX_PATH.read_text(encoding="utf-8"))
@@ -2136,7 +2137,7 @@ class InstallIsolationTests(unittest.TestCase):
         visit(tree, None)
         self.assertEqual(len(found), 1, found)
         function, values = found[0]
-        self.assertEqual(function, "_bootstrap_uv")
+        self.assertEqual(function, "_install_pinned_uv")
         self.assertIn("--require-hashes", values)
 
     def _bootstrap_with(self, outcome):
@@ -2370,7 +2371,8 @@ class UvLookupTrustTests(unittest.TestCase):
 
     def test_callers_thread_the_root_and_which_is_gone(self):
         src = Path(self.mod.__file__).read_text(encoding="utf-8")
-        self.assertEqual(src.count("_uv_bin(venv_python, root)"), 3)
+        # Wave 22upa (22ube): uv_tls_step is the fourth caller.
+        self.assertEqual(src.count("_uv_bin(venv_python, root)"), 4)
         self.assertNotIn("shutil.which(", src)
 
 

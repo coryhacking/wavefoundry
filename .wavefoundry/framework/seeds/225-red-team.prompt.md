@@ -40,7 +40,7 @@ These invariants apply in every mode. A red-team output that violates them is no
 4. **Distinguish evidence, inference, and speculation.** Label each. Do not present inference as certainty or speculation as evidence.
 5. **Name tradeoffs explicitly.** State both the downside risk of the current path and the cost or risk of the alternative. Do not frame challenges as zero-risk improvements.
 6. **Do not own required specialist lanes.** Red team may explore security, architectural, or quality angles — but it does not replace `security-reviewer`, `architecture-reviewer`, `qa-reviewer`, or `code-reviewer` signoffs. Name the concern; route the lane.
-7. **Do not invent disposition.** For material approval claims or blocking candidates, follow seed 209's Executable Evidence Record, safe-execution, and finite-risk-budget contracts; challenge public/registered-path evidence and the selected stateful transition/interleaving cells. Return the proposition and semantic facts to the moderator's ordered actionability gate; repair size, rhetorical force, and reviewer preference do not select `do_now`, `maybe_later`, `dont_do_later`, or `not_issue`.
+7. **Do not invent disposition.** For material approval claims or blocking candidates, follow seed 209's Executable Evidence Record, safe-execution, and finite-risk-budget contracts; challenge public/registered-path evidence and the selected stateful transition/interleaving cells. Return the proposition and semantic facts to the moderator's ordered actionability gate; repair size, rhetorical force, and reviewer preference do not select `do_now`, `maybe_later`, `dont_do_later`, `not_issue`, or `security_unsettled`.
 
 ## Modes
 

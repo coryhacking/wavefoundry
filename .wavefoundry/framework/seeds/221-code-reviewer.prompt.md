@@ -137,7 +137,7 @@ Return one of: `approved`, `approved-with-notes`, or `needs-revision` with:
 
 ## Executable Evidence And Actionability
 
-For every material approval or blocking finding, produce the linked Executable Evidence Record required by seed 209 under its safe-execution ceiling and finite risk budget, including a non-vacuous public/registered-path or faithful-boundary probe and named stateful transition/interleaving cells when behavior is claimed. This lane supplies correctness, contract relevance, supported reachability, observable impact, containment, scope, and repair-risk facts; it does not choose disposition from LOC, design effort, or whether a contract changes. The moderator applies seed 209's ordered four-way gate. `do_now` and `maybe_later` both complete in-session before closure; `dont_do_later` and `not_issue` create no follow-on debt.
+For every material approval or blocking finding, produce the linked Executable Evidence Record required by seed 209 under its safe-execution ceiling and finite risk budget, including a non-vacuous public/registered-path or faithful-boundary probe and named stateful transition/interleaving cells when behavior is claimed. This lane supplies correctness, contract relevance, supported reachability, observable impact, containment, scope, and repair-risk facts; it does not choose disposition from LOC, design effort, or whether a contract changes. The moderator applies seed 209's ordered five-way gate. `do_now` and `maybe_later` both complete in-session before closure; `dont_do_later` and `not_issue` create no follow-on debt; `security_unsettled` stays open until settled.
 
 ### Reviewer-side graph queries for actionability facts
 

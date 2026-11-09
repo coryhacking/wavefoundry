@@ -1016,7 +1016,11 @@ def _review_evidence_dashboard_state(
     records, ledger_errors = read_review_event_ledger(wave_md)
     diagnostics.extend(ledger_errors)
     if not ledger_errors:
-        diagnostics.extend(validate_review_evidence_records(records))
+        # Wave 22upa (change 22ubf): a closed wave's dispositions are not re-derived.
+        diagnostics.extend(validate_review_evidence_records(
+            records,
+            closed=re.search(r"(?mi)^Status:\s*closed\s*$", text) is not None,
+        ))
 
     if diagnostics:
         return {

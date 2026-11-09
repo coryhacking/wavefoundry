@@ -1,19 +1,20 @@
 # Start the Scanner Worker in Isolated Mode
 
 Change ID: `22ubg-maint scanner-worker-isolated-mode`
-Change Status: `planned`
+Change Status: `implemented`
 Owner: Engineering
 Status: planned
 Last verified: 2026-11-08
-Wave: TBD
+Wave: 22upa security-candidates-and-uv-advisory
 
 ## Rationale
 
 Waveforge's review of v1.40.0, item 2. `wave_lint_lib/betterleaks_worker._Client` starts the worker as `[sys.executable, "-B", <worker>, "--worker"]` through `subprocess_util.isolated_popen`, which passes the parent environment. Without `-I`, these can supply modules to the worker before `_serve` installs its offline audit hook:
 
 - `PYTHONPATH`;
-- the user site directory;
-- the script directory.
+- the user site directory.
+
+The current directory is not a vector: the worker runs as a script, so `sys.path[0]` is its own directory.
 
 The worker reads untrusted file content, so this is defence in depth.
 
@@ -21,7 +22,7 @@ The worker already puts its own `scripts/` directory on `sys.path` in its preamb
 
 ## Product Intent
 
-The secret-scanner worker starts in Python's isolated mode, so environment variables, the user site directory and the current directory can no longer inject modules into it. Scan results are unchanged.
+The secret-scanner worker starts in Python's isolated mode, so `PYTHON*` environment variables and the user site directory can no longer inject modules into it. Scan results are unchanged.
 
 ## Requirements
 
@@ -41,15 +42,15 @@ The secret-scanner worker starts in Python's isolated mode, so environment varia
 
 ## Acceptance Criteria
 
-- [ ] AC-1: The worker's default command has `-I` and `-B` before the script path. On the current code it has no `-I`.
-- [ ] AC-2: With `PYTHONPATH` naming a directory that holds a planted `json.py` (or another module the worker imports), the worker's scans complete and the planted module is never imported. A marker file the module would write is absent. On the current code the marker is written.
-- [ ] AC-3: The existing scanner suites (`test_scanner_*`, `test_betterleaks_*`) pass on Python 3.11 and 3.14.
+- [x] AC-1: The worker's default command has `-I` and `-B` before the script path. On the current code it has no `-I`.
+- [x] AC-2: With `PYTHONPATH` naming a directory that holds a planted `json.py` (or another module the worker imports), the worker's scans complete and the planted module is never imported. A marker file the module would write is absent. On the current code the marker is written.
+- [x] AC-3: The existing scanner suites (`test_scanner_*`, `test_betterleaks_*`) pass on Python 3.11 and 3.14.
 
 ## Tasks
 
-- [ ] Add `-I` to the default command.
-- [ ] Test for AC-2.
-- [ ] CHANGELOG `[Unreleased]` bullet.
+- [x] Add `-I` to the default command.
+- [x] Test for AC-2.
+- [x] CHANGELOG `[Unreleased]` bullet.
 
 ## Agent Execution Graph
 
@@ -78,6 +79,7 @@ N/A: one child-process flag.
 | Date | Update | Evidence |
 | ---- | ------ | -------- |
 | 2026-11-08 | Planned from Waveforge item 2. | operator answer |
+| 2026-11-08 | Implemented. `_Client` default command is `[sys.executable, "-I", "-B", <worker>, "--worker"]`. New `tests/test_scanner_worker_isolation.py` (2 tests): the default command shape, and a `PYTHONPATH` dir with a planted `json.py` that writes a marker and raises; the worker still answers `parse_toml` and the marker is absent. Known-bad: with `-I` removed both tests fail (marker written, command shape). AC-3: every `test_scanner_*` and `test_betterleaks_*` file passes per file on Python 3.14.8 and 3.11.17. Found, not caused: on 3.11 `test_secrets_validators` (1) and `test_scan_secrets` (3) fail identically with and without `-I`; on 3.14 an ad hoc combined run of several scanner modules fails two `test_secrets_validators` tests identically with and without `-I` (both pass per file). CHANGELOG Security bullet added. | test runs |
 
 ## Decision Log
 

@@ -937,6 +937,7 @@ def deps_only_main(argv):
     return 0
 setup_index.ensure_deps = ensure_deps
 setup_wavefoundry._load_setup_index = lambda: type("S", (), {"main": staticmethod(deps_only_main)})
+setup_wavefoundry._run_uv_tls_step = lambda *_args: (0, None)
 venv_bootstrap.ensure_python_resolves = lambda strict=False: "ok"
 setup_wavefoundry._provision_lifecycle_policy_if_absent = lambda root: 0
 setup_wavefoundry._provision_workflow_defaults_if_absent = lambda root: 0

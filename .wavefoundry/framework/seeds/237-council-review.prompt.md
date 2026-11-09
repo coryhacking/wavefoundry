@@ -83,7 +83,7 @@ Synthesis must include:
 - `improvements_recommended`: concrete improvements regardless of verdict
 - Final verdict: **pass**, **pass with conditions**, or **blocked**
 
-Material approval claims and blocking findings follow seed 209's Executable Evidence Record, safe-execution, finite-risk-budget, public/registered-path, and named stateful-transition/interleaving contracts. After deduplication, the moderator seals the candidate universe, records semantic facts, and applies the ordered four-way actionability gate; severity, repair size, and seat preference are inputs at most, never substitute dispositions.
+Material approval claims and blocking findings follow seed 209's Executable Evidence Record, safe-execution, finite-risk-budget, public/registered-path, and named stateful-transition/interleaving contracts. After deduplication, the moderator seals the candidate universe, records semantic facts, and applies the ordered five-way actionability gate; severity, repair size, and seat preference are inputs at most, never substitute dispositions.
 
 When this review is used to satisfy `Prepare wave`, a declared wave records the machine authority as a typed `council-readiness` approval event. Its `## Review Checkpoints` verdict may retain the structured `prepare-council` fields as narrative, but that prose never changes a declared wave's lifecycle outcome. A legacy wave still uses the structured verdict line as its compatibility gate.
 
@@ -121,11 +121,12 @@ The council reviews what you give it. If the artifact is ambiguous, the red-team
 
 ## Moderator Synthesis: Ordered Actionability Gate
 
-Use seed 209's Review Run and Finding Synthesis records as the authoritative result. For each sealed candidate, derive exactly one disposition in order: `not_issue`, `do_now`, `maybe_later`, or `dont_do_later` under the canonical semantic predicates. Do not derive it from LOC, implementation difficulty, contract-change size, missing measurement, or a reviewer label.
+Use seed 209's Review Run and Finding Synthesis records as the authoritative result. For each sealed candidate, derive exactly one disposition in order: `not_issue`, `do_now`, `security_unsettled`, `maybe_later`, or `dont_do_later` under the canonical semantic predicates. Do not derive it from LOC, implementation difficulty, contract-change size, missing measurement, or a reviewer label.
 
 - `do_now` and `maybe_later` both require completed repair evidence before closure; `maybe_later` means optional-but-worth-doing-now, not a follow-on.
 - `dont_do_later` deliberately rejects the work and creates no backlog item; it requires the canonical rejection basis and promotion trigger where applicable.
 - `not_issue` records an invalid or conforming proposition and creates no follow-on debt.
+- `security_unsettled` is a real finding whose attacker reachability or authority delta is unknown; it is not terminal and holds `operator-signoff` withheld until fresh evidence settles it or the operator closes it.
 - Only the seed-209 blocking predicate decides whether a `do_now` finding blocks. Severity remains a triage signal.
 
 Repairs receive focused re-verification unless one of seed 209's five full-council trigger facts changed. A full council is not the default consequence of every repair.

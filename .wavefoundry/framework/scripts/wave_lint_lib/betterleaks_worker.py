@@ -178,7 +178,9 @@ class _Client:
     """One serialized request owner; deadlines include startup and pipe I/O."""
 
     def __init__(self, command: list[str] | None = None):
-        self._command = command or [sys.executable, "-B", str(Path(__file__).resolve()), "--worker"]
+        # Isolated mode (wave 22upa, change 22ubg): PYTHONPATH, other PYTHON* variables and the user
+        # site cannot supply modules before the audit hook; the worker adds scripts/ itself.
+        self._command = command or [sys.executable, "-I", "-B", str(Path(__file__).resolve()), "--worker"]
         self._owner = os.getpid()
         self._lock = threading.Lock()
         self._state_lock = threading.Lock()

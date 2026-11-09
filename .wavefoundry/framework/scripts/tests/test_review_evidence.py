@@ -5842,14 +5842,17 @@ class OperatorApprovalHonestAttestationTests(unittest.TestCase):
         # AC-3 (read time): each half of the record predicate, and claim_kind alone.
         self.assertFalse(subject.validate_review_evidence_records([self._operator_record()]))
         null_message = "`known_bad_detected` must be boolean: null (not applicable)"
-        for name, record in (
-            ("actor", self._operator_record(actor="qa-reviewer")),
-            ("claim", self._operator_record(claim_id="approval:qa-reviewer")),
-            ("claim_kind", self._operator_record(claim_kind="finding")),
+        # Wave 22upa (22ubf): operator finding evidence may carry null checks only as the
+        # operator close of a security_unsettled finding; standalone, it is refused.
+        close_message = "valid only as the operator close"
+        for name, record, message in (
+            ("actor", self._operator_record(actor="qa-reviewer"), null_message),
+            ("claim", self._operator_record(claim_id="approval:qa-reviewer"), null_message),
+            ("claim_kind", self._operator_record(claim_kind="finding"), close_message),
         ):
             with self.subTest(half=name):
                 errors = subject.validate_review_evidence_records([record])
-                self.assertTrue(any(null_message in e for e in errors), errors)
+                self.assertTrue(any(message in e for e in errors), errors)
 
     def test_historical_operator_values_stay_valid(self):
         # AC-4 (regression guard): 21sld-style false and older all-true records.
@@ -5881,7 +5884,9 @@ class OperatorApprovalHonestAttestationTests(unittest.TestCase):
                             for e in subject.validate_review_evidence_records([wrong_claim])))
         finding = self._operator_record(claim_id="operator-finding", claim_kind="finding",
                                         required_for_approval=False)
-        self.assertTrue(any("false evidence-integrity" in e
+        # Wave 22upa (22ubf): standalone operator finding evidence is refused as not
+        # being the operator close of a security_unsettled finding.
+        self.assertTrue(any("valid only as the operator close" in e
                             for e in subject.validate_review_evidence_records([finding])))
 
     def test_operator_approval_action_does_not_ask_for_integrity_checks(self):

@@ -79,11 +79,11 @@ Each archetype runs in isolation, applying its stance against the artifact, in t
 - **Strongest alternative not taken** — the path the artifact did not take, worked out enough to be actionable
 - Verdict: **PASS** (no unresolved actionable findings), **PASS WITH IN-SESSION FIXES** (`do_now` / `maybe_later` repairs completed during review), **NOT READY** (required repair or executable evidence remains incomplete)
 
-**Finding synthesis with red-team closing reconciliation.** Material findings and approvals follow seed 209's executable-evidence, safe-execution, finite-risk-budget, public/registered-path, stateful-transition, and ordered-actionability contracts. The red-team challenges each finding's proposition and semantic facts; the moderator records the Review Run and Finding Synthesis records. New findings from the red-team enter the sealed candidate set through that protocol. A compact table may render the exact four dispositions but must not invent a parallel `fix/defer/accept` vocabulary.
+**Finding synthesis with red-team closing reconciliation.** Material findings and approvals follow seed 209's executable-evidence, safe-execution, finite-risk-budget, public/registered-path, stateful-transition, and ordered-actionability contracts. The red-team challenges each finding's proposition and semantic facts; the moderator records the Review Run and Finding Synthesis records. New findings from the red-team enter the sealed candidate set through that protocol. A compact table may render the exact five dispositions but must not invent a parallel `fix/defer/accept` vocabulary.
 
 | Finding | Disposition | Rationale | Red-team |
 |---|---|---|---|
-| [finding ID] | do_now / maybe_later / dont_do_later / not_issue | [seed-209 semantic rationale] | [challenge + held / updated / new] |
+| [finding ID] | do_now / maybe_later / dont_do_later / not_issue / security_unsettled | [seed-209 semantic rationale] | [challenge + held / updated / new] |
 
 **Falsification check.** As the penultimate step before finalizing the verdict: state the working verdict in one sentence, name the strongest argument against it sourced from any seat output or the red-team closing pass, and state why that argument does not change the conclusion. If the argument does change the conclusion, revise the verdict before finalizing. Record this under a `### Falsification Check` heading in the synthesis output.
 
@@ -220,7 +220,7 @@ Every moderator synthesis must include:
 - `axes_covered`: which orthogonal axes were actually exercised; overlap flagged
 - `must_fix_aggregate`: deduplicated must-fix list with finding IDs preserved
 - `advisory_aggregate`: deduplicated advisory list
-- `finding_synthesis`: seed-209 Review Run and Finding Synthesis records for every material candidate, optionally rendered in one table with the exact four dispositions and red-team reconciliation. Never leave a sealed candidate unsynthesized.
+- `finding_synthesis`: seed-209 Review Run and Finding Synthesis records for every material candidate, optionally rendered in one table with the exact five dispositions and red-team reconciliation. Never leave a sealed candidate unsynthesized.
 - `strongest_axis`: which seat's findings bound the most must-fixes
 - `strongest_challenge_surviving`: the challenge that did not collapse into a fixable finding
 - `strongest_alternative_not_taken`: the path the artifact did not take

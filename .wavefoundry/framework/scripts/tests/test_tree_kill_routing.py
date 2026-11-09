@@ -86,7 +86,8 @@ ROUTED = {
     ("wf_server/server_impl.py", "run_validate_changed", "_mcp_subprocess_run"): 1,
     ("sensor_runner.py", "run_sensor", "run_with_tree_kill"): 1,
     ("reconcile_scan.py", "_git_run", "run_with_tree_kill"): 1,
-    ("setup_index.py", "_bootstrap_uv", "_run_install_step"): 1,
+    ("setup_index.py", "_install_pinned_uv", "_run_install_step"): 1,
+    ("setup_index.py", "_uv_version", "_run_install_step"): 1,
     ("setup_index.py", "_bootstrap_venv", "_run_install_step"): 1,
     ("setup_index.py", "_install_deps", "_run_install_step"): 1,
     # Wave 1zfd9: the MCP startup installer (uv only).

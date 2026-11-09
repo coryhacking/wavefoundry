@@ -1849,7 +1849,13 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
             if (source is not None or _source_errors or inline_marker) and not closed_legacy_inline_record(text, path):
                 # Wave 200xy (200v1): the record text already read through the
                 # member-doc rule is passed in, so the record is not reopened.
-                review_evidence = validate_external_review_evidence(path, wave_text=text)
+                # Wave 22upa (change 22ubf): a closed record's recorded dispositions
+                # are not re-derived; they stay valid as written.
+                review_evidence = validate_external_review_evidence(
+                    path,
+                    wave_text=text,
+                    closed=re.search(r"(?mi)^Status:\s*closed\s*$", text) is not None,
+                )
                 failures.extend(
                     f"{rel}: review evidence: {error}" for error in review_evidence.errors
                 )

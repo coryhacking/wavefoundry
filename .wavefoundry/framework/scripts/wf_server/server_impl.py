@@ -11249,12 +11249,30 @@ def _bind_prepare_council_brief_to_receipt(
     return bound
 
 
+def _validate_review_evidence_as_recorded(wave_md: Path, text: str | None = None):
+    """Validate a wave's ledger, keeping a closed record's dispositions as written.
+
+    Wave 22upa (change 22ubf): the read paths (list, wave resource, projection) judge a
+    closed record the way docs-lint does. ``text`` is the record when already read; on a
+    read failure the record is treated as open, the strict check. In the reload window an
+    older loaded ``review_evidence`` without the ``closed`` parameter gets the old call.
+    """
+    if text is None:
+        text, read_error = _read_wave_record_text(Path(wave_md))
+        if read_error is not None or text is None:
+            text = ""
+    closed = re.search(r"(?mi)^Status:\s*closed\s*$", text) is not None
+    if closed and "closed" in inspect.signature(validate_external_review_evidence).parameters:
+        return validate_external_review_evidence(wave_md, closed=True)
+    return validate_external_review_evidence(wave_md)
+
+
 def _project_current_review_status(root: Path, wave_md: Path, text: str) -> str:
     """Rebuild both human projections from the canonical ledger."""
 
     if not _wave_uses_external_review_evidence(root, wave_md):
         return text
-    validation = validate_external_review_evidence(wave_md)
+    validation = _validate_review_evidence_as_recorded(wave_md, text)
     if validation.errors:
         raise ValueError("; ".join(validation.errors))
     projected = render_review_evidence_projection(text, validation.records)
@@ -11570,7 +11588,7 @@ def _review_evidence_list_response(
             next_tools=["wf_review_event"],
             usage="wf_review_event(wave_id=..., event='run', mode='dry_run', ...)",
         )
-    result = validate_external_review_evidence(wave_md)
+    result = _validate_review_evidence_as_recorded(wave_md)
     records = list(result.records or ())
     diagnostics: list[dict[str, Any]] = []
     for error in result.errors or ():
@@ -14906,7 +14924,8 @@ def wf_close_change_response(
     ``Depends On:`` names the closed change and whose dependencies are now all
     done from ``planned``/``blocked`` to ``ready``, and restores every written
     file when a post-write scoped docs-lint finds a failure the write
-    introduced.  No review evidence is read or written."""
+    introduced.  No review evidence is written; the ledger is read only to
+    refuse while an unsettled security candidate is open (wave 22upa)."""
     from wave_lint_lib import constants as lint_constants
     from wave_lint_lib.wave_validators import _parse_change_records
 
@@ -15089,6 +15108,21 @@ def wf_close_change_response(
                 f"`{change_id}` depends on changes that are not done: {'; '.join(not_done)}.",
                 recovery_tools=["wf_current_wave"], recovery_usage="wf_current_wave()",
             ))
+
+    # Gate (wave 22upa, change 22ubf): an unsettled security candidate holds the wave's
+    # operator-signoff withheld, so no change closes while one is open. Reads the stored
+    # head state only, so it needs no helper newer than this module's imports.
+    ledger_records, ledger_errors = read_review_event_ledger(wave_md)
+    if not ledger_errors:
+        for unsettled_id, head in current_synthesis_heads(ledger_records).items():
+            if head.get("disposition") == "security_unsettled" and head.get("repair_execution_state") == "pending":
+                trigger = head.get("promotion_trigger") or "none recorded"
+                diagnostics.append(_diagnostic(
+                    "unsettled_security_candidate",
+                    f"Security candidate `{unsettled_id}` is unsettled (promotion trigger: {trigger}); "
+                    "operator decision required: settle by fresh evidence, or the operator closes it.",
+                    recovery_tools=["wf_review_wave"], recovery_usage="wf_review_wave()",
+                ))
 
     if diagnostics:
         return _response(
@@ -24802,7 +24836,21 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         ``disproportionate_repair``, and refused for any other basis. A real
         finding that needs no action and carries one of those bases records
         as accepted (``dont_do_later``) with no repair pending; an
-        action-required finding refuses any basis but ``none``. Lane lists
+        action-required finding refuses any basis but ``none``. A real finding
+        that needs no action but whose ``attacker_reachability`` or
+        ``authority_delta`` is ``unverified`` records as ``security_unsettled``,
+        whatever its basis (except ``unsupported_reachability`` with
+        ``supported_reachability: false``): it stays ``pending``, is not
+        terminal, and holds ``operator-signoff`` withheld until a fresh,
+        independent reverification after ``repair_start`` settles it, or the
+        operator closes it. The operator close is ``event="finding"``,
+        ``run_kind="reverification"``, ``actor="operator"`` with
+        ``evidence.waiver`` (``waiver_id``, ``waiver_scope``,
+        ``waiver_reason``, ``waiver_risk``) plus ``observed`` and
+        ``artifact_or_test_id``, and no ``judgment``: the head keeps its
+        judgment and ``promotion_trigger`` and becomes ``operator_waived``.
+        Record the operator close only on the operator's explicit instruction
+        in the current request, the same rule as Wave Close. Lane lists
         (``source_lanes``, ``blocking_required_lanes``,
         ``approval_recheck_lanes``) are top-level parameters. ``approval_recheck_lanes`` names only the approvals affected
         by that finding; unrelated lane approvals remain current. Approval events require the exact
@@ -24860,7 +24908,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         aggregate-complete only when every started actionable finding has a terminal current head
         with no unresolved required lanes: completed reverification, truthful ``not_issue`` /
         ``dont_do_later`` reclassification with ``not_required`` repair state, or a valid distinct
-        operator waiver. Repeat same-cycle lane reverifications and later aggregate repair cycles
+        operator waiver; a ``security_unsettled`` head is terminal only once operator-waived. Repeat same-cycle lane reverifications and later aggregate repair cycles
         while the action matrix yields unresolved findings; historical batch runs remain valid.
         When the final outstanding ``reverification`` makes cycle 2 aggregate-complete after cycle 1, that
         identified operation derives and appends the mandatory ``convergence_checkpoint``
@@ -27096,7 +27144,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             return raw
         if closed_legacy_inline_record(raw, path):
             return raw  # Change 20wqa: closed history is served as written.
-        validation = validate_external_review_evidence(path)
+        validation = _validate_review_evidence_as_recorded(path, raw)
         if validation.authority_errors:
             details = [*validation.authority_errors]
             return (

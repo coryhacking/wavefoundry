@@ -556,6 +556,22 @@
                           "unsupported_reachability"
                         ]
                       }
+                    },
+                    "waiver": {
+                      "fields": [
+                        "waiver_id",
+                        "waiver_scope",
+                        "waiver_reason",
+                        "waiver_risk"
+                      ],
+                      "kind": "object",
+                      "meaning": "the operator closes an unsettled security candidate by name; record it only on the operator's explicit instruction in the current request",
+                      "refused_otherwise": true,
+                      "required_when": {
+                        "actor": "operator",
+                        "head_disposition": "security_unsettled",
+                        "run_kind": "reverification"
+                      }
                     }
                   },
                   "field_kind": "non-empty string",
@@ -1505,6 +1521,22 @@
                           "unsupported_reachability"
                         ]
                       }
+                    },
+                    "waiver": {
+                      "fields": [
+                        "waiver_id",
+                        "waiver_scope",
+                        "waiver_reason",
+                        "waiver_risk"
+                      ],
+                      "kind": "object",
+                      "meaning": "the operator closes an unsettled security candidate by name; record it only on the operator's explicit instruction in the current request",
+                      "refused_otherwise": true,
+                      "required_when": {
+                        "actor": "operator",
+                        "head_disposition": "security_unsettled",
+                        "run_kind": "reverification"
+                      }
                     }
                   },
                   "field_kind": "non-empty string",
@@ -2421,6 +2453,22 @@
                           "insufficient_evidence",
                           "unsupported_reachability"
                         ]
+                      }
+                    },
+                    "waiver": {
+                      "fields": [
+                        "waiver_id",
+                        "waiver_scope",
+                        "waiver_reason",
+                        "waiver_risk"
+                      ],
+                      "kind": "object",
+                      "meaning": "the operator closes an unsettled security candidate by name; record it only on the operator's explicit instruction in the current request",
+                      "refused_otherwise": true,
+                      "required_when": {
+                        "actor": "operator",
+                        "head_disposition": "security_unsettled",
+                        "run_kind": "reverification"
                       }
                     }
                   },

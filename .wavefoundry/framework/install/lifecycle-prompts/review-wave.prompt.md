@@ -37,7 +37,8 @@ Brief each lane using seed 209's **Briefing Packet**, including
 3. Use an independent reference for changed behavior and state the common-mode
    limitations of that reference.
 4. Classify every finding through the canonical action matrix: `do_now`,
-   `maybe_later`, `dont_do_later`, or `not_issue`.
+   `maybe_later`, `dont_do_later`, `not_issue`, or `security_unsettled` (not
+   terminal: it holds `operator-signoff` withheld until settled).
 5. Record executable evidence and finding synthesis through the typed evidence
    tool when available.
 6. A newly discovered finding may be recorded, started, repaired, and

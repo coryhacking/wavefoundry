@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-11-05
+Last verified: 2026-11-08
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -117,10 +117,10 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 | --- | ---: | ---: |
 | plan | 43 | 4,161 |
 | implement | 41 | 161,373 |
-| review | 93 | 304,966 |
-| **Total** | **177** | **470,500** |
+| review | 95 | 320,191 |
+| **Total** | **179** | **485,725** |
 
-<!-- wave:context-efficiency-state {"generation":166,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":41,"content_source_credit":186616,"derived_artifact_credit":0,"direct_net":161373,"estimated_tokens_saved":161373,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":1411,"response_debit":59796,"source_credit_count":19,"source_credit_drop_count":0,"structural_source_credit":32546,"workflow_prompt_credit":3418},"plan":{"calls":43,"content_source_credit":86109,"derived_artifact_credit":1390,"direct_net":4161,"estimated_tokens_saved":4161,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":8117,"response_debit":80729,"source_credit_count":29,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":5508},"review":{"calls":93,"content_source_credit":531089,"derived_artifact_credit":1961,"direct_net":304966,"estimated_tokens_saved":304966,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":5931,"response_debit":222153,"source_credit_count":55,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":177,"content_source_credit":803814,"derived_artifact_credit":3351,"direct_net":470500,"estimated_tokens_saved":470500,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":15459,"response_debit":362678,"source_credit_count":103,"source_credit_drop_count":0,"structural_source_credit":32546,"workflow_prompt_credit":8926},"wave_id":"22o93 scanner-rule-corrections"} -->
+<!-- wave:context-efficiency-state {"generation":168,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":41,"content_source_credit":186616,"derived_artifact_credit":0,"direct_net":161373,"estimated_tokens_saved":161373,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":1411,"response_debit":59796,"source_credit_count":19,"source_credit_drop_count":0,"structural_source_credit":32546,"workflow_prompt_credit":3418},"plan":{"calls":43,"content_source_credit":86109,"derived_artifact_credit":1390,"direct_net":4161,"estimated_tokens_saved":4161,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":8117,"response_debit":80729,"source_credit_count":29,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":5508},"review":{"calls":95,"content_source_credit":547909,"derived_artifact_credit":2285,"direct_net":320191,"estimated_tokens_saved":320191,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":6159,"response_debit":223844,"source_credit_count":57,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":179,"content_source_credit":820634,"derived_artifact_credit":3675,"direct_net":485725,"estimated_tokens_saved":485725,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":15687,"response_debit":364369,"source_credit_count":105,"source_credit_drop_count":0,"structural_source_credit":32546,"workflow_prompt_credit":8926},"wave_id":"22o93 scanner-rule-corrections"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided

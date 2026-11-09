@@ -1181,6 +1181,7 @@ class AdvisoryMemoryInventoryTests(unittest.TestCase):
                     controls.enter_context(mock.patch.object(memory_backfill, "_inventory", side_effect=OSError("PRIVATE_PATH_MUST_NOT_LEAK")))
                 fake_index = mock.Mock(return_value=0)
                 controls.enter_context(mock.patch.object(setup_wavefoundry, "_load_setup_index", return_value=types.SimpleNamespace(main=fake_index)))
+                controls.enter_context(mock.patch.object(setup_wavefoundry, "_run_uv_tls_step", return_value=(0, None)))
                 for name in ("_run_render_platform_surfaces", "_run_mcp_server_dry_run"):
                     controls.enter_context(mock.patch.object(setup_wavefoundry, name, return_value=0))
                 controls.enter_context(mock.patch.object(setup_wavefoundry.venv_bootstrap, "ensure_python_resolves"))

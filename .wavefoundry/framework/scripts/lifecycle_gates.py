@@ -255,6 +255,7 @@ SHARED_DELIVERY_DIAGNOSTIC_CODES = (
     "missing_wave_council_signoff",
     "review_policy_receipt_stale",
     "review_policy_reprepare_required",
+    "unsettled_security_candidate",
 )
 
 
@@ -271,6 +272,53 @@ CLOSURE_ONLY_DIAGNOSTIC_CODES = (
     "gates_forced_closed",
     "review_projection_failed",
 )
+
+
+def _security_candidate_diagnostics(authority) -> list[dict[str, Any]]:
+    """Name each security candidate in Review and Close (wave 22upa, change 22ubf).
+
+    An unsettled candidate blocks (it holds `operator-signoff` withheld); a waived
+    candidate and a pre-rule `maybe_later` or `dont_do_later` are non-blocking advisories.
+    """
+
+    candidate_state = getattr(review_evidence, "security_candidate_state", None)
+    if not authority.typed or candidate_state is None:
+        return []
+    state = candidate_state(authority.records)
+    diagnostics: list[dict[str, Any]] = []
+    for candidate in state["unsettled"]:
+        diagnostics.append(lifecycle_gate_support._diagnostic(
+            "unsettled_security_candidate",
+            f"Security candidate `{candidate['finding_id']}` is unsettled: its attacker "
+            "reachability or authority delta is unverified, so `operator-signoff` is "
+            "withheld. Promotion trigger: "
+            f"{candidate['promotion_trigger'] or 'none recorded'}. "
+            f"{review_evidence.UNSETTLED_SECURITY_NEXT_ACTION}.",
+            recovery_tools=["wf_review_wave"],
+            recovery_usage="wf_review_wave()",
+        ))
+    for candidate in state["waived"]:
+        who = candidate["operator_handle"] or candidate["attested_by"] or candidate["actor"] or "unknown"
+        account = (
+            f" (local account: {candidate['local_account']})" if candidate["local_account"] else ""
+        )
+        diagnostics.append(lifecycle_gate_support._diagnostic(
+            "security_candidate_waived",
+            f"Security candidate `{candidate['finding_id']}` was closed by the operator "
+            f"({who}{account}) under waiver `{candidate['waiver_id']}`: "
+            f"{candidate['waiver_reason']} Accepted risk: {candidate['waiver_risk']}",
+            advisory=True,
+        ))
+    for candidate in state["predates"]:
+        diagnostics.append(lifecycle_gate_support._diagnostic(
+            "security_candidate_predates_rule",
+            f"Security candidate `{candidate['finding_id']}` was recorded as "
+            f"`{candidate.get('disposition') or 'dont_do_later'}` "
+            "before unsettled security candidates stayed open; it is accepted as written. "
+            f"Promotion trigger: {candidate['promotion_trigger'] or 'none recorded'}.",
+            advisory=True,
+        ))
+    return diagnostics
 
 
 def _evaluate_shared_delivery_state(
@@ -353,6 +401,7 @@ def _evaluate_shared_delivery_state(
                 advisory=True,
             )
         )
+    diagnostics.extend(_security_candidate_diagnostics(authority))
     if not operator_current:
         remedy = (
             "Record wf_review_event(event='approval', signoff_key='operator-signoff', "

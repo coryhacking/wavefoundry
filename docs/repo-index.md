@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-06
+Last verified: 2026-11-08
 
 ## Repository Summary
 
@@ -35,29 +35,29 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 22231 |
-| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1680 |
-| sqlite_storage_migration | `.wavefoundry/framework/scripts` | code | 463 |
-| store | `.wavefoundry/framework/scripts` | code | 443 |
-| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 433 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 22625 |
+| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1617 |
+| store | `.wavefoundry/framework/scripts` | code | 529 |
+| memory_records | `.wavefoundry/framework/scripts` | code | 465 |
+| sqlite_storage_migration | `.wavefoundry/framework/scripts` | code | 446 |
+| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 429 |
 | graph | `.wavefoundry/framework/scripts` | code | 423 |
-| docs/dashboard_lib | `.wavefoundry/framework/scripts` | code | 376 |
-| setup | `.wavefoundry/framework/scripts` | code | 333 |
-| scripts/wave_lint_lib — relative_to_root | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 317 |
+| scripts/build_pack | `.wavefoundry/framework/scripts` | code | 397 |
+| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 332 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 247 |
+| workflow-config | `.wavefoundry/framework/scripts` | code | 235 |
 | dashboard | `.wavefoundry/framework/dashboard` | code | 229 |
 | chunker | `.wavefoundry/framework/scripts` | code | 229 |
-| tensorwell_client | `.wavefoundry/framework/scripts` | code | 189 |
-| framework/scripts — collect_files | `.wavefoundry/framework/scripts` | code | 183 |
-| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 179 |
-| scripts/wave_lint_lib — check_hardcoded_secrets | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 157 |
-| scripts/retrieval_eval | `.wavefoundry/framework/scripts` | code | 135 |
-| framework/scripts — write_report | `.wavefoundry/framework/scripts` | code | 103 |
-| memory_records | `.wavefoundry/framework/scripts` | code | 92 |
-| scripts/wave_lint_lib — entropy | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 64 |
+| scripts/vendored_integrity | `.wavefoundry/framework/scripts` | code | 194 |
+| scripts/retrieval_eval | `.wavefoundry/framework/scripts` | code | 105 |
+| tensorwell_client | `.wavefoundry/framework/scripts` | code | 68 |
 | gen_codebase_map | `.wavefoundry/framework/scripts` | code | 52 |
 | oracle | `.wavefoundry/framework/scripts/tests/oracle` | code | 52 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 47 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
+| 1ywls-mem decision-the-server-package-is-wf-server-reached-through-fla | `.wavefoundry/framework/scripts` | code | 25 |
+| ann_reference_eval | `.wavefoundry/framework/scripts` | code | 19 |
+| repair_ppol_memory_staging | `.wavefoundry/framework/scripts` | code | 13 |
 | configuration | `(root)` | config | 27 |
 <!-- wave:repo-index-modules end -->
 

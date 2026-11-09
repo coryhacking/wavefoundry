@@ -450,7 +450,26 @@ REJECTION_BASES = frozenset(
 PROMOTION_TRIGGER_REJECTION_BASES = frozenset(
     {"insufficient_evidence", "unsupported_reachability", "disproportionate_repair"}
 )
-DISPOSITIONS = frozenset({"do_now", "maybe_later", "dont_do_later", "not_issue"})
+DISPOSITIONS = frozenset(
+    {"do_now", "maybe_later", "dont_do_later", "not_issue", "security_unsettled"}
+)
+# Wave 22upa (change 22ubf): a real security finding whose attacker reachability or
+# authority delta is still `unverified` derives `security_unsettled`, which is NOT
+# terminal: it stays `pending` and holds `operator-signoff` withheld until fresh evidence
+# settles it or the operator closes it by name (`operator_waived`).
+SECURITY_UNSETTLED = "security_unsettled"
+# What the rule before 22ubf derived for a record that now derives `security_unsettled`:
+# an open wave accepts either as written (`predates_security_rule`).
+PRE_SECURITY_RULE_DISPOSITIONS = frozenset({"maybe_later", "dont_do_later"})
+# Dispositions a repair cycle may start on and whose head is terminal only once its repair
+# state is `completed` or `operator_waived`.
+REPAIR_CHAIN_DISPOSITIONS = frozenset({"do_now", "maybe_later", SECURITY_UNSETTLED})
+# The four counts every "Machine review state" line has always carried; the fifth is
+# appended only when non-zero so every existing line re-renders byte for byte.
+_SUMMARY_DISPOSITIONS = ("do_now", "maybe_later", "dont_do_later", "not_issue")
+# The operator close of a `security_unsettled` head (requirement 5) carries these fields in
+# a review event's `evidence.waiver` object.
+OPERATOR_CLOSE_WAIVER_FIELDS = ("waiver_id", "waiver_scope", "waiver_reason", "waiver_risk")
 DECISION_AUTHORITIES = frozenset({"moderator", "required_specialist", "operator"})
 REVIEW_DEPTHS = frozenset({"none", "focused", "full"})
 REPAIR_EXECUTION_STATES = frozenset({"not_required", "pending", "completed", "operator_waived"})
@@ -568,9 +587,26 @@ def is_operator_approval_record(record: Mapping[str, Any]) -> bool:
     )
 
 
+def is_operator_finding_evidence(record: Mapping[str, Any]) -> bool:
+    """Finding evidence recorded by the operator: the operator close (wave 22upa, 22ubf).
+
+    The relationship validator requires such evidence to back an `operator_waived`
+    `security_unsettled` synthesis whenever it carries a non-true integrity check.
+    """
+    context = record.get("verification_context")
+    return (
+        record.get("claim_kind") == "finding"
+        and isinstance(context, Mapping)
+        and context.get("actor") == "operator"
+    )
+
+
 def _accepts_not_applicable_integrity(record: Mapping[str, Any]) -> bool:
-    """Null integrity checks are legal only on an operator sign-off approval record."""
-    return record.get("claim_kind") == "approval" and is_operator_approval_record(record)
+    """Null integrity checks are legal only on an operator sign-off approval record
+    and on the operator's own finding evidence (the operator close)."""
+    return (
+        record.get("claim_kind") == "approval" and is_operator_approval_record(record)
+    ) or is_operator_finding_evidence(record)
 
 
 # Wave 21j63 (change 21kk5): a council approval carries the council-chair's
@@ -713,6 +749,22 @@ def review_action_input_schema() -> dict[str, Any]:
                         },
                         "refused_otherwise": True,
                         "meaning": "what evidence would reopen an accepted finding",
+                    },
+                    # Wave 22upa (22ubf): the operator close of a security_unsettled head.
+                    "waiver": {
+                        "kind": "object",
+                        "fields": list(OPERATOR_CLOSE_WAIVER_FIELDS),
+                        "required_when": {
+                            "actor": "operator",
+                            "run_kind": "reverification",
+                            "head_disposition": SECURITY_UNSETTLED,
+                        },
+                        "refused_otherwise": True,
+                        "meaning": (
+                            "the operator closes an unsettled security candidate by name; "
+                            "record it only on the operator's explicit instruction in the "
+                            "current request"
+                        ),
                     },
                 },
             },
@@ -1606,12 +1658,35 @@ def derive_action_required(record: Mapping[str, Any]) -> bool:
     )
 
 
+def security_factor_unsettled(record: Mapping[str, Any]) -> bool:
+    """True when a real record's security factor is unknown and not shown unreachable.
+
+    Wave 22upa (change 22ubf): `attacker_reachability` or `authority_delta` is
+    `unverified`, whatever the rejection basis, except a finding shown unreachable
+    (`unsupported_reachability` with `supported_reachability: false`).
+    `authority_domain` alone never triggers it, nor do correctness-side unknowns.
+    """
+    if record.get("validation_status") != "real":
+        return False
+    if not (
+        record.get("attacker_reachability") == "unverified"
+        or record.get("authority_delta") == "unverified"
+    ):
+        return False
+    return not (
+        record.get("rejection_basis") == "unsupported_reachability"
+        and record.get("supported_reachability") is False
+    )
+
+
 def derive_disposition(record: Mapping[str, Any]) -> str:
-    """Apply the ordered four-way actionability state machine."""
+    """Apply the ordered five-way actionability state machine."""
     if record.get("validation_status") in {"invalid", "conforming"}:
         return "not_issue"
     if derive_action_required(record):
         return "do_now"
+    if security_factor_unsettled(record):
+        return SECURITY_UNSETTLED
     if (
         record.get("validation_status") == "real"
         and record.get("optional_value") == "positive"
@@ -1651,12 +1726,41 @@ def derive_blocking(record: Mapping[str, Any]) -> bool:
     )
 
 
-def derive_review_depth(record: Mapping[str, Any]) -> str:
+def derive_review_depth(record: Mapping[str, Any], *, disposition: str | None = None) -> str:
     if any(record.get(name) is True for name in FULL_COUNCIL_TRIGGERS):
         return "full"
-    if derive_disposition(record) in {"do_now", "maybe_later"}:
+    if (disposition or derive_disposition(record)) in REPAIR_CHAIN_DISPOSITIONS:
         return "focused"
     return "none"
+
+
+def predates_security_rule(record: Mapping[str, Any]) -> bool:
+    """A synthesis written before the `security_unsettled` rule existed.
+
+    Wave 22upa (change 22ubf): the new branch sits after `do_now`, so the old rule derived
+    such a record as either `maybe_later` or `dont_do_later`. Either is accepted as written
+    in an open wave and reported as the advisory `security_candidate_predates_rule`; a new
+    synthesis uses the new rule.
+    """
+    return (
+        record.get("disposition") in PRE_SECURITY_RULE_DISPOSITIONS
+        and derive_disposition(record) == SECURITY_UNSETTLED
+    )
+
+
+def _validation_disposition(record: Mapping[str, Any], *, closed: bool) -> str:
+    """The disposition the validator judges a record by.
+
+    A closed wave's recorded dispositions stay valid as written (no re-derivation); in an
+    open wave a pre-rule `maybe_later` or `dont_do_later` is accepted as written; otherwise
+    the derived one.
+    """
+    stored = record.get("disposition")
+    if closed and stored in DISPOSITIONS:
+        return str(stored)
+    if predates_security_rule(record):
+        return str(stored)
+    return derive_disposition(record)
 
 
 def current_synthesis_heads(records: Iterable[Mapping[str, Any]]) -> dict[str, Mapping[str, Any]]:
@@ -1674,7 +1778,7 @@ def review_evidence_summary(records: Iterable[Mapping[str, Any]]) -> dict[str, A
 
     rows = tuple(records)
     heads = current_synthesis_heads(rows)
-    dispositions = {name: 0 for name in ("do_now", "maybe_later", "dont_do_later", "not_issue")}
+    dispositions = {name: 0 for name in (*_SUMMARY_DISPOSITIONS, SECURITY_UNSETTLED)}
     for head in heads.values():
         disposition = str(head.get("disposition", ""))
         if disposition in dispositions:
@@ -1690,7 +1794,9 @@ def review_evidence_summary(records: Iterable[Mapping[str, Any]]) -> dict[str, A
 def review_evidence_summary_line(records: Iterable[Mapping[str, Any]]) -> str:
     summary = review_evidence_summary(records)
     dispositions = summary["current_dispositions"]
-    current = ", ".join(f"{name} {dispositions[name]}" for name in dispositions)
+    current = ", ".join(f"{name} {dispositions[name]}" for name in _SUMMARY_DISPOSITIONS)
+    if dispositions[SECURITY_UNSETTLED]:
+        current += f", {SECURITY_UNSETTLED} {dispositions[SECURITY_UNSETTLED]}"
     return f"Machine review state — {summary['findings']} findings; current: {current}"
 
 
@@ -1770,6 +1876,71 @@ def _approval_rows(
             approval_phase is None
             or approval_record_phase(record) == approval_phase
         )
+    }
+
+
+UNSETTLED_SECURITY_NEXT_ACTION = (
+    "operator decision required: settle by fresh evidence, or the operator closes it"
+)
+
+
+def security_candidate_state(
+    records: Iterable[Mapping[str, Any]],
+) -> dict[str, tuple[dict[str, Any], ...]]:
+    """Classify the current security-candidate heads (wave 22upa, change 22ubf).
+
+    ``unsettled``: a head stored `security_unsettled` and `pending`; it holds
+    `operator-signoff` withheld. ``waived``: the operator closed it
+    (`operator_waived`), with the waiver and the operator identity from its linked
+    evidence. ``predates``: a `maybe_later` or `dont_do_later` head written before the rule existed that
+    would now derive `security_unsettled`. Reads stored state; never re-judges a head.
+    """
+
+    rows = tuple(records)
+    evidence_by_id = {
+        str(record.get("evidence_record_id")): record
+        for record in rows
+        if record.get("record_type") == "executable_evidence"
+    }
+    unsettled: list[dict[str, Any]] = []
+    waived: list[dict[str, Any]] = []
+    predates: list[dict[str, Any]] = []
+    for finding_id, head in current_synthesis_heads(rows).items():
+        stored = head.get("disposition")
+        repair_state = head.get("repair_execution_state")
+        trigger = head.get("promotion_trigger")
+        trigger = str(trigger) if _nonempty_string(trigger) else None
+        if stored == SECURITY_UNSETTLED and repair_state == "pending":
+            unsettled.append({"finding_id": str(finding_id), "promotion_trigger": trigger})
+        elif stored == SECURITY_UNSETTLED and repair_state == "operator_waived":
+            evidence = evidence_by_id.get(str(head.get("evidence_record_id")))
+            context = evidence.get("verification_context") if isinstance(evidence, Mapping) else None
+            context = context if isinstance(context, Mapping) else {}
+            operator = context.get("operator")
+            local_user = context.get("local_user")
+            waived.append({
+                "finding_id": str(finding_id),
+                "promotion_trigger": trigger,
+                **{field: head.get(field) for field in OPERATOR_CLOSE_WAIVER_FIELDS},
+                "actor": context.get("actor"),
+                "operator_handle": (
+                    operator.get("handle") if isinstance(operator, Mapping) else None
+                ),
+                "local_account": (
+                    local_user.get("name") if isinstance(local_user, Mapping) else None
+                ),
+                "attested_by": context.get("attested_by"),
+            })
+        elif predates_security_rule(head):
+            predates.append({
+                "finding_id": str(finding_id),
+                "promotion_trigger": trigger,
+                "disposition": str(head.get("disposition")),
+            })
+    return {
+        "unsettled": tuple(unsettled),
+        "waived": tuple(waived),
+        "predates": tuple(predates),
     }
 
 
@@ -2097,6 +2268,9 @@ def review_authority_projection(
     finding_origin_phases = _finding_origin_phases(rows)
     current_receipt = current_policy_receipt(rows)
     guided_repair_cycle = _guided_repair_cycle(rows)
+    # Wave 22upa (change 22ubf): stored `security_unsettled` + `pending` heads hold
+    # `operator-signoff` withheld; lane rows are unaffected.
+    unsettled_candidates = security_candidate_state(rows)["unsettled"]
     positions = {id(record): position for position, record in enumerate(rows)}
     runs_by_id = {
         str(record.get("review_run_id")): record
@@ -2374,6 +2548,21 @@ def review_authority_projection(
                     f"`{current_receipt.get('receipt_id')}`"
                 )
             next_action = f"record approval evidence for {key}"
+        operator_unsettled = bool(
+            unsettled_candidates and canonical_signoff_key(key) == "operator-signoff"
+        )
+        if operator_unsettled:
+            listed = "; ".join(
+                f"{candidate['finding_id']} (promotion trigger: "
+                f"{candidate['promotion_trigger'] or 'none recorded'})"
+                for candidate in unsettled_candidates[:8]
+            )
+            if len(unsettled_candidates) > 8:
+                listed += f" (+{len(unsettled_candidates) - 8} more; see events.jsonl)"
+            unsettled_why = "unsettled security candidates: " + listed
+            why = f"{why}; {unsettled_why}" if state == "withheld" else unsettled_why
+            next_action = UNSETTLED_SECURITY_NEXT_ACTION
+            state = "withheld"
         status_row = {
             "signoff_key": key,
             "state": state,
@@ -2390,7 +2579,7 @@ def review_authority_projection(
             approval_state = "invalid"
         elif not receipt_binding_current:
             approval_state = "stale"
-        elif blocking:
+        elif blocking or operator_unsettled:
             approval_state = "withheld"
         else:
             approval_state = "approved"
@@ -2408,7 +2597,7 @@ def review_authority_projection(
                 "blocking_finding_ids": tuple(
                     fact["finding_id"] for fact in blocking
                 ),
-                "has_unresolved_blocking_findings": any(
+                "has_unresolved_blocking_findings": operator_unsettled or any(
                     not fact["terminal"] for fact in blocking
                 ),
                 "unresolved_required_lanes": tuple(unresolved if blocking else ()),
@@ -3654,6 +3843,14 @@ def repair_independence_violations(
         )
         if not isinstance(context, Mapping):
             continue
+        if (
+            row.get("disposition") == SECURITY_UNSETTLED
+            and row.get("repair_execution_state") == "operator_waived"
+            and context.get("actor") == "operator"
+        ):
+            # Wave 22upa (change 22ubf): the operator close is a decision, not a
+            # repair verification; it needs no repair_start anchor.
+            continue
         code = _reverification_independence_defect(
             rows[:evidence_positions[str(row.get("evidence_record_id"))]],
             finding_id,
@@ -3710,6 +3907,11 @@ def build_compact_review_event(
     context_id = event.get("context_id")
     if not _nonempty_string(actor) or not _nonempty_string(context_id):
         errors.append("actor and context_id must be non-empty strings")
+    if "waiver" in event and event_type != "finding":
+        errors.append(
+            "`waiver` is valid only on the operator close: a finding event with "
+            "run_kind `reverification` and actor `operator`"
+        )
 
     if event_type == "run":
         run_kind = event.get("run_kind")
@@ -3876,6 +4078,20 @@ def build_compact_review_event(
             },
         ), ()
 
+    if errors:
+        return (), tuple(errors)
+    if "waiver" in event or (
+        actor == "operator"
+        and event.get("run_kind") == "reverification"
+        and _nonempty_string(event.get("finding_id"))
+        and (current_synthesis_heads(prior).get(str(event.get("finding_id"))) or {}).get(
+            "disposition"
+        ) == SECURITY_UNSETTLED
+    ):
+        return _build_operator_close(
+            prior, event, operator=operator, attested_by=attested_by, local_user=local_user
+        )
+
     finding_id = event.get("finding_id")
     run_kind = event.get("run_kind")
     cycle = event.get("cycle")
@@ -4007,6 +4223,16 @@ def build_compact_review_event(
         repair_id = _retained_review_context_start(prior, context_id, event.get("fresh_context"))
         if repair_id is not None:
             return (), (_retained_context_description(context_id, repair_id),)
+        if prior_head.get("disposition") == SECURITY_UNSETTLED and (
+            event.get("fresh_context") is not True or event.get("independent") is not True
+        ):
+            # Wave 22upa (change 22ubf): only fresh, independent evidence settles an
+            # unsettled security candidate.
+            return (), (
+                f"a reverification of a {SECURITY_UNSETTLED} finding requires "
+                "fresh_context=true and independent=true: only fresh, independent "
+                "evidence settles it (or the operator closes it)",
+            )
     origin_phase = _finding_origin_phases(prior).get(str(finding_id))
     evidence_phase = (
         "readiness"
@@ -4093,9 +4319,18 @@ def build_compact_review_event(
         "blocking_required_lanes": blocking_lanes,
         "approval_recheck_lanes": recheck_lanes,
         **{name: name in triggers for name in FULL_COUNCIL_TRIGGERS},
+        # Wave 22upa (change 22ubf): `security_unsettled` is always pending, and a
+        # reverification that settles one as actionable still owes its repair.
         "repair_execution_state": (
             "not_required"
             if derive_disposition(provisional) in {"not_issue", "dont_do_later"}
+            else "pending"
+            if derive_disposition(provisional) == SECURITY_UNSETTLED
+            or (
+                run_kind == "reverification"
+                and prior_head is not None
+                and prior_head.get("disposition") == SECURITY_UNSETTLED
+            )
             else "completed"
             if run_kind in {"reverification", "convergence_checkpoint"}
             else "pending"
@@ -4192,6 +4427,206 @@ def build_compact_review_event(
                 }
             )
     return tuple(rows), ()
+
+
+def _build_operator_close(
+    prior: tuple[dict[str, Any], ...],
+    event: Mapping[str, Any],
+    *,
+    operator: Mapping[str, Any] | None,
+    attested_by: str | None,
+    local_user: Mapping[str, Any] | None,
+) -> tuple[tuple[dict[str, Any], ...], tuple[str, ...]]:
+    """The operator close of a `security_unsettled` head (wave 22upa, change 22ubf).
+
+    A `finding` event with `run_kind: reverification`, `actor: operator` and a `waiver`
+    object in its evidence. It writes its own operator evidence (identity resolved as for
+    an `operator-signoff` approval, integrity checks null) and a superseding head with the
+    same judgment, `operator_waived`, `decision_authority: operator`, the waiver fields and
+    the original `promotion_trigger`. It is recorded in the head's open repair cycle, or
+    in the cycle the wave's next repair_start would use. An agent records it only on the
+    operator's explicit instruction in the current request.
+    """
+
+    errors: list[str] = []
+    actor = event.get("actor")
+    context_id = event.get("context_id")
+    finding_id = event.get("finding_id")
+    cycle = event.get("cycle")
+    waiver = event.get("waiver")
+    if actor != "operator":
+        errors.append(
+            "an operator close (a reverification carrying `waiver`) requires actor `operator`"
+        )
+    if event.get("run_kind") != "reverification":
+        errors.append("an operator close is recorded with run_kind `reverification`")
+    if not _nonempty_string(finding_id):
+        errors.append("finding event requires finding_id")
+    if not isinstance(cycle, int) or isinstance(cycle, bool) or cycle < 1:
+        errors.append("an operator close requires an integer cycle >= 1")
+    if not isinstance(waiver, Mapping):
+        errors.append(
+            "an operator close requires a `waiver` object in evidence with: "
+            + ", ".join(OPERATOR_CLOSE_WAIVER_FIELDS)
+        )
+    else:
+        missing = [field for field in OPERATOR_CLOSE_WAIVER_FIELDS if not _nonempty_string(waiver.get(field))]
+        unknown = sorted(set(waiver) - set(OPERATOR_CLOSE_WAIVER_FIELDS))
+        if missing:
+            errors.append("operator close waiver requires non-empty: " + ", ".join(missing))
+        if unknown:
+            errors.append("operator close waiver has unknown fields: " + ", ".join(unknown))
+    if event.get("judgment") is not None:
+        errors.append("an operator close keeps the current head's judgment; omit `judgment`")
+    if event.get("integrity_checks") is not None:
+        errors.append("an operator close runs no check of its own; omit `integrity_checks`")
+    for field in ("source_lanes", "blocking_required_lanes", "approval_recheck_lanes", "review_boundaries_changed"):
+        if event.get(field):
+            errors.append(f"an operator close keeps the current head's lanes; omit `{field}`")
+    for field in REVIEW_APPROVAL_REQUIRED_EVIDENCE_FIELDS:
+        if not _nonempty_string(event.get(field)):
+            errors.append(f"operator close requires {field}")
+    if errors:
+        return (), tuple(errors)
+    finding_id = str(finding_id)
+    head = current_synthesis_heads(prior).get(finding_id)
+    if (
+        head is None
+        or head.get("disposition") != SECURITY_UNSETTLED
+        or head.get("repair_execution_state") != "pending"
+    ):
+        state = (
+            "has no current head"
+            if head is None
+            else f"is `{head.get('disposition')}` with repair state `{head.get('repair_execution_state')}`"
+        )
+        return (), (
+            f"an operator close applies only to a current {SECURITY_UNSETTLED} head that is "
+            f"still pending; `{finding_id}` {state}",
+        )
+    runs_by_id = {
+        str(record.get("review_run_id")): record
+        for record in prior
+        if record.get("record_type") == "review_run"
+    }
+    head_run = runs_by_id.get(str(head.get("review_run_id"))) or {}
+    head_cycle = head.get("cycle")
+    open_cycle = (
+        head_cycle
+        if head_run.get("run_kind") in {"repair_start", "reverification"}
+        and isinstance(head_cycle, int)
+        and head_cycle >= 1
+        else None
+    )
+    expected_cycle = open_cycle if open_cycle is not None else _guided_repair_cycle(prior)
+    if cycle != expected_cycle:
+        where = (
+            "the finding's open repair cycle"
+            if open_cycle is not None
+            else "the cycle the next repair_start would use"
+        )
+        return (), (
+            f"an operator close of `{finding_id}` is recorded in {where}: cycle {expected_cycle}",
+        )
+    origin_phase = _finding_origin_phases(prior).get(finding_id)
+    evidence_id = _unique_record_id(prior, "ev-operator-close", finding_id)
+    run_id = _unique_record_id(prior, "run", f"reverification-{cycle}-{finding_id}")
+    synthesis_id = _unique_record_id(prior, "syn", f"{finding_id}-{cycle}")
+    integrity = OPERATOR_APPROVAL_INTEGRITY_DEFAULT
+    evidence: dict[str, Any] = {
+        "record_type": "executable_evidence",
+        "evidence_record_id": evidence_id,
+        "claim_id": finding_id,
+        "claim_kind": "finding",
+        "required_for_approval": False,
+        "phase": "readiness" if origin_phase == "readiness" else "delivery",
+        "proposition": str(event.get("proposition") or (
+            f"the operator closes unsettled security candidate {finding_id} by name"
+        )),
+        "counterexample_or_failure_condition": str(event.get("failure_condition") or (
+            "the candidate is closed without the operator's explicit, attributed decision"
+        )),
+        "execution_status": "executed",
+        "public_path": str(event.get("public_path") or "wf_review_event"),
+        "command_or_fixture": str(event.get("command_or_fixture") or event["artifact_or_test_id"]),
+        "expected": str(event.get("expected") or (
+            "the operator accepts the stated waiver risk; an operator close runs no check of its own"
+        )),
+        "observed": str(event["observed"]),
+        "artifact_or_test_id": str(event["artifact_or_test_id"]),
+        "adjacent_controls": list(event.get("adjacent_controls") or []),
+        **{field: integrity[field] for field in INTEGRITY_CHECK_BOOLEAN_FIELDS},
+        "known_bad_detection_method": (
+            "not applicable: an operator close records a decision and runs no check"
+        ),
+        "limitations": str(event.get("limitations") or (
+            "The candidate's security factor remains unverified; the operator accepts the waiver risk."
+        )),
+        "safety_and_authorization": str(event.get("safety_and_authorization") or (
+            "Local review evidence only; recorded on the operator's explicit instruction."
+        )),
+        "probe_class": "none",
+        "authorization_status": "not_required",
+        "safe_boundary": False,
+        "unexecuted_remainder_prohibited": False,
+        "universal_claim": False,
+        "verification_context": {
+            "actor": "operator",
+            "context_id": context_id,
+            "fresh_context": bool(event.get("fresh_context")),
+            "independent": bool(event.get("independent")),
+            **_identity_context(operator, attested_by, local_user),
+        },
+    }
+    run: dict[str, Any] = {
+        "record_type": "review_run",
+        "review_run_id": run_id,
+        "run_kind": "reverification",
+        "cycle": cycle,
+        "candidate_finding_ids": [finding_id],
+        "source_record_ids": [evidence_id],
+        "dedup_evidence_id": evidence_id,
+    }
+    frozen_boundary: set[str] | None = None
+    for prior_run in prior:
+        if (
+            prior_run.get("record_type") == "review_run"
+            and prior_run.get("run_kind") == "convergence_checkpoint"
+        ):
+            frozen_boundary = set(_string_items(prior_run.get("frozen_boundary", [])))
+    if frozen_boundary is not None and finding_id not in frozen_boundary:
+        run["deviation_ids"] = [finding_id]
+    kept = (
+        *REVIEW_FINDING_CORE_JUDGMENT_FIELDS,
+        *REVIEW_FINDING_REPAIR_JUDGMENT_FIELDS,
+        *FULL_COUNCIL_TRIGGERS,
+        "source_lanes",
+        "blocking_required_lanes",
+        "approval_recheck_lanes",
+        "disposition_rationale",
+        "promotion_trigger",
+    )
+    synthesis: dict[str, Any] = {
+        "record_type": "finding_synthesis",
+        "record_id": synthesis_id,
+        "review_run_id": run_id,
+        "cycle": cycle,
+        "finding_id": finding_id,
+        **{
+            field: list(head[field]) if isinstance(head[field], list) else head[field]
+            for field in kept
+            if field in head
+        },
+        "repair_execution_state": "operator_waived",
+        "evidence_record_id": evidence_id,
+        "decision_authority": "operator",
+        **{field: str(waiver[field]) for field in OPERATOR_CLOSE_WAIVER_FIELDS},
+        "supersedes_record_id": head["record_id"],
+    }
+    synthesis["disposition"] = derive_disposition(synthesis)
+    synthesis["blocking"] = derive_blocking(synthesis)
+    synthesis["review_depth"] = derive_review_depth(synthesis)
+    return (evidence, run, synthesis), ()
 
 
 def _marker_version(text: str) -> tuple[int | None, list[str]]:
@@ -4578,7 +5013,9 @@ def _validate_evidence_shape(record: Mapping[str, Any], index: int) -> list[str]
         "assertions_non_vacuous",
         "known_bad_detected",
     )
-    if record.get("execution_status") == "executed" and not is_operator_approval_record(record) and any(
+    if record.get("execution_status") == "executed" and not (
+        is_operator_approval_record(record) or is_operator_finding_evidence(record)
+    ) and any(
         record.get(field) is not True for field in integrity_fields
     ):
         errors.append(
@@ -4662,7 +5099,9 @@ def _validate_evidence_shape(record: Mapping[str, Any], index: int) -> list[str]
     return errors
 
 
-def _validate_synthesis_shape(record: Mapping[str, Any], index: int, *, closure: bool) -> list[str]:
+def _validate_synthesis_shape(
+    record: Mapping[str, Any], index: int, *, closure: bool, closed: bool = False
+) -> list[str]:
     label = f"finding_synthesis[{index}]"
     errors = _require_fields(record, _SYNTHESIS_REQUIRED, _SYNTHESIS_OPTIONAL, label)
     for field in (
@@ -4717,23 +5156,29 @@ def _validate_synthesis_shape(record: Mapping[str, Any], index: int, *, closure:
         if unknown_lanes:
             errors.append(f"{label}: blocking required lanes must also appear in source_lanes")
 
-    expected_disposition = derive_disposition(record)
-    expected_blocking = derive_blocking(record)
-    expected_depth = derive_review_depth(record)
-    if record.get("disposition") != expected_disposition:
-        errors.append(f"{label}: disposition must be derived as `{expected_disposition}`")
-    if record.get("blocking") is not expected_blocking:
-        errors.append(f"{label}: blocking must be derived as {str(expected_blocking).lower()}")
-    if record.get("review_depth") != expected_depth:
-        errors.append(f"{label}: review_depth must be derived as `{expected_depth}`")
+    # Wave 22upa (change 22ubf): a closed wave's derived fields are not recomputed; its
+    # recorded dispositions stay valid as written. In an open wave a pre-rule `maybe_later`
+    # or `dont_do_later` that would now derive `security_unsettled` is accepted as written.
+    expected_disposition = _validation_disposition(record, closed=closed)
+    if closed:
+        expected_blocking = record.get("blocking") is True
+    else:
+        expected_blocking = derive_blocking(record)
+        expected_depth = derive_review_depth(record, disposition=expected_disposition)
+        if record.get("disposition") != expected_disposition:
+            errors.append(f"{label}: disposition must be derived as `{expected_disposition}`")
+        if record.get("blocking") is not expected_blocking:
+            errors.append(f"{label}: blocking must be derived as {str(expected_blocking).lower()}")
+        if record.get("review_depth") != expected_depth:
+            errors.append(f"{label}: review_depth must be derived as `{expected_depth}`")
 
     disposition = expected_disposition
     rejection_basis = record.get("rejection_basis")
     repair_state = record.get("repair_execution_state")
     if disposition in {"do_now", "maybe_later", "not_issue"} and rejection_basis != "none":
         errors.append(f"{label}: {disposition} requires rejection_basis `none`")
-    if disposition == "dont_do_later" and rejection_basis == "none":
-        errors.append(f"{label}: dont_do_later requires a non-none rejection_basis")
+    if disposition in {"dont_do_later", SECURITY_UNSETTLED} and rejection_basis == "none":
+        errors.append(f"{label}: {disposition} requires a non-none rejection_basis")
     if rejection_basis in PROMOTION_TRIGGER_REJECTION_BASES:
         if not _nonempty_string(record.get("promotion_trigger")):
             errors.append(f"{label}: rejection basis `{rejection_basis}` requires promotion_trigger")
@@ -4743,6 +5188,16 @@ def _validate_synthesis_shape(record: Mapping[str, Any], index: int, *, closure:
     if disposition in {"not_issue", "dont_do_later"}:
         if repair_state != "not_required":
             errors.append(f"{label}: {disposition} requires repair_execution_state `not_required`")
+        if "follow_on_id" in record:
+            errors.append(f"{label}: {disposition} must not create follow-on debt")
+    elif disposition == SECURITY_UNSETTLED:
+        # Never completed: it stays pending until fresh evidence settles it or the
+        # operator closes it (`operator_waived`).
+        if repair_state not in {"pending", "operator_waived"}:
+            errors.append(
+                f"{label}: {SECURITY_UNSETTLED} requires repair_execution_state "
+                "`pending` or `operator_waived`"
+            )
         if "follow_on_id" in record:
             errors.append(f"{label}: {disposition} must not create follow-on debt")
     elif repair_state not in {"pending", "completed", "operator_waived"}:
@@ -4786,8 +5241,17 @@ def _safe_material_blocker(record: Mapping[str, Any]) -> bool:
 
 def _repair_cycle_progress(
     records: Iterable[Mapping[str, Any]],
+    *,
+    closed: bool = False,
 ) -> tuple[frozenset[int], tuple[str, ...]]:
-    """Derive aggregate repair-cycle completion across per-finding and batch runs."""
+    """Derive aggregate repair-cycle completion across per-finding and batch runs.
+
+    ``closed`` (wave 22upa, change 22ubf): a closed wave's chain is judged by each
+    record's stored disposition, never re-derived.
+    """
+
+    def disposition_of(row: Mapping[str, Any]) -> str:
+        return _validation_disposition(row, closed=closed)
 
     rows = [dict(record) for record in records]
     runs = [record for record in rows if record.get("record_type") == "review_run"]
@@ -4827,7 +5291,7 @@ def _repair_cycle_progress(
         actionable = [
             row
             for row in run_syntheses
-            if derive_disposition(row) in {"do_now", "maybe_later"}
+            if disposition_of(row) in REPAIR_CHAIN_DISPOSITIONS
         ]
         if kind == "repair_start":
             if cycle < 1:
@@ -4884,6 +5348,15 @@ def _repair_cycle_progress(
                 if not isinstance(finding_id, str):
                     continue
                 start_position = cycle_starts.get(finding_id)
+                operator_close = (
+                    disposition_of(row) == SECURITY_UNSETTLED
+                    and row.get("repair_execution_state") == "operator_waived"
+                )
+                if operator_close and (start_position is None or start_position >= position):
+                    # Wave 22upa (change 22ubf): an operator close with no open cycle for
+                    # its finding is recorded in the wave's next cycle without a
+                    # repair_start; it makes no progress in that cycle.
+                    continue
                 if start_position is None or start_position >= position:
                     # Self-correcting (wave 1tis9): name the corrective call.
                     # A repair cycle opens with a repair_start recorded BEFORE
@@ -4906,11 +5379,11 @@ def _repair_cycle_progress(
                     row.get("blocking_required_lanes", [])
                 )
                 repair_state = row.get("repair_execution_state")
-                disposition = derive_disposition(row)
+                disposition = disposition_of(row)
                 actionable_terminal = (
                     disposition in {"do_now", "maybe_later"}
                     and repair_state in {"completed", "operator_waived"}
-                )
+                ) or (disposition == SECURITY_UNSETTLED and repair_state == "operator_waived")
                 reclassified_terminal = (
                     disposition in {"not_issue", "dont_do_later"}
                     and repair_state == "not_required"
@@ -4944,7 +5417,9 @@ def _repair_cycle_progress(
     return frozenset(completed), tuple(errors)
 
 
-def _validate_relationships(records: list[dict[str, Any]], *, closure: bool) -> list[str]:
+def _validate_relationships(
+    records: list[dict[str, Any]], *, closure: bool, closed: bool = False
+) -> list[str]:
     errors: list[str] = []
     runs: list[dict[str, Any]] = [record for record in records if record.get("record_type") == "review_run"]
     syntheses: list[dict[str, Any]] = [record for record in records if record.get("record_type") == "finding_synthesis"]
@@ -5040,7 +5515,9 @@ def _validate_relationships(records: list[dict[str, Any]], *, closure: bool) -> 
             errors.append(
                 f"synthesis `{synthesis.get('record_id')}` cannot precede its executable finding evidence"
             )
-        elif evidence.get("execution_status") in {"unverified", "not_applicable"} and derive_blocking(synthesis):
+        elif evidence.get("execution_status") in {"unverified", "not_applicable"} and (
+            synthesis.get("blocking") is True if closed else derive_blocking(synthesis)
+        ):
             errors.append(
                 f"blocking synthesis `{synthesis.get('record_id')}` cannot rely on unverified/not_applicable evidence"
             )
@@ -5141,7 +5618,7 @@ def _validate_relationships(records: list[dict[str, Any]], *, closure: bool) -> 
 
     for current in record_ids.values():
         if (
-            derive_disposition(current) in {"do_now", "maybe_later"}
+            _validation_disposition(current, closed=closed) in {"do_now", "maybe_later"}
             and current.get("repair_execution_state") == "completed"
             and run_ids.get(str(current.get("review_run_id")), {}).get("run_kind")
             not in {"reverification", "convergence_checkpoint"}
@@ -5153,7 +5630,7 @@ def _validate_relationships(records: list[dict[str, Any]], *, closure: bool) -> 
     if closure:
         for finding_id, record_id in heads.items():
             current = record_ids[record_id]
-            if derive_disposition(current) in {"do_now", "maybe_later"} and current.get(
+            if _validation_disposition(current, closed=closed) in REPAIR_CHAIN_DISPOSITIONS and current.get(
                 "repair_execution_state"
             ) not in {"completed", "operator_waived"}:
                 errors.append(
@@ -5167,7 +5644,7 @@ def _validate_relationships(records: list[dict[str, Any]], *, closure: bool) -> 
                 )
 
     last_cycle = -1
-    completed_cycles, cycle_errors = _repair_cycle_progress(records)
+    completed_cycles, cycle_errors = _repair_cycle_progress(records, closed=closed)
     errors.extend(cycle_errors)
     frozen_boundary: set[str] | None = None
     for position, run in enumerate(runs):
@@ -5234,12 +5711,68 @@ def _validate_relationships(records: list[dict[str, Any]], *, closure: bool) -> 
     return errors
 
 
+def _validate_operator_close_links(
+    records: list[dict[str, Any]], *, closed: bool
+) -> list[str]:
+    """The operator close is attributed (wave 22upa, change 22ubf).
+
+    An `operator_waived` `security_unsettled` synthesis must link evidence recorded by
+    the operator, and operator finding evidence carrying a non-true integrity check is
+    valid only as such a close.
+    """
+
+    errors: list[str] = []
+    syntheses = [record for record in records if record.get("record_type") == "finding_synthesis"]
+    evidence_rows = [record for record in records if record.get("record_type") == "executable_evidence"]
+    evidence_ids = {
+        str(record.get("evidence_record_id")): record for record in evidence_rows
+    }
+    operator_close_evidence: set[str] = set()
+    for synthesis in syntheses:
+        if not (
+            _validation_disposition(synthesis, closed=closed) == SECURITY_UNSETTLED
+            and synthesis.get("repair_execution_state") == "operator_waived"
+        ):
+            continue
+        evidence = evidence_ids.get(str(synthesis.get("evidence_record_id")))
+        context = evidence.get("verification_context") if isinstance(evidence, Mapping) else None
+        if not isinstance(context, Mapping) or context.get("actor") != "operator":
+            errors.append(
+                f"synthesis `{synthesis.get('record_id')}`: an operator_waived "
+                f"{SECURITY_UNSETTLED} synthesis requires linked evidence whose "
+                "verification_context.actor is `operator` (the operator close)"
+            )
+        else:
+            operator_close_evidence.add(str(synthesis.get("evidence_record_id")))
+    for evidence in evidence_rows:
+        if (
+            is_operator_finding_evidence(evidence)
+            and any(evidence.get(field) is not True for field in INTEGRITY_CHECK_BOOLEAN_FIELDS)
+            and str(evidence.get("evidence_record_id")) not in operator_close_evidence
+        ):
+            errors.append(
+                f"executable evidence `{evidence.get('evidence_record_id')}`: operator finding "
+                "evidence without affirmed integrity checks is valid only as the operator "
+                f"close of a {SECURITY_UNSETTLED} finding"
+            )
+
+    return errors
+
+
 def validate_review_evidence_records(
     records: Iterable[Mapping[str, Any]],
     *,
     closure: bool = False,
+    closed: bool = False,
 ) -> tuple[str, ...]:
-    """Validate already-parsed canonical records independent of their container."""
+    """Validate already-parsed canonical records independent of their container.
+
+    ``closed`` (wave 22upa, change 22ubf): the records belong to a wave whose record
+    `Status` is `closed`. Derived fields (`disposition`, `blocking`, `review_depth`) are
+    not recomputed and the repair-chain checks read each record's stored disposition, so
+    a closed wave's recorded dispositions stay valid as written. Schema, identity,
+    digests, chain linkage and the projection checks still run.
+    """
 
     rows = [dict(record) for record in records]
     errors: list[str] = []
@@ -5250,7 +5783,7 @@ def validate_review_evidence_records(
         elif record_type == "executable_evidence":
             errors.extend(_validate_evidence_shape(record, index))
         elif record_type == "finding_synthesis":
-            errors.extend(_validate_synthesis_shape(record, index, closure=closure))
+            errors.extend(_validate_synthesis_shape(record, index, closure=closure, closed=closed))
         elif record_type == REVIEW_POLICY_RECEIPT_RECORD_TYPE:
             errors.extend(
                 f"review_policy_receipt[{index}]: {error}"
@@ -5295,7 +5828,8 @@ def validate_review_evidence_records(
                 "review_policy_receipt receipt_id does not match its semantic fields and parent"
             )
         receipt_ids.add(receipt_id)
-    errors.extend(_validate_relationships(rows, closure=closure))
+    errors.extend(_validate_relationships(rows, closure=closure, closed=closed))
+    errors.extend(_validate_operator_close_links(rows, closed=closed))
     return tuple(errors)
 
 
@@ -5328,6 +5862,7 @@ def validate_external_review_evidence(
     *,
     closure: bool = False,
     wave_text: str | None = None,
+    closed: bool = False,
 ) -> ReviewEvidenceValidation:
     """Validate one wave directly from its declaration and fixed sibling ledger.
 
@@ -5408,7 +5943,9 @@ def validate_external_review_evidence(
             )
     records, parse_errors = read_review_event_ledger(wave_md)
     authority_errors = [*source_errors, *parse_errors]
-    authority_errors.extend(validate_review_evidence_records(records, closure=closure))
+    authority_errors.extend(
+        validate_review_evidence_records(records, closure=closure, closed=closed)
+    )
     errors = (*authority_errors, *projection_errors)
     return ReviewEvidenceValidation(
         PROTOCOL_VERSION,
@@ -5451,6 +5988,9 @@ __all__ = [
     "normalize_attested_by",
     "derive_blocking",
     "derive_disposition",
+    "predates_security_rule",
+    "security_candidate_state",
+    "security_factor_unsettled",
     "derive_review_depth",
     "empty_external_finding_synthesis_section",
     "is_canonical_wave_events_path",

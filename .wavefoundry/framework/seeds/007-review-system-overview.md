@@ -88,7 +88,7 @@ All review lane participants share a common grounding contract defined in `209-a
 - Briefing packet required fields: `wave_id`, `phase`, `change_ids`, `trust_boundaries_touched`, `files_in_scope`
 - Finding record schema including `reachability` and `confidence` fields
 - Executable Evidence Records for material approvals and blocking findings
-- The ordered four-way actionability gate: `do_now`, `maybe_later`, `dont_do_later`, or `not_issue`
+- The ordered five-way actionability gate: `do_now`, `maybe_later`, `dont_do_later`, `not_issue`, or `security_unsettled` (a real finding whose attacker reachability or authority delta is unknown; not terminal, it holds `operator-signoff` withheld until settled)
 - Reachability labels and coordination behaviors (narrow scope, no self-approval, split questions, parallel merge and deduplicate, gapfill pointer)
 
 All participants must reference `209-agent-harness-core.prompt.md` for the briefing packet, finding, executable-evidence, safe-execution, finite-risk-budget, and actionability contracts. Material behavioral claims exercise the public/registered path and name selected transition/interleaving cells when stateful; lanes record evidence and semantic facts, the moderator synthesizes them, and the validator derives disposition, blocking, and review depth. Severity, repair size, and reviewer preference do not replace that gate.

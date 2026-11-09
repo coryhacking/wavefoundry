@@ -47,11 +47,15 @@ def _stage_review_protocol_seeds(root: Path) -> Path:
     return target_seeds
 
 
-def load_setup_wavefoundry():
+def load_setup_wavefoundry(*, real_uv_step: bool = False):
     spec = importlib.util.spec_from_file_location("setup_wavefoundry", SETUP_WF_PATH)
     mod = importlib.util.module_from_spec(spec)
     sys.modules["setup_wavefoundry"] = mod
     spec.loader.exec_module(mod)
+    if not real_uv_step:
+        # Wave 22upa (22ube): the uv check probes the machine's real uv, and these tests fake
+        # setup_index; the step is tested through the real module in test_setup_uv_advisory.py.
+        mod._run_uv_tls_step = lambda *_args: (0, None)
     return mod
 
 

@@ -962,7 +962,8 @@ class IntentFitApprovalCarrierTests(unittest.TestCase):
     # Requirement 11: intent issues use the standard finding flow.
     TRIAGE = (
         "triaged under seed 209 like any defect",
-        "the tool derives the disposition (`do_now`, `maybe_later`, `dont_do_later` or `not_issue`)",
+        # Wave 22upa (22ubf): the fifth disposition.
+        "the tool derives the disposition (`do_now`, `maybe_later`, `dont_do_later`, `not_issue` or `security_unsettled`)",
         "keep `intent_fit` on the approval, not the finding",
     )
     TRIAGE_CARRIERS = (
