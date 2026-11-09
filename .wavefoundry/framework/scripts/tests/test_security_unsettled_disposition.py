@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 import review_evidence as subject
 import vocabulary_profile
+from record_layout_support import default_profile_only
 from server_tools_support import SCRIPTS_ROOT, load_server
 from test_intent_fit_approvals import IntentFitWritePathTests
 from test_lifecycle_golden import _APPROVAL_INTEGRITY, _stub_garden, _stub_validate
@@ -431,6 +432,7 @@ class SettlingTests(_ServedLedger):
 class CompatibilityTests(_ServedLedger):
     """AC-5: existing ledgers keep validating; closed waves are not re-derived."""
 
+    @default_profile_only("a census of this repository's own ledgers, which are written in the default profile")
     def test_every_repository_ledger_lints_and_every_summary_line_re_renders(self):
         failures = [f for f in wave_validators.check_wave_docs(REPO_ROOT) if "review evidence" in f]
         self.assertEqual(failures, [])
