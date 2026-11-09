@@ -8,6 +8,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.41.0] - 2026-11-08
+
 ### Security
 
 - `wf setup` now bootstraps uv 0.13.5 (was 0.12.22) when neither the tool environment nor `PATH` has a uv, verified against its 18 published wheel hashes. Every uv before 0.13.4 trusts a compromised root CA in its vendored certificate bundle (GHSA-hq85-5cpj-mr62), which setup's dependency installs rely on when no CA variable is set; 0.13.5 also rejects chains through the compromised intermediates. The pin is an exception to the 21-day package-age window. An existing uv, including one an earlier setup installed into the tool environment, is still used as-is and keeps the advisory until it is removed. uv 0.13 changes its cache format, so the first install after the change may download again, and extracts source archives more strictly. Wave 22u26 / change 22u27.
