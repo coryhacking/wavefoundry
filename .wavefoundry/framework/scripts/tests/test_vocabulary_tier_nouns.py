@@ -65,6 +65,9 @@ SET_WAVE_SPANS = {
     "wf-pause-wave": ["Park the current session's set state", "# Pause a set ("],
     "wf-council": ["Not the open set's required lanes", "the optional wave-doc or current-set stress test"],
     "wf-code-cleanup": ["and not the open set's required lanes"],
+    # Change 230k7: the Plan arc skill names the container tier in three places.
+    "wf-plan-arc": ["bounded outcome across sets in a concise", "next useful set from relevant records",
+                    "link to authoritative set evidence."],
 }
 
 
@@ -133,6 +136,24 @@ class SkillProseTests(unittest.TestCase):
             for span in spans:
                 with self.subTest(skill=name, span=span):
                     self.assertIn(span, text)
+
+    def test_plan_arc_keeps_its_identity_routing_and_authority_limits(self) -> None:
+        # Change 230k7: only the container noun moves; a literal container noun left in the
+        # registry would survive into the renamed profile and fail the last assertion.
+        for label, skills in (("default", self.default), ("renamed", self.set_wave)):
+            description, body = skills["wf-plan-arc"]
+            with self.subTest(profile=label):
+                self.assertIn("workflow grants no implementation authority.", description)
+                self.assertIn("adds no lifecycle gate or implementation authority.", body)
+                self.assertIn("# Plan arc (", body)
+                self.assertIn("docs/prompts/plan-arc.prompt.md", body)
+                self.assertIn("honor a read-only request", body)
+        renamed = "\n".join(self.set_wave["wf-plan-arc"]).lower().replace("wavefoundry", "")
+        self.assertNotIn("wave", renamed)
+        self.assertEqual(self.default["wf-plan-arc"][0],
+                         "Plan or resume a bounded outcome across waves in a concise arc record, explaining "
+                         "evidence, remaining obligations and the next useful advance. The optional Plan arc "
+                         "workflow grants no implementation authority.")
 
     def test_only_tier_nouns_change(self) -> None:
         # Product, tool and kind names stay literal under any profile.

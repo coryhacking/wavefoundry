@@ -456,8 +456,14 @@ DISPOSITIONS = frozenset(
 # Wave 22upa (change 22ubf): a real security finding whose attacker reachability or
 # authority delta is still `unverified` derives `security_unsettled`, which is NOT
 # terminal: it stays `pending` and holds `operator-signoff` withheld until fresh evidence
-# settles it or the operator closes it by name (`operator_waived`).
+# settles it or the operator closes it by name (`operator_waived`). Change 230k6 adds an
+# `unverified` impact or containment on a record that names an authority domain.
 SECURITY_UNSETTLED = "security_unsettled"
+# The gate factors whose `unverified` value leaves a real finding unsettled. The first pair
+# applies whatever the `authority_domain` (22ubf); the second only when the domain is not
+# `none`, so a correctness-only unknown keeps its earlier disposition (change 230k6).
+SECURITY_GATE_FACTORS_ANY_DOMAIN = ("attacker_reachability", "authority_delta")
+SECURITY_GATE_FACTORS_SECURITY_DOMAIN = ("observable_impact", "containment")
 # What the rule before 22ubf derived for a record that now derives `security_unsettled`:
 # an open wave accepts either as written (`predates_security_rule`).
 PRE_SECURITY_RULE_DISPOSITIONS = frozenset({"maybe_later", "dont_do_later"})
@@ -1658,25 +1664,41 @@ def derive_action_required(record: Mapping[str, Any]) -> bool:
     )
 
 
-def security_factor_unsettled(record: Mapping[str, Any]) -> bool:
-    """True when a real record's security factor is unknown and not shown unreachable.
+def unsettled_security_factors(record: Mapping[str, Any]) -> tuple[str, ...]:
+    """The security gate factors that leave a real record unsettled, in gate order.
 
     Wave 22upa (change 22ubf): `attacker_reachability` or `authority_delta` is
-    `unverified`, whatever the rejection basis, except a finding shown unreachable
-    (`unsupported_reachability` with `supported_reachability: false`).
-    `authority_domain` alone never triggers it, nor do correctness-side unknowns.
+    `unverified`, whatever the rejection basis and whatever the `authority_domain`.
+    Change 230k6: `observable_impact` or `containment` is `unverified` on a record whose
+    `authority_domain` is anything but `none`. Empty for a finding shown unreachable
+    (`unsupported_reachability` with `supported_reachability: false`) and for any record
+    that is not real. `authority_domain` alone never triggers it, and with a `none`
+    domain an unknown impact or containment is a correctness-side unknown.
     """
     if record.get("validation_status") != "real":
-        return False
-    if not (
-        record.get("attacker_reachability") == "unverified"
-        or record.get("authority_delta") == "unverified"
-    ):
-        return False
-    return not (
+        return ()
+    if (
         record.get("rejection_basis") == "unsupported_reachability"
         and record.get("supported_reachability") is False
-    )
+    ):
+        return ()
+    factors = [
+        field
+        for field in SECURITY_GATE_FACTORS_ANY_DOMAIN
+        if record.get(field) == "unverified"
+    ]
+    if record.get("authority_domain") != "none":
+        factors.extend(
+            field
+            for field in SECURITY_GATE_FACTORS_SECURITY_DOMAIN
+            if record.get(field) == "unverified"
+        )
+    return tuple(factors)
+
+
+def security_factor_unsettled(record: Mapping[str, Any]) -> bool:
+    """True when a real record's security factor is unknown and not shown unreachable."""
+    return bool(unsettled_security_factors(record))
 
 
 def derive_disposition(record: Mapping[str, Any]) -> str:
@@ -1890,7 +1912,8 @@ def security_candidate_state(
     """Classify the current security-candidate heads (wave 22upa, change 22ubf).
 
     ``unsettled``: a head stored `security_unsettled` and `pending`; it holds
-    `operator-signoff` withheld. ``waived``: the operator closed it
+    `operator-signoff` withheld, and names its unverified gate factors and any operator
+    waiver a reconsideration superseded. ``waived``: the operator closed it
     (`operator_waived`), with the waiver and the operator identity from its linked
     evidence. ``predates``: a `maybe_later` or `dont_do_later` head written before the rule existed that
     would now derive `security_unsettled`. Reads stored state; never re-judges a head.
@@ -1905,13 +1928,28 @@ def security_candidate_state(
     unsettled: list[dict[str, Any]] = []
     waived: list[dict[str, Any]] = []
     predates: list[dict[str, Any]] = []
+    # Change 230k6: a reconsideration supersedes an operator close without erasing it; the
+    # latest superseded waiver of each finding stays named beside its new head.
+    superseded_waivers: dict[str, str] = {}
+    for record in rows:
+        if (
+            record.get("record_type") == "finding_synthesis"
+            and record.get("repair_execution_state") == "operator_waived"
+            and _nonempty_string(record.get("waiver_id"))
+        ):
+            superseded_waivers[str(record.get("finding_id"))] = str(record["waiver_id"])
     for finding_id, head in current_synthesis_heads(rows).items():
         stored = head.get("disposition")
         repair_state = head.get("repair_execution_state")
         trigger = head.get("promotion_trigger")
         trigger = str(trigger) if _nonempty_string(trigger) else None
         if stored == SECURITY_UNSETTLED and repair_state == "pending":
-            unsettled.append({"finding_id": str(finding_id), "promotion_trigger": trigger})
+            unsettled.append({
+                "finding_id": str(finding_id),
+                "promotion_trigger": trigger,
+                "unverified_factors": unsettled_security_factors(head),
+                "superseded_waiver_id": superseded_waivers.get(str(finding_id)),
+            })
         elif stored == SECURITY_UNSETTLED and repair_state == "operator_waived":
             evidence = evidence_by_id.get(str(head.get("evidence_record_id")))
             context = evidence.get("verification_context") if isinstance(evidence, Mapping) else None
@@ -1936,6 +1974,7 @@ def security_candidate_state(
                 "finding_id": str(finding_id),
                 "promotion_trigger": trigger,
                 "disposition": str(head.get("disposition")),
+                "unverified_factors": unsettled_security_factors(head),
             })
     return {
         "unsettled": tuple(unsettled),
@@ -4181,6 +4220,20 @@ def build_compact_review_event(
         return (), (
             f"{run_kind} requires an earlier finding synthesis for `{finding_id}`",
         )
+    if (
+        run_kind == "repair_start"
+        and prior_head.get("validation_status") != "real"
+        and derive_disposition(provisional) == SECURITY_UNSETTLED
+    ):
+        # Change 230k6: a repair start whose judgment leaves a security gate factor
+        # unverified reconsiders an existing real finding. It keeps that finding's
+        # identity and history, so it does not turn a finding recorded as no issue
+        # into a security candidate.
+        return (), (
+            f"a security reconsideration applies only to a real finding; `{finding_id}` "
+            f"is recorded as `{prior_head.get('disposition')}`. Nothing was appended; "
+            "record the fresh evidence as a new finding",
+        )
     if run_kind == "repair_start" and actor in blocking_lanes:
         return (), (
             "repair_start actor cannot also remain in blocking_required_lanes; "
@@ -5991,6 +6044,7 @@ __all__ = [
     "predates_security_rule",
     "security_candidate_state",
     "security_factor_unsettled",
+    "unsettled_security_factors",
     "derive_review_depth",
     "empty_external_finding_synthesis_section",
     "is_canonical_wave_events_path",

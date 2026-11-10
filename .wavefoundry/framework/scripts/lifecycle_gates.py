@@ -287,13 +287,25 @@ def _security_candidate_diagnostics(authority) -> list[dict[str, Any]]:
     state = candidate_state(authority.records)
     diagnostics: list[dict[str, Any]] = []
     for candidate in state["unsettled"]:
+        names = tuple(candidate.get("unverified_factors") or ())
+        factors = ", ".join(f"`{name}`" for name in names)
+        superseded = candidate.get("superseded_waiver_id")
         diagnostics.append(lifecycle_gate_support._diagnostic(
             "unsettled_security_candidate",
-            f"Security candidate `{candidate['finding_id']}` is unsettled: its attacker "
-            "reachability or authority delta is unverified, so `operator-signoff` is "
-            "withheld. Promotion trigger: "
+            f"Security candidate `{candidate['finding_id']}` is unsettled: "
+            + (
+                f"{factors} {'is' if len(names) == 1 else 'are'} unverified"
+                if factors else "a security gate factor is unverified"
+            )
+            + ", so `operator-signoff` is withheld. This is missing evidence, not a "
+            "demonstrated defect. Promotion trigger: "
             f"{candidate['promotion_trigger'] or 'none recorded'}. "
-            f"{review_evidence.UNSETTLED_SECURITY_NEXT_ACTION}.",
+            + (
+                f"A reconsideration superseded operator waiver `{superseded}`, which stays "
+                "in the ledger and no longer covers it. "
+                if superseded else ""
+            )
+            + f"{review_evidence.UNSETTLED_SECURITY_NEXT_ACTION}.",
             recovery_tools=["wf_review_wave"],
             recovery_usage="wf_review_wave()",
         ))
@@ -315,10 +327,17 @@ def _security_candidate_diagnostics(authority) -> list[dict[str, Any]]:
             f"Security candidate `{candidate['finding_id']}` was recorded as "
             f"`{candidate.get('disposition') or 'dont_do_later'}` "
             "before unsettled security candidates stayed open; it is accepted as written. "
-            f"Promotion trigger: {candidate['promotion_trigger'] or 'none recorded'}.",
+            f"Promotion trigger: {candidate['promotion_trigger'] or 'none recorded'}. "
+            "To reconsider it on fresh evidence, record a `repair_start` for it whose "
+            "judgment keeps the factor in question `unverified`; a fresh, independent "
+            "reverification or the operator close then settles it.",
             advisory=True,
         ))
     return diagnostics
+
+
+# Change 230k6: change close names the same candidates Review and Close name.
+security_candidate_diagnostics = _security_candidate_diagnostics
 
 
 def _evaluate_shared_delivery_state(

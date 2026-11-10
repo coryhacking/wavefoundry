@@ -99,7 +99,7 @@ Return findings to the coordinator for the seed-209 ordered state machine after 
 - `do_now`: derived actionable work; complete in-session, with blocking truth derived separately;
 - `maybe_later`: bounded, safe, admitted, positive-value work that is still completed in-session with focused verification;
 - `dont_do_later`: deliberate rejection with a typed basis and no backlog item; and
-- `security_unsettled`: a real finding whose attacker reachability or authority delta is unknown; not terminal, it stays open until fresh evidence settles it or the operator closes it.
+- `security_unsettled`: a real finding whose attacker reachability or authority delta is unknown, or whose impact or containment is unknown under a named authority domain; not terminal, it stays open until fresh evidence settles it or the operator closes it.
 
 Do not use test count, severity label, fix size, missing authorization, or absence of a field incident to choose a disposition. Do not create a follow-on plan for `not_issue` or `dont_do_later`. After two repair cycles, obey the recorded convergence boundary while still admitting newly safely evidenced material blockers under seed 209.
 

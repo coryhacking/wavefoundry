@@ -83,6 +83,11 @@ def _reset_server_state() -> None:
                 installed.clear()
 
 
+# The declarations pinned by the ``base_declaration`` contexts now active, innermost last
+# (change 230k7). Empty means the ambient declaration applies: the checkout's own.
+_PINNED_DECLARATIONS: "list[dict[str, Any]]" = []
+
+
 @contextlib.contextmanager
 def base_declaration(**declaration: Any) -> Iterator[None]:
     """Run with the shipped empty declaration plus ``declaration`` (keyword
@@ -94,6 +99,8 @@ def base_declaration(**declaration: Any) -> Iterator[None]:
         raise ValueError(f"not declaration constants: {', '.join(unknown)}")
     modules = _declaration_modules()
     saved = [(module, {name: getattr(module, name) for name in DECLARATION_CONSTANTS}) for module in modules]
+    pinned = dict(declaration)
+    _PINNED_DECLARATIONS.append(pinned)
     try:
         for module in modules:
             for name in DECLARATION_CONSTANTS:
@@ -101,10 +108,30 @@ def base_declaration(**declaration: Any) -> Iterator[None]:
         _reset_server_state()
         yield
     finally:
+        # By identity: equal declarations may be pinned by nested contexts.
+        for index in range(len(_PINNED_DECLARATIONS) - 1, -1, -1):
+            if _PINNED_DECLARATIONS[index] is pinned:
+                del _PINNED_DECLARATIONS[index]
+                break
         for module, values in saved:
             for name, value in values.items():
                 setattr(module, name, value)
         _reset_server_state()
+
+
+def distribution_handler_served(tool_name: str) -> bool:
+    """Whether the active declaration serves a distribution handler under ``tool_name``.
+
+    With no ``base_declaration`` active the checkout's own declaration applies, so a
+    distribution's fixture arguments go to its own handlers. Inside one, the core handler is
+    served unless the pinned declaration overrides or replaces that name (change 230k7).
+    """
+    if not _PINNED_DECLARATIONS:
+        return True
+    pinned = _PINNED_DECLARATIONS[-1]
+    overridden = {name for names in dict(pinned.get("EXTENSION_OVERRIDES") or {}).values() for name in names}
+    replaced = {name for names in dict(pinned.get("EXTENSION_REPLACEMENTS") or {}).values() for name in names}
+    return tool_name in overridden | replaced
 
 
 def _normalized(value: Any) -> Any:

@@ -60,7 +60,22 @@ def _assessment(*codes: str, missing=(), blocked=True, status="action_required")
 FAKE_UV = textwrap.dedent(
     """
     import os, sys, time
-    # A stand-in for uv: writes to its OWN stdout and stderr, then records the
+    # A stand-in for uv. `--version` answers the version probe (change 230k7) and never
+    # records an install: FAKE_UV_VERSION is the line to print, `fail` to exit non-zero,
+    # or `hang` to outlive the probe's timeout.
+    if sys.argv[1:] == ["--version"]:
+        probes = os.environ.get("FAKE_UV_PROBES")
+        if probes:
+            with open(probes, "a", encoding="utf-8") as handle:
+                handle.write(sys.argv[0] + "\\n")
+        answer = os.environ.get("FAKE_UV_VERSION", "uv 999.0.0")
+        if answer == "hang":
+            time.sleep(60)
+        if answer == "fail":
+            sys.exit(3)
+        print(answer, flush=True)
+        sys.exit(0)
+    # Otherwise it writes to its OWN stdout and stderr, then records the
     # install in a marker file named by the environment.
     print("UV-STDOUT-MARK", flush=True)
     print("UV-STDERR-MARK", file=sys.stderr, flush=True)
@@ -72,6 +87,16 @@ FAKE_UV = textwrap.dedent(
     sys.exit(int(os.environ.get("FAKE_UV_EXIT", "0")))
     """
 )
+
+
+def _past_the_probe(step):
+    """A fake install step that lets the version probe (change 230k7) pass, so ``step``
+    sees only the install."""
+    def run(cmd, **kwargs):
+        if list(cmd[-1:]) == ["--version"]:
+            return MagicMock(returncode=0, stdout="uv 999.0.0\n")
+        return step(cmd, **kwargs)
+    return run
 
 
 class _Tmp(unittest.TestCase):
@@ -128,7 +153,9 @@ class InstallerTests(_Tmp):
         with patch.object(setup_index, "_run_install_step", side_effect=record):
             outcome = setup_index.install_requirement_specs([PSUTIL])
         self.assertEqual(outcome["status"], "installed", outcome)
-        cmd, kwargs = calls[0]
+        self.assertEqual(calls[0][0], [sys.executable, str(self.fake_uv), "--version"])
+        cmd, kwargs = calls[1]
+        self.assertEqual(len(calls), 2)
         self.assertEqual(cmd[:2], [sys.executable, str(self.fake_uv)])
         self.assertEqual(cmd[2:4], ["pip", "install"])
         self.assertIn("--python", cmd)
@@ -162,7 +189,7 @@ class InstallerTests(_Tmp):
 
         failing = MagicMock(returncode=1)
         with patch.object(setup_index, "os", _Nt()), \
-                patch.object(setup_index, "_run_install_step", return_value=failing):
+                patch.object(setup_index, "_run_install_step", side_effect=_past_the_probe(lambda cmd, **kw: failing)):
             outcome = setup_index.install_requirement_specs([PSUTIL])
         self.assertIn("index builds and the dashboard", outcome["message"])
 
@@ -180,14 +207,17 @@ class InstallerTests(_Tmp):
         # A relative override from the venv's parent folder: same drive on Windows.
         with contextlib.chdir(self.venv.parent), \
                 patch.dict(os.environ, {"WAVEFOUNDRY_TOOL_VENV": self.venv.name}), \
-                patch.object(setup_index, "_run_install_step", side_effect=lambda cmd, **kw: calls.append(cmd) or MagicMock(returncode=0)):
+                patch.object(setup_index, "_run_install_step", side_effect=_past_the_probe(
+                    lambda cmd, **kw: calls.append(cmd) or MagicMock(returncode=0))):
             setup_index.install_requirement_specs([PSUTIL])
         python = calls[0][calls[0].index("--python") + 1]
         self.assertTrue(os.path.isabs(python), python)
 
     def test_timeout_reports_network_guidance(self):
-        timeout = subprocess.TimeoutExpired(["uv"], 1)
-        with patch.object(setup_index, "_run_install_step", side_effect=timeout):
+        def timeout(cmd, **kwargs):
+            raise subprocess.TimeoutExpired(["uv"], 1)
+
+        with patch.object(setup_index, "_run_install_step", side_effect=_past_the_probe(timeout)):
             outcome = setup_index.install_requirement_specs([PSUTIL])
         self.assertEqual(outcome["status"], "failed")
         self.assertIn("timed out", outcome["message"])
@@ -215,6 +245,157 @@ class InstallerTests(_Tmp):
             self.assertEqual(lock.path, path)
             outcome = setup_index.install_requirement_specs([PSUTIL], lock_wait_seconds=0.2)
         self.assertEqual(outcome["status"], "busy")
+
+
+def _floor(delta: int = 0) -> str:
+    major, minor, patch_level = setup_index.UV_TLS_ADVISORY_FIXED_IN
+    return f"uv {major}.{minor}.{patch_level + delta}"
+
+
+class SelectedUvGuardTests(_Tmp):
+    """Change 230k7 AC-1 and AC-2: the installer checks the uv it is about to run."""
+
+    REFUSED = {
+        "below-floor": lambda: _floor(-1),
+        "unreadable": lambda: "not a uv version line",
+        "failed": lambda: "fail",
+        "timed-out": lambda: "hang",
+    }
+
+    def _install(self, version, **kwargs):
+        with patch.dict(os.environ, {"FAKE_UV_VERSION": version}), \
+                patch.object(setup_index, "UV_VERSION_PROBE_TIMEOUT_SECONDS", 2.0):
+            return setup_index.install_requirement_specs([PSUTIL], root=Path("/r"), **kwargs)
+
+    def test_an_affected_or_unverifiable_uv_is_refused_before_any_install(self):
+        for name, version in self.REFUSED.items():
+            with self.subTest(probe=name):
+                outcome = self._install(version())
+                self.assertEqual(outcome["status"], "uv_refused", outcome)
+                self.assertEqual(outcome["status"], setup_index.STARTUP_UV_REFUSED)
+                self.assertFalse(self.marker.exists(), "an install ran")
+                detail = outcome["uv_refusal"]
+                self.assertEqual(detail["reason"], "below_floor" if name == "below-floor" else "unverifiable")
+                self.assertEqual(detail["required"], _floor()[3:])
+                self.assertIn(setup_index.UV_TLS_ADVISORY_ID, outcome["message"])
+                self.assertIn("--upgrade-uv", outcome["message"])
+                self.assertIn("Nothing was installed and uv was not changed", outcome["message"])
+        self.assertEqual(self._install(_floor(-1))["uv_refusal"]["version"], _floor(-1)[3:])
+        self.assertIsNone(self._install("fail")["uv_refusal"]["version"])
+
+    def test_a_uv_at_or_above_the_floor_installs_as_before(self):
+        for version in (_floor(), _floor(1), "uv 1.0.0"):
+            with self.subTest(version=version):
+                self.marker.unlink(missing_ok=True)
+                outcome = self._install(version)
+                self.assertEqual(outcome["status"], "installed", outcome)
+                self.assertNotIn("uv_refusal", outcome)
+                self.assertIn(PSUTIL, self.marker.read_text(encoding="utf-8"))
+
+    def test_the_floor_is_the_advisory_constant_not_the_pin(self):
+        self.assertLess(setup_index.UV_TLS_ADVISORY_FIXED_IN, setup_index._pinned_uv_version())
+        with patch.object(setup_index, "UV_TLS_ADVISORY_FIXED_IN", (0, 14, 0)):
+            self.assertEqual(self._install("uv 0.13.9")["status"], "uv_refused")
+            self.assertEqual(self._install("uv 0.14.0")["status"], "installed")
+
+    def test_a_startup_that_needs_no_install_never_probes_an_old_uv(self):
+        probes = self.dir / "probes.txt"
+        with patch.dict(os.environ, {"FAKE_UV_PROBES": str(probes)}):
+            outcome = self._install(_floor(-1), recheck=lambda: [])
+        self.assertEqual(outcome["status"], "already_installed", outcome)
+        self.assertFalse(probes.exists(), "an unused uv was probed")
+        self.assertFalse(self.marker.exists())
+
+    def test_the_probe_runs_under_the_lock_after_the_recheck(self):
+        order = []
+        real = setup_index._uv_command_version
+
+        def probe(command):
+            order.append("probe")
+            self.assertTrue(self._lock_held())
+            return real(command)
+
+        def recheck():
+            order.append("recheck")
+            return [PSUTIL]
+
+        with patch.object(setup_index, "_uv_command_version", side_effect=probe):
+            self.assertEqual(self._install(_floor(), recheck=recheck)["status"], "installed")
+        self.assertEqual(order, ["recheck", "probe"])
+
+    def _lock_held(self) -> bool:
+        import runtime_lock
+        lock = setup_index._dependency_install_lock(blocking=False)
+        try:
+            lock.acquire()
+        except runtime_lock.RuntimeLockBusy:
+            return True
+        lock.release()
+        return False
+
+    def test_the_probed_command_is_the_command_that_installs(self):
+        # A healthy uv answering the separate setup probe seam does not authorize another one.
+        healthy = self.dir / "healthy_uv.py"
+        healthy.write_text("print('uv 999.0.0')\n", encoding="utf-8")
+        commands = []
+        real = setup_index._run_install_step
+
+        def record(cmd, **kwargs):
+            commands.append(list(cmd))
+            return real(cmd, **kwargs)
+
+        with patch.object(setup_index, "_UV_PROBE_COMMAND", [sys.executable, str(healthy)]), \
+                patch.object(setup_index, "_run_install_step", side_effect=record):
+            refused = self._install(_floor(-1))
+            self.assertEqual(refused["status"], "uv_refused", refused)
+            self.assertEqual(commands, [[sys.executable, str(self.fake_uv), "--version"]])
+            commands.clear()
+            self.assertEqual(self._install(_floor())["status"], "installed")
+        self.assertEqual(commands[0], [sys.executable, str(self.fake_uv), "--version"])
+        self.assertEqual(commands[1][:4], [sys.executable, str(self.fake_uv), "pip", "install"])
+        self.assertEqual(len(commands), 2)
+
+    def _path_uv(self, version: str) -> Path:
+        uv = self.dir / "pathbin" / ("uv.exe" if os.name == "nt" else "uv")
+        uv.parent.mkdir(exist_ok=True)
+        uv.write_text("fixture uv; the recorded command is never executed\n", encoding="utf-8")
+        return uv
+
+    def test_the_path_fallback_uv_is_the_one_probed_and_its_remedy_names_path(self):
+        path_uv = self._path_uv(_floor(-1))
+        tool_uv = setup_index._venv_uv_path(Path(os.path.abspath(setup_index.venv_bootstrap.tool_venv_python())))
+        for selected, ownership, phrase in ((path_uv, "path", "a uv on PATH, which Wavefoundry does not own"),
+                                            (tool_uv, "tool_environment", "the tool environment's uv")):
+            probed, ran = [], []
+
+            def probe(command):
+                probed.append(list(command))
+                return (0, 0, 1)
+
+            with self.subTest(ownership=ownership), \
+                    patch.object(setup_index, "_STARTUP_UV_COMMAND", None), \
+                    patch.object(setup_index, "_uv_bin", return_value=selected), \
+                    patch.object(setup_index, "_uv_command_version", side_effect=probe), \
+                    patch.object(setup_index, "_run_install_step", side_effect=lambda cmd, **k: ran.append(cmd)):
+                outcome = setup_index.install_requirement_specs([PSUTIL], root=Path("/r"))
+                self.assertEqual(outcome["status"], "uv_refused", outcome)
+                self.assertEqual(probed, [[str(selected)]])
+                self.assertEqual(ran, [])
+                self.assertEqual(outcome["uv_refusal"]["ownership"], ownership)
+                self.assertEqual(outcome["uv_refusal"]["uv"], str(selected))
+                self.assertIn(phrase, outcome["message"])
+                remedy = setup_readiness.format_command(setup_readiness.repository_launcher_argv(
+                    Path("/r"), "setup", "--root", "/r", "--upgrade-uv"))
+                self.assertEqual(outcome["uv_refusal"]["remedy"], setup_index._setup_command(Path("/r"), "--upgrade-uv"))
+                self.assertIn(outcome["uv_refusal"]["remedy"], outcome["message"])
+                self.assertIn("--upgrade-uv", remedy)
+
+    def test_the_refusal_never_upgrades_uv_or_tries_another_installer(self):
+        with patch.object(setup_index, "_install_pinned_uv", side_effect=AssertionError("uv upgraded")), \
+                patch.object(setup_index, "_bootstrap_uv", side_effect=AssertionError("uv bootstrapped")), \
+                patch.object(setup_index, "_uv_bin", side_effect=AssertionError("another uv selected")):
+            self.assertEqual(self._install(_floor(-1))["status"], "uv_refused")
+        self.assertFalse(self.marker.exists())
 
 
 class LockOwnershipTests(_Tmp):
@@ -392,7 +573,8 @@ class LockOwnershipTests(_Tmp):
 class UvConfigIsolationTests(_Tmp):
     def _cmd(self):
         calls = []
-        with patch.object(setup_index, "_run_install_step", side_effect=lambda cmd, **kw: calls.append(cmd) or MagicMock(returncode=0)):
+        with patch.object(setup_index, "_run_install_step", side_effect=_past_the_probe(
+                lambda cmd, **kw: calls.append(cmd) or MagicMock(returncode=0))):
             setup_index.install_requirement_specs([PSUTIL])
         return calls[0]
 
@@ -532,7 +714,8 @@ class UvConfigIsolationTests(_Tmp):
         relative = {"UV_CONFIG_FILE": "uv.toml", "PIP_CONFIG_FILE": "pip.conf", "PIP_CERT": "ca.pem"}
         with contextlib.chdir(self.dir), patch.dict(os.environ, relative):
             calls = []
-            with patch.object(setup_index, "_run_install_step", side_effect=lambda cmd, **kw: calls.append(kw) or MagicMock(returncode=0)):
+            with patch.object(setup_index, "_run_install_step", side_effect=_past_the_probe(
+                    lambda cmd, **kw: calls.append(kw) or MagicMock(returncode=0))):
                 setup_index.install_requirement_specs([PSUTIL])
             # Wave 1zls6: dependency installs run only through uv, so the setup install is given one.
             with patch.object(setup_index, "_uv_bin", return_value=Path(self.dir / "fake-uv")), \
@@ -755,6 +938,54 @@ class GateTests(unittest.TestCase):
         self.assertIn("If startup is interrupted, run " + _setup_remedy(), stderr.getvalue())
         self.assertIn("run `wf setup`", stderr.getvalue())
         self.assertEqual(self.server._startup_install_snapshot()["status"], "failed")
+
+    def test_a_foreground_refusal_reaches_stderr_the_assessment_and_the_snapshot(self):
+        # Change 230k7 AC-2: a blocked server reports the refused uv before it exits.
+        blocked = _assessment("dependencies_missing", missing=["numpy"])
+        detail = {"reason": "below_floor", "uv": "/x/uv", "version": "0.13.3", "required": "0.13.4",
+                  "ownership": "path", "remedy": "wf setup --upgrade-uv"}
+        refused = {"status": "uv_refused", "packages": ["numpy"], "uv_refusal": detail,
+                   "message": "MCP startup did not install dependencies: refused uv; run wf setup --upgrade-uv"}
+        stderr = io.StringIO()
+        with patch.object(setup_index, "install_requirement_specs", return_value=refused), \
+                patch.object(self.server.setup_readiness, "assess_setup", return_value=blocked), \
+                contextlib.redirect_stderr(stderr):
+            result = self.server._startup_install_gate(Path("/r"), blocked, dry_run=False)
+        self.assertTrue(result["startup_blocked"])
+        reasons = {item["code"]: item["message"] for item in result["reasons"]}
+        self.assertEqual(reasons["startup_install_uv_refused"], refused["message"])
+        self.assertEqual(result["actions"], [{"kind": "setup", "argv": setup_readiness.repository_launcher_argv(
+            Path("/r"), "setup", "--root", str(Path("/r")), "--upgrade-uv")}])
+        self.assertIn("--upgrade-uv", setup_readiness.format_text(result))
+        self.assertIn(refused["message"], stderr.getvalue())
+        snapshot = self.server._startup_install_snapshot()
+        self.assertEqual((snapshot["status"], snapshot["uv_refusal"]), ("uv_refused", detail))
+        self.assertEqual(self.server._BACKGROUND_INSTALL_SPECS, [])
+        self.assertEqual(self.server._UV_REFUSED, setup_index.STARTUP_UV_REFUSED)
+
+    def test_a_background_refusal_is_published_with_the_reassessment(self):
+        blocked = _assessment("dependencies_missing", missing=[PSUTIL], blocked=False)
+        detail = {"reason": "unverifiable", "uv": "/x/uv", "version": None, "required": "0.13.4",
+                  "ownership": "tool_environment", "remedy": "wf setup --upgrade-uv"}
+        refused = {"status": "uv_refused", "packages": [PSUTIL], "uv_refusal": detail,
+                   "message": "MCP startup did not install dependencies: unreadable uv; run wf setup --upgrade-uv"}
+        self.server._BACKGROUND_INSTALL_SPECS = [PSUTIL]
+        self.addCleanup(setattr, self.server, "_STARTUP_ASSESSMENT", getattr(self.server, "_STARTUP_ASSESSMENT", None))
+        impl = self.server.server_impl
+        self.addCleanup(setattr, impl, "_SETUP_STARTUP_RESULT", getattr(impl, "_SETUP_STARTUP_RESULT", None))
+        with patch.object(setup_index, "install_requirement_specs", return_value=refused), \
+                patch.object(self.server.setup_readiness, "assess_setup", return_value=blocked), \
+                patch.object(self.server, "_handler", None):
+            self.server._run_background_install(Path("/r"))
+        published = self.server._STARTUP_ASSESSMENT
+        reasons = {item["code"]: item["message"] for item in published["reasons"]}
+        self.assertEqual(reasons["startup_install_uv_refused"], refused["message"])
+        self.assertNotIn("startup_install_failed", reasons)
+        self.assertIs(impl._SETUP_STARTUP_RESULT, published)
+        snapshot = self.server._startup_install_snapshot()
+        self.assertEqual((snapshot["status"], snapshot["uv_refusal"]), ("uv_refused", detail))
+        self.assertFalse(snapshot["restart_required"])
+        self.assertIsNone(process_info._STARTUP_INSTALL_PENDING)
 
     def test_a_reported_install_that_still_reassesses_blocked_is_final(self):
         blocked = _assessment("dependencies_missing", missing=["numpy"])
@@ -1038,6 +1269,49 @@ class McpStartupTests(unittest.TestCase):
         self.assertIn("wf setup", failed[0])
         self.assertFalse(never_ready.exists())
 
+
+    def test_a_refused_background_uv_reaches_wf_server_info_and_installs_nothing(self):
+        # Change 230k7 AC-2: the server starts, serves, and reports the refusal.
+        never_ready = self.dir / "never-ready.txt"
+        proc, lines = self._start(PSUTIL, "0", ready_marker=never_ready,
+                                  extra_env={"FAKE_UV_VERSION": _floor(-1)})
+        self._initialize(proc, lines)
+        deadline = time.monotonic() + 60
+        message_id = 2
+        seen: list[str] = []
+
+        def poll(message_id):
+            info = self._server_info(proc, lines, message_id)
+            seen.extend(item["message"] for item in info.get("diagnostics", []) if item.get("code") == "setup_not_ready")
+            return info
+
+        info = poll(message_id)
+        while info["data"]["startup_install"]["status"] in ("pending", "running") and time.monotonic() < deadline:
+            time.sleep(0.5)
+            message_id += 1
+            info = poll(message_id)
+        install = info["data"]["startup_install"]
+        self.assertEqual(install["status"], "uv_refused", install)
+        self.assertEqual(install["uv_refusal"]["reason"], "below_floor")
+        self.assertEqual(install["uv_refusal"]["version"], _floor(-1)[3:])
+        self.assertIn("--upgrade-uv", install["message"])
+        notices = seen + self._notices(proc, lines, message_id + 1)
+        refused = [text for text in notices if "startup_install_uv_refused" in text]
+        self.assertTrue(refused, notices)
+        self.assertIn("--upgrade-uv", refused[0])
+        self.assertFalse(self.marker.exists())
+
+    def test_a_refused_foreground_uv_exits_with_the_remedy_on_stderr(self):
+        proc, _lines = self._start("numpy", "0", ready_marker=self.dir / "never-ready.txt",
+                                   extra_env={"FAKE_UV_VERSION": "fail"})
+        proc.wait(timeout=120)
+        stderr = proc.stderr.read()
+        self.assertNotEqual(proc.returncode, 0, stderr)
+        self.assertIn("could not be read", stderr)
+        self.assertIn("Nothing was installed and uv was not changed", stderr)
+        # The assessment the entry prints recommends the uv upgrade for this root.
+        self.assertRegex(stderr, r"(?m)^.*setup --root .*repo --upgrade-uv$")
+        self.assertFalse(self.marker.exists())
 
     def test_opt_out_serves_and_reports_the_remedy_without_installing(self):
         proc, lines = self._start(PSUTIL, "0", extra_env={"WAVEFOUNDRY_NO_STARTUP_INSTALL": "1"})

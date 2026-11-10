@@ -4,6 +4,11 @@ A distribution whose served ``wf_create_wave`` or ``wf_close_wave`` needs more
 arguments edits ``container_fixture_profile`` only. These tests prove the
 helpers in ``server_tools_support`` pass the profile's arguments, refuse a
 collision, and that the converted fixture files make no direct container call.
+
+Change 230k7: the arguments belong to the handler a distribution serves, so a
+fixture that pinned the base declaration (``declaration_support``) calls the core
+tool without them, and a declaration that overrides or replaces the tool still
+receives them.
 """
 from __future__ import annotations
 
@@ -20,7 +25,9 @@ if str(TESTS) not in sys.path:
     sys.path.insert(0, str(TESTS))
 
 import container_fixture_profile
+import declaration_support
 import server_tools_support
+from declaration_support import base_declaration
 from server_tools_support import close_container, create_container
 from record_layout_support import default_profile_only
 
@@ -137,6 +144,83 @@ class ContainerFixtureHelperTests(unittest.TestCase):
         self.assertEqual(self.calls, [("wf_create_wave", {"slug": "s", "extra": 1})])
 
 
+class ActiveDeclarationRoutingTests(unittest.TestCase):
+    """Change 230k7 AC-3: fixture arguments follow the active declaration."""
+
+    OVERRIDES = dict(EXTENSION_MODULES=("fork_tools",),
+                     EXTENSION_OVERRIDES={"fork_tools": ("wf_close_wave",)})
+    REPLACES = dict(EXTENSION_MODULES=("fork_tools",),
+                    EXTENSION_REPLACEMENTS={"fork_tools": {"wf_create_wave": {"alias_for_core": "fork_create"}}})
+
+    def setUp(self):
+        self.calls = []
+        self.consulted = []
+        patcher = patch.object(container_fixture_profile, "container_fixture_args", self.profile)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def profile(self, tool_name, root):
+        self.consulted.append(tool_name)
+        return {"scope": "set"}
+
+    def fake_call(self, name, **kwargs):
+        self.calls.append((name, kwargs))
+        return {"status": "ok"}
+
+    def both(self):
+        self.calls.clear()
+        create_container(self.fake_call, Path("/r"), "first")
+        close_container(self.fake_call, Path("/r"), "abcde first")
+        return [("scope" in kwargs) for _name, kwargs in self.calls]
+
+    def test_the_base_declaration_calls_core_tools_without_fixture_arguments(self):
+        with base_declaration():
+            self.assertEqual(self.both(), [False, False])
+        self.assertEqual(self.consulted, [])
+        self.assertEqual(self.calls, [("wf_create_wave", {"slug": "first"}),
+                                      ("wf_close_wave", {"wave_id": "abcde first"})])
+
+    def test_a_declared_distribution_handler_receives_its_fixture_arguments(self):
+        with base_declaration(**self.OVERRIDES):
+            self.assertEqual(self.both(), [False, True])
+        with base_declaration(**self.REPLACES):
+            self.assertEqual(self.both(), [True, False])
+        self.assertEqual(self.consulted, ["wf_close_wave", "wf_create_wave"])
+
+    def test_the_ambient_declaration_receives_fixture_arguments(self):
+        # No pinned declaration: the checkout's own declaration and profile apply together.
+        self.assertEqual(self.both(), [True, True])
+
+    def test_both_declaration_states_in_one_process_restore_between_fixtures(self):
+        self.assertTrue(declaration_support.distribution_handler_served("wf_close_wave"))
+        with base_declaration(**self.OVERRIDES):
+            self.assertEqual(self.both(), [False, True])
+            with base_declaration():
+                self.assertEqual(self.both(), [False, False])
+            self.assertEqual(self.both(), [False, True])
+        self.assertEqual(declaration_support._PINNED_DECLARATIONS, [])
+        self.assertEqual(self.both(), [True, True])
+
+    def test_apply_base_declaration_is_released_at_cleanup(self):
+        class Fixture(unittest.TestCase):
+            def runTest(inner):
+                declaration_support.apply_base_declaration(inner)
+                inner.assertEqual(self.both(), [False, False])
+
+        result = unittest.TestResult()
+        Fixture().run(result)
+        self.assertEqual((result.failures, result.errors), ([], []))
+        self.assertEqual(self.both(), [True, True])
+
+    def test_a_collision_is_still_refused_for_a_declared_distribution_handler(self):
+        collide = patch.object(container_fixture_profile, "container_fixture_args",
+                               lambda *_a: {"wave_id": "other"})
+        with base_declaration(**self.OVERRIDES), collide:
+            with self.assertRaisesRegex(ValueError, "collide"):
+                close_container(self.fake_call, Path("/r"), "abcde first")
+        self.assertEqual(self.calls, [])
+
+
 class ConvertedFixtureCallGuardTests(unittest.TestCase):
     SCOPES = ((WAVE_WORK, None, 17), (LIFECYCLE, SNAPSHOT_CLASS, 1), (LIFECYCLE, PREVIEW_CLASS, 3))
 
@@ -167,7 +251,13 @@ class ConvertedFixtureCallGuardTests(unittest.TestCase):
 
 
 class RetainedUpgradePreviewProfileTests(unittest.TestCase):
-    """The upgrade-preview close sites carry the profile's arguments (wave 22u26, change 22sfu)."""
+    """The upgrade-preview close sites go through the fixture helper (wave 22u26, change 22sfu).
+
+    Those fixtures pin the base declaration, so the registered tools are the core ones and the
+    profile's arguments, which only a distribution's handler accepts, are not passed (change
+    230k7). The served core tool would refuse an unknown argument, so an injected one fails
+    the suite as well as the recorded calls.
+    """
 
     SITES = (
         "test_registered_actual_lint_previews_are_read_only_for_default_and_positional_modes",
@@ -175,7 +265,7 @@ class RetainedUpgradePreviewProfileTests(unittest.TestCase):
         "test_close_reports_new_unpublished_secrets_in_same_lint_pass",
     )
 
-    def test_each_close_site_passes_profile_arguments_and_keeps_positional_modes(self):
+    def test_each_close_site_calls_the_core_tool_without_profile_arguments_and_keeps_positional_modes(self):
         import test_server_tools_lifecycle as lifecycle
 
         preview = lifecycle.RetainedUpgradePreviewTests
@@ -183,8 +273,9 @@ class RetainedUpgradePreviewProfileTests(unittest.TestCase):
         calls = []
 
         def spy(test, name, **kwargs):
-            # The served tool would refuse the profile's `extra`; record it, then call through.
-            extra = kwargs.pop("extra", None)
+            # Record whether the profile's `extra` arrived; it is passed on, so the served
+            # core tool refuses it if it did.
+            extra = kwargs.get("extra")
             tool = test.mcp._tool_manager._tools[name]
             served = tool.fn
 
@@ -209,10 +300,10 @@ class RetainedUpgradePreviewProfileTests(unittest.TestCase):
         self.assertEqual((outcome.failures, outcome.errors), ([], []))
         wave_id = "00057 preview"
         self.assertEqual(calls, [
-            ("wf_close_wave", (wave_id, "dry_run"), {}, 1),
-            ("wf_close_wave", (wave_id, "apply"), {}, 1),
-            ("wf_close_wave", (wave_id, "evaluate"), {}, 1),
-            ("wf_close_wave", (wave_id,), {}, 1),
+            ("wf_close_wave", (wave_id, "dry_run"), {}, None),
+            ("wf_close_wave", (wave_id, "apply"), {}, None),
+            ("wf_close_wave", (wave_id, "evaluate"), {}, None),
+            ("wf_close_wave", (wave_id,), {}, None),
         ])
 
 

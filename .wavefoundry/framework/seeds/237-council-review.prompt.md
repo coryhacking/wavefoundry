@@ -126,7 +126,7 @@ Use seed 209's Review Run and Finding Synthesis records as the authoritative res
 - `do_now` and `maybe_later` both require completed repair evidence before closure; `maybe_later` means optional-but-worth-doing-now, not a follow-on.
 - `dont_do_later` deliberately rejects the work and creates no backlog item; it requires the canonical rejection basis and promotion trigger where applicable.
 - `not_issue` records an invalid or conforming proposition and creates no follow-on debt.
-- `security_unsettled` is a real finding whose attacker reachability or authority delta is unknown; it is not terminal and holds `operator-signoff` withheld until fresh evidence settles it or the operator closes it.
+- `security_unsettled` is a real finding whose attacker reachability or authority delta is unknown, or whose impact or containment is unknown under a named authority domain; it is not terminal and holds `operator-signoff` withheld until fresh evidence settles it or the operator closes it.
 - Only the seed-209 blocking predicate decides whether a `do_now` finding blocks. Severity remains a triage signal.
 
 Repairs receive focused re-verification unless one of seed 209's five full-council trigger facts changed. A full council is not the default consequence of every repair.

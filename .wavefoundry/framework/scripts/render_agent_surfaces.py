@@ -907,12 +907,13 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
     ),
     Skill(
         name=_vp_skill("plan-arc"),
-        description=f"Plan or resume a bounded outcome across waves in a concise {vocabulary_profile.ARC_NAME.lower()} record, explaining evidence, remaining obligations and the next useful advance. The optional {_vp_shortcut('plan-arc')} workflow grants no implementation authority.",
+        description=f"Plan or resume a bounded outcome across {_vp_wave(plural=True)} in a concise {vocabulary_profile.ARC_NAME.lower()} record, explaining evidence, remaining obligations and the next useful advance. The optional {_vp_shortcut('plan-arc')} workflow grants no implementation authority.",
         body=_thin_pointer_body(
             _vp_shortcut("plan-arc"),
             _vp_doc("plan-arc"),
             (
-                "Recover the outcome, evidence, remaining obligations and next useful wave from relevant records; preserve operator edits and link to authoritative wave evidence.",
+                # Change 230k7: the container noun follows the vocabulary profile.
+                f"Recover the outcome, evidence, remaining obligations and next useful {_vp_wave()} from relevant records; preserve operator edits and link to authoritative {_vp_wave()} evidence.",
                 "Follow the backing prompt to create or revise one concise record, or honor a read-only request. This optional planning step adds no lifecycle gate or implementation authority.",
             ),
         ),

@@ -62,6 +62,15 @@ _STARTUP_INSTALL: Optional[dict[str, Any]] = None
 _STARTUP_INSTALL_LOCK = threading.Lock()
 _BACKGROUND_INSTALL_SPECS: list[str] = []
 _INSTALL_OK = ("installed", "already_installed")
+# setup_index.STARTUP_UV_REFUSED, spelled here because setup_index is imported only when an
+# install is needed (its import reconfigures stdio).
+_UV_REFUSED = "uv_refused"
+
+
+def _uv_refusal_fields(outcome: dict[str, Any]) -> dict[str, Any]:
+    """The refused-uv detail a startup install outcome carries, for the status snapshot."""
+    detail = outcome.get("uv_refusal")
+    return {"uv_refusal": dict(detail)} if isinstance(detail, dict) else {}
 
 
 def _startup_install_snapshot() -> Optional[dict[str, Any]]:
@@ -78,6 +87,16 @@ def _set_startup_install(**fields: Any) -> None:
 def _with_reason(assessment: dict[str, Any], code: str, message: str) -> dict[str, Any]:
     result = dict(assessment)
     result["reasons"] = [*(assessment.get("reasons") or []), {"code": code, "message": message}]
+    return result
+
+
+def _with_uv_refusal(assessment: dict[str, Any], outcome: dict[str, Any], root: Path) -> dict[str, Any]:
+    """Add the refused-uv reason, and recommend the operator-owned uv upgrade (change 230k7)."""
+    result = _with_reason(assessment, "startup_install_uv_refused", outcome["message"])
+    result["actions"] = [{
+        "kind": "setup",
+        "argv": setup_readiness.repository_launcher_argv(root, "setup", "--root", str(root), "--upgrade-uv"),
+    }]
     return result
 
 
@@ -169,11 +188,18 @@ def _startup_install_gate_unguarded(root: Path, assessment: dict[str, Any], *, d
         lock_wait_seconds=setup_index.STARTUP_INSTALL_LOCK_WAIT_SECONDS,
         recheck=lambda: _missing_now(root),
     )
-    _set_startup_install(status=outcome["status"], packages=outcome["packages"], message=outcome["message"])
+    _set_startup_install(
+        status=outcome["status"], packages=outcome["packages"], message=outcome["message"],
+        **_uv_refusal_fields(outcome),
+    )
     if outcome["status"] not in _INSTALL_OK:
         print(f"wavefoundry: startup dependency install did not complete: {outcome['message']}", file=sys.stderr)
     # Reassess once; a still-blocked result exits without retrying.
-    return _assess_startup(root, report=False)
+    reassessed = _assess_startup(root, report=False)
+    if outcome["status"] == _UV_REFUSED and reassessed.get("status") != "ready":
+        # Change 230k7: the refusal stays in the assessment the entry prints before exiting.
+        reassessed = _with_uv_refusal(reassessed, outcome, root)
+    return reassessed
 
 
 def _run_background_install(root: Path) -> None:
@@ -196,9 +222,13 @@ def _run_background_install(root: Path) -> None:
             "packages": outcome["packages"],
             "message": outcome["message"],
             "restart_required": restart_needed,
+            **_uv_refusal_fields(outcome),
         }
         reassessed = setup_readiness.assess_setup(root, loaded_identity=_SETUP_LOADED_IDENTITY)
-        if outcome["status"] not in _INSTALL_OK:
+        if outcome["status"] == _UV_REFUSED:
+            # Change 230k7: a refused uv is reported as a refusal, with its own remedy.
+            reassessed = _with_uv_refusal(reassessed, outcome, root)
+        elif outcome["status"] not in _INSTALL_OK:
             reassessed = _with_reason(
                 reassessed,
                 "startup_install_failed",

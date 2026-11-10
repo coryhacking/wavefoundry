@@ -296,7 +296,10 @@ class BorrowFromFutureTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertNotIn("MCP", out.getvalue())          # stdout is ID-only
         self.assertIn("-change demo", out.getvalue().strip())
-        self.assertIn("wave_new_", err.getvalue())        # reminder on stderr
+        # Change 230k7: the reminder names the current tools; the retired
+        # `wave_new_<kind>` spelling is gone.
+        self.assertIn("wf_new_<kind> / wf_create_wave", err.getvalue())
+        self.assertNotIn("wave_new_", err.getvalue())
 
     def test_cli_prefix_only_no_reminder(self) -> None:  # 1p45b decision (prefix-only exempt)
         err = io.StringIO()

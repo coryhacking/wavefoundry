@@ -169,7 +169,12 @@ def stop_process(proc: subprocess.Popen) -> None:
 def _container_fixture_call(call, tool_name, root, arguments):
     # Resolved at call time so a distribution's edit, or a test's patch, applies.
     import container_fixture_profile
+    import declaration_support
 
+    # Change 230k7: the profile's arguments belong to the handler a distribution serves. A
+    # fixture that pinned the base declaration is calling the core tool, which takes none.
+    if not declaration_support.distribution_handler_served(tool_name):
+        return call(tool_name, **arguments)
     extra = container_fixture_profile.container_fixture_args(tool_name, Path(root))
     collisions = sorted(set(extra) & set(arguments))
     if collisions:
@@ -186,6 +191,15 @@ def create_container(call, root, slug, **kwargs):
 def close_container(call, root, wave_id, **kwargs):
     """Call the served ``wf_close_wave`` with the container fixture profile's arguments (wave 22r99)."""
     return _container_fixture_call(call, "wf_close_wave", root, {"wave_id": wave_id, **kwargs})
+
+
+def close_member(call, root, wave_id, change_id, **kwargs):
+    """Call the served ``wf_close_change`` with the container fixture profile's arguments (change 230k6).
+
+    ``call`` invokes a registered tool by name, so the handler a distribution serves under
+    that name is the one exercised."""
+    return _container_fixture_call(
+        call, "wf_close_change", root, {"wave_id": wave_id, "change_id": change_id, **kwargs})
 
 
 def review_policy_config(**overrides) -> dict:

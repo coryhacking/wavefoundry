@@ -8,8 +8,21 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- MCP startup no longer installs dependencies through an affected or unverifiable uv. Before a startup install, the server runs the exact uv it is about to use with `--version`; a uv below 0.13.4 (GHSA-hq85-5cpj-mr62), or one whose version cannot be read, installs nothing. The refusal names the uv and the remedy: `wf setup --root <root> --upgrade-uv` for the tool environment's uv, or the uv's own installer for one on `PATH`. A server that can run without the missing packages still starts and reports `startup_install.status: "uv_refused"` with a `uv_refusal` detail in `wf_server_info`; otherwise startup exits with the refusal on stderr. uv is never upgraded automatically, a startup that needs no install is unaffected, and `wf setup` keeps its advisory behaviour. Wave 230k8 / change 230k7.
+- A real security finding whose impact or containment is still unknown now records as `security_unsettled` instead of terminal `dont_do_later` when it names an authority domain, so it stays pending and holds `operator-signoff` withheld like an unknown reachability or authority delta. A finding with `authority_domain: none`, a finding shown unreachable, and any finding an earlier rule already makes `do_now` keep their dispositions. Existing open records keep an earlier `dont_do_later` as written and report it as `security_candidate_predates_rule`; closed records are not re-derived. The diagnostic names the unverified factors and says this is missing evidence, not a demonstrated defect. Wave 230k8 / change 230k6.
+- `wf_close_change` now reads review authority through the validated reader Review and `wf_close_wave` use. On a typed record whose ledger is missing, or whose ledger or review projection is invalid, it refuses with `review_ledger_unreadable` and writes nothing; before, an unreadable ledger skipped the unsettled-security check. A record without the `review-evidence-source` declaration has no ledger authority and is not checked, as in Review and `wf_close_wave`. Wave 230k8 / change 230k6.
+
+### Added
+
+- A terminal real security finding can take fresh evidence under its own identity: record `repair_start` for it in the next repair cycle with a judgment that leaves the factor in question `unverified`. The finding gains a new pending head, its earlier records stay in the ledger, and a fresh, independent reverification or the operator close settles it. A superseded operator waiver stays in the ledger and Review and Close name it; a finding recorded as `not_issue` refuses the start, and a closed record refuses any repair start with `wave_closed`. Wave 230k8 / change 230k6.
+- Test fixture seams for distributions: `close_member` in `tests/server_tools_support.py` closes a change through the served tool, so a distribution's overriding handler is the one tested, and the `security_unsettled` surface census checks the framework's own carriers on every tree while seed and project wording is checked only in the source repository. Wave 230k8 / change 230k6.
+
 ### Fixed
 
+- Container fixture helpers pass a distribution's fixture arguments only when the active declaration serves a distribution handler for that tool. A fixture that pins the base declaration, such as `RetainedUpgradePreviewTests`, now calls the core tool without fork-only arguments. Wave 230k8 / change 230k7.
+- The `lifecycle_id.py` command-line reminder names the current `wf_new_<kind>` tools instead of the retired `wave_new_<kind>` names, and the Plan arc skill renders its container nouns through the vocabulary profile in its description and body. Wave 230k8 / change 230k7.
 - `wf_mark_ac` no longer splits a multi-line acceptance criterion when it records a deferral reason: the reason now follows the whole criterion as a `*Status: ...*` line at the criterion's blockquote depth, with the document's line ending, and docs-lint accepts that line as the criterion's inline status note. A single-line criterion keeps the reason at the end of its line. Wave 23041 / change 23042.
 
 ### Changed

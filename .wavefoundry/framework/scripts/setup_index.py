@@ -479,9 +479,12 @@ def _venv_uv_path(venv_python: Path) -> Path:
     return venv_dir / ("Scripts" if os.name == "nt" else "bin") / ("uv.exe" if os.name == "nt" else "uv")
 
 
-def _uv_version(uv_path: Path) -> tuple[int, int, int] | None:
-    """The version ``uv --version`` reports, or None when it cannot be read. Never raises."""
-    command = list(_UV_PROBE_COMMAND) if _UV_PROBE_COMMAND is not None else [str(uv_path)]
+def _uv_command_version(command: list[str]) -> tuple[int, int, int] | None:
+    """The version exactly ``command --version`` reports, or None when it cannot be read.
+
+    Bounded by ``UV_VERSION_PROBE_TIMEOUT_SECONDS``; the child's stdout is captured, so
+    nothing reaches this process's stdout. Never raises.
+    """
     try:
         result = _run_install_step(
             [*command, "--version"], capture_output=True, text=True,
@@ -492,6 +495,12 @@ def _uv_version(uv_path: Path) -> tuple[int, int, int] | None:
         return None
     match = _UV_VERSION_RE.match((result.stdout or "").strip())
     return tuple(int(part) for part in match.groups()) if match else None  # type: ignore[return-value]
+
+
+def _uv_version(uv_path: Path) -> tuple[int, int, int] | None:
+    """The version ``uv --version`` reports, or None when it cannot be read. Never raises."""
+    return _uv_command_version(
+        list(_UV_PROBE_COMMAND) if _UV_PROBE_COMMAND is not None else [str(uv_path)])
 
 
 def _version_text(version: tuple[int, int, int]) -> str:
@@ -516,6 +525,53 @@ def uv_tls_advisory(uv_path: Path, version: tuple[int, int, int], *, in_tool_ven
             f"or run {upgrade} so setup uses a pinned uv in its tool environment ahead of PATH.")
     lines.append("Setup does not change uv unless asked; an agent can run the upgrade with your approval.")
     return "\n".join(lines)
+
+
+# The status ``install_requirement_specs`` returns when it refuses the selected uv.
+STARTUP_UV_REFUSED = "uv_refused"
+
+
+def _startup_uv_refusal(uv_command: list[str], version: tuple[int, int, int] | None, *,
+                        venv_python: Path, root: Path | None = None) -> tuple[str, dict]:
+    """The refusal for a selected uv that is affected or unverifiable (change 230k7).
+
+    Returns the operator message and its structured form. The remedy is the operator-owned
+    ``--upgrade-uv`` path for the selected root; it differs by who owns that uv.
+    """
+    fixed = _version_text(UV_TLS_ADVISORY_FIXED_IN)
+    upgrade = _setup_command(root, "--upgrade-uv")
+    shown = " ".join(uv_command)
+    in_tool_venv = len(uv_command) == 1 and (
+        os.path.abspath(uv_command[0]) == os.path.abspath(_venv_uv_path(venv_python)))
+    if version is None:
+        lead = (
+            f"the version of the uv selected for the install ({shown}) could not be read, so it "
+            f"cannot be shown to include the fix for {UV_TLS_ADVISORY_ID} (uv {fixed} or later)")
+    else:
+        lead = (
+            f"the uv selected for the install ({shown}) is {_version_text(version)}, which is "
+            f"affected by {UV_TLS_ADVISORY_ID}: uv before {fixed} trusts a compromised TLS root "
+            "certificate for package downloads")
+    if in_tool_venv:
+        remedy = (
+            "It is the tool environment's uv. To replace it with the pinned, hash-verified uv, "
+            f"run: {upgrade}")
+    else:
+        remedy = (
+            "It is a uv on PATH, which Wavefoundry does not own. Update it with the installer "
+            "that provided it, or put a pinned uv in the tool environment ahead of PATH by "
+            f"running: {upgrade}")
+    message = (
+        f"MCP startup did not install dependencies: {lead}. "
+        f"Nothing was installed and uv was not changed. {remedy}")
+    return message, {
+        "reason": "unverifiable" if version is None else "below_floor",
+        "uv": shown,
+        "version": None if version is None else _version_text(version),
+        "required": fixed,
+        "ownership": "tool_environment" if in_tool_venv else "path",
+        "remedy": upgrade,
+    }
 
 
 def uv_tls_step(root: Path | None = None, *, upgrade: bool = False) -> tuple[int, str | None]:
@@ -790,8 +846,14 @@ def install_requirement_specs(
     waits). ``recheck`` returns the specs still missing once the lock is held,
     so a waiter does not install what another installer just installed.
 
+    Once the lock is held and ``recheck`` still reports work, the exact uv command about to
+    run is probed (change 230k7): a version below ``UV_TLS_ADVISORY_FIXED_IN``, or one that
+    cannot be read, refuses the install with status ``uv_refused`` and a ``uv_refusal``
+    detail. No other installer is tried and uv is never upgraded here. A call that finds
+    nothing left to install never probes.
+
     Returns ``{"status", "packages", "message"}`` with status ``installed``,
-    ``already_installed``, ``no_uv``, ``busy`` or ``failed``. Never raises.
+    ``already_installed``, ``no_uv``, ``busy``, ``uv_refused`` or ``failed``. Never raises.
     """
     import runtime_lock
 
@@ -847,6 +909,14 @@ def install_requirement_specs(
             outcome["status"] = "already_installed"
             return outcome
         outcome["packages"] = remaining
+        # Change 230k7: probe the command that runs the install, here, so a check of some
+        # other uv made earlier never authorizes it.
+        uv_version = _uv_command_version(uv_command)
+        if uv_version is None or uv_version < UV_TLS_ADVISORY_FIXED_IN:
+            outcome["status"] = STARTUP_UV_REFUSED
+            outcome["message"], outcome["uv_refusal"] = _startup_uv_refusal(
+                uv_command, uv_version, venv_python=venv_python, root=root)
+            return outcome
         cutoff = _exclude_newer_cutoff(days=21)
         print(
             f"Installing missing dependencies with uv (--exclude-newer {cutoff}): {' '.join(remaining)}",

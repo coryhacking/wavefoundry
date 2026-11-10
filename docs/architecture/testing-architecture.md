@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-07
+Last verified: 2026-11-10
 
 ## Tensorwell qualification
 
@@ -414,6 +414,29 @@ four pieces, all test infrastructure in
   merge its arguments into the served call and raise when a key collides with
   one the test passes. A guard test keeps `test_wave_work_lifecycle.py` and
   `ReceiptSnapshotPublicIntegrationTests` free of direct container calls.
+- **Active-declaration fixture routing (change 230k7).** The profile's
+  arguments belong to the handler a distribution serves, so the helpers apply
+  them only when the active declaration serves one for that tool.
+  `declaration_support.distribution_handler_served(tool_name)` decides: with no
+  `base_declaration` active the checkout's own declaration applies and the
+  arguments are passed; inside one, the core handler is served and they are
+  passed only when the pinned declaration names the tool in
+  `EXTENSION_OVERRIDES` or `EXTENSION_REPLACEMENTS`. `RetainedUpgradePreviewTests`
+  pins the base declaration, so its close calls reach the core tool without
+  them. Nested and sequential contexts restore the earlier state.
+- **Served-close seam (change 230k6).** `close_member(call, root, wave_id,
+  change_id, ...)` in `tests/server_tools_support.py` calls the registered
+  `wf_close_change` through the same profile, so a closure test exercises the
+  handler a distribution serves under that name instead of the core response
+  function. `test_security_unsettled_disposition.py` closes through it, and
+  `ServedCloseSeamTests` drives it with an overriding handler that requires a
+  fork-only argument.
+- **Canonical and source-owned carriers (change 230k6).** The
+  `security_unsettled` surface census judges the framework's own files outside
+  the seeds on every tree, and a missing required one fails. Seeds and project
+  documents carry wording a distribution owns, so their checks run through
+  `source_carriers` and `source_repository_fixture` and skip outside the source
+  repository.
 
 **Declared-alias run (change 1zim4).** A distribution also edits the tool
 declarations in `mcp_tool_extensions.py`, so a profile asset may name that

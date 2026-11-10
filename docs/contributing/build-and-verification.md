@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-07
+Last verified: 2026-11-10
 
 ## Verification Commands
 
@@ -294,6 +294,8 @@ notices use stderr so they cannot corrupt MCP protocol output.
 After Git operations that change the checkout, follow `AGENTS.md` **Check readiness after Git changes**: call `index_health()` and inspect both freshness and `data.setup_readiness`. If MCP is unavailable, use `wf setup --check --json`; this fallback does not verify source freshness. The check reports actions without automatically executing repairs; the one automatic action is the MCP server's own startup install of missing or version-incompatible declared dependencies (wave `1zfd9`).
 
 To make installs happen only through setup, set `WAVEFOUNDRY_NO_STARTUP_INSTALL=1` (also `true`, `yes` or `on`, case-insensitive) in the MCP server's environment (change `2136x`). MCP startup then installs nothing, in the foreground or the background, and prints one stderr line naming the packages and the `wf setup` remedy. When only packages the server can run without are missing (today `psutil`), the server still starts and reports a `startup_install_disabled` reason in its setup readiness and `data.startup_install.status == "disabled"` in `wf_server_info`; when any other dependency is missing, startup exits with the remedy on stderr, as it does when an install fails. The switch behaves the same on Windows, macOS, Linux and WSL2, and it is not part of the setup stamp's environment identity, so setting or clearing it never asks for `wf setup`.
+
+The startup install also checks the uv it is about to run (change `230k7`). When a package is still missing once the install lock is held, the installer runs that exact uv with `--version`, waiting at most 10 seconds. A uv below 0.13.4 (GHSA-hq85-5cpj-mr62), or one whose version cannot be read, installs nothing: the status is `uv_refused`, setup readiness carries `startup_install_uv_refused`, and the message names the uv, its version when known, and the remedy. For the tool environment's uv the remedy is `wf setup --root <root> --upgrade-uv`, which replaces it with the pinned, hash-verified uv. For a uv on `PATH`, update it with the installer that provided it, or run the same command so a pinned uv in the tool environment is used ahead of `PATH`. The server never upgrades uv, never tries another installer and never downloads anything to make this check. When only packages the server can run without are missing it still starts and reports the refusal in `wf_server_info` (`data.startup_install.status == "uv_refused"` with `uv_refusal`); otherwise startup exits with the refusal and the remedy on stderr. A startup that needs no install is not affected by an old uv, and `wf setup`'s own advisory behaviour is unchanged: it still advises and installs. The check reads the version the uv reports; it does not verify the binary, and a uv replaced between the check and the install is not detected. The behaviour is the same on Windows, macOS, Linux and WSL2.
 
 ### Onboarding
 

@@ -6,6 +6,12 @@ Last verified: 2026-11-10
 
 ## Current state
 
+No wave is OPEN. **Wave 230k8 security-and-distribution-follow-ups closed on 2026-11-10** by explicit operator instruction. Its two changes (230k6 security factor and closure integrity, 230k7 startup installer and distribution compatibility) answer the Waveforge v1.41.0 merge findings. All five required lanes approved in fresh contexts; the one finding, CODE-DEL-1 (diagnostic wording), was repaired and reverified. Canonical close accepted the green receipt: 12,709 tests across 238 files, 12 skips. The ten changed test files pass under the `second` and `declared` profiles. Verified on macOS only. Both edit gates are closed. No package or release is part of this work; a reply to Waveforge is still owed.
+
+Accepted, not repaired: `wf_review_event` kinds other than `repair_start` can still append to a closed record (pre-existing); a record without the `review-evidence-source` declaration that still holds a ledger is not scanned by change close (matches Review and wave close; docs-lint reports the orphaned ledger); the uv guard trusts the version string uv prints. Wave 22yox (blank line before headings) is still planned and unreadied.
+
+## Previous state: 1.41.0
+
 No wave is OPEN. **1.41.0 RELEASED** 2026-11-09T15:58:39Z: https://github.com/coryhacking/wavefoundry/releases/tag/v1.41.0, build 1.41.0+q2d9, tag on stamp commit `d7ab7aad` (source `e157da0c`, clean). Assets: feature zip sha256 `6fccf8e1858194334c177d5b283f9a8e43b800f783fecc82abc34e0930f479a6`; models-3 sha256 `f061d5f107125bb0baa2c73846bfda10061664c73383a97980bc77e46b1537d7`; SHA256SUMS matches both. Qualification: default 12,656 / 238 files / 12 skips, second 12,638 / 34, declared 12,656 / 12; both comparisons equal, no exception. Vendored dashboard scripts verified against npm. uv pin 0.13.5 (bumped in 22u26).
 
 Waves in this release since 1.40.0: 22u26 (post-1.40 follow-ups), 22upa (`security_unsettled` disposition, uv advisory and `--upgrade-uv`, scanner worker `-I`, work-area note), 22sqj (governing-thought writing guidance) and 22vgm (the ledger census test from 22upa errored under the second profile; now `default_profile_only`). The vision document was revised in `c12f9174`.

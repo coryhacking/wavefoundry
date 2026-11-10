@@ -11936,6 +11936,27 @@ def wf_review_event_response(
             root, wave_md, wave_read_error,
             data={"wave_id": wave_id, "mode": mode_s, "event": event},
         )
+    # Change 230k6: a repair start, which is also how a terminal security finding is
+    # reconsidered, never opens on a closed record; its ledger stays as written.
+    _status_match = _STATUS_PATTERN.search(wave_text_for_phase)
+    if (
+        event == "finding"
+        and run_kind == "repair_start"
+        and _status_match is not None
+        and _status_match.group(1).strip().lower() == "closed"
+    ):
+        return _response(
+            "error",
+            {"wave_id": wave_id, "mode": mode_s, "event": event},
+            diagnostics=[_diagnostic(
+                "wave_closed",
+                f"{_vocab.tier_noun('container').capitalize()} '{wave_md.parent.name}' is closed; a repair start "
+                "or security reconsideration is recorded only in an open one. Nothing was appended. "
+                "Record the fresh evidence as a new finding in the record that does the follow-up work.",
+                recovery_tools=["wf_current_wave"], recovery_usage="wf_current_wave()",
+            )],
+            next_tools=["wf_current_wave"], usage="wf_current_wave()",
+        )
     # Most event identities determine their recovery phase without touching
     # the ledger. Only a repair/reverification needs the finding's sealed
     # origin for errors that can occur before the publication transaction.
@@ -15109,20 +15130,33 @@ def wf_close_change_response(
                 recovery_tools=["wf_current_wave"], recovery_usage="wf_current_wave()",
             ))
 
-    # Gate (wave 22upa, change 22ubf): an unsettled security candidate holds the wave's
-    # operator-signoff withheld, so no change closes while one is open. Reads the stored
-    # head state only, so it needs no helper newer than this module's imports.
-    ledger_records, ledger_errors = read_review_event_ledger(wave_md)
-    if not ledger_errors:
-        for unsettled_id, head in current_synthesis_heads(ledger_records).items():
-            if head.get("disposition") == "security_unsettled" and head.get("repair_execution_state") == "pending":
-                trigger = head.get("promotion_trigger") or "none recorded"
-                diagnostics.append(_diagnostic(
-                    "unsettled_security_candidate",
-                    f"Security candidate `{unsettled_id}` is unsettled (promotion trigger: {trigger}); "
-                    "operator decision required: settle by fresh evidence, or the operator closes it.",
-                    recovery_tools=["wf_review_wave"], recovery_usage="wf_review_wave()",
-                ))
+    # Gate (wave 22upa, change 22ubf; change 230k6): an unsettled security candidate holds
+    # the wave's operator-signoff withheld, so no change closes while one is open. The
+    # candidates come from the validated authority Review and Close read, so a typed
+    # record whose ledger cannot establish that authority refuses instead of skipping the
+    # check. A legacy prose record has no ledger and is unchanged.
+    authority = resolve_review_authority(root, wave_md, wave_text=text)
+    if authority.typed and authority.ledger_errors:
+        missing = not os.path.lexists(review_event_path(wave_md))
+        diagnostics.append(_diagnostic(
+            "review_ledger_unreadable",
+            f"Review authority for '{canonical_wave_id}' cannot be established: "
+            + (
+                "the review event ledger is missing, so no change can be closed. "
+                "Restore the ledger from version control"
+                if missing else
+                "the review event ledger or the record's review projection is invalid, so no change "
+                "can be closed. Repair the reported errors"
+            )
+            + "; nothing was written. " + "; ".join(authority.ledger_errors[:5]),
+            recovery_tools=["wf_review_wave", "wf_validate_docs"],
+            recovery_usage=f"wf_review_wave(wave_id={canonical_wave_id!r})",
+        ))
+    else:
+        diagnostics.extend(
+            diagnostic for diagnostic in lifecycle_gates.security_candidate_diagnostics(authority)
+            if diagnostic.get("code") == "unsettled_security_candidate"
+        )
 
     if diagnostics:
         return _response(
@@ -24840,10 +24874,16 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         that needs no action but whose ``attacker_reachability`` or
         ``authority_delta`` is ``unverified`` records as ``security_unsettled``,
         whatever its basis (except ``unsupported_reachability`` with
-        ``supported_reachability: false``): it stays ``pending``, is not
-        terminal, and holds ``operator-signoff`` withheld until a fresh,
+        ``supported_reachability: false``); so does one whose
+        ``observable_impact`` or ``containment`` is ``unverified`` when its
+        ``authority_domain`` is anything but ``none``. It stays ``pending``, is
+        not terminal, and holds ``operator-signoff`` withheld until a fresh,
         independent reverification after ``repair_start`` settles it, or the
-        operator closes it. The operator close is ``event="finding"``,
+        operator closes it. A terminal real finding is reconsidered the same
+        way: ``repair_start`` in the next repair cycle with a judgment that
+        leaves the factor in question ``unverified`` gives it a new pending
+        head under the same ``finding_id``; a finding recorded as no issue
+        and a closed record refuse it. The operator close is ``event="finding"``,
         ``run_kind="reverification"``, ``actor="operator"`` with
         ``evidence.waiver`` (``waiver_id``, ``waiver_scope``,
         ``waiver_reason``, ``waiver_risk``) plus ``observed`` and
@@ -25253,7 +25293,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         and agrees between the wave record and the change document; it has no
         silent `[ ]` AC or task (the close-wave checkbox gate, this change
         only); every dependency on its wave-record `Depends On:` line is done
-        (terminal or implemented).
+        (terminal or implemented); the review authority Review and Close read
+        can be established (a missing or invalid ledger on a typed record
+        refuses with `review_ledger_unreadable`; a legacy prose record has
+        none) and names no unsettled security candidate.
 
         Writes (create): `complete` into the change document's status lines
         and the wave-record block, with the previous status recorded in the
