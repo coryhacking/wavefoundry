@@ -2,11 +2,11 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-31
+Last verified: 2026-11-10
 
 Help the intended reader understand, decide or act accurately. Before drafting, identify that reader, what they already know, and what they need from this artifact. Let that task and the consequences of misunderstanding determine the detail. Brevity is useful when it removes effort without removing meaning.
 
-Use this guide when authoring or substantially revising prose. Apply it to documents naturally touched later; it does not authorize rewriting history. Explicit user formats and project writing policies take precedence. Surface consequential conflicts. Keep required headings, metadata, identifiers, evidence schemas and audit records intact.
+Use this guide when authoring or substantially revising prose. Apply it to documents naturally touched later; it does not authorize rewriting history. Explicit user formats and project writing policies take precedence. Surface consequential conflicts. A consequential point is one that would change the reader's decision, action or result if omitted, missed or misread. Keep required headings, metadata, identifiers, evidence schemas and audit records intact.
 
 ## Relevant: give readers what they need
 
@@ -28,7 +28,9 @@ Use familiar words and direct verbs. Name the actor when responsibility matters.
 
 For an instruction or requirement, preserve who acts, the triggering conditions, the action and required outcome. Give each step one coherent instruction; separate independent actions when order or verification matters. Keep exceptions, prohibitions, permissions, numerical constraints and units explicit. Do not weaken **must** into **should**, turn a recommendation into a requirement, or convert an example into a universal promise. Active voice often clarifies ownership; passive voice remains useful when the actor is unknown or immaterial.
 
-For example, “The importer must reject a record larger than 8 MiB before storing it; an operator may raise the limit for an approved migration” cannot become “Large records are usually rejected.” The shorter sentence loses the actor, threshold, timing, obligation and authorized exception.
+In a requirement, acceptance criterion or status claim, name the setting, file, function, command, term, error text or limit the claim depends on, and define a term the reader cannot look up. If it is not yet known, say so and say what will identify it; do not guess a name. For example, “The importer reads its size limit from a setting that is not yet identified; the implementer will identify it by reading the importer's configuration loader before changing code.” A limit that a requirement imposes carries its number and unit, or states that the value is undecided and who will decide it. An adjective is a limit when a requirement acts on it and it stands for a quantity, as in “reject oversized records”. An adjective that names a category, as in “reject corrupt records”, is a term to define. An adjective of quality that a requirement acts on, as in “return a helpful error”, needs a definition or the observable result it requires. Any other adjective is a description. A requirement must not contain a hedge that leaves the obligation open, such as “if feasible”, “as needed” or “where possible”. When removing a hedge from an obligation, keep **must**; if the obligation is conditional, state the condition. Use **should** or “we recommend” only for text that was a recommendation, not a requirement. When the obligation depends on a condition, state the condition; a stated condition is not a hedge. A plan that fixes a defect shows the observed failure (the input or action, the actual result and the expected result) or says that the failure has not been reproduced.
+
+For example, “The importer must reject a record larger than 8 MiB before storing it; an operator may raise the limit for an approved migration” cannot become “Large records are usually rejected.” The shorter sentence loses the actor, threshold, timing, obligation and authorized exception. An abstract version fails differently: “The importer should reject oversized records where appropriate, using the configured size limit.” There, “the configured size limit” names no setting, “oversized” states no number, “where appropriate” leaves the obligation open, and “should” weakens **must**.
 
 There is no universal word or sentence limit. A long technical explanation can be necessary to expose a failure mode, dependency or consequential tradeoff. Remove repetition and needless indirection; retain the reasoning the reader needs to assess the result.
 

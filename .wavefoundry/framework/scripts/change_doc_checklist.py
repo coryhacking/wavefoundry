@@ -317,6 +317,24 @@ def section_items(text: str, heading: str, *, include_near_miss: bool = False) -
         yield from checklist_items(body)
 
 
+def item_block_end(lines: list[str], index: int) -> int:
+    """One past the last continuation line of the checklist item at ``index``
+    (wave 1zls7, 1zltr; shared since 23042): indented, non-blank, non-item,
+    non-heading lines at the item's own blockquote depth."""
+    depth = split_blockquote(lines[index])[0]
+    end = index + 1
+    for probe in range(index + 1, len(lines)):
+        probe_depth, rest = split_blockquote(lines[probe])
+        if probe_depth != depth or not rest.strip():
+            break
+        if CHECKLIST_ITEM_RE.match(lines[probe]) or rest.lstrip().startswith("#"):
+            break
+        if not rest.startswith((" ", "\t")):
+            break
+        end = probe + 1
+    return end
+
+
 def section_text(text: str, heading: str, *, include_near_miss: bool = False) -> str:
     """Every ``## <heading>`` section body joined, with fenced lines blanked:
     the section as the close gate reads it, for rules that scan it with their

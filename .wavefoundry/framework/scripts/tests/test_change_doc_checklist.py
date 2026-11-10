@@ -520,5 +520,27 @@ class LintAndPrepareMarkTests(unittest.TestCase):
         self.assertEqual(found, [("AC", "AC-3")])
 
 
+class ItemBlockEndTests(unittest.TestCase):
+    """23042: the shared continuation rule used by marking and the inline-note
+    lint rule (moved from the server, behavior unchanged)."""
+
+    def _end(self, text: str, index: int = 0) -> int:
+        return cdc.item_block_end(text.split("\n"), index)
+
+    def test_indented_lines_continue_the_item(self) -> None:
+        self.assertEqual(self._end("- [ ] AC-1: a\n  b\n   1. c\nnext"), 3)
+
+    def test_blank_line_heading_and_next_item_end_the_block(self) -> None:
+        self.assertEqual(self._end("- [ ] AC-1: a\n  b\n\n  c"), 2)
+        self.assertEqual(self._end("- [ ] AC-1: a\n  b\n## Tasks"), 2)
+        self.assertEqual(self._end("- [ ] AC-1: a\n  b\n- [ ] AC-2: c"), 2)
+
+    def test_unindented_line_ends_the_block(self) -> None:
+        self.assertEqual(self._end("- [ ] AC-1: a\nplain"), 1)
+
+    def test_other_blockquote_depth_ends_the_block(self) -> None:
+        self.assertEqual(self._end("> - [ ] AC-1: a\n>   b\n>>   c"), 2)
+        self.assertEqual(self._end(">> - [ ] AC-1: a\n>   b"), 1)
+
 if __name__ == "__main__":
     unittest.main()

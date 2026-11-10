@@ -5656,6 +5656,53 @@ class LeadingBOMDocsLintTests(unittest.TestCase):
             self.assertNotIn(path, helpers._READ_TEXT_CACHE)
 
 
+class TildeStatusContinuationLineTests(unittest.TestCase):
+    """23042: a `[~]` required criterion's note may sit on a `*Status: ...*`
+    continuation line; no other continuation text counts."""
+
+    _TABLE = (
+        "\n## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n"
+        "| AC-1 | required | Core |\n| AC-3 | required | Core |\n"
+    )
+
+    def _failures(self, criterion: str) -> list[str]:
+        from wave_lint_lib.wave_validators import _check_tilde_required_ac_has_inline_note
+        text = "# Sample\n\n## Acceptance Criteria\n\n" + criterion + self._TABLE
+        return _check_tilde_required_ac_has_inline_note(text, "sample.md")
+
+    def test_status_continuation_line_satisfies_the_rule(self) -> None:
+        self.assertEqual(self._failures(
+            "- [~] AC-1: Short first line:\n   1. One outcome.\n  *Status: Deferred by operator direction*\n"
+        ), [])
+
+    def test_long_continuation_lines_without_status_still_fail(self) -> None:
+        failures = self._failures(
+            "- [~] AC-1: Short first line:\n"
+            "   1. A continuation line that is well over forty characters long.\n"
+            "   2. Another continuation line that is also over forty characters.\n"
+        )
+        self.assertEqual(len(failures), 1)
+        self.assertIn("lacks an inline status note", failures[0])
+
+    def test_italic_text_in_a_continuation_line_does_not_count(self) -> None:
+        failures = self._failures(
+            "- [~] AC-1: Short first line:\n   1. An outcome with *emphasised words* inside.\n"
+        )
+        self.assertEqual(len(failures), 1)
+        self.assertIn("lacks an inline status note", failures[0])
+
+    def test_parenthesised_label_with_status_line_passes(self) -> None:
+        self.assertEqual(self._failures(
+            "- [~] AC-3 (intent check, with a control): two readers run. The result is one of:\n"
+            "   1. Pass: the candidate wins.\n"
+            "   2. Fail: anything else.\n"
+            "  *Status: Failed by the rule decided at readiness: a tie.*\n"
+        ), [])
+
+    def test_unindented_status_line_is_not_part_of_the_criterion(self) -> None:
+        failures = self._failures("- [~] AC-1: Short.\n*Status: Not part of the item*\n")
+        self.assertEqual(len(failures), 1)
+
 if __name__ == "__main__":
     unittest.main()
 

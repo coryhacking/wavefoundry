@@ -6916,7 +6916,7 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
             target_section="Acceptance Criteria", reason="Operator removed it during implementation", mode="create",
         )
         self.assertEqual(response["status"], "ok", response)
-        self.assertEqual(response["data"]["matched_text"], "> - [~] AC-1: wrapped *Operator removed it during implementation*\n>   criterion\n")
+        self.assertEqual(response["data"]["matched_text"], "> - [~] AC-1: wrapped\n>   criterion\n>   *Status: Operator removed it during implementation*\n")
 
     def test_marking_a_crlf_document_changes_only_the_mark(self):
         """Delivery review: a CRLF document keeps every line ending; only the
@@ -6942,7 +6942,7 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
             target_section="Acceptance Criteria", reason="Dropped", mode="create",
         )
         self.assertEqual(ac["status"], "ok", ac)
-        expected = expected.replace(b"- [ ] AC-2: wrapped\r\n", b"- [~] AC-2: wrapped *Dropped*\r\n")
+        expected = expected.replace(b"- [ ] AC-2: wrapped\r\n  criterion\r\n", b"- [~] AC-2: wrapped\r\n  criterion\r\n  *Status: Dropped*\r\n")
         self.assertEqual(path.read_bytes(), expected)
         again = self.srv._mark_change_item_response(
             self.root, self.wave_id, "1200c-enh mark-sample", "Implement", "x",
@@ -6970,6 +6970,130 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
                 self.assertEqual(response["status"], "ok", response)
                 self.assertEqual(response["data"]["matched_text"], item.replace("[ ]", "[x]") + "\n")
 
+
+    _PRIORITY_TABLE = (
+        "## AC Priority\n\n| AC | Priority | Rationale |\n| --- | --- | --- |\n"
+        "| AC-1 | required | Core |\n| AC-2 | required | Core |\n"
+    )
+
+    def _multiline_body(self, newline="\n"):
+        lines = [
+            "# Sample", "", "## Acceptance Criteria", "",
+            "- [ ] AC-1: The result is one of:",
+            "   1. Pass: it passes.",
+            "   2. Inconclusive: it cannot tell.",
+            "   3. Fail: anything else.",
+            "- [ ] AC-2: Second criterion.",
+            "",
+        ] + self._PRIORITY_TABLE.rstrip("\n").split("\n")
+        return newline.join(lines) + newline
+
+    def test_deferring_a_multiline_criterion_writes_a_status_line_after_it(self):
+        """23042: the reason follows the whole criterion on its own line; the
+        criterion's text is untouched apart from the mark."""
+        body = self._multiline_body()
+        self._write_change(body)
+        path = self.wave_dir / "1200c-enh mark-sample.md"
+        reason = "Failed by the rule decided at readiness"
+        response = self.srv._mark_change_item_response(
+            self.root, self.wave_id, "1200c-enh mark-sample", "AC-1", "~",
+            target_section="Acceptance Criteria", reason=reason, mode="create",
+        )
+        self.assertEqual(response["status"], "ok", response)
+        expected = body.replace("- [ ] AC-1:", "- [~] AC-1:").replace(
+            "   3. Fail: anything else.\n",
+            f"   3. Fail: anything else.\n  *Status: {reason}*\n",
+        )
+        self.assertEqual(path.read_text(encoding="utf-8"), expected)
+        self.assertTrue(response["data"]["matched_text"].endswith(f"  *Status: {reason}*\n"))
+
+    def test_deferring_a_multiline_criterion_keeps_crlf_line_endings(self):
+        """23042: the inserted line carries the document's CRLF ending."""
+        body = self._multiline_body("\r\n").encode("utf-8")
+        path = self.wave_dir / "1200c-enh mark-sample.md"
+        path.write_bytes(body)
+        reason = "Dropped by operator direction"
+        response = self.srv._mark_change_item_response(
+            self.root, self.wave_id, "1200c-enh mark-sample", "AC-1", "~",
+            target_section="Acceptance Criteria", reason=reason, mode="create",
+        )
+        self.assertEqual(response["status"], "ok", response)
+        expected = body.replace(b"- [ ] AC-1:", b"- [~] AC-1:").replace(
+            b"   3. Fail: anything else.\r\n",
+            f"   3. Fail: anything else.\r\n  *Status: {reason}*\r\n".encode("utf-8"),
+        )
+        written = path.read_bytes()
+        self.assertEqual(written, expected)
+        self.assertNotIn(b"\n", written.replace(b"\r\n", b""))
+
+    def test_deferring_a_single_line_criterion_keeps_the_inline_reason(self):
+        """23042: a criterion without continuation lines keeps today's form."""
+        body = self._multiline_body()
+        self._write_change(body)
+        path = self.wave_dir / "1200c-enh mark-sample.md"
+        response = self.srv._mark_change_item_response(
+            self.root, self.wave_id, "1200c-enh mark-sample", "AC-2", "~",
+            target_section="Acceptance Criteria", reason="Deferred to the next wave", mode="create",
+        )
+        self.assertEqual(response["status"], "ok", response)
+        self.assertEqual(
+            path.read_text(encoding="utf-8"),
+            body.replace("- [ ] AC-2: Second criterion.", "- [~] AC-2: Second criterion. *Deferred to the next wave*"),
+        )
+
+    def test_deferring_a_blockquoted_multiline_criterion_keeps_its_prefix(self):
+        """23042: the status line keeps the item's blockquote prefix and still
+        counts as part of the item for the inline-note rule."""
+        from wave_lint_lib.wave_validators import _check_tilde_required_ac_has_inline_note
+        body = (
+            "# Sample\n\n## Acceptance Criteria\n\n> - [ ] AC-1: short\n>   wrapped line\n\n"
+            + self._PRIORITY_TABLE
+        )
+        self._write_change(body)
+        path = self.wave_dir / "1200c-enh mark-sample.md"
+        response = self.srv._mark_change_item_response(
+            self.root, self.wave_id, "1200c-enh mark-sample", "AC-1", "~",
+            target_section="Acceptance Criteria", reason="Removed by operator", mode="create",
+        )
+        self.assertEqual(response["status"], "ok", response)
+        written = path.read_text(encoding="utf-8")
+        self.assertIn("> - [~] AC-1: short\n>   wrapped line\n>   *Status: Removed by operator*\n", written)
+        self.assertEqual(_check_tilde_required_ac_has_inline_note(written, "sample.md"), [])
+
+    def test_a_multiline_reason_containing_an_asterisk_is_refused_without_writing(self):
+        """23042: the written status line must satisfy the inline-note rule, so a
+        reason with `*` on a multi-line criterion is refused and nothing changes."""
+        body = self._multiline_body()
+        self._write_change(body)
+        path = self.wave_dir / "1200c-enh mark-sample.md"
+        original = path.read_bytes()
+        response = self.srv._mark_change_item_response(
+            self.root, self.wave_id, "1200c-enh mark-sample", "AC-1", "~",
+            target_section="Acceptance Criteria", reason="a long reason with * inside", mode="create",
+        )
+        self.assertEqual(response["status"], "error", response)
+        self.assertEqual(response["diagnostics"][0]["code"], "tilde_rationale_required")
+        self.assertEqual(path.read_bytes(), original)
+
+    def test_deferring_a_criterion_with_a_fenced_continuation_keeps_the_first_line_form(self):
+        """23042 delivery review: a fenced block inside the criterion ends the
+        item for readers that blank fenced lines, so the reason stays on the
+        first line and the deferral succeeds."""
+        body = (
+            "# Sample\n\n## Acceptance Criteria\n\n- [ ] AC-1: Short:\n  ```\n  code\n  ```\n\n"
+            + self._PRIORITY_TABLE
+        )
+        self._write_change(body)
+        path = self.wave_dir / "1200c-enh mark-sample.md"
+        response = self.srv._mark_change_item_response(
+            self.root, self.wave_id, "1200c-enh mark-sample", "AC-1", "~",
+            target_section="Acceptance Criteria", reason="Deferred by operator", mode="create",
+        )
+        self.assertEqual(response["status"], "ok", response)
+        self.assertEqual(
+            path.read_text(encoding="utf-8"),
+            body.replace("- [ ] AC-1: Short:", "- [~] AC-1: Short: *Deferred by operator*"),
+        )
 
 class PrepareCouncilVerdictParserTests(unittest.TestCase):
     def setUp(self):

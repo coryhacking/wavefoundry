@@ -358,6 +358,8 @@ _TILDE_AC_LINE_RE = re.compile(r"^\s*-\s+\[~\]\s+(?P<ac_id>AC-[\w\-]+):\s*(?P<re
 # rather than a silent marker.
 _INLINE_ITALIC_RE = re.compile(r"\*[^*\n]{4,}\*")
 _INLINE_NOTE_MIN_CHARS = 40
+# 23042: a deferral note written after a multi-line criterion by wf_mark_ac.
+_STATUS_CONTINUATION_RE = re.compile(r"^\s*\*Status:\s*[^*\n]{4,}\*\s*$")
 
 
 def _check_checkbox_ac_syntax(text: str, rel: str) -> list[str]:
@@ -689,6 +691,24 @@ def _check_ac_asserts_repository_state(text: str, rel: str) -> list[str]:
     return failures
 
 
+def _ac_items_with_status_line(ac_section: str) -> list[bool]:
+    """For each item ``_lint_ac_items`` returns, in the same order, whether
+    one of its continuation lines is a ``*Status: ...*`` note (23042).  The
+    walk matches lines exactly as ``_lint_ac_items`` does; the continuation
+    rule is the one marking uses."""
+    lines = ac_section.split("\n")
+    flags: list[bool] = []
+    for index, line in enumerate(lines):
+        if not (change_doc_checklist.CHECKLIST_ITEM_RE.match(line) or _AC_LINE_RE.match(line)):
+            continue
+        end = change_doc_checklist.item_block_end(lines, index)
+        flags.append(any(
+            _STATUS_CONTINUATION_RE.match(change_doc_checklist.split_blockquote(lines[probe])[1])
+            for probe in range(index + 1, end)
+        ))
+    return flags
+
+
 def _check_tilde_required_ac_has_inline_note(text: str, rel: str) -> list[str]:
     """Wave 1p31b (1p32k): a `[~]` AC at required priority must carry an inline status note.
 
@@ -725,7 +745,8 @@ def _check_tilde_required_ac_has_inline_note(text: str, rel: str) -> list[str]:
     # Walk AC bullets in order; for each `[~]` AC at required priority, check for inline note.
     failures: list[str] = []
     ac_index = 0
-    for mark, raw_text in _lint_ac_items(ac_section):
+    status_noted = _ac_items_with_status_line(ac_section)
+    for (mark, raw_text), has_status_line in zip(_lint_ac_items(ac_section), status_noted):
         text_part = raw_text.strip()
         # Wave 1zime (1zimq): the id comes only from the start of the item, so
         # an id cited later never lends its priority.
@@ -747,6 +768,9 @@ def _check_tilde_required_ac_has_inline_note(text: str, rel: str) -> list[str]:
 
         # Has an inline italic segment?
         if _INLINE_ITALIC_RE.search(text_part):
+            continue
+        # Or a `*Status: ...*` continuation line (23042)?
+        if has_status_line:
             continue
         # Or sufficient prose length after the AC label?
         rationale = ""

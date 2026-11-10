@@ -8,6 +8,14 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `wf_mark_ac` no longer splits a multi-line acceptance criterion when it records a deferral reason: the reason now follows the whole criterion as a `*Status: ...*` line at the criterion's blockquote depth, with the document's line ending, and docs-lint accepts that line as the criterion's inline status note. A single-line criterion keeps the reason at the end of its line. Wave 23041 / change 23042.
+
+### Changed
+
+- The writing guide now requires a requirement, acceptance criterion or status claim to name the setting, file, function, command, term, error text or limit it depends on, or to say it is not yet known and what will identify it. An imposed limit carries its number and unit, a requirement contains no open-ended hedge, and a plan that fixes a defect shows the observed failure. The guide also extends its 8 MiB example with an abstract version and defines "consequential". Wave 23041 / change 23040.
+
 ## [1.41.0] - 2026-11-09
 
 ### Security

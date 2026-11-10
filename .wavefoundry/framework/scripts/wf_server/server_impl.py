@@ -7868,24 +7868,6 @@ def _refuse_if_archived(root: Path, token: str, kind: str) -> Optional[dict[str,
     )
 
 
-def _mark_item_block_end(lines: list[str], index: int) -> int:
-    """One past the last continuation line of the checklist item at ``index``
-    (wave 1zls7, 1zltr): indented, non-blank, non-item, non-heading lines at
-    the item's own blockquote depth."""
-    depth = change_doc_checklist.split_blockquote(lines[index])[0]
-    end = index + 1
-    for probe in range(index + 1, len(lines)):
-        probe_depth, rest = change_doc_checklist.split_blockquote(lines[probe])
-        if probe_depth != depth or not rest.strip():
-            break
-        if change_doc_checklist.CHECKLIST_ITEM_RE.match(lines[probe]) or rest.lstrip().startswith("#"):
-            break
-        if not rest.startswith((" ", "\t")):
-            break
-        end = probe + 1
-    return end
-
-
 # Wave 1zxo0 (1zxns): ``_change_id_shape_error`` lives in lifecycle_gate_support
 # (imported above) beside the change-id allow-list.
 
@@ -8007,7 +7989,7 @@ def _mark_change_item_response(
         match = change_doc_checklist.CHECKLIST_ITEM_RE.match(lines[index])
         if match is None:
             continue
-        item_end = _mark_item_block_end(lines, index)
+        item_end = change_doc_checklist.item_block_end(lines, index)
         label_parts = [match.group("text").strip()] + [
             change_doc_checklist.split_blockquote(continuation)[1].strip()
             for continuation in lines[index + 1:item_end]
@@ -8045,7 +8027,25 @@ def _mark_change_item_response(
     line = lines[index]
     mark_start, mark_end = match.span("mark")
     text_end = match.end("text")
-    if state == "~" and target_section == "Acceptance Criteria" and reason.strip():
+    # 23042: a criterion whose continuation holds a fenced block keeps the
+    # first-line form, because readers that blank fenced lines (the inline-note
+    # lint) would end the item at the fence and miss a trailing status line.
+    block_fenced = block_end > index + 1 and any(
+        change_doc_checklist.fenced_line_flags([raw_line.rstrip("\r") for raw_line in lines])[index + 1:block_end]
+    )
+    if state == "~" and target_section == "Acceptance Criteria" and reason.strip() and block_end > index + 1 and not block_fenced:
+        # 23042: a criterion with continuation lines keeps its own text intact;
+        # the reason follows the whole item as a `*Status: ...*` continuation
+        # line at the item's blockquote depth, with the document's line ending
+        # (a CRLF line keeps its `\r` after the `\n` split).
+        lines[index] = line[:mark_start] + state + line[mark_end:]
+        first = lines[index]
+        depth, rest = change_doc_checklist.split_blockquote(first.rstrip("\r"))
+        prefix = first.rstrip("\r")[: len(first.rstrip("\r")) - len(rest)] if depth else ""
+        ending = "\r" if lines[block_end - 1].endswith("\r") else ""
+        lines.insert(block_end, f"{prefix}  *Status: {reason.strip()}*{ending}")
+        block_end += 1
+    elif state == "~" and target_section == "Acceptance Criteria" and reason.strip():
         lines[index] = (
             line[:mark_start] + state + line[mark_end:text_end]
             + f" *{reason.strip()}*" + line[text_end:]
