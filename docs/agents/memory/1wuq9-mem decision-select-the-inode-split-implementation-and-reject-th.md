@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-01
+Last verified: 2026-11-10
 
 Memory ID: `1wuq9-mem decision-select-the-inode-split-implementation-and-reject-th`
 Kind: `decision`
@@ -18,6 +18,7 @@ Validation rationale: Evidence followed: the 1wtpl Decision Log row (readiness C
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+
 ## Summary
 
 Decision (wave 1wur7): Select the inode-split implementation and reject the store-instance-identifier alternative (readiness CODE-RDY-6).. Rationale: No such identifier exists; minting one edits `index_state_store.py`, a `PRODUCTION_RETRIEVAL_MODULES` member, which would perturb `production_identity` and contradict this wave's own "no product path" scope. A `meta`-row identifier would also travel with a file copy, admitting a copied store that the inode correctly refuses..

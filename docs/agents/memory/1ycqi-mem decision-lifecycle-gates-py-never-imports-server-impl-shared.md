@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-18
+Last verified: 2026-11-10
 
 Memory ID: `1ycqi-mem decision-lifecycle-gates-py-never-imports-server-impl-shared`
 Kind: `decision`
@@ -18,6 +18,7 @@ Validation rationale: Evidence followed: the decision row in 1y044 and the lande
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+
 ## Summary
 
 Decision (wave 1y0h0): `lifecycle_gates.py` never imports `server_impl`; shared helpers move with the units into `lifecycle_gate_support.py`, and the orchestrator-computed policy data (`council_brief`, `policy_state`, `policy_state_errors`) arrives on the context as data, never as callables (round-2 correction of the earlier "passed as callables" wording). Round 4: the producers `_prepare_policy_state` and `_build_prepare_council_brief` move to the support module too, because `_review_policy_receipt_diagnostics` calls them; the orchestrator calls them through the support module. Rationale: Keeps the module importable and testable in isolation and hot-reload safe, following the `techdocs_audit_lib.py` rule; a data-only context is what AC-6 can enforce mechanically.

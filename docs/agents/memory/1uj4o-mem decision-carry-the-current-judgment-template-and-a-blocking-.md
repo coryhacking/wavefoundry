@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-05
+Last verified: 2026-11-10
 
 Memory ID: `1uj4o-mem decision-carry-the-current-judgment-template-and-a-blocking-`
 Kind: `decision`
@@ -18,6 +18,7 @@ Validation rationale: The decision is reusable at the review-action boundary, ve
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+
 ## Summary
 
 Decision (wave 1ui1d): Carry the current judgment template and a blocking constraint; change neither `derive_blocking` nor the retention rule. Rationale: Both are correct. The template is more useful than paraphrasing a predicate: it tells the caller exactly which existing judgment to preserve while the constraint explains why the lanes remain.

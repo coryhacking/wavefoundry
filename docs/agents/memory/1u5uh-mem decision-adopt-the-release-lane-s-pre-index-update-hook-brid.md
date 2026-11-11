@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-01
+Last verified: 2026-11-10
 
 Memory ID: `1u5uh-mem decision-adopt-the-release-lane-s-pre-index-update-hook-brid`
 Kind: `decision`
@@ -18,6 +18,7 @@ Validation rationale: Field-proven the day after delivery: the pg1a-initiated pg
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+
 ## Summary
 
 Decision (wave 1u44n): Adopt the release lane's `pre_index_update` hook bridge as an ADDITIVE requirement. Rationale: `upgrade_extensions` is loaded from inside the NEW pack (`upgrade_wavefoundry.py:944-984`) while the parent runner is still old code, and the old parent already calls the hook at `:4274` immediately before the Phase 4 dispatch, so acting there makes the fix effective on the installing upgrade and closes the old-code window for once.

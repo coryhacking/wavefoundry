@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-03
+Last verified: 2026-11-10
 
 Memory ID: `1uczr-mem repaired-defect-standard-feature-pack-omits-online-verificat`
 Kind: `failed_attempt`
@@ -18,6 +18,7 @@ Validation rationale: The recorded QA finding was reproduced from the actual bui
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+
 ## Summary
 
 Real defect fixed in wave 1uas8: The repaired canonical-manifest packaging path resolves the finding and includes a direct regression guard for the previously missing default branch.

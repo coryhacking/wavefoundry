@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-01
+Last verified: 2026-11-10
 
 Memory ID: `1wv6w-mem decision-operator-decision-on-requirement-5-close-verifies-t`
 Kind: `decision`
@@ -18,6 +18,7 @@ Validation rationale: Evidence followed: the 1wuui Decision Log row recording th
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+
 ## Summary
 
 Decision (wave 1wur7): OPERATOR DECISION on Requirement 5: close verifies the existing `test-cache.json` receipt (green plus current `inputs_hash`) rather than running the suite, inventing a receipt format, or relying on lane review alone.. Rationale: The receipt already exists and is already hash-bound: `run_tests.py` writes `inputs_hash` over every file under `.wavefoundry/framework/` except packaging artifacts and the cache itself, so it self-invalidates on any framework change, which is exactly the staleness binding a close-time check needs. Nothing outside `run_tests.py` reads it today (the only other references are `build_pack.py` and `indexer.py` exclusion lists), so the requirement is a read, not a build. This keeps the whole-suite requirement machine-visible as it leaves the ACs, at no wall-clock cost. An earlier draft of this analysis asserted no receipt existed; the operator challenged it and the challenge was correct..

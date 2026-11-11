@@ -403,4 +403,7 @@ SENSOR_POLARITY_REGISTRY: dict[str, dict[str, str]] = {
                               "decided_wave": "1z8mm"},
     "archive_record_unreadable": {"polarity": "advisory", "introduced_wave": "1z8ts",
                                   "decided_wave": "1z8ts"},
+    # Change 22y1k: a heading with no blank line above it, in live documents only.
+    "heading_without_blank_line_before": {"polarity": "advisory", "introduced_wave": "22yox",
+                                          "decided_wave": "22yox"},
 }

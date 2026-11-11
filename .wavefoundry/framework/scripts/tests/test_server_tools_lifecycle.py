@@ -13446,7 +13446,7 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
                 expected = ("Wave `1200a-intent` (Test Wave Title) delivered one change: "
                             "Change Title For 1200a-enh guidance.\n\n" + outcome +
                             "\n\n**Changes delivered:**\n\n"
-                            "- **Change Title For 1200a-enh guidance** (`1200a-enh guidance`) — 1 AC completed")
+                            "- **Change Title For 1200a-enh guidance** (`1200a-enh guidance`) — AC-1 completed.")
                 self.assertEqual(summary, expected)
                 published = wave_md.read_text(encoding="utf-8").split(vocabulary_profile.SUMMARY_HEADING, 1)[1].split("\n## ", 1)[0]
                 self.assertIn(outcome, published)
@@ -13457,7 +13457,7 @@ class WaveCloseSummaryGenerationTests(unittest.TestCase):
         original = wave_md.read_text(encoding="utf-8")
         expected = ("Wave `1200a-legacy` (Test Wave Title) delivered one change: "
                     "Change Title For 1200a-enh guidance.\n\n**Changes delivered:**\n\n"
-                    "- **Change Title For 1200a-enh guidance** (`1200a-enh guidance`) — 1 AC completed")
+                    "- **Change Title For 1200a-enh guidance** (`1200a-enh guidance`) — AC-1 completed.")
         for extra in ("", "\n## Review checkpoints\n\nIntent outcome: partial; legacy heading.\n",
                       "\n## Other\n\nIntent outcome: achieved; wrong section.\n",
                       "\n## Review Checkpoints extra\n\nIntent outcome: achieved; wrong heading.\n"):
@@ -18648,3 +18648,309 @@ class ReceiptSnapshotPublicIntegrationTests(unittest.TestCase):
         _, focused = self.focused()
         self.assertTrue(focused["lanes"], focused)
         self.assertTrue(all(lane["full_review_required"] for lane in focused["lanes"]))
+
+
+class HeadingSpacingLifecycleTests(unittest.TestCase):
+    """Change 22y1k: prepare and close keep a blank line above every heading, and the
+    close summary reports each change's criteria instead of quoting its Progress Log."""
+
+    import test_wave_work_lifecycle as _wwl
+
+    setUp = _wwl.WaveWorkLifecycleTests.setUp
+    call = _wwl.WaveWorkLifecycleTests.call
+    ok = _wwl.WaveWorkLifecycleTests.ok
+    wave = _wwl.WaveWorkLifecycleTests.wave
+    del _wwl
+
+    # -- AC-2: prepare -------------------------------------------------------
+
+    DEFECT = ("1. Exercise workspace lifetime.\n\n## Scope", "1. Exercise workspace lifetime.\n## Scope")
+
+    def _receipt(self, response):
+        return response["data"]["review_policy"]["receipt"]["receipt_id"]
+
+    def test_prepare_inserts_the_blank_line_before_the_receipt_is_computed(self):
+        wid, wave_md, cid = self.wave("spacing")
+        doc = wave_md.parent / f"{cid}.md"
+        approved = doc.read_bytes()
+        ready = self.call("wf_prepare_wave", wave_id=wid, mode="ready")
+        self.ok(ready)
+        receipt = self._receipt(ready)
+        self.assertNotIn("headings_fixed", ready["data"])
+
+        # A heading straight after a list item, in a document whose readiness is approved.
+        spaced, defect = self.DEFECT
+        self.assertEqual(approved.decode().count(spaced), 1)
+        broken = approved.decode().replace(spaced, defect).encode()
+        doc.write_bytes(broken)
+
+        # dry_run and evaluate write nothing.
+        for mode in ("dry_run", "evaluate"):
+            self.call("wf_prepare_wave", wave_id=wid, mode=mode)
+            self.assertEqual(doc.read_bytes(), broken, mode)
+
+        fixed = self.call("wf_prepare_wave", wave_id=wid, mode="ready")
+        self.ok(fixed)
+        self.assertEqual(doc.read_bytes(), approved)
+        self.assertEqual(fixed["data"]["headings_fixed"], [doc.relative_to(self.root).as_posix()])
+        # The receipt was taken from the fixed text, so the approval is still current.
+        self.assertEqual(self._receipt(fixed), receipt)
+        self.assertFalse(fixed["data"]["review_policy"]["receipt_append_required"])
+
+        again = self.call("wf_prepare_wave", wave_id=wid, mode="ready")
+        self.ok(again)
+        self.assertEqual(self._receipt(again), receipt)
+        self.assertFalse(again["data"]["review_policy"]["receipt_append_required"])
+        self.assertNotIn("headings_fixed", again["data"])
+        self.assertEqual(doc.read_bytes(), approved)
+
+    def test_prepare_fixes_the_record_and_keeps_crlf(self):
+        wid, wave_md, cid = self.wave("spacing-crlf", ready=False)
+        doc = wave_md.parent / f"{cid}.md"
+        spaced, defect = self.DEFECT
+        doc.write_bytes(doc.read_bytes().decode().replace(spaced, defect).replace("\n", "\r\n").encode())
+        record = wave_md.read_text(encoding="utf-8")
+        heading = "\n\n## Watchpoints"
+        self.assertEqual(record.count(heading), 1)
+        wave_md.write_text(record.replace(heading, "\n- a trailing bullet\n## Watchpoints"), encoding="utf-8")
+        response = self.call("wf_prepare_wave", wave_id=wid, mode="ready")
+        self.assertEqual(sorted(response["data"]["headings_fixed"]),
+                         sorted(p.relative_to(self.root).as_posix() for p in (doc, wave_md)))
+        fixed = doc.read_bytes()
+        self.assertIn(b"lifetime.\r\n\r\n## Scope", fixed)
+        self.assertNotIn(b"\n", fixed.replace(b"\r\n", b""))
+        self.assertIn("- a trailing bullet\n\n## Watchpoints", wave_md.read_text(encoding="utf-8"))
+
+    # -- AC-3: close ---------------------------------------------------------
+
+    LONG_NOTE = ("Deferred to a later wave because the measurement needs a second profile run, "
+                 "which this wave does not include; the operator agreed on 2026-11-10 and the note "
+                 "is long on purpose so a truncated summary would lose its end marker ENDNOTE")
+
+    def _doc(self, cid, criteria):
+        label = vocabulary_profile.MEMBER_STATUS_LABEL
+        return (
+            f"# Fixture {cid.split()[0]}\n\n{vocabulary_profile.MEMBER_ID_LABEL}: `{cid}`\n"
+            f"{label}: `planned`\nOwner: Engineering\nStatus: planned\nLast verified: 2026-10-25\n\n"
+            "## Rationale\n\nClose summary fixture.\n\n## Requirements\n\n1. Report criteria.\n\n"
+            "## Scope\n\nTemporary repository.\n\n## Acceptance Criteria\n\n" + criteria + "\n"
+            "## Tasks\n\n- [x] Complete fixture.\n\n## AC Priority\n\n"
+            "| AC | Priority | Rationale |\n| --- | --- | --- |\n| AC-1 | required | Fixture. |\n\n"
+            "## Progress Log\n\n| Date | Update | Evidence |\n| --- | --- | --- |\n"
+            "| 2026-11-01 | Review round 1 removed the PROGRESSQUOTE cap and added scope. | notes |\n"
+            "| 2026-11-02 | Renamed and expanded the PROGRESSQUOTE helper. | notes |\n\n"
+            "## Decision Log\n\n| Date | Decision | Reason | Alternatives |\n| --- | --- | --- | --- |\n"
+            "| 2026-11-01 | Keep one reader | Simpler | Two readers |\n"
+        )
+
+    def _two_change_wave(self, slug):
+        first = (
+            "- [x] AC-1: First criterion is met.\n"
+            "- [x] AC-2: Second criterion is met.\n"
+            "- [~] AC-3: Third criterion is measured under a second profile.\n"
+            f"  *Status: {self.LONG_NOTE}*\n"
+            "- [~] AC-4: Fourth criterion. *Removed by operator direction.*\n"
+            "- [~] an unlabelled criterion with several more words *Not needed.*\n"
+        )
+        second = "- [~] AC-1: Only criterion. *Superseded by the first change.*\n"
+        ids = []
+        for name, criteria in (("first", first), ("second", second)):
+            made = self.ok(self.srv._change_create_response(self.root, "enh", f"{slug}-{name}", mode="create"))
+            (self.root / made["path"]).write_text(self._doc(made["change_id"], criteria), encoding="utf-8")
+            ids.append(made["change_id"])
+        wid, wave_md = server_tools_support.make_declared_wave(
+            self.srv, self.root, slug, change_ids=tuple(ids), ready=True, readiness_run=True,
+            approvals=("council-readiness", "code-reviewer"), doc_gate_stubs=self.stubs)
+        self.ok(self.call("wf_prepare_wave", wave_id=wid, mode="ready"))
+        return wid, wave_md, ids
+
+    def _deliver(self, wid, wave_md, ids):
+        self.ok(self.call("wf_implement_wave", wave_id=wid, mode="create"))
+        label = vocabulary_profile.MEMBER_STATUS_LABEL
+        for path in (wave_md, *(wave_md.parent / f"{cid}.md" for cid in ids)):
+            text = path.read_text()
+            text = text.replace(f"{label}: `planned`", f"{label}: `implemented`")
+            if path != wave_md:
+                text = text.replace("Status: planned", "Status: implemented")
+            path.write_text(text, encoding="utf-8")
+        review = self.call("wf_review_wave", wave_id=wid, phase="implementation")
+        self.ok(self.call("wf_review_event", wave_id=wid, event="run", actor="council-chair",
+                          context_id="spacing-delivery", run_kind="initial_delivery", cycle=0, mode="create"))
+        keys = [*review["data"].get("required_lanes", ()), *review["data"].get("required_council_signoffs", ()),
+                "operator-signoff"]
+        for key in dict.fromkeys(keys):
+            actor = ("operator" if key == "operator-signoff" else
+                     "council-chair" if requires_intent_fit(key) else key)
+            self.ok(self.call(
+                "wf_review_event", wave_id=wid, event="approval", actor=actor,
+                context_id="spacing-delivery-" + key, signoff_key=key, approval_phase="delivery",
+                fresh_context=True, independent=True, mode="create",
+                evidence={"observed": "close summary fixture", "artifact_or_test_id": self.id(),
+                          **({"intent_fit": "establishes"} if requires_intent_fit(key) else {})},
+                integrity_checks=integrity_checks()))
+        for cid in ids:
+            self.ok(self.call("wf_close_change", wave_id=wid, change_id=cid, mode="create"))
+
+    def test_close_summary_reports_criteria_and_is_spaced_from_the_next_heading(self):
+        wid, wave_md, ids = self._two_change_wave("summary")
+        self._deliver(wid, wave_md, ids)
+        # The record as an old writer left it: a heading straight after a bullet.
+        record = wave_md.read_text(encoding="utf-8")
+        self.assertEqual(record.count("\n\n## Review Checkpoints"), 1)
+        wave_md.write_text(record.replace("\n\n## Review Checkpoints", "\n## Review Checkpoints"), encoding="utf-8")
+
+        self.ok(server_tools_support.close_container(self.call, self.root, wid, mode="create"))
+        closed = wave_md.read_text(encoding="utf-8")
+        self.assertIn("Status: closed", closed)
+        import markdown_layout
+        self.assertEqual(markdown_layout.headings_without_blank_line(closed), [])
+
+        heading = vocabulary_profile.SUMMARY_HEADING
+        body = closed.split(heading, 1)[1]
+        summary, following = re.split(r"\n(?=## )", body, maxsplit=1)
+        self.assertTrue(summary.endswith("\n"), "an empty line separates the summary from the next heading")
+        self.assertTrue(following.startswith("## "))
+        bullets = [line for line in summary.splitlines() if line.startswith("- **")]
+        self.assertEqual(len(bullets), 2, summary)
+        first, second = bullets
+        self.assertIn(f"(`{ids[0]}`)", first)
+        self.assertIn("AC-1 and AC-2 completed", first)
+        self.assertIn(f"AC-3 deferred: Status: {self.LONG_NOTE}", first)
+        self.assertIn("ENDNOTE", first)
+        self.assertIn("AC-4 deferred: Removed by operator direction", first)
+        self.assertIn("an unlabelled criterion with several deferred: Not needed", first)
+        self.assertIn("Key decisions: Keep one reader", first)
+        # A change whose criteria are all deferred still gets its bullet.
+        self.assertIn(f"(`{ids[1]}`)", second)
+        self.assertIn("AC-1 deferred: Superseded by the first change", second)
+        self.assertNotIn("completed", second)
+        # Progress Log rows are not quoted, whatever keywords they contain.
+        self.assertNotIn("PROGRESSQUOTE", summary)
+        self.assertNotIn("Notable adjustments", summary)
+
+    def test_the_summary_section_leaves_an_empty_line_before_the_next_heading(self):
+        # Pinned on the section writer itself: the close-time heading repair would otherwise
+        # hide a summary that runs into the next heading.
+        heading = vocabulary_profile.SUMMARY_HEADING
+        record = f"# Record\n\n{heading}\n\nOld summary.\n\n## Watchpoints\n\n- note\n"
+        for summary in ("New summary.\n\n- **Change** (`id`) — AC-1 completed.",
+                        "New summary.\n\n- **Change** (`id`) — AC-1 completed.\n"):
+            with self.subTest(trailing_newline=summary.endswith("\n")):
+                written = self.srv._replace_wave_summary_section(record, summary)
+                self.assertEqual(
+                    written,
+                    f"# Record\n\n{heading}\n\nNew summary.\n\n- **Change** (`id`) — AC-1 completed.\n\n"
+                    "## Watchpoints\n\n- note\n")
+        last = f"# Record\n\n{heading}\n\nOld summary.\n"
+        self.assertEqual(self.srv._replace_wave_summary_section(last, "New."), f"# Record\n\n{heading}\n\nNew.\n")
+
+    def test_the_summary_reads_criteria_as_the_close_gate_does(self):
+        # RT-DEL-1: labels come from the shared id reader, any list marker counts, a fenced
+        # example does not, and a deferral note is the Status line, else the last italic
+        # segment, else the criterion's own prose.
+        document = (
+            "# Change\n\n## Acceptance Criteria\n\n"
+            "- [x] AC-1 (required): done.\n"
+            "- [X] **AC-2**: done.\n"
+            "* [x] `AC-3` done under a star marker.\n"
+            "1. [~] AC-4 (intent check, with a control): does *never* fail. *Deferred to wave X.*\n"
+            "- [~] AC-5: narrowed. *skip the `*.md` glob*\n"
+            "- [~] AC-6: Third thing — SUPERSEDED by change Y.\n"
+            "- [~] AC-7: wrapped\n"
+            "  continuation prose note.\n"
+            "- [~] AC-8: code `a * b` and `c * d` only, no italic note\n"
+            "- [~] AC-9: has both. *Inline italic.*\n"
+            "  *Status: the status line wins.*\n"
+            "- [~] AC-11 deferred to wave X: reason is Y\n"
+            "- [~] `AC-12` deferred to wave Z\n"
+            "- [~] AC-13: uses *quota* limits only, not measured\n"
+            "- [~] AC-14, narrowed scope: thing. *Deferred to X.* See *docs*\n"
+            "- [~] AC-15: Ratio is 3:1. *Removed.*\n"
+            "- [~] AC-16: has *an early phrase.* and then more prose\n"
+            "- [~] AC-17: the limit is *quota*\n"
+            "- [ ] AC-10: still open\n\n"
+            "```\n- [~] AC-99: a fenced example\n```\n\n"
+            "## Tasks\n\n- [~] AC-98: not a criterion\n"
+        )
+        completed, deferred = self.srv._close_summary_criteria(document)
+        self.assertEqual(completed, ["AC-1", "AC-2", "AC-3"])
+        self.assertEqual(deferred, [
+            ("AC-4", "Deferred to wave X."),
+            ("AC-5", "skip the `*.md` glob"),
+            ("AC-6", "Third thing — SUPERSEDED by change Y."),
+            ("AC-7", "wrapped continuation prose note."),
+            ("AC-8", "code `a * b` and `c * d` only, no italic note"),
+            ("AC-9", "Status: the status line wins."),
+            # CODE-DEL: the prose after the label is quoted whole, colons and all.
+            ("AC-11", "deferred to wave X: reason is Y"),
+            ("AC-12", "deferred to wave Z"),
+            # An emphasised word, or an italic followed by more text, is not the note.
+            ("AC-13", "uses *quota* limits only, not measured"),
+            ("AC-14", "narrowed scope: thing. *Deferred to X.* See *docs*"),
+            ("AC-15", "Removed."),
+            ("AC-16", "has *an early phrase.* and then more prose"),
+            ("AC-17", "the limit is *quota*"),
+        ])
+
+    def test_a_change_with_only_deferred_criteria_and_no_decisions_still_gets_its_bullet(self):
+        # Readiness clarification (f): no detail gate. Every admitted change is listed, even
+        # when no change in the wave has a completed criterion or a Decision Log row.
+        made = self.ok(self.srv._change_create_response(self.root, "enh", "all-deferred", mode="create"))
+        cid = made["change_id"]
+        document = self._doc(cid, "- [~] AC-1: Only criterion. *Superseded by a later wave.*\n")
+        document = document.split("## Decision Log")[0] + (
+            "## Decision Log\n\n| Date | Decision | Reason | Alternatives |\n| --- | --- | --- | --- |\n")
+        (self.root / made["path"]).write_text(document, encoding="utf-8")
+        wid, wave_md = server_tools_support.make_declared_wave(
+            self.srv, self.root, "all-deferred", change_ids=(cid,), doc_gate_stubs=self.stubs)
+        summary = self.srv._generate_wf_close_wave_summary(
+            wid, wave_md.read_text(encoding="utf-8"), wave_md, self.root)
+        self.assertIn("**Changes delivered:**", summary)
+        self.assertIn(f"(`{cid}`) — AC-1 deferred: Superseded by a later wave.", summary)
+
+    def test_prepare_repairs_the_record_of_a_readied_wave_before_it_is_re_read(self):
+        # ARCH-DEL-3: the repair runs before the post-garden re-read, so the text prepare
+        # goes on to lint, digest and project is already the repaired one.
+        wid, wave_md, _cid = self.wave("spacing-record")
+        ready = self.call("wf_prepare_wave", wave_id=wid, mode="ready")
+        self.ok(ready)
+        approved = wave_md.read_text(encoding="utf-8")
+        self.assertEqual(approved.count("\n\n## Watchpoints"), 1)
+        broken = approved.replace("\n\n## Watchpoints", "\n## Watchpoints")
+        wave_md.write_text(broken, encoding="utf-8")
+        fixed = self.call("wf_prepare_wave", wave_id=wid, mode="ready")
+        self.ok(fixed)
+        self.assertEqual(fixed["data"]["headings_fixed"], [wave_md.relative_to(self.root).as_posix()])
+        self.assertEqual(self._receipt(fixed), self._receipt(ready))
+        self.assertIn("\n\n## Watchpoints", wave_md.read_text(encoding="utf-8"))
+
+    def test_prepare_leaves_a_closed_record_alone(self):
+        # RT-DEL-2: a closed record is history, whatever mode prepare is called in.
+        wid, wave_md, cid = self.wave("spacing-closed", ready=False)
+        doc = wave_md.parent / f"{cid}.md"
+        spaced, defect = self.DEFECT
+        doc.write_bytes(doc.read_bytes().decode().replace(spaced, defect).encode())
+        record = wave_md.read_text(encoding="utf-8")
+        self.assertEqual(record.count("Status: planned"), 1)
+        for status in ("closed", "completed"):
+            wave_md.write_text(record.replace("Status: planned", f"Status: {status}")
+                               .replace("\n\n## Watchpoints", "\n- a trailing bullet\n## Watchpoints"),
+                               encoding="utf-8")
+            before = (doc.read_bytes(), wave_md.read_bytes())
+            for mode in ("ready", "create"):
+                response = self.call("wf_prepare_wave", wave_id=wid, mode=mode)
+                self.assertNotIn("headings_fixed", response["data"], (status, mode))
+                self.assertEqual(doc.read_bytes(), before[0], (status, mode))
+                self.assertIn(b"- a trailing bullet\n## Watchpoints", wave_md.read_bytes(), (status, mode))
+
+    def test_a_retry_on_a_closed_record_does_not_rewrite_it(self):
+        wid, wave_md, ids = self._two_change_wave("retry")
+        self._deliver(wid, wave_md, ids)
+        self.ok(server_tools_support.close_container(self.call, self.root, wid, mode="create"))
+        closed = wave_md.read_text(encoding="utf-8")
+        # A hand edit after close that reintroduces the defect is left alone by a retry.
+        edited = closed.replace("\n\n## Review Checkpoints", "\n## Review Checkpoints")
+        self.assertNotEqual(edited, closed)
+        wave_md.write_text(edited, encoding="utf-8")
+        server_tools_support.close_container(self.call, self.root, wid, mode="create")
+        self.assertEqual(wave_md.read_text(encoding="utf-8"), edited)

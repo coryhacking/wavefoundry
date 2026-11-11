@@ -3546,6 +3546,108 @@ AC_RULE_MATRIX = (
 )
 
 
+class HeadingBlankLineCheckTests(unittest.TestCase):
+    """Change 22y1k AC-5: an advisory warning for a heading with no blank line above it,
+    in live documents only.
+
+    Standalone so the fixture suite is not re-run under this class; the fixture
+    helpers are borrowed by composition.
+    """
+
+    DEFECT = "\n- a trailing list item\n## Heading After A List Item\n\nText.\n"
+    SENSOR = "heading_without_blank_line_before"
+
+    def setUp(self) -> None:
+        self.helper = DocsLintFixtureTests()
+        self.root = self.helper.copy_fixture()
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def _append(self, rel: "Path | str", text: str = DEFECT) -> str:
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        base = path.read_text(encoding="utf-8") if path.exists() else (
+            "# Fixture\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-03-21\n\nBody.\n")
+        path.write_text(base.rstrip("\n") + "\n" + text, encoding="utf-8")
+        return Path(rel).as_posix()
+
+    def _warned(self, stderr: str) -> list[str]:
+        return sorted(
+            match.group(1) for match in re.finditer(
+                rf"(?m)^WARNING: (.+?):\d+: heading has no blank line before it .*advisory sensor `{self.SENSOR}`",
+                stderr))
+
+    def test_live_documents_warn_and_the_run_still_succeeds(self) -> None:
+        plan = Path(record_paths.PLANS_ROOT) / "0005a-enh heading-fixture.md"
+        (self.root / plan).parent.mkdir(parents=True, exist_ok=True)
+        (self.root / plan).write_text(
+            f"# Heading Fixture Plan\n\n{vocabulary_profile.MEMBER_ID_LABEL}: `0005a-enh heading-fixture`\nOwner: Engineering\n"
+            "Status: planned\nLast verified: 2026-03-21\n\nBody.\n", encoding="utf-8")
+        targets = [
+            self._append(self.helper.AC_REPO_STATE_DOC),
+            self._append(plan),
+            self._append(self.helper.PERSONA_DOC_PATH),
+            self._append("NOTES.md"),
+        ]
+        result = self.helper.run_docs_lint(self.root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self._warned(result.stderr), sorted(targets))
+        self.assertNotRegex(result.stderr, r"(?m)^ERROR: .*heading has no blank line")
+        self.assertIn("introduced in wave `22yox`", result.stderr)
+
+    def test_a_clean_tree_does_not_warn(self) -> None:
+        result = self.helper.run_docs_lint(self.root)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(self.SENSOR, result.stderr)
+
+    def test_history_and_renderer_blocks_are_not_reported(self) -> None:
+        from wave_lint_lib import helpers, wave_validators
+
+        change = self._append(self.helper.AC_REPO_STATE_DOC)
+        archived_memory = self._append(f"{wave_validators.HEADING_CHECK_MEMORY_ARCHIVE_DIR}/mem-old.md")
+        archived_record = self._append("docs/archive/old-record/notes.md")
+        marker = self._append("docs/references/project-overview.md",
+                              "\n<!-- x:y begin -->\n## Generated Heading\n<!-- x:y end -->\n")
+        live = self._append("docs/references/project-context-memory.md")
+        paths = [self.root / rel for rel in (change, archived_memory, archived_record, marker, live)]
+
+        def findings() -> list[str]:
+            helpers.read_text_cache_clear()
+            return [f.split(":", 1)[0] for f in wave_validators.heading_blank_line_findings(self.root, paths)]
+
+        with patch.object(helpers, "archive_root", lambda root: Path(root) / "docs" / "archive"):
+            self.assertEqual(findings(), sorted([change, live]))
+            # Closing the record makes its change document history.
+            record = self.root / self.helper.WAVE_DOC_PATH
+            text = record.read_text(encoding="utf-8")
+            self.assertEqual(text.count("Status: active"), 1)
+            record.write_text(text.replace("Status: active", "Status: closed"), encoding="utf-8")
+            self.assertEqual(findings(), [live])
+        # Without an archive root the archived record is an ordinary live document.
+        with patch.object(helpers, "archive_root", lambda root: None):
+            self.assertEqual(findings(), sorted([archived_record, live]))
+
+    def test_a_blockquoted_heading_is_reported(self) -> None:
+        from wave_lint_lib import helpers, wave_validators
+
+        rel = self._append("docs/references/project-context-memory.md", "\n> quoted line\n> ## Quoted Heading\n")
+        helpers.read_text_cache_clear()
+        found = wave_validators.heading_blank_line_findings(self.root, [self.root / rel])
+        self.assertEqual(len(found), 1, found)
+
+    def test_the_incremental_path_runs_the_check_on_changed_documents(self) -> None:
+        from wave_lint_lib import cli
+
+        rel = self._append(self.helper.PERSONA_DOC_PATH)
+        changed = {self.root / rel}
+        with patch.object(cli, "_get_changed_files", lambda root: changed), \
+                patch.object(cli, "check_hardcoded_secrets", lambda *a, **k: []):
+            failures, warnings = cli._run_incremental_checks(self.root)
+        mine = [w for w in warnings if self.SENSOR in w]
+        self.assertEqual(len(mine), 1, warnings)
+        self.assertTrue(mine[0].startswith(rel + ":"), mine)
+        self.assertFalse([f for f in failures if "heading has no blank line" in f])
+
+
 class InertRecordLayoutConfigTests(unittest.TestCase):
     """Wave 1yyoj: inert record-layout config keys warn through the advisory channel.
 
@@ -3692,7 +3794,8 @@ class SensorPolarityRegistryTests(unittest.TestCase):
         from wave_lint_lib.constants import SENSOR_POLARITY_REGISTRY
         decided = {name: entry.get("decided_wave") for name, entry in SENSOR_POLARITY_REGISTRY.items()}
         self.assertEqual({"ac_asserts_repository_state": "1yzj9", "inert_record_layout_config": "1yzj9",
-                          "record_file_not_found": "1z8mm", "archive_record_unreadable": "1z8ts"}, decided)
+                          "record_file_not_found": "1z8mm", "archive_record_unreadable": "1z8ts",
+                          "heading_without_blank_line_before": "22yox"}, decided)
         for name, entry in SENSOR_POLARITY_REGISTRY.items():
             with self.subTest(sensor=name):
                 self.assertEqual("advisory", entry["polarity"])

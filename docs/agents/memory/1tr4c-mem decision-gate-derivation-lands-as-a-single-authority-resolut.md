@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-27
+Last verified: 2026-11-10
 
 Memory ID: `1tr4c-mem decision-gate-derivation-lands-as-a-single-authority-resolut`
 Kind: `decision`
@@ -18,6 +18,7 @@ Validation rationale: The decision is real and load-bearing: the facade exists a
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+
 ## Summary
 
 Decision (wave 1to78): Gate derivation lands as a single authority-resolution facade in `review_evidence.py`, not five point patches.. Rationale: The defect class being fixed is second-derivation drift across scattered call sites; one seam makes inertness provable at one place, lets the residue census forbid prose reads outside the facade (so future gates cannot silently regress), and documents one contract in the spec instead of five behaviors. Proposed independently by the red-team primer and the rotating docs-contract seat..

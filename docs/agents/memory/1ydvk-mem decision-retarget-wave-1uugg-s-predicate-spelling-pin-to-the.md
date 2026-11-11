@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-18
+Last verified: 2026-11-10
 
 Memory ID: `1ydvk-mem decision-retarget-wave-1uugg-s-predicate-spelling-pin-to-the`
 Kind: `decision`
@@ -18,6 +18,7 @@ Validation rationale: Verified against the landed tree during wave 1yd97 deliver
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+
 ## Summary
 
 Decision (wave 1yd97): Retarget wave `1uugg`'s predicate-spelling pin to the extracted helper rather than leaving a third inline copy in `server_impl.py` to keep it green. Rationale: The pin's purpose is that the predicate reads in the non-advisory direction and the two workaround symbols stay deleted; both survive retargeting, while leaving a copy to satisfy a substring search would defeat the extraction the pin's own wave motivated.

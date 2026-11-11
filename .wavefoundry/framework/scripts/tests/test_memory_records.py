@@ -714,6 +714,37 @@ class ReconcileTests(_MemoryCase):
         self.assertIn("\n\n## Summary\n", content)
 
 
+    def test_every_writer_keeps_a_blank_line_before_each_heading(self):
+        # Change 22y1k AC-6: one record through render, validation, reconciliation and
+        # archiving keeps an empty line above `## Summary` (and every other heading).
+        import markdown_layout
+
+        def check(path, step):
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("\n\n## Summary\n", text, step)
+            self.assertEqual(markdown_layout.headings_without_blank_line(text), [], step)
+
+        content = self.mem.render_memory_record(
+            memory_id="mem-spacing", kind="failed_attempt", summary="Lesson.",
+            evidence=["`1abcd-bug some-change` — observed"], targets=["src/locks.py"],
+            title="Spacing", source_event="finding:spacing", date="2026-07-13")
+        path = self.mem.write_memory_record(self.root, content, "mem-spacing")
+        check(path, "rendered")
+        path = self.mem.record_memory_validation(
+            self.root, "mem-spacing", verdict="retain", action_delta="Keep the lock order.",
+            rationale="Still current.", evidence_verified=True, current_target_verified=True,
+            canonical_overlap="none")
+        check(path, "validated")
+        self.mem.reconcile_memory_record(self.root, "mem-spacing", "stale")
+        check(path, "reconciled")
+        self.mem.archive_memory_record(self.root, "mem-spacing", reason="Superseded guidance.")
+        archived = self.root / self.mem.MEMORY_ARCHIVE_DIR / "mem-spacing.md"
+        check(archived, "archived")
+        # The lint library spells the archive directory itself; keep the two equal.
+        from wave_lint_lib import wave_validators
+        self.assertEqual(wave_validators.HEADING_CHECK_MEMORY_ARCHIVE_DIR, self.mem.MEMORY_ARCHIVE_DIR)
+
+
 class MemoryArchiveTests(_MemoryCase):
     def _stale(self, memory_id="mem-archive", kind="failed_attempt") -> Path:
         return self._add(memory_id, kind, status="stale", targets=("src/locks.py",))

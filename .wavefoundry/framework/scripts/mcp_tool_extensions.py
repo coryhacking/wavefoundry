@@ -268,7 +268,7 @@ FRAMEWORK_SCRIPT_MODULE_NAMES = frozenset({
     'graph_quality_eval', 'graph_query', 'graph_snapshot', 'graph_store', 'history_paths',
     'index_compatibility', 'index_paths', 'index_source_guard', 'index_state_store', 'indexer', 'install_log_lib',
     'lexical_ranking_eval', 'lifecycle_gate_support', 'lifecycle_gates', 'lifecycle_id',
-    'lifecycle_lock', 'machine_authority', 'marker_namespaces', 'mcp_tool_extensions',
+    'lifecycle_lock', 'machine_authority', 'markdown_layout', 'marker_namespaces', 'mcp_tool_extensions',
     'mcp_tool_roster', 'memory_backfill', 'memory_cli', 'memory_eval', 'memory_records',
     'memory_supply', 'model_bundle', 'operational_evidence', 'operator_identity', 'path_containment', 'process_info',
     'project_context_efficiency', 'provider_policy', 'prune_framework', 'public_contract',

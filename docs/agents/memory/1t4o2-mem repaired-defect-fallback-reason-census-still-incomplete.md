@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-21
+Last verified: 2026-11-10
 
 Memory ID: `1t4o2-mem repaired-defect-fallback-reason-census-still-incomplete`
 Kind: `failed_attempt`
@@ -18,6 +18,7 @@ Validation rationale: The drafted summary only echoed the reverification verdict
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+
 ## Summary
 
 Wave 1seax, second-round operator finding after the vocabulary-alias repair: the first pin only rejected direct `fallback_reason = "..."` assignments, so it missed every other producer shape — call arguments, comparisons, failure_reason dict values — and two emitted values (`model_unavailable`, `index_missing`) stayed out of the canonical tuple entirely. A pin scoped to one syntactic shape verifies the shape, not the contract. Repair pattern: enforce ZERO quoted occurrences of any canonical value in the emitting module, iterating the contract tuple itself (so a later-grown tuple is automatically covered), and demonstrate the pin by an executed mutation probe (plant a quoted literal, watch the pin fail, restore). Supplements [[mem-a-canonical-constants-module-is-not-single-source-until-emit]]: consuming aliases at the sites you found is necessary; the indirection-proof pin is what makes the census stay complete.

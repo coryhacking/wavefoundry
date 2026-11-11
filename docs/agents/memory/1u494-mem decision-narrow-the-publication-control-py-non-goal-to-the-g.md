@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-01
+Last verified: 2026-11-10
 
 Memory ID: `1u494-mem decision-narrow-the-publication-control-py-non-goal-to-the-g`
 Kind: `decision`
@@ -18,6 +18,7 @@ Validation rationale: Accurate and durable: the single-composition-point rule pr
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+
 ## Summary
 
 Decision (wave 1u44n): Narrow the `publication_control.py` non-goal to the guard PREDICATE only. Rationale: The predicate (`:100-110`) is the documented seed-160:511 invariant and stays byte-identical; the message tail (`:111-114`) is the single composition point both refusal surfaces read, so enriching it there is the only way the MCP diagnostic and the child raise cannot diverge.

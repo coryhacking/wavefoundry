@@ -87,6 +87,7 @@ for _wll_key in list(sys.modules):
             "upgrade_protocol",
             "gardener_metadata",
             "change_doc_checklist",  # wave 1zime: shared checklist parser
+            "markdown_layout",  # change 22y1k: blank line before headings
             "history_paths",  # wave 1zyb2: shared history components
             "operator_identity",
             "record_paths",
@@ -202,6 +203,7 @@ import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm
 
 import lifecycle_gate_support
 import change_doc_checklist  # shared checklist parser (wave 1zime)
+import markdown_layout  # blank line before headings (change 22y1k)
 import sensor_runner
 import lifecycle_gates
 # The dotted form re-imports after the reload purge evicts the module; the
@@ -12676,6 +12678,37 @@ def _attach_prepare_readiness_advisories(root: Path, wave_id: str, response: dic
     return response
 
 
+def _prepare_fix_heading_spacing(root: Path, wave_md: Path, change_ids: Iterable[str]) -> list[str]:
+    """Insert a missing blank line before headings in a record and its admitted
+    documents (change 22y1k); returns the repository-relative paths rewritten.
+
+    Bytes in, bytes out through the contained write, so each document keeps its
+    line endings. A document that cannot be read or written is skipped: the
+    preflight gates that follow report it.
+    """
+    targets = [wave_md]
+    for change_id in change_ids:
+        try:
+            targets.append(_wave_change_doc_path(root, wave_md, change_id))
+        except (ValueError, ChangeIdRejected):
+            continue
+    fixed: list[str] = []
+    for path in targets:
+        try:
+            text = _read_member_doc_bytes(path.parent, path, root=root).decode("utf-8")
+        except (OSError, UnicodeError):
+            continue
+        repaired = markdown_layout.ensure_blank_line_before_headings(text)
+        if repaired == text:
+            continue
+        try:
+            contained_files.write_contained_bytes(root, path, repaired.encode("utf-8"))
+        except (OSError, contained_files.ContainedFileRefused):
+            continue
+        fixed.append(_repo_rel(root, path))
+    return fixed
+
+
 def _prepare_readiness_envelope(handler):
     @functools.wraps(handler)
     def wrapped(root, wave_id, *args, **kwargs):
@@ -12691,6 +12724,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
     diagnostics: list[dict[str, Any]] = []
     configured_gates: list[dict[str, Any]] = []
     wave_md = None
+    headings_fixed: list[str] = []
 
     def _prepare_envelope(
         status: str,
@@ -12699,6 +12733,9 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         next_tools: list[str] | None = None,
         usage: str = "",
     ) -> dict[str, Any]:
+        if headings_fixed:
+            # Change 22y1k: the documents prepare rewrote to space their headings.
+            data = {**data, "headings_fixed": list(headings_fixed)}
         if wave_md is not None:
             data = {**data, "work_area": _wave_work_area(
                 root, wave_md, create=status == "ok" and mode_s in {"ready", "create"},
@@ -12833,6 +12870,13 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         diagnostics.extend(lifecycle_gates.PREPARE_PREFLIGHT_GATES[4](
             gate_ctx, garden_passed=garden_passed
         ).diagnostics)
+        # Change 22y1k: a missing blank line before a heading in the record or an
+        # admitted document is inserted here, before lint and before the review-policy
+        # receipt is computed, so the receipt is taken from the fixed text.
+        # A closed or completed record is history: prepare never rewrites it.
+        from wave_lint_lib.wave_validators import status_drift_exempt
+        if not status_drift_exempt(text):
+            headings_fixed.extend(_prepare_fix_heading_spacing(root, wave_md, change_ids))
         # Gardening may update verification metadata in the inspected packet.
         text, wave_read_error = _read_wave_record_text(wave_md)
         if text is None:
@@ -14137,10 +14181,13 @@ def _generate_wf_close_wave_summary(
 ) -> str:
     """Synthesize a wave close summary from structured fields in the wave record and change docs.
 
-    Format: one or more prose paragraphs followed by optional per-change bullet points.
-    Reads completed ACs ([x] lines), progress log entries, and decision log entries from
-    each admitted change doc, preserving an explicitly authored intent outcome from
-    Review Checkpoints when present. Does not infer benefit or approval from AC counts.
+    Format: one prose paragraph, the authored intent outcome when present, then one
+    bullet per admitted change. Each bullet states the change's outcome from its
+    acceptance criteria (change 22y1k): the completed criteria by label, each deferred
+    (``[~]``) criterion by label with its full inline status note, and the first two
+    Decision Log rows. Progress Log entries are not quoted: most are review notes, and
+    any selection rule quotes something that is not the outcome. Does not infer benefit
+    or approval from AC counts.
     """
     # Extract wave title
     title_m = re.search(r"^Title:\s*(.+)$", wave_text, re.MULTILINE)
@@ -14193,16 +14240,8 @@ def _generate_wf_close_wave_summary(
         # Title from H1
         h1_m = re.search(r"^#\s+(.+)$", ct, re.MULTILINE)
         title = h1_m.group(1).strip() if h1_m else cid
-        # Completed ACs: [x] lines in Acceptance Criteria
-        ac_body = _section_body(ct, "## Acceptance Criteria")
-        completed_acs = [line.strip()[5:].strip() for line in ac_body.splitlines() if re.match(r"\s*-\s*\[x\]", line, re.IGNORECASE)]
-        # Progress log: data rows (skip header)
-        progress_body = _section_body(ct, "## Progress Log")
-        progress_entries = []
-        for row in progress_body.splitlines():
-            cells = [c.strip() for c in row.strip("|").split("|")]
-            if len(cells) >= 2 and cells[0] and cells[0].lower() != "date" and not re.fullmatch(r":?-+:?", cells[0]):
-                progress_entries.append(cells[1] if len(cells) > 1 else "")
+        # Criteria: completed ([x]) by label, deferred ([~]) by label with the note.
+        completed_acs, deferred_acs = _close_summary_criteria(ct)
         # Decision log: data rows
         decision_body = _section_body(ct, "## Decision Log")
         decision_entries = []
@@ -14210,7 +14249,8 @@ def _generate_wf_close_wave_summary(
             cells = [c.strip() for c in row.strip("|").split("|")]
             if len(cells) >= 2 and cells[0] and cells[0].lower() != "date" and not re.fullmatch(r":?-+:?", cells[0]):
                 decision_entries.append(cells[1] if len(cells) > 1 else "")
-        change_summaries.append({"id": cid, "title": title, "completed_acs": completed_acs, "decisions": decision_entries, "progress": progress_entries})
+        change_summaries.append({"id": cid, "title": title, "completed_acs": completed_acs,
+                                 "deferred_acs": deferred_acs, "decisions": decision_entries})
 
     # Compose prose paragraph
     if change_summaries:
@@ -14224,16 +14264,6 @@ def _generate_wf_close_wave_summary(
         para = f"Wave `{wave_id}` ({wave_title}) delivered {delivered}."
     else:
         para = f"Wave `{wave_id}` ({wave_title}) closed with no admitted changes."
-
-    # Notable pivots from progress logs
-    pivots: list[str] = []
-    for cs in change_summaries:
-        for entry in cs["progress"]:
-            lower = entry.lower()
-            if any(kw in lower for kw in ("renamed", "removed", "consolidated", "added", "scope", "pivot", "revert", "expanded")):
-                pivots.append(f"{cs['title']}: {entry}")
-    if pivots:
-        para += " Notable adjustments during implementation: " + "; ".join(pivots[:3]) + ("." if not pivots[0].endswith(".") else "")
 
     # Only the exact H2 is the authored assessment carrier. Older records,
     # including the lowercase legacy heading, retain byte-identical output.
@@ -14254,22 +14284,105 @@ def _generate_wf_close_wave_summary(
     if intent_outcome:
         lines.extend([intent_outcome, ""])
 
-    # Per-change bullet points if there are decisions or completed ACs worth surfacing
-    any_detail = any(cs["decisions"] or cs["completed_acs"] for cs in change_summaries)
-    if any_detail and change_summaries:
+    # One bullet per change, whatever its criteria states (change 22y1k).
+    if change_summaries:
         lines.append("**Changes delivered:**")
         lines.append("")
         for cs in change_summaries:
-            ac_count = len(cs["completed_acs"])
-            decisions = cs["decisions"]
+            parts: list[str] = []
+            if cs["completed_acs"]:
+                parts.append(_close_summary_join(cs["completed_acs"]) + " completed")
+            for label, note in cs["deferred_acs"]:
+                parts.append(f"{label} deferred" + (f": {note}" if note else ""))
+            if cs["decisions"]:
+                parts.append("Key decisions: " + "; ".join(d.rstrip(".") for d in cs["decisions"][:2]))
             bullet = f"- **{cs['title']}** (`{cs['id']}`)"
-            if ac_count:
-                bullet += f" — {ac_count} AC{'s' if ac_count != 1 else ''} completed"
-            if decisions:
-                bullet += (". Key decisions: " if ac_count else " — ") + "; ".join(decisions[:2])
+            if parts:
+                bullet += " — " + ". ".join(part.rstrip(".") for part in parts) + "."
             lines.append(bullet)
 
     return "\n".join(lines)
+
+
+_CLOSE_SUMMARY_STATUS_LINE_RE = re.compile(r"^\*Status:\s*(?P<note>.*?)\*$")
+# A single-asterisk italic segment, read on a line whose code spans are masked.
+_CLOSE_SUMMARY_ITALIC_RE = re.compile(r"(?<![*\w])\*(?!\*)(?P<note>[^*\n]+?)\*(?![*\w])")
+_CLOSE_SUMMARY_CODE_SPAN_RE = re.compile(r"`[^`\n]*`")
+# A criterion's leading id as ``change_doc_checklist.leading_ac_id`` reads it, with an
+# optional parenthetical and the separator that follows; removed to quote the prose.
+_CLOSE_SUMMARY_LABEL_PREFIX_RE = re.compile(
+    r"^\s*(?:\*\*AC-[\w\-]+\*\*|`AC-[\w\-]+`|AC-[\w\-]+)\s*(?:\([^)]*\))?\s*[:,;]?\s*"
+)
+# The shortest italic segment read as a note; docs-lint accepts the same length.
+_CLOSE_SUMMARY_NOTE_MIN_CHARS = 4
+
+
+def _close_summary_join(labels: list[str]) -> str:
+    if len(labels) <= 2:
+        return " and ".join(labels)
+    return ", ".join(labels[:-1]) + " and " + labels[-1]
+
+
+def _close_summary_deferral_note(text: str, continuation: list[str]) -> str:
+    """The inline status note of one deferred criterion, never truncated.
+
+    In order: its ``*Status: ...*`` continuation line; the last italic segment on its
+    first line when it ends the criterion and reads as a phrase (``wf_mark_ac`` appends
+    the note there), read with code spans masked so an asterisk inside one is not a
+    delimiter; otherwise the criterion's whole text after its label, which is where a
+    prose note lives.
+    """
+    for line in continuation:
+        status = _CLOSE_SUMMARY_STATUS_LINE_RE.match(change_doc_checklist.split_blockquote(line)[1].strip())
+        if status:
+            return "Status: " + status.group("note").strip()
+    masked = _CLOSE_SUMMARY_CODE_SPAN_RE.sub(lambda match: "`" + " " * (len(match.group()) - 2) + "`", text)
+    segments = [
+        match for match in _CLOSE_SUMMARY_ITALIC_RE.finditer(masked)
+        if len(match.group("note").strip()) >= _CLOSE_SUMMARY_NOTE_MIN_CHARS
+    ]
+    if segments:
+        # Only an italic segment that ends the criterion and reads as a phrase is the
+        # note; an emphasised word, or one followed by more text, is ordinary prose and
+        # the whole criterion is quoted instead, which loses nothing.
+        last = segments[-1]
+        note = text[last.start("note"):last.end("note")].strip()
+        ends_item = not masked[last.end():].strip(" \t.")
+        if ends_item and (len(note.split()) > 1 or note[-1:] in ".!?)"):
+            return note
+    body = _CLOSE_SUMMARY_LABEL_PREFIX_RE.sub("", text, count=1)
+    parts = [body.strip()] + [
+        change_doc_checklist.split_blockquote(line)[1].strip() for line in continuation
+    ]
+    return " ".join(part for part in parts if part)
+
+
+def _close_summary_criteria(document: str) -> tuple[list[str], list[tuple[str, str]]]:
+    """``(completed labels, [(deferred label, note)])`` from a change document.
+
+    Read as the close gate reads it, through ``change_doc_checklist``: every
+    ``## Acceptance Criteria`` section with fenced lines blanked, any list marker, and
+    the id ``leading_ac_id`` returns (``AC-1:``, ``AC-1 (required):``, ``**AC-1**:``,
+    `` `AC-1` ``). A criterion with no id is named by its first five words (change 22y1k).
+    """
+    completed: list[str] = []
+    deferred: list[tuple[str, str]] = []
+    lines = change_doc_checklist.section_text(document, "Acceptance Criteria").split("\n")
+    for index, line in enumerate(lines):
+        item = change_doc_checklist.CHECKLIST_ITEM_RE.match(line)
+        if item is None:
+            continue
+        mark = item.group("mark")
+        if mark not in change_doc_checklist.CLOSED_MARKS:
+            continue
+        text = item.group("text").strip()
+        label = change_doc_checklist.leading_ac_id(text) or " ".join(text.split()[:5])
+        if mark != "~":
+            completed.append(label)
+            continue
+        continuation = lines[index + 1:change_doc_checklist.item_block_end(lines, index)]
+        deferred.append((label, _close_summary_deferral_note(text, continuation)))
+    return completed, deferred
 
 
 def _replace_wave_summary_section(text: str, summary: str) -> str:
@@ -14288,7 +14401,9 @@ def _replace_wave_summary_section(text: str, summary: str) -> str:
     tail = text[body_start:]
     m_end = re.search(r"\n(?=## )", tail)
     body_end = body_start + (m_end.start() + 1 if m_end else len(tail))
-    return text[:body_start] + "\n" + summary + "\n" + text[body_end:]
+    # Change 22y1k: one empty line between the summary and the next heading.
+    following = text[body_end:]
+    return text[:body_start] + "\n" + summary.rstrip("\n") + "\n" + ("\n" + following if following else "")
 
 
 def _auto_populate_memory_for_wave(root: Path, wave_id: str) -> dict[str, Any]:
@@ -14633,6 +14748,8 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
                     ],
                     next_tools=["wf_review_event", "wf_validate_docs"],
                 )
+            # Change 22y1k: the closed record has a blank line above every heading.
+            text = markdown_layout.ensure_blank_line_before_headings(text)
             wave_md.write_text(text, encoding="utf-8")
             updated = True
             transitioned_to_closed = True

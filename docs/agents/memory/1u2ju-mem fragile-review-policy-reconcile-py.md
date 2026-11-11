@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-31
+Last verified: 2026-11-10
 
 Memory ID: `1u2ju-mem fragile-review-policy-reconcile-py`
 Kind: `fragile_file`
@@ -18,6 +18,7 @@ Validation rationale: Both 1tz6l repairs to this file concern refusal-output com
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+
 ## Summary
 
 review_policy_reconcile.py required 2 separate repairs during wave 1tz6l; treat it as fragile and re-verify edits with the full suite before relying on them.

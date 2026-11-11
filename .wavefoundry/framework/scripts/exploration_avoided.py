@@ -341,7 +341,10 @@ def replace_checkpoint_block(markdown: str, root: Path, wave_id: str) -> str:
     if start >= 0 and end >= start:
         heading = markdown.rfind("## Estimated Exploration Avoided", 0, start)
         replace_start = heading if heading >= 0 else start
-        return markdown[:replace_start].rstrip() + "\n\n" + block + markdown[
-            end + len(MARKER_END):
-        ].lstrip("\n")
+        # Change 22y1k: keep one empty line between the end marker and what follows,
+        # so a heading after the block has a blank line above it.
+        tail = markdown[end + len(MARKER_END):].lstrip("\n")
+        return markdown[:replace_start].rstrip() + "\n\n" + block.rstrip("\n") + (
+            "\n\n" + tail if tail else "\n" if block.endswith("\n") else ""
+        )
     return markdown.rstrip() + "\n\n" + block

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-07
+Last verified: 2026-11-10
 
 Memory ID: `1ulpr-mem repaired-defect-false-independence-delivery-approvals`
 Kind: `failed_attempt`
@@ -18,6 +18,7 @@ Validation rationale: The completed wave demonstrates a durable review-governanc
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+
 ## Summary
 
 Real defect fixed in wave 1umst: The original approval-integrity finding remains a material, admitted delivery concern, but the current repair correctly retains it in the delivery chain, requires this Council lane's independent reverification, and does not auto-restore an…

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-02
+Last verified: 2026-11-10
 
 Memory ID: `1wxu2-mem repaired-defect-code-rv1-2`
 Kind: `failed_attempt`
@@ -18,6 +18,7 @@ Validation rationale: Followed the three ledger records and checked the file, wh
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+
 ## Summary
 
 Real defect fixed in wave 1wpif: The named file is exhaustively repaired and independently verified; the residual site outside it is CODE-RV2-2, repaired in cycle 3.

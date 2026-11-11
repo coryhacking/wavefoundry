@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-20
+Last verified: 2026-11-10
 
 Memory ID: `1vrbp-mem fragile-wavefoundry-framework-scripts-tests-oracle-techdocs-`
 Kind: `fragile_file`
@@ -18,6 +18,7 @@ Validation rationale: QA-DEL-1 and QA-DEL-2 were two independent repairs to this
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+
 ## Summary
 
 .wavefoundry/framework/scripts/tests/oracle/techdocs_boundary_differential.py required 2 separate repairs during wave 1vry5; treat it as fragile and re-verify edits with the full suite before relying on them.

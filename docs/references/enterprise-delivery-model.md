@@ -1,9 +1,10 @@
 # AI-Native Development: Delivering in Waves
+
 ### A Framework to Move Teams Beyond SAFe
 
 Owner: Engineering
 Status: draft
-Last verified: 2026-10-08
+Last verified: 2026-11-10
 
 ---
 

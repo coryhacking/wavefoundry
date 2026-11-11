@@ -38,6 +38,7 @@ from contained_files import DEFAULT_MAX_BYTES
 from .metadata_validators import check_metadata
 from .secrets_validators import _get_changed_files, _is_inside_git, check_hardcoded_secrets, fileset_refusals
 from .wave_validators import (
+    heading_blank_line_findings,
     check_memory_docs,
     check_closed_wave_requirements,
     check_cross_artifact_consistency,
@@ -320,6 +321,10 @@ def _run_incremental_checks(root: Path, *, proven_trigger_identity: str | None =
         # must revalidate the owning wave/adoption proof on the incremental hook.
         failures.extend(check_wave_docs(root, only=changed_event_wave_docs, skip=set(), warnings=warnings))
 
+    # Change 22y1k: the advisory heading check, on the changed documents only.
+    _route_sensor_findings("heading_without_blank_line_before",
+                           heading_blank_line_findings(root, changed_docs | changed_entry, skip=oversized),
+                           failures, warnings)
     failures.extend(_record_refusal_report(root))
     return (failures, warnings)
 
@@ -389,6 +394,13 @@ def _run_full_checks(root: Path, args: argparse.Namespace, timings: dict | None 
         failures.extend(check_prompt_surface_manifest(root))
         failures.extend(check_prompt_name_migration(root))
         failures.extend(check_wave_docs(root, skip=oversized, warnings=warnings))
+        # Change 22y1k: every Markdown document under the scan roots and at the
+        # repository root; history is excluded by the check itself.
+        _route_sensor_findings(
+            "heading_without_blank_line_before",
+            heading_blank_line_findings(
+                root, [*iter_markdown_docs(root), *sorted(root.glob("*.md"))], skip=oversized),
+            failures, warnings)
         failures.extend(check_closed_wave_requirements(root))
         failures.extend(check_plan_filenames(root, skip=oversized))
         failures.extend(_check_agent_role_metadata(root, skip=oversized))

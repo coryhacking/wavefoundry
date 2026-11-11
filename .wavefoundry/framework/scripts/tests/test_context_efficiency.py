@@ -1145,6 +1145,27 @@ class CheckpointTests(TempRootTest):
         self.assertIsNotNone(state[3])
 
 
+class ExplorationBlockSpacingTests(TempRootTest):
+    """Change 22y1k AC-4: the exploration-avoided block leaves a blank line after its end marker."""
+
+    def test_a_heading_after_the_block_keeps_a_blank_line_above_it(self) -> None:
+        block = exploration.render_checkpoint_block(self.root, "1wave")
+        self.assertTrue(block.rstrip("\n").endswith(exploration.MARKER_END))
+        # A record as the old writer left it: the heading runs into the end marker.
+        record = "# Wave\n\nBody.\n\n" + block.rstrip("\n") + "\n## Review Checkpoints\n\n- note\n"
+        updated = exploration.replace_checkpoint_block(record, self.root, "1wave")
+        self.assertIn(exploration.MARKER_END + "\n\n## Review Checkpoints\n", updated)
+        # The same holds when the blank line was already there, and a second pass changes nothing.
+        spaced = record.replace(exploration.MARKER_END + "\n", exploration.MARKER_END + "\n\n")
+        self.assertEqual(exploration.replace_checkpoint_block(spaced, self.root, "1wave"), updated)
+        self.assertEqual(exploration.replace_checkpoint_block(updated, self.root, "1wave"), updated)
+
+    def test_a_block_at_the_end_of_the_record_gains_nothing(self) -> None:
+        block = exploration.render_checkpoint_block(self.root, "1wave")
+        record = "# Wave\n\nBody.\n\n" + block
+        self.assertEqual(exploration.replace_checkpoint_block(record, self.root, "1wave"), record)
+
+
 class PairedEvaluationTests(TempRootTest):
     def setUp(self) -> None:
         super().setUp()

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-21
+Last verified: 2026-11-10
 
 Memory ID: `1t6yr-mem decision-do-not-modify-global-stdout-isolation`
 Kind: `decision`
@@ -18,6 +18,7 @@ Validation rationale: The drafted summary echoed the Decision Log line verbatim 
 Evidence verified: true
 Current target verified: true
 Canonical overlap: supplements
+
 ## Summary
 
 Decision (wave 1t59p): startup-level stdout isolation in `server.py` (`_isolate_native_stdout_from_protocol`: the MCP protocol gets a private dup of stdout; OS fd 1 points at devnull before transport starts) is the single authority for native fd-1 protection. Do not add per-call `os.dup2` redirects around individual operations: fd 1 is process-global, so a per-call redirect races concurrent operations (the background prewarm thread lesson from 1p8vd). Two operational corollaries: (1) runner (`server.py`) updates only take effect after a full host restart, not `wf_reload_mcp` (the reload swaps `server_impl`, not the running runner); (2) hang reports on old installs must be triaged against whether their runner predates the isolation (shipped 1.9.7).

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-24
+Last verified: 2026-11-10
 
 Memory ID: `1theb-mem repaired-defect-fusion-empty-relevance-union-surfaces-unrela`
 Kind: `failed_attempt`
@@ -18,6 +18,7 @@ Validation rationale: Verified against the terminal ledger chain and the current
 Evidence verified: true
 Current target verified: true
 Canonical overlap: none
+
 ## Summary
 
 Real defect fixed in wave 1tbt5: Repair verified complete: the query path admits zero candidates on an empty union, the baseline path is unrestricted via prefiltered=True, and the hermetic metrics and fingerprint reproduce unchanged. The blocking code-reviewer lane is cle…

@@ -20,6 +20,7 @@ from review_evidence import (
 )
 from context_efficiency import checkpoint_validation_errors
 import change_doc_checklist  # shared checklist parser (wave 1zime, 1zimq)
+import markdown_layout  # blank line before headings (change 22y1k)
 from history_paths import is_history_path  # shared history components (wave 1zyb2, 1zxnt)
 
 from .constants import (
@@ -86,6 +87,7 @@ from .constants import (
 )
 from .helpers import (
     RECORD_CAUSE_LINK,
+    is_under_archive_root,
     load_json,
     read_doc_text,
     read_record_text,
@@ -1750,6 +1752,73 @@ def archive_readability_findings(root: Path) -> list[str]:
         except (OSError, UnicodeError) as exc:
             rel = record.relative_to(root).as_posix()
             findings.append(f"{rel}: archived record cannot be read ({type(exc).__name__})")
+    return findings
+
+
+# Change 22y1k: docs/agents/memory/archive, spelled here because the lint library does
+# not import the memory module (``memory_records.MEMORY_ARCHIVE_DIR``; a test pins equality).
+HEADING_CHECK_MEMORY_ARCHIVE_DIR = "docs/agents/memory/archive"
+
+
+def _heading_check_history(root: Path, path: Path, roots, closed_cache: dict[Path, bool]) -> bool:
+    """True when ``path`` is history the heading check never reports: under the record
+    archive root, under the memory archive, or in a record folder whose record is
+    closed or completed (``status_drift_exempt``)."""
+    if is_under_archive_root(root, path):
+        return True
+    try:
+        rel = path.relative_to(root).as_posix()
+    except ValueError:
+        rel = ""
+    if rel.startswith(HEADING_CHECK_MEMORY_ARCHIVE_DIR + "/"):
+        return True
+    if roots is None:
+        return False
+    waves = roots.waves
+    folder = path.parent
+    while folder != waves and waves in folder.parents:
+        record = folder / _vocab.RECORD_FILENAME
+        if folder not in closed_cache:
+            closed = False
+            if record.is_file():
+                # Through the member-doc rule, like every other record read.
+                record_text = read_record_text(root, record)
+                closed = record_text is not None and status_drift_exempt(record_text)
+            closed_cache[folder] = closed
+        if closed_cache[folder]:
+            return True
+        if record.is_file():
+            return False
+        folder = folder.parent
+    return False
+
+
+def heading_blank_line_findings(root: Path, paths: Iterable[Path], *,
+                                skip: "set[Path] | frozenset[Path]" = frozenset()) -> list[str]:
+    """Change 22y1k: the advisory ``heading_without_blank_line_before`` sensor's findings.
+
+    One finding per heading that follows a non-blank line in ``paths``, blockquoted
+    headings included (the prepare-time repair leaves those alone). History is never
+    reported (``_heading_check_history``); neither is a heading on the first line,
+    inside a closed fence, or straight after a renderer ``begin`` marker.
+    """
+    roots = resolve_record_roots(root)
+    closed_cache: dict[Path, bool] = {}
+    findings: list[str] = []
+    for path in sorted(set(paths)):
+        if path in skip or path.suffix != ".md":
+            continue
+        if _heading_check_history(root, path, roots, closed_cache):
+            continue
+        # Record documents go through the member-doc rule; a refused or unreadable
+        # document is skipped here and reported by the checks that own that refusal.
+        text = read_doc_text(root, path)
+        if text is None:
+            continue
+        for index in markdown_layout.headings_without_blank_line(text, include_blockquoted=True):
+            findings.append(
+                f"{relative_to_root(root, path)}:{index + 1}: heading has no blank line before it"
+            )
     return findings
 
 
