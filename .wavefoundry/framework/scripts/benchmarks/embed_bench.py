@@ -15,6 +15,9 @@ Usage:
     python3 embed_bench.py [--root <repo-root>] [--models <m1,m2,...>] [--report <out.json>]
 
 Outputs a JSON report to --report (default: bench_report.json in same directory).
+Without the Unix resource module, peak_rss_mb and rss_delta_mb are null with
+memory_unavailable_reason. Comparisons with either memory value missing report
+memory_ok=null and memory_unavailable_reason; timing and retrieval still run.
 """
 from __future__ import annotations
 
@@ -24,12 +27,20 @@ import importlib.util
 import json
 import math
 import os
-import resource
 import statistics
 import sys
 import time
 from pathlib import Path
 from typing import Any, Optional
+
+try:
+    import resource
+except ModuleNotFoundError as exc:
+    if exc.name != "resource":
+        raise
+    resource = None
+
+MEMORY_UNAVAILABLE_REASON = "resource-based peak RSS measurement is unavailable on this host"
 
 # Change 1zyv1: bytecode goes only to the project cache (``bytecode_cache``),
 # never beside the sources; writes stay off until configure() enables the cache.
@@ -92,7 +103,9 @@ def _embed_texts(embedder, texts: list[str], indexer_mod) -> Any:
     return indexer_mod._embed_texts(embedder, texts)
 
 
-def _peak_rss_mb() -> float:
+def _peak_rss_mb() -> Optional[float]:
+    if resource is None:
+        return None
     usage = resource.getrusage(resource.RUSAGE_SELF)
     # macOS reports in bytes, Linux in kilobytes
     if sys.platform == "darwin":
@@ -175,9 +188,11 @@ def measure_full_rebuild(embedder, chunks: list[dict], indexer_mod) -> tuple[dic
         "chunks": len(chunks),
         "elapsed_s": round(elapsed, 3),
         "chunks_per_sec": round(len(chunks) / elapsed, 1) if elapsed > 0 else 0,
-        "peak_rss_mb": round(rss_after, 1),
-        "rss_delta_mb": round(rss_after - rss_before, 1),
+        "peak_rss_mb": round(rss_after, 1) if rss_after is not None else None,
+        "rss_delta_mb": round(rss_after - rss_before, 1) if rss_after is not None and rss_before is not None else None,
     }
+    if rss_before is None or rss_after is None:
+        stats["memory_unavailable_reason"] = MEMORY_UNAVAILABLE_REASON
     return stats, corpus_vecs
 
 
@@ -446,7 +461,9 @@ def run_benchmark(
 
     print(f"  Full rebuild ({len(all_chunks)} chunks)...", flush=True)
     full_result, corpus_vecs = measure_full_rebuild(embedder, all_chunks, indexer_mod)
-    print(f"  Full: {full_result['elapsed_s']}s, {full_result['chunks_per_sec']} chunks/s, {full_result['peak_rss_mb']}MB RSS", flush=True)
+    rss = full_result["peak_rss_mb"]
+    memory_text = f"{rss}MB RSS" if rss is not None else f"RSS unavailable ({full_result['memory_unavailable_reason']})"
+    print(f"  Full: {full_result['elapsed_s']}s, {full_result['chunks_per_sec']} chunks/s, {memory_text}", flush=True)
 
     print("  Retrieval quality...", flush=True)
     quality = measure_retrieval_quality(embedder, all_chunks, indexer_mod, corpus_vecs=corpus_vecs)
@@ -472,7 +489,10 @@ def run_benchmark(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Embedding model benchmark harness")
+    parser = argparse.ArgumentParser(
+        description="Embedding model benchmark harness",
+        epilog="Without resource, memory measurements and comparisons are unavailable (JSON null); timing and retrieval still run.",
+    )
     parser.add_argument("--root", default=".", help="Repository root (default: cwd)")
     parser.add_argument(
         "--models",
@@ -540,13 +560,17 @@ def main() -> None:
                 current_quality = result["retrieval_quality"].get("overall_accuracy", 0)
                 code_quality = result["retrieval_quality"].get("by_kind", {}).get("code", {}).get("accuracy", 0)
                 baseline_code = report["models"][0]["retrieval_quality"].get("by_kind", {}).get("code", {}).get("accuracy", 0)
+                current_rss = result["full_rebuild"]["peak_rss_mb"]
+                memory_available = current_rss is not None and baseline_rss is not None
                 result["vs_baseline"] = {
                     "quality_delta": round(current_quality - baseline_quality, 4),
                     "code_quality_delta": round(code_quality - baseline_code, 4),
                     "quality_regression": (baseline_quality - current_quality) > 0.05,
                     "code_improvement_met": (code_quality - baseline_code) >= 0.15,
-                    "memory_ok": (result["full_rebuild"]["peak_rss_mb"] / (baseline_rss or 1)) <= 2.0,
+                    "memory_ok": (current_rss / (baseline_rss or 1)) <= 2.0 if memory_available else None,
                 }
+                if not memory_available:
+                    result["vs_baseline"]["memory_unavailable_reason"] = "baseline or candidate peak RSS measurement is unavailable"
 
             report["models"].append(result)
         except Exception as exc:
@@ -569,13 +593,15 @@ def main() -> None:
             continue
         q = m["retrieval_quality"]
         full = m["full_rebuild"]
+        rss = full.get("peak_rss_mb")
+        rss_text = f"{rss:>8.0f}" if rss is not None else "unavailable"
         print(
             f"{m['model']:<45} "
             f"{q.get('overall_accuracy', 0):>8.1%} "
             f"{q.get('by_kind', {}).get('code', {}).get('accuracy', 0):>6.1%} "
             f"{q.get('by_kind', {}).get('docs', {}).get('accuracy', 0):>6.1%} "
             f"{full.get('elapsed_s', 0):>8.1f} "
-            f"{full.get('peak_rss_mb', 0):>8.0f}",
+            + rss_text,
             flush=True,
         )
 

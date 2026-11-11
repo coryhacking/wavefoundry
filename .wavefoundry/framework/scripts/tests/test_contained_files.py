@@ -459,6 +459,23 @@ class WindowsBranchTests(_Roots):
         self.assertEqual(target.read_bytes(), b"two\n")
         self.assertEqual([p.name for p in target.parent.iterdir()], ["x.txt"])
 
+    def test_path_writes_without_fchmod(self) -> None:
+        class WithoutFchmod:
+            def __getattr__(self, name):
+                if name == "fchmod":
+                    raise AttributeError(name)
+                return getattr(os, name)
+
+        target = self.root / "doc.md"
+        with mock.patch.object(cf, "os", WithoutFchmod()), \
+                mock.patch.object(cf, "_windows", return_value=True):
+            self.assertFalse(hasattr(cf.os, "fchmod"))
+            self.assertTrue(cf.write_contained_bytes(self.root, target, b"first", mode=0o600))
+            self.assertTrue(cf.write_contained_bytes(self.root, target, b"second", mode=0o600))
+            self.assertFalse(cf.write_contained_bytes(self.root, target, b"second", mode=0o600))
+            self.assertEqual(target.read_bytes(), b"second")
+            self.assertEqual([entry.name for entry in self.root.iterdir()], ["doc.md"])
+
     def test_a_swapped_file_identity_is_refused(self) -> None:
         target = self.root / "doc.md"
         target.write_bytes(b"inside\n")
