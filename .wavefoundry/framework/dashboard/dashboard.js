@@ -421,53 +421,40 @@ function ProgressRow({ label, done, total, variant }) {
   return h(WFDS.ProgressBar, { label, done, total, variant });
 }
 
-function ProgressCard({ snapshot, scopeChanges }) {
-  const waves      = snapshot.waves || [];
-  const allInWaves = snapshot.changes?.in_waves || [];
-  const progressChanges = scopeChanges || allInWaves;
-
-  const closedWaves = waves.filter(w => waveStatus(w) === "closed" || waveStatus(w) === "completed").length;
-  const totalWaves  = waves.length;
-  const closedWaveIds = new Set(waves.filter(w => waveStatus(w) === "closed" || waveStatus(w) === "completed").map(w => w.wave_id));
-
-  // CHANGES: use wave.change_count for admitted in-wave changes from closed waves (handles
-  // waves whose change doc files no longer exist on disk). progressChanges contains only
-  // open-wave docs (pendingChanges already excludes staged docs referencing closed waves),
-  // so openProgressChanges === progressChanges in practice; the filter is a safety guard.
-  const closedChangesDone   = waves.filter(w => closedWaveIds.has(w.wave_id)).reduce((s, w) => s + (Number(w.change_count) || 0), 0);
-  const openProgressChanges = progressChanges.filter(c => !closedWaveIds.has(c.wave_id));
-  const changesDone  = closedChangesDone + openProgressChanges.filter(c => isDone(c.status)).length;
-  const changesTotal = closedChangesDone + openProgressChanges.length;
-
-  // TASKS & ACS: combine open-scope changes with closed-wave in-wave change docs so all
-  // historical work is included regardless of scope.
-  const closedInWaves = allInWaves.filter(c => closedWaveIds.has(c.wave_id));
-  const allCountedChanges = [...openProgressChanges, ...closedInWaves];
-
-  // Wave 1p458 (1p45a): `[~]` deferred items stay IN the denominator. For a closed wave every
-  // in-scope item (incl deferred) counts as done; for an open wave only `[x]`/done items
-  // count, so deferred items read as outstanding until the wave is closed. The separate
-  // "· N deferred" tally is gone (the per-item `~` detail marker is retained).
-  const tasksTotal = allCountedChanges.reduce((s, c) => s + (Number(c.tasks_total) || 0), 0);
-  const tasksDone  = allCountedChanges.reduce((s, c) =>
-    s + (closedWaveIds.has(c.wave_id) ? (Number(c.tasks_total) || 0) : (Number(c.tasks_completed) || 0)), 0);
-
-  const acTotal = allCountedChanges.reduce((s, c) => s + visibleAcItems(c).length, 0);
-  const acDone  = allCountedChanges.reduce((s, c) => {
-    const inScope = visibleAcItems(c);
-    return s + (closedWaveIds.has(c.wave_id) ? inScope.length : inScope.filter(a => a.done).length);
-  }, 0);
+function ProgressCard({ snapshot }) {
+  const progress = snapshot.progress || {};
+  const coverage = progress.coverage;
+  const row = (label, counts, variant, checklist = false) => {
+    const fields = checklist ? ["done", "deferred", "open", "total"] : ["done", "total"];
+    if (!counts || fields.some(field => !Number.isFinite(counts[field]))) {
+      return h("p", { className: "muted" }, `${label}: unavailable`);
+    }
+    return h("div", null,
+      h(ProgressRow, { label, done: counts.done, total: counts.total, variant }),
+      h("p", { className: "muted" }, checklist
+        ? `Done ${counts.done} · Deferred ${counts.deferred} · Open ${counts.open} · Total ${counts.total}`
+        : `Lifecycle status: ${counts.done} of ${counts.total} complete`),
+    );
+  };
 
   return h("article", { className: "progress-card" },
     h("div", { className: "progress-header" },
       h("h2", null, "Progress"),
     ),
+    h("p", { className: "muted" }, `${tierLabel("change", true, true)} assigned to ${tierLabel("wave", true)}: acceptance criteria and implementation ${tierLabel("task", true)}. Plans not assigned to a ${tierLabel("wave")} are separate.`),
     h("div", { className: "progress-rows" },
-      h(ProgressRow, { label: tierLabel("wave", true, true),   done: closedWaves, total: totalWaves,   variant: "waves" }),
-      h(ProgressRow, { label: tierLabel("change", true, true), done: changesDone, total: changesTotal, variant: "changes" }),
-      h(ProgressRow, { label: "ACs",   done: acDone,    total: acTotal,    variant: "acs" }),
-      h(ProgressRow, { label: tierLabel("task", true, true), done: tasksDone, total: tasksTotal, variant: "tasks" }),
+      row(tierLabel("wave", true, true), progress.waves, "waves"),
+      row(tierLabel("change", true, true), progress.changes, "changes"),
+      row("Acceptance criteria", progress.criteria, "acs", true),
+      row(`Implementation ${tierLabel("task", true)}`, progress.tasks, "tasks", true),
     ),
+    h("p", { className: "muted" }, Number.isFinite(progress.criteria?.not_this_scope)
+      ? `Not-this-scope criteria: ${progress.criteria.not_this_scope} (excluded from total)`
+      : "Not-this-scope criteria: unavailable"),
+    coverage?.complete === false ? h("p", { role: "status" },
+      coverage.warning || "Checklist coverage incomplete.",
+      ` Missing admitted documents: ${coverage.missing_admitted_documents}; unreadable: ${coverage.unreadable_change_documents}.`,
+    ) : !coverage ? h("p", { role: "status" }, "Checklist coverage unavailable.") : null,
   );
 }
 
@@ -4422,7 +4409,7 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
                     onFilesClick:   () => setShowAllFiles(true),
                     onIndexClick:   () => setShowIndex(true),
                   }),
-                  h(ProgressCard, { snapshot, scopeChanges }),
+                  h(ProgressCard, { snapshot }),
                   h(FrameworkFlow, { onSelectProcess: setSelectedFrameworkProcess }),
                   h(Agents, { agents, onSelectAgent: setSelectedAgent }),
                 ),

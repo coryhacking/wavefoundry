@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-10
+Last verified: 2026-11-11
 
 ## Runtime advisory boundary
 
@@ -1090,3 +1090,7 @@ The builder creates lean output once, then adds one byte-exact model companion a
 Repository-wide single-OPEN activation is the default. Distributions may set `record_paths.OPEN_CONTAINER_SCOPE = "parent"` only with `NESTED = True`: each canonical immediate parent of a wave directory has one OPEN slot, and direct children share the waves root. Prepare activation, Implement and Reopen share this guard; repository publication and lifecycle locks remain global. When several waves are OPEN, implicit current-wave selection reports ambiguity and requires an explicit ID; it never selects the first parent or falls back to a planned wave.
 
 Upgrade previews for explicitly declared compatible Prepare/close overrides inherit a no-publication context exposed by the staging surface. Loaded declaration, module and helper digests must match current source in addition to core/launcher identity and checkpoint compatibility. Framework publication APIs refuse publication before taking locks; delegated core calls preserve dry-run validation without focus, accounting or receipt writes. This is trusted extension code, not a direct-I/O sandbox. Renderer-only legacy hook ownership is exact event plus whole command, with one optional `{{repo_root}}` expansion; mixed foreign commands and metadata survive.
+
+## Project statistics
+
+The dashboard snapshot carries `progress`: wave/change rows describe lifecycle completion, while criteria/task rows count all admitted documents as done, deferred and open, with their sum as total. `ProgressCard` and `wf_stats` consume this shared `dashboard_lib` result, including not-this-scope criteria and incomplete-document coverage; unadmitted plans are reported separately.

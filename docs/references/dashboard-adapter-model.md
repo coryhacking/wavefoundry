@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-27
+Last verified: 2026-11-11
 
 Reference doc for how target repositories declare custom data sources, port preferences, terminology, and file-activity scope for the local dashboard. The dashboard is a generic Wave Framework feature; this doc defines the knobs available to any seeded repo without forking the core UI or server.
 
@@ -169,3 +169,7 @@ Repos that need to coexist must use non-overlapping `port_range_start`–`port_r
 Dashboard review state projects the current review-policy receipt rather than
 deriving a parallel policy.
 <!-- wavefoundry:review-policy:end -->
+
+## Project statistics
+
+Progress figures are computed by `dashboard_lib.collect_progress` and published in `snapshot.progress`. The page and statistics report share criteria/task counts across all admitted documents: total equals done plus deferred plus open, regardless of wave status. Not-this-scope criteria stay separate; missing/unreadable documents produce an incomplete-coverage warning. Wave/change rows describe lifecycle status, and unadmitted plans are reported separately. Existing metrics and per-wave cards retain their own scope and calculations.

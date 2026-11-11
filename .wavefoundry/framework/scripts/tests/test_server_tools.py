@@ -6179,7 +6179,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         # NOTE the name: allow_rules(include_write=True) returns read UNION write, so this
         # count moves on a READ-tier add too (1vqqi: wf_techdocs_audit took it 89 -> 90).
         # Wave 1zlu1 added the write-tier wf_close_change (90 -> 91).
-        self.assertEqual(len(added), 91, "roster size changed; re-measure this test")
+        self.assertEqual(len(added), 92, "roster size changed; re-measure this test")  # 2347r: read-tier wf_stats
 
         # Non-vacuity control: the retired dict shape is still over the per-value cap, so this
         # test would fail against the pre-repair producer/consumer pair.

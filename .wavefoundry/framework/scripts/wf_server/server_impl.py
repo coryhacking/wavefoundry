@@ -87,6 +87,7 @@ for _wll_key in list(sys.modules):
             "upgrade_protocol",
             "gardener_metadata",
             "change_doc_checklist",  # wave 1zime: shared checklist parser
+            "project_stats",  # shared statistics payload follows loaded source
             "markdown_layout",  # change 22y1k: blank line before headings
             "history_paths",  # wave 1zyb2: shared history components
             "operator_identity",
@@ -4935,6 +4936,17 @@ def _search_result(prefix: str, chunk: dict[str, Any], prefixes: tuple[str, str]
     return payload
 
 
+def wf_stats_response(root: Path, sections: list[str] | None = None) -> dict[str, Any]:
+    """One envelope over the CLI's shared statistics payload."""
+    import project_stats
+
+    try:
+        data = project_stats.collect_project_stats(root, sections=sections)
+    except ValueError as exc:
+        return _response("error", {}, diagnostics=[_diagnostic("invalid_arguments", str(exc))])
+    return _response("ok", data)
+
+
 def _help_catalog() -> dict[str, Any]:
     return {
         "contract_version": 2,
@@ -4955,6 +4967,7 @@ def _help_catalog() -> dict[str, Any]:
             "wf_sync_surfaces",
             "wf_techdocs_baseline",
             "wf_techdocs_audit",
+            "wf_stats",
             "index_health",
             "index_build",
             "wf_audit",
@@ -26178,6 +26191,23 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         if bad is not None:
             return bad
         return wf_techdocs_audit_response(get_handler().root, compare_to=compare_to)
+
+    @mcp.tool(annotations=_READONLY_TOOL)
+    def wf_stats(sections: list[str] | None = None, **kwargs: Any) -> dict[str, Any]:
+        """Return project statistics without network, model loading or external counters.
+
+        Sections: code, todo, lifecycle, documents, memories, index, token_savings,
+        secrets. Omit sections for all; unrequested sections do no work. Counts shared
+        with the dashboard use its collectors and Progress rules. Code counts use the
+        indexing file scope and lexical comment rules. Token savings are estimates;
+        secret findings expose counts only. Unavailable sections carry a reason while
+        other sections remain usable. Index reads may maintain SQLite sidecars and
+        finished build metadata; this is not an index freshness or integrity check.
+        """
+        bad = _ensure_no_extra_args("wf_stats", kwargs)
+        if bad is not None:
+            return bad
+        return wf_stats_response(get_handler().root, sections=sections)
 
     # --- Agent memory tools (wave 1ro44 / 1p8gy) ---
 

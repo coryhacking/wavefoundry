@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-10
+Last verified: 2026-11-11
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -38,6 +38,16 @@ Recommended first choices:
 The MCP surface is a product contract. Tool names, argument semantics, response
 shape, safety metadata, and retry behavior must be planned and reviewed before
 they change.
+
+## Project statistics (`wf_stats`)
+
+`wf_stats(sections=None)` returns one shared statistics payload in `data`, also returned by `wf stats --json`. Section names are `code`, `todo`, `lifecycle`, `documents`, `memories`, `index`, `token_savings` and `secrets`. An explicit list computes only those sections; an unknown name is `invalid_arguments`. A failed section is unavailable with a reason while the overall envelope remains `ok`. This is a report, not an integrity or readiness verdict.
+
+The dashboard and report share lifecycle collectors and the server-computed Progress block. Criteria and tasks include all admitted change documents, with total equal to done plus deferred plus open; closing a wave never changes these checkbox states. Not-this-scope criteria stay outside that total, and unadmitted plans have a separate breakdown. Missing or unreadable admitted documents make checklist coverage explicitly incomplete without inventing counts. Wave and change completion rows describe lifecycle status. Code counts use the indexing walker exclusions and size cap, distinguish production and tests, and disclose lexical comment counting and incomplete reads. Token figures aggregate healthy published checkpoint estimates only. Secret output contains status/rule counts and confirmation-count distribution, never matched text, paths, hashes or identities.
+
+No network, model loading, subprocess, external counter, scan or rebuild runs. The index collector may maintain SQLite sidecars, refresh build statistics from finished logs and remove finished build-state metadata; other project files and canonical index data are preserved. An absent index store or malformed/unreadable build state degrades instead of triggering cleanup. The index section can take several seconds on a large store; omit it when not needed. Edits to retained `dashboard_lib` code require an MCP host restart.
+
+`/wf-stats` invokes this tool and presents returned data in a concise summary and labelled tables, preserving scope, estimates and unavailable reasons. It does not calculate its own statistics. The CLI is the fallback when MCP is unavailable.
 
 ## Cached inference status (`wf_server_info`)
 

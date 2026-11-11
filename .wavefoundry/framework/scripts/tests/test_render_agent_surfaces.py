@@ -3372,7 +3372,7 @@ class SkillRegistryTests(unittest.TestCase):
         pattern = re.compile(r"docs/prompts/[a-z0-9-]+\.prompt\.md")
         for skill in ras.SKILL_REGISTRY:
             targets = set(pattern.findall(skill.body))
-            if skill.name not in ("wf-guru",):
+            if skill.name not in ("wf-guru", "wf-stats"):
                 self.assertTrue(targets, f"{skill.name} body names no prompt doc")
             for target in targets:
                 self.assertTrue(

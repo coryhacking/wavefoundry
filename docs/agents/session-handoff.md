@@ -2,9 +2,15 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-10
+Last verified: 2026-11-11
 
 ## Current state
+
+Wave **2347r project-statistics-skill** is fully delivered and operator-approved for closure, commit and push. The shared statistics tool, CLI and skill include literal Progress counts and profile-aware presentation. All ACs/tasks and required delivery reviews are complete. Canonical qualification passed 12,786 tests across 245 files with 12 skips in 587.181 seconds; both edit gates are closed. Closure is in progress, followed by a local test package. No official release is authorized.
+
+Native Windows execution and human formatting adherence remain unqualified. No source work remains.
+
+## Previous state: 23316
 
 Wave **23316 windows-benchmark-compatibility** is CLOSED by operator direction. Change **23315** shipped optional benchmark memory reporting and an absent-fchmod regression; the production file writer is unchanged. All four ACs and tasks passed. Code, QA and delivery council approved with intent establishes and no findings or repairs. Close accepted the current green receipt: **12,747 tests / 240 files / 12 skips**, 700.189 seconds. Both edit gates are closed.
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-16
+Last verified: 2026-11-11
 
 Budgets cite recorded measurements (1sc7c hook-cost design pass, 1sbfk/1seiz
 live probes, 1sed7 structural budgets) — no unquantified claims. Reference
@@ -141,3 +141,7 @@ The real hotspots, with their standing guards:
 Wave2087n removes routine retained packet/transcript forests rather than reducing required review authority. Optional qualification evidence is one bounded aggregate outside hashed/packed framework inputs; no report is written on an ordinary run. Record-owned operational evidence leaves default semantic/graph retrieval while direct reads remain available. A known compatible exclusion-only policy transition reuses unchanged source embeddings/extraction; necessary derived graph community work is accounted separately. This promises no universal upgrade latency. Consumer upgrades retain ordinary incremental indexing without source/profile qualification, extra evidence generation or broad recuration.
 
 Advisory trigger reuse binds content rather than timestamps and retains isolated changed-set execution. On a tiny local fixture, three repeated full scans (362.3, 350.6, 353.6 ms) became one full plus two incremental scans (360.8, 384.7, 384.4 ms): full-corpus call reduction is proven, wall-time improvement is not. The conservative source identity inventories 234 inputs / 9,476,541 bytes, averaging 47.2 ms locally. Larger-corpus benefit remains workload-dependent; eight bounded process-local root entries create no durable proof. Explicit lifecycle gates still perform fresh full validation.
+
+## Project statistics
+
+The optional `wf_stats` index section reuses `dashboard_lib.collect_health`, including its full graph payload read before reducing it to counts. Readiness probes on a cold copy of this repository measured 4–10 seconds and several hundred megabytes; this is an observation, not a latency guarantee. Unrequested sections do no work, and code-only reports never invoke the health collector.

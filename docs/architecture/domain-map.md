@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-07
+Last verified: 2026-11-11
 
 ## Domains
 
@@ -93,3 +93,7 @@ The assessor itself still performs no installs.
 | MCP client → `server.py` | stdio (FastMCP protocol) | stable | MCP client (Claude Code, Cursor, etc.) |
 | Browser → `dashboard_server.py` | loopback HTTP | stable | Operator browser |
 | Zip distribution → target repo `.wavefoundry/framework/` | file unpack | stable | Operator |
+
+## Project statistics
+
+`dashboard_lib.collect_progress` owns the four Progress figures; both the dashboard snapshot and `project_stats` consume them. The statistics module adds code, document, memory, estimate and secret-count sections and serves MCP and CLI without another counting implementation.

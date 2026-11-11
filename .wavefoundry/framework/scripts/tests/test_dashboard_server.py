@@ -585,10 +585,10 @@ class DashboardSnapshotTests(unittest.TestCase):
         self.assertIn('label: waveMetricLabel, value: waveMetricCount', source)
         self.assertIn('function acProgressStats(changes)', source)
         self.assertIn('const acMetrics = acProgressStats(scopeChanges);', source)
-        self.assertIn('const allInWaves = snapshot.changes?.in_waves || [];', source)
-        self.assertIn('const progressChanges = scopeChanges || allInWaves;', source)
+        self.assertIn('const progress = snapshot.progress || {};', source)
+        self.assertIn('row("Acceptance criteria", progress.criteria, "acs", true)', source)
         # Wave 1p458 (1p45a): the AC denominator now INCLUDES `[~]` deferred items.
-        self.assertIn('const acTotal = allCountedChanges.reduce((s, c) => s + visibleAcItems(c).length, 0);', source)
+        self.assertEqual(snapshot['progress']['criteria']['total'], 2)
 
     def test_no_active_wave_dialog_titles_use_pending_copy(self):
         root = Path(self.tmp.name) / "pending-dialogs"
@@ -919,21 +919,11 @@ Wave: `12x test-wave`
         self.assertEqual(snapshot["metrics"]["tasks"]["total"], 0)
 
         source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
-        # Wave 1p458 (1p45a): ProgressRow no longer takes a `deferred` arg; the `· N deferred`
-        # suffix is gone (deferred read as outstanding while open, fold into done once closed).
-        progress_row_src = source.split("function ProgressRow({ label, done, total, variant }) {", 1)[1].split(
-            "function ProgressCard({ snapshot, scopeChanges }) {", 1
-        )[0]
-        self.assertIn('h(ProgressRow, { label: "ACs",   done: acDone,    total: acTotal,    variant: "acs" })', source)
-        self.assertIn('h(ProgressRow, { label: tierLabel("task", true, true), done: tasksDone, total: tasksTotal, variant: "tasks" })', source)
-        self.assertNotIn('deferred: acDeferred', source)
-        self.assertNotIn('deferred: tasksDeferred', source)
-        self.assertNotIn('progress-row-deferred', progress_row_src)
-        self.assertNotIn('acTotal    ? h(ProgressRow', source)
-        self.assertNotIn('tasksTotal ? h(ProgressRow', source)
-        self.assertNotIn('if (!total) return null;', progress_row_src)
-        self.assertIn('const progressChanges = scopeChanges || allInWaves;', source)
-        self.assertIn('const allInWaves = snapshot.changes?.in_waves || [];', source)
+        # Progress renders shared rows even when their returned totals are zero.
+        self.assertIn('row("Acceptance criteria", progress.criteria, "acs", true)', source)
+        self.assertIn('row(`Implementation ${tierLabel("task", true)}`, progress.tasks, "tasks", true)', source)
+        self.assertNotIn('if (!total) return null;', source.split("function ProgressRow(", 1)[1].split("function ProgressCard(", 1)[0])
+        self.assertIn('const progress = snapshot.progress || {};', source)
 
     def test_parse_ac_items_recognizes_tilde_marker(self):
         """Wave 1p31b (1p32k): `[~]` ACs parse with deferred=True and done=False."""
@@ -1297,23 +1287,15 @@ Wave: `12x test-wave`
         self.assertEqual(change["tasks_completed"], 1)
         self.assertEqual(change["tasks_deferred"], 1)
 
-    def test_progress_builder_and_card_fold_deferred_into_done_once_closed(self):
-        """Wave 1p458 (1p45a) AC-1: deferred items fold into done only once the wave is
-        closed. Asserted on source: the backend builder and frontend ProgressCard keep
-        deferred in the denominator and count every in-scope item as done for closed waves,
-        while the open branch counts only `[x]`/done items."""
-        py = DASHBOARD_LIB_PATH.read_text(encoding="utf-8")
-        # Backend: denominator includes deferred; closed branch folds all in-scope into done.
-        self.assertIn("ac_total += len(items)", py)
-        self.assertIn("ac_done += len(items)", py)
-        self.assertIn('ac_done += sum(1 for item in items if item.get("done"))', py)
-        self.assertNotIn('in_scope = [item for item in items if not item.get("deferred")]', py)
-
+    def test_progress_card_uses_shared_checklist_states_without_recounting(self):
+        """Wave 2347r: Progress uses literal states supplied by the shared builder."""
         source = (SCRIPTS_ROOT.parent / "dashboard" / "dashboard.js").read_text(encoding="utf-8")
-        # Frontend ProgressCard: denominator includes deferred; closed folds, open counts done.
-        self.assertIn("const inScope = visibleAcItems(c);", source)
-        self.assertIn("closedWaveIds.has(c.wave_id) ? inScope.length : inScope.filter(a => a.done).length", source)
-        self.assertNotIn("visibleAcItems(c).filter(a => !a.deferred)", source)
+        card = source.split("function ProgressCard({ snapshot }) {", 1)[1].split("// MiniGraph", 1)[0]
+        self.assertIn("const progress = snapshot.progress || {};", card)
+        self.assertIn("done: counts.done, total: counts.total", card)
+        self.assertNotIn("reduce(", card)
+        self.assertNotIn("scopeChanges", card)
+        self.assertNotIn("done: 0, total: 0", card)
 
     def test_deferred_suffix_removed_from_progress_bars(self):
         """Wave 1p458 (1p45a) AC-3: the `· N deferred` suffix and its CSS rule are gone."""

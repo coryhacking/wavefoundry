@@ -235,7 +235,7 @@ FIXED_PROMPT_SLUGS: tuple[str, ...] = (
 # folder names the renderer removes on every render.
 FIXED_SKILL_NAMES: tuple[str, ...] = (
     "wf-review-plan", "wf-evaluate-decision", "wf-memory-review", "wf-council", "wf-guru",
-    "wf-upgrade", "wf-package", "wf-code-cleanup", "wf-techdocs", "wf-envision",
+    "wf-stats", "wf-upgrade", "wf-package", "wf-code-cleanup", "wf-techdocs", "wf-envision",
 )
 FIXED_STALE_SKILL_NAMES: tuple[str, ...] = ("auto-guru", "wf-interrogate-plan", "wf-plan-feature", "wf-plan-initiative")
 # The framework's untiered public shortcuts (a test pins them to the manifest).

@@ -782,9 +782,8 @@ def _parse_tasks(tasks_section: str, change_status: str) -> dict[str, Any]:
     deferred = 0
     for parsed in _parse_bounded_list_items(tasks_section, _TASK_ITEM_START_RE):
         mark = parsed["mark"]
-        # Wave 1p31b (1p32k): `[~]` = intentionally deferred. Wave 1p458 (1p45a): deferred
-        # tasks stay in the denominator and read as outstanding while the wave is open;
-        # they fold into done only once the wave is closed (see the progress builder).
+        # Preserve legacy card semantics; shared Progress uses checkbox_mark instead
+        # of inferring completion from the containing change's terminal status.
         is_deferred = mark == "~"
         done = (mark == "x") if mark else _is_terminal_change_status(change_status)
         if is_deferred:
@@ -793,11 +792,12 @@ def _parse_tasks(tasks_section: str, change_status: str) -> dict[str, Any]:
             completed += 1
         tasks.append({
             "label": parsed["text"],
+            "checkbox_mark": mark,
             "done": done,
             "deferred": is_deferred,
         })
-    # `completed` is `[x]`-only (the open-wave reading); `deferred` is tracked for the
-    # detail-dialog marker but no longer subtracted from `total`.
+    # Legacy `completed` includes terminal-status inference; `deferred` remains
+    # available to detail cards and is not subtracted from `total`.
     total = len(tasks)
     return {
         "total": total,
@@ -809,14 +809,7 @@ def _parse_tasks(tasks_section: str, change_status: str) -> dict[str, Any]:
 
 
 def _parse_ac_items(ac_section: str, priority_section: str, change_status: str) -> list[dict[str, Any]]:
-    """Return individual AC items with text, completion status, deferred status, and priority.
-
-    Wave 1p31b (1p32k): `[~]` ACs are marked ``deferred=True``. They are neither done
-    nor pending — they are intentionally out of scope (operator direction, reconsidered
-    requirement, or genuine scope-narrowing during implementation). The dashboard
-    excludes them from progress denominators so a fully-met change with `[~]` ACs renders
-    as complete rather than as incomplete-by-the-deferred-count.
-    """
+    """Keep literal checkbox markers alongside legacy card status and priority."""
     priority_rows: list[str] = []
     priority_map: dict[str, str] = {}
     for row in _markdown_table_rows(priority_section)[1:]:
@@ -844,6 +837,7 @@ def _parse_ac_items(ac_section: str, priority_section: str, change_status: str) 
         items.append({
             "id": ac_id,
             "text": text,
+            "checkbox_mark": mark,
             "done": done and not is_deferred,
             "deferred": is_deferred,
             "priority": priority,
@@ -1308,11 +1302,12 @@ def collect_changes(root: Path) -> dict[str, list[dict[str, Any]]]:
                     change_path.parent, change_path, root=root
                 )
             except (OSError, UnicodeError) as exc:
-                wave_changes.append(_change_payload(_unreadable_change_record(
-                    root, change_path, server._read_error_detail(exc))))
+                wave_changes.append({**_change_payload(_unreadable_change_record(
+                    root, change_path, server._read_error_detail(exc))),
+                    "admitted_wave_id": wave["wave_id"]})
                 continue
             record = parse_change_doc(root, change_path, text=text)
-            wave_changes.append(_change_payload(record))
+            wave_changes.append({**_change_payload(record), "admitted_wave_id": wave["wave_id"]})
 
     for plan in server.list_plans(root):
         # Wave 1zxo0 (1zxns): the same member-doc read rule as the wave rows,
@@ -1938,6 +1933,50 @@ def collect_git_stats(root: Path) -> dict[str, Any]:
     }
 
 
+def collect_checklist_counts(changes: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    """Count literal markers in readable documents, without lifecycle inference."""
+    counts = {
+        "criteria": {"done": 0, "deferred": 0, "open": 0, "total": 0, "not_this_scope": 0},
+        "tasks": {"done": 0, "deferred": 0, "open": 0, "total": 0},
+    }
+    for change in changes:
+        if change.get("read_error"):
+            continue
+        for group, field in (("criteria", "ac_items"), ("tasks", "tasks_items")):
+            for item in change.get(field, []):
+                if group == "criteria" and item.get("priority") == "not-this-scope":
+                    counts[group]["not_this_scope"] += 1
+                    continue
+                mark = item.get("checkbox_mark")
+                state = "done" if mark == "x" else "deferred" if mark == "~" else "open"
+                counts[group][state] += 1
+                counts[group]["total"] += 1
+    return counts
+
+
+def collect_progress(waves: list[dict[str, Any]], change_sets: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    """Shared all-admitted Progress; lifecycle rows and literal checklists are distinct."""
+    closed_ids = {w["wave_id"] for w in waves if str(w.get("status") or "").lower() in {"closed", "completed"}}
+    in_waves = change_sets.get("wave", [])
+    counts = collect_checklist_counts(in_waves)
+    missing = max(0, sum(int(w.get("change_count") or 0) for w in waves) - len(in_waves))
+    unreadable = sum(bool(c.get("read_error")) for c in in_waves)
+    closed_changes = sum(w.get("change_count") or 0 for w in waves if w["wave_id"] in closed_ids)
+    done_statuses = _lint_constants().DONE_CHANGE_STATUSES
+    return {
+        "waves": {"done": sum(1 for w in waves if w["wave_id"] in closed_ids), "total": len(waves)},
+        "changes": {"done": closed_changes + sum(1 for c in in_waves if c.get("admitted_wave_id", c.get("wave_id")) not in closed_ids and str(c.get("status") or "").lower() in done_statuses),
+                    "total": len(in_waves) + missing},
+        **counts,
+        "coverage": {
+            "complete": not (missing or unreadable),
+            "missing_admitted_documents": missing,
+            "unreadable_change_documents": unreadable,
+            "warning": "Checklist coverage is incomplete; counts include only readable admitted documents." if missing or unreadable else None,
+        },
+    }
+
+
 def collect_dashboard_snapshot(root: Path, skip_git: bool = False) -> dict[str, Any]:
     config = read_dashboard_config(root)
     waves = collect_waves(root)
@@ -2000,6 +2039,7 @@ def collect_dashboard_snapshot(root: Path, skip_git: bool = False) -> dict[str, 
             "in_waves": change_sets["wave"],
             "staged": change_sets["plan"],
         },
+        "progress": collect_progress(waves, change_sets),
         "metrics": {
             "waves": {
                 "active": len([wave for wave in waves if wave["status"] == "active"]),

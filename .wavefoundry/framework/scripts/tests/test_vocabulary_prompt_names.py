@@ -398,7 +398,7 @@ class DefaultNamePinTests(unittest.TestCase):
             "wf-plan-change", "wf-prepare-wave", "wf-implement-wave", "wf-review-wave", "wf-close-wave",
             "wf-close-change", "wf-review-plan", "wf-evaluate-decision", "wf-memory-review", "wf-pause-wave",
             "wf-council", "wf-guru", "wf-upgrade", "wf-package", "wf-code-cleanup", "wf-envision", "wf-techdocs",
-            "wf-plan-arc",
+            "wf-plan-arc", "wf-stats",
         ])
         self.assertEqual(ras.stale_skill_paths(), ras.STALE_SKILL_PATHS)
         self.assertIn("The Prepare wave / Ready wave workflow.", ras.SKILL_REGISTRY[1].description)

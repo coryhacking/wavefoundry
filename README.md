@@ -400,13 +400,14 @@ You don't have to memorize the phrases. In hosts that support skills — **Claud
 | `/wf-council` | Convene an on-demand review: Wave Council, Archetype Council, or a standalone Red-team review |
 | `/wf-evaluate-decision` | `Evaluate decision` — ADR-shaped comparison of two options |
 | `/wf-memory-review` | `Memory review` — apply eligible memory consolidation and archival |
+| `/wf-stats` | Call `wf_stats` and format project statistics; CLI fallback `wf stats` |
 | `/wf-guru` | Cited code and documentation Q&A (also auto-routes; you rarely need to invoke it) |
 | `/wf-upgrade` | `Upgrade Wavefoundry` — the framework-maintenance checklist |
 | `/wf-techdocs` | `Refresh TechDocs` — generate the missing-only Backstage catalog + TechDocs baseline (`wf_techdocs_baseline` over MCP, `wf techdocs-baseline` as the CLI fallback), then author the published pages; an explicit read-only request selects the review-only branch, which runs the `wf_techdocs_audit` publication audit and proposes edits without writing |
 
 `/wf-review-plan` is the only skill for the optional no-signoff plan stress test. `/wf-review-wave` remains the separate lifecycle command that runs the open wave's required review lanes and records typed evidence.
 
-Each skill is a thin pointer to the same `docs/prompts/*.prompt.md` workflow the phrase uses, so the two never drift, and the skills carry the load-bearing reminders inline (closure is operator-owned; the stage gate applies before any code edit). Skills render on `wf setup` and on every **Upgrade Wavefoundry**; hosts without a skill mechanism (Cursor, Junie, Copilot, Windsurf, Warp, Air) keep the phrase interface, which works everywhere.
+Workflow skills are thin pointers to the same `docs/prompts/*.prompt.md` workflow the phrase uses, so the two never drift, and the skills carry the load-bearing reminders inline (closure is operator-owned; the stage gate applies before any code edit). Tool-only skills such as `/wf-stats` instead name their MCP tool and explain how to structure its results; they compute no figures and need no backing prompt. Skills render on `wf setup` and on every **Upgrade Wavefoundry**; hosts without a skill mechanism (Cursor, Junie, Copilot, Windsurf, Warp, Air) keep the phrase interface, which works everywhere.
 
 > Skills whose backing workflow exists only in some repositories render only there — for example `/wf-package` (building the framework distribution) appears in the Wavefoundry source repo and nowhere else, and `/wf-code-cleanup` (the recommend-only maintainability sweep) appears wherever the cleanup prompt is present; `/wf-techdocs` renders once `docs/prompts/refresh-techdocs.prompt.md` exists, which is every target after the prompt-surface reconciliation.
 

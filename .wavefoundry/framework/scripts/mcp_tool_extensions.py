@@ -271,7 +271,7 @@ FRAMEWORK_SCRIPT_MODULE_NAMES = frozenset({
     'lifecycle_lock', 'machine_authority', 'markdown_layout', 'marker_namespaces', 'mcp_tool_extensions',
     'mcp_tool_roster', 'memory_backfill', 'memory_cli', 'memory_eval', 'memory_records',
     'memory_supply', 'model_bundle', 'operational_evidence', 'operator_identity', 'path_containment', 'process_info',
-    'project_context_efficiency', 'provider_policy', 'prune_framework', 'public_contract',
+    'project_context_efficiency', 'project_stats', 'provider_policy', 'prune_framework', 'public_contract',
     'publication_control', 'qualification_report', 'qualification_worker', 'reconcile_scan', 'record_paths', 'render_agent_surfaces',
     'render_platform_surfaces', 'repair_ppol_memory_staging', 'repo_root', 'retrieval_eval',
     'review_plan_prompt_check', 'review_evidence', 'review_policy', 'review_policy_reconcile', 'review_policy_upgrade',

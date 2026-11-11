@@ -2967,6 +2967,38 @@
       },
       "tier": "write"
     },
+    "wf_stats": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "sections": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Sections"
+          }
+        },
+        "required": [],
+        "title": "wf_statsArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
     "wf_stop_dashboard": {
       "annotations": {
         "destructiveHint": false,

@@ -239,7 +239,11 @@ const classes = (tree, cls) => nodes(tree).filter(n => n.props.className === cls
 const collect = () => {
   const flow = context.FrameworkFlow({onSelectProcess: () => {}});
   const steps = context.FRAMEWORK_FLOW().flatMap(process => classes(context.FrameworkProcessDiagram({process}), 'framework-process-diagram-step-label'));
-  const progress = context.ProgressCard({snapshot: {}, scopeChanges: []});
+  const progress = context.ProgressCard({snapshot: {progress: {
+    waves: {done: 0, total: 0}, changes: {done: 0, total: 0},
+    criteria: {done: 0, deferred: 0, open: 0, total: 0, not_this_scope: 0},
+    tasks: {done: 0, deferred: 0, open: 0, total: 0}, coverage: {complete: true},
+  }}});
   const waves = context.WavesCard({waves: [{status: 'closed'}], allChanges: []});
   const tasks = context.WaveTasks({tasksTotal: 2, tasksDone: 1});
   return [classes(flow, 'framework-flow-heading')[0], ...classes(flow, 'framework-flow-card-title'), ...steps,
@@ -249,7 +253,7 @@ const collect = () => {
 };
 const defaults = ['Wave lifecycle', 'Plan Change', 'Prepare Wave', 'Implement Wave', 'Review Wave', 'Close & Maintain',
   'Idea', 'Scope', 'Admitted change', 'Review', 'Open questions', 'Prepare Wave', 'Wave + change plans', 'Implement each change', 'Check tasks + ACs', 'Write tests', 'Prepare for review', 'Review', 'Evidence', 'Findings', 'Signoff', 'Archive',
-  'Waves', 'Changes', 'ACs', 'Tasks', 'Waves', 'No active waves.', '1 closed wave.', 'Tasks'];
+  'Waves', 'Changes', 'Acceptance criteria', 'Implementation tasks', 'Waves', 'No active waves.', '1 closed wave.', 'Tasks'];
 assert.deepEqual(collect(), defaults);
 context.updateTerminology({wave: 'Sprint', change: 'Story', task: 'Step'});
 assert.deepEqual(collect(), defaults.map(s => s.replace(/Wave/g, 'Sprint').replace(/wave/g, 'sprint').replace(/Change/g, 'Story').replace(/change/g, 'story').replace(/Task/g, 'Step').replace(/task/g, 'step')));

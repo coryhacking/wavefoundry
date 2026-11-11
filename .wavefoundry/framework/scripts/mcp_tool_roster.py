@@ -106,6 +106,7 @@ TOOL_TIERS: dict[str, str] = {
     "index_health": TIER_READ,
     "memory_brief": TIER_READ,
     "memory_search": TIER_READ,
+    "wf_stats": TIER_READ,
     "wf_audit": TIER_READ,
     "wf_audit_install": TIER_READ,
     "wf_current_wave": TIER_READ,

@@ -29,10 +29,14 @@ if str(_SCRIPTS_DIR) not in sys.path:
 import bytecode_cache  # noqa: E402
 
 if __name__ == "__main__":
-    # ``wf setup --check`` is report-only, like the session-start hook: it reads
-    # the cache but never writes it, so the check leaves the repository unchanged.
-    bytecode_cache.configure(read_only=len(sys.argv) > 1 and sys.argv[1] == "setup" and any(
-        arg == "--check" or arg.startswith("--check=") for arg in sys.argv[2:]))
+    # Statistics and setup checks read the cache without writing bytecode.
+    bytecode_cache.configure(read_only=len(sys.argv) > 1 and (
+        sys.argv[1] == "stats" or (
+            sys.argv[1] == "setup" and any(
+                arg == "--check" or arg.startswith("--check=") for arg in sys.argv[2:]
+            )
+        )
+    ))
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
@@ -48,6 +52,7 @@ cli_stdio.configure_utf8_stdio()
 # fixed prefix supplies the args the retired bash wrapper used to hardcode (e.g. update-indexes).
 # ``setup`` is intentionally NOT in this map's bootstrap loop — see _SETUP_SUBCOMMAND below.
 _SUBCOMMANDS: dict[str, dict] = {
+    "stats": {"module": "project_stats", "script": "project_stats.py"},
     "docs-lint": {"module": "docs_lint", "script": "docs_lint.py"},
     "docs-gardener": {"module": "docs_gardener", "script": "docs_gardener.py"},
     "gate": {"module": "wave_gate", "script": "wave_gate.py"},
@@ -115,6 +120,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="subcommand", metavar="<subcommand>")
     descriptions = {
+        "stats": "Report project statistics read-only; same structured data as wf_stats (project_stats.py).",
         "docs-lint": "Run the docs lint gate (docs_lint.py).",
         "docs-gardener": "Run the docs metadata gardener (docs_gardener.py).",
         "gate": "Open/close/inspect framework edit gates (wave_gate.py: open|close|status).",

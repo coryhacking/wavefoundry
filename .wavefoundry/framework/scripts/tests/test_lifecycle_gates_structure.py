@@ -287,12 +287,15 @@ _RELOAD_RETAINED_FLAT_MODULES = {
     "accel_embedder": "process-wide accelerated embedder cache, loaded lazily by the index runtime",
     "bytecode_cache": "runner bootstrap (_RELOAD_BOOTSTRAP_EXCLUSIONS)",
     "cli_stdio": "stable stdio reconfigure helper, imported lazily",
-    "dashboard_lib": "dashboard process coordination; flock-style locks only, read lazily",
+    "chunker": "index runtime language tables retained; statistics reads the same loaded tables until host restart",
+    "dashboard_lib": "dashboard process coordination and shared report figures retained; dashboard_lib edits require a host restart, preserving lock exception identity",
     "graph_snapshot": "process-wide graph snapshot cache, read lazily",
     "index_compatibility": "pins the loaded index runtime; a reload deliberately does not replace it",
     "index_state_store": "index store bound to the loaded index runtime, read lazily",
+    "indexer": "loaded index runtime and caches retained; statistics uses its walker until host restart",
     "install_log_lib": "stable install-log reader API, imported lazily",
     "machine_authority": "stable scanner path predicate used by the secrets validators",
+    "memory_records": "dashboard-bound memory reader retained; statistics reads the same records API until host restart",
     "model_bundle": "model compatibility fingerprint bound to the loaded index runtime; changed model pins require process restart",
     "process_info": "process-wide psutil loader, deliberately left loaded",
     "provider_policy": "stable execution-provider selection, imported lazily",
@@ -818,7 +821,7 @@ class ReloadClosureGuardTests(unittest.TestCase):
         self.assertEqual(_runtime_lock_binding_problems(self.source, _RUNTIME_LOCK_STALE_BINDINGS), [])
         # 1zyv1 adds bytecode_cache; 200ew evicts lifecycle_id; 20gff retains
         # the test-worker bootstrap's installed process state.
-        self.assertEqual(len(_RELOAD_RETAINED_FLAT_MODULES), 25)
+        self.assertEqual(len(_RELOAD_RETAINED_FLAT_MODULES), 28)  # statistics reads three retained runtime modules
         self.assertNotIn("runtime_lock", _RELOAD_RETAINED_FLAT_MODULES)
         self.assertTrue(_RELOAD_BOOTSTRAP_EXCLUSIONS <= set(_RELOAD_RETAINED_FLAT_MODULES))
         self.assertTrue(all(reason.strip() for reason in _RELOAD_RETAINED_FLAT_MODULES.values()))
