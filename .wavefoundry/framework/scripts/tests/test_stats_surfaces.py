@@ -136,7 +136,12 @@ class StatisticsSkillTests(unittest.TestCase):
             for host, _ in ras.SKILL_HOSTS:
                 (root / host).mkdir()
             ras.render_skills(root)
-            self.assertFalse((root / "docs/prompts").exists())
+            # wf-stats needs no backing prompt; only a declared distribution
+            # skill's template may create a prompt doc here.
+            prompts = root / "docs/prompts"
+            created = {p.relative_to(root).as_posix() for p in prompts.rglob("*") if p.is_file()} if prompts.exists() else set()
+            declared = {s.requires_doc for s in ras.declared_skills() if s.prompt_doc_template}
+            self.assertLessEqual(created, declared)
             for _, skills in ras.SKILL_HOSTS:
                 text = (root / skills / "wf-stats/SKILL.md").read_text()
                 for required in ("wf_stats", "stats --json", "summary", "section headings", "tables", "estimate", "incomplete", "Do not recount", "done, deferred, open and total", "Changes assigned to waves", "Plans not assigned", "Implementation tasks", "Source-code TODO markers", "including tests", "not-this-scope", "Lifecycle", "Markdown", "all eight sections", "Documents and roles", "Memories", "Index", "stage and record coverage", "modification time is not scan time", "not box-drawing", "test-share ratio", "files, total lines", "effective non-test/test", "include_wave_details", "No paired evaluations recorded", "machine-local", "candidates awaiting validation"):

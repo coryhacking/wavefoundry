@@ -8,6 +8,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.42.0] - 2026-11-12
+
 ### Security
 
 - MCP startup no longer installs dependencies through an affected or unverifiable uv. Before a startup install, the server runs the exact uv it is about to use with `--version`; a uv below 0.13.4 (GHSA-hq85-5cpj-mr62), or one whose version cannot be read, installs nothing. The refusal names the uv and the remedy: `wf setup --root <root> --upgrade-uv` for the tool environment's uv, or the uv's own installer for one on `PATH`. A server that can run without the missing packages still starts and reports `startup_install.status: "uv_refused"` with a `uv_refusal` detail in `wf_server_info`; otherwise startup exits with the refusal on stderr. uv is never upgraded automatically, a startup that needs no install is unaffected, and `wf setup` keeps its advisory behaviour. Wave 230k8 / change 230k7.
@@ -23,6 +25,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The `wf-stats` skill test no longer fails in a distribution that declares a skill with a prompt template: it now allows that declared skill's prompt doc and still fails if `wf-stats` gains a backing prompt. Found by the declared release-qualification profile.
 - The standalone embedding benchmark starts without the Unix-only `resource` module, including on native Windows. Timing and retrieval measurements continue; unavailable peak RSS and its delta are JSON `null` with a reason, the console says unavailable, and comparisons with missing memory evidence leave `memory_ok` unknown. Supported-host numeric measurements are unchanged. A regression test also protects file creation, replacement and unchanged writes when `os.fchmod` is absent, as on Windows Python 3.12. Verified with offline simulated capabilities; native Windows qualification remains separate. Wave 23316 / change 23315.
 
 - Markdown headings in a wave's own documents now always have a blank line above them. `wf_prepare_wave` (`ready`, `create`) inserts a missing one in the wave record and its admitted change documents before the review-policy receipt is computed, and `wf_close_wave` does the same for the wave record; the exploration-avoided block and the Wave Summary no longer run into the next heading. A wave readied before this change whose documents have the defect gets the line inserted at its next `ready`, which lapses its readiness approvals once. The close-time Wave Summary now lists each change's completed and deferred (`[~]`) criteria with their notes and no longer quotes Progress Log entries. A new advisory docs-lint warning, `heading_without_blank_line_before`, reports the defect in live documents; it never fails a lint run, prepare, close or upgrade, and closed records and archived memories are not reported or rewritten. Wave 22yox / change 22y1k.
