@@ -1055,12 +1055,23 @@ def _walk_entry_is_regular_file(
     return not _walk_target_is_runtime_lock(path, root, entry_stat, lock_cache)
 
 
+def record_walk_observation(observations: dict | None, reason: str, rel: str, *, unit: str = "files") -> None:
+    """Keep observed counts and the first ten sorted paths, never walk excluded trees."""
+    if observations is None:
+        return
+    row = observations.setdefault(reason, {"count": 0, "paths": [], "omitted": 0, "unit": unit})
+    row["count"] += 1
+    row["paths"] = sorted([*row["paths"], rel])[:10]
+    row["omitted"] = row["count"] - len(row["paths"])
+
+
 def walk_repo(
     root: Path,
     *,
     respect_ignore: bool = True,
     unreadable_dirs: "set[str] | None" = None,
     unreadable_files: "set[str] | None" = None,
+    observations: "dict | None" = None,
 ) -> list[Path]:
     """Return all indexable files under root, respecting ignore rules.
 
@@ -1122,13 +1133,15 @@ def walk_repo(
         rel_dir_str = str(rel_dir).replace("\\", "/")
         keep_dirnames: list[str] = []
         for dirname in dirnames:
-            if dirname in HARDCODED_EXCLUDE_DIRS:
-                continue
             child_rel = dirname if rel_dir_str == "." else f"{rel_dir_str}/{dirname}"
+            if dirname in HARDCODED_EXCLUDE_DIRS:
+                record_walk_observation(observations, "policy_excluded_directories", child_rel, unit="directories")
+                continue
             if not (
                 child_rel == _DOT_DIR_ALLOWLIST
                 or child_rel.startswith(_DOT_DIR_ALLOWLIST_PREFIX)
             ) and dirname.startswith("."):
+                record_walk_observation(observations, "policy_excluded_directories", child_rel, unit="directories")
                 continue
             # Wave 1p5c4: prune gitignored DIRECTORIES during the walk so we never descend into
             # generated/binary trees — most importantly `.wavefoundry/index/` (generated index files),
@@ -1136,8 +1149,10 @@ def walk_repo(
             # and dropped per-file, which stat'd hundreds of large index shards and spammed the
             # oversized-file skip log. (Per-file ignore matching still runs as a backstop below.)
             if ignore_patterns and _matches_ignore(child_rel, ignore_patterns):
+                record_walk_observation(observations, "policy_excluded_directories", child_rel, unit="directories")
                 continue
             if _is_operational_evidence_path(child_rel + "/", evidence_prefixes):
+                record_walk_observation(observations, "evidence_excluded_directories", child_rel, unit="directories")
                 continue
             keep_dirnames.append(dirname)
         dirnames[:] = keep_dirnames
@@ -1157,29 +1172,37 @@ def walk_repo(
             rel_str = str(rel).replace("\\", "/")
 
             if _is_operational_evidence_path(rel_str, evidence_prefixes):
+                record_walk_observation(observations, "evidence_excluded_files", rel_str)
                 continue
 
             if rel_str in HARDCODED_EXCLUDE_PATHS:
+                record_walk_observation(observations, "policy_excluded_files", rel_str)
                 continue
 
             # Wave 1slep: raw append-only review history is canonical machine
             # state.  Search the generated wave.md current-head projection,
             # never the ledger (which also contains superseded findings).
             if _is_canonical_wave_events_path(rel_str, root):
+                record_walk_observation(observations, "policy_excluded_files", rel_str)
                 continue
             if _is_memory_archive_body_path(rel_str):
+                record_walk_observation(observations, "policy_excluded_files", rel_str)
                 continue
             if _is_legacy_memory_pointer_path(rel_str):
+                record_walk_observation(observations, "policy_excluded_files", rel_str)
                 continue
             # 1wfsn: committed secret-scan findings ledger — machine authority,
             # applied BEFORE the name layer so the re-include hatch can't reach it.
             if _is_secret_scan_findings_path(rel_str):
+                record_walk_observation(observations, "policy_excluded_files", rel_str)
                 continue
 
             # Check hardcoded prefix excludes
             if any(rel_str.startswith(prefix) for prefix in HARDCODED_EXCLUDE_PREFIXES):
+                record_walk_observation(observations, "policy_excluded_files", rel_str)
                 continue
             if rel_str.startswith(VENDORED_ASSET_PREFIXES):
+                record_walk_observation(observations, "policy_excluded_files", rel_str)
                 continue
 
             parts = rel_str.split("/")
@@ -1188,12 +1211,14 @@ def walk_repo(
             # unless the entire prefix starts with the .wavefoundry allowlist.
             if not rel_str.startswith(_DOT_DIR_ALLOWLIST_PREFIX):
                 if any(part.startswith(".") for part in parts[:-1]):
+                    record_walk_observation(observations, "policy_excluded_files", rel_str)
                     continue
 
             # Check remaining hardcoded dir-name excludes (non-dot dirs like node_modules).
             # Only check directory components (parts[:-1]) so filenames like ".env" aren't
             # blocked by the ".env" virtualenv dir entry.
             if any(part in HARDCODED_EXCLUDE_DIRS for part in parts[:-1]):
+                record_walk_observation(observations, "policy_excluded_files", rel_str)
                 continue
 
             filename = parts[-1]
@@ -1213,16 +1238,20 @@ def walk_repo(
             # sniff layers below still apply to anything re-included here.
             if filename not in reinclude_names:
                 if filename in HARDCODED_EXCLUDE_FILENAMES:
+                    record_walk_observation(observations, "policy_excluded_files", rel_str)
                     continue
                 if filename.endswith(HARDCODED_EXCLUDE_FILENAME_SUFFIXES):
+                    record_walk_observation(observations, "policy_excluded_files", rel_str)
                     continue
 
             # Binary extensions
             if suffix in BINARY_EXTENSIONS:
+                record_walk_observation(observations, "binary_files", rel_str)
                 continue
 
             # Generated-file extension exclusions (snapshots, diagrams)
             if suffix in _GENERATED_EXCLUDE_EXTENSIONS:
+                record_walk_observation(observations, "policy_excluded_files", rel_str)
                 continue
 
             # Allow extensionless docs files (README, LICENSE, etc.) before extension check
@@ -1240,6 +1269,7 @@ def walk_repo(
             # .gitignore / .aiignore (path-based, so ahead of the stat; wave 1zime moved it
             # above the content sniff, which changes no result: both only exclude).
             if _matches_ignore(rel_str, ignore_patterns):
+                record_walk_observation(observations, "policy_excluded_files", rel_str)
                 continue
 
             if not _walk_entry_is_regular_file(path, root, denied_files, lock_cache):
@@ -1259,8 +1289,11 @@ def walk_repo(
                         or header[:4] == b"\xca\xfe\xba\xbe"  # Java .class / fat Mach-O
                         or b"\x00" in header
                     ):
+                        record_walk_observation(observations, "binary_files", rel_str)
                         continue
                 except OSError:
+                    if observations is not None:
+                        denied_files.add(rel_str)
                     continue
 
             # Wave 1p5c4: hard size guard — skip pathologically large files (e.g. a multi-GB SQL
@@ -1278,8 +1311,11 @@ def walk_repo(
                             file=sys.stderr,
                             flush=True,
                         )
+                        record_walk_observation(observations, "oversized_files", rel_str)
                         continue
                 except OSError:
+                    if observations is not None:
+                        denied_files.add(rel_str)
                     continue
 
             result.append(path)
@@ -1309,6 +1345,10 @@ def walk_repo(
             file=sys.stderr,
             flush=True,
         )
+    for rel in sorted(unreadable):
+        record_walk_observation(observations, "unreadable_directories", rel, unit="directories")
+    for rel in sorted(denied_files):
+        record_walk_observation(observations, "unreadable_files", rel)
     return sorted(result)
 
 

@@ -41,13 +41,52 @@ they change.
 
 ## Project statistics (`wf_stats`)
 
-`wf_stats(sections=None)` returns one shared statistics payload in `data`, also returned by `wf stats --json`. Section names are `code`, `todo`, `lifecycle`, `documents`, `memories`, `index`, `token_savings` and `secrets`. An explicit list computes only those sections; an unknown name is `invalid_arguments`. A failed section is unavailable with a reason while the overall envelope remains `ok`. This is a report, not an integrity or readiness verdict.
+`wf_stats(sections=None, include_wave_details=False, group_by=None)` returns the shared statistics payload in `data`, also returned by `wf stats --json`. Sections are `code`, `todo`, `lifecycle`, `documents`, `memories`, `index`, `token_savings` and `secrets`. Only requested sections run. Unknown sections or grouping values are invalid arguments; a failed section reports its reason without hiding other sections. This is a report, not an integrity or readiness verdict.
 
-The dashboard and report share lifecycle collectors and the server-computed Progress block. Criteria and tasks include all admitted change documents, with total equal to done plus deferred plus open; closing a wave never changes these checkbox states. Not-this-scope criteria stay outside that total, and unadmitted plans have a separate breakdown. Missing or unreadable admitted documents make checklist coverage explicitly incomplete without inventing counts. Wave and change completion rows describe lifecycle status. Code counts use the indexing walker exclusions and size cap, distinguish production and tests, and disclose lexical comment counting and incomplete reads. Token figures aggregate healthy published checkpoint estimates only. Secret output contains status/rule counts and confirmation-count distribution, never matched text, paths, hashes or identities.
+### Code and file coverage
 
-No network, model loading, subprocess, external counter, scan or rebuild runs. The index collector may maintain SQLite sidecars, refresh build statistics from finished logs and remove finished build-state metadata; other project files and canonical index data are preserved. An absent index store or malformed/unreadable build state degrades instead of triggering cleanup. The index section can take several seconds on a large store; omit it when not needed. Edits to retained `dashboard_lib` code require an MCP host restart.
+Code counts follow the indexing walk, exclusions and configured size cap. Coverage reports distinguish intentional exclusions from unreadable eligible files, with reason counts and bounded relative-path examples. A pruned directory is an observed exclusion, not a count of its unvisited descendant files or lines. Statistics never widens the walk to count lifecycle evidence folders.
 
-`/wf-stats` invokes this tool and presents returned data in a concise summary and labelled tables, preserving scope, estimates and unavailable reasons. It does not calculate its own statistics. The CLI is the fallback when MCP is unavailable.
+Projects may declare eligible file roles in `docs/repo-profile.json`:
+
+```json
+{
+  "statistics": {
+    "path_roles": [
+      {"path": "src/", "role": "shipped"},
+      {"path": "scripts/", "role": "tooling"},
+      {"path": "qualification/", "role": "test"},
+      {"path": "benchmarks/results/", "role": "evidence"}
+    ]
+  }
+}
+```
+
+Roles are `shipped`, `tooling`, `test`, `evidence` or `generated`. A path is a repository-relative literal file path or directory prefix ending in `/`; the longest match wins. Conflicting duplicate paths, escaping paths and malformed configuration are rejected. Mappings classify eligible files only and cannot override exclusions. Re-profiling preserves existing `statistics.path_roles` unless the operator directs a change. Stats neither interprets AGENTS.md as configuration nor writes the profile.
+
+Format categories (code, documentation and data), declared roles, and test extent describe different things. An evidence JSON file remains data; a shipped source file may contain test code. Unconfigured code is labelled non-test or test, not assumed to ship. Existing `production`, `test` and `test_code_ratio` JSON fields retain their legacy path-based meanings; effective test/non-test counts are additive and drive the improved presentation. Mixed files count once. All line counts remain lexical, and test share is not test coverage.
+
+Rust analysis recognizes parsed `#[cfg(test)]` item spans and `#[test]` functions, including syntax-equivalent whitespace, without counting overlapping spans twice or consuming later live items. Unsupported conditional forms and parse failures disclose partial or unknown precision with a path-only fallback. Macro expansion is not performed, so hidden generated tests are outside this analysis. Swift keeps filename/path heuristics and supports declared test roots; no build manifest executes. `group_by="directory"` (CLI `--group-by directory`) adds top-level directory/language rows from the same counted file set; it does not launch a second walk.
+
+### Lifecycle, memories and accounting
+
+The dashboard and report share Progress: criteria/tasks count literal done, deferred and open markers across admitted documents, with their sum as total. Closing a wave never changes checkbox states. Not-this-scope criteria and unassigned plans remain separate. The report explains lifecycle status completion separately and shows checklist work in active, implementing and paused waves, including missing/unreadable-document coverage. Dashboard calculations are unchanged.
+
+Memory status counts include candidate records awaiting validation, rejected and archived records; active kinds remain available. Unwritten proposals and upgrade worklists are not candidate records, and archived bodies count once.
+
+Token figures aggregate healthy published checkpoints. Default output shows credits, recorded request/response debits, estimates, stages, coverage and paired-evaluation count. These are accounting estimates, not provider billing or total model consumption. At zero paired evaluations, presentation states “No paired evaluations recorded.” Per-wave rows require `include_wave_details=True` (CLI `--include-wave-details`); requesting detail does not load accounting when `token_savings` is unrequested. Existing excluded-record diagnostics remain available.
+
+### Recorded scan health
+
+The secrets section reads findings counts and machine-local scan observations. Latest scan, last full scan and currently outstanding incomplete files are distinct. An executed per-edit scan is incremental and does not replace last-full history; no-work lint does not claim a new scan. Missing history on a fresh clone is unknown. Historical completion never proves the current tree or rules clean. The allowlist count describes configured path entries, not matched files.
+
+Finding content, finding paths, hashes and identities are never returned. Bounded relative paths from scan-coverage records may explain incomplete or excluded work, with fixed reasons rather than arbitrary error detail. Findings-file modification time is not scan time. Stats does not run a scan, publish observations or change dispositions.
+
+### Execution and presentation
+
+No network, model loading, subprocess, external counter, scan or rebuild runs. The index collector may maintain SQLite sidecars, refresh statistics from finished logs and remove finished build-state metadata; other project files and canonical index data are preserved. An absent store or malformed/unreadable build state degrades instead of triggering cleanup. The index section can take several seconds on a large store; omit it when not needed. Edits to retained `dashboard_lib` code require an MCP host restart.
+
+`/wf-stats` presents returned data as a concise summary and labelled tables, prioritizing effective counts and their limits over legacy compatibility fields. It preserves scope, estimates and unavailable reasons without recounting. The CLI is the fallback when MCP is unavailable.
 
 ## Cached inference status (`wf_server_info`)
 

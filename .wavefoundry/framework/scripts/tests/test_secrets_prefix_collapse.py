@@ -88,9 +88,9 @@ class _NoRepoWrites:
     """Wave 1z8ox (1z8ov): scan the REAL repository without writing into it.
 
     ``check_hardcoded_secrets`` publishes the guard-skip ledger
-    (``.wavefoundry/index/scan/guard-skips.json``) and may save the findings
-    ledger (``docs/scan-findings.json``). Tests that scan ``REPO_ROOT`` read
-    repository content only, so both writers are replaced by recorders. The
+    (``.wavefoundry/index/scan/guard-skips.json``), run history, and may save
+    the findings ledger (``docs/scan-findings.json``). Tests that scan ``REPO_ROOT`` read
+    repository content only, so all three writers are replaced by recorders. The
     findings recorder runs the REAL ``save_exceptions`` against a temporary
     root and keeps the exact bytes it wrote, so a comparison never depends on
     a re-implementation of the serializer.
@@ -98,6 +98,9 @@ class _NoRepoWrites:
 
     def __init__(self):
         self.saved: list[bytes] = []
+        self.saved_history: list[bytes] = []
+        import scanner_skips
+        real_history = scanner_skips.publish_scan_history
         real_save = sv.save_exceptions
 
         def record(root, exceptions):
@@ -105,9 +108,16 @@ class _NoRepoWrites:
                 real_save(Path(scratch), exceptions)
                 self.saved.append((Path(scratch) / sv.SCAN_FINDINGS_PATH).read_bytes())
 
+        def record_history(root, **observation):
+            with tempfile.TemporaryDirectory(prefix="scan-history-") as scratch:
+                scratch_root = Path(scratch)
+                real_history(scratch_root, **observation)
+                self.saved_history.append(scanner_skips._scan_history_path(scratch_root).read_bytes())
+
         self._patchers = [
             patch.object(sv, "update_scanner_skips", lambda root, outcomes: None),
             patch.object(sv, "save_exceptions", record),
+            patch.object(scanner_skips, "publish_scan_history", record_history),
         ]
 
     def __enter__(self):
@@ -596,6 +606,20 @@ def _main(argv=None):
 
 
 class CheckoutAuditDispatchTests(unittest.TestCase):
+    def test_audit_recorder_preserves_real_history_serialization_outside_checkout(self):
+        import scanner_skips
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            before = list(root.iterdir())
+            with _NoRepoWrites() as recorder:
+                scanner_skips.publish_scan_history(root, scope="full", requested_files=1,
+                    complete=False, scanned_at="2026-11-11T00:00:00+00:00", rules_hash="0" * 64)
+            self.assertEqual(before, list(root.iterdir()))
+            self.assertEqual(len(recorder.saved_history), 1)
+            history = json.loads(recorder.saved_history[0])
+            self.assertFalse(history["last_full"]["complete"])
+            self.assertEqual(history["latest_run"], history["last_full"])
+
     def test_explicit_audit_dispatch_is_contained_and_not_normally_discovered(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

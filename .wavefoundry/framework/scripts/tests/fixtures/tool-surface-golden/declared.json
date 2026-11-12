@@ -3106,6 +3106,23 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "group_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Group By"
+          },
+          "include_wave_details": {
+            "default": false,
+            "title": "Include Wave Details",
+            "type": "boolean"
+          },
           "sections": {
             "anyOf": [
               {

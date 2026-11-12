@@ -190,7 +190,8 @@ def main() -> int:
     scan_files = [root / p for p in rel_paths]
     max_workers = _auto_max_workers(len(scan_files))
     t0 = time.monotonic()
-    failures = check_hardcoded_secrets(root, files=scan_files, max_workers=max_workers)
+    failures = check_hardcoded_secrets(root, files=scan_files, max_workers=max_workers,
+                                        history_scope="full" if scan_all else "incremental")
     # Wave 1x5tr (delivery review) — an outcome the ledger never received must
     # not be cached as scanned, or the next run cache-hits a skip the close
     # advisory never learned about. Mirrors scan_secrets.update_secrets_scan.

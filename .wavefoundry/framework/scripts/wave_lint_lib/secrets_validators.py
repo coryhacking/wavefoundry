@@ -2020,6 +2020,7 @@ def check_hardcoded_secrets(
     as_of: datetime | None = None,
     record_only: bool = False,
     publish: bool = True,
+    history_scope: str | None = None,
 ) -> list[str]:
     """Scan tracked/changed files for secrets matching the merged ruleset.
 
@@ -2066,6 +2067,12 @@ def check_hardcoded_secrets(
         return load_errors
     if not rules:
         return []
+
+    import indexer
+    scanner_runtime = indexer._get_secrets_scanner()
+    if scanner_runtime is None:
+        return ["[scan-incomplete] Scanner identity unavailable."]
+    scan_rules_identity = scanner_runtime._compute_rules_hash(root)
 
     required_confirmations: int = int(policy.get("false_positive_confirmations_required", 2))
     # Wave 1p457 — max age (days) of a false-positive confirmation; non-positive /
@@ -2443,6 +2450,20 @@ def check_hardcoded_secrets(
         # `wf_close_wave` secrets gate sees no findings → no block (gate semantics unchanged). Idempotent:
         # a re-run finds the file present and writes nothing here, so the content never churns.
         save_exceptions(root, [])
+
+    # All entry points (including per-edit lint) share executed-scan history.
+    # Empty/read-only calls do not refresh it; explicit adapters may declare a
+    # full candidate scope without changing scan_all's finding-pruning contract.
+    if files:
+        from scanner_skips import publish_scan_history, scanner_completion
+        try:
+            publish_scan_history(root, scope=history_scope or ("full" if scan_all else "incremental"),
+                                 requested_files=len(files),
+                                 complete=scanner_completion(root, failures)["complete"],
+                                 scanned_at=scan_as_of.isoformat(), rules_hash=scan_rules_identity)
+        except (OSError, ValueError, TypeError):
+            _SCANNER_SKIPS_UNPUBLISHED.extend(scan_outcomes)
+            failures.append("[scan-incomplete] Scanner run history could not be persisted; prior observations and timestamps retained.")
 
     # Wave 1p5pz — record-only mode (docs-lint / hook / upgrade docs gate): secret
     # findings are tagged "[secrets]" by _match_hits_for_file; a bare-suppression

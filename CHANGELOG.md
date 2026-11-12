@@ -32,6 +32,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Project statistics now explain skipped files, machine-local scan history and outstanding coverage, memory candidates, lifecycle completion and open work, and the credits/debits behind token estimates. Per-wave accounting is opt-in. Optional profile path roles distinguish shipped code, tooling, tests, evidence and generated files; bounded Rust inline-test analysis and optional directory breakdowns improve composition reports while preserving legacy JSON counters. Reports remain read-only, preserve index exclusions and disclose unknown or partial evidence. Wave 231kh / changes 231kf and 231kg.
+
 - The writing guide now requires a requirement, acceptance criterion or status claim to name the setting, file, function, command, term, error text or limit it depends on, or to say it is not yet known and what will identify it. An imposed limit carries its number and unit, a requirement contains no open-ended hedge, and a plan that fixes a defect shows the observed failure. The guide also extends its 8 MiB example with an abstract version and defines "consequential". Wave 23041 / change 23040.
 
 ## [1.41.0] - 2026-11-09

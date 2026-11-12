@@ -6,9 +6,13 @@ Last verified: 2026-11-11
 
 ## Current state
 
-Wave **2347r project-statistics-skill** is fully delivered and operator-approved for closure, commit and push. The shared statistics tool, CLI and skill include literal Progress counts and profile-aware presentation. All ACs/tasks and required delivery reviews are complete. Canonical qualification passed 12,786 tests across 245 files with 12 skips in 587.181 seconds; both edit gates are closed. Closure is in progress, followed by a local test package. No official release is authorized.
+Wave **231kh explainable-project-statistics** is CLOSED by operator direction. It delivered clearer code roles and Rust inline-test counts, optional directory grouping, skipped-file observations, machine-local scan history, memory candidates, open lifecycle work and opt-in per-wave token accounting. All eleven acceptance criteria and tasks are complete; required specialist and council delivery approvals are current. Canonical closure accepted the current framework receipt and removed the owned disposable work area.
 
-Native Windows execution and human formatting adherence remain unqualified. No source work remains.
+The latest combined working-tree suite, including the separately implemented 237ee guidance, passed **12,822 tests across 249 files with 12 skips**. This statistics commit excludes 237ee and local package stamps; that suite result is not an isolated test run of this commit. Durable evidence remains in the 231kh wave/change records, typed ledger and maintained tests.
+
+## Open questions / Deferred decisions
+
+The official release remains on hold. Separate wave 237ee remains open in the working tree. Native Windows, field effectiveness and full release-profile qualification remain unverified. No new package or official release is included in this commit.
 
 ## Previous state: 23316
 

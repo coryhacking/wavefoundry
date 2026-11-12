@@ -173,3 +173,6 @@ deriving a parallel policy.
 ## Project statistics
 
 Progress figures are computed by `dashboard_lib.collect_progress` and published in `snapshot.progress`. The page and statistics report share criteria/task counts across all admitted documents: total equals done plus deferred plus open, regardless of wave status. Not-this-scope criteria stay separate; missing/unreadable documents produce an incomplete-coverage warning. Wave/change rows describe lifecycle status, and unadmitted plans are reported separately. Existing metrics and per-wave cards retain their own scope and calculations.
+
+
+The statistics report explains the lifecycle completion rule separately from checkbox completion. Its active/implementing/paused-wave rows use admitted membership and the shared checklist collector, retaining missing/unreadable-document coverage. Profile-aware labels describe those records without changing dashboard Progress, metric tiles or per-wave cards. Per-wave token accounting is a separate opt-in report and does not change these lifecycle rows.

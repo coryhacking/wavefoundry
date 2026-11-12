@@ -145,3 +145,8 @@ Advisory trigger reuse binds content rather than timestamps and retains isolated
 ## Project statistics
 
 The optional `wf_stats` index section reuses `dashboard_lib.collect_health`, including its full graph payload read before reducing it to counts. Readiness probes on a cold copy of this repository measured 4–10 seconds and several hundred megabytes; this is an observation, not a latency guarantee. Unrequested sections do no work, and code-only reports never invoke the health collector.
+
+
+Code and TODO reporting share one eligible-file collection. Optional directory grouping reuses that set and its counts; role mappings never trigger a wider walk. Exclusion examples are bounded to ten paths per reason with omitted counts, and pruned trees are not enumerated merely to count excluded descendants. Rust inline-test analysis uses the available parser within the existing file-size bound; unsupported analysis is disclosed rather than escalated to compiler or build execution.
+
+Token accounting retains aggregate output by default. `include_wave_details` / `--include-wave-details` opts into the potentially large per-wave rows; when token accounting is unrequested, the option causes no checkpoint reads. Scan health consumes persisted local observations, not a fresh scan. These are work/output bounds, not measured latency guarantees for the new behavior.

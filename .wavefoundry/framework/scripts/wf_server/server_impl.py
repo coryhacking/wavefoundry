@@ -4936,12 +4936,12 @@ def _search_result(prefix: str, chunk: dict[str, Any], prefixes: tuple[str, str]
     return payload
 
 
-def wf_stats_response(root: Path, sections: list[str] | None = None) -> dict[str, Any]:
+def wf_stats_response(root: Path, sections: list[str] | None = None, include_wave_details: bool = False, group_by: str | None = None) -> dict[str, Any]:
     """One envelope over the CLI's shared statistics payload."""
     import project_stats
 
     try:
-        data = project_stats.collect_project_stats(root, sections=sections)
+        data = project_stats.collect_project_stats(root, sections=sections, include_wave_details=include_wave_details, group_by=group_by)
     except ValueError as exc:
         return _response("error", {}, diagnostics=[_diagnostic("invalid_arguments", str(exc))])
     return _response("ok", data)
@@ -26193,21 +26193,26 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return wf_techdocs_audit_response(get_handler().root, compare_to=compare_to)
 
     @mcp.tool(annotations=_READONLY_TOOL)
-    def wf_stats(sections: list[str] | None = None, **kwargs: Any) -> dict[str, Any]:
+    def wf_stats(sections: list[str] | None = None, include_wave_details: bool = False, group_by: str | None = None, **kwargs: Any) -> dict[str, Any]:
         """Return project statistics without network, model loading or external counters.
 
         Sections: code, todo, lifecycle, documents, memories, index, token_savings,
         secrets. Omit sections for all; unrequested sections do no work. Counts shared
         with the dashboard use its collectors and Progress rules. Code counts use the
-        indexing file scope and lexical comment rules. Token savings are estimates;
-        secret findings expose counts only. Unavailable sections carry a reason while
+        indexing file scope and lexical comment rules. Optional group_by="directory"
+        adds top-level directory/language rows when code is requested. Explicit profile
+        roles and bounded Rust test spans qualify effective counts; legacy counters remain.
+        Token savings are estimates;
+        secret findings expose counts only. Set include_wave_details=true only for
+        per-wave token accounting; the default retains aggregates and excluded-record
+        diagnostics. Debits are accounting estimates, not billing. Unavailable sections carry a reason while
         other sections remain usable. Index reads may maintain SQLite sidecars and
         finished build metadata; this is not an index freshness or integrity check.
         """
         bad = _ensure_no_extra_args("wf_stats", kwargs)
         if bad is not None:
             return bad
-        return wf_stats_response(get_handler().root, sections=sections)
+        return wf_stats_response(get_handler().root, sections=sections, include_wave_details=include_wave_details, group_by=group_by)
 
     # --- Agent memory tools (wave 1ro44 / 1p8gy) ---
 

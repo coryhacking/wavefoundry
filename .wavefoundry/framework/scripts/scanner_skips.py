@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import tempfile
 
@@ -378,3 +379,108 @@ def scanner_completion_failures(root: Path) -> list[str]:
         guidance = incomplete_guidance(rows, "inspect scanner completion details and retry.")
         return [f"[scan-incomplete] {coverage['incomplete_files']} eligible file(s) have unresolved incomplete scans; {guidance}"]
     return []
+
+
+def _scan_history_path(root: Path) -> Path:
+    # Derive from the existing profile-owned scanner location; forks rename one owner.
+    return (root / LEDGER_REL).with_name("scan-history.json")
+
+
+def _read_scan_history(path: Path) -> dict:
+    try:
+        with path.open(encoding="utf-8") as stream:
+            raw = stream.read(65537)
+        if len(raw) > 65536:
+            raise ValueError("scan history too large")
+        value = json.loads(raw)
+    except RecursionError:
+        raise ValueError("invalid scan history") from None
+    if not isinstance(value, dict) or value.get("version") != 1:
+        raise ValueError("invalid scan history")
+    for key in ("latest_run", "last_full"):
+        row = value.get(key)
+        if row is None and key == "last_full":
+            continue
+        if (not isinstance(row, dict)
+                or row.get("scope") not in {"full", "incremental"}
+                or (key == "last_full" and row["scope"] != "full")
+                or type(row.get("complete")) is not bool
+                or type(row.get("requested_files")) is not int or row["requested_files"] < 1
+                or not isinstance(row.get("scanner_version"), str)
+                or not re.fullmatch(r"[0-9]{1,10}", row["scanner_version"])
+                or not isinstance(row.get("rules_hash"), str)
+                or not re.fullmatch(r"[0-9a-f]{64}", row["rules_hash"])
+                or not isinstance(row.get("scanned_at"), str)):
+            raise ValueError("invalid scan history observation")
+        from datetime import datetime
+        stamp = datetime.fromisoformat(row["scanned_at"].replace("Z", "+00:00"))
+        if stamp.tzinfo is None:
+            raise ValueError("scan timestamp has no timezone")
+        row["scanned_at"] = stamp.isoformat()
+    return value
+
+
+def publish_scan_history(root: Path, *, scope: str, requested_files: int,
+                         complete: bool, scanned_at: str, rules_hash: str | None = None) -> None:
+    """Publish one executed scan observation atomically; never refresh on no work."""
+    if not requested_files:
+        return
+    if scope not in {"full", "incremental"} or type(requested_files) is not int or requested_files < 0 or type(complete) is not bool:
+        raise ValueError("invalid scan observation")
+    import indexer
+    scanner = indexer._get_secrets_scanner()
+    if scanner is None:
+        raise ValueError("scanner identity unavailable")
+    row = {"scanned_at": scanned_at, "scope": scope,
+           "requested_files": requested_files, "complete": complete,
+           "scanner_version": scanner.SCANNER_VERSION, "rules_hash": rules_hash if rules_hash is not None else scanner._compute_rules_hash(root)}
+    path = _scan_history_path(root)
+    with RuntimeFileLock(path.with_suffix(".lock"), blocking=True):
+        try:
+            previous = _read_scan_history(path)
+        except FileNotFoundError:
+            previous = {}
+        # Malformed prior observations are not silently overwritten with a fresh health claim.
+        state = {"version": 1, "latest_run": row,
+                 "last_full": row if scope == "full" else previous.get("last_full")}
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                             prefix=".scan-history-", suffix=".tmp", delete=False) as stream:
+                temporary = Path(stream.name)
+                json.dump(state, stream, sort_keys=True)
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+
+def scan_history(root: Path) -> dict:
+    """Read allowlisted, machine-local observations without scanning or writing."""
+    out = {"available": False, "machine_local": True, "latest_run": None, "last_full": None,
+           "qualification": "Historical observations on this machine, not shared history or proof that the current tree is clean."}
+    try:
+        state = _read_scan_history(_scan_history_path(root))
+    except FileNotFoundError:
+        return {**out, "reason": "scan_history_missing"}
+    except (OSError, ValueError, TypeError, OverflowError):
+        return {**out, "reason": "scan_history_unreadable_or_invalid"}
+    try:
+        import indexer
+        scanner = indexer._get_secrets_scanner()
+        rules_hash = scanner._compute_rules_hash(root) if scanner is not None else None
+    except Exception:
+        rules_hash = None
+    for key in ("latest_run", "last_full"):
+        row = state.get(key)
+        if row is not None:
+            out[key] = {name: row[name] for name in (
+                "scanned_at", "scope", "requested_files", "complete", "scanner_version")}
+            out[key]["rules_current"] = row["rules_hash"] == rules_hash if rules_hash is not None else None
+            out[key]["scope_note"] = ("Full requested candidate scope under the recorded rules and exclusions; not all repository bytes."
+                                      if row["scope"] == "full" else "Requested incremental file scope only.")
+    out["available"] = True
+    return out

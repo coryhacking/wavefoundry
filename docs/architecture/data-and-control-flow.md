@@ -1094,3 +1094,10 @@ Upgrade previews for explicitly declared compatible Prepare/close overrides inhe
 ## Project statistics
 
 The dashboard snapshot carries `progress`: wave/change rows describe lifecycle completion, while criteria/task rows count all admitted documents as done, deferred and open, with their sum as total. `ProgressCard` and `wf_stats` consume this shared `dashboard_lib` result, including not-this-scope criteria and incomplete-document coverage; unadmitted plans are reported separately.
+
+
+Statistics keep three responsibilities separate. The index walker supplies eligible files and bounded exclusion observations; `project_stats` counts and classifies them without widening eligibility. Explicit profile roles describe project responsibility, while Rust item spans refine test extent. The MCP and CLI expose the same results and optional directory view.
+
+Scanner producers own machine-local latest/last-full observations. Executed incremental scanning updates latest scope without erasing last-full evidence; no-work checks publish no scan timestamp. Stats reads those observations and outstanding coverage failures without scanning or writing. Missing history stays unknown and historical completion is not a current-tree guarantee.
+
+Lifecycle detail reuses admitted membership and literal checklist collectors. Memory counts come from persisted records, not proposed worklists. Accounting reads healthy published checkpoints; aggregate figures are the default and per-wave detail is opt-in. These report paths do not create independent authority or change dashboard calculations.

@@ -394,7 +394,7 @@ class ProjectStatsTests(unittest.TestCase):
         payload = {"schema_version": 1, "sections": {"lifecycle": {"waves": {"total": 2}, "changes": {"wave": {"total": 3}, "plan": {"total": 1}}, "raw_checkboxes": {"criteria": {"total": 5}, "tasks": {"total": 7}}, "unadmitted_checkboxes": {"tasks": {"total": 2}}}, "todo": {"total": 9}}}
         before = json.dumps(payload)
         rendered = stats.format_report(payload)
-        for label in ("Changes assigned to waves", "Plans not assigned to a wave", "Acceptance criteria", "Implementation tasks", "Source-code TODO markers"):
+        for label in (f"{vp.ITEM_NAME_PLURAL} assigned to {vp.CONTAINER_NAME_PLURAL.lower()}", f"Plans not assigned to a {vp.CONTAINER_NAME.lower()}", "Acceptance criteria", "Implementation tasks", "Source-code TODO markers"):
             self.assertIn(label, rendered)
         with patch.object(vp, 'CONTAINER_NAME', 'Set'), patch.object(vp, 'CONTAINER_NAME_PLURAL', 'Sets'), patch.object(vp, 'ITEM_NAME', 'Work'), patch.object(vp, 'ITEM_NAME_PLURAL', 'Works'):
             rendered = stats.format_report(payload)

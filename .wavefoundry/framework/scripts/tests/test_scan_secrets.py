@@ -319,7 +319,7 @@ class TestRunSecretsScanMainEscalation(unittest.TestCase):
             captured_scan_all.append(scan_all)
             return []
 
-        def fake_check(r, *, files=None, max_workers=1):
+        def fake_check(r, *, files=None, max_workers=1, history_scope=None):
             return []
 
         mock_mod = types.ModuleType("wave_lint_lib.secrets_validators")

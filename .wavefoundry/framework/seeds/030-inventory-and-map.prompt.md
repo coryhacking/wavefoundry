@@ -150,6 +150,15 @@ Required outputs or updates in the target repository:
 
  Profiles may carry additional keys set by other seeds (for example `supported_agent_platforms` from `seed-050`); this table names only the keys `seed-030` is responsible for.
 
+ `statistics.path_roles` is optional operator-owned classification for project statistics:
+ an array of `{ "path": "scripts/", "role": "tooling" }` entries. Paths are
+ repository-relative literal files or directory prefixes ending in `/`; roles are
+ `shipped`, `tooling`, `test`, `evidence` or `generated`. Longer matching paths take
+ precedence. These declarations classify eligible files; they do not restore excluded
+ files or prove what a package ships. Do not create mappings from naming guesses or
+ interpret an Implementation guard as automatic configuration. Propose mappings when
+ useful and leave selection to the operator.
+
 Required semantics:
 
 - top-level modules
@@ -170,5 +179,10 @@ Guardrails:
 - Prefer evidence from the repository over assumptions. **Do not invent signals** — a framework, CI platform, or cloud-runtime detection must be grounded in a dependency, config file, or code reference; a name match alone is not sufficient.
 - Keep unknowns explicit when evidence is missing: use `TBD` or `Unknown` in prose, and appropriate null / empty-list values in `docs/repo-profile.json`.
 - If a repository already has valid canonical inventory docs, update them rather than duplicating them.
+- During initial profiling, re-profiling and upgrades, preserve existing `statistics.path_roles`
+  exactly unless the operator explicitly directs a change. Read and retain that block before
+  refreshing discovered facts; do not remove it because it is absent from the inventory's
+  generated schema or because a path currently has no eligible files. Report a conflicting
+  or invalid declaration for correction rather than silently replacing it.
 - **On upgrade runs, preserve operator-refined values** in `factor_review.*.rationale`, `code_patterns.*`, and `persona_candidates[*].evidence` when the underlying repository evidence still supports them; overwrite only when evidence has materially changed, and prefer additive edits (appending a new evidence line) over wholesale replacement. This parallels `seed-160`'s preservation rule for `lifecycle_id_policy.epoch_utc`; when in doubt, keep the human text and record the new signal as an adjacent evidence bullet.
 - Load `seed-031` **at most once per run**, and only when disambiguation across multiple stacks is required; a typical Init or Upgrade run should complete without loading the full detection catalog.
