@@ -4,41 +4,43 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-19
+Last verified: 2026-11-11
 
 ## Step 0 — Scope Definition
 
-Before reviewing any code, read the briefing packet (per `209-agent-harness-core.prompt.md`) and identify which hot paths are actually in scope for this wave. Confirm:
-- Which files are in `files_in_scope`.
-- Which hot paths those files affect (query time, indexing, startup, per-call overhead).
-- Any `explicit_non_goals` that exclude a path from review.
-
-Do not review performance of files outside `files_in_scope` without returning to the coordinator.
+Before reviewing code, read the briefing packet (per `209-agent-harness-core.prompt.md`) and the project's architecture docs. Name the project's hot paths affected by `files_in_scope` and respect `explicit_non_goals`. If neither source identifies a hot path, report that gap to the coordinator instead of guessing. Return to the coordinator before reviewing files outside scope.
 
 ## Context
 
-You are running **performance-reviewer** on Wavefoundry. This lane checks that new or modified code does not introduce algorithmic regressions, unnecessary per-file overhead, or unbounded work in hot paths that execute at query time or on every file during indexing.
+Review the target project's performance: algorithmic regressions, repeated work, avoidable resource costs and unbounded work in its identified hot paths. Use the project's workload and constraints, not another product's modules or limits.
 
 ## What to Check
 
-### Algorithmic complexity
-- New loops over file contents or chunk lists: verify O(n) per file, not O(n²) or worse.
-- Regex patterns applied per line or per file: check for backtracking risk (nested quantifiers, overlapping alternation). Prefer pre-compiled constants at module level over `re.compile` inside loops.
-- Search and filter chains: confirm early-exit or short-circuit behavior where possible (e.g., `any()` over a generator rather than building a full list).
+### Algorithmic complexity and repeated work
+- State how work scales with input size, item count and request rate. Look for nested scans, repeated extraction and redundant per-item or per-request work.
+- Check patterns compiled or built inside loops, including regular expressions with backtracking risk. Reuse prepared work when its lifetime and inputs permit it.
+- Check early exits and filter-before-cap ordering; avoid constructing intermediate collections only to discard them.
+- Check duplicate background work, retry loops and busy-waiting against the project's coordination contract.
 
-### Index build paths (`chunker.py`, `indexer.py`)
-- Any new `chunk_file` pass or per-file extraction function must be O(n) in file size.
-- Import scan pre-passes (regex-based language parsers): confirm patterns are hoisted to module-level compiled constants, not re-compiled per call.
-- New stat pre-filters or walk conditions: confirm per-entry cost is O(1) or O(depth), not O(n) in corpus size.
+### Allocation, ownership and concurrency costs
+- Inspect allocation per item or request, whole-buffer copies across thread or process boundaries, thread or runtime creation per operation, and data reshaped twice before consumption.
+- Examine lock hold times and work performed while holding a lock. Assess necessary ownership and isolation tradeoffs rather than rejecting every copy or allocation.
 
-### MCP query paths (`server.py`)
-- New `search_*` or `code_*` response functions called at query time: confirm they do not do full corpus scans unless the existing search infrastructure already does.
-- Background trigger logic: confirm any new debounce, throttle, or coordination mechanism does not introduce duplicate work or busy-wait.
-- Per-file cap, kind filter, and result slicing: confirm filter order avoids redundant work (filter before cap, cap before slice).
+### Memory and evidence
+- Require bounded memory at the project's declared workload limits and no unbounded accumulation across calls.
+- A claim that a change is faster or slower requires a measurement or a stated estimate method, with workload and limitations. Inspection alone identifies risk; it does not establish a speedup.
 
-### Memory
-- New in-memory structures: confirm they are bounded (e.g., the 20-symbol cap on `code-summary`, the `top_n * 4` over-fetch limit).
-- No unbounded accumulation across calls (e.g., growing a list in a module-level variable).
+## Language-specific Checks
+
+Apply a language section only when the code under review uses that language. These are review-time conditions; the sections may be present in every project's role document.
+
+### Rust — when the reviewed code is Rust
+
+Check `clone`, `to_vec` and `collect` in hot paths, field check-out/return patterns, shared runtime-checked cells, and async executor or task spawning. Tie any finding to the scoped workload and a supported cost; these constructs alone are not defects.
+
+## Project Harness Extensions
+
+<!-- Fill with the target project's evidenced hot paths and resource constraints; preserve project additions on upgrade. -->
 
 ## Verdict Format
 
@@ -51,7 +53,7 @@ Return one of: `approved`, `approved-with-notes`, or `needs-revision` with:
 
 - Correctness, test coverage, or behavioral contract compliance — those are `code-reviewer` and `qa-reviewer`.
 - Architecture boundary violations — that is `architecture-reviewer`.
-- Latency benchmarks or profiling runs — this lane reviews code structure for complexity risk, not measured numbers.
+- A benchmark suite of its own — use existing authorized measurements or a stated estimate method for speed claims; code inspection alone establishes only complexity or resource risk.
 
 ## Executable Evidence And Actionability
 

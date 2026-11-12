@@ -6,13 +6,19 @@ Last verified: 2026-11-11
 
 ## Current state
 
-Wave **231kh explainable-project-statistics** is CLOSED by operator direction. It delivered clearer code roles and Rust inline-test counts, optional directory grouping, skipped-file observations, machine-local scan history, memory candidates, open lifecycle work and opt-in per-wave token accounting. All eleven acceptance criteria and tasks are complete; required specialist and council delivery approvals are current. Canonical closure accepted the current framework receipt and removed the owned disposable work area.
+Wave **237ee language-aware-builder-and-reviewer-guidance** is CLOSED by operator direction (2026-11-11) and committed. Both admitted changes have all ten ACs and all tasks complete. Code, QA, docs-contract and operator delivery approvals are recorded; all finding heads are terminal. Both edit gates are closed. The operator then requested the official 1.42.0 release.
 
-The latest combined working-tree suite, including the separately implemented 237ee guidance, passed **12,822 tests across 249 files with 12 skips**. This statistics commit excludes 237ee and local package stamps; that suite result is not an isolated test run of this commit. Durable evidence remains in the 231kh wave/change records, typed ledger and maintained tests.
+**Done:** performance seed 212 now reviews target-project hot paths and generic costs, retaining Wavefoundry-specific checks locally. Seeds 222/221/180/170 add ownership/design guidance, conditional Rust and mixed-stack instructions, existing-authority escalation and port-planning expectations. Seed 160 reconciles changed guidance into existing local carriers while preserving project additions. Two delivery defects were repaired and independently verified: the merge-test oracle borrowed words from adjacent bullets, and the local implementation paragraph disturbed the existing Readback block. No renderer, runtime, lint, template, gate or review-lane mechanism changed.
 
-## Open questions / Deferred decisions
+**Next:** the official release, following `docs/prompts/package-wavefoundry.prompt.md` (version confirmation, qualification profiles, changelog dating, `build_pack.py --release`). Wave **231kh explainable-project-statistics** is CLOSED and committed (`18c92720`).
 
-The official release remains on hold. Separate wave 237ee remains open in the working tree. Native Windows, field effectiveness and full release-profile qualification remain unverified. No new package or official release is included in this commit.
+**Files touched:** six seeds (160, 170, 180, 212, 221, 222), six local prompt/role carriers, one new test file, changelog and wave/handoff records. Prior statistics source, seed 030, VERSION and prompt-manifest build stamps remain preserved.
+
+**Test state:** after three added guidance assertions, the canonical suite passed **12,822 tests across 249 files, 12 reported skips, 591 seconds**, exit 0. Eight guidance tests passed in the second profile; the three existing BriefingLoopCarrierTests and original-placement mutants verify the carrier repair. Full release-profile qualification has not run yet.
+
+**Open questions / Deferred decisions:** native Windows, actual consumer upgrades and improved agent behavior remain unqualified. Guidance delivery is verified; the reporter’s next upgrade and port are the field check. Existing setup-input warning remains; no setup or index repair ran.
+
+Durable evidence is in both waves' change/wave Progress Logs, typed ledgers and maintained regression tests; closure removed both disposable work areas. Local package 1.42.0+q2u7 predates these changes and is not a release.
 
 ## Previous state: 23316
 

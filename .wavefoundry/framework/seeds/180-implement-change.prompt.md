@@ -33,6 +33,8 @@ Core execution model:
 - incomplete changes carry forward into the next wave under the same `Change ID`; create a new change only when the remaining work is materially different and that split is made explicit
 - if the operator requests a follow-up that still belongs to the current wave and the scope fits an admitted change, update that existing change's ACs and tasks instead of opening a new change; create a new change only when the new work is materially different or needs separate tracking
 
+**Structural workarounds.** When the only local fix to a compiler, borrow-checker or type-checker error is a structural workaround, stop and report the ownership or type conflict to the coordinator. With no coordinator, record the conflict in the change doc and resolve it within admitted scope; ask the operator only when the fix leaves that scope. This adds no approval or gate and preserves the existing operator decision for deviation from a dominant pattern.
+
 Implement loop execution model:
 
 The coordinator's implementation loop follows a ReAct-derived model. Each iteration is explicit and auditable:

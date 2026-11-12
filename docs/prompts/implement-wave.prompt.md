@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-07
+Last verified: 2026-11-11
 
 Shortcut: **`Implement wave`**
 
@@ -15,6 +15,8 @@ Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neut
 Implement the admitted changes, then hand the evidence to **Review wave**. **Prepare wave** must have passed; declared review-enabled waves require the typed `council-readiness` approval on the current receipt, with legacy prose-verdict and review-disabled behavior preserved. Implementation consumes that authority without repeating the critique.
 
 Activation enforces the single-OPEN invariant: pause any other OPEN wave in the same configured activation scope before `wf_implement_wave` opens this readied wave.
+
+**Structural workarounds.** When the only local fix to a compiler, borrow-checker or type-checker error is a structural workaround, stop and report the ownership or type conflict to the coordinator. With no coordinator, record the conflict in the change doc and resolve it within admitted scope; ask the operator only when the fix leaves that scope. This adds no approval or gate and preserves the existing operator decision for deviation from a dominant pattern.
 
 **Readback before editing:**
 

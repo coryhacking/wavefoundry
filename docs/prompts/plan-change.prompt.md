@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-03
+Last verified: 2026-11-11
 
 Shortcut: **`Plan change`**
 
@@ -55,6 +55,7 @@ For an adopted vision, start with its opening, roadmap overview and relevant hor
 
 Code-grounded authoring (required; definition in seed-209, "Code-Grounded Verification"):
 
+- **Ports and rewrites:** when a change ports code between languages or rewrites a module, state the ownership and data model, the hot paths and what "equivalent" means in the existing change-doc sections. Tests and replay hashes can establish behavior parity; they do not prove design quality. Do not add a required heading for this guidance.
 - Before a claim about existing code enters `## Requirements`, `## Scope`, an Acceptance Criterion, or a `## Decision Log` rationale, verify it against the actual tree, and execute it where executable: render into the failing shape, call the dispatch path, run the census. Reading code and reasoning about it produces plausible, internally consistent, and false plans; every mechanism defect in the motivating incidents was killed by execution and none by argument.
 - Three claim shapes need the strongest evidence: "X already does Y" mechanism claims, "no other caller/site" censuses (run them with `limit=0`, state them exhaustively or narrow the claim to what the census supports), and a rationale that justifies a decision by a benefit (observe the benefit; a plan once kept a mechanism for behavior that never fired).
 - A load-bearing claim that cannot be executed is marked `inferred` or `unverified` in the plan, using seed-209's `execution_status` vocabulary, instead of asserted flatly. The reviewer then knows which premises the prepare council must probe first.

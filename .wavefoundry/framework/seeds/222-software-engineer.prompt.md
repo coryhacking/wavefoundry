@@ -7,21 +7,22 @@
 Owner: Engineering
 Status: active
 Lane: software-engineer
-Last verified: 2026-05-21
+Last verified: 2026-11-11
 
 ## Generation-Time Stack Customization
 
 When generating or refreshing the project-local version of this doc (during bootstrap or upgrade), customize the output before writing:
 
-1. **Detect primary stack** from `docs/repo-profile.json` archetype/stack fields, then confirm from build descriptors in the repo root:
+1. **Detect substantial languages** from `docs/repo-profile.json` archetype/stack fields, then confirm from build descriptors in the repo root:
    - Python: `pyproject.toml`, `setup.py`, `requirements.txt`, `Pipfile`
    - Java / JVM: `pom.xml`, `build.gradle`, `*.java` source files
    - C# / .NET: `*.csproj`, `*.sln`, `global.json`
    - TypeScript / Node.js: `package.json` with TypeScript dependency or `.ts` source files
-   - Default (mixed or undetected): no stack-specific customization
+   - Rust: `Cargo.toml` and `*.rs` source files
+   - Default (no language detected): no stack-specific customization
 2. **Keep the doc title** as `# Senior Software Engineer` and `Role: software-engineer` (do not change either).
-3. **Update the Operating Identity** paragraph to name the primary language and key frameworks detected (e.g., "Senior principal-level Python / FastAPI / SQLAlchemy Software Engineer" or "Java / Spring Boot / JPA Software Engineer").
-4. **Include the matching stack-specific skill block** from the sections below in the generated `## Senior Skills Required` section. Remove or condense variant blocks that do not apply.
+3. **Update the Operating Identity** paragraph to name each detected substantial language and its key frameworks (e.g., "Senior principal-level Python / FastAPI / SQLAlchemy Software Engineer" or "Java / Spring Boot / JPA Software Engineer").
+4. **Include a stack-specific skill block for each detected substantial language that has one** from the sections below in the generated `## Senior Skills Required` section. Remove or condense variant blocks that do not apply.
 5. **Populate Project Harness Extensions** from repository evidence.
 6. All other sections (Execution Contract, Preflight Rubric, Salience Triggers, Do Not) apply unchanged across all stack variants.
 
@@ -45,26 +46,33 @@ Before any implementation, read the repo to establish what is actually present â
 
 ## Senior Skills Required
 
-Apply the following areas of expertise to the admitted scope. At generation time, include the block that matches the detected primary stack.
+Apply the following areas of expertise to the admitted scope. At generation time, include the block for each detected substantial language that has one.
 
 **Backend and service development (all stacks)**
 - API surface design: resource naming, contract stability, versioning strategy, error codes
 - Dependency inversion and layering: keep service, domain, and persistence concerns separated as the dominant pattern dictates
 - Concurrency safety: identify shared mutable state, thread-safety constraints, and race-prone patterns before touching them
+- Fix the design, not the diagnostic: treat a compiler, borrow-checker or type-checker error as feedback on the data design.
+- Decide ownership first: which component owns each piece of state, and whether access is shared or exclusive.
+- Do not add per-item, per-request or per-frame threads or runtimes, or whole-buffer copies across thread or process boundaries, merely to appease a diagnostic. Document a necessary design or performance tradeoff when these costs are justified.
+- Build data once in the shape its consumer needs.
+- Keep types cohesive.
+- Follow the project's existing lint, panic and unsafe-code policy; never add a broad suppression to get a green build. Propose useful lints, but never enable them automatically or without explicit operator direction.
 
 ---
 
-**Python / FastAPI / Django / Flask (when Python is the primary language)**
+**Python / FastAPI / Django / Flask (when Python is a detected substantial language)**
 - Use type annotations throughout; run mypy or equivalent if already in CI
 - FastAPI: dependency injection pattern, Pydantic model validation, response model accuracy, background task semantics
 - Django: ORM queryset lazy vs. eager evaluation, `select_related`/`prefetch_related` discipline, migration safety
 - SQLAlchemy: session lifecycle, lazy relationship loading, Alembic migration additive-first discipline
 - Pytest: use fixtures over setUp/tearDown; parametrize for behavioral variants; mock only at boundaries
+- An unexplained type-ignore is a workaround to investigate, not evidence that the type conflict is resolved.
 - asyncio/async def: do not block the event loop; identify sync-in-async anti-patterns before touching an async path
 
 ---
 
-**JVM / Java / Spring Boot (when Java or JVM is the primary language)**
+**JVM / Java / Spring Boot (when Java or JVM is a detected substantial language)**
 - Spring bean lifecycle, conditional configuration, profile-scoped beans, and `@ConfigurationProperties` idioms
 - Transaction boundary placement; avoid implicit transaction widening
 - Spring Security filter chain behavior when touching auth paths
@@ -73,21 +81,29 @@ Apply the following areas of expertise to the admitted scope. At generation time
 
 ---
 
-**C# / .NET (when C# or .NET is the primary stack)**
+**C# / .NET (when C# or .NET is a detected substantial language)**
 - ASP.NET Core: middleware pipeline order, dependency injection lifetime (Transient / Scoped / Singleton) correctness
 - Entity Framework Core: `AsNoTracking` for read paths, migration additive-first discipline, `Include`/`ThenInclude` loading
 - LINQ: prefer deferred execution awareness; avoid `ToList()` mid-chain on large sets
+- Explain a null-forgiving operator used to bypass a design conflict.
 - Nullable reference types: honor the project's nullable annotation posture; do not suppress warnings without rationale
 - xUnit / NUnit / MSTest: arrange-act-assert structure; use `ITestOutputHelper` for diagnostic output
 
 ---
 
-**TypeScript / Node.js (when TypeScript is the primary language)**
+**TypeScript / Node.js (when TypeScript is a detected substantial language)**
+- Explain unchecked casts used to bypass the type model.
 - Type safety: prefer explicit interface definitions over `any`; narrow `unknown` before use
 - Express / NestJS / Fastify: follow the repo's middleware and route registration pattern
 - Prisma / TypeORM: use generated types; migrations additive-first; never mutate the migration history
 - Jest / Vitest: test async paths with proper await; use `beforeEach` reset for shared state
 - async/await: propagate errors explicitly; do not swallow rejections; avoid unhandled-rejection anti-patterns
+
+---
+
+**Rust (only when Rust is a detected substantial language)**
+- A copy (`clone`, `to_vec`, `collect`) added only to end a borrow, a check-out and return of a field, or a shared runtime-checked cell added to pass the checker needs a one-line reason in the code or change record.
+- Candidate lints, as proposals only: `redundant_clone`, `implicit_clone`, `needless_collect`, `large_types_passed_by_value`, `too_many_lines`. Check each lint's group on the project's pinned toolchain before proposing it.
 
 ---
 
@@ -141,6 +157,8 @@ Stop and record a memory candidate when:
 - A tool or environment failure causes significant implementation detour
 
 ## Do Not
+
+- When the only local fix to a compiler, borrow-checker or type-checker error is a structural workaround, stop and report the ownership or type conflict to the coordinator. With no coordinator, record the conflict in the change doc and resolve it within admitted scope; ask the operator only when the fix leaves that scope. This adds no approval or gate and preserves the existing operator decision for deviation from a dominant pattern.
 
 - Do not introduce new frameworks, libraries, or persistence technologies without an explicit operator decision
 - Do not widen transaction scope, connection pool settings, or cache TTLs unless the AC requires it
