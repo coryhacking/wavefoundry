@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-11
+Last verified: 2026-11-12
 
 Behavioral contract for the Wavefoundry local MCP server. This spec covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -1452,9 +1452,111 @@ recovery tool rather than silently duplicating work.
 
 ## Current Tool Surface
 
+### Tool Index
+
+Every tool the shipped server registers, with its tier, the first sentence of its
+registered description and the heading of its detailed entry.
+`test_tool_spec_index_matches_registration` keeps this table equal to the live
+registration.
+
+| Tool | Tier | Summary | Detail |
+| --- | --- | --- | --- |
+| `code_ask` | read | Ask a natural-language question about the codebase and receive a grounded, cited answer. | Search And Retrieval |
+| `code_callgraph` | read | Return direct (and optionally deeper) ``calls`` edges for a graph symbol. | Navigation Tools |
+| `code_callhierarchy` | read | Return the call hierarchy for a symbol: what it calls (outgoing) and what calls it (incoming). | Navigation Tools |
+| `code_commit_provenance` | read | Reverse provenance: from a commit SHA (or a file + line range) back to the wave that produced it and its recorded reasoning. | Navigation Tools |
+| `code_constants` | read | Look up current values of named module-/type-level constants in one call. | Navigation Tools |
+| `code_definition` | read | Find definition(s) for a symbol name across supported languages. | Navigation Tools |
+| `code_dependencies` | read | Return the list of imported modules/files for a repo-relative source file, parsed on demand. | Navigation Tools |
+| `code_graph_community` | read | Return member nodes of a graph community from the cluster artifact. | Navigation Tools |
+| `code_graph_path` | read | Find the lowest-cost connecting path between two graph symbols. | Navigation Tools |
+| `code_hover` | read | Return the symbol (function, class, or method) enclosing a given line number. | Navigation Tools |
+| `code_impact` | read | Find files/symbols affected by a change — import heuristics (path) or graph traversal (symbol). | Navigation Tools |
+| `code_keyword` | read | Search repository files for an exact keyword or substring. | Navigation Tools |
+| `code_lexical` | read | BM25-ranked exact-token search over the indexed lexical layer (FTS5). | Navigation Tools |
+| `code_list_files` | read | List repository-relative file paths, optionally filtered by a glob pattern. | Navigation Tools |
+| `code_outline` | read | Return a structural symbol map of a source file. | Navigation Tools |
+| `code_pattern` | read | Search repository files using a Python regex pattern. | Navigation Tools |
+| `code_read` | read | Read a file with rich metadata for read-then-edit workflows. | Navigation Tools |
+| `code_references` | read | Find references to a symbol across known code languages via text matching. | Navigation Tools |
+| `code_risk_score` | read | Rank the symbols in a scope by how risky they are to *change* — a composite of blast-radius × call-degree. | Navigation Tools |
+| `code_search` | read | Semantic search over indexed source code chunks. | Search And Retrieval |
+| `docs_search` | read | Semantic search over docs, architecture, prompts, seed chunks, and framework seeds at .wavefoundry/framework/seeds/. | Search And Retrieval |
+| `index_build` | write | Run a semantic or graph index **build** for the current repo root. | Framework Operations |
+| `index_build_status` | read | Check the status of an index build — and whether a build lock is held. | Framework Operations |
+| `index_health` | read | Check the semantic and graph index health for the project index layer. | Framework Operations |
+| `index_optimize` | write | Maintain the local SQLite index without regenerating embeddings. | Framework Operations |
+| `memory_add` | write | Create an agent memory record (typed, evidence-backed, repo-visible markdown). | Lifecycle Mutations |
+| `memory_backfill` | write | Inventory closed waves and create one bounded historical candidate batch. | Lifecycle Mutations |
+| `memory_brief` | read | Assemble a short, capped, cited memory briefing for an action context. | Lifecycle Mutations |
+| `memory_consolidate` | write | Preview or apply one bounded consolidation of related active memory. | Lifecycle Mutations |
+| `memory_propose` | write | Draft candidate memory records from a wave's own typed review evidence. | Lifecycle Mutations |
+| `memory_purge` | write | Irreversibly remove a reviewed retired memory that is not history-worthy. | Lifecycle Mutations |
+| `memory_reconcile` | write | Transition status or explicitly archive a retired memory record. | Lifecycle Mutations |
+| `memory_search` | read | Search agent memory records by query, target file/symbol, kind, or status. | Lifecycle Mutations |
+| `memory_validate` | write | Validate one evidence-derived memory candidate with focused agent judgment. | Lifecycle Mutations |
+| `seed_get` | read | Retrieve a framework seed prompt by name or partial slug. | Search And Retrieval |
+| `wf_add_change` | write | Admit a change into a wave's Changes section. | Lifecycle Mutations |
+| `wf_audit` | read | Aggregate read-only audit: wave state + docs validation + a FAST index readiness snapshot. | Audit |
+| `wf_audit_install` | read | Audit install state via .wavefoundry/install-log.md. | Framework Operations |
+| `wf_close_change` | write | Close ONE admitted change inside an OPEN wave and activate its dependents. | Lifecycle Mutations |
+| `wf_close_gate` | write | Close an edit gate in .wavefoundry/guard-overrides.json. | Framework Operations |
+| `wf_close_wave` | write | Dry-run or close a wave after validation passes. | Lifecycle Mutations |
+| `wf_context_efficiency_eval` | write | Register or attach quality-gated paired context-efficiency evidence. | Paired evaluation |
+| `wf_create_wave` | write | Create a wave record under the waves root using a lifecycle wave ID. | Lifecycle Mutations |
+| `wf_current_wave` | read | Return the active wave ID, lifecycle status, and admitted changes. | Wave Inspection |
+| `wf_garden_docs` | write | Run docs_gardener to update Last verified dates. | Framework Operations |
+| `wf_gate_status` | read | Return the current enabled/disabled state of all edit gates. | Framework Operations |
+| `wf_get_change` | read | Return a change doc by ID, or all change docs for a wave in bulk. | Wave Inspection |
+| `wf_get_handoff` | read | Read the session handoff document (docs/agents/session-handoff.md). | Wave Inspection |
+| `wf_get_prompt` | read | Return the full rendered prompt for a Wave Framework shortcut phrase. | Wave Inspection |
+| `wf_gpu_doctor` | read | Embedding-provider / GPU capability diagnostic — platform, onnxruntime, GPU detection (nvidia/apple), available ONNX execution providers, the provider Wavefoundry would select (+ reason/remediation + decision provenance: setup-cache / fresh-probe / operator-request), and the CUDA 12/13 ABI-gap check. | Framework Operations |
+| `wf_graph_report` | read | Structural summary over the persisted code/doc graph. | Navigation Tools |
+| `wf_help` | read | Return a structured MCP workflow catalogue or a goal-specific recommended chain. | Discovery Tool |
+| `wf_implement_wave` | write | Gate and context builder for starting wave implementation. | Lifecycle Mutations |
+| `wf_list_plans` | read | List pending plan/change docs in docs/plans that have not yet been admitted to a wave. | Wave Inspection |
+| `wf_list_waves` | read | List all waves with their ID, status, and change count. | Wave Inspection |
+| `wf_map` | read | Resolve a doc:/code:/seed: anchor to repo path, trust label, excerpt, and index match flag. | Wave Inspection |
+| `wf_mark_ac` | write | Mark one acceptance criterion complete (``x``) or deferred (``~``). | Lifecycle Mutations |
+| `wf_mark_task` | write | Mark one exact task complete (``x``) or deferred (``~``). | Lifecycle Mutations |
+| `wf_memory_eval` | write | Inspect this repository's memory-retrieval diagnostics (aggregate only). | `wf_memory_eval` |
+| `wf_new_bug` | write | Create a scaffolded bug change doc (kind=bug). | Change Creation |
+| `wf_new_change` | write | Create a scaffolded general change doc (kind=change). | Change Creation |
+| `wf_new_documentation` | write | Create a scaffolded documentation change doc (kind=doc). | Change Creation |
+| `wf_new_enhancement` | write | Create a scaffolded enhancement change doc (kind=enh). | Change Creation |
+| `wf_new_feature` | write | Retired: the feat kind is no longer minted for new change docs. | Change Creation |
+| `wf_new_maintenance` | write | Create a scaffolded maintenance change doc (kind=maint). | Change Creation |
+| `wf_new_operations` | write | Create a scaffolded operations change doc (kind=ops). | Change Creation |
+| `wf_new_refactor` | write | Create a scaffolded refactor change doc (kind=ref). | Change Creation |
+| `wf_new_task` | write | Create a scaffolded task change doc (kind=task). | Change Creation |
+| `wf_new_tech_debt` | write | Create a scaffolded technical debt change doc (kind=debt). | Change Creation |
+| `wf_open_dashboard` | write | Open the browser to the local dashboard. | Framework Operations |
+| `wf_open_gate` | write | Open an edit gate in .wavefoundry/guard-overrides.json. | Framework Operations |
+| `wf_pause_wave` | write | Write or preview a session handoff entry for an active wave. | Lifecycle Mutations |
+| `wf_prepare_wave` | write | Transactional prepare check: validates docs, runs the prepare-phase council gate, and (mode-dependent) readies or opens the wave. | Lifecycle Mutations |
+| `wf_reload_mcp` | write | Reload MCP implementation module without restarting the stdio server. | Framework Operations |
+| `wf_remove_change` | write | Remove an admitted change from a wave's Changes section. | Lifecycle Mutations |
+| `wf_reopen_wave` | write | Reopen a closed OR PAUSED wave, restoring it to active status. | Lifecycle Mutations |
+| `wf_restart_dashboard` | write | Restart the local dashboard server for this repository. | Framework Operations |
+| `wf_review_event` | write | Preview, append, or LIST compact executable-review evidence without hand-authoring JSONL. | Lifecycle Mutations |
+| `wf_review_wave` | write | Inspect one review phase and return its canonical guided actions. | Lifecycle Mutations |
+| `wf_run_sensors` | write | Run all computational sensors declared in workflow-config.json and return structured results. | Audit |
+| `wf_scan_secrets` | write | Scan the repository for hardcoded secrets using the betterleaks ruleset. | Framework Operations |
+| `wf_server_info` | read | Return this MCP process's identity and cached inference diagnostics. | Framework Operations |
+| `wf_set_handoff` | write | Write the session handoff document (docs/agents/session-handoff.md). | Lifecycle Mutations |
+| `wf_start_dashboard` | write | Start the local dashboard server and open it in the browser. | Framework Operations |
+| `wf_stats` | read | Return project statistics without network, model loading or external counters. | Project statistics (`wf_stats`) |
+| `wf_stop_dashboard` | write | Stop the local dashboard server for this repository. | Framework Operations |
+| `wf_sync_surfaces` | write | Render generated agent and platform surfaces, including owned upgrade-policy regions. | Framework Operations |
+| `wf_techdocs_audit` | read | Audit the TechDocs publication surface: which pages the built site publishes (the `mkdocs.yml` nav plus the survivors of `exclude_docs`), nav targets that are missing or excluded, relative links that dangle or escape the boundary, published-page metadata, the Backstage/TechDocs trio's marker-derived ownership, and the audience invariant on the agent startup-order documents. | Framework Operations |
+| `wf_techdocs_baseline` | write | Generate the missing-only Backstage catalog + TechDocs baseline (catalog-info.yaml, mkdocs.yml, docs/index.md) for this repository; the MCP entry of `wf techdocs-baseline`, same backing function. | Framework Operations |
+| `wf_upgrade` | write | Run the automated Wavefoundry framework upgrade script. | Framework Operations |
+| `wf_upgrade_status` | read | Return the current upgrade lock state. | Framework Operations |
+| `wf_validate_docs` | read | Run docs_lint against the project. | Framework Operations |
+
 ### Search And Retrieval
 
-`docs_search(query: str, kind: str = "", tags: list[str] = [], limit: int = 5)`
+`docs_search(query: str, kind: str = "", tags: list[str] = [], limit: int = 7)`
 
 - Semantic search over docs, architecture docs, prompts, and seed chunks, including the
   `doc-code` chunks extracted from documentation fences, code directives, listing blocks, notebook code cells, and diagram labels (Mermaid/PlantUML/DOT raw-source units; drawio/excalidraw extracted-label units),
@@ -1464,7 +1566,7 @@ recovery tool rather than silently duplicating work.
   `architecture` virtual kind matches prose `doc` rows only (doc-code is excluded, mirroring
   the doc-summary precedent); filter `kind='doc-code'` to target extracted code content.
 - Optional `tags`: pre-filter the search space before semantic ranking. Current tags: `wave`, `agent`, `journal`, `lifecycle`, `reference`, `prompt`, `seed`, `framework`, `test`, `config`.
-- Optional `limit`: number of results to return, default `5`, clamped `[1, 20]`.
+- Optional `limit`: number of results to return, default `7`, clamped `[1, 20]`.
 - Query-time embedding must run offline-only once the local model cache exists.
 - **`code_ask` `index_freshness` (wave 1seav):** three states — `"current"` (the cheap
 freshness check positively determined the index reflects the working tree), `"stale"`
@@ -1568,14 +1670,15 @@ is applied.
 active `search_mode` (`semantic`, `lexical_fallback`, or other future explicit mode)
 once envelope migration is complete.
 
-`code_search(query: str, language: str = "", kind: str = "", max_per_file: int = 0, tags: list[str] = [], limit: int = 5)`
+`code_search(query: str, language: str = "", kind: str = "", max_per_file: int = 0, tags: list[str] = [], limit: int = 7, graph: bool = True, graph_limit: int = 5, layer: str = "project")`
 
 - Semantic search over indexed source code chunks.
 - Optional `language`: category name, canonical language name, or raw file extension (with or without leading dot) — all accepted. e.g. `"typescript"`, `"tsx"`, and `".tsx"` are all equivalent single-language filters. Category filters expand to a set of languages and return `language_resolved` (the expanded language list) and `language_extensions` (all covered extensions). Single-language filters return `language_extensions` only; `language_resolved` is absent. Categories: `java` (java, kotlin, scala, groovy), `web` (typescript, javascript, html, css, scss), `systems` (c, cpp, rust, go), `script` (python, ruby, shell, fish), `data` (sql), `sparksql` (sql alias for SparkSQL queries), `dotnet` (csharp). Canonical names and their extensions: `typescript` (.ts, .tsx), `javascript` (.js, .jsx, .mjs, .cjs), `python` (.py), `go` (.go), `rust` (.rs), `java` (.java), `kotlin` (.kt, .kts), `scala` (.scala), `groovy` (.groovy), `ruby` (.rb), `csharp` (.cs), `cpp` (.cpp, .hpp), `c` (.c, .h), `shell` (.sh, .bash, .zsh), `fish` (.fish), `sql` (.sql, .psql, .pgsql, .ddl, .dml, .tsql, .hql), `xml` (.xml), `html` (.html, .htm), `css` (.css), `scss` (.scss), `swift` (.swift), `json` (.json, .jsonc), `toml` (.toml), `yaml` (.yaml, .yml). Use `wf_help(goal='search_code')` to rediscover this list at runtime.
 - Optional `kind`: chunk-kind filter. Use `code-summary` for file-level orientation chunks only.
 - Optional `max_per_file`: cap results per file path (`0` means no cap). Use `1` for orientation passes when you want breadth over repeated hits from one file.
 - Optional `tags`: pre-filter the search space before semantic ranking. Current tags: `wave`, `agent`, `journal`, `lifecycle`, `reference`, `prompt`, `seed`, `framework`, `test`, `config`.
-- Optional `limit`: number of results to return, default `5`, clamped `[1, 20]`.
+- Optional `limit`: number of results to return, default `7`, clamped `[1, 20]`.
+- Optional `layer`: the graph layer `graph` augmentation reads, default `project` (the only layer).
 - **Candidate generation (wave `1wpif`, `1wpah`):** `language` (single name, extension, or category), `kind`, and `tags` are pushed into BOTH candidate sources (the SQLite vector query and the FTS5 `WHERE`, both with bound values) before the bounded top-k, so a selected-language match ranked past a global window is never a false zero; the language value resolves through a fixed allowlist and never enters a predicate verbatim (a value outside the allowlist stays a row-level guard). `max_per_file` cannot be pushed down: retrieval continues over bounded candidate windows `30 -> 60 -> 120 -> 240` per source (at most 4 queries / 240 examined rows per source per call) until `limit` capped rows exist. Every healthy response carries `retrieval_accounting` (per-source `queries`, `examined_rows`, `windows`, the call aggregate, and the stated ceiling: 8 queries / 480 rows over `code_dense` + `code_lexical`) and, when a per-file cap ran, `fill` with `reason` `null` (filled), `substrate_exhausted` (fewer eligible rows exist), or `bounded_ceiling_reached` (the ceiling exited first, eligible rows may remain; an informational diagnostic of the same code is attached and the status stays `ok`). The cross-encoder reranks at most `max(4 * limit, 30)` candidates, unchanged by refill. The lexical fallback applies the same pushdown and refill contract.
 - **Graph augmentation on by default** (since wave `12xr3`): the response appends a `graph_neighbors` block listing 1-hop structural relations (imports, calls — and, since wave `1p9qh`/`1p9qa`, the Java/C# inheritance relations `extends`/`implements`; since wave `1p9qi`, the SQL data-layer relations: `writes` (`1p9qd`) and the ORM entity→table `maps_to` mapping (`1p9qg`) are followed by default, `reads` only when passed explicitly per the standing 1p4ls opt-in) for the top hits. Neighbors may include namespaced `external::sql::<table>` nodes — tables referenced by embedded SQL or entity mappings whose DDL is not in the repo (`1p9qf`); the namespace keeps SQL externals disjoint from host-language candidates. Pass `graph=false` to suppress when the lean response is preferred. `graph_limit` (default 5) caps the number of top hits expanded.
 - Returns path, line range, score, excerpt, trust label, and a stable result ID
@@ -1798,6 +1901,17 @@ action when known.
 
 - Resolves a Wave Framework shortcut phrase to rendered prompt content.
 
+`wf_get_handoff()`
+
+- Reads the session handoff document, `docs/agents/session-handoff.md`, and returns
+  `data.path`, `data.content` and `data.mtime` (the file's modification time in epoch
+  seconds). Takes no arguments; read-only.
+- When the file is absent the response is `status: "ok"` with `content` and `mtime` set to
+  `null` and a `handoff_not_found` diagnostic that points to `wf_set_handoff`.
+- The read is contained: a handoff that resolves to a framework runtime lock, or to a
+  link that leaves the repository, is refused with `status: "error"` and never opened.
+  Other read failures return `status: "error"` with a `read_error` diagnostic.
+
 `wf_map(address: str)`
 
 - Parses a `doc:`, `code:`, or `seed:` anchor (as returned in `result_id` fields),
@@ -1856,7 +1970,7 @@ change remains active outside the wave.
   refusal envelopes and every gate's SUCCESS envelope carry no sibling
   diagnostics, so a rotted unrelated record can never block an unrelated
   wave's readiness, activation, or close.
-- `wf_review_event(event="list")` is the one read-only sub-surface here: it
+- The read-only `wf_review_event` listing (`event="list"`) is the one exception here: it
   degrades instead of refusing (the listing returns with a
   `wave_record_unreadable` diagnostic and no chain/approval derivation), while
   every mutating `wf_review_event` call refuses as above.
@@ -1927,6 +2041,18 @@ during `ready`/`create` (readiness mutations); `dry_run` is read-only.
 - On apply/create writes, requests a background docs-index refresh for the handoff doc.
 - **Focus clear (wave 1tmb3):** a mutating pause's desired end state is no focus, so a successful pause runs `clear_focus` through the shared focus primitive. A clear failure keeps the pause successful and prior focus intact, reporting `focus_error` plus a `focus_stage_not_applied` diagnostic with retry guidance. A dry-run pause has `focus_action=none`: no focus write is attempted and no not-applied diagnostic is emitted.
 
+`wf_set_handoff(content: str)`
+
+- Creates or overwrites `docs/agents/session-handoff.md` with `content`, the full markdown of
+  the new handoff. There is no `mode`: every call writes. `wf_pause_wave` is the wave-aware
+  path that composes a handoff entry; `wf_get_handoff` reads the result.
+- The write is contained: a target that resolves to a framework runtime lock is refused, no
+  link leaving the repository is followed, and oversized content is refused before writing.
+  A refusal or other write failure returns `status: "error"` (`write_error` for an OS failure).
+- On success, requests a background docs-index refresh for the handoff and attaches the
+  post-write docs-lint result. Response `data`: `path`, `written: true` and `size` (the
+  length of `content` in characters).
+
 **Review-evidence authority derivation (declared vs legacy waves; waves 1to78/1tsyx):** on a wave declaring `review-evidence-source: events.jsonl`, every gate read of review-evidence content (operator-signoff presence, per-lane and council signoff currency, max severity) derives exclusively from typed `events.jsonl` records and their chronology through the single authority facade `resolve_review_authority` in `review_evidence.py`. This governs activation, prepare, review, and close. On declared waves, prose is inert as review evidence in both directions: removing every prose signoff or prepare-council line changes nothing, and prose without a typed approval satisfies nothing. Legacy waves keep their prose mechanism unchanged because prose is their only signoff record. The required-lane roster (from `## Participants` plus workflow config) is configuration, not evidence, and is parsed identically on both branches; an empty declared roster is reported as a non-blocking advisory, while a populated roster is enforced. That established convention does not add `advisory` to its diagnostic payload; the field is omitted at that site. Lane-approval currency on the typed branch is per signoff key and approval phase. Readiness approvals bind the policy receipt; delivery approvals are not receipt-bound and follow affected finding/repair chronology. A stale policy still blocks delivery inspection until re-Prepare without itself lapsing delivery approvals. Council keys additionally distinguish `council-readiness` and `council-delivery`; close requires an `initial_delivery` run record.
 
 `wf_review_wave(wave_id: str, phase: str = "implementation")`
@@ -1950,7 +2076,14 @@ mapped prompt credit.
 - Signoff and severity reads follow the review-evidence authority derivation
 above: typed-exclusive on declared waves, prose only on legacy waves.
 
-`wf_review_event(wave_id, event, actor, context_id, mode="dry_run", ...)`
+`wf_review_event(wave_id: str, event: str, actor: str, context_id: str, mode: str = "dry_run",
+signoff_key: str | None = None, approval_phase: str | None = None, finding_id: str | None = None,
+run_kind: str | None = None, cycle: int = 0, judgment: dict | None = None,
+evidence: dict | None = None, source_lanes: list[str] | None = None,
+blocking_required_lanes: list[str] | None = None, approval_recheck_lanes: list[str] | None = None,
+review_boundaries_changed: list[str] | None = None, fresh_context: bool = False,
+independent: bool = False, integrity_checks: dict | None = None, record_type: str = "",
+verbose: bool = False, operator_handle: str | None = None, attested_by: str | None = None)`
 
 - **Optional contributor identity:** `operator_handle` selects a handle in `docs/contributors.json`; otherwise a bounded local git-email lookup resolves it. New approval, finding and run records carry `verification_context.operator = {handle, source}` when available, including generated convergence contexts. The contributors file maps handles to `{name, emails}`; no network lookup or identity gate is added. An absent map is silent; invalid/unreadable maps, ambiguous or unmapped emails and unknown explicit handles emit one advisory `operator_identity_unresolved` while leaving the event writable. The handle is reference attribution, not proof the human personally approved an agent review. `wave.md` displays the stored handle using its existing review table. Identity is excluded from request digests; replay returns the original attribution without lookup or append. `dry_run` previews the same metadata without writing; `list` performs no identity lookup. **Self-attested name:** the optional `attested_by` input records the name the recording person states for themselves as `verification_context.attested_by`, only when supplied; nothing derives a default from `docs/contributors.json`, git or elsewhere. The name is self-attested and unverified, and once recorded it appears in the committed ledger and in `wave.md`. It is NFC-normalized and trimmed, and refused with `invalid_attested_by` before any write or replay when empty, longer than 100 characters, or containing a control or format character (including bidi and zero-width characters), a lone surrogate, a line or paragraph separator, `<`, `>`, a backtick, `|`, `[`, `]` or a backslash. `evidence` may not supply it. Like the handle it is outside the request digest: a replay keeps the stored name, and a supplied name that differs adds the advisory `attested_by_replay_mismatch`. Self-attested names display with `(self-attested)` so they remain distinct from configured handles. Ledgers without the key are unchanged.
 
@@ -1959,7 +2092,7 @@ above: typed-exclusive on declared waves, prose only on legacy waves.
 
 - `artifact_or_test_id_ephemeral` is advisory in finding/approval `dry_run` and `create`: it warns when at least one path-like citation is present and all such citations are temporary. Recognized roots include `/tmp`, `/private/tmp`, `/var/tmp`, `/var/folders`, the runtime temporary directory and `TEMP`/`TMP`; any `scratchpad` path segment also qualifies. A durable repository path suppresses the warning; a bare test ID beside a temporary path does not. Zero path tokens produce no warning. This lexical heuristic neither checks artifact existence nor refuses a valid event.
 - Typed authoring surface for external-ledger executable review evidence. `event` is `approval`, `finding`, an empty lightweight `run`, or the read-only `list`; `dry_run` previews exact derived rows and `create` atomically appends them to the fixed sibling `docs/waves/<wave>/events.jsonl`.
-- **`event="list"` (wave 1t59p): the standardized forensic/history READ surface for the ledger.** Returns a compact per-record index (identity, `record_type`, `run_kind`, `cycle`, `finding_id`, claim/signoff fields, lanes, `supersedes_record_id`, `verification_context`), a per-finding `chain_summary` (current head record, disposition, repair state, unresolved required lanes, `terminal` flag), and `approvals` (per-signoff currency rows), all presented from the same canonical structured authority projection used by guided review and the close gate. `finding_id`/`record_type`/`run_kind` filter; `verbose=true` returns full records; output is capped (`record_cap`, tail kept) with an explicit named-total truncation diagnostic. For `list`, `mode` is ignored, `actor`/`context_id` are pass-through identity, nothing is written, and no lock is taken; an absent/empty ledger returns an empty listing with a `review_evidence_empty` diagnostic. Use it for full history, filters, truncation recovery, or disputed state—not after every successful write. **Accounting (operator policy):** the first listing of a ledger version earns the state-source credit (the response conveys whole-ledger state); an identical-content repeat listing is NEUTRAL — zero credit AND zero debit — via a content-hash event identity (same ledger version + same filters + same verbosity ⇒ same response ⇒ replay-deduplicated). A changed ledger, different filters, or any response difference records as a normal measured call.
+- `wf_review_event(event="list")` (wave 1t59p) **is the standardized forensic/history READ surface for the ledger.** Returns a compact per-record index (identity, `record_type`, `run_kind`, `cycle`, `finding_id`, claim/signoff fields, lanes, `supersedes_record_id`, `verification_context`), a per-finding `chain_summary` (current head record, disposition, repair state, unresolved required lanes, `terminal` flag), and `approvals` (per-signoff currency rows), all presented from the same canonical structured authority projection used by guided review and the close gate. `finding_id`/`record_type`/`run_kind` filter; `verbose=true` returns full records; output is capped (`record_cap`, tail kept) with an explicit named-total truncation diagnostic. For `list`, `mode` is ignored, `actor`/`context_id` are pass-through identity, nothing is written, and no lock is taken; an absent/empty ledger returns an empty listing with a `review_evidence_empty` diagnostic. Use it for full history, filters, truncation recovery, or disputed state—not after every successful write. **Accounting (operator policy):** the first listing of a ledger version earns the state-source credit (the response conveys whole-ledger state); an identical-content repeat listing is NEUTRAL — zero credit AND zero debit — via a content-hash event identity (same ledger version + same filters + same verbosity ⇒ same response ⇒ replay-deduplicated). A changed ledger, different filters, or any response difference records as a normal measured call.
 - Finding callers explicitly provide the load-bearing judgment object plus evidence narrative; the tool never guesses contract relevance, reachability, authority, impact, containment, scope, or wave causality. It derives IDs, disposition, blocking, review depth, supersession, cycle linkage, and append order.
 - **Accepted findings and `promotion_trigger` (wave `22u26`, change `22r95`):** a real finding the reviewer accepts without repair carries a non-`none` `judgment.rejection_basis` and records as `dont_do_later` with `repair_execution_state: not_required`. `promotion_trigger`, which states what would reopen it, goes in `evidence`. It is required when the basis is `insufficient_evidence`, `unsupported_reachability` or `disproportionate_repair` (`review_evidence.PROMOTION_TRIGGER_REJECTION_BASES`), and refused for any other basis, `categorical` included. The guided `caller_input_schema` lists it under `evidence.finding.conditional_fields`. `dont_do_later` is terminal; `security_unsettled` is not (next bullet).
 - **Unsettled security candidates (wave `22upa`, change `22ubf`; change `230k6`):** a real finding needing no action whose `attacker_reachability` or `authority_delta` is `unverified` derives `security_unsettled`, whatever its `rejection_basis` and `authority_domain`, except `unsupported_reachability` with `supported_reachability: false`, which stays `dont_do_later`. So does one whose `observable_impact` or `containment` is `unverified` when its `authority_domain` is anything but `none`; with `authority_domain: none` those two unknowns stay `dont_do_later`. An earlier action-required predicate still derives `do_now`. It is never blocking for lanes, stays `repair_execution_state: pending`, and holds only `operator-signoff` withheld; the status row names each `finding_id` and its `promotion_trigger`, and its `next_action` is an operator decision, never an agent call. `wf_review_wave`, `wf_close_wave` and `wf_close_change` report each one as the same blocking diagnostic `unsettled_security_candidate`, which names the unverified factors and states that this is missing evidence, not a demonstrated defect. All three read the candidates from `resolve_review_authority`; `wf_close_change` refuses a typed record whose ledger is missing, or whose ledger or review projection is invalid, with `review_ledger_unreadable` (the message says which) and writes nothing. A record without the `review-evidence-source` declaration is legacy prose: its review authority is not read from a ledger by Review, wave close or change close, and docs-lint reports a ledger left beside one. It is settled by `repair_start` then a fresh, independent lane reverification (`do_now` stays `pending` and follows the normal repair chain; `not_issue` or `dont_do_later` is terminal), or by the operator close: `event="finding"`, `run_kind="reverification"`, `actor="operator"`, `evidence.waiver` (`waiver_id`, `waiver_scope`, `waiver_reason`, `waiver_risk`), no `judgment`, in the head's open repair cycle or the cycle the next `repair_start` would use. The close writes attributed operator evidence (null integrity checks) and an `operator_waived` head keeping the judgment and `promotion_trigger`; Close reports it as the advisory `security_candidate_waived`. Record the operator close only on the operator's explicit instruction in the current request. The `Machine review state` line appends `, security_unsettled N` only when N is non-zero. A closed wave's recorded dispositions are not re-derived (`validate_review_evidence_records(..., closed=True)`, passed by docs-lint, the dashboard, and the `wf_review_event` list, wave resource and status projection read paths); in an open wave a pre-rule `maybe_later` or `dont_do_later` that would now derive `security_unsettled` is accepted as written and reported as the advisory `security_candidate_predates_rule`, which names the reconsideration route. **Reconsideration (change `230k6`):** a terminal real finding takes fresh evidence through `event="finding"`, `run_kind="repair_start"` in the cycle the next repair start would use, with a judgment that leaves the factor in question `unverified`. The new head is `security_unsettled` and `pending` under the same `finding_id`, supersedes the terminal head and leaves every earlier record in place; it is then settled as above. A start whose judgment derives a terminal disposition is refused as before (`repair_start requires an actionable synthesis row`), a finding recorded as `not_issue` is refused, and a closed record refuses any repair start with `wave_closed`. A start on an `operator_waived` head leaves that waiver in the ledger; the new head carries none, and the `unsettled_security_candidate` diagnostic names the superseded `waiver_id`.
@@ -2082,6 +2215,68 @@ above: typed-exclusive on declared waves, prose only on legacy waves.
   claims proof.
 - On apply/create writes, requests a background docs-index refresh for the closed wave record, archive summary, and handoff doc when present.
 
+`memory_add(kind: str, summary: str, evidence: list, targets: list, title: str = "",
+confidence: float = 0.6, status: str = "candidate", supersedes: str = "", memory_id: str = "",
+abort_if_duplicate: bool = False)`
+
+- Creates one typed, evidence-backed memory record as repo-visible markdown under
+  `docs/agents/memory/`. There is no `mode`: a call that passes validation writes.
+- `kind` is one of `failed_attempt`, `successful_pattern`, `review_finding`,
+  `operator_preference`, `environment_gotcha`, `fragile_file`, `decision` or
+  `dependency_gotcha`. `summary`, at least one `evidence` reference and at least one
+  `targets` reference (file paths, `symbol:Class.method` or `community:hub:<node-id>`) are
+  required; `confidence` must lie in `[0.0, 1.0]`; `status` starts as `candidate` (default)
+  or `active`, since other statuses are reconciliation outcomes.
+- Validation runs before any write and refuses with `invalid_memory_record`: caller-supplied
+  `memory_id` and `supersedes` values must match the memory-id grammar, and `title`,
+  `summary`, `evidence` and `targets` are scanned for forbidden content (secrets, raw
+  transcripts, personal facts). The diagnostic names the offending field and never echoes
+  the rejected text. An explicit `memory_id` that already exists is refused with
+  `memory_record_exists`, and the write is refused with `memory_state_unwritable` when the
+  memory-state fence cannot be established.
+- The duplicate scan and write run under the project-state publication lock. A possible
+  duplicate of an active or candidate record is written with a `possible_duplicate`
+  advisory by default; `abort_if_duplicate=true` refuses instead and writes nothing.
+  Detection never supersedes or merges a record.
+- `supersedes` names a record the new one replaces: after the write, the old record is
+  marked `superseded` with the new id as its successor, preserving history.
+- Without `memory_id`, the id is minted from `title` (or `summary` when there is no title)
+  in the lifecycle naming described under **Memory record identity** below, and a
+  collision with a generated id is retried rather than refused.
+
+`memory_search(query: str = "", target: str = "", symbol: str = "", kind: str = "",
+status: str = "", include_history: bool = False, limit: int = 10)`
+
+- Read-only search over memory records by free-text `query`, by the file `target` or
+  `symbol` a record must target (matching `symbol:` references), by `kind` and by `status`.
+  An unknown `kind` is refused with `invalid_arguments`.
+- By default only `active` and `candidate` records are searched. `include_history=true`
+  includes stale, superseded, rejected and archived bodies; an explicit `status` restricts
+  the search to that one status. A targeted or queried default search may also return a
+  compact archive-register entry, never the archived body.
+- `limit` defaults to `10` and is capped at `20`; a free-text query is capped at `5`. The
+  query path, its relevance screening and its lexical-policy recovery are described under
+  **Explicit memory-query retrieval** below. Queryless listings keep kind-aware
+  confidence and freshness ordering.
+- Results are ranked evidence, not verified answers: the calling agent judges each
+  record's relevance, support and applicability. An empty result adds a
+  `no_memory_matches` diagnostic; absence of a record is not absence of risk.
+- Response `data`: `records`, `count`, `statuses_searched`, `archive_register_entry_count`,
+  `archived_body_count`, `semantic_assist` and `retrieval`.
+
+`memory_brief(context: str = "pre_implementation", targets: list | None = None, limit: int = 5)`
+
+- Read-only. Assembles a short, capped, cited briefing of `active` and `candidate` memory
+  for an action `context`: `session_start`, `pre_implementation` (default), `review`,
+  `close`, `setup` or `file_edit`. An unknown context is refused with `invalid_arguments`.
+- `limit` defaults to `5` and is capped at `5`. When `targets` (file paths the upcoming
+  action touches) is given, records targeting those files rank first. Community-scoped
+  advisories are returned separately from file and symbol advisories.
+- Decay affects inclusion: churn-decayed kinds can drop below the confidence floor, while
+  `fragile_file` never drops from churn alone and reports `needs_reverification` instead.
+  Freshness and the active-memory budget are described under **Adaptive memory
+  freshness** below. The brief takes no free-text query.
+
 **Memory record identity (wave 1t9w7):** generated records mint the repository-wide lifecycle naming `<lifecycleId>-mem <slug>` (the prefix comes from the repo's own lifecycle policy; the filename stem is the memory id, so resolution is unchanged). Legacy bare-slug ids (`mem-...`) remain valid indefinitely — field stores reference them — but nothing mints one again; upgrades from pre-1.15 rename existing generated `mem-*` records deterministically, backdating each prefix from the record's `Created` date (explicit bare-slug ids stay frozen-valid and are never auto-renamed) so filesystem order shows true chronology (append-only history keeps the old ids).
 
 **Explicit memory-query retrieval (wave 1yad2):** `memory_search(query=...)`
@@ -2114,6 +2309,10 @@ or hosted model; optional Tensorwell inference uses authenticated local loopback
 
 **Memory physical archive (wave 1t8la):**
 
+- `memory_reconcile(memory_id: str, status: str, superseded_by: str = "", archive_reason: str = "",
+  eligibility_confirmed: bool = False, retain_for_history: bool = False)` transitions one
+  memory record's status. A `superseded` transition requires `superseded_by`; an `archived`
+  transition is the physical archive described next.
 - `memory_reconcile(memory_id, status="archived", archive_reason,
   retain_for_history=true, eligibility_confirmed=false)` archives only a reviewed,
   history-worthy `stale`, `superseded`, or
@@ -2159,6 +2358,10 @@ or hosted model; optional Tensorwell inference uses authenticated local loopback
 
 **Memory consolidation (wave 1u8r2):**
 
+- `memory_consolidate(mode: str = "dry_run", memory_ids: list | None = None, title: str = "",
+  summary: str = "", reviewed: bool = False, eligibility_confirmed: bool = False,
+  limit: int = 10)` previews (`dry_run`, the default) or applies (`create`) one bounded
+  consolidation of related active memory, as the two forms below describe.
 - `memory_consolidate(mode="dry_run", limit=10)` proposes only capped groups
   with the same kind and identical canonical targets. Each bounded group names
   its source records, proposed title and summary, remaining member count, and
@@ -2322,7 +2525,19 @@ Creation prefers the project-local `plan-template.md` under the declared plans r
 - Read-only. Call immediately after connect to confirm which checkout the server is attached
   to, and after any upgrade to check `runner_stale`.
 
-`wf_validate_docs(mode: str = "run")`
+`wf_gpu_doctor()`
+
+- Embedding-provider and GPU capability diagnostic, the same report as the
+  `setup-wavefoundry --check-gpu` CLI: platform, onnxruntime, GPU detection (NVIDIA and
+  Apple), the available ONNX execution providers, the provider Wavefoundry would select with
+  its reason, remediation and decision provenance (setup cache, fresh probe or operator
+  request), and the CUDA 12/13 ABI-gap check. Takes no arguments.
+- Read-only and builds no index, but it runs setup's bounded model-loading provider probe,
+  which takes seconds and needs the model cached. While the probe runs, Python-level output
+  goes to stderr and native writes to file descriptor 1 are dropped, so the MCP stdio stream
+  stays clean.
+
+`wf_validate_docs()`
 
 - Runs docs validation and returns structured pass/fail diagnostics.
 - Recovery target for uncertain states.
@@ -2526,6 +2741,26 @@ Python runtime advice is available under `index_health().data.setup_readiness.ad
 - On success, the current MCP process must invalidate its loaded index state so subsequent search calls use the rebuilt files.
 - Recovery: rerun `wf update-indexes --root .`.
 
+`index_build_status(layer: str = "project")`
+
+- Read-only status of an index build, safe to poll at any time; `layer` is `project`, the
+  only layer (any other value is refused with `invalid_arguments`). `state` is `running` (with pid, elapsed time and progress), `finished` (with
+  elapsed time and a file and chunk summary), `idle` (no build has run) or `interrupted` (a
+  `building` epoch with no live builder; see **Build status epoch** above).
+- The `lock` object is the authoritative answer to "is a build running?": it tests the real
+  OS lock without disturbing it and reports `held`, `present`, `owner_pid`, `owner_cmdline`,
+  `started_at`, `ended_at` and a plain-language `note`. Read `lock.held` rather than the
+  `.wavefoundry/index/index-build.lock` file, which persists by design as a last-owner
+  record. An absent `ended_at` means the last build was killed and the index may be
+  partial. A build held by this server process (an FTS rebuild or `index_optimize`) reports
+  `held: true` with this process as owner from an in-process record, without opening the
+  lock file. When `state` is `running` from the background setup process while
+  `lock.held` is false, a `state_note` says which field answers which question.
+- Also carries the `epoch` object and, when the eligibility reap has a persisted record,
+  the same `reap` block `index_health` reads (`deferred`, `preserved`,
+  `recorded_generation`, `recorded_at`); `embedding_execution` is described under **Child
+  embedding activity** above.
+
 `index_optimize(content: str = "all", rebuild_if_needed: bool = True)`
 
 - Maintains the shared index database under the index-build lock, without re-embedding. Canonical text, vector, FTS and graph state all live in that one file, so wave `1xny6` collapsed maintenance to exactly ONE pass and ONE storage/reclamation entry.
@@ -2696,6 +2931,82 @@ component.
 - Response `data`: `in_progress` (bool), `started_at` (ISO-8601 str | null), `from_version` / `to_version` (str | null), `pid` (int | null).
 - **When to call it:** poll/inspect during an MCP-driven upgrade (between `wf_upgrade()` phases), and **before a reload/restart** — confirm no upgrade is mid-flight (a retained lock from a failed phase means the tree may be half-replaced; recover via `wf_upgrade(phase="resume_after_gate")` rather than reloading onto a partial tree). Read-only; never mutates.
 
+`wf_open_gate(gate: str)`
+
+- Opens one edit gate by setting `<gate>.enabled` to `true` in
+  `.wavefoundry/guard-overrides.json`, so the matching framework, seed or design-system
+  edits are permitted. `gate` is one of `seed_edit_allowed`, `framework_edit_allowed` or
+  `design_system_edit_allowed`; any other value is refused with `invalid_arguments`.
+- Opening a gate that is already open is refused with `status: "error"` and a
+  `gate_already_open` diagnostic, so a forgotten close or double open is visible. Pair
+  every open with `wf_close_gate`; a mutating `wf_pause_wave` or `wf_close_wave` closes
+  every open gate and reports `gates_forced_closed`.
+
+`wf_close_gate(gate: str)`
+
+- Closes one edit gate by setting `<gate>.enabled` to `false` in
+  `.wavefoundry/guard-overrides.json`; `gate` takes the same three values as
+  `wf_open_gate`, and any other value is refused with `invalid_arguments`.
+- Closing a gate that is already closed succeeds with an advisory `gate_already_closed`
+  diagnostic: a double close is harmless.
+
+`wf_gate_status()`
+
+- Read-only. Returns `data.gates`, mapping each of the three gates to its `enabled`
+  boolean (`true` is open), read from `.wavefoundry/guard-overrides.json`; a missing or
+  unreadable file reads as every gate closed. Takes no arguments.
+
+`wf_start_dashboard()`
+
+- Starts the local read-only dashboard for this repository and returns its URL. The
+  dashboard shows wave status, index health and git activity; it runs no index builds.
+  Lifecycle detail: `docs/references/dashboard-install-upgrade.md`.
+- A dashboard already serving this repository, including one under a drifted PID, is
+  returned with `already_running: true`, its `pid` and `url`, and
+  `next_tools: ["wf_open_dashboard"]`; no second process is spawned. A concurrent start
+  for the same repository returns `starting: true` (with `dashboard_start_in_progress`
+  when it does not settle).
+- Otherwise it terminates orphaned dashboard processes for this repository (reported as
+  `dashboard_orphan_detected`), spawns the server detached in the background with
+  `--open` unless `WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER` suppresses the browser, and
+  waits up to 5 seconds for the URL to answer. It returns `started: true` with the URL
+  once serving is confirmed, `started: false, starting: true` with a `url_not_ready`
+  diagnostic when the wait expires, or `status: "error"` with `dashboard_child_exited`
+  (or `spawn_failed`) when the child exits or cannot start.
+
+`wf_open_dashboard()`
+
+- Opens the browser to this repository's running dashboard and returns `opened`, `url`
+  and `browser_suppressed` (the browser is not opened when
+  `WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER` suppresses it).
+- When no live dashboard is recorded for this repository, it behaves exactly like
+  `wf_start_dashboard` and returns its response.
+
+`wf_stop_dashboard()`
+
+- Stops the dashboard processes for this repository only, the recorded PID and any live
+  dashboard the process scan matches to this root, so dashboards in other repositories
+  are unaffected. Success reports `stopped: true`, `stopped_pids`, `metadata_cleared`
+  and, when unrecorded instances were stopped, `orphans_terminated`.
+- With nothing running it reports `already_stopped: true` and clears stale repo-local
+  metadata. A recorded PID that is alive but cannot be verified as this repository's
+  dashboard is never signalled: the response keeps the metadata, reports
+  `already_stopped: false` and adds `dashboard_pid_unverified`. A process that does not
+  exit cleanly returns `status: "error"` with `stop_failed`.
+- Clearing the metadata needs the dashboard's lock. When that lock is held or unreadable,
+  before or after a stop (the stop path waits 2 seconds first), the metadata is kept and
+  the response reports `already_stopped: false`, `stopped: false`,
+  `metadata_cleared: false` and `dashboard_lock_unverified`.
+
+`wf_restart_dashboard()`
+
+- Stops this repository's dashboard as `wf_stop_dashboard` does, then starts a new one as
+  `wf_start_dashboard` does on the previously recorded port, so an open browser tab stays
+  valid. When the stop does not succeed it returns the stop response with
+  `restarted: false`; otherwise `restarted` is `true` only when the new dashboard was
+  confirmed serving. Restart is allowed during an upgrade: the new dashboard detects the
+  upgrade lock and pauses itself.
+
 ### Audit
 
 `wf_audit(wave_id: str = "")`
@@ -2727,6 +3038,22 @@ component.
 - Preferred landing point after any mutation or agent uncertainty.
 - Annotated `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: false`.
 
+`wf_run_sensors()`
+
+- Runs every computational sensor declared under `sensors` in `docs/workflow-config.json`
+  and returns per-sensor results plus an overall `all_passed`. Takes no arguments. An entry
+  needs `name` and `command`; `dimension` (`maintainability` by default, or
+  `architecture` or `behaviour`) and `description` are optional, and entries without a name
+  or command are skipped.
+- Each sensor runs as a subprocess in the repository root with a timeout (120 seconds by
+  default, from the subprocess timeout configuration); a timed-out sensor's whole process
+  tree is ended. A list `command` runs directly; a string `command` runs through the shell.
+  Pass or fail is the exit code.
+- Each result carries `name`, `dimension`, `passed`, `exit_code`, `output_summary` (the
+  first 20 lines of combined output) and `duration_ms`. Any failure makes the response
+  `status: "error"` with a `sensor_failed` diagnostic. With no sensors declared it returns
+  `status: "ok"`, `sensors_run: 0`, a notice and `wf_audit` as the next tool. The tool writes no project files, but the sensor commands themselves may.
+
 ## Navigation Tools
 
 All navigation tools are shipped. Path containment and allowed-root validation
@@ -2742,23 +3069,25 @@ class. A `**/` segment (at the start of the glob or right after `/`) matches zer
 root (wave `1za2y`). Inside a segment the stars are ordinary: `a**/b.py` does not match `ab.py`. Brace alternatives (`{py,md}`) are not supported. Matching
 is case-sensitive except on Windows, where it is case-insensitive.
 
-- `code_keyword` — exact substring search (single `query` or batch `queries` list), always available, no index required; batch mode merges results deduplicated by (path, line) with `matched_query` tagging; **graph augmentation on by default** — appends `graph_neighbors` for top hits; pass `graph=false` to suppress for size-sensitive callers
-- `code_lexical` — BM25-ranked exact-token search over the indexed lexical layer (the index database's `fts_code`/`fts_docs`, the same corpus the hybrid retrieval fuses); `table` = `code`/`docs`/`both` (merged best-first), exact `kind` filter, `limit` default 20 capped at 50, per-result text capped with `text_truncated`; tokens are matched as literals (FTS operators inert) and keep `_` inside — compound identifiers are single tokens, so query the full identifier; degrades to ok + recovery diagnostic on an absent store, and warns `chunk_index_undercovered` when a searched table has incomplete canonical/vector/registry coverage (zero results on an unhealed store mean "not backfilled yet", not "absent from corpus"). Since wave `1wpif` (`1wpag`) every FTS read goes through one probed-serving chokepoint keyed by the completed epoch: when a requested table's lexical state is damaged (missing or empty table, corrupt shadow row, payload digest mismatch) the tool returns `status: error` with `failure_reason: query_failed`, `damaged_tables`, and a bounded, repo-relative `detail`, never a healthy zero; healing is only scheduled through the ordinary build path, never performed by the query. The hybrid tools (`code_search`, `code_ask`) keep their semantic results and add a `lexical_undercoverage` diagnostic instead; `index_health` exposes the per-table verdict under `state_store.fts` and raises `fts_integrity_failed` (and `chunk_id_collisions` from the `1wngv` census) before coverage can read as complete. Use for exact-identifier lookups and lexical-layer verification; regex stays with `code_pattern`, live-file substring with `code_keyword` (wave 1sbfk)
-- `code_constants` — batch constant value lookup by name, **all languages** (wave 1p4hi/1p4pz; `.mts`/`.cts` TypeScript module extensions supported): module- and type-level constants — Python module + class, Java `static final`, Go/C# `const`, Kotlin `const val`, Rust `const`, Swift `static let`, Ruby/PHP, JS/TS `const` — found by reusing the indexer's per-language constant detector (not a Python-only column-0 scan). Returns name/value/file/line/kind per match; value is the RHS after `=` (trailing `;` trimmed; PHP `define('NAME', value)` 2nd arg); value extraction is **string-aware** — a `,`/`;`/`}` inside a quoted string is kept as value content, not a separator (`CSV_SEP=","` → the comma; `static final String SEP="a;b;c"` → the full string); leading comments are stripped before the value match (a `# THRESHOLD = 10` comment above `THRESHOLD = 99` resolves to `99`, not the comment); multiline container literals (frozenset/list/dict/array) preserved; Go grouped `const (...)`/iota blocks resolve **each** member to its own line+value, not just the first; qualified lookup works — both `["Status.OK"]` and `["OK","Status.OK"]` resolve (short no longer shadows qualified); function/block locals excluded (scope gate); not-found symbols included with null value; `glob` scopes to matching file paths
-- `code_pattern` — regex pattern search across repository files; `pattern` is a Python `re`-compatible string; results capped at `max_results` (default 50) with `truncated`/`total_matches_found` fields; `ignore_case` flag; files over 1 MB skipped (ReDoS guard)
-- `code_outline` — structural symbol map of a source file; tiered: Python AST → tree-sitter (11 languages) → regex fallback; returns `{name, kind, start_line, end_line, docstring}` per symbol with `parser_used` field
-- `code_read` — read a file by repo-relative path with optional line range
-- `code_list_files` — list repo files with optional glob filter
-- `code_definition` — symbol definition lookup across Python AST, tree-sitter-backed Java/C#/JS/TS/SQL navigation, and supported non-Python structural matchers; falls back to broad keyword matches when no structural definition is found; also resolves **constant nodes, including enum members** (`code_definition("Status.OK")`) — short members like `Status.OK`/`Dir.Up` are exempt from the short-symbol prune and still resolve; **graph augmentation on by default** — appends `graph_neighbors` for the resolved definition; pass `graph=false` to suppress. **Graph-narrowed lookup** (wave `12xr3`): when the symbol is in the graph, scanners skip the full repo walk and run only on candidate files derived from graph nodes — turns 38–43s cold calls into sub-300ms responses. When the graph has no candidate, an incremental refresh runs (~4ms when nothing has changed) and retries; if still no match, the graph is treated as source of truth and a fast `graph_definitive_not_found` is returned. When the graph is missing entirely the existing structural walk still runs (preserves existing behavior during initial setup) but the response carries a `graph_index_missing_degraded` advisory diagnostic recommending `index_build(content='graph')`. Response carries `lookup_method: graph_narrowed | graph_narrowed_after_refresh | graph_definitive_not_found | graph_index_missing_degraded | keyword_fallback`.
-- `code_references` — symbol reference search across Python plus tree-sitter-backed Java/C#/JS/TS/SQL navigation, with language-aware text matching and broad keyword fallback for the rest. Supports `exclude_tests`, `exclude_docs`, `call_sites_only`, and `limit`; the default response remains evidence-complete, while filtered responses preserve excluded counts so agents can see how much signal was removed. The response also surfaces richer detail buckets for definitions, imports, mentions, and a `reads` bucket (constant readers — and, wave `1p9qi`/`1p9qd`, SQL table readers incl. dependent views — bound by the faithfulness-gated `reads` edge) alongside the broad call-site/doc/test breakdown; constant nodes (including enum members) are navigable. **Graph augmentation on by default** — appends `graph_neighbors` for top reference seeds; pass `graph=false` to suppress.
-- `code_hover` — return the symbol (function, class, or method) enclosing a given line number; returns `{name, kind, signature, docstring, start_line, end_line}` and `parser_used`; faster than `code_outline` when the line is already known
-- `code_callhierarchy` — direct callers and callees for a symbol from persisted graph relationships. Each entry carries `node_id`, `kind`, `relation`, `confidence`, plus `call_sites` and representative `call_site`. These invocation fields use only validated coordinates on that edge, matching its caller's source file; names and current source text never reconstruct locations. `call_sites` contains distinct occurrences, ordered by file and available UTF-8 byte span, then line/column for legacy rows without bytes; `call_site` copies its first item or is null. Each site carries `{file, line, column, end_line, end_column, snippet, provenance: "indexed"}` and optional zero-based UTF-8 `start_byte`/exclusive `end_byte`; line and byte-column coordinates are one-based. Sites describe the indexed generation, and snippets remain null without generation-bound source freshness proof, even when a current file exists. Missing/malformed/wrong-file provenance returns `call_sites: []`, `call_site: null`; incoming `line` is the representative invocation line or null, while outgoing `file`/`line` remain the callee definition and outgoing `snippet` is null. Multiple occurrences do not add relationship entries or change edge trust/counts. Modern graphs do no label rescan; pre-v13 Java receiver scanning remains only a phantom-caller filter. Depth is always 1; `direction` selects `"incoming"`, `"outgoing"`, or `"both"` (default), `include_external` controls external entries with suppressed counts, and `context_depth` retains its existing neighbor expansion. Requires a built graph; prefer over `code_references` for structural caller/callee questions. Declared `supertypes` retain always-on external counts and the existing `include_external` convention.
-- `code_callgraph` — call-tree traversal to arbitrary depth; `depth` (default 1) and `direction` control scope; call edges carry `call_sites`, a deterministic list of proven source expressions. Each entry contains repository-relative `source_file`, zero-based UTF-8 `start_byte` and exclusive `end_byte`, and one-based `line`, `column`, `end_line`, `end_column` (columns count UTF-8 bytes). Repeated expressions for one caller/target edge remain separate occurrences, sorted by file and byte span; edge topology and confidence remain the relationship contract. The optional legacy `line` is the first proven occurrence. Missing provenance returns `call_sites: []` and omits `line`; a matching method name never supplies a guessed location. Rust extraction preserves supported macro-contained expression offsets in the original source without expanding arbitrary macros. Graph builder 55 captures exact ordinary Python AST and all existing shared tree-sitter code-mode call expressions, preserving repeated sites through resolution/publication. Missing parsers and degraded regex extraction may retain edges with empty occurrence lists where caller ownership is unproven. Configuration, markup and SQL registry entries do not imply ordinary callable-edge support. `include_tests` (default `False`) filters test-path nodes and their edges, symmetric with `code_impact`; use for depth > 1 or when raw graph edges are more useful than the incoming/outgoing framing of `code_callhierarchy`
-- `code_impact` — upstream caller/importer blast-radius analysis; two modes: `symbol=` for graph-backed transitive caller traversal (`max_hops`, `relations`); `path=` for heuristic reverse-import scan; use before modifying a shared symbol to enumerate all affected callers and files. Graph mode returns `resolved` (bool — symbol found in the graph), with `affected` and `edges` capped at `max_results`, `edges_total` reporting the true pre-cap edge count (attribution counts are computed over the full set), and `truncated` true when either list was capped. **Test-visibility advisory (wave `1vbuu`):** with `include_tests=true`, a result holding zero test-path callers carries the advisory diagnostic `test_callers_not_visible`, because an empty test set proves nothing about coverage — test trees excluded from the index at build time carry no nodes, and mock- or fixture-driven coverage produces no `calls` edge; corroborate with `code_keyword` over the test tree before treating a symbol as untested. **Dispatch-aware (wave `1p9qh`/`1p9qa`):** the default `relations` include `implements`/`extends` — changing a supertype/interface reaches its subtypes, and a supertype/interface METHOD seed additionally expands to subtype implementations of the same-named method (synthetic `derived: "dispatch"` edges in `edges`, bounded subtype walk). Dispatch is potential, not proven: inheritance hops are down-weighted to `_DISPATCH_EDGE_WEIGHT` (the EXTRACTED tier, 0.25) regardless of edge confidence, so `confidence_weight` on dispatch-reached nodes is visibly lower and the weakest-link path combining keeps everything downstream of a dispatch hop at that ceiling. Pass `relations=("calls","imports")` to opt out of dispatch traversal entirely. **External-supertype visibility (wave `1sbfi`):** an EXTERNAL supertype name (e.g. a third-party interface project classes implement) resolves as a graph-mode seed — the response is labeled `external_target`/`external_name` and `affected` holds the implementors/subtypes plus their dependents; a simple name matching multiple distinct external supertypes returns `external_candidates` (grouped by exact `external::` id) instead of a merged guess; every resolved node with declared supertypes carries a `supertypes` section with always-on `external_implements_count`/`external_extends_count`. Project symbols always shadow external names. **Data-layer aware (wave `1p9qi`/`1p9qd`, extended `1p9qf`/`1p9qg`):** DEFAULT traversals additionally follow `reads`/`writes`/`maps_to` edges that touch a SQL schema object (`sql_kind`-carrying table/view node) — impact on a base table includes its dependent views (transitively through view lineage), its writers, host-language methods whose embedded SQL touches it, and its mapped JPA/EF entities (and, through their existing `calls` edges, the code above them), while constant reads stay excluded from blast radius per the standing 1p4ls policy; embedded-SQL and entity-mapping edges are `LITERAL_DERIVED`, so their `confidence_weight` down-weights everything downstream of that hop exactly like other literal-derived edges; passing an explicit `relations` list opts out of the exception
-- `code_graph_path` — lowest-cost path between two symbols (weighted Dijkstra-equivalent; `direction` forward/backward/either, `min_confidence` filter). Edge costs are tiered: deterministic-attribution `calls` cost 1, heuristic `calls` cost 2, everything structural (`imports`/`defines` — and, wave `1p9qh`/`1p9qa`, `implements`/`extends`; wave `1p9qi`, the SQL data-layer `reads`/`writes`/`maps_to`) cost 100, so a real call chain always beats an inheritance/import/shared-table/shared-entity shortcut within the horizon; inheritance edges are deliberately NOT dispatch-boosted here — dispatch potential is `code_impact`'s concern, path answers "how does control actually flow"
-- `code_risk_score` — ranks the `function`/`method` symbols in a `scope=` (path, directory, or glob) by composite change-risk `risk = weighted_affected_file_count * log1p(weighted_fan_in)` (blast radius × log-dampened incoming call-degree, both **weighted by edge attribution confidence** — `EXTRACTED` heuristic edges count at `extracted_edge_weight` while `RECEIVER_RESOLVED`/`CONSTRUCTION_RESOLVED` count in full, so a ubiquitous accessor name like `getKey` can't top the rank purely on a name collision with an unrelated symbol); each result also carries raw `affected_file_count`/`fan_in`, `extracted_edge_fraction` (discount a high score when near 1.0), and `transitive_extracted_fraction` (Wave 1p7df: share of affected nodes reachable only via an `EXTRACTED`-traversing path — the blast radius's transitive confidence, now propagated along the whole path rather than the immediate hop); `fan_out` is surfaced as an independent `score_component`, not folded into `risk`; response carries `score_formula` + `score_components` so the score is transparent; `top` (default 20) caps output and `>200` candidates returns `over_candidate_cap`; **ranks many** symbols across a scope (vs `code_impact`, which sizes **one**); use before a cross-cutting change/refactor to prioritize which symbols to touch carefully. Structural (graph-derived), not git-commit churn; `risk` is a relative rank within the queried scope, not a cross-scope absolute
-- `code_commit_provenance` — reverse provenance: from exactly one input mode — an existing local commit SHA (`commit=`), or a blamed line range (`path=` + `line_start`/`line_end`) — back to the wave(s) that produced it and their recorded reasoning. Local git only (routed through the sanctioned argv-based `_run_git`, no shell, canonical commit verification, file path confined to the repo root) and strictly read-only. Resolution accepts either an anchored `Land wave(s) <id-list>` commit subject or an explicit top-level `landing-commit: <sha>` wave association; arbitrary SHA prose, code-fenced examples, quoted/reverted landing text, and nonexistent commits never authorize ownership. `resolution` is `resolved`, `honest_absence`, `partial`, or `conflict`; line responses preserve committed/uncommitted coverage, and any contributing resolution conflict wins at the envelope while retaining the partial diagnostic. Each provenance row carries `change_id`, document path, Rationale, Decision Log rows, and `relevance: file_relevant|wave_level`; broad context is labeled rather than claimed as file-specific. Only content-bearing reasoning actually present in the response is eligible for measured `context_avoided` credit. Use to answer "why is this line here / what decided it" from recorded reasoning rather than re-deriving it.
-- `wf_graph_report` — structural whole-graph summary; sections: `fan_in` (most-called symbols by in-degree), `fan_out` (most-calling symbols), `chokepoints` (high fan-out nodes ≥ threshold), `orphan_docs` (doc nodes with no `doc_references_code` edges), `communities` (top communities by node_count with `community_id`/`label`/`hub_node_id`/`hub_label`), `betweenness` (bridge nodes by centrality, served from the ranking persisted at build time in the clusters artifact — size-tiered exact / bounded-`cutoff` / degree-fallback computation, no per-query cost and no graph-size cap; carries `betweenness_method` (`"exact"` / `"cutoff"` / `"degree_fallback"`), `betweenness_metadata` (node_count, edge_count, top_n, elapsed_ms, cutoff when applicable), `betweenness_computed` / `betweenness_dominated_by_generated`; a clusters artifact predating the build-time pass returns `betweenness_skipped_reason: "betweenness_not_in_artifact"` until the next graph rebuild; since wave `1wpaj` a persisted cluster artifact whose builder version does not match runtime is refused with the distinct reason `"betweenness_artifact_stale"` plus a `betweenness_stale_artifact` object, rather than being served as if it described the current graph, and a missing persisted version is treated as stale for the same reason; and `"unsupported_for_collapsed_view"` when betweenness is requested alongside ANY collapse flag, since the persisted order describes the base topology and is not served for a collapsed graph — this is a behaviour reversal, as such a request previously returned base-topology rows. `betweenness_served_from` reports `"prefix"` or `"complete_order"`, and should be read instead of `betweenness_metadata.top_n`, which is the prefix size rather than the depth a refilled ranking reached). **Evidence/Data partition (wave `1wpie`):** five sections return an exact parallel typed array — `communities`/`evidence_communities`, `fan_in`/`evidence_fan_in`, `fan_out`/`evidence_fan_out`, `chokepoints`/`evidence_chokepoints`, and `file_hubs`/`evidence_file_hubs`. Rows whose owning artifact is a classified machine result are partitioned out BEFORE top-N, so they never consume a production ranking slot; the public `limit` then applies independently to each half. The evidence array is PRESENT AND EMPTY when nothing qualifies, including when its production section was not requested, so a consumer never has to distinguish "nothing qualified" from "this build predates the partition". Evidence entries keep their section's existing fields and add `evidence_type="evidence_data"` plus non-empty `classification_reasons`; evidence-community entries also add `community_type="evidence_data"`. `exclude_generated` does NOT erase Evidence/Data (the two classifications are orthogonal), evidence community ids stay discoverable in the catalog and queryable through `code_graph_community`, and cross-boundary edges are never discarded. **Call-edge attribution (wave `203pu`):** every `fan_in`, `fan_out`, `chokepoints` and `file_hubs` row and its `evidence_*` counterpart adds `call_edge_counts` = `{total, resolved, extracted, unclassified, receiver_unknown}`, nonnegative integers over `calls` edges only, in the row's direction (incoming for `fan_in`, outgoing otherwise) and in the effective filtered or collapsed view. `resolved` counts `RECEIVER_RESOLVED`/`CONSTRUCTION_RESOLVED` edges without unknown-receiver provenance, `extracted` counts `EXTRACTED` (name-based) edges, and `unclassified` counts the rest, including absent or unrecognized confidence and resolved-plus-unknown metadata; `total = resolved + extracted + unclassified`, and `receiver_unknown` is an overlapping subset of `total`. These are edge counts, not distinct callers or callees and not proof of runtime dispatch, and extracted edges are not resolved callers. The legacy `count`/`fan_out` value, which also counts SQL data-layer relations, keeps driving ranking, limits and thresholds, so `total` may be lower than it. Since graph builder 53 a member call on a receiver that cannot own a name-only binding (a computed receiver, or a non-`self` receiver of Rust `.` / C/C++ `->` member syntax) stays an `external::` target carrying `unowned_member_call` instead of binding an unrelated project function by name; use for codebase orientation and hotspot identification
+- `code_keyword(query: str = "", glob: str = "", queries: list[str] | None = None, limit: int = 50, graph: bool = True, graph_limit: int = 5, layer: str = "project")` — exact substring search (single `query` or batch `queries` list), always available, no index required; batch mode merges results deduplicated by (path, line) with `matched_query` tagging; **graph augmentation on by default** — appends `graph_neighbors` for top hits; pass `graph=false` to suppress for size-sensitive callers
+- `code_lexical(query: str = "", table: str = "both", kind: str = "", limit: int = 20)` — BM25-ranked exact-token search over the indexed lexical layer (the index database's `fts_code`/`fts_docs`, the same corpus the hybrid retrieval fuses); `table` = `code`/`docs`/`both` (merged best-first), exact `kind` filter, `limit` default 20 capped at 50, per-result text capped with `text_truncated`; tokens are matched as literals (FTS operators inert) and keep `_` inside — compound identifiers are single tokens, so query the full identifier; degrades to ok + recovery diagnostic on an absent store, and warns `chunk_index_undercovered` when a searched table has incomplete canonical/vector/registry coverage (zero results on an unhealed store mean "not backfilled yet", not "absent from corpus"). Since wave `1wpif` (`1wpag`) every FTS read goes through one probed-serving chokepoint keyed by the completed epoch: when a requested table's lexical state is damaged (missing or empty table, corrupt shadow row, payload digest mismatch) the tool returns `status: error` with `failure_reason: query_failed`, `damaged_tables`, and a bounded, repo-relative `detail`, never a healthy zero; healing is only scheduled through the ordinary build path, never performed by the query. The hybrid tools (`code_search`, `code_ask`) keep their semantic results and add a `lexical_undercoverage` diagnostic instead; `index_health` exposes the per-table verdict under `state_store.fts` and raises `fts_integrity_failed` (and `chunk_id_collisions` from the `1wngv` census) before coverage can read as complete. Use for exact-identifier lookups and lexical-layer verification; regex stays with `code_pattern`, live-file substring with `code_keyword` (wave 1sbfk)
+- `code_constants(symbols: list[str], glob: str = "")` — batch constant value lookup by name, **all languages** (wave 1p4hi/1p4pz; `.mts`/`.cts` TypeScript module extensions supported): module- and type-level constants — Python module + class, Java `static final`, Go/C# `const`, Kotlin `const val`, Rust `const`, Swift `static let`, Ruby/PHP, JS/TS `const` — found by reusing the indexer's per-language constant detector (not a Python-only column-0 scan). Returns name/value/file/line/kind per match; value is the RHS after `=` (trailing `;` trimmed; PHP `define('NAME', value)` 2nd arg); value extraction is **string-aware** — a `,`/`;`/`}` inside a quoted string is kept as value content, not a separator (`CSV_SEP=","` → the comma; `static final String SEP="a;b;c"` → the full string); leading comments are stripped before the value match (a `# THRESHOLD = 10` comment above `THRESHOLD = 99` resolves to `99`, not the comment); multiline container literals (frozenset/list/dict/array) preserved; Go grouped `const (...)`/iota blocks resolve **each** member to its own line+value, not just the first; qualified lookup works — both `["Status.OK"]` and `["OK","Status.OK"]` resolve (short no longer shadows qualified); function/block locals excluded (scope gate); not-found symbols included with null value; `glob` scopes to matching file paths
+- `code_pattern(pattern: str, glob: str = "", limit: int = 50, ignore_case: bool = False, max_results: int | None = None)` — regex pattern search across repository files; `pattern` is a Python `re`-compatible string; results capped at `max_results` (default 50) with `truncated`/`total_matches_found` fields; `ignore_case` flag; files over 1 MB skipped (ReDoS guard)
+- `code_outline(path: str)` — structural symbol map of a source file; tiered: Python AST → tree-sitter (11 languages) → regex fallback; returns `{name, kind, start_line, end_line, docstring}` per symbol with `parser_used` field
+- `code_read(path: str, start_line: int | None = None, end_line: int | None = None, with_line_numbers: bool = True)` — read a file by repo-relative path with optional line range
+- `code_list_files(glob: str = "")` — list repo files with optional glob filter
+- `code_dependencies(path: str)` — the imports of one repo-relative source file (`path`), parsed on demand from the current file with no index required: Python by AST, JavaScript/TypeScript, Go and Rust by regex. Returns `{path, imports, method}`, with each imported module listed once in source order; other languages return `method: "unsupported"` and no imports. An empty, absolute or escaping path is refused with `invalid_arguments` and a missing file with `file_not_found`.
+- `code_definition(symbol_or_path_position: str, graph: bool = True, graph_limit: int = 5, layer: str = "project")` — symbol definition lookup across Python AST, tree-sitter-backed Java/C#/JS/TS/SQL navigation, and supported non-Python structural matchers; falls back to broad keyword matches when no structural definition is found; also resolves **constant nodes, including enum members** (`code_definition("Status.OK")`) — short members like `Status.OK`/`Dir.Up` are exempt from the short-symbol prune and still resolve; **graph augmentation on by default** — appends `graph_neighbors` for the resolved definition; pass `graph=false` to suppress. **Graph-narrowed lookup** (wave `12xr3`): when the symbol is in the graph, scanners skip the full repo walk and run only on candidate files derived from graph nodes — turns 38–43s cold calls into sub-300ms responses. When the graph has no candidate, an incremental refresh runs (~4ms when nothing has changed) and retries; if still no match, the graph is treated as source of truth and a fast `graph_definitive_not_found` is returned. When the graph is missing entirely the existing structural walk still runs (preserves existing behavior during initial setup) but the response carries a `graph_index_missing_degraded` advisory diagnostic recommending `index_build(content='graph')`. Response carries `lookup_method: graph_narrowed | graph_narrowed_after_refresh | graph_definitive_not_found | graph_index_missing_degraded | keyword_fallback`.
+- `code_references(symbol_or_path_position: str, exclude_tests: bool = False, exclude_docs: bool = False, call_sites_only: bool = False, limit: int = 50, graph: bool = True, graph_limit: int = 5, layer: str = "project")` — symbol reference search across Python plus tree-sitter-backed Java/C#/JS/TS/SQL navigation, with language-aware text matching and broad keyword fallback for the rest. Supports `exclude_tests`, `exclude_docs`, `call_sites_only`, and `limit`; the default response remains evidence-complete, while filtered responses preserve excluded counts so agents can see how much signal was removed. The response also surfaces richer detail buckets for definitions, imports, mentions, and a `reads` bucket (constant readers — and, wave `1p9qi`/`1p9qd`, SQL table readers incl. dependent views — bound by the faithfulness-gated `reads` edge) alongside the broad call-site/doc/test breakdown; constant nodes (including enum members) are navigable. **Graph augmentation on by default** — appends `graph_neighbors` for top reference seeds; pass `graph=false` to suppress.
+- `code_hover(path: str, line: int)` — return the symbol (function, class, or method) enclosing a given line number; returns `{name, kind, signature, docstring, start_line, end_line}` and `parser_used`; faster than `code_outline` when the line is already known
+- `code_callhierarchy(symbol: str, file: str = "", direction: str = "both", context_depth: int = 0, include_external: bool = False)` — direct callers and callees for a symbol from persisted graph relationships. Each entry carries `node_id`, `kind`, `relation`, `confidence`, plus `call_sites` and representative `call_site`. These invocation fields use only validated coordinates on that edge, matching its caller's source file; names and current source text never reconstruct locations. `call_sites` contains distinct occurrences, ordered by file and available UTF-8 byte span, then line/column for legacy rows without bytes; `call_site` copies its first item or is null. Each site carries `{file, line, column, end_line, end_column, snippet, provenance: "indexed"}` and optional zero-based UTF-8 `start_byte`/exclusive `end_byte`; line and byte-column coordinates are one-based. Sites describe the indexed generation, and snippets remain null without generation-bound source freshness proof, even when a current file exists. Missing/malformed/wrong-file provenance returns `call_sites: []`, `call_site: null`; incoming `line` is the representative invocation line or null, while outgoing `file`/`line` remain the callee definition and outgoing `snippet` is null. Multiple occurrences do not add relationship entries or change edge trust/counts. Modern graphs do no label rescan; pre-v13 Java receiver scanning remains only a phantom-caller filter. Depth is always 1; `direction` selects `"incoming"`, `"outgoing"`, or `"both"` (default), `include_external` controls external entries with suppressed counts, and `context_depth` retains its existing neighbor expansion. Requires a built graph; prefer over `code_references` for structural caller/callee questions. Declared `supertypes` retain always-on external counts and the existing `include_external` convention.
+- `code_callgraph(symbol: str, depth: int = 1, direction: str = "both", layer: str = "project", include_tests: bool = False)` — call-tree traversal to arbitrary depth; `depth` (default 1) and `direction` control scope; call edges carry `call_sites`, a deterministic list of proven source expressions. Each entry contains repository-relative `source_file`, zero-based UTF-8 `start_byte` and exclusive `end_byte`, and one-based `line`, `column`, `end_line`, `end_column` (columns count UTF-8 bytes). Repeated expressions for one caller/target edge remain separate occurrences, sorted by file and byte span; edge topology and confidence remain the relationship contract. The optional legacy `line` is the first proven occurrence. Missing provenance returns `call_sites: []` and omits `line`; a matching method name never supplies a guessed location. Rust extraction preserves supported macro-contained expression offsets in the original source without expanding arbitrary macros. Graph builder 55 captures exact ordinary Python AST and all existing shared tree-sitter code-mode call expressions, preserving repeated sites through resolution/publication. Missing parsers and degraded regex extraction may retain edges with empty occurrence lists where caller ownership is unproven. Configuration, markup and SQL registry entries do not imply ordinary callable-edge support. `include_tests` (default `False`) filters test-path nodes and their edges, symmetric with `code_impact`; use for depth > 1 or when raw graph edges are more useful than the incoming/outgoing framing of `code_callhierarchy`
+- `code_impact(path: str = "", max_results: int = 50, symbol: str = "", max_hops: int = 3, layer: str = "project", relations: list[str] | None = None, include_tests: bool = False)` — upstream caller/importer blast-radius analysis; two modes: `symbol=` for graph-backed transitive caller traversal (`max_hops`, `relations`); `path=` for heuristic reverse-import scan; use before modifying a shared symbol to enumerate all affected callers and files. Graph mode returns `resolved` (bool — symbol found in the graph), with `affected` and `edges` capped at `max_results`, `edges_total` reporting the true pre-cap edge count (attribution counts are computed over the full set), and `truncated` true when either list was capped. **Test-visibility advisory (wave `1vbuu`):** with `include_tests=true`, a result holding zero test-path callers carries the advisory diagnostic `test_callers_not_visible`, because an empty test set proves nothing about coverage — test trees excluded from the index at build time carry no nodes, and mock- or fixture-driven coverage produces no `calls` edge; corroborate with `code_keyword` over the test tree before treating a symbol as untested. **Dispatch-aware (wave `1p9qh`/`1p9qa`):** the default `relations` include `implements`/`extends` — changing a supertype/interface reaches its subtypes, and a supertype/interface METHOD seed additionally expands to subtype implementations of the same-named method (synthetic `derived: "dispatch"` edges in `edges`, bounded subtype walk). Dispatch is potential, not proven: inheritance hops are down-weighted to `_DISPATCH_EDGE_WEIGHT` (the EXTRACTED tier, 0.25) regardless of edge confidence, so `confidence_weight` on dispatch-reached nodes is visibly lower and the weakest-link path combining keeps everything downstream of a dispatch hop at that ceiling. Pass `relations=("calls","imports")` to opt out of dispatch traversal entirely. **External-supertype visibility (wave `1sbfi`):** an EXTERNAL supertype name (e.g. a third-party interface project classes implement) resolves as a graph-mode seed — the response is labeled `external_target`/`external_name` and `affected` holds the implementors/subtypes plus their dependents; a simple name matching multiple distinct external supertypes returns `external_candidates` (grouped by exact `external::` id) instead of a merged guess; every resolved node with declared supertypes carries a `supertypes` section with always-on `external_implements_count`/`external_extends_count`. Project symbols always shadow external names. **Data-layer aware (wave `1p9qi`/`1p9qd`, extended `1p9qf`/`1p9qg`):** DEFAULT traversals additionally follow `reads`/`writes`/`maps_to` edges that touch a SQL schema object (`sql_kind`-carrying table/view node) — impact on a base table includes its dependent views (transitively through view lineage), its writers, host-language methods whose embedded SQL touches it, and its mapped JPA/EF entities (and, through their existing `calls` edges, the code above them), while constant reads stay excluded from blast radius per the standing 1p4ls policy; embedded-SQL and entity-mapping edges are `LITERAL_DERIVED`, so their `confidence_weight` down-weights everything downstream of that hop exactly like other literal-derived edges; passing an explicit `relations` list opts out of the exception
+- `code_graph_community(community_id: str = "", hub_node_id: str = "", layer: str = "project", limit: int = 50, offset: int = 0, exclude_generated: bool = False)` — member nodes of one graph community from the published community rows, read against one pinned graph generation; pass `community_id` (as `wf_graph_report` or the `wavefoundry://graph/communities` resource names it; renumbered across rebuilds) or `hub_node_id` (the stable id of the community's highest-degree member, resolved to the community that now contains it; `community_id` wins when both are given), and one of them is required. Members are sorted by degree descending and paged with `limit` (default 50, clamped `[1, 500]`) and `offset` (default 0); `layer` is `project`. `exclude_generated=true` drops generated members from the page while `total_node_count` still counts the whole community. The response carries `label`, `total_node_count`, `returned_count`, `offset`, `has_more`, `nodes` (`{id, label, kind, source_file, generated, degree}`), the hub's stable id `community_hub_node_id`, `community_size_class` (`small` under 50, `medium` to 200, `large` above) and, for communities over 200 members, a `large_community_advisory` pointing to `code_callhierarchy` on the hub. An unknown id returns up to five near-match `suggestions`. Read-only.
+- `code_graph_path(from_symbol: str, to_symbol: str, relations: list[str] | None = None, max_hops: int = 10, layer: str = "project", direction: str = "forward", min_confidence: str = "EXTRACTED")` — lowest-cost path between two symbols (weighted Dijkstra-equivalent; `direction` forward/backward/either, `min_confidence` filter). Edge costs are tiered: deterministic-attribution `calls` cost 1, heuristic `calls` cost 2, everything structural (`imports`/`defines` — and, wave `1p9qh`/`1p9qa`, `implements`/`extends`; wave `1p9qi`, the SQL data-layer `reads`/`writes`/`maps_to`) cost 100, so a real call chain always beats an inheritance/import/shared-table/shared-entity shortcut within the horizon; inheritance edges are deliberately NOT dispatch-boosted here — dispatch potential is `code_impact`'s concern, path answers "how does control actually flow"
+- `code_risk_score(scope: str = "", top: int = 20, max_hops: int = 3, layer: str = "project", include_tests: bool = False)` — ranks the `function`/`method` symbols in a `scope=` (path, directory, or glob) by composite change-risk `risk = weighted_affected_file_count * log1p(weighted_fan_in)` (blast radius × log-dampened incoming call-degree, both **weighted by edge attribution confidence** — `EXTRACTED` heuristic edges count at `extracted_edge_weight` while `RECEIVER_RESOLVED`/`CONSTRUCTION_RESOLVED` count in full, so a ubiquitous accessor name like `getKey` can't top the rank purely on a name collision with an unrelated symbol); each result also carries raw `affected_file_count`/`fan_in`, `extracted_edge_fraction` (discount a high score when near 1.0), and `transitive_extracted_fraction` (Wave 1p7df: share of affected nodes reachable only via an `EXTRACTED`-traversing path — the blast radius's transitive confidence, now propagated along the whole path rather than the immediate hop); `fan_out` is surfaced as an independent `score_component`, not folded into `risk`; response carries `score_formula` + `score_components` so the score is transparent; `top` (default 20) caps output and `>200` candidates returns `over_candidate_cap`; **ranks many** symbols across a scope (vs `code_impact`, which sizes **one**); use before a cross-cutting change/refactor to prioritize which symbols to touch carefully. Structural (graph-derived), not git-commit churn; `risk` is a relative rank within the queried scope, not a cross-scope absolute
+- `code_commit_provenance(commit: str = "", path: str = "", line_start: int = 0, line_end: int = 0)` — reverse provenance: from exactly one input mode — an existing local commit SHA (`commit=`), or a blamed line range (`path=` + `line_start`/`line_end`) — back to the wave(s) that produced it and their recorded reasoning. Local git only (routed through the sanctioned argv-based `_run_git`, no shell, canonical commit verification, file path confined to the repo root) and strictly read-only. Resolution accepts either an anchored `Land wave(s) <id-list>` commit subject or an explicit top-level `landing-commit: <sha>` wave association; arbitrary SHA prose, code-fenced examples, quoted/reverted landing text, and nonexistent commits never authorize ownership. `resolution` is `resolved`, `honest_absence`, `partial`, or `conflict`; line responses preserve committed/uncommitted coverage, and any contributing resolution conflict wins at the envelope while retaining the partial diagnostic. Each provenance row carries `change_id`, document path, Rationale, Decision Log rows, and `relevance: file_relevant|wave_level`; broad context is labeled rather than claimed as file-specific. Only content-bearing reasoning actually present in the response is eligible for measured `context_avoided` credit. Use to answer "why is this line here / what decided it" from recorded reasoning rather than re-deriving it.
+- `wf_graph_report(layer: str = "project", limit: int = 20, sections: list[str] | None = None, exclude_generated: bool = False, exclude_external: bool = False, collapse_generated_files: bool = False, collapse_class_module_pairs: bool = False, collapse_package_to_directory: bool = False)` — structural whole-graph summary; sections: `fan_in` (most-called symbols by in-degree), `fan_out` (most-calling symbols), `chokepoints` (high fan-out nodes ≥ threshold), `orphan_docs` (doc nodes with no `doc_references_code` edges), `communities` (top communities by node_count with `community_id`/`label`/`hub_node_id`/`hub_label`), `betweenness` (bridge nodes by centrality, served from the ranking persisted at build time in the clusters artifact — size-tiered exact / bounded-`cutoff` / degree-fallback computation, no per-query cost and no graph-size cap; carries `betweenness_method` (`"exact"` / `"cutoff"` / `"degree_fallback"`), `betweenness_metadata` (node_count, edge_count, top_n, elapsed_ms, cutoff when applicable), `betweenness_computed` / `betweenness_dominated_by_generated`; a clusters artifact predating the build-time pass returns `betweenness_skipped_reason: "betweenness_not_in_artifact"` until the next graph rebuild; since wave `1wpaj` a persisted cluster artifact whose builder version does not match runtime is refused with the distinct reason `"betweenness_artifact_stale"` plus a `betweenness_stale_artifact` object, rather than being served as if it described the current graph, and a missing persisted version is treated as stale for the same reason; and `"unsupported_for_collapsed_view"` when betweenness is requested alongside ANY collapse flag, since the persisted order describes the base topology and is not served for a collapsed graph — this is a behaviour reversal, as such a request previously returned base-topology rows. `betweenness_served_from` reports `"prefix"` or `"complete_order"`, and should be read instead of `betweenness_metadata.top_n`, which is the prefix size rather than the depth a refilled ranking reached). **Evidence/Data partition (wave `1wpie`):** five sections return an exact parallel typed array — `communities`/`evidence_communities`, `fan_in`/`evidence_fan_in`, `fan_out`/`evidence_fan_out`, `chokepoints`/`evidence_chokepoints`, and `file_hubs`/`evidence_file_hubs`. Rows whose owning artifact is a classified machine result are partitioned out BEFORE top-N, so they never consume a production ranking slot; the public `limit` then applies independently to each half. The evidence array is PRESENT AND EMPTY when nothing qualifies, including when its production section was not requested, so a consumer never has to distinguish "nothing qualified" from "this build predates the partition". Evidence entries keep their section's existing fields and add `evidence_type="evidence_data"` plus non-empty `classification_reasons`; evidence-community entries also add `community_type="evidence_data"`. `exclude_generated` does NOT erase Evidence/Data (the two classifications are orthogonal), evidence community ids stay discoverable in the catalog and queryable through `code_graph_community`, and cross-boundary edges are never discarded. **Call-edge attribution (wave `203pu`):** every `fan_in`, `fan_out`, `chokepoints` and `file_hubs` row and its `evidence_*` counterpart adds `call_edge_counts` = `{total, resolved, extracted, unclassified, receiver_unknown}`, nonnegative integers over `calls` edges only, in the row's direction (incoming for `fan_in`, outgoing otherwise) and in the effective filtered or collapsed view. `resolved` counts `RECEIVER_RESOLVED`/`CONSTRUCTION_RESOLVED` edges without unknown-receiver provenance, `extracted` counts `EXTRACTED` (name-based) edges, and `unclassified` counts the rest, including absent or unrecognized confidence and resolved-plus-unknown metadata; `total = resolved + extracted + unclassified`, and `receiver_unknown` is an overlapping subset of `total`. These are edge counts, not distinct callers or callees and not proof of runtime dispatch, and extracted edges are not resolved callers. The legacy `count`/`fan_out` value, which also counts SQL data-layer relations, keeps driving ranking, limits and thresholds, so `total` may be lower than it. Since graph builder 53 a member call on a receiver that cannot own a name-only binding (a computed receiver, or a non-`self` receiver of Rust `.` / C/C++ `->` member syntax) stays an `external::` target carrying `unowned_member_call` instead of binding an unrelated project function by name; use for codebase orientation and hotspot identification
 
 
 ### Rust graph identities and compatibility (wave 206og)

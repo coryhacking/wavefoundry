@@ -14,14 +14,13 @@ Use this checklist when intentionally editing the wave framework or repo-local w
 
 1. Read `AGENTS.md` and `docs/prompts/upgrade-wavefoundry.prompt.md`.
 2. Produce a file-level patch plan and wait for operator approval before broad framework-maintenance edits.
-3. Create or update `.wavefoundry/guard-overrides.json` before editing:
+3. After the operator approves the file-level plan, open the framework edit gate before editing these protected surfaces: `wf_open_gate(gate="framework_edit_allowed")` (CLI fallback: `wf gate open framework_edit_allowed`).
    - `.wavefoundry/framework/`
    - `docs/prompts/`
    - `AGENTS.md`
    - tracked hook config files
-4. Set `framework_edit_allowed.enabled: true` after the operator approves the file-level plan.
-5. Set `seed_edit_allowed.enabled: true` before editing any `.wavefoundry/framework/seeds/*.prompt.md` file.
-6. Delete the override file or set both flags back to `false` when the maintenance pass is complete.
+4. Before editing any `.wavefoundry/framework/seeds/*.prompt.md` file, also open the seed gate: `wf_open_gate(gate="seed_edit_allowed")` (CLI fallback: `wf gate open seed_edit_allowed`).
+5. When the maintenance pass is complete, close both gates: `wf_close_gate(gate="seed_edit_allowed")` and `wf_close_gate(gate="framework_edit_allowed")` (CLI fallback: `wf gate close seed_edit_allowed` and `wf gate close framework_edit_allowed`).
 
 ## Verification sequence
 
@@ -35,4 +34,4 @@ Use this checklist when intentionally editing the wave framework or repo-local w
 
 - Keep inventory and drift-detection lanes read-only unless explicit write ownership was granted.
 - Update existing canonical docs in place instead of creating parallel files when a topical home already exists.
-- Preserve journals, personas, wave archives, and historical records unless the upgrade explicitly retires a live replacement surface.
+- Preserve memory records, personas, wave archives, and historical records unless the upgrade explicitly retires a live replacement surface.

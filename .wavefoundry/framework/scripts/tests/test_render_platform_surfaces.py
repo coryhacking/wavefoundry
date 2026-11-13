@@ -542,7 +542,9 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
                 repo_root / ".claude" / "skills" / "wf-upgrade" / "SKILL.md"
             ).read_text(encoding="utf-8")
             self.assertIn("name: wf-upgrade", upgrade_skill)
-            self.assertIn(".wavefoundry/guard-overrides.json", upgrade_skill)
+            self.assertIn('wf_open_gate(gate="framework_edit_allowed")', upgrade_skill)
+            self.assertIn('wf_close_gate(gate="framework_edit_allowed")', upgrade_skill)
+            self.assertNotIn(".wavefoundry/guard-overrides.json", upgrade_skill)
             # Wave 1p88t: the skill's docs-gardener/docs-lint steps must give BOTH the POSIX `wf` and
             # the native-Windows `wf.cmd` forms (the bash `wf` shim does not run in cmd/PowerShell).
             self.assertIn("./.wavefoundry/bin/wf docs-lint", upgrade_skill)

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-11
+Last verified: 2026-11-12
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -437,10 +437,11 @@ python3 .wavefoundry/framework/scripts/render_agent_surfaces.py
 1. **Tier 1 — `AGENTS.md`** (manual merge when sections missing; renderer does not replace these):
    - `## Codebase and documentation questions (auto-Guru)`
    - `### Agent platform routing` (all hosts; tier 1–2 for Junie, Air, Windsurf, Copilot, Warp)
+   - When `seed-050` changed, merge its whole changed auto-Guru section (the direct-retrieval permission sentence, the pre-flight question, the "When the answer is yes" sentence, the examples table and the retrieval-intent reminder) and Implementation principle 1 into the existing `AGENTS.md`: replace text inherited from the earlier seed, preserve project additions such as extra tool names or project-specific examples, and present ambiguous or conflicting local text to the operator instead of choosing
 2. **Guru role** — ensure `docs/agents/guru.md` exists (`Role: guru`); update `docs/prompts/index.md` **Guru** row
 3. **Re-run renderer** after tier-1 backfill if those sections were just added
 4. **Tier 2–3 — generated files** (do not hand-edit `wave:auto-guru` marker regions):
-   - `.cursor/rules/auto-guru.mdc`, `.codex/skills/wf-guru/SKILL.md`; `.claude/agents/guru.md` has a generated body with existing operator frontmatter preserved
+   - `.cursor/rules/auto-guru.mdc`, `.codex/skills/wf-guru/SKILL.md`; `.claude/agents/guru.md` has a generated body with existing operator frontmatter preserved, except that a `description:` line equal to a previously shipped Guru description is replaced with the current one and reported on stderr; a customized description is kept, and when it still names a retired phrase (the reconcile scan flags one) or routes code-location lookups such as "where to find implementation" to Guru, edit that one line and keep every other frontmatter key
    - Marked blocks in `CLAUDE.md`, `.cursor/rules/project-context.mdc`, `.junie/guidelines.md`, `WARP.md`, `.github/copilot-instructions.md` when those files exist
 5. **Verify** paths listed in `docs/agents/platform-mapping.md` § Auto-Guru routing, and, when a skill host root exists (`.claude/`, `.codex/`, `.agents/`), that `platform-mapping.md` § Skills lists the rendered skill set as found on disk (host skill directories, rendered skills, gating rules; seed-050 specifies the section, seed-100 points `docs/prompts/index.md` at it)
 6. **Operator follow-up** — Codex: MCP reloads from committed `.codex/config.toml` automatically; Cursor/Claude: attach MCP and restart host; all hosts: restart MCP + project index per checklist below
@@ -556,7 +557,7 @@ Inventory/drift-detection subagents run read-only. Broad edits to `docs/prompts/
    - Edit the moved prompts' authored prose (titles, shortcut lines, cross-references) to the new names; the move never rewrites content.
    - For each retired closure prompt the scan reports by file identity, merge any unique project guidance into `docs/prompts/close-wave.prompt.md` or `docs/prompts/close-change.prompt.md`, then remove the retired file. Never delete a customized prompt without that merge.
    - The render reports each markdown link that still targets a moved prompt as `file:line`, and the reconcile scan reports the same links. Edit each reported link to the new path, then rerun the docs gate. The render report also covers wave records, memory files, and other history records, which the reconcile scan skips; repair each such link, including in history records, by updating only the link path and leaving the surrounding text unchanged.
-   - `.claude/agents/guru.md`: the renderer refreshes only the body and keeps the existing frontmatter, so the scan flags its `description:` line; edit that line to say **Plan change**.
+   - `.claude/agents/guru.md`: the renderer refreshes the body and replaces a `description:` line that equals a previously shipped Guru description. A customized description is kept; when the scan flags it for the old phrase, edit that one line to say **Plan change**.
    - Repair every other reconcile finding for the renamed names in live docs.
 - **Distribution prompt names.** The lifecycle prompt names in the seeds (file names, headings, `Shortcut:` lines and skills) are framework defaults. A distribution may rename the tier-named lifecycle prompts through its vocabulary profile. The renderer moves default-named prompts and their agent bodies byte-for-byte to the profile's names and records the applied names under `prompt_names` in `docs/prompts/prompt-surface-manifest.json`. When that key is present, author or reconcile each listed prompt at its listed name: the file, its heading, its `Shortcut:` line (the shortcut its `public_prompt_surface` entry records), its `docs/prompts/index.md` row and its `AGENTS.md` shortcut row; otherwise use the defaults. Repair each reconcile finding that names a default prompt path, skill or shortcut.
 

@@ -445,7 +445,7 @@ AUTO_GURU_BULLET = (
 CURSOR_AUTO_GURU_MDC = dedent(
     """\
     ---
-    description: Auto-route code and documentation questions to Guru (code_ask, docs_search, validated reads)
+    description: Use the Guru workflow for questions about how code and documentation work (code_ask, docs_search, validated reads); direct code_* lookups are always allowed
     globs: ["**/*"]
     alwaysApply: true
     ---
@@ -458,7 +458,7 @@ CURSOR_AUTO_GURU_MDC = dedent(
 
     ## When this rule applies
 
-    Treat the message as **Guru work** when the user is asking to **understand, locate, or explain** repository **source code** or **project documentation** (including `docs/architecture/`, `docs/specs/`, framework scripts, seeds, and MCP/index behavior).
+    You may call the `code_*` tools directly at any time. Treat the message as **Guru work** when answering it needs an investigation of how repository **source code** or **project documentation** works: a how-or-why question about a mechanism, usually across files (including `docs/architecture/`, `docs/specs/`, framework scripts, seeds, and MCP/index behavior). A direct lookup, such as finding where something is defined or reading one value, does not need Guru unless the answer needs the surrounding mechanism.
 
     ## Required workflow
 
@@ -499,7 +499,7 @@ CLAUDE_GURU_AGENT = dedent(
     """\
     ---
     name: guru
-    description: PROACTIVELY use when the user asks how this repository's source code or project documentation works — behavior, architecture, specs, framework scripts, indexing, chunking, retrieval, or where to find implementation. Do not use for wave lifecycle commands (@PLAN@, @IMPLEMENT@, @CLOSE@, @PREPARE@, etc.).
+    description: PROACTIVELY use when the user asks how this repository's source code or project documentation works and answering needs an investigation — behavior, architecture, specs, framework scripts, indexing, chunking, or retrieval. A direct lookup, such as finding a definition or reading one value, needs no subagent. Do not use for wave lifecycle commands (@PLAN@, @IMPLEMENT@, @CLOSE@, @PREPARE@, etc.).
     tools: Read, Grep, Glob, Bash, ToolSearch, mcp__wavefoundry__code_ask, mcp__wavefoundry__code_search, mcp__wavefoundry__code_keyword, mcp__wavefoundry__code_lexical, mcp__wavefoundry__code_read, mcp__wavefoundry__code_outline, mcp__wavefoundry__code_definition, mcp__wavefoundry__code_references, mcp__wavefoundry__code_callhierarchy, mcp__wavefoundry__code_dependencies, mcp__wavefoundry__code_impact, mcp__wavefoundry__code_list_files, mcp__wavefoundry__code_constants, mcp__wavefoundry__code_pattern, mcp__wavefoundry__code_callgraph, mcp__wavefoundry__code_graph_path, mcp__wavefoundry__code_graph_community, mcp__wavefoundry__docs_search, mcp__wavefoundry__seed_get
     ---
 
@@ -519,12 +519,95 @@ CLAUDE_GURU_AGENT = dedent(
     ## Boundaries
 
     - Read-only in this subagent — do not edit source, seeds, or wave records here.
-    - Architecture doc drafts and journal writes belong in the main session per `docs/agents/guru.md` write permissions.
+    - Architecture doc drafts and memory-record writes belong in the main session per `docs/agents/guru.md` write permissions.
     - Wave lifecycle execution stays with the main agent / wave-coordinator prompts.
     """
 ).replace("@PLAN@", _vp_shortcut("plan-change")).replace("@IMPLEMENT@", _vp_shortcut("implement-wave")).replace(
     "@CLOSE@", _vp_shortcut("close-wave")
 ).replace("@PREPARE@", _vp_shortcut("prepare-wave"))
+
+
+CLAUDE_GURU_DESCRIPTION = next(
+    line[len("description:"):].strip()
+    for line in CLAUDE_GURU_AGENT.splitlines()
+    if line.startswith("description:")
+)
+
+
+def previous_guru_descriptions(shortcut=None) -> tuple[str, ...]:
+    """Guru subagent descriptions shipped before the current one.
+
+    These came from this renderer's ``CLAUDE_GURU_AGENT`` and from seed 050's
+    Claude Code subagent template, which an installing agent writes by hand.
+    A render replaces an existing ``.claude/agents/guru.md`` description that
+    equals one of them, because nobody customized it; any other description
+    is kept. When the description changes here or in seed 050, add the
+    outgoing text. ``shortcut`` fills the placeholder form with the project's
+    lifecycle shortcuts (default: the active vocabulary profile).
+    """
+    shortcut = shortcut or vocabulary_profile.shortcut
+    long_form = (
+        "PROACTIVELY use when the user asks how this repository's source code or project "
+        "documentation works — behavior, architecture, specs, framework scripts, indexing, "
+        "chunking, retrieval, or where to find implementation. Do not use for wave lifecycle "
+        "commands ({plan}, {implement}, {close}, {prepare}, etc.)."
+    )
+    short_form = (
+        "PROACTIVELY use when the user asks how this repository's source code or project "
+        "documentation works. Do not use for wave lifecycle commands ({plan}, Implement wave, "
+        "Close wave, etc.)."
+    )
+    defaults = {"implement": "Implement wave", "close": "Close wave", "prepare": "Prepare wave"}
+    texts = [
+        long_form.format(plan="Plan feature", **defaults),
+        long_form.format(plan="Plan change", **defaults),
+        long_form.format(
+            plan=shortcut("plan-change"),
+            implement=shortcut("implement-wave"),
+            close=shortcut("close-wave"),
+            prepare=shortcut("prepare-wave"),
+        ),
+        short_form.format(plan="Plan feature"),
+        short_form.format(plan="Plan change"),
+    ]
+    return tuple(dict.fromkeys(texts))
+
+
+def _refresh_guru_description(text: str, current: str, path: Path, shortcut=None) -> str:
+    """Replace a previously shipped Guru description with ``current``.
+
+    Only a single ``description:`` line inside a valid frontmatter block whose
+    value equals a known shipped text is replaced; its line ending and every
+    other byte are kept. The key counts in any quoting or indentation, and a
+    following indented line continues the value, so either case is treated as
+    customized. Anything else returns ``text`` unchanged.
+    """
+    header = _claude_agent_frontmatter(text, path)
+    if not header:
+        return text
+    lines = header.splitlines(keepends=True)
+    key = re.compile(r"""^\s*(?:description|'description'|"description")\s*:""")
+    hits = [i for i, line in enumerate(lines) if key.match(line)]
+    if len(hits) != 1 or not lines[hits[0]].startswith("description:"):
+        return text
+    # YAML continues a plain scalar across empty lines, so the first non-empty
+    # following line decides whether the value continues.
+    following = next((ln for ln in lines[hits[0] + 1:] if ln.strip()), "")
+    if following[:1] in (" ", "\t"):
+        return text
+    line = lines[hits[0]]
+    body = line.rstrip("\r\n")
+    ending = line[len(body):]
+    value = body[len("description:"):].strip()
+    if value == current or value not in previous_guru_descriptions(shortcut):
+        return text
+    lines[hits[0]] = f"description: {current}{ending}"
+    print(
+        "render_agent_surfaces: replaced the previously shipped Guru subagent description in "
+        f"{_display_name(Path(path).as_posix())}",
+        file=sys.stderr,
+    )
+    return "".join(lines) + text[len(header):]
 
 # ---------------------------------------------------------------------------
 # Skill registry (wave 1p6lp / change 1p6lo)
@@ -620,7 +703,7 @@ WF_GURU_SKILL_BODY = dedent(
 
     ## Notes
 
-    - Operators do not need to say **Guru**; this skill is the default path for code/doc questions.
+    - Operators do not need to say **Guru**; this skill is the default path for questions about how code or docs work. Direct `code_*` lookups need no skill.
     - Explicit shortcut **Guru** remains in `docs/prompts/index.md`.
     """
 )
@@ -637,14 +720,13 @@ WF_UPGRADE_SKILL_BODY = dedent(
 
     1. Read `AGENTS.md` and `docs/prompts/upgrade-wavefoundry.prompt.md`.
     2. Produce a file-level patch plan and wait for operator approval before broad framework-maintenance edits.
-    3. Create or update `.wavefoundry/guard-overrides.json` before editing:
+    3. After the operator approves the file-level plan, open the framework edit gate before editing these protected surfaces: `wf_open_gate(gate="framework_edit_allowed")` (CLI fallback: `wf gate open framework_edit_allowed`).
        - `.wavefoundry/framework/`
        - `docs/prompts/`
        - `AGENTS.md`
        - tracked hook config files
-    4. Set `framework_edit_allowed.enabled: true` after the operator approves the file-level plan.
-    5. Set `seed_edit_allowed.enabled: true` before editing any `.wavefoundry/framework/seeds/*.prompt.md` file.
-    6. Delete the override file or set both flags back to `false` when the maintenance pass is complete.
+    4. Before editing any `.wavefoundry/framework/seeds/*.prompt.md` file, also open the seed gate: `wf_open_gate(gate="seed_edit_allowed")` (CLI fallback: `wf gate open seed_edit_allowed`).
+    5. When the maintenance pass is complete, close both gates: `wf_close_gate(gate="seed_edit_allowed")` and `wf_close_gate(gate="framework_edit_allowed")` (CLI fallback: `wf gate close seed_edit_allowed` and `wf gate close framework_edit_allowed`).
 
     ## Verification sequence
 
@@ -658,7 +740,7 @@ WF_UPGRADE_SKILL_BODY = dedent(
 
     - Keep inventory and drift-detection lanes read-only unless explicit write ownership was granted.
     - Update existing canonical docs in place instead of creating parallel files when a topical home already exists.
-    - Preserve journals, personas, wave archives, and historical records unless the upgrade explicitly retires a live replacement surface.
+    - Preserve memory records, personas, wave archives, and historical records unless the upgrade explicitly retires a live replacement surface.
     """
 )
 
@@ -837,7 +919,7 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
     ),
     Skill(
         name="wf-guru",
-        description="PROACTIVELY use when the user asks how repository source code or project documentation works — locating behavior, explaining pipelines, architecture, specs, framework scripts, indexing, chunking, retrieval, or MCP tools. "
+        description="PROACTIVELY use when the user asks how repository source code or project documentation works and answering needs an investigation — explaining behavior, pipelines, architecture, specs, framework scripts, indexing, chunking, retrieval, or MCP tools. A direct lookup, such as finding a definition or reading one value, needs no skill; call the code_* tools directly. "
         f"Not for wave lifecycle commands ({_vp_shortcut('plan-change')}, {_vp_shortcut('implement-wave')}, {_vp_shortcut('close-wave')}, etc.).",
         body=WF_GURU_SKILL_BODY,
         requires_doc=GURU_ROLE_REL,
@@ -5322,6 +5404,10 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
                 claude_content,
                 Path(".claude/agents/guru.md"),
             )
+            if claude_content is not None:
+                claude_content = _refresh_guru_description(
+                    claude_content, CLAUDE_GURU_DESCRIPTION, Path(".claude/agents/guru.md")
+                )
         if claude_content is not None:
             _tier3_write(claude_agent, claude_content)
 

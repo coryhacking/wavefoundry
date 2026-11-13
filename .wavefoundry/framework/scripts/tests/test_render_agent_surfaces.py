@@ -3474,6 +3474,236 @@ class AutoGuruRoutingAnchorRegressionTests(unittest.TestCase):
             "guards against the table becoming a keyword-match list")
 
 
+class RoutingGuidanceTextTests(unittest.TestCase):
+    """Direct retrieval is permitted; Guru answers how-or-why mechanism questions.
+
+    Covers every routing surface (the four carriers, seed 050's host templates
+    and the renderer's host surfaces), implementation principle 1, the
+    wf-upgrade skill's gate steps, retired journal wording, seed 160's upgrade
+    merge rule, and lifecycle-ID removal from AGENTS.md and seed 050.
+    """
+
+    FORBIDDING_PHRASES = (
+        "**stop**",
+        "IS Guru's job",
+        "instead of doing the retrieval yourself",
+        "do not perform the retrieval directly",
+    )
+    DELEGATED_CLAUSE = (
+        "**This applies to delegated work too:** when you spawn a subagent for code investigation or "
+        "implementation, route it through a role-typed agent (`implementer`/`guru`) or carry the MCP-first "
+        "directive in its prompt — check the receiving worker's actual tools and allowlist rather than "
+        "assuming inherited MCP access; follow seed 180's host-neutral orchestration fallback when "
+        "unavailable and MCP-first when available, so a bare general-purpose subagent grepping by habit is "
+        "the same defect; a worker on a host that defers MCP tools loads them and confirms they are callable "
+        "before its first retrieval, and falls back only with a `Gapfill:` note naming why (seed 020 "
+        "Retrieval Rules, seed 180); a deferred tool that has not been loaded is not unavailable (the "
+        "exploration order lives in `seed-180`/`seed-211` — do not restate it)."
+    )
+    PRINCIPLES_2_TO_4 = (
+        "2. **Simplest solution first.** Always implement the simplest thing that could work. Do not add "
+        "abstractions or flexibility that weren't explicitly requested.",
+        "3. **Don't touch unrelated code.** If a file or function is not directly part of the current task, "
+        "do not modify it, even if you think it could be improved.",
+        "4. **Flag uncertainty explicitly.** If you are not confident about an approach or technical detail, "
+        "say so before proceeding. Confidence without certainty causes more damage than admitting a gap.",
+    )
+    # A lifecycle ID: five base-36 characters starting with a digit, with at
+    # least one letter, not part of a longer word (bare, backticked,
+    # parenthesized, slash- or hyphen-joined). Digit-only tokens never match.
+    LIFECYCLE_ID = re.compile(r"(?<![A-Za-z0-9_])(?=[0-9a-z]*[a-z])[0-9][0-9a-z]{4}(?![A-Za-z0-9_])")
+
+    def _root(self) -> Path:
+        return TESTS_ROOT.parents[2].parent
+
+    def _read(self, rel: str) -> str:
+        return (self._root() / rel).read_text(encoding="utf-8")
+
+    def _seed(self, name: str) -> str:
+        return self._read(f".wavefoundry/framework/seeds/{name}")
+
+    @staticmethod
+    def _between(text: str, start: str, end: str) -> str:
+        i = text.index(start)
+        j = text.index(end, i + len(start))
+        return text[i:j]
+
+    def _auto_guru_sections(self) -> "dict[str, str]":
+        seed050 = self._seed("050-agent-entry-surface-bootstrap.prompt.md")
+        agents = self._read("AGENTS.md")
+        return {
+            "seed 050": self._between(seed050, "## Codebase and documentation questions (auto-Guru)\n\nOperators",
+                                      "Explicit shortcut **Guru**"),
+            "AGENTS.md": self._between(agents, "## Codebase and documentation questions (auto-Guru)\n\nOperators",
+                                       "Explicit shortcut **Guru**"),
+        }
+
+    def _guru_routing_sections(self) -> "dict[str, str]":
+        out = {}
+        for label, text in (("seed 211", self._seed("211-guru.prompt.md")),
+                            ("docs/agents/guru.md", self._read("docs/agents/guru.md"))):
+            out[label] = self._between(text, "**Auto-routing (all agent hosts):**", "## Purpose")
+        return out
+
+    def _host_surfaces(self) -> "dict[str, str]":
+        seed050 = self._seed("050-agent-entry-surface-bootstrap.prompt.md")
+        guru_skill = next(s for s in ras.SKILL_REGISTRY if s.body is ras.WF_GURU_SKILL_BODY)
+        agent_desc = next(line for line in ras.CLAUDE_GURU_AGENT.splitlines() if line.startswith("description:"))
+        return {
+            "renderer Cursor rule": ras.CURSOR_AUTO_GURU_MDC,
+            "renderer Guru subagent description": agent_desc,
+            "rendered .claude/agents/guru.md description": next(
+                line for line in self._read(".claude/agents/guru.md").splitlines()
+                if line.startswith("description:")),
+            "renderer wf-guru skill description": guru_skill.description,
+            "seed 050 Cursor template": self._between(seed050, "**Cursor** (optional)", "**Claude Code** (optional)"),
+            "seed 050 subagent description": next(
+                line for line in seed050.splitlines()
+                if line.startswith("description: PROACTIVELY use when the user asks how this repository")),
+            "seed 050 skill description": next(
+                line for line in seed050.splitlines()
+                if line.startswith("description: PROACTIVELY use when the user asks how repository")),
+        }
+
+    def test_carriers_permit_direct_retrieval_and_keep_delegated_clause(self) -> None:
+        for label, section in {**self._auto_guru_sections(), **self._guru_routing_sections()}.items():
+            with self.subTest(surface=label):
+                for phrase in self.FORBIDDING_PHRASES:
+                    self.assertNotIn(phrase, section)
+                self.assertIn("directly", section)
+                self.assertIn("direct lookup", section)
+                self.assertNotIn("require reading code or documentation to understand what's there", section)
+                self.assertNotIn("route to Guru.", section)
+                self.assertNotIn('"where is X"', section)
+                self.assertNotIn("understanding, locating, or explaining", section)
+        for label, section in self._auto_guru_sections().items():
+            with self.subTest(surface=label, check="delegated clause"):
+                self.assertIn(self.DELEGATED_CLAUSE, section)
+
+    def test_rate_limiter_is_a_direct_lookup_in_both_example_sets(self) -> None:
+        for label, section in self._auto_guru_sections().items():
+            with self.subTest(surface=label):
+                row = next(line for line in section.splitlines() if "rate limiter defined" in line)
+                self.assertIn("| No |", row)
+        for label, section in self._guru_routing_sections().items():
+            with self.subTest(surface=label):
+                guru_list = self._between(section, "**Anchoring examples", "are all Guru questions")
+                self.assertNotIn("rate limiter", guru_list)
+                self.assertIn('A direct lookup like *"where is the rate limiter defined"* is not', section)
+
+    def test_host_routing_surfaces_do_not_route_lookups_to_guru(self) -> None:
+        for label, text in self._host_surfaces().items():
+            with self.subTest(surface=label):
+                lowered = text.lower()
+                self.assertNotIn("locate", lowered)
+                self.assertNotIn("locating", lowered)
+                self.assertNotIn("where to find", lowered)
+                self.assertNotIn("auto-route code and documentation questions", lowered)
+                self.assertTrue("direct lookup" in lowered or "directly" in lowered,
+                                f"{label} must say direct lookups need no Guru")
+
+    def test_rendered_subagent_description_matches_the_renderer(self) -> None:
+        # The renderer replaces a previously shipped description on render
+        # (GuruDescriptionRefreshTests), so this repository's copy matches.
+        constant =next(line for line in ras.CLAUDE_GURU_AGENT.splitlines() if line.startswith("description:"))
+        rendered = next(line for line in self._read(".claude/agents/guru.md").splitlines()
+                        if line.startswith("description:"))
+        self.assertEqual(rendered, constant)
+        # "The current template text" must have one meaning: seed 050's
+        # subagent template carries the same description, apart from the
+        # lifecycle-command names a distribution profile may rename.
+        lifecycle = " Do not use for wave lifecycle commands"
+        template = next(line for line in self._seed("050-agent-entry-surface-bootstrap.prompt.md").splitlines()
+                        if line.startswith("description: PROACTIVELY use when the user asks how this repository"))
+        self.assertEqual(template.split(lifecycle)[0], constant.split(lifecycle)[0])
+        for label, text in (("seed 160", self._seed("160-upgrade-wavefoundry.prompt.md")),
+                            ("rendered upgrade prompt", self._read("docs/prompts/upgrade-wavefoundry.prompt.md"))):
+            with self.subTest(surface=label):
+                # The manual edit of a shipped description is retired; only a
+                # customized description keeps the hand-edit fallback.
+                self.assertNotIn("edit that file's `description:` line to the current template text", text)
+                self.assertNotIn("refreshes only the body", text)
+                self.assertIn("replaced with the current one and reported on stderr", text)
+                self.assertIn("A customized description is kept", text)
+                self.assertIn('"where to find implementation"', text)
+
+    def test_guru_states_other_agents_may_retrieve_directly(self) -> None:
+        for label, section in self._guru_routing_sections().items():
+            with self.subTest(surface=label):
+                self.assertIn("Other agents may retrieve directly at any time; questions that need the "
+                              "retrieval loop and Pass 3 validation are mine to answer.", section)
+
+    def test_principle_one_asks_only_when_intent_is_unclear(self) -> None:
+        for label, text in (("seed 050", self._seed("050-agent-entry-surface-bootstrap.prompt.md")),
+                            ("AGENTS.md", self._read("AGENTS.md"))):
+            with self.subTest(surface=label):
+                self.assertNotIn("before writing a single line", text)
+                self.assertNotIn("Ask, don't assume", text)
+                self.assertIn("1. **Ask when intent is unclear.** When the request, code and docs leave intent, "
+                              "architecture or requirements unclear, ask before building on a guess. State any "
+                              "assumption you proceed on.", text)
+                for principle in self.PRINCIPLES_2_TO_4:
+                    self.assertIn(principle, text)
+        seed160 = self._seed("160-upgrade-wavefoundry.prompt.md")
+        self.assertIn("Ask when intent is unclear, Simplest solution first", seed160)
+        self.assertNotIn("Ask don't assume", seed160)
+
+    def test_upgrade_skill_uses_gate_tools_and_no_journal_wording(self) -> None:
+        bodies = {"renderer": ras.WF_UPGRADE_SKILL_BODY}
+        for host in (".claude", ".codex", ".agents"):
+            bodies[f"{host} copy"] = self._read(f"{host}/skills/wf-upgrade/SKILL.md")
+        for label, body in bodies.items():
+            with self.subTest(surface=label):
+                self.assertNotIn("guard-overrides.json", body)
+                self.assertNotIn("journal", body.lower())
+                for needle in ('wf_open_gate(gate="framework_edit_allowed")', 'wf_open_gate(gate="seed_edit_allowed")',
+                               'wf_close_gate(gate="framework_edit_allowed")', 'wf_close_gate(gate="seed_edit_allowed")',
+                               "wf gate open framework_edit_allowed", "wf gate close seed_edit_allowed",
+                               "wait for operator approval", "`AGENTS.md`", "tracked hook config files"):
+                    self.assertIn(needle, body)
+                self.assertIn("Preserve memory records, personas, wave archives, and historical records", body)
+        seed160 = self._seed("160-upgrade-wavefoundry.prompt.md")
+        self.assertNotIn("guard-overrides.json` approval flow", seed160)
+        self.assertIn("with `wf_open_gate` / `wf_close_gate` (CLI fallback `wf gate open|close`) instead of "
+                      "hand-editing `.wavefoundry/guard-overrides.json`", seed160)
+        for label, text in (("renderer", ras.CLAUDE_GURU_AGENT), (".claude copy", self._read(".claude/agents/guru.md"))):
+            with self.subTest(surface=f"guru subagent {label}"):
+                self.assertNotIn("journal", text.lower())
+                self.assertIn("memory-record writes", text)
+
+    def test_seed_160_step_four_merges_routing_text_preserving_additions(self) -> None:
+        step = self._between(self._seed("160-upgrade-wavefoundry.prompt.md"),
+                             "**Backfill tier 1 in `AGENTS.md`**", "\n5. ")
+        rendered = self._between(self._read("docs/prompts/upgrade-wavefoundry.prompt.md"),
+                                 "**Tier 1 — `AGENTS.md`**", "\n2. **Guru role**")
+        for label, text in (("seed 160 step 4", step), ("rendered upgrade prompt tier 1", rendered)):
+            with self.subTest(surface=label):
+                for needle in ("merge its whole changed auto-Guru section",
+                               "the direct-retrieval permission sentence", "the pre-flight question",
+                               "the \"When the answer is yes\" sentence", "the examples table",
+                               "the retrieval-intent reminder", "Implementation principle 1",
+                               "replace text inherited from the earlier seed", "preserve project additions",
+                               "present ambiguous or conflicting local text to the operator"):
+                    self.assertIn(needle, text)
+
+    def test_lifecycle_id_pattern(self) -> None:
+        for sample in ("wave `1p6lp`", "(wave 1p45l)", "wave 1p7pm/1p88t", "`wave-1p35d`", "changes `1zyv1`, `206fi`"):
+            with self.subTest(sample=sample):
+                self.assertTrue(self.LIFECYCLE_ID.search(sample))
+        for sample in ("12345", "port 8080", "v1.2.3", "sha256", "a1b2c3d", "x1p6lp", "1p6lpx"):
+            with self.subTest(sample=sample):
+                self.assertIsNone(self.LIFECYCLE_ID.search(sample))
+
+    def test_agents_md_and_seed_050_cite_no_lifecycle_ids(self) -> None:
+        agents = self._read("AGENTS.md")
+        self.assertNotIn("stale-cleaned on render", agents)
+        for label, text in (("AGENTS.md", agents),
+                            ("seed 050", self._seed("050-agent-entry-surface-bootstrap.prompt.md"))):
+            with self.subTest(surface=label):
+                hits = [m.group(0) for m in self.LIFECYCLE_ID.finditer(text)]
+                self.assertEqual(hits, [], f"{label} cites lifecycle IDs: {hits}")
+
+
 class AgentSurfaceNewlineTests(unittest.TestCase):
     """Wave 1p9ix (F14) — render_agent_surfaces.write_text must write embedded
     line terminators VERBATIM (newline="") so the freshly generated agent surfaces
@@ -4259,6 +4489,130 @@ class GuruWrapperModelPolicyTests(unittest.TestCase):
             self.assertIn(".claude/agents/guru.md", written)
             with self.assertRaises(AssertionError):
                 self.assertEqual(original, wrapper.read_bytes())
+
+
+class GuruDescriptionRefreshTests(unittest.TestCase):
+    """A render replaces a previously shipped Guru description and keeps any other."""
+
+    NOTICE = "replaced the previously shipped Guru subagent description"
+
+    def _render(self, header: str, *, shortcut=None) -> tuple[bytes, str]:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            role = root / "docs/agents/guru.md"
+            role.parent.mkdir(parents=True)
+            role.write_text(GURU_STUB, encoding="utf-8")
+            wrapper = root / ".claude/agents/guru.md"
+            wrapper.parent.mkdir(parents=True)
+            wrapper.write_bytes((header + "\nOld body\n").encode())
+            with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                if shortcut is None:
+                    ras.render_agent_surfaces(root)
+                else:
+                    with patch.object(ras.vocabulary_profile, "shortcut", side_effect=shortcut):
+                        ras.render_agent_surfaces(root)
+            first = wrapper.read_bytes()
+            with patch("sys.stderr", new_callable=io.StringIO):
+                self.assertNotIn(".claude/agents/guru.md", ras.render_agent_surfaces(root) if shortcut is None else [])
+            return first, stderr.getvalue()
+
+    @staticmethod
+    def _header(description: str, newline: str = "\n", bom: str = "") -> str:
+        return bom + (
+            f"---\nname: guru\ndescription: {description}\n"
+            "tools: Read, mcp__wavefoundry__code_read\nmodel: sonnet\n# operator note\n---\n"
+        ).replace("\n", newline)
+
+    def _assert_replaced(self, description: str, newline: str = "\n", bom: str = "", shortcut=None) -> None:
+        result, stderr = self._render(self._header(description, newline, bom), shortcut=shortcut)
+        expected = self._header(ras.CLAUDE_GURU_DESCRIPTION, newline, bom)
+        self.assertTrue(result.startswith(expected.encode()), "only the description line may change")
+        self.assertIn(b"## Your job", result, "the body still refreshes")
+        self.assertIn(self.NOTICE, stderr)
+
+    def test_each_previously_shipped_description_is_replaced(self) -> None:
+        for description in ras.previous_guru_descriptions():
+            for newline, bom in (("\n", ""), ("\r\n", ""), ("\r\n", "﻿"), ("\n", "﻿")):
+                with self.subTest(description=description[-60:], newline=repr(newline), bom=bool(bom)):
+                    self._assert_replaced(description, newline, bom)
+
+    def test_placeholder_form_follows_a_non_default_vocabulary(self) -> None:
+        names = {"plan-change": "Plan task", "implement-wave": "Build batch",
+                 "close-wave": "Close batch", "prepare-wave": "Prepare batch"}
+        renamed = ras.previous_guru_descriptions(names.__getitem__)
+        custom = next(d for d in renamed if "Plan task" in d)
+        self.assertNotIn(custom, ras.previous_guru_descriptions())
+        # Under the renamed vocabulary the filled placeholder form is a shipped text.
+        original = vp.shortcut
+        self._assert_replaced(custom, shortcut=lambda key, *a, **k: names.get(key) or original(key, *a, **k))
+        # Under the default vocabulary the same text was never shipped, so it is kept.
+        result, stderr = self._render(self._header(custom))
+        self.assertTrue(result.startswith(self._header(custom).encode()))
+        self.assertNotIn(self.NOTICE, stderr)
+
+    def test_other_descriptions_and_headers_are_kept(self) -> None:
+        shipped = ras.previous_guru_descriptions()[0]
+        cases = {
+            "customized": self._header("Answer questions about our billing code."),
+            "current": self._header(ras.CLAUDE_GURU_DESCRIPTION),
+            "two description lines": self._header(shipped).replace(
+                "name: guru\n", f"name: guru\ndescription: {shipped}\n"),
+            "malformed": self._header(shipped).replace("model: sonnet\n", "model: [sonnet]\n"),
+            # GURU-REFRESH-DEL-1: a continuation line makes the value longer
+            # than the shipped text, and a quoted duplicate key is still a
+            # second description.
+            "continuation line": self._header(shipped).replace(
+                f"description: {shipped}\n", f"description: {shipped}\n  Also use for billing questions.\n"),
+            "continuation after an empty line": self._header(shipped).replace(
+                f"description: {shipped}\n", f"description: {shipped}\n\n  Also use for billing questions.\n"),
+            "quoted duplicate key": self._header(shipped).replace(
+                "name: guru\n", "name: guru\n'description': Billing questions.\n"),
+            "double-quoted duplicate key": self._header(shipped).replace(
+                "name: guru\n", 'name: guru\n"description": Billing questions.\n'),
+            "indented description": self._header(shipped).replace(
+                f"description: {shipped}\n", f" description: {shipped}\n"),
+        }
+        for label, header in cases.items():
+            with self.subTest(case=label):
+                result, stderr = self._render(header)
+                self.assertTrue(result.startswith(header.encode()), "header bytes must survive")
+                self.assertNotIn(self.NOTICE, stderr)
+
+    def test_known_set_is_non_empty_and_excludes_the_current_description(self) -> None:
+        known = ras.previous_guru_descriptions()
+        self.assertGreaterEqual(len(known), 4)
+        self.assertNotIn(ras.CLAUDE_GURU_DESCRIPTION, known)
+        self.assertEqual(len(known), len(set(known)))
+        # The current constant's description is what a render writes.
+        self.assertIn(f"description: {ras.CLAUDE_GURU_DESCRIPTION}\n", ras.CLAUDE_GURU_AGENT)
+
+    # The current description, with lifecycle shortcuts as placeholders so the
+    # pin holds under every vocabulary profile.
+    PINNED_CURRENT_DESCRIPTION = (
+        "PROACTIVELY use when the user asks how this repository's source code or project documentation "
+        "works and answering needs an investigation — behavior, architecture, specs, framework scripts, "
+        "indexing, chunking, or retrieval. A direct lookup, such as finding a definition or reading one "
+        "value, needs no subagent. Do not use for wave lifecycle commands (@PLAN@, @IMPLEMENT@, @CLOSE@, "
+        "@PREPARE@, etc.)."
+    )
+
+    def test_current_description_is_pinned(self) -> None:
+        # When this fails, the description changed: add the outgoing text to
+        # previous_guru_descriptions() so upgraded projects receive the new
+        # one, then update this pin.
+        current = ras.CLAUDE_GURU_DESCRIPTION
+        for key, placeholder in (("plan-change", "@PLAN@"), ("implement-wave", "@IMPLEMENT@"),
+                                 ("close-wave", "@CLOSE@"), ("prepare-wave", "@PREPARE@")):
+            current = current.replace(vp.shortcut(key), placeholder)
+        self.assertEqual(current, self.PINNED_CURRENT_DESCRIPTION,
+                         "Guru description changed: add the outgoing text to previous_guru_descriptions()")
+
+    def test_control_without_the_known_set_leaves_a_stale_description(self) -> None:
+        shipped = ras.previous_guru_descriptions()[0]
+        self._assert_replaced(shipped)
+        with patch.object(ras, "previous_guru_descriptions", return_value=()):
+            with self.assertRaises(AssertionError):
+                self._assert_replaced(shipped)
 
 
 class GuruWrapperToolAllowlistTests(unittest.TestCase):

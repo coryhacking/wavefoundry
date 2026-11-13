@@ -22,17 +22,19 @@ The content below is the full role definition. Write it to `docs/agents/guru.md`
 
 Shortcut: **`Guru`** | MCP tool: **`code_ask`**
 
-**Auto-routing (all agent hosts):** Operators do not need to say **Guru**. Any agent answering code or documentation questions must follow `AGENTS.md` § **Codebase and documentation questions (auto-Guru)** and this role doc. Host entry files (thin pointers) carry a one-line guardrail; optional native surfaces (Cursor rules, Claude subagents, Codex skills) reinforce but do not replace that contract — see `seed-050` and `docs/agents/platform-mapping.md`.
+**Auto-routing (all agent hosts):** Operators do not need to say **Guru**. Any agent may call the `code_*` retrieval tools directly; an agent answering a question about how code or documentation works follows `AGENTS.md` § **Codebase and documentation questions (auto-Guru)** and this role doc. Host entry files (thin pointers) carry a one-line guardrail; optional native surfaces (Cursor rules, Claude subagents, Codex skills) reinforce but do not replace that contract — see `seed-050` and `docs/agents/platform-mapping.md`.
 
 ## When agents should route questions to me
 
 Mirror of `AGENTS.md` § **Codebase and documentation questions (auto-Guru)** — same boundary, reinforced from Guru's perspective. The lead agent reads `AGENTS.md` before answering; agents who reach this role doc were already routed correctly or are double-checking. Both surfaces use the same intent check and the same anchoring examples so they cannot drift apart.
 
-**Pre-flight question the lead agent applies before any response:** *does answering this require reading code or documentation to understand what's there?* If yes, that's a Guru question.
+Other agents may retrieve directly at any time; questions that need the retrieval loop and Pass 3 validation are mine to answer.
 
-**Anchoring examples (these are recognizable cases, NOT a keyword list to match against):** questions like *"how does authentication work"*, *"tell me about the way authentication works"*, *"walk me through the request flow"*, *"I want to understand session management"*, *"where is the rate limiter defined"*, *"explain how config loading works"*, and *"describe the data flow from request to response"* are all Guru questions — the surface form varies but the intent is "answer comes from reading code or docs." Operational requests like *"rename X to Y"*, *"delete the old config"*, or *"run the test suite"* are NOT Guru — the agent performs the operation directly.
+**Pre-flight question the lead agent applies before any response:** *does answering this need an investigation of how code or documentation works: a how-or-why question about a mechanism, usually across files?* If yes, that's a Guru question. If a direct lookup answers it, the agent calls the `code_*` tools itself.
 
-**Retrieval-intent backstop:** if any agent reaches for `code_search`, `code_keyword`, `code_read`, `code_definition`, `code_outline`, `code_callhierarchy`, `code_references`, or `code_pattern` in service of a user question, that retrieval is my work. Route to me; do not perform the retrieval directly.
+**Anchoring examples (these are recognizable cases, NOT a keyword list to match against):** questions like *"how does authentication work"*, *"tell me about the way authentication works"*, *"walk me through the request flow"*, *"I want to understand session management"*, *"explain how config loading works"*, and *"describe the data flow from request to response"* are all Guru questions — the surface form varies but the intent is "explain how this mechanism works." A direct lookup like *"where is the rate limiter defined"* is not: `code_definition` or `code_search` answers it, and it becomes a Guru question only when the answer needs the surrounding mechanism. Operational requests like *"rename X to Y"*, *"delete the old config"*, or *"run the test suite"* are NOT Guru — the agent performs the operation directly.
+
+**Retrieval-intent reminder:** any agent may call `code_search`, `code_keyword`, `code_read`, `code_definition`, `code_outline`, `code_callhierarchy`, `code_references`, or `code_pattern` directly. When it reaches for them in service of a user question, it asks the pre-flight question again: if answering needs an investigation of how the code works, the question is mine, with the retrieval loop and Pass 3 validation.
 
 ## Purpose
 

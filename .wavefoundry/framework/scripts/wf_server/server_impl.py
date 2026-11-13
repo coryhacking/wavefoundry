@@ -23462,7 +23462,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
         Prefer when: searching by concept, intent, or natural language across project and framework documentation.
         Use code_keyword instead when the exact text is known.
-        Degrades per the 1seaq state table: with a PUBLISHED index (complete build epoch)
+        Degraded serving: with a PUBLISHED index (complete build epoch)
         but an unavailable semantic model, serves BM25 results from the FTS layer
         (search_mode: lexical_fallback); with no published index at all, serves the
         live-filesystem walk (search_mode: live_fallback). While a build epoch is
@@ -23548,7 +23548,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Use code_keyword instead when the exact token, symbol, or string is known — always available, deterministic.
         Use docs_search instead when the answer is in a spec, architecture doc, or prompt rather than source code.
         When the code index is absent: returns status='error' with a diagnostic — does not crash.
-        Degrades per the 1seaq state table: with a PUBLISHED index (complete build epoch) but an
+        Degraded serving: with a PUBLISHED index (complete build epoch) but an
         unavailable semantic model, serves BM25 results from the FTS layer with the requested
         filters preserved (search_mode: lexical_fallback, exact-token recall). While a build epoch
         is building or interrupted, compatible stored rows are served from one read snapshot with
@@ -23577,7 +23577,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           Note: .tsx and .ts files are both indexed as language="typescript" — tsx/.tsx normalizes to typescript.
           Use "web" (category) if you want TypeScript + JavaScript + HTML + CSS + SCSS together.
 
-        Candidate generation (wave 1wpif): language (single name, extension, or category), kind, and tags
+        Candidate generation: language (single name, extension, or category), kind, and tags
         are pushed into BOTH candidate sources (the SQLite vector WHERE clause and the FTS5 WHERE) before the
         bounded top-k, so a selected-language match is never lost past a global window; the language
         value resolves through a fixed allowlist and never enters a predicate verbatim. max_per_file
@@ -23590,7 +23590,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         eligible rows may remain). The cross-encoder reranks at most max(4 * limit, 30) candidates,
         unchanged by refill; the lexical fallback applies the same pushdown and refill contract.
         When the lexical layer is damaged, the healthy semantic results are still returned and a
-        `lexical_undercoverage` diagnostic names the damaged tables (wave 1wpif, `1wpag`).
+        `lexical_undercoverage` diagnostic names the damaged tables.
 
         Args:
             query: Natural language description of the code behavior or concept to find.
@@ -23768,7 +23768,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Prefer when: assessing blast radius before editing or deleting a module. Use ``path=`` for
         classic reverse-import analysis (``method: heuristic``). Use ``symbol=`` for graph-backed
         upstream impact via ``imports``/``calls``/``implements``/``extends`` edges
-        (``method: graph``). Dispatch-aware (wave 1p9qh/1p9qa): inheritance hops are
+        (``method: graph``). Dispatch-aware: inheritance hops are
         down-weighted (potential dispatch, not proven flow), and a supertype/interface
         METHOD seed also pulls subtype implementations of the same-named method into the
         blast radius via synthetic ``derived: "dispatch"`` edges. Pass
@@ -23781,7 +23781,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - affected: list of {node_id, label, kind, source_file, hop, community_id, community} —
           upstream callers/importers. ``hop`` (int) is the traversal distance from the queried
           symbol (1 = direct caller). ``community_id`` is the stable community identifier of
-          the affected node (wave 1316r) — useful for grouping cross-cutting changes by
+          the affected node, useful for grouping cross-cutting changes by
           community. Test callers excluded by default.
         - affected_files: sorted list of unique files containing affected nodes
         - edges: traversed edges, CAPPED at max_results (see edges_total for the
@@ -23826,8 +23826,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             max_results: Maximum results to return (default 50).
             symbol: Qualified graph node id or resolvable symbol for graph mode.
             max_hops: Reverse traversal depth for graph mode (default 3).
-            layer: Graph layer — only ``project`` exists (the framework/union layers
-                were removed in 1p4ww); retained as a no-op for back-compat.
+            layer: Graph layer — only ``project`` exists; retained as a no-op
+                for back-compat.
             relations: Optional edge relation filter for graph mode.
             include_tests: When False (default), affected nodes in test paths are excluded from
                 the production blast-radius view. Set True to include test callers.
@@ -23902,7 +23902,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           ``kind``, ``risk``, ``weighted_affected_file_count``, ``weighted_fan_in``,
           ``affected_file_count`` (raw), ``fan_in`` (raw), ``fan_out``, ``extracted_edge_fraction``
           (share of blast-radius edges that are heuristic — discount a high score when near 1.0),
-          ``transitive_extracted_fraction`` (Wave 1p7df: share of affected nodes reachable only via a
+          ``transitive_extracted_fraction`` (share of affected nodes reachable only via a
           path that traverses an ``EXTRACTED`` edge — the transitive confidence of the blast radius),
           ``hop`` (worst-case blast-radius hop distance)
         - over_candidate_cap: true (with empty ``results``) when the scope has more than
@@ -23912,7 +23912,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             scope: Repo-relative file path, directory prefix, or glob (``*``/``?``/``[]``) to rank over.
             top: Max ranked symbols returned (default 20).
             max_hops: Blast-radius traversal depth passed to impact (default 3).
-            layer: Graph layer — only ``project`` exists (framework/union removed in 1p4ww); a back-compat no-op.
+            layer: Graph layer — only ``project`` exists; a back-compat no-op.
             include_tests: When False (default), test-path nodes are excluded from the blast radius
                 (symmetric with code_impact's filter).
         """
@@ -23971,7 +23971,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             symbol: Required graph node id or resolvable symbol.
             depth: Expansion depth (default 1).
             direction: ``callers``, ``callees``, or ``both``.
-            layer: Graph layer — only ``project`` exists (framework/union removed in 1p4ww); a back-compat no-op.
+            layer: Graph layer — only ``project`` exists; a back-compat no-op.
             include_tests: When False (default), test-path nodes (and edges referencing them)
                 are excluded from the response. Symmetric with code_impact's filter.
         """
@@ -24025,19 +24025,19 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           ``kind: "function"`` / ``"method"`` / ``"class"`` entries this is the direct caller count. For
           ``kind: "module"`` entries (files), ``count`` is the number of ``calls`` edges whose target is the file
           node itself — typically attributed when the indexer couldn't bind the call to a specific symbol inside
-          the file (1312f locks this contract via `TestModuleFanOutCountSemantics`). Use the entry's ``kind``
+          the file. Use the entry's ``kind``
           field to interpret the number; ``imports`` and ``defines`` edges are NOT included.
         - fan_out: ranked list of {node_id, label, kind, count} — symbols that issue the most outgoing ``calls``
           edges. Same kind-aware shape as fan_in. Note: file-level (``kind: "module"``) entries with high fan_out
-          appear in the dedicated ``file_hubs`` section (wave 13129); operators seeking architectural orientation
+          appear in the dedicated ``file_hubs`` section; operators seeking architectural orientation
           should read both ``chokepoints`` and ``file_hubs`` together.
         - chokepoints: nodes with ``kind: "function"`` / ``"method"`` / ``"class"`` fan_out >= threshold (default 20)
-          — potential bottlenecks in the call graph. Module/file entries are NOT in this section (wave 13129);
+          — potential bottlenecks in the call graph. Module/file entries are NOT in this section;
           see ``file_hubs`` for the parallel file-level view.
         - orphan_docs: doc/seed nodes with no ``doc_references_code`` edges — disconnected documentation
         - betweenness: ranked list of {node_id, label, kind, score} — nodes with high betweenness centrality
           (bridge nodes on shortest paths). Served from the ranking persisted at BUILD time in the clusters
-          artifact (wave 1p9q3: size-tiered — exact igraph betweenness on small/medium graphs, bounded
+          artifact (size-tiered — exact igraph betweenness on small/medium graphs, bounded
           `cutoff` approximation on large ones, deterministic degree/fan-out fallback on very large graphs
           or when igraph is absent); no per-query computation and NO graph-size cap. `betweenness_method`
           ("exact" | "cutoff" | "degree_fallback") and `betweenness_metadata` (node_count, edge_count,
@@ -24047,7 +24047,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - betweenness_dominated_by_generated: true when >50% of top-N betweenness results are tagged generated
         - exclude_generated: echoes the requested filter flag
         - evidence_communities / evidence_fan_in / evidence_fan_out / evidence_chokepoints /
-          evidence_file_hubs (wave 1wpie): the Evidence/Data half of each partitioned section.
+          evidence_file_hubs: the Evidence/Data half of each partitioned section.
           Rows whose owning artifact is a classified MACHINE RESULT (it declares its own
           producer/schema, or pairs a capture timestamp with a digest or run field) are moved
           here BEFORE top-N selection, so they never consume a production ranking slot; the
@@ -24062,7 +24062,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           cross-boundary edges are never discarded.
 
         Each fan_in, fan_out, chokepoints and file_hubs entry, including its ``evidence_*`` counterpart,
-        also carries ``call_edge_counts`` (wave 203pu): ``{total, resolved, extracted, unclassified,
+        also carries ``call_edge_counts``: ``{total, resolved, extracted, unclassified,
         receiver_unknown}``, nonnegative integers over ``calls`` edges only, in the row's direction
         (incoming for fan_in; outgoing for fan_out, chokepoints and file_hubs) and in the effective
         (filtered or collapsed) graph view. ``resolved`` counts ``RECEIVER_RESOLVED`` /
@@ -24077,19 +24077,17 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         every ranking, limit and threshold.
 
         Each ranking entry (fan_in, fan_out, chokepoints, file_hubs, betweenness) also carries collision
-        diagnostic fields (wave 13129):
+        diagnostic fields:
         - ``same_name_node_count`` (int): count of project nodes sharing the entry's simple name.
         - ``cross_file_collision`` (bool): True when 2+ project files own a same-simple-name node.
-        - ``external_name_collision_count`` (int, wave 1316p): 1 when the simple name appears in the
+        - ``external_name_collision_count`` (int): 1 when the simple name appears in the
           curated Java stdlib/framework allowlist (``run``, ``close``, ``equals``, ``hashCode``,
           ``toString``, ``compareTo``, ``iterator``, ``accept``, ``apply``, ``getMethod``,
-          ``execute``, ``process``, etc.), 0 otherwise. Replaces the pre-1316p graph-state-based
-          count, which stopped firing for the common Java case after 1312l's receiver-type
-          resolution at index time eliminated the residue external nodes the count depended on.
+          ``execute``, ``process``, etc.), 0 otherwise. It does not depend on graph state.
           Allowlist is Java-focused in this release; non-Java symbols receive 0.
         - ``name_collision_count`` (deprecated alias for ``same_name_node_count``, removed after one release).
 
-        Empty-section diagnostic fields (wave 1316t) distinguish "no data" from "no hits"
+        Empty-section diagnostic fields distinguish "no data" from "no hits"
         on sections that can legitimately return ``[]``:
 
         - ``chokepoints_candidates_total`` / ``chokepoints_threshold`` — how many function/method/
@@ -24099,16 +24097,16 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           (``kind: "module"``) entries.
         - ``orphan_docs_candidates_total`` — docs node pool considered before the
           ``doc_references_code`` filter.
-        - ``betweenness_computed`` (bool, from wave 130rj) + ``betweenness_skipped_reason``
+        - ``betweenness_computed`` (bool) + ``betweenness_skipped_reason``
           (when False). Three skip reasons exist: ``betweenness_not_in_artifact`` (legacy clusters
           artifact predating the build-time pass, or no clusters artifact yet),
-          ``betweenness_artifact_stale`` (wave 1wpaj — the artifact's ``cluster_builder_version``
+          ``betweenness_artifact_stale`` (the artifact's ``cluster_builder_version``
           does not match runtime, or is absent, so its ranking describes a different graph;
           ``betweenness_stale_artifact`` carries both versions), and
-          ``unsupported_for_collapsed_view`` (wave 1wpaj — betweenness was requested alongside a
+          ``unsupported_for_collapsed_view`` (betweenness was requested alongside a
           collapse flag; the persisted order describes the BASE topology and is not served for a
           collapsed graph). ``betweenness_note`` carries the matching recovery hint.
-        - ``betweenness_served_from`` (wave 1wpaj) — ``"prefix"`` when the compatibility top-N view
+        - ``betweenness_served_from``: ``"prefix"`` when the compatibility top-N view
           answered, ``"complete_order"`` when a filtered request refilled from the complete persisted
           order. Read this rather than ``betweenness_metadata.top_n``, which is the prefix size and
           does not describe how deep a refilled ranking went.
@@ -24120,17 +24118,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         when >50% of top-N betweenness results are tagged generated.
 
         Args:
-            layer: Graph layer — only ``project`` exists (the framework/union layers
-                were removed in 1p4ww); retained as a no-op for back-compat.
+            layer: Graph layer — only ``project`` exists; retained as a no-op
+                for back-compat.
             limit: Max rows per ranking section (default 20).
             sections: Optional subset: fan_in, fan_out, orphan_docs, chokepoints, file_hubs, betweenness, communities.
-            exclude_generated: When True (wave 130rj), filters nodes tagged ``generated: true`` out of
+            exclude_generated: When True, filters nodes tagged ``generated: true`` out of
                 fan_in/fan_out/chokepoints/file_hubs/betweenness, and drops generated-dominated
-                communities. The classifier covers Java and C# generated-code conventions
-                (multi-language follow-up tracked separately). Wave 1wpaj CONTRACT CHANGE: this flag
-                did not reach ``file_hubs`` before that wave and now does, so an existing caller
-                passing it sees generated modules removed from that section for the first time.
-            exclude_external: When True (wave 130rj — 130tw), filters ``external::*`` nodes (stdlib /
+                communities. The classifier covers Java and C# generated-code conventions only.
+            exclude_external: When True, filters ``external::*`` nodes (stdlib /
                 third-party library symbols) out of fan_in/fan_out/chokepoints/file_hubs/betweenness.
                 Use for "show me MY code" architectural orientation. Independent of ``exclude_generated`` —
                 both can be set together to remove stdlib + machine-generated noise simultaneously.
@@ -24138,17 +24133,15 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 signal still see external entries). The ``communities`` section is unaffected (external
                 nodes are not community members).
 
-                Wave 1wpaj: BOTH filters run BEFORE top-N truncation, in every section they reach.
-                Previously they ran on the already-truncated rows, so a filtered request could come
-                back shorter than the limit, or empty — at ``limit=1`` on a graph whose top row was
-                external, ``exclude_external=True`` returned nothing at all. Filtered ``betweenness``
+                BOTH filters run BEFORE top-N truncation, in every section they reach, so filtered
+                rows do not consume ranking slots. Filtered ``betweenness``
                 refills from a complete persisted order rather than the compatibility prefix, so
                 ``betweenness_metadata.top_n`` is the prefix size and does NOT describe how deep the
                 served ranking went; read ``betweenness_served_from`` instead. Requesting
                 ``betweenness`` alongside any collapse flag returns
                 ``betweenness_skipped_reason: "unsupported_for_collapsed_view"`` — the persisted order
                 describes the base topology and is not served for a collapsed graph.
-            collapse_generated_files: When True (wave 130rj — 130su), aggregates each generated
+            collapse_generated_files: When True, aggregates each generated
                 source file into a single file-node before computing report sections. Internal edges
                 within a generated file are dropped; cross-boundary edges have generated endpoints
                 rewritten to the file-node id. Preserves "handwritten code calls into ELParser"
@@ -24156,7 +24149,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 330 internal nodes collapse to 1). Per-symbol tools (code_callhierarchy, code_impact,
                 code_graph_path, code_callgraph) deliberately do NOT support this flag — they need
                 the full per-symbol view.
-            collapse_package_to_directory: When True (wave 131bt — 1319m), aggregates files in a
+            collapse_package_to_directory: When True, aggregates files in a
                 directory into a single package/namespace node per-language. Detection: Go matches
                 files sharing the same ``package <name>`` declaration; Python uses ``__init__.py``
                 presence; Java/Kotlin/Scala/C#/PHP match files sharing the same ``package``/``namespace``
@@ -24166,7 +24159,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 nodes carry ``collapse_origin_files``, ``collapse_unit``, and ``kind`` of ``"package"`` or
                 ``"namespace"`` preserving language idiom. Stacks with ``collapse_class_module_pairs``.
                 Per-symbol navigation tools deliberately do NOT support this flag.
-            collapse_class_module_pairs: When True (wave 13129 — 1312h), merges Swift file-and-class
+            collapse_class_module_pairs: When True, merges Swift file-and-class
                 pairs into one node for report consumption. For ``Foo.swift`` containing top-level
                 ``class Foo`` (or ``struct``/``actor``/``enum``/``protocol`` Foo), the file node and
                 the class node aggregate into a single node with the class label and a
@@ -24217,13 +24210,13 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           not vector similarity. In the default `rerank="agent"` mode each citation also carries `source`
           (the index it came from: "docs"/"code") and, when it surfaced from more than one index, `sources`
           (the set — cross-source agreement); `excerpt` is the FULL chunk text (not a 300-char truncation).
-          Wave 1p52p: when the reranker is available, the candidate set is RANKED by a cross-encoder relevance score
+          When the reranker is available, the candidate set is RANKED by a cross-encoder relevance score
           (`score` = sigmoid of the cross-encoder logit ∈ [0,1], unified across docs+code) applied BEFORE
           the coverage floor + budget selection — citations come best-first; still read the winners. On a
           GPU machine this uses FP16; on a CPU-only machine it uses the INT8 export. If reranking is
           explicitly disabled or unbuildable, ordering falls back to coverage-floor over raw shared-embedder cosine (uncalibrated)
           (`reranked=false`) — fuse from full context yourself.
-        - retrieval_accounting (wave 1wpif): per-source substrate query counts and examined rows for
+        - retrieval_accounting: per-source substrate query counts and examined rows for
           this call (docs_dense, code_dense, docs_lexical, code_lexical, plus keyword when the live
           keyword pass fires) with the stated ceiling of 4 queries / 240 examined rows per source:
           16 / 960 over the four fused sources, 20 / 1200 with the keyword pass. The assessment-class
@@ -24298,8 +24291,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Args:
             question: Natural-language question about the codebase, e.g. "where does billing handle failed payments?"
             rerank: deprecated/optional. code_ask has a single ranking path — agent selection with a
-                rerank-FIRST cross-encoder (Wave 1p52p; FP16 on GPU, INT8 on CPU, so it is now embedded in
-                the default flow). "agent" (default) and the legacy alias "local" behave identically. If the
+                rerank-FIRST cross-encoder (FP16 on GPU, INT8 on CPU) in the default flow. "agent" (default) and the legacy alias "local" behave identically. If the
                 reranker is explicitly disabled or unbuildable, ordering falls back to vector/coverage order
                 (`reranked=false`).
         """
@@ -24670,7 +24662,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
         Call after all changes are admitted and docs validation passes — this is the required stage gate before implementation begins.
 
-        Modes (wave 1p45l — readiness is decoupled from activation):
+        Modes (readiness is decoupled from activation):
           - "dry_run" (default): read-only validation; never takes the single-OPEN slot.
           - "ready": full readiness (relocate + garden + lint + council verdict) recorded WITHOUT
             activating — the wave stays ``planned`` ("readied"). No single-OPEN guard, so any number
@@ -24681,7 +24673,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Only one wave may be OPEN (active/implementing) at a time; that guard is enforced at the
         activation step (wf_implement_wave / wf_reopen_wave / prepare create), not at readiness.
 
-        Focus and outcome classes (wave 1tmb3): ``ready_for_council_review``
+        Focus and outcome classes: ``ready_for_council_review``
         (technical checks passed; run the prepare council next) is explicitly
         target-engaged — it publishes the target wave's durable accounting AND
         moves context-efficiency focus to that wave at stage ``plan``, because
@@ -24742,7 +24734,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Call at session end when work is incomplete and must resume in a later session.
         Captures current state so the next session can pick up without re-discovering context.
 
-        Focus clear (wave 1tmb3): a mutating pause's desired end state is NO
+        Focus clear: a mutating pause's desired end state is NO
         focus, so a successful ``create`` runs ``clear_focus`` through the
         shared focus primitive. If the clear fails, the pause stays successful
         and prior focus remains; the response reports ``focus_error`` plus a
@@ -24944,7 +24936,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
         ``event`` is ``approval``, ``finding``, ``run``, or ``list``.
 
-        ``event="list"`` (wave 1t59p) is the READ-ONLY forensic/history surface for the
+        ``event="list"`` is the READ-ONLY forensic/history surface for the
         ledger: it returns a compact per-record index (identity, type, run kind,
         cycle, finding, lanes, supersession, verification context), a per-finding
         ``chain_summary`` (current head, disposition, repair state, unresolved
@@ -25343,7 +25335,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def wf_close_wave(wave_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
         """Dry-run or close a wave after validation passes.
 
-        Secrets gate (wave 1p3rm, updated 1p5pz): Before close mutations are written,
+        Secrets gate: Before close mutations are written,
         wf_close_wave reads docs/scan-findings.json:
           - HARD BLOCK: any entry with status 'pending' or 'suspected-secret' blocks close
             (unresolved). Run the security reviewer (seed-213) to classify each as
@@ -25354,17 +25346,17 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             'confirmed_secrets' list + a 'secrets_reminder' string in the response data
             listing all confirmed secrets; the agent must present this reminder to the
             operator so known secrets stay visible. Remediate (rotate/remove) before
-            distribution. The pre-1p5pz per-wave acknowledged_for_wave / override_reason
-            soft-block was dropped; those fields are tolerated on legacy findings but unused.
+            distribution. Legacy acknowledged_for_wave / override_reason fields on a
+            finding are tolerated but unused; they do not block or unblock close.
 
-        Scanner coverage (wave 1x5tr): normal gate-error and successful responses
+        Scanner coverage: normal gate-error and successful responses
         include data.scanner_skips when outstanding guard skips are recorded, with
         file, reason and detail per row. data.scanner_skips_error instead reports
         unreadable/malformed coverage history. Both are advisory, never new close
         blockers. Missing history means no recorded skips, not complete coverage.
-        The added reader is read-only; existing docs validation still runs scanning.
+        The coverage reader is read-only; docs validation still runs scanning.
 
-        Repair-independence audit (wave 1tmb2): while the target wave's status
+        Repair-independence audit: while the target wave's status
         is non-closed (including explicitly reopened archives), close audits
         each finding's current/latest repair chain and surfaces
         ``review_evidence_independence_invalid`` when the terminal
@@ -25464,7 +25456,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wf_new_feature(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Retired: the feat kind is no longer minted for new change docs (wave 1zli8).
+        """Retired: the feat kind is no longer minted for new change docs.
 
         Always returns a change_kind_retired error and writes nothing; existing feat ids
         stay valid. Use wf_new_enhancement instead, and plan a large feature as several
@@ -25610,14 +25602,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def index_health(**kwargs: Any) -> dict[str, Any]:
         """Check the semantic and graph index health for the project index layer.
 
-        Wave 1p4ww folded the framework docs into this single project index.
+        The framework docs are part of this single project index.
         Returns per-layer ``readiness`` (``missing`` / ``stale`` / ``current`` / ``idle``),
         aggregate ``readiness_overview`` (``incomplete`` / ``needs_update`` / ``degraded`` /
         ``absent`` / ``ready``), ``compatible_chunks``, ``stale_layers``, ``missing_layers``,
         and ``semantic_ready``. Use this to diagnose index issues explicitly rather than
         inferring them from degraded docs_search results.
 
-        Graph index health (wave 1316n): the response carries a ``graph`` object per layer
+        Graph index health: the response carries a ``graph`` object per layer
         with the following fields when the graph artifact exists:
 
         - ``present`` (bool) — whether a graph index is stored for this layer.
@@ -25629,7 +25621,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         or ``content='all'`` was rebuilt without ``content='graph'``). Inspect both
         signals when planning a refresh.
 
-        Index size (wave 1p9a9): the response carries a ``size`` object — ``total_bytes``,
+        Index size: the response carries a ``size`` object — ``total_bytes``,
         ``total_human``, and a per-component ``components`` map (``index.sqlite`` /
         ``memory-state.sqlite`` / …) for the on-disk index — so storage growth is visible without ``du``.
 
@@ -25639,7 +25631,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         process-local observability; use ``index_build_status.lock.held`` as
         the authority for whether an index build is currently running.
 
-        ``reap`` (wave 1x6ti, 1x551): when the index-state store holds the
+        ``reap``: when the index-state store holds the
         eligibility reap's persisted record, the response carries ``deferred``
         (per-table ``{would_reap, table_paths}`` the mass-removal breaker
         refused to reap), ``preserved`` (per-table row-path counts kept under
@@ -25647,7 +25639,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         ``stranded_reap_deferred`` and ``stranded_reap_preserved`` diagnostics
         name the remedy for each non-empty map. Absent when no record exists.
 
-        Derived-state integrity (wave 1wpif): ``state_store.fts`` carries the
+        Derived-state integrity: ``state_store.fts`` carries the
         per-table lexical verdict (liveness, FTS/registry row parity, the
         recorded payload digest, the last heal attempt) read from the epoch
         cache, and ``state_store.chunk_index`` carries any ``id_collisions``
@@ -25681,7 +25673,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         ``wave`` (current wave record), ``validation`` (lint pass/fail + errors),
         and ``index`` (bounded metadata readiness snapshot).
 
-        The index leg is metadata-only by design (wave 1t59p): it reads the
+        The index leg is metadata-only by design: it reads the
         completed-build epoch, table-directory presence, and recorded store meta,
         and never cold-loads native storage or hashes the working tree. It
         therefore reports ``freshness: "unknown"`` / ``freshness_checked: false`` —
@@ -25740,14 +25732,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           and ``code_graph_community`` lives in the graph layer. Pass ``content='graph'`` to
           refresh it (the semantic ``docs``/``code`` rebuilds do NOT touch the graph).
         - ``map`` — regenerate **only the codebase map** (``docs/references/codebase-map.md``)
-          from the existing graph/cluster artifacts (wave 1p601). This path forces a render,
+          from the existing graph/cluster artifacts. This path forces a render,
           performs no full index rebuild, and remains fail-safe. Ordinary index builds do not
           regenerate the map. Newly registered
           MCP resources are startup-bound and require reconnect/restart. For new tools or tool
           options, start a fresh turn first; reconnect only if the schema is still stale, and
           restart the host last. The server cannot observe whether a client adopted the change.
         - ``fts`` — rebuild **only the derived lexical layer** (the index-state store's FTS5
-          tables + chunk registry) from scratch off the canonical SQLite chunks (wave 1sc7c).
+          tables + chunk registry) from scratch off the canonical SQLite chunks.
           Embedding-free and in-process — seconds. The clean recovery when
           ``index_health`` reports ``chunk_index_undercovered`` or the lexical layer is
           suspected corrupt/stale; no semantic re-embed, vectors untouched. ``mode`` is
@@ -25757,17 +25749,17 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - ``mode`` — the resolved build mode (``update`` or ``rebuild``).
         - ``index_scope`` — what was rebuilt (e.g. ``docs``, ``code``, ``all``, ``graph``).
         - ``stats`` — runtime per-layer counts (files added/updated/removed, chunks).
-        - ``graph_rebuilt`` (bool, wave 1316n) — true when this call rebuilt the graph layer.
-        - ``graph_node_count`` / ``graph_edge_count`` (int, when graph artifact exists, wave 1316n)
+        - ``graph_rebuilt`` (bool) — true when this call rebuilt the graph layer.
+        - ``graph_node_count`` / ``graph_edge_count`` (int, when graph artifact exists)
           — current node and edge counts for the project graph.
-        - ``graph_last_built_at`` (ISO timestamp, when graph artifact exists, wave 1316n) —
+        - ``graph_last_built_at`` (ISO timestamp, when graph artifact exists) —
           when the graph was last rebuilt. When ``content`` is not ``'graph'``, a clarifying
           notice surfaces inline so operators know the graph layer was not touched by this call.
 
         Args:
             content: One of `docs`, `code`, `all`, `graph`, or `map`.
             mode: `update` (incremental) or `rebuild` (full). For `graph`, always use `rebuild`. Ignored for `map`.
-            layer: `project` (the only layer; the framework layer was removed in 1p4ww).
+            layer: `project` (the only layer).
         """
         bad = _ensure_no_extra_args("index_build", kwargs)
         if bad is not None:
@@ -25809,11 +25801,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         distinguishes a clean finish from an interrupted build (absent ⇒ the last build was
         killed and the index may be partial). A build held by THIS server process (fts
         rebuild, index_optimize) is reported `held: true` with this process as owner from
-        an in-process record, without opening the lock file (wave 1za2y). When `state` is
+        an in-process record, without opening the lock file. When `state` is
         'running' from the background setup process while `lock.held` is false, a
         `state_note` says which field answers which question.
 
-        `reap` (wave 1x6ti, 1x551): in every state, the eligibility reap's persisted
+        `reap`: in every state, the eligibility reap's persisted
         record when one exists — `deferred` (per-table `{would_reap, table_paths}` the
         mass-removal breaker refused), `preserved` (per-table row-path counts served as
         of the last readable build), `recorded_generation`, `recorded_at` — the same
@@ -26139,7 +26131,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def wf_techdocs_baseline(mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
         """Generate the missing-only Backstage catalog + TechDocs baseline (catalog-info.yaml,
         mkdocs.yml, docs/index.md) for this repository; the MCP entry of `wf techdocs-baseline`,
-        same backing function (wave 1vj4e).
+        same backing function.
 
         Read-first: `mode="dry_run"` (default) runs the navigation-target precondition and the
         containment classification, reports `absent_paths` (what run would write), the present
@@ -26519,7 +26511,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           overlapping the requested range (renderer-owned; do not edit)
         - ``total_lines`` (full reads) OR ``has_more`` (mid-file partial reads)
 
-        Wave 1p3dk / 1p3ha: range-aware streaming — for partial reads, only the
+        Range-aware streaming: for partial reads, only the
         requested lines (plus one for has_more detection) are read from disk.
 
         **NOTE:** This tool's read does NOT satisfy the harness's Edit/Write
@@ -26623,7 +26615,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             limit: Cap on returned results (default 50; matches ``code_pattern`` / ``code_references``).
                 When the cap fires the response includes ``truncated: true`` and ``total_matches_found``
                 so the caller sees there's more. Pass ``limit=0`` for exhaustive results.
-                Wave 1p3dk addition — prevents response-token-cap overflow on prevalent tokens.
+                The cap prevents response-token-cap overflow on prevalent tokens.
             graph: When True (default), append 1-hop ``graph_neighbors`` for top hits. Pass ``graph=False`` to suppress augmentation when you need the lean response.
             graph_limit: Number of top hits to expand when ``graph=True`` (default 5). Use 0 for no cap.
             layer: Graph layer for ``graph=True`` (default ``project``).
@@ -26694,7 +26686,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - coverage: per-table lexical coverage vs vectors (present when the store reports it).
         - A `chunk_index_undercovered` diagnostic when a searched table is materially behind —
           zero results on an under-covered store mean "store not healed yet", not "absent".
-        - Typed failure (wave 1wpif, `1wpag`): every FTS read goes through one probed-serving
+        - Typed failure: every FTS read goes through one probed-serving
           chokepoint keyed by the completed epoch. When a requested table's lexical state is
           damaged (missing or empty table, corrupt shadow row, payload digest mismatch) the
           response is `status: error` with `failure_reason: query_failed`, `damaged_tables`,
@@ -26749,7 +26741,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Use code_keyword when searching for arbitrary substrings rather than
         constant assignments specifically.
 
-        Multi-language (wave 1p4pz): finds module-/type-level constants across all
+        Multi-language: finds module-/type-level constants across all
         languages — Python module + class constants, Java ``static final``, Go/C#
         ``const``, Kotlin ``const val``, Rust ``const``, Swift ``static let``,
         Ruby/PHP constants, JS/TS ``const`` (plus TS ``enum``/``const enum`` members
@@ -26826,7 +26818,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                   `**/` matches zero or more directories (so "**/*.py" includes top-level files) and `*` also crosses `/`.
             limit: Maximum number of matches to return (default 50; matches
                 ``code_keyword`` / ``code_references`` convention). Pass ``limit=0``
-                for no cap. Wave 1p3dk: canonical name for the result-cap parameter.
+                for no cap. ``limit`` is the canonical name for the result-cap parameter.
             ignore_case: Apply re.IGNORECASE when True.
             max_results: **Deprecated alias for ``limit``.** Backward-compat shim
                 — when both are supplied, ``max_results`` wins (operator-explicit
@@ -27039,13 +27031,13 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - definition_file: path of the file where the symbol is defined (null if not found)
         - outgoing: list of {name, file, line, snippet, call_site, node_id, kind, relation, confidence,
           community_id, community} — symbols called by
-          this symbol (when direction includes "outgoing"). ``community_id`` (wave 1316r) is the
+          this symbol (when direction includes "outgoing"). ``community_id`` is the
           stable identifier of the caller's community, useful for grouping cross-cutting changes.
         - incoming: list of {name, file, line, snippet, call_site, node_id, kind, relation, confidence,
           community_id, community} — symbols that call
           this symbol (when direction includes "incoming"). ``community_id`` is the stable
           community id of each caller (stable across graph rebuilds, unlike Leiden numbering).
-          Wave 1wpaj added ``node_id``, ``kind``, ``relation`` and ``confidence`` to BOTH lists so a
+          BOTH lists carry ``node_id``, ``kind``, ``relation`` and ``confidence`` so a
           caller can apply the edge-trust policy to an individual entry without a second graph
           call. ``confidence`` is the discriminating field (RECEIVER_RESOLVED /
           CONSTRUCTION_RESOLVED / EXTRACTED); ``relation`` is constant for this response because
@@ -27057,7 +27049,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
           use ``call_site`` for the calling expression. Incoming top-level locations retain
           their caller-site meaning. External entries have null line, snippet and call_site.
         - external_outgoing_count, external_incoming_count: number of external (non-project) entries
-          suppressed from the lists (wave 130ol). Set ``include_external=True`` to surface them inline.
+          suppressed from the lists. Set ``include_external=True`` to surface them inline.
         - supertypes: present when the symbol's class declares supertypes —
           ``{project: [...], external_implements_count, external_extends_count}`` always, plus the
           ``external`` entry list (``{id, name, relation, confidence}``) when ``include_external=True``.
@@ -27087,7 +27079,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             file: Optional repo-relative file path to disambiguate when the symbol appears in multiple files.
             direction: "both" (default), "outgoing" (callee direction only), or "incoming" (caller direction only).
             context_depth: When > 0, appends a ``context`` list with one additional BFS hop from all immediate callers/callees (single combined traversal). Default 0 (no expansion).
-            include_external: When True, includes entries whose target is an external (non-project) symbol — surfaced as ``file: "external"`` with no line/snippet. Default False (wave 130ol): external entries are suppressed and counted in ``external_outgoing_count`` / ``external_incoming_count``.
+            include_external: When True, includes entries whose target is an external (non-project) symbol — surfaced as ``file: "external"`` with no line/snippet. Default False: external entries are suppressed and counted in ``external_outgoing_count`` / ``external_incoming_count``.
         """
         bad = _ensure_no_extra_args("code_callhierarchy", kwargs)
         if bad is not None:
@@ -27131,7 +27123,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     ) -> dict[str, Any]:
         """Find the lowest-cost connecting path between two graph symbols.
 
-        Wave 1p2q3 (1p2q4): path search is weighted-cost Dijkstra-equivalent
+        Path search is weighted-cost Dijkstra-equivalent
         rather than shortest-hop BFS. Per-edge cost reflects semantic weight:
         deterministic-attribution call edges cost 1 (RECEIVER_RESOLVED /
         CONSTRUCTION_RESOLVED), heuristic call edges cost 2 (EXTRACTED),
@@ -27162,7 +27154,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - direction: echoes the resolved direction value
         - suggestions: list of {id, label, kind} near-match candidates when either symbol is unresolvable
 
-        Structured diagnostic (wave 1p2q3): when the resolved path contains
+        Structured diagnostic: when the resolved path contains
         zero ``calls`` edges, the response includes ``path_is_structural`` —
         endpoints share structural reachability but no direct call chain.
         Common case: caller passed ``relations=["imports"]`` explicitly OR the
@@ -27230,7 +27222,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Read ``wavefoundry://graph/communities`` first to discover available community ids
         without a tool call.
 
-        Pagination (wave 130rj — field feedback §1.3): default ``limit=50`` so
+        Pagination: default ``limit=50`` so
         communities of 50+ members stay within agent context limits. Use ``offset`` to
         page; ``has_more`` in the response indicates whether further pages exist.
 
@@ -27242,14 +27234,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - offset: the requested page offset
         - has_more: true when more members exist past this page
         - nodes: page of {id, label, kind, source_file, degree} sorted by degree descending
-        - community_hub_node_id / hub_label (wave 1316r): the highest-degree member of
+        - community_hub_node_id / hub_label: the highest-degree member of
           the community, identified by node id. Stable across graph rebuilds — pass this
           back via the ``hub_node_id`` parameter for cached/persisted references rather
           than the ``community_id`` (which Leiden re-clustering renumbers between builds).
-        - community_size_class (wave 1312j): ``"small"`` (< 50) / ``"medium"`` (50–200) /
+        - community_size_class: ``"small"`` (< 50) / ``"medium"`` (50–200) /
           ``"large"`` (200+) — always present. Use this to decide whether to page through
           members or follow the advisory.
-        - large_community_advisory (wave 1312j): structured diagnostic present when
+        - large_community_advisory: structured diagnostic present when
           ``total_node_count > 200``. Carries
           ``recovery_tools: ["code_callhierarchy", "code_graph_path"]`` and ``recovery_usage``
           pointing at the hub's ``code_callhierarchy`` call. Follow it instead of paging
@@ -27266,7 +27258,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             community_id: Community ID as returned in the cluster artifact or wf_graph_report.
                 Stable within a single graph build; Leiden re-clustering across rebuilds
                 renumbers these. Use ``hub_node_id`` for cross-rebuild stability.
-            hub_node_id: Stable community anchor (wave 1316r). The id of the community's
+            hub_node_id: Stable community anchor. The id of the community's
                 highest-degree member, which is persistent across graph rebuilds (node ids
                 don't churn even when Leiden ids do). When provided, the tool resolves to
                 the current community containing this node. ``community_id`` wins when

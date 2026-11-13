@@ -290,12 +290,24 @@ class UpgradeMcpFirstGuidanceTests(unittest.TestCase):
                 )
 
     def test_tool_lists_and_spec_name_wf_upgrade_tools(self) -> None:
-        # AC-2: AGENTS.md available-tools list + the spec name both upgrade tools.
-        agents = self._read("AGENTS.md")
-        self.assertIn("`wf_upgrade`", agents)
-        self.assertIn("`wf_upgrade_status`", agents)
+        # AC-2: the spec's Tool Index (the enforced tool inventory, change 237eh)
+        # and the spec's detailed entries name both upgrade tools.
         spec = self._read("docs/specs/mcp-tool-surface.md")
+        index = re.search(r"^### Tool Index\n(.*?)(?=^#)", spec, flags=re.MULTILINE | re.DOTALL)
+        self.assertIsNotNone(index, "docs/specs/mcp-tool-surface.md has no Tool Index")
+        self.assertRegex(index.group(1), r"(?m)^\| `wf_upgrade` \|")
+        self.assertRegex(index.group(1), r"(?m)^\| `wf_upgrade_status` \|")
         self.assertIn("wf_upgrade_status()", spec)
+
+    def test_agents_md_points_at_the_tool_index_instead_of_listing_tools(self) -> None:
+        # AC-4 (change 237eh): AGENTS.md carries no duplicate tool list; its MCP
+        # Server section names the spec's Tool Index and wf_help.
+        agents = self._read("AGENTS.md")
+        self.assertNotIn("**Available tools:**", agents)
+        mcp = re.search(r"^## MCP Server\n(.*?)(?=^## )", agents, flags=re.MULTILINE | re.DOTALL)
+        self.assertIsNotNone(mcp, "AGENTS.md has no ## MCP Server section")
+        self.assertIn("`docs/specs/mcp-tool-surface.md` § **Tool Index**", mcp.group(1))
+        self.assertIn("`wf_help`", mcp.group(1))
 
 
 class McpPythonLaunchGuidanceTests(unittest.TestCase):

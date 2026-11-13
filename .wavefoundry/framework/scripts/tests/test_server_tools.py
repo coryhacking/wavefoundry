@@ -2698,6 +2698,420 @@ class ServerStdioTransportTests(unittest.TestCase):
         self.assertEqual(events, ["configure", "build", ("run", "stdio")])
 
 
+# --- Tool Index in docs/specs/mcp-tool-surface.md (change 237eh) -------------
+# The spec's Tool Index is the enforced inventory of the shipped tool surface.
+# These helpers parse the spec text deterministically; the tests below compare
+# the result with the live base-declaration registration.
+
+TOOL_SPEC_REL_PATH = "docs/specs/mcp-tool-surface.md"
+TOOL_INDEX_HEADING = "Tool Index"
+TOOL_INDEX_PARENT_HEADING = "Current Tool Surface"
+TOOL_INDEX_HEADER = ("Tool", "Tier", "Summary", "Detail")
+_TOOL_FAMILY_PREFIX = "wf_new_"
+_TOOL_FAMILY_CELL = "`wf_new_<kind>`"
+
+
+def tool_spec_first_sentence(description: str) -> str:
+    """The first sentence of a tool description, whitespace normalized.
+
+    A sentence ends at the first ``.``, ``!`` or ``?`` followed by whitespace or
+    the end of the text; a description without one is returned whole.
+    """
+    text = " ".join((description or "").split())
+    match = re.match(r"(.+?[.!?])(?=\s|$)", text)
+    return match.group(1) if match else text
+
+
+def tool_spec_escape_cell(text: str) -> str:
+    """Escape a value for one Markdown table cell (pipes only)."""
+    return text.replace("|", "\\|")
+
+
+def _tool_spec_split_cells(line: str) -> list[str]:
+    body = line.strip()
+    if body.startswith("|"):
+        body = body[1:]
+    if body.endswith("|") and not body.endswith("\\|"):
+        body = body[:-1]
+    cells = re.split(r"(?<!\\)\|", body)
+    return [cell.strip().replace("\\|", "|") for cell in cells]
+
+
+def _tool_spec_close_paren(text: str) -> int:
+    """Index of the ``)`` closing the ``(`` at ``text[0]``, or -1 when unclosed."""
+    depth = 0
+    quote = ""
+    for i, ch in enumerate(text):
+        if quote:
+            if ch == quote:
+                quote = ""
+            continue
+        if ch in "\"'":
+            quote = ch
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
+def _tool_spec_signature_end(text: str) -> int:
+    """Index of the ``)`` that closes the signature at ``text[0]``, or -1.
+
+    A signature is one code span: its closing paren is followed by the closing
+    backtick and its argument text holds no backtick, so a ``)`` in stray prose
+    or in a later code span leaves it unclosed.
+    """
+    end = _tool_spec_close_paren(text)
+    if end < 0 or text[end + 1:end + 2] != "`" or "`" in text[1:end]:
+        return -1
+    return end
+
+
+def _tool_spec_split_top(text: str, sep: str) -> list[str]:
+    """``text`` split on ``sep`` outside quotes and brackets."""
+    parts: list[str] = []
+    depth = 0
+    quote = ""
+    current = ""
+    for ch in text:
+        if quote:
+            current += ch
+            if ch == quote:
+                quote = ""
+            continue
+        if ch in "\"'":
+            quote = ch
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        if ch == sep and depth == 0:
+            parts.append(current)
+            current = ""
+        else:
+            current += ch
+    parts.append(current)
+    return parts
+
+
+_TOOL_SPEC_NAME = r"[A-Za-z_][A-Za-z0-9_]*"
+_TOOL_SPEC_DOTTED = re.compile(r"%s(?:\.%s)*" % (_TOOL_SPEC_NAME, _TOOL_SPEC_NAME))
+_TOOL_SPEC_STRING = re.compile(r"\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'")
+_TOOL_SPEC_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def _tool_spec_close_group(text: str) -> int:
+    """Index of the bracket closing ``text[0]``, quotes and nesting aware, or -1."""
+    depth = 0
+    quote = ""
+    for i, ch in enumerate(text):
+        if quote:
+            if ch == quote:
+                quote = ""
+            continue
+        if ch in "\"'":
+            quote = ch
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
+def _tool_spec_is_type(text: str) -> bool:
+    """A type is names joined by ``|``, each optionally followed directly by one bracket group."""
+    for piece in _tool_spec_split_top(text, "|"):
+        piece = piece.strip()
+        match = _TOOL_SPEC_DOTTED.match(piece)
+        if not match:
+            return False
+        rest = piece[match.end():]
+        if rest and not (rest[0] == "[" and _tool_spec_close_group(rest) == len(rest) - 1):
+            return False
+    return True
+
+
+def _tool_spec_is_default(text: str) -> bool:
+    """A default is one literal, name, bracket group or ``...``."""
+    text = text.strip()
+    return (text == "..." or bool(_TOOL_SPEC_STRING.fullmatch(text))
+            or bool(_TOOL_SPEC_NUMBER.fullmatch(text)) or bool(_TOOL_SPEC_DOTTED.fullmatch(text))
+            or (bool(text) and text[0] in "([{" and _tool_spec_close_group(text) == len(text) - 1))
+
+
+def _tool_spec_parse_arg(part: str) -> str | None:
+    """The parameter name of one argument, or None when it is not ``name[*] [: type] [= default]``."""
+    match = re.match(r"(%s\*?)\s*" % _TOOL_SPEC_NAME, part)
+    if not match:
+        return None
+    rest = part[match.end():]
+    if rest.startswith(":"):
+        pieces = _tool_spec_split_top(rest[1:], "=")
+        if len(pieces) > 2 or not _tool_spec_is_type(pieces[0]):
+            return None
+        default = pieces[1] if len(pieces) == 2 else None
+    elif rest.startswith("="):
+        pieces = _tool_spec_split_top(rest[1:], "=")
+        if len(pieces) != 1:
+            return None
+        default = pieces[0]
+    elif rest:
+        return None
+    else:
+        default = None
+    if default is not None and not _tool_spec_is_default(default):
+        return None
+    return match.group(1)
+
+
+def _tool_spec_arg_names(inner: str) -> tuple[list[str], list[str]]:
+    """Parameter names in a signature's argument text, and the arguments that are not.
+
+    Arguments split on top-level commas. Each must have the strict form
+    ``name[*] [: type] [= default]``: a type is names joined by ``|``, each
+    optionally followed directly by one bracket group; a default is one
+    literal, name, bracket group or ``...``. A trailing ``*`` on the name marks
+    a prefix wildcard such as ``rewrite_*``. A bare ``...`` placeholder and the
+    empty argument of a zero-argument signature name nothing. Any other
+    argument, such as prose, a quoted name, a ``**`` argument or two
+    arguments run together by a missing comma, is returned as unparseable.
+    """
+    names: list[str] = []
+    bad: list[str] = []
+    for part in _tool_spec_split_top(inner, ","):
+        part = part.strip()
+        if not part or part == "...":
+            continue
+        name = _tool_spec_parse_arg(part)
+        if name is None:
+            bad.append(part)
+        else:
+            names.append(name)
+    return names, bad
+
+
+def parse_tool_spec(text: str, tool_names) -> dict:
+    """Headings, entry forms and Tool Index rows of the tool spec.
+
+    Forms are recognized outside fenced code only: a signature at the start of
+    a line or list item (its argument list may wrap onto following lines), a
+    second signature joined on the same line by ``and``, a definition bullet
+    (``- `name` — ...``) and, for ``wf_new_`` tools, the family table row.
+    Each form records the tool, its kind (``sig``, ``def`` or ``family``), its
+    parameter names and unparseable arguments (signatures only) and its
+    0-based line number.
+    """
+    names = sorted(set(tool_names), key=len, reverse=True)
+    alt ="|".join(re.escape(n) for n in names) or r"(?!)"
+    sig_start = re.compile(r"^\s*(?:[-*]\s+)?`(%s)\(" % alt)
+    joined_sig = re.compile(r"`\s+and\s+`(%s)\(" % alt)
+    def_bullet = re.compile(r"^\s*[-*]\s+`(%s)`\s+—" % alt)
+    lines = text.split("\n")
+    headings: list[tuple[int, str, int]] = []
+    forms: list[dict] = []
+    unclosed: list[dict] = []
+    in_fence = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            i += 1
+            continue
+        if in_fence:
+            i += 1
+            continue
+        heading = re.match(r"^(#{1,6})\s+(.*?)\s*$", line)
+        if heading:
+            headings.append((len(heading.group(1)), heading.group(2), i))
+            i += 1
+            continue
+        match = sig_start.match(line)
+        if match:
+            buf = line[match.end() - 1:]
+            j = i
+            # A wrapped argument list continues until its closing paren. A
+            # blank line, a heading or a fence bounds the scan; that bound
+            # detects nothing. Detection is elsewhere: the paren must end the
+            # code span (``_tool_spec_signature_end``), an unclosed signature
+            # is reported and scanning resumes on its next line, and every
+            # argument must have the strict form (``_tool_spec_arg_names``),
+            # so prose swallowed into the list is reported, not dropped.
+            while _tool_spec_close_paren(buf) < 0 and j + 1 < len(lines):
+                following = lines[j + 1]
+                if not following.strip() or following.lstrip().startswith(("#", "```")):
+                    break
+                j += 1
+                buf += " " + following.strip()
+            end = _tool_spec_signature_end(buf)
+            if end < 0:
+                unclosed.append({"tool": match.group(1), "line": i})
+                i += 1
+                continue
+            params, bad = _tool_spec_arg_names(buf[1:end])
+            forms.append({"tool": match.group(1), "kind": "sig",
+                          "params": params, "bad": bad, "line": i})
+            rest = buf[end + 1:]
+            for joined in joined_sig.finditer(rest):
+                tail = rest[joined.end() - 1:]
+                tail_end = _tool_spec_signature_end(tail)
+                if tail_end < 0:
+                    unclosed.append({"tool": joined.group(1), "line": i})
+                    continue
+                params, bad = _tool_spec_arg_names(tail[1:tail_end])
+                forms.append({"tool": joined.group(1), "kind": "sig",
+                              "params": params, "bad": bad, "line": i})
+            i = j + 1
+            continue
+        match = def_bullet.match(line)
+        if match:
+            forms.append({"tool": match.group(1), "kind": "def", "params": None, "line": i})
+        elif line.lstrip().startswith("|") and _tool_spec_split_cells(line)[0] == _TOOL_FAMILY_CELL:
+            for name in names:
+                if name.startswith(_TOOL_FAMILY_PREFIX):
+                    forms.append({"tool": name, "kind": "family", "params": None, "line": i})
+        i += 1
+    return {"lines": lines, "headings": headings, "forms": forms, "unclosed": unclosed}
+
+
+def _tool_spec_section(headings, index: int, total_lines: int) -> tuple[int, int]:
+    level, _title, start = headings[index]
+    end = total_lines
+    for other_level, _other, other_line in headings[index + 1:]:
+        if other_level <= level:
+            end = other_line
+            break
+    return start, end
+
+
+def _tool_spec_param_mismatch(documented, accepted) -> tuple[list[str], list[str]]:
+    """(extra, missing) parameter names; ``prefix*`` covers names by prefix."""
+    plain = {n for n in documented if not n.endswith("*")}
+    wildcards = [n[:-1] for n in documented if n.endswith("*")]
+    extra = sorted(n for n in plain if n not in accepted)
+    extra += sorted(w + "*" for w in wildcards if not any(a.startswith(w) for a in accepted))
+    covered = plain | {a for a in accepted if any(a.startswith(w) for w in wildcards)}
+    missing = sorted(a for a in accepted if a not in covered)
+    return extra, missing
+
+
+def tool_spec_index_rows(parsed: dict) -> tuple[list[dict], list[str]]:
+    """The Tool Index rows and any structural problems with the index."""
+    headings, lines = parsed["headings"], parsed["lines"]
+    positions = [k for k, h in enumerate(headings) if h[1] == TOOL_INDEX_HEADING]
+    if len(positions) != 1:
+        return [], [f"index: heading '{TOOL_INDEX_HEADING}' found {len(positions)} times"]
+    k = positions[0]
+    problems: list[str] = []
+    parent = k - 1
+    if parent < 0 or headings[parent][1] != TOOL_INDEX_PARENT_HEADING or headings[parent][0] >= headings[k][0]:
+        problems.append(f"index: '{TOOL_INDEX_HEADING}' is not the first heading under '{TOOL_INDEX_PARENT_HEADING}'")
+    start, end = _tool_spec_section(headings, k, len(lines))
+    table = [ln for ln in lines[start + 1:end] if ln.lstrip().startswith("|")]
+    if not table or tuple(_tool_spec_split_cells(table[0])) != TOOL_INDEX_HEADER:
+        return [], problems + [f"index: header row is not {' | '.join(TOOL_INDEX_HEADER)}"]
+    rows: list[dict] = []
+    for ln in table[1:]:
+        cells = _tool_spec_split_cells(ln)
+        if all(re.fullmatch(r":?-+:?", c) for c in cells):
+            continue
+        if len(cells) != 4 or not re.fullmatch(r"`[a-z][a-z0-9_]*`", cells[0]):
+            problems.append(f"index: malformed row {ln.strip()!r}")
+            continue
+        rows.append({"tool": cells[0].strip("`"), "tier": cells[1],
+                     "summary": cells[2], "detail": cells[3]})
+    return rows, problems
+
+
+def tool_spec_problems(text: str, registry: dict) -> list[str]:
+    """Every way the spec's tool documentation disagrees with ``registry``.
+
+    ``registry`` maps each registered tool name to ``{"tier", "summary",
+    "params"}``. Checks the six Tool Index conditions: exact tool set, tier,
+    first-sentence summary, detail heading present once with an entry for the
+    tool, exact parameters on the main signature, and no unknown parameter on
+    any other signature of a registered tool.
+    """
+    parsed = parse_tool_spec(text, registry)
+    rows, problems = tool_spec_index_rows(parsed)
+    headings, forms, total = parsed["headings"], parsed["forms"], len(parsed["lines"])
+    for sig in parsed["unclosed"]:
+        problems.append(f"signature: {sig['tool']} (line {sig['line'] + 1}) has no closing parenthesis")
+    if not rows and problems:
+        return problems
+    listed = [r["tool"] for r in rows]
+    for name in sorted(set(registry) - set(listed)):
+        problems.append(f"index: registered tool {name} has no row")
+    for name in sorted(set(listed) - set(registry)):
+        problems.append(f"index: row for unregistered tool {name}")
+    for name in sorted({n for n in listed if listed.count(n) > 1}):
+        problems.append(f"index: duplicate rows for {name}")
+    main_lines: dict[str, int] = {}
+    for row in rows:
+        name = row["tool"]
+        if name not in registry:
+            continue
+        entry = registry[name]
+        if row["tier"] != entry["tier"]:
+            problems.append(f"tier: {name} row says {row['tier']!r}, registration says {entry['tier']!r}")
+        if row["summary"] != entry["summary"]:
+            problems.append(f"summary: {name} row differs from the registered first sentence {entry['summary']!r}")
+        matches = [k for k, h in enumerate(headings) if h[1] == row["detail"]]
+        if len(matches) != 1:
+            problems.append(f"heading: {name} names {row['detail']!r}, found {len(matches)} times")
+            continue
+        start, end = _tool_spec_section(headings, matches[0], total)
+        in_section = [f for f in forms if f["tool"] == name and start < f["line"] < end]
+        if not in_section:
+            problems.append(f"entry: {name} has no detailed entry in section {row['detail']!r}")
+            continue
+        main = in_section[0]
+        main_lines[name] = main["line"]
+        if main["kind"] == "def":
+            problems.append(
+                f"main: {name} (line {main['line'] + 1}) is a definition bullet; write a signature")
+        elif main["kind"] == "sig":
+            extra, missing = _tool_spec_param_mismatch(main["params"], entry["params"])
+            if extra or missing:
+                problems.append(
+                    f"main: {name} (line {main['line'] + 1}) extra {extra} missing {missing}")
+    for form in forms:
+        if form["kind"] == "sig" and form["tool"] in registry:
+            for part in form["bad"]:
+                problems.append(
+                    f"argument: {form['tool']} (line {form['line'] + 1}) has unparseable argument {part!r}")
+    for form in forms:
+        name = form["tool"]
+        if form["kind"] != "sig" or main_lines.get(name) == form["line"] or name not in registry:
+            continue
+        extra, _missing = _tool_spec_param_mismatch(form["params"], registry[name]["params"])
+        if extra:
+            problems.append(f"usage: {name} (line {form['line'] + 1}) names unknown {extra}")
+    return problems
+
+
+def tool_spec_registry(srv, mcp) -> dict:
+    """The live registration in the shape ``tool_spec_problems`` reads."""
+    import mcp_tool_roster
+
+    tiers = mcp_tool_roster.all_tool_tiers()
+    descriptions = srv._registered_mcp_tool_descriptions(mcp)
+    tools = mcp._tool_manager._tools
+    return {
+        name: {
+            "tier": tiers.get(name),
+            "summary": tool_spec_first_sentence(descriptions.get(name, "")),
+            "params": set(((tool.parameters or {}).get("properties") or {}).keys()),
+        }
+        for name, tool in tools.items()
+    }
+
+
 class ServerToolRegistrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -2798,33 +3212,241 @@ class ServerToolRegistrationTests(unittest.TestCase):
         viol = self.srv.first_party_tool_names_violating_prefix(names)
         self.assertEqual(viol, [], f"Prefix violations: {viol}")
 
-    def test_agents_available_tools_census_matches_registration(self):
-        """The root guide labels this list exhaustive, so keep it executable."""
-        # The guide lists the shipped surface: boot it on the shipped empty
+    def _base_tool_registry(self) -> dict:
+        # The index documents the shipped surface: boot it on the shipped empty
         # declaration, whatever a distribution declares (change 1zim4).
         apply_base_declaration(self)
         try:
             mcp = load_thin_runner().build_server(self.root)
         except ImportError:
             self.skipTest("mcp package not installed")
+        registry = tool_spec_registry(self.srv, mcp)
+        self.assertEqual(set(registry), self.srv._registered_mcp_tool_names(mcp))
+        self.assertGreater(len(registry), 50, "base declaration registered too few tools")
+        return registry
 
-        import re
-
+    @staticmethod
+    def _tool_spec_text() -> str:
         repo_root = Path(__file__).resolve().parents[4]
-        agents = repo_root.joinpath("AGENTS.md").read_text(encoding="utf-8")
-        match = re.search(
-            r"\*\*Available tools:\*\*(.*?)(?=\n\n\*\*Graph index:)",
-            agents,
-            flags=re.DOTALL,
-        )
-        self.assertIsNotNone(match, "AGENTS.md Available tools block is missing")
-        documented = set(re.findall(r"`([a-z][a-z0-9_]*)`", match.group(1)))
-        registered = self.srv._registered_mcp_tool_names(mcp)
-        self.assertEqual(
-            documented,
-            registered,
-            "AGENTS.md Available tools must exactly match live registration",
-        )
+        return repo_root.joinpath(TOOL_SPEC_REL_PATH).read_text(encoding="utf-8")
+
+    def test_tool_spec_index_matches_registration(self):
+        """The spec's Tool Index is the enforced tool inventory (change 237eh)."""
+        registry = self._base_tool_registry()
+        problems = tool_spec_problems(self._tool_spec_text(), registry)
+        self.assertEqual(problems, [], "docs/specs/mcp-tool-surface.md Tool Index drifted:\n" + "\n".join(problems))
+
+    # Example argument values the lifecycle-ID guard allows. Add an entry only
+    # for an example value or a unit token (such as ``100ms``), with a reason.
+    TOOL_DESCRIPTION_ID_ALLOWLIST = frozenset({
+        "12ahv",  # wf_get_change's example change-id prefix argument
+    })
+
+    def _tool_description_ids(self, descriptions: dict) -> dict:
+        # Imported here, not at module level, so its test classes are not
+        # collected twice. The pattern is shared with the AGENTS.md guard.
+        from test_render_agent_surfaces import RoutingGuidanceTextTests
+
+        pattern = RoutingGuidanceTextTests.LIFECYCLE_ID
+        found = {}
+        for name, text in descriptions.items():
+            hits = [m.group(0) for m in pattern.finditer(text or "")
+                    if m.group(0) not in self.TOOL_DESCRIPTION_ID_ALLOWLIST]
+            if hits:
+                found[name] = hits
+        return found
+
+    def test_tool_descriptions_carry_no_lifecycle_ids(self):
+        """Registered descriptions reach every project's model; IDs there help no one (change 237el)."""
+        self._base_tool_registry()
+        mcp = load_thin_runner().build_server(self.root)
+        descriptions = self.srv._registered_mcp_tool_descriptions(mcp)
+        self.assertGreater(len(descriptions), 50)
+        self.assertEqual(self._tool_description_ids(descriptions), {})
+        # Known-bad control: one ID added back to one description is caught.
+        mutated = dict(descriptions)
+        mutated["wf_close_wave"] = mutated["wf_close_wave"] + " Secrets gate (wave 1p3rm)."
+        self.assertEqual(self._tool_description_ids(mutated), {"wf_close_wave": ["1p3rm"]})
+        # The allowlist holds exactly the justified example value, and that
+        # value really is present, so the entry is not stale.
+        self.assertEqual(self.TOOL_DESCRIPTION_ID_ALLOWLIST, {"12ahv"})
+        self.assertIn('"12ahv"', descriptions["wf_get_change"])
+
+    def test_tool_spec_index_known_bad_controls(self):
+        """Each Tool Index condition fails on a known-bad copy of the spec."""
+        registry = self._base_tool_registry()
+        spec = self._tool_spec_text()
+        self.assertEqual(tool_spec_problems(spec, registry), [])
+
+        def row_of(name: str) -> str:
+            match = re.search(r"^\| `%s` \|.*$" % re.escape(name), spec, flags=re.MULTILINE)
+            self.assertIsNotNone(match, name)
+            return match.group(0)
+
+        def mutate(old: str, new: str) -> str:
+            self.assertEqual(spec.count(old), 1, f"control anchor not unique: {old!r}")
+            return spec.replace(old, new)
+
+        status_row = row_of("wf_gate_status")
+        controls = {
+            "missing row": (mutate(status_row + "\n", ""),
+                            "index: registered tool wf_gate_status has no row"),
+            "unregistered row": (mutate(status_row, status_row + "\n" + status_row.replace("wf_gate_status", "wf_gate_list")),
+                                 "index: row for unregistered tool wf_gate_list"),
+            "wrong tier": (mutate(status_row, status_row.replace("| read |", "| write |")),
+                           "tier: wf_gate_status row says 'write'"),
+            "summary differs": (mutate(status_row, status_row.replace("Return the current", "Change the current")),
+                                "summary: wf_gate_status row differs"),
+            "missing heading": (mutate(status_row, status_row.replace("Framework Operations", "Gate Operations")),
+                                "heading: wf_gate_status names 'Gate Operations', found 0 times"),
+            "duplicated heading": (mutate("### Audit\n", "### Audit\n\n### Framework Operations\n"),
+                                   "heading: wf_gate_status names 'Framework Operations', found 2 times"),
+            "no entry in section": (mutate(status_row, status_row.replace("Framework Operations", "Audit")),
+                                    "entry: wf_gate_status has no detailed entry in section 'Audit'"),
+            "main missing param, one line": (mutate("`wf_open_gate(gate: str)`", "`wf_open_gate()`"),
+                                             "main: wf_open_gate (line"),
+            "main missing param, wrapped": (mutate("`wf_context_efficiency_eval(wave_id, phase_id, mode,\nreport_path=\"\", applicability=null)`",
+                                                   "`wf_context_efficiency_eval(wave_id, phase_id, mode,\nreport_path=\"\")`"),
+                                            "main: wf_context_efficiency_eval (line"),
+            "main extra param": (mutate("\n`wf_validate_docs()`\n", "\n`wf_validate_docs(mode: str = \"run\")`\n"),
+                                 "main: wf_validate_docs (line"),
+            "usage unknown param": (mutate('code_search(query="form validation", language="web")',
+                                           'code_search(query="form validation", languages="web")'),
+                                    "usage: code_search (line"),
+        }
+        for label, (text, expected) in controls.items():
+            with self.subTest(control=label):
+                problems = tool_spec_problems(text, registry)
+                self.assertTrue(any(p.startswith(expected) for p in problems),
+                                f"{label}: expected {expected!r}, got {problems}")
+
+        # An unclosed signature is reported and does not swallow later forms:
+        # an invented parameter in an earlier usage example is still caught.
+        with self.subTest(control="unclosed signature"):
+            text = mutate("`wf_open_gate(gate: str)`", "`wf_open_gate(gate: str`")
+            self.assertEqual(text.count('code_search(query="form validation", language="web")'), 1)
+            text = text.replace('code_search(query="form validation", language="web")',
+                                'code_search(query="form validation", languages="web")')
+            problems = tool_spec_problems(text, registry)
+            self.assertTrue(any(p.startswith("signature: wf_open_gate (line") for p in problems), problems)
+            self.assertTrue(any(p.startswith("usage: code_search (line") for p in problems), problems)
+            # A later invented parameter, after the unclosed signature, is caught too.
+            text = mutate("`wf_open_gate(gate: str)`", "`wf_open_gate(gate: str`")
+            text = text.replace("`wf_close_gate(gate: str)`", "`wf_close_gate(gate: str, force: bool)`", 1)
+            problems = tool_spec_problems(text, registry)
+            self.assertTrue(any(p.startswith("main: wf_close_gate (line") for p in problems), problems)
+        # Prose with a stray ")" right after an unclosed signature is not
+        # parameter text, so the unclosed form is still reported.
+        with self.subTest(control="unclosed signature before prose"):
+            text = mutate("`wf_open_gate(gate: str)`",
+                          "`wf_open_gate(gate: str`\nThe gate stays open until closed (by the tool or a pause).)")
+            problems = tool_spec_problems(text, registry)
+            self.assertTrue(any(p.startswith("signature: wf_open_gate (line") for p in problems), problems)
+        # Prose that starts like parameter text ("Note:") is not one of the
+        # tool's parameters, so it does not continue the unclosed signature.
+        with self.subTest(control="unclosed signature before parameter-like prose"):
+            text = mutate("`wf_open_gate(gate: str)`",
+                          "`wf_open_gate(gate: str`\nNote: the gate stays open (until closed).)")
+            problems = tool_spec_problems(text, registry)
+            self.assertTrue(any(p.startswith("signature: wf_open_gate (line") for p in problems), problems)
+
+        # Prose led by a real parameter of the tool cannot close the signature
+        # either: the closing paren must end the code span.
+        with self.subTest(control="unclosed signature before prose led by a parameter"):
+            text = mutate("`wf_open_gate(gate: str)`",
+                          "`wf_open_gate(gate: str`\ngate: stays open until closed (by the tool).)")
+            problems = tool_spec_problems(text, registry)
+            self.assertTrue(any(p.startswith("signature: wf_open_gate (line") for p in problems), problems)
+
+        # The same rule holds on one line: a stray ")" in prose, or a later
+        # code span ending in ")", does not close the signature.
+        for label, replacement in (
+            ("single-line unclosed signature before prose", "`wf_open_gate(gate: str` stays open (until closed).)"),
+            ("single-line unclosed signature before a code span", "`wf_open_gate(gate: str` until `closed)` by the tool"),
+        ):
+            with self.subTest(control=label):
+                problems = tool_spec_problems(mutate("`wf_open_gate(gate: str)`", replacement), registry)
+                self.assertTrue(any(p.startswith("signature: wf_open_gate (line") for p in problems), problems)
+
+        # Each clause of the close rule holds on its own: a wrapped signature
+        # whose first line has no backtick is closed only by ")`", and the
+        # joined "and" form follows the same rule.
+        for label, old_text, replacement, tool in (
+            ("wrapped unclosed signature without a backtick on its first line",
+             "`wf_open_gate(gate: str)`", "`wf_open_gate(gate: str\ngate: stays open (by the tool).)", "wf_open_gate"),
+            ("unclosed joined signature",
+             "`wf_mark_task(", None, "wf_mark_task"),
+        ):
+            with self.subTest(control=label):
+                if replacement is None:
+                    line = next(ln for ln in spec.splitlines() if " and `wf_mark_task(" in ln)
+                    head, _sep, tail = line.partition(" and `wf_mark_task(")
+                    text = mutate(line, head + " and `wf_mark_task(" + tail.replace(")`", " until `done)`", 1))
+                else:
+                    text = mutate(old_text, replacement)
+                problems = tool_spec_problems(text, registry)
+                self.assertTrue(any(p.startswith(f"signature: {tool} (line") for p in problems), problems)
+
+        # Change 237ek: a definition bullet is no longer a main entry, and every
+        # argument must have the strict form, so neither a wrong nor an
+        # invented parameter can hide in text the parser used to drop.
+        read_sig = "`code_read(path: str, start_line: int | None = None, end_line: int | None = None, with_line_numbers: bool = True)`"
+        wrapped_head = "`wf_context_efficiency_eval(wave_id, phase_id, mode,\n"
+        strict_controls = {
+            "definition bullet as main entry": (
+                mutate(read_sig, "`code_read`"), "main: code_read (line"),
+            "new signature missing a parameter": (
+                mutate(read_sig, read_sig.replace(", with_line_numbers: bool = True", "")), "main: code_read (line"),
+            "new signature with an invented parameter": (
+                mutate(read_sig, read_sig.replace("path: str,", "path: str, encoding: str = \"utf-8\",")),
+                "main: code_read (line"),
+            "prose-led argument on one line": (
+                mutate(read_sig, read_sig.replace("path: str,", "path: str, the bogus_flag: bool,")),
+                "argument: code_read (line"),
+            "prose-led argument wrapped mid-line": (
+                mutate(wrapped_head, wrapped_head + "the bogus_flag: bool, "), "argument: wf_context_efficiency_eval (line"),
+            "prose-led argument leading a wrapped line": (
+                mutate(wrapped_head, wrapped_head + "the bogus_flag: bool,\n"), "argument: wf_context_efficiency_eval (line"),
+            "quoted argument name": (
+                mutate(read_sig, read_sig.replace("path: str,", "path: str, \"bogus\"=1,")), "argument: code_read (line"),
+            "missing comma before a typed name": (
+                mutate(read_sig, read_sig.replace("path: str,", "path: str bogus_flag: bool,")), "argument: code_read (line"),
+            "missing comma before a wrapped invented parameter": (
+                mutate(wrapped_head, "`wf_context_efficiency_eval(wave_id, phase_id, mode\nbogus_flag: bool = False,\n"),
+                "argument: wf_context_efficiency_eval (line"),
+            "double-star argument": (
+                mutate(read_sig, read_sig.replace("path: str,", "path: str, **bogus_flag,")), "argument: code_read (line"),
+            "missing comma before a bare name": (
+                mutate(read_sig, read_sig.replace("path: str,", "path: str bogus_flag,")), "argument: code_read (line"),
+            "missing comma after a default": (
+                mutate(read_sig, read_sig.replace("end_line: int | None = None,", "end_line: int | None = None bogus_flag,")),
+                "argument: code_read (line"),
+            "bare name on a wrapped line after a missing comma": (
+                mutate(wrapped_head, "`wf_context_efficiency_eval(wave_id, phase_id, mode\nbogus_flag,\n"),
+                "argument: wf_context_efficiency_eval (line"),
+            "wrapped prose line": (
+                mutate(wrapped_head, wrapped_head + "is the repo path bogus_flag,\n"),
+                "argument: wf_context_efficiency_eval (line"),
+        }
+        for label, (text, expected) in strict_controls.items():
+            with self.subTest(control=label):
+                problems = tool_spec_problems(text, registry)
+                self.assertTrue(any(p.startswith(expected) for p in problems),
+                                f"{label}: expected {expected!r}, got {problems}")
+        # Legitimate argument shapes still pass the strict form.
+        for inner in ('path="list"', "path=...", 'x: dict[str, int] = {}', 'x: Literal["a", "b"] = "a"',
+                      "x: str | None = None", "x: int = -1", 'x: str = "a=b"', 'x: str = "a:b"',
+                      "rewrite_*", "memory_ids=[...]", "applicability=null", "...", ""):
+            with self.subTest(legitimate=inner):
+                self.assertEqual(_tool_spec_arg_names(inner)[1], [], inner)
+
+        # Accurate usage examples are non-main forms that pass the check.
+        parsed = parse_tool_spec(spec, registry)
+        others = {name: [f["params"] for f in parsed["forms"] if f["tool"] == name and f["kind"] == "sig"][1:]
+                  for name in ("code_search", "wf_review_event", "memory_consolidate")}
+        self.assertGreaterEqual(sum(1 for p in others["code_search"] if "language" in p), 8)
+        self.assertIn(["event"], others["wf_review_event"])
+        self.assertIn(["mode", "limit"], others["memory_consolidate"])
 
 
 class RunnerIdentityTests(unittest.TestCase):

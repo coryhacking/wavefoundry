@@ -341,9 +341,10 @@ _RETIRED_CHANGE_PROMPT_PATTERNS: tuple[
     ),
 )
 
-# The renderer refreshes only the BODY of the Claude guru agent and keeps its
-# existing frontmatter verbatim, so a target's ``description:`` line keeps the
-# retired bare phrase after upgrade. Matched only on that frontmatter line.
+# The renderer refreshes the BODY of the Claude guru agent and keeps its
+# frontmatter, replacing only a ``description:`` line that equals a previously
+# shipped Guru description. A hit here is therefore a customized description
+# that still carries the retired bare phrase. Matched only on that line.
 _CLAUDE_GURU_AGENT_FILE = ".claude/agents/guru.md"
 _GURU_DESCRIPTION_RETIRED_PHRASE = re.compile(r"(?<![\w-])Plan feature(?![\w-])")
 

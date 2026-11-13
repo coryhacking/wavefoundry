@@ -1,5 +1,5 @@
 ---
-description: Auto-route code and documentation questions to Guru (code_ask, docs_search, validated reads)
+description: Use the Guru workflow for questions about how code and documentation work (code_ask, docs_search, validated reads); direct code_* lookups are always allowed
 globs: ["**/*"]
 alwaysApply: true
 ---
@@ -12,7 +12,7 @@ Applies to every chat in this workspace unless the user is invoking a **wave lif
 
 ## When this rule applies
 
-Treat the message as **Guru work** when the user is asking to **understand, locate, or explain** repository **source code** or **project documentation** (including `docs/architecture/`, `docs/specs/`, framework scripts, seeds, and MCP/index behavior).
+You may call the `code_*` tools directly at any time. Treat the message as **Guru work** when answering it needs an investigation of how repository **source code** or **project documentation** works: a how-or-why question about a mechanism, usually across files (including `docs/architecture/`, `docs/specs/`, framework scripts, seeds, and MCP/index behavior). A direct lookup, such as finding where something is defined or reading one value, does not need Guru unless the answer needs the surrounding mechanism.
 
 ## Required workflow
 

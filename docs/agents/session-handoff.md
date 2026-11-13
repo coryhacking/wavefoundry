@@ -2,15 +2,27 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-11
+Last verified: 2026-11-12
 
 ## Current state
+
+Wave **237ef instruction-file-audit-follow-ups** is OPEN, implemented and delivery-reviewed (operator direction "implement 237ef", then "review and implement", 2026-11-12). Both changes are `implemented`, all ten ACs and every task are `[x]`. Close, commit and release are not authorized.
+
+- **Review state:** code-reviewer, qa-reviewer and docs-contract-reviewer delivery approvals and `council-delivery` (intent_fit establishes) are current. `operator-signoff` is the only missing signoff; `wf_close_wave` dry run reports nothing else.
+- **Delivery findings:** all repaired and reverified in fresh contexts: SUBAGENT-DEL-1 (the rendered Claude Guru subagent description had kept "where to find implementation" because the renderer keeps existing frontmatter), MERGELIST-DEL-1, SPECBEHAVIOR-DEL-1 (three spec entries contradicted their handlers), UPGRADECHECK-DEL-1, CHANGELOG-DEL-1, SUBAGENT-DEL-2, and PARSER-DEL-1 to PARSER-DEL-7 (the index test's signature parser, six repair cycles). Accepted as dont_do_later with promotion triggers: DEFBULLET-DEL-1, SKIPPATH-DEL-1, INDEXSUMMARY-DEL-1.
+- **Follow-ups noted by the council (not done):** the parser helper's cycle-5 and cycle-6 continuation layers are now redundant; add main signatures for the 19 definition-bullet tools; tighten registered descriptions that carry lifecycle IDs; optionally a drift check for the renderer-kept subagent description in upgraded targets.
+- **Test state:** canonical suite green, **12,834 tests across 249 files, 12 skips**, receipt proven for the current framework tree. The four affected files pass in the declared and second profiles.
+- **Gates:** both edit gates are closed.
+- **Uncommitted:** all wave work plus, from before the wave, the `CLAUDE.md` slimming and the `AGENTS.md` gate paragraph.
+- **Next:** operator sign-off, then Close wave, then commit (all operator-owned).
+
+## Previous state: 237ee
 
 Wave **237ee language-aware-builder-and-reviewer-guidance** is CLOSED by operator direction (2026-11-11) and committed. Both admitted changes have all ten ACs and all tasks complete. Code, QA, docs-contract and operator delivery approvals are recorded; all finding heads are terminal. Both edit gates are closed. The operator then requested the official 1.42.0 release.
 
 **Done:** performance seed 212 now reviews target-project hot paths and generic costs, retaining Wavefoundry-specific checks locally. Seeds 222/221/180/170 add ownership/design guidance, conditional Rust and mixed-stack instructions, existing-authority escalation and port-planning expectations. Seed 160 reconciles changed guidance into existing local carriers while preserving project additions. Two delivery defects were repaired and independently verified: the merge-test oracle borrowed words from adjacent bullets, and the local implementation paragraph disturbed the existing Readback block. No renderer, runtime, lint, template, gate or review-lane mechanism changed.
 
-**Next:** the official 1.42.0 release (operator-confirmed version), following `docs/prompts/package-wavefoundry.prompt.md`. Wave **231kh explainable-project-statistics** is CLOSED and committed (`18c92720`).
+**Released:** v1.42.0 published 2026-11-12T16:33:45Z (build 1.42.0+q31h, tag on stamp commit `1953d4ff`, source `990e4e77`): https://github.com/coryhacking/wavefoundry/releases/tag/v1.42.0. Assets: lean zip, `wavefoundry-models-3.zip`, `SHA256SUMS`. Qualification: default 12,822 tests / 12 skips, second 12,804 / 34 skips, declared 12,822 / 12 skips; both comparisons equal, no exception. uv bootstrap pin kept at 0.13.5 (0.13.6 and 0.13.7 under the 21-day window); vendored dashboard scripts verified; no undecided advisory sensors. Wave **231kh explainable-project-statistics** is CLOSED and committed (`18c92720`).
 
 **Stage-gate waiver (operator, 2026-11-12):** the declared qualification profile failed `test_stats_surfaces.py` because the test asserted that rendering skills creates no `docs/prompts/` directory, while a declared distribution skill legitimately materializes its own prompt doc. After an executed reverification (shipped default: no prompt docs; declared profile: only `docs/prompts/dist-review.prompt.md`; `wf-stats` rendered without a prompt in both), the operator directed: fix the test, rerun the suite and create the build. Scope: that one assertion only, outside any wave. The fixed test passes in the default, second and declared profiles and still fails when a `wf-stats` prompt doc leaks.
 

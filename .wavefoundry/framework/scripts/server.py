@@ -1055,7 +1055,7 @@ def build_server(root: Path):
         can verify an upgrade was applied in-process. ``runner_stale: true`` means the
         un-reloadable runner files changed on disk and only a full host restart loads them, and the response then also carries a ``runner_stale`` diagnostic naming that restart. ``setup_readiness`` is the rebuilt handler's setup assessment (the same shape ``index_health`` returns); when setup needs the operator it also carries a ``setup_not_ready`` diagnostic naming the reasons and the recommended command, which the agent reports and asks about before running anything. Also returns ``tools_reregistered`` (count of FastMCP tool
         callables refreshed against the freshly-reloaded server_impl) and three
-        description-change-propagation fields (wave 131bt 131bu):
+        description-change-propagation fields:
 
         - ``description_changed_tools`` (list[str]): tool names whose docstring-
           derived description differs from the pre-reload snapshot.
