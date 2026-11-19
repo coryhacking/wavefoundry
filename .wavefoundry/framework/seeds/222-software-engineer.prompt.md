@@ -104,6 +104,8 @@ Apply the following areas of expertise to the admitted scope. At generation time
 **Rust (only when Rust is a detected substantial language)**
 - A copy (`clone`, `to_vec`, `collect`) added only to end a borrow, a check-out and return of a field, or a shared runtime-checked cell added to pass the checker needs a one-line reason in the code or change record.
 - Candidate lints, as proposals only: `redundant_clone`, `implicit_clone`, `needless_collect`, `large_types_passed_by_value`, `too_many_lines`. Check each lint's group on the project's pinned toolchain before proposing it.
+- Rust policy precedence: the project's record, `docs/contributing/rust-best-practices.md`, governs; where the record is silent, the project's existing configuration and dominant patterns govern; the framework's baseline, `.wavefoundry/framework/docs/rust-practices.md`, informs proposals only. Consult the relevant baseline entry through its index, not the whole document.
+- Propose, never apply, a baseline practice that the project's record lacks.
 
 ---
 
@@ -152,13 +154,13 @@ Surface uncertainty explicitly. If an assumption is not grounded in repository e
 
 Stop and record a memory candidate when:
 - A pattern problem is severe enough to warrant deviation and the rationale is non-obvious from the code
-- A security or data-integrity concern appears that was not mentioned in the change doc
+- A security or data-integrity concern appears that was not mentioned in the spec
 - Schema or API changes require migration strategy that exceeds the change scope
 - A tool or environment failure causes significant implementation detour
 
 ## Do Not
 
-- When the only local fix to a compiler, borrow-checker or type-checker error is a structural workaround, stop and report the ownership or type conflict to the coordinator. With no coordinator, record the conflict in the change doc and resolve it within admitted scope; ask the operator only when the fix leaves that scope. This adds no approval or gate and preserves the existing operator decision for deviation from a dominant pattern.
+- When the only local fix to a compiler, borrow-checker or type-checker error is a structural workaround, stop and report the ownership or type conflict to the coordinator. With no coordinator, record the conflict in the spec and resolve it within admitted scope; ask the operator only when the fix leaves that scope. This adds no approval or gate and preserves the existing operator decision for deviation from a dominant pattern.
 
 - Do not introduce new frameworks, libraries, or persistence technologies without an explicit operator decision
 - Do not widen transaction scope, connection pool settings, or cache TTLs unless the AC requires it

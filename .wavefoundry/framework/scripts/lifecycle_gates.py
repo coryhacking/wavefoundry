@@ -225,7 +225,11 @@ def _approval_evidence_diagnostics(
         rows = result.records
     else:
         rows = tuple(records)
-    status = review_status_rows(rows, required_signoff_keys)
+    # Change 23q1g: the records-only path passes the record's status.
+    status = review_status_rows(
+        rows, required_signoff_keys,
+        wave_closed=review_evidence.wave_record_closed(text),
+    )
     blocked = [row for row in status if row["state"] != "approved"]
     if not blocked:
         return []
@@ -256,6 +260,7 @@ SHARED_DELIVERY_DIAGNOSTIC_CODES = (
     "review_policy_receipt_stale",
     "review_policy_reprepare_required",
     "unsettled_security_candidate",
+    "delivery_approval_predates_deferral",
 )
 
 
@@ -340,6 +345,85 @@ def _security_candidate_diagnostics(authority) -> list[dict[str, Any]]:
 security_candidate_diagnostics = _security_candidate_diagnostics
 
 
+def _delivery_deferral_diagnostics(
+    root: Path, wave_md: Path, wave_text: str, authority
+) -> tuple[list[dict[str, Any]], set[str]]:
+    """Block a delivery approval that predates a criterion's narrowing (change 23q1h).
+
+    Returns the blocking diagnostics and the signoff keys to record again. A
+    deferral is digest-neutral, so it lapses no readiness approval; the
+    ``council-delivery`` and ``operator-signoff`` approvals judge the
+    delivered scope and are recorded again with a fresh context.
+    """
+
+    # A closed record is exempt inside `delivery_deferral_findings`.
+    if not authority.typed or authority.ledger_errors:
+        return [], set()
+    wave_id = wave_md.parent.name
+    diagnostics = []
+    keys: set[str] = set()
+    for finding in lifecycle_gate_support.delivery_deferral_findings(
+        root, wave_md, wave_text, authority.records
+    ):
+        key = finding["signoff_key"]
+        keys.add(key)
+        named = "; ".join(
+            f"`{change_id}` {ac_id} ({case})"
+            for change_id, ac_id, case in finding["changes"]
+        )
+        actor = "operator" if key == "operator-signoff" else review_evidence.COUNCIL_ACTOR
+        diagnostics.append(lifecycle_gate_support._diagnostic(
+            "delivery_approval_predates_deferral",
+            f"The current `{key}` approval was recorded before these criteria were deferred, "
+            f"noted or had their status note changed: {named}. Review the narrowed scope, "
+            f"then record `{key}` again with a fresh "
+            "context_id; the same actor and context_id replays the earlier record.",
+            recovery_tools=["wf_review_event", "wf_review_wave"],
+            recovery_usage=(
+                f"wf_review_event(wave_id={wave_id!r}, event='approval', signoff_key={key!r}, "
+                f"approval_phase='delivery', actor={actor!r}, context_id='<fresh-context-id>', "
+                "mode='create')"
+            ),
+        ))
+    return diagnostics, keys
+
+
+def _criterion_scope_advisories(
+    root: Path, wave_md: Path, wave_text: str
+) -> list[dict[str, Any]]:
+    """List deferred and noted criteria at Review and Close (change 23q1h).
+
+    A deferral and a canonical status note are outside the review-policy
+    digest, so each is named here, whether or not any approval lapsed. Never
+    blocking and never persisted.
+    """
+
+    if review_evidence.wave_record_closed(wave_text):
+        return []
+    import gardener_metadata
+
+    change_ids = lifecycle_gate_support._extract_change_ids_from_wave_text(wave_text)
+    texts = lifecycle_gate_support.admitted_change_texts(root, wave_md, change_ids)
+    advisories = []
+    for change_id in change_ids:
+        for status in gardener_metadata.criterion_statuses(texts.get(change_id, "")):
+            if status["deferred"]:
+                advisories.append(lifecycle_gate_support._diagnostic(
+                    "deferred_criterion_scope_change",
+                    f"`{change_id}` defers a criterion, which narrows the delivered scope: "
+                    f"{status['quote']}",
+                    advisory=True,
+                ))
+            elif status["notes"]:
+                advisories.append(lifecycle_gate_support._diagnostic(
+                    "criterion_status_note",
+                    f"`{change_id}` has a criterion with a status note, outside the "
+                    f"review-policy digest: {status['quote']}",
+                    advisory=True,
+                ))
+    return advisories
+
+
 def _evaluate_shared_delivery_state(
     root: Path,
     wave_md: Path,
@@ -399,7 +483,18 @@ def _evaluate_shared_delivery_state(
             for error in lint_result.get("errors", [])
         )
     diagnostics.extend(lifecycle_gate_support._docs_lint_warning_diagnostics(lint_result))
-    operator_current = authority.operator_signoff_present()
+    # Change 23q1h: a delivery approval recorded before a criterion was
+    # deferred, noted or had its note changed is recorded again; it is shown
+    # as not current here so the re-record action is offered, while the
+    # status rows keep the ledger's reading.
+    deferral_diagnostics, rerecord_keys = _delivery_deferral_diagnostics(
+        root, wave_md, wave_text, authority
+    )
+    diagnostics.extend(deferral_diagnostics)
+    diagnostics.extend(_criterion_scope_advisories(root, wave_md, wave_text))
+    operator_current = (
+        authority.operator_signoff_present() and "operator-signoff" not in rerecord_keys
+    )
     # Wave 21j63: an honest not-established delivery stays closable; the
     # operator sees the verdict here, in Review and Close, before signing off.
     intent_not_established = (
@@ -421,7 +516,7 @@ def _evaluate_shared_delivery_state(
             )
         )
     diagnostics.extend(_security_candidate_diagnostics(authority))
-    if not operator_current:
+    if not operator_current and "operator-signoff" not in rerecord_keys:
         remedy = (
             "Record wf_review_event(event='approval', signoff_key='operator-signoff', "
             "approval_phase='delivery', mode='create')."
@@ -473,7 +568,8 @@ def _evaluate_shared_delivery_state(
                     == review_evidence.COUNCIL_READINESS_SIGNOFF_KEY
                     else "delivery"
                 ),
-            ),
+            )
+            and review_evidence.canonical_signoff_key(key) not in rerecord_keys,
         }
         for key in required_council
     ]
@@ -481,6 +577,7 @@ def _evaluate_shared_delivery_state(
         row["signoff_key"]
         for row in council_results
         if not row["recorded_signoff"]
+        and review_evidence.canonical_signoff_key(row["signoff_key"]) not in rerecord_keys
     ]
     if missing_council:
         diagnostics.append(
@@ -507,6 +604,7 @@ def _evaluate_shared_delivery_state(
         "council_results": council_results,
         "max_severity": authority.max_severity(),
         "authority": authority,
+        "rerecord_signoff_keys": sorted(rerecord_keys),
     }
 
 
@@ -728,7 +826,7 @@ def close_checkbox_gate(ctx: GateContext) -> GateResult:
                     f"Wave close blocked: {len(silent_unchecked)} unchecked AC or task item(s) "
                     "across admitted changes must be marked `[x]` (completed) or `[~]` (intentionally deferred) before close. "
                     "Silent `[ ]` items are blocking findings per the close-time hard gate. "
-                    f"See seed `170-plan-change.prompt.md` for the `[~]` convention.\n{chr(10).join(sample_lines)}{more}"
+                    f"See seed `170-plan-spec.prompt.md` for the `[~]` convention.\n{chr(10).join(sample_lines)}{more}"
                 ),
                 recovery_tools=["wf_current_wave", "wf_validate_docs"],
                 recovery_usage="wf_current_wave()",
@@ -848,7 +946,8 @@ def review_lane_results(authority, required_lanes, *, approval_phase: str):
     lanes = tuple(required_lanes)
     if authority.typed:
         projection = review_evidence.review_authority_projection(
-            authority.records, lanes, approval_phase=approval_phase
+            authority.records, lanes, approval_phase=approval_phase,
+            wave_closed=authority.wave_closed,
         )
         facts = {
             review_evidence.canonical_signoff_key(row["signoff_key"]): row

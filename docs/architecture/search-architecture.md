@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-19
+Last verified: 2026-11-18
 
 ## The Problem
 
@@ -540,7 +540,7 @@ The `text` field is what was embedded. The `path` and `lines` fields are what th
 ## Temporal Decay: Per-Citation Freshness and the Drift Partition (wave 1ro44)
 
 Retrieval ranks by relevance; temporal currency is surfaced as **annotation first, demotion only on strong
-evidence** — raw scores are never blended with age (the rejected alternative is recorded in the change doc's
+evidence** — raw scores are never blended with age (the rejected alternative is recorded in the spec's
 Decision Log: score-perturbation buries correct answers about stable code, since old ≠ wrong).
 
 **Build-time substrate** (`index.sqlite`, optional residents at the build tail — never fail a build, no

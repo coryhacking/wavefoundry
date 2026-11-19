@@ -40,26 +40,26 @@ These are the durable shortcut entry points that seeded repositories expose to u
 - `Init Wavefoundry` (legacy aliases: `Init wave framework` / `Install wave framework` / `Init wave context` / `Install wave context`)
 - `Upgrade Wavefoundry` (legacy aliases: `Upgrade wave framework` / `Upgrade wave context`)
 - `Plan initiative` (optional advisory planning across waves)
-- `Plan change`
+- `Plan spec` (alias: `Plan change`)
 - `Create wave`
-- `Add change to wave`
-- `Remove change from wave`
+- `Add spec to wave` (alias: `Add change to wave`)
+- `Remove spec from wave` (alias: `Remove change from wave`)
 - `Prepare wave`
 - `Implement wave`
-- `Implement change`
+- `Implement spec` (alias: `Implement change`)
 - `Pause wave`
 - `Review wave`
 - `Close wave`
-- `Close change`
+- `Close spec` (alias: `Close change`)
 
 In the shared pack, those map to:
 
 - `010-install-wavefoundry.prompt.md`
 - `160-upgrade-wavefoundry.prompt.md`
 - `171-plan-initiative.prompt.md`
-- `170-plan-change.prompt.md`
-- `180-implement-change.prompt.md` for `Prepare wave`, `Implement wave`, `Pause wave`, and `Review wave`
-- `180-implement-change.prompt.md`
+- `170-plan-spec.prompt.md`
+- `180-implement-spec.prompt.md` for `Prepare wave`, `Implement wave`, `Pause wave`, and `Review wave`
+- `180-implement-spec.prompt.md`
 - `190-close-wave.prompt.md`
 
 ### 3. Internal helper prompt layer

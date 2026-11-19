@@ -13,7 +13,7 @@ Why this change is needed. State a specific motivation a reviewer can understand
 
 ## Product Intent
 
-State who benefits, the observable before/after outcome, and material boundaries. One sentence can suffice, including for framework, maintenance and documentation work. Describe the outcome rather than prescribing a mechanism; link relevant specs when useful.
+State who benefits, the observable before/after outcome, and material boundaries. One sentence can suffice, including for framework, maintenance and documentation work. Describe the outcome rather than prescribing a mechanism; link relevant behavior contracts when useful.
 
 ## Requirements
 

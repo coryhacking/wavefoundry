@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-07
+Last verified: 2026-11-18
 
 Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
 
 ## Host-neutral orchestration
 
-Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose models and reasoning effort for readiness analysis by task fit, and record the bounded work allocation in the existing wave record. Use only available host capabilities; sequential implementation does not satisfy required independent review.
+Follow `.wavefoundry/framework/seeds/180-implement-spec.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose models and reasoning effort for readiness analysis by task fit, and record the bounded work allocation in the existing wave record. Use only available host capabilities; sequential implementation does not satisfy required independent review.
 
 ## Purpose
 
@@ -18,12 +18,12 @@ Prepare wave has passed cleanly; declared review-enabled waves require the typed
 
 ## Steps
 
-1. Validate that every admitted change doc already lives in `docs/waves/<wave-id>/`. If an admitted doc is still staged in `docs/plans/`, repair the placement by moving it into the wave folder; if duplicate staged and wave copies exist, stop and resolve the conflict explicitly.
-2. Confirm each change doc is complete: Rationale, Requirements, Scope, Acceptance Criteria, Affected architecture docs.
+1. Validate that every admitted spec already lives in `docs/waves/<wave-id>/`. If an admitted doc is still staged in `docs/plans/`, repair the placement by moving it into the wave folder; if duplicate staged and wave copies exist, stop and resolve the conflict explicitly.
+2. Confirm each spec is complete: Rationale, Requirements, Scope, Acceptance Criteria, Affected architecture docs.
 3. Select required review lanes for each admitted change (see `docs/contributing/agent-team-workflow.md`).
 4. Confirm `qa-reviewer` is included for any bug fix (`review_policies.require_qa_reviewer_for_bug_fixes: true`).
 5. When `wave_review.enabled` is true, run the Wave Council readiness pass in two phases: first, the `council-chair` declares a **primer depth tier** (`lightweight` / `standard` / `full`) based on trust boundaries touched, files in scope, and change type — this sets how many stances and `primer_questions` Phase 1 produces; (1) `red-team` runs the adversarial primer (`council-adversarial-primer` mode) first in isolation at the declared depth — strongest challenge, best alternative, `primer_questions`, and an `efficacy_replay` of each change's motivating case through its mechanism; (2) fixed seats each receive the standard briefing plus the primer output and must address `strongest_challenge` and `primer_questions` and engage with the `efficacy_replay` before producing their own findings; a rotating fifth seat finds the strongest alternative path the wave did not take; `council-chair` synthesizes all outputs. On declared waves, record `council-readiness` as a typed approval event via `wf_review_event`; this typed record is the sole machine authority, and any structured `prepare-council` checkpoint is narrative only. Legacy prose waves retain the structured checkpoint compatibility gate. Call `wf_prepare_wave` again after the current typed approval is recorded (`ready` to ready without opening, or `create` to prepare and open).
-6. **AC priority check:** categorize each admitted change's ACs as required / important / nice-to-have / not-this-scope; record in `## AC priority` on the change doc; interrogate required and important ACs until each classification is explicitly justified. ACs admitted with the `[~]` marker (intentionally not met from the outset) are unusual but accepted — they must already carry an inline status note explaining the deferral, and the `## AC priority` row must still record their priority. See `.wavefoundry/framework/seeds/170-plan-change.prompt.md` *"AC and task checkbox states — the `[~]` marker"* for the canonical convention. Note the close-time hard gate: silent `[ ]` items block `wf_close_wave`, so prepare-time AC tracking habits matter.
+6. **AC priority check:** categorize each admitted change's ACs as required / important / nice-to-have / not-this-scope; record in `## AC priority` on the spec; interrogate required and important ACs until each classification is explicitly justified. ACs admitted with the `[~]` marker (intentionally not met from the outset) are unusual but accepted — they must already carry an inline status note explaining the deferral, in the canonical `*Status: <reason>*` form, and the `## AC priority` row must still record their priority. See `.wavefoundry/framework/seeds/170-plan-spec.prompt.md` *"AC and task checkbox states — the `[~]` marker"* for the canonical convention. Note the close-time hard gate: silent `[ ]` items block `wf_close_wave`, so prepare-time AC tracking habits matter.
 7. Record product-owner acknowledgment for product-impacting waves (feature changes shifting product behavior/UX/acceptance).
 8. Record the readiness verdict; the wave stays **readied** (`Status: planned`). Readiness no longer flips the wave to `active` (wave 1p45l) — opening it is a separate, single-OPEN-gated step. Complete readiness with `wf_prepare_wave(mode='ready')` (readies without opening — works while another wave is OPEN) or `wf_prepare_wave(mode='create')` (prepare-and-open in one step, the common single-wave flow). Use `mode='evaluate'` as the documented read-only alias for `dry_run`.
 
@@ -36,11 +36,11 @@ Follow `.wavefoundry/framework/seeds/215-council-chair.prompt.md` **Bounded read
 ## Readiness Verdict
 
 Record a readiness verdict in the wave record `## Review Checkpoints` (e.g., `Prepare wave — readiness verdict`). The wave is ready when:
-- All admitted change docs are complete and wave-owned
+- All admitted specs are complete and wave-owned
 - Any admitted-doc placement drift was repaired or explicitly resolved
 - Every required lane has a current readiness approval bound to the current receipt
 - `council-readiness` is recorded when `wave_review.enabled`, and the council-chair's `intent_fit` states, for each admitted change and the wave Objective, whether meeting its Requirements and ACs would establish its Product Intent, citing the measure of success and whether it can be read after release (seed 215); the typed `council-readiness` approval records that verdict as `evidence.intent_fit` (`establishes` or `partially`), and a plan that will not establish its intent is a finding, not an approval
-- AC priority is recorded on each change doc
+- AC priority is recorded on each spec
 - Product-owner acknowledgment is recorded (when applicable)
 
 A clean readiness verdict confirms the wave is **admissible** and is the single pre-code review decision. The lifecycle sequence is: `Prepare wave` (failure-first critique, packet completeness, current readiness approval) → `Implement wave` → first code edit.
@@ -70,7 +70,7 @@ Assign lanes at Prepare time and record them in the wave record `## Participants
 | Trigger | Lane |
 |---------|------|
 | Any change to `.wavefoundry/framework/scripts/*.py` | `code-reviewer` |
-| Any change doc with an AC priority table | `qa-reviewer` |
+| Any spec with an AC priority table | `qa-reviewer` |
 | MCP tool contract, index routing, or module boundary change | `architecture-reviewer` |
 
 **Tier 2 — assign only when specifically applicable:**
@@ -96,11 +96,11 @@ Prepare Wave is the single readiness authority. It evaluates the configured
 re-Prepare whenever policy inputs change before implementation.
 
 Editing the digest canonicalizer is itself a policy-input change, and it moves
-every change document at once. `canonical_review_policy_body` and its
+every spec at once. `canonical_review_policy_body` and its
 normalizers decide what the digest sees, so changing them re-digests the whole
 repository and lapses every readiness approval in every open wave without a
 single document being edited. Expect one re-Prepare per open wave, disclose it
-in the change document, and avoid making the edit while waves are readied but
+in the spec, and avoid making the edit while waves are readied but
 unclosed without saying so.
 <!-- wavefoundry:review-policy:end -->
 
@@ -127,3 +127,5 @@ For stale readiness, use the guided review actions and seed 209’s **Focused re
 ## Disposable work
 
 Use the lifecycle-reported `.wavefoundry/work/<wave-id>/`, keyed by the resolved unique prefix, for shared temporary work; include the path and availability notices in coordinator briefs. Follow seed 180’s **Disposable work** and seed 209’s **Review Artifact Discipline**. Reads and dry-runs create nothing; unavailable work is advisory and existing host permissions apply. Receipt copies and review notes are disposable aids; preserve unique proof before final evidence and keep durable approval authority in its existing records.
+
+Write every file you create for a wave, including coordinator briefs, logs, captured test output and build output, inside that wave's own work folder, in a child folder when that helps; never write a file directly in `.wavefoundry/work/`. Before the wave exists, keep the content in task context until a lifecycle call reports the work area. `wf_audit` and close report files and links left directly in the work root as the advisory `work_root_loose_files`. If you wrote such a file for a wave, move it into that wave's folder while the wave is open, or delete it. Leave any other loose file in place, including one you are not sure you wrote (a name that starts with a wave id does not prove who wrote it), and report it to the operator, who decides. Never move a file you did not write into a wave's folder: close removes that folder with everything in it.

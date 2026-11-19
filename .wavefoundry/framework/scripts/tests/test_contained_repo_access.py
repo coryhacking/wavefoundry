@@ -263,14 +263,14 @@ class ResourceAndPromptContainmentTests(_Fixture):
         prompts = self.root / "docs" / "prompts"
         prompts.mkdir(parents=True)
         self.link_file_outside("docs/prompts/held-prompt.md")
-        (prompts / "plan-change.prompt.md").write_text("# Plan change\n\nheld-prompt\n", encoding="utf-8")
+        (prompts / "plan-spec.prompt.md").write_text("# Plan spec\n\nheld-prompt\n", encoding="utf-8")
         (prompts / "other.prompt.md").write_text("# Other\n", encoding="utf-8")
         refused: list = []
-        self.assertEqual(srv.get_prompt(self.root, "held-prompt", refused=refused), "# Plan change\n\nheld-prompt\n")
+        self.assertEqual(srv.get_prompt(self.root, "held-prompt", refused=refused), "# Plan spec\n\nheld-prompt\n")
         self.assertEqual(refused, ["docs/prompts/held-prompt.md"])
         self.assertEqual(srv.get_prompt(self.root, "other"), "# Other\n")
         response = srv.wf_get_prompt_response(self.root, "held-prompt")
-        self.assertEqual(response["data"]["prompt"]["content"], "# Plan change\n\nheld-prompt\n")
+        self.assertEqual(response["data"]["prompt"]["content"], "# Plan spec\n\nheld-prompt\n")
         self.assert_path_free(response)
         self.assert_outside_untouched()
 
@@ -348,7 +348,7 @@ class OrdinaryAndInRepositoryLinkTests(_Fixture):
     def test_ordinary_outputs_match_the_previous_reads(self) -> None:
         import wf_server.edit_gate_handlers as edit_gate_handlers
 
-        for rel in (HANDOFF, "docs/prompts/index.md", "docs/prompts/plan-change.prompt.md", "AGENTS.md",
+        for rel in (HANDOFF, "docs/prompts/index.md", "docs/prompts/plan-spec.prompt.md", "AGENTS.md",
                     "docs/architecture/current-state.md", "docs/references/project-overview.md"):
             path = self.root / rel
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -357,8 +357,8 @@ class OrdinaryAndInRepositoryLinkTests(_Fixture):
         got = edit_gate_handlers.wf_get_handoff_response(self.root)
         self.assertEqual(got["data"]["content"], self._old_read(HANDOFF))
         self.assertEqual(got["data"]["mtime"], (self.root / HANDOFF).stat().st_mtime)
-        prompt = srv.wf_get_prompt_response(self.root, "plan-change")
-        self.assertEqual(prompt["data"]["prompt"]["content"], self._old_read("docs/prompts/plan-change.prompt.md"))
+        prompt = srv.wf_get_prompt_response(self.root, "plan-spec")
+        self.assertEqual(prompt["data"]["prompt"]["content"], self._old_read("docs/prompts/plan-spec.prompt.md"))
         resources = self.resources()
         for name, rel in ResourceAndPromptContainmentTests.FIXED:
             with self.subTest(resource=name):

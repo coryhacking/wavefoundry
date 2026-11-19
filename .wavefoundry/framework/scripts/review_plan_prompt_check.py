@@ -20,12 +20,12 @@ REVIEW_PLAN_LEGACY_CONTRACT_LINES: "tuple[tuple[str, str, str], ...]" = (
     (
         "Purpose",
         "Optional stress-test of a consolidated change doc before wave admission. Walks every unresolved decision branch in Requirements, Acceptance Criteria, and Scope.",
-        "Optional stress-test of a consolidated change doc, or the current wave record when no change is specified, before or after admission and before implementation. Walks every unresolved decision branch in Requirements, Acceptance Criteria, and Scope.",
+        "Optional stress-test of a consolidated spec, or the current wave record when no change is specified, before or after admission and before implementation. Walks every unresolved decision branch in Requirements, Acceptance Criteria, and Scope.",
     ),
     (
         "Input fallback",
         "Given a change doc as context:",
-        "Given a change doc as context, or the current wave record when no change is specified:",
+        "Given a spec as context, or the current wave record when no change is specified:",
     ),
     (
         "When to use",
@@ -59,7 +59,7 @@ REVIEW_PLAN_EARLY_CANONICAL_CONTRACT_LINES: "tuple[tuple[str, str, tuple[str, ..
     (
         "Input fallback",
         "- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md` or `docs/plans/<change-id>.md`) or wave record (`docs/waves/<wave-id>/wave.md`).",
-        ("- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md` or `docs/plans/<change-id>.md`) or, when no change is specified, the current wave record (`docs/waves/<wave-id>/wave.md`).",),
+        ("- Load the target spec (`docs/waves/<wave-id>/<change-id>.md` or `docs/plans/<change-id>.md`) or, when no change is specified, the current wave record (`docs/waves/<wave-id>/wave.md`).",),
     ),
     (
         "Scope wording",

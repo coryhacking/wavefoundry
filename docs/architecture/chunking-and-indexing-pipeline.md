@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-06
+Last verified: 2026-11-18
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -249,7 +249,7 @@ code files — for the single project index.
 live and archived records through `record_paths.py`, including configured nested layouts.
 Only descendants of each discovered record's immediate `evidence` or `evidence-*`
 directories are omitted from docs/code discovery, explicit `files=` inputs and graph
-extraction. Wave summaries, admitted change docs, eligible source and curated proof outside
+extraction. Wave summaries, admitted specs, eligible source and curated proof outside
 those directories retain their existing eligibility. An unrelated directory named `evidence`
 has no effect. This retrieval-only predicate is separate from `machine_authority.py`;
 `code_read` and typed review-history access retain their files and ledger access.
@@ -930,7 +930,7 @@ between the publication commit and finalize, the complete new rows; half-written
 never exist. Since wave `215sy` the question tools (`code_ask`, `code_search`,
 `docs_search`) read such a store instead of refusing. That read is advisory: it does not
 complete the epoch, repair storage, schedule healing or start a build, and every
-response carries an incomplete-coverage warning (see the MCP tool surface spec).
+response carries an incomplete-coverage warning (see the MCP tool surface behavior contract).
 
 The epoch state token does not change between the publication commit and finalize, so
 the read takes its dense rows, FTS rows, build state and bookkeeping from one read-only

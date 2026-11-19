@@ -813,7 +813,7 @@ def _state_sources_memory_validate(root: Path, result: Mapping[str, Any]) -> lis
 
 
 def _state_sources_memory_propose(root: Path, result: Mapping[str, Any]) -> list[str]:
-    """Best-effort: resolve the change docs the drafted records derive from."""
+    """Best-effort: resolve the specs the drafted records derive from."""
     data = result.get("data") if isinstance(result.get("data"), dict) else {}
     if result.get("status") != "ok" or not data.get("written"):
         return []
@@ -842,7 +842,7 @@ def _state_sources_memory_propose(root: Path, result: Mapping[str, Any]) -> list
 
 
 def _state_sources_get_change(root: Path, result: Mapping[str, Any]) -> list[str]:
-    """Credit only change docs whose content the response conveys.
+    """Credit only specs whose content the response conveys.
 
     Bulk rows cap content at 300 lines and carry a structural ``truncated``
     field; a truncated row conveys an excerpt, not the document, so it earns

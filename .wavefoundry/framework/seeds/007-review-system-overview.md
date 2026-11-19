@@ -248,9 +248,9 @@ Seeded closure and review prompts (`190-close-wave.prompt.md`, `docs/prompts/rev
 
 - **Per-key mutable state** (dictionaries, caches, grace timestamps): reviewers should verify **set / clear / leave unchanged** on **every** exit from the control-flow region that references the state, including `else` arms when a boolean gate (for example `powerStateChanged`) splits mismatch vs match paths.
 - **Re-entrancy**: if a function runs every step, tick, or timer fire, reviewers should ask what happens to that state when the **same** external condition holds on consecutive calls (stale timestamps, leaked entries).
-- **Parallel helpers**: when two functions implement the same policy (for example `*WithDelays` vs a simpler checker), reviewers should compare them for **symmetry** unless the change doc records an intentional difference.
+- **Parallel helpers**: when two functions implement the same policy (for example `*WithDelays` vs a simpler checker), reviewers should compare them for **symmetry** unless the spec records an intentional difference.
 
-This complements **docs-contract review** (spec vs code): contract review catches documented invariants; **code review** catches branch gaps the spec did not yet encode.
+This complements **docs-contract review** (behavior contract vs code): contract review catches documented invariants; **code review** catches branch gaps the behavior contract did not yet encode.
 
 ## Relationship To Personas
 

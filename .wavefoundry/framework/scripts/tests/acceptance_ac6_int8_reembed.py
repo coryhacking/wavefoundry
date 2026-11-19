@@ -31,7 +31,7 @@ loudly if it does not.
 
 Embedders are mocked (as the standard suite does) because AC-6 is about the re-embed DECISION
 and the chunk accounting, not about vector values. Vector-level behaviour is covered by the
-real-graph evidence in the change doc's Progress Log.
+real-graph evidence in the spec's Progress Log.
 """
 from __future__ import annotations
 

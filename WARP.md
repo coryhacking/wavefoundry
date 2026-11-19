@@ -14,6 +14,6 @@ Thin pointer. Read `AGENTS.md` first for the full agent operating surface.
 - Code and documentation Q&A: follow **Codebase and documentation questions (auto-Guru)** in `AGENTS.md` and `docs/agents/guru.md`; use Wavefoundry MCP (`code_ask`, `docs_search`) when attached; do not answer from memory alone.
 <!-- wave:auto-guru end -->
 <!-- wave:auto-guru end -->
-- Stage gate before any code edit: change doc → wave admission → Prepare wave
+- Stage gate before any code edit: spec → wave admission → Prepare wave
 - Never commit without explicit operator instruction in the current session
 - Seed protection: do not edit `framework/seeds/` without `seed_edit_allowed` guard approval

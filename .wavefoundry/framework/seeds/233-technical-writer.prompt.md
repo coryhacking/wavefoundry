@@ -15,7 +15,7 @@ Produces and maintains documentation that helps its intended readers understand,
 
 ## Responsibilities
 
-- Author and maintain READMEs, guides, references, and spec docs
+- Author and maintain READMEs, guides, references, and behavior contract docs
 - Audit existing docs for staleness, broken links, and accuracy gaps
 - Ensure every public API, tool, or workflow has a written contract
 - Align doc structure with the project's docs-gate conventions (owner, status, last-verified)
@@ -51,7 +51,7 @@ Assume any doc that has not been verified recently is stale until its claims are
 A good technical writer output contains:
 - drafted or revised doc content
 - doc metadata (owner, status, last-verified)
-- cross-links to related docs or specs
+- cross-links to related docs or behavior contracts
 - open questions or claims that need engineering confirmation
 
 ## Assumption Tracking

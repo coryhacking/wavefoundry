@@ -32,7 +32,7 @@ def _wave_record(root, wave_id):
 
 
 def _member_doc(wave_md):
-    """The one change document beside a container record."""
+    """The one spec beside a container record."""
     return next(path for path in wave_md.parent.glob('*.md') if path.name != wave_md.name)
 
 
@@ -314,16 +314,16 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
         # The docs-constants claim on the bullet this change edits survives verbatim.
         self.assertIn("configured_gates outcomes: `would_run/passed/failed/invalid`", surface)
 
-    def test_publication_contention_at_the_two_call_sites(self):
-        """1yd99 AC-4: one site gains a clause, the other keeps its wrapper.
+    def test_publication_contention_at_the_prepare_site_and_none_at_the_mark_site(self):
+        """1yd99 AC-4, moved by change 23q1h (was
+        ``test_publication_contention_at_the_two_call_sites``).
 
-        The two call sites of the publication helper are not symmetric.
-        `wf_mark_ac` is absent from the publication writer registry, so its site
-        raises unhandled today and is the one this change edits.  `wf_prepare_wave`
-        is a registered writer whose wrapper already returns the typed busy
-        envelope, so an inner clause there would shadow it and turn a fail-fast
-        refusal into an in-band diagnostic.  The prepare half is therefore a
-        deliberate no-change pin, stated as the converse.
+        `wf_prepare_wave` is a registered writer whose wrapper already returns
+        the typed busy envelope, so its call site keeps the narrow tuple and no
+        inner clause.  `wf_mark_ac` was the second call site: a deferral
+        published a receipt.  A deferral is now digest-neutral, so the mark
+        site publishes nothing and cannot meet publication contention; the
+        fault injected into the publication helper is never reached.
         """
         import ast
         import publication_control
@@ -332,7 +332,6 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
         srv = load_server()
         source = Path(srv.__file__).read_text(encoding="utf-8")
 
-        # The asymmetry the requirement rests on.
         registered = set(publication_control.registered_publication_tool_names())
         self.assertIn("wf_prepare_wave", registered)
         self.assertNotIn("wf_mark_ac", registered)
@@ -349,42 +348,35 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
         for handler in prepare_handlers:
             self.assertNotIn("ProjectPublicationUnavailable", ast.unparse(handler.type))
 
-        # The mark-criterion site gained the distinct clause, ahead of the tuple.
+        # The mark-criterion site no longer publishes.
         mark_fn = next(n for n in ast.walk(tree)
                        if isinstance(n, ast.FunctionDef) and n.name == "_mark_change_item_response")
-        mark_tries = [n for n in ast.walk(mark_fn) if isinstance(n, ast.Try)
-                      and any("_publish_prepare_policy_state" in ast.unparse(b) for b in n.body)]
-        self.assertTrue(mark_tries)
-        names = [ast.unparse(h.type) for t_ in mark_tries for h in t_.handlers]
-        self.assertIn("ProjectPublicationUnavailable", names[0])
-        self.assertIn("project_publication_busy", ast.unparse(mark_tries[0]))
-        # The busy response preserves the published contract: nothing was changed.
-        busy = ast.unparse(mark_tries[0].handlers[0])
-        self.assertIn("'changed': False", busy)
-        self.assertIn("'review_receipt_refreshed': False", busy)
+        self.assertNotIn("_publish_prepare_policy_state", ast.unparse(mark_fn))
 
-        # AC-4 states the oracle behaviourally, so inject the fault rather than
-        # only reading the source: a clause that parses but fails at runtime,
-        # carries the wrong payload, or is marked advisory would pass an AST pin.
+        # Behaviourally: with the helper made to fail, the deferral still
+        # writes the document and reports no contention.
         ctx = self.context(phase='close')
         change = _member_doc(ctx.wave_md)
         with patch.object(srv, '_publish_prepare_policy_state',
-                          side_effect=review_evidence.ProjectPublicationUnavailable('lock held')):
+                          side_effect=review_evidence.ProjectPublicationUnavailable('lock held')) as publish:
             response = srv._mark_change_item_response(
                 ctx.root, ctx.wave_md.parent.name, change.stem, 'AC-1', '~',
                 target_section='Acceptance Criteria', reason='probe', mode='create')
-        self.assertEqual(response['status'], 'error', response)
-        codes = [d['code'] for d in response.get('diagnostics', [])]
-        self.assertEqual(codes, ['project_publication_busy'], response)
-        busy_diag = response['diagnostics'][0]
-        self.assertIsNot(busy_diag.get('advisory'), True, 'contention must not be advisory')
-        self.assertFalse(response['data']['changed'])
-        self.assertFalse(response['data']['review_receipt_refreshed'])
+        publish.assert_not_called()
+        self.assertEqual(response['status'], 'ok', response)
+        self.assertTrue(response['data']['changed'])
+        self.assertNotIn('review_receipt_refreshed', response['data'])
+        self.assertNotIn('project_publication_busy', [d['code'] for d in response.get('diagnostics') or []])
+        self.assertIn('*Status: probe*', change.read_text(encoding='utf-8'))
 
-    def test_mark_ac_publication_refusal_is_path_free_under_the_upgrade_shape(self):
-        """Wave 1zls7 (1zlts AC-8): another process holds the upgrade shape
-        (lifecycle, then publication); the refusal names repository-relative
-        locks only."""
+    def test_mark_ac_deferral_is_not_blocked_by_the_upgrade_shape(self):
+        """Wave 1zls7 (1zlts AC-8), moved by change 23q1h (was
+        ``test_mark_ac_publication_refusal_is_path_free_under_the_upgrade_shape``).
+
+        Another process holds the upgrade shape (lifecycle, then publication).
+        A deferral used to publish a receipt and was refused there; it now
+        writes only the document, as a completion mark does, so it succeeds
+        while the locks are held and its response names no path."""
         import json
         import subprocess
         import sys
@@ -413,10 +405,9 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
             child.wait(timeout=60)
             child.stdout.close()
             child.stderr.close()
-        codes = [d['code'] for d in response.get('diagnostics', [])]
-        self.assertEqual(codes, ['project_publication_busy'], response)
-        message = response['diagnostics'][0]['message']
-        self.assertIn('.wavefoundry/lifecycle-mutation.lock', message)
+        self.assertEqual(response['status'], 'ok', response)
+        self.assertTrue(response['data']['applied'])
+        self.assertNotIn('project_publication_busy', [d['code'] for d in response.get('diagnostics') or []])
         text = json.dumps(response)
         for absolute in {str(ctx.root), str(Path(ctx.root).resolve())}:
             self.assertNotIn(absolute, text)

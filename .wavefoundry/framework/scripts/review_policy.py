@@ -165,7 +165,7 @@ REVIEW_POLICY_SCHEMA_VERSION = 1
 # whitespace-independent legacy lane matching. Bumped for the same reason 2 -> 3
 # was: without it the permanent `events.jsonl` history cannot tell a plan edit
 # apart from a canonicalization change. The re-digest happens either way -- every
-# change document's canonical body moves -- so the only question the bump settles
+# spec's canonical body moves -- so the only question the bump settles
 # is whether the ledger can EXPLAIN why. One re-Prepare per readied-or-open wave;
 # closed waves are untouched, because receipt-chain validation re-derives ids from
 # the fields stored on each record.
@@ -192,7 +192,7 @@ RISK_TRIGGER_LANES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("release-reviewer", ("upgrade_wavefoundry.py", "build_pack.py")),
 )
 
-# Whole-document tokens used ONLY for a change doc that declares no repo-relative
+# Whole-document tokens used ONLY for a spec that declares no repo-relative
 # targets in `## Serialization Points`. This is the migration bridge: an
 # un-migrated plan keeps exactly the coverage it had, including the known false
 # positives of prose scoring, until its author declares real targets and earns
@@ -321,11 +321,11 @@ REVIEW_POLICY_SURFACE_BLOCKS = {
 re-Prepare whenever policy inputs change before implementation.
 
 Editing the digest canonicalizer is itself a policy-input change, and it moves
-every change document at once. `canonical_review_policy_body` and its
+every spec at once. `canonical_review_policy_body` and its
 normalizers decide what the digest sees, so changing them re-digests the whole
 repository and lapses every readiness approval in every open wave without a
 single document being edited. Expect one re-Prepare per open wave, disclose it
-in the change document, and avoid making the edit while waves are readied but
+in the spec, and avoid making the edit while waves are readied but
 unclosed without saying so.""",
     _review_doc: f"""## Review-policy delivery
 
@@ -822,7 +822,7 @@ def _serialization_points_body(change_text: str) -> str | None:
     line inside the section truncate it and silently discard every declaration
     below.
 
-    This is not hypothetical: the shipped change-doc scaffold now teaches the
+    This is not hypothetical: the shipped spec scaffold now teaches the
     declaration forms with fenced examples inside this very section, so the
     illustrate-the-form case is the common one rather than the exotic one.
     """
@@ -1085,7 +1085,7 @@ def _legacy_token_match(token: str, corpus: str) -> tuple[int, str] | None:
 def _legacy_match_reason(token: str, corpus: str) -> str:
     """Describe a fallback token match without inventing a source location.
 
-    The corpus is every undeclared change document joined together and then
+    The corpus is every undeclared spec joined together and then
     canonicalized, which collapses each Progress Log body to a single sentinel
     line. An offset into it therefore names no line in any real document: a
     token on line 22 of one doc reported as "line 15", and with two documents
@@ -1104,10 +1104,10 @@ def _legacy_match_reason(token: str, corpus: str) -> str:
         # practice. It is a plain branch rather than an `assert` because
         # `python -O` strips asserts, and the next line would then fail on an
         # unpack of None instead of degrading to a still-useful reason.
-        return f"{token} (matched in undeclared change-document prose)"
+        return f"{token} (matched in undeclared spec prose)"
     _offset, excerpt = match
     return (
-        f"{token} (matched in undeclared change-document prose, "
+        f"{token} (matched in undeclared spec prose, "
         f"normalized excerpt: {excerpt[:80]!r})"
     )
 
@@ -1125,8 +1125,8 @@ def select_required_review_lanes(
     # OPEN to whole-text scoring rather than to an empty roster.
     #
     # Without this, path-only scoring is retroactive. Measured over the corpus at
-    # delivery: 775 change docs lost lanes and NONE gained any, and five of the
-    # six non-closed change docs collapsed to zero required lanes, because every
+    # delivery: 775 specs lost lanes and NONE gained any, and five of the
+    # six non-closed specs collapsed to zero required lanes, because every
     # plan authored before this contract describes its targets in prose. A change
     # that removes all required review from every existing readied wave is a far
     # worse failure than the over-recruitment it set out to fix, so an undeclared

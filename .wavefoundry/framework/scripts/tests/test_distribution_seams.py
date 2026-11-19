@@ -546,7 +546,7 @@ ACTOR_TOKEN_ALLOWLIST: dict[str, tuple[int, str]] = {
     "scripts/tests/test_docs_lint.py": (3, "the earlier moderator name stays tolerated"),
     "scripts/tests/test_lifecycle_gates.py": (1, "earlier key prefix test"),
     "scripts/tests/test_lifecycle_golden.py": (1, "earlier key prefix test"),
-    "scripts/tests/test_render_agent_surfaces.py": (1, "the closed 1skt1 change doc names the earlier path"),
+    "scripts/tests/test_render_agent_surfaces.py": (1, "the closed 1skt1 spec names the earlier path"),
     "scripts/tests/test_review_evidence.py": (2, "historical ledger actor and earlier key prefix test"),
     "scripts/tests/test_server_tools_lifecycle.py": (3, "a frozen fingerprinted run and earlier key prefix tests"),
 }

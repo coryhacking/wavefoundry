@@ -3,7 +3,7 @@
 
 Handles the mechanical phases of a framework upgrade so the agent retains
 ownership of high-judgment editing work (drift detection, journal
-reconciliation, spec gap remediation).
+reconciliation, behavior contract gap remediation).
 
 Usage:
     python3 .wavefoundry/framework/scripts/upgrade_wavefoundry.py [options]
@@ -4219,11 +4219,15 @@ def _empty_reporting(state="incomplete", reason="not_assessed") -> dict:
             "reconciliation_eligible_files": 0, "reconciliation_read_files": 0,
             "reconciliation_read_bytes": 0, "reconciliation_candidates": 0,
             "disposition_diagnostics": [], "renderer_warnings": [],
-            "agent_surface_integrity": {"available": False, "finding_count": 0}}
+            "agent_surface_integrity": {"available": False, "finding_count": 0},
+            "work_root": _not_reported_work_root(reason)}
 
 
 def _report_fields(report):
-    return {key: value for key, value in report.items() if key.startswith("reconciliation_")}
+    # Change 23phc: the leftover work fields ride with the reporting fields so
+    # every summary emit site carries them.
+    return {**{key: value for key, value in report.items() if key.startswith("reconciliation_")},
+            **_work_root_fields(report)}
 
 
 def _produce_reconciliation_report(root: Path) -> int:
@@ -4254,6 +4258,7 @@ def _produce_reconciliation_report(root: Path) -> int:
         for key, values in zip(("reconciliation", "host_permission_flags", "renderer_provenance_flags"), channels):
             report[key] = values
         report["renderer_warnings"] = _run_renderer_warning_scan(root)
+        report["work_root"] = _run_work_root_inventory(root)
         print(json.dumps(report, ensure_ascii=False), flush=True)
         return 0
     result = (reconcile_scan.ScanResult(state="incomplete", reasons=["upgrade_failed"])
@@ -4265,6 +4270,9 @@ def _produce_reconciliation_report(root: Path) -> int:
         report[key] = [ref.as_dict() for ref in getattr(result, key)]
     for key in ("last_path", "last_stage", "elapsed", "visited_entries", "eligible_files", "read_files", "read_bytes", "candidates"):
         report["reconciliation_" + key] = getattr(result, key)
+    # Change 23phc: entry-bounded and metadata-only, so it runs before the
+    # time-budgeted diagnostics below.
+    report["work_root"] = _run_work_root_inventory(root)
     if time.monotonic() - started < budget:
         report["disposition_diagnostics"] = reconcile_scan.disposition_diagnostics(root, findings=result.findings)
     if time.monotonic() - started < budget:
@@ -4432,6 +4440,77 @@ def _run_agent_surface_integrity_scan(root: Path | None) -> dict:
         return agent_surface_integrity.audit_agent_surfaces(root)
     except Exception:  # noqa: BLE001
         return {"available": False, "finding_count": 0}
+
+
+def _not_reported_work_root(reason: str) -> dict:
+    return {"reported": False, "reason": reason[:160], "complete": False, "leftovers": [], "next_action": ""}
+
+
+def _run_work_root_inventory(root: Path | None) -> dict:
+    """Change 23phc: the leftover work folders for the upgrade report.
+
+    Read-only, through the same inventory and classifier as close and
+    wf_audit; deletes nothing. A process holding an older ``wave_work``
+    without the inventory reports ``not_reported``; any error reports an
+    incomplete result and never raises.
+    """
+    if root is None:
+        return _not_reported_work_root("no_root")
+    try:
+        import wave_work
+    except Exception as exc:  # noqa: BLE001
+        return _not_reported_work_root("import_" + type(exc).__name__)
+    if not hasattr(wave_work, "inventory_work_root"):
+        return _not_reported_work_root("older_modules")
+    try:
+        inventory = wave_work.inventory_work_root(root)
+    except Exception as exc:  # noqa: BLE001
+        return _not_reported_work_root("inventory_" + type(exc).__name__)
+    return {
+        "reported": True,
+        "reason": inventory.get("reason") or "",
+        "complete": bool(inventory.get("complete")),
+        "leftovers": [
+            {"path": item.get("path"), "state": item.get("state"), "state_note": item.get("state_note") or "",
+             "bytes": item.get("bytes"), "entries": item.get("entries"),
+             "complete": bool(item.get("complete")), "reason": item.get("reason") or ""}
+            for item in inventory.get("leftovers") or []
+        ][:100],
+        "next_action": inventory.get("next_action") or "",
+    }
+
+
+def _work_root_fields(report: dict) -> dict:
+    """Flat summary fields (lists and scalars survive the response bounder)."""
+    work_root = report.get("work_root")
+    if not isinstance(work_root, dict):
+        work_root = _not_reported_work_root("older_worker")
+    if not work_root.get("reported"):
+        state = "not_reported"
+    else:
+        state = "complete" if work_root.get("complete") else "incomplete"
+    return {
+        "work_root_state": state,
+        "work_root_reason": str(work_root.get("reason") or "")[:160],
+        "work_leftovers": list(work_root.get("leftovers") or []),
+        "work_leftovers_next_action": str(work_root.get("next_action") or ""),
+    }
+
+
+def _work_root_summary_lines(summary: dict) -> list[str]:
+    leftovers = summary.get("work_leftovers") or []
+    lines: list[str] = []
+    if leftovers:
+        lines += ["", f"  Retained work: {len(leftovers)} leftover folder(s) under .wavefoundry/work/ (report only; nothing was deleted):"]
+        for item in leftovers:
+            size = f"{item.get('bytes')} logical bytes" + ("" if item.get("complete") else f" (lower bound: {item.get('reason')})")
+            note = f"; {item['state_note']}" if item.get("state_note") else ""
+            lines.append(f"    {item.get('path')}: {item.get('state')}, {size}{note}")
+        if summary.get("work_leftovers_next_action"):
+            lines.append("    " + summary["work_leftovers_next_action"])
+    if summary.get("work_root_state") == "incomplete":
+        lines.append(f"  Retained work: inventory incomplete ({summary.get('work_root_reason')}); counts are lower bounds.")
+    return lines
 
 
 def _reconciliation_recommendation_lines(
@@ -5266,6 +5345,9 @@ def _print_operator_summary(
         _log("  Renderer warnings (follow the recovery guidance for each item):")
         for warning in renderer_warnings:
             _log(f"    {warning.get('detail') or warning}")
+    # Change 23phc: leftover work folders, report only, on every run.
+    for line in _work_root_summary_lines(summary):
+        _log(line)
     if summary["lifecycle_baseline_drift"]:
         _log("  Lifecycle baseline drift (report only; project copies preserved):")
         for finding in summary["lifecycle_baseline_drift"]:
@@ -5307,7 +5389,7 @@ def _print_operator_summary(
     _log("Upgrade complete. Agent editing pass, if not done yet:")
     _log("  See seed-160 for the full editing-pass sequence; key steps:")
     _log("  1. Drift detection (seed-160 step 6)")
-    _log("  2. Spec gaps via seed-230 (seed-160 step 4 / 160 step 8)")
+    _log("  2. Behavior contract gaps via seed-230 (seed-160 step 4 / 160 step 8)")
     _log("  3. Resolve any docs/scan-findings.json entries via seed-213 (security reviewer) before re-running the docs gate")
     _log("  4. Docs gate re-run after edits (wf_garden_docs → wf_validate_docs, or wf docs-lint)")
     _log("  5. Only if those edits changed indexed files: wf upgrade --update-index")

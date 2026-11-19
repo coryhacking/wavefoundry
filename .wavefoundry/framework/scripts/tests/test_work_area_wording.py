@@ -23,7 +23,7 @@ TEMPLATES = [f"install/lifecycle-prompts/{name}.prompt.md"
              for name in ("close-wave", "create-wave", "implement-wave", "prepare-wave", "review-wave")]
 SEED_050 = "seeds/050-agent-entry-surface-bootstrap.prompt.md"
 SEED_160 = "seeds/160-upgrade-wavefoundry.prompt.md"
-SEED_180 = "seeds/180-implement-change.prompt.md"
+SEED_180 = "seeds/180-implement-spec.prompt.md"
 SEED_209 = "seeds/209-agent-harness-core.prompt.md"
 HEADING_PROMPTS = ("close-wave", "create-wave", "implement-change", "implement-wave",
                    "install-wavefoundry", "pause-wave", "prepare-wave", "review-wave")

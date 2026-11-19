@@ -120,11 +120,11 @@ class BriefingLoopCarrierTests(unittest.TestCase):
     # template asset filenames keep the shipped names.
     CARRIERS = {
         "brief": (
-            ".wavefoundry/framework/seeds/170-plan-change.prompt.md",
+            ".wavefoundry/framework/seeds/170-plan-spec.prompt.md",
             vp.prompt_doc("plan-change"),
         ),
         "readback": (
-            ".wavefoundry/framework/seeds/180-implement-change.prompt.md",
+            ".wavefoundry/framework/seeds/180-implement-spec.prompt.md",
             ".wavefoundry/framework/install/lifecycle-prompts/implement-wave.prompt.md",
             vp.prompt_doc("implement-change"),
             vp.prompt_doc("implement-wave"),
@@ -200,9 +200,9 @@ class BriefingLoopCarrierTests(unittest.TestCase):
             "Retain the read-only pre-apply change evidence for the seeds and install baseline",
             "After extraction",
             "during the same installing run",
-            "`170-plan-change.prompt.md` -> `{doc[plan-change]}`",
+            "`170-plan-spec.prompt.md` -> `{doc[plan-change]}`",
             "`175-review-plan.prompt.md` -> `docs/prompts/review-plan.prompt.md`",
-            "`180-implement-change.prompt.md` -> `{doc[implement-change]}`",
+            "`180-implement-spec.prompt.md` -> `{doc[implement-change]}`",
             "`.wavefoundry/framework/install/lifecycle-prompts/implement-wave.prompt.md` -> `{doc[implement-wave]}`",
             "Merge only changed authored clauses",
             "preserving project additions, metadata, and every renderer-owned marker region",
@@ -334,7 +334,7 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
     """Carrier and authored-merge fixtures, never native-host or agent-adherence proof."""
 
     ROOT = PROJECT_ROOT.parent
-    OWNER = "180-implement-change.prompt.md"
+    OWNER = "180-implement-spec.prompt.md"
     PHASES = ("prepare-wave", "implement-wave", "review-wave", "close-wave")
     POLICY_HEADING = "## Host-neutral orchestration"
     # AC-derived obligations, independently asserted rather than copy equality.
@@ -372,7 +372,7 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
         "merge only the changed authored clauses at a unique location",
         "present the conflict instead of overwriting it",
         "Missing-only rendering preserves existing prose and is not proof that this merge happened",
-        "prepare-wave, implement-change, implement-wave, review-wave, pause-wave, close-wave and agent-routing-concurrency",
+        "prepare-wave, implement-spec, implement-wave, review-wave, pause-wave, close-wave and agent-routing-concurrency",
         "AGENTS.md and docs/agents/wave-coordinator.md",
         "a repeat merge makes no further changes",
         "not an automatic prose migration claim",
@@ -600,7 +600,7 @@ class EfficacyCheckCarrierTests(unittest.TestCase):
     """Distribution pins for the efficacy check (change 21fnf), not a claim that agents follow it."""
 
     ROOT = PROJECT_ROOT.parent
-    SEED_170 = ".wavefoundry/framework/seeds/170-plan-change.prompt.md"
+    SEED_170 = ".wavefoundry/framework/seeds/170-plan-spec.prompt.md"
     HEADING = 'Code-grounded authoring (required; definition in seed-209, "Code-Grounded Verification"):'
     EFFICACY_CLAUSES = (
         "**Mechanism efficacy:** before selecting an approach",
@@ -999,7 +999,7 @@ class DistributionCarrierBoundaryTests(unittest.TestCase):
             root = Path(tmp)
             (root / "docs/prompts").mkdir(parents=True)
             (root / "docs/workflow-config.json").write_text(json.dumps({"testing": {"upstream_fixtures_required": False}}))
-            (root / "docs/prompts/plan-change.prompt.md").write_text("# Consumer-owned policy\n")
+            (root / "docs/prompts/plan-spec.prompt.md").write_text("# Consumer-owned policy\n")
             framework = root / ".wavefoundry/framework"
             framework.mkdir(parents=True)
             for part in ("seeds", "install"):
@@ -1411,7 +1411,7 @@ class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
             *record_paths.WAVES_ROOT.split("/"), "1skt1 executable-review-evidence",
             "1siu0-enh executable-review-evidence-protocol.md"))
         change = change.read_text(encoding="utf-8")
-        # The closed 1skt1 change doc is history and names a destination as it
+        # The closed 1skt1 spec is history and names a destination as it
         # was then (wave 200ey, change 200ew: the council role doc's earlier path).
         # It also names lifecycle prompts at their shipped paths, whatever the
         # profile now calls them (change 2134q).
@@ -1840,12 +1840,12 @@ class ReviewPlanPromptMigrationTests(unittest.TestCase):
         (
             "Purpose",
             "Optional stress-test of a consolidated change doc before wave admission. Walks every unresolved decision branch in Requirements, Acceptance Criteria, and Scope.",
-            "Optional stress-test of a consolidated change doc, or the current wave record when no change is specified, before or after admission and before implementation. Walks every unresolved decision branch in Requirements, Acceptance Criteria, and Scope.",
+            "Optional stress-test of a consolidated spec, or the current wave record when no change is specified, before or after admission and before implementation. Walks every unresolved decision branch in Requirements, Acceptance Criteria, and Scope.",
         ),
         (
             "Input fallback",
             "Given a change doc as context:",
-            "Given a change doc as context, or the current wave record when no change is specified:",
+            "Given a spec as context, or the current wave record when no change is specified:",
         ),
         (
             "When to use",
@@ -1878,7 +1878,7 @@ class ReviewPlanPromptMigrationTests(unittest.TestCase):
         (
             "Input fallback",
             "- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md` or `docs/plans/<change-id>.md`) or wave record (`docs/waves/<wave-id>/wave.md`).",
-            ("- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md` or `docs/plans/<change-id>.md`) or, when no change is specified, the current wave record (`docs/waves/<wave-id>/wave.md`).",),
+            ("- Load the target spec (`docs/waves/<wave-id>/<change-id>.md` or `docs/plans/<change-id>.md`) or, when no change is specified, the current wave record (`docs/waves/<wave-id>/wave.md`).",),
         ),
         (
             "Scope wording",
@@ -2203,6 +2203,17 @@ class ChangePromptRenameMigrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             custom = self._pre_rename_repo(root)
+            # Both feature-named public prompts exist and are registered, as in
+            # an installed repository: the registration of the moved public
+            # prompt is what moves its agent body on from the earlier default
+            # name to the current one.
+            custom[self.OLD_IMPL] = b"# Implement Feature\r\n\r\nProject-only implement prose.\r\n"
+            (root / self.OLD_IMPL).write_bytes(custom[self.OLD_IMPL])
+            (root / self.MANIFEST).write_text(self._manifest_text([
+                (self.OLD_PLAN, "Plan feature"), (self.OLD_IMPL, "Implement feature"),
+                ("docs/prompts/close-wave.prompt.md", "Close wave"),
+                ("docs/prompts/finalize-feature.prompt.md", "Finalize feature"),
+            ]), encoding="utf-8")
             stderr = io.StringIO()
             with patch("sys.stderr", stderr):
                 written = ras.render_agent_surfaces(root)
@@ -2210,6 +2221,7 @@ class ChangePromptRenameMigrationTests(unittest.TestCase):
             self.assertFalse((root / self.OLD_IMPL_AGENT).exists())
             self.assertEqual((root / self.FINAL_PLAN).read_bytes(), custom[self.OLD_PLAN])
             self.assertEqual((root / self.FINAL_IMPL_AGENT).read_bytes(), custom[self.OLD_IMPL_AGENT])
+            self.assertEqual((root / vp.prompt_doc("implement-change")).read_bytes(), custom[self.OLD_IMPL])
             for rel in (self.OLD_PLAN, self.FINAL_PLAN, self.OLD_IMPL_AGENT, self.FINAL_IMPL_AGENT, self.MANIFEST):
                 self.assertIn(rel, written)
             entries = json.loads((root / self.MANIFEST).read_text(encoding="utf-8"))["public_prompt_surface"]
@@ -2217,6 +2229,7 @@ class ChangePromptRenameMigrationTests(unittest.TestCase):
                 entries,
                 [
                     {"doc": self.FINAL_PLAN, "shortcut": vp.shortcut("plan-change")},
+                    {"doc": vp.prompt_doc("implement-change"), "shortcut": vp.shortcut("implement-change")},
                     {"doc": vp.prompt_doc("close-wave"), "shortcut": vp.shortcut("close-wave")},
                     {"doc": ras.CLOSE_CHANGE_PROMPT, "shortcut": ras.CLOSE_CHANGE_SHORTCUT},
                 ],
@@ -2584,7 +2597,7 @@ class ChangePromptSkillAndContractTests(unittest.TestCase):
         repo = PROJECT_ROOT.parent
         seed = (PROJECT_ROOT / "framework/seeds/190-close-wave.prompt.md").read_text(encoding="utf-8")
         return {
-            "seed": seed[seed.index("## Close change"):],
+            "seed": seed[seed.index("## Close spec"):],
             "template": (PROJECT_ROOT / "framework/install/lifecycle-prompts/close-change.prompt.md").read_text(
                 encoding="utf-8"
             ),
@@ -2604,8 +2617,8 @@ class ChangePromptSkillAndContractTests(unittest.TestCase):
             "wf_close_change",
             "(`active` or `implementing`)",
             "admitted to that {wave}",
-            "{change} doc exists and is readable",
-            "agrees between the {wave} record and the {change} doc",
+            "spec exists and is readable",
+            "agrees between the {wave} record and the spec",
             "silent `[ ]` AC or task",
             "`Depends On:`",
             "records no review evidence",
@@ -4590,7 +4603,7 @@ class GuruDescriptionRefreshTests(unittest.TestCase):
     # pin holds under every vocabulary profile.
     PINNED_CURRENT_DESCRIPTION = (
         "PROACTIVELY use when the user asks how this repository's source code or project documentation "
-        "works and answering needs an investigation — behavior, architecture, specs, framework scripts, "
+        "works and answering needs an investigation — behavior, architecture, behavior contracts, framework scripts, "
         "indexing, chunking, or retrieval. A direct lookup, such as finding a definition or reading one "
         "value, needs no subagent. Do not use for wave lifecycle commands (@PLAN@, @IMPLEMENT@, @CLOSE@, "
         "@PREPARE@, etc.)."
@@ -5320,7 +5333,7 @@ class TechdocsExcludeDocsOracleTests(unittest.TestCase):
         "agents/guru.md",
         "agents/session-handoff.md",
         "agents/memory/x.md",
-        "prompts/plan-change.prompt.md",
+        "prompts/plan-spec.prompt.md",
         "prompts/prompt-surface-manifest.json",
         "plans/1abc-x.md",
         "waves/1vj4e x/wave.md",
@@ -5407,7 +5420,7 @@ class TechdocsExcludeDocsOracleTests(unittest.TestCase):
         without_index = [line for line in block if line != "!/prompts/index.md"]
         self.assertTrue(self._excluded(without_index, "prompts/index.md"), "survivor must be rejected by the mutant")
         without_prompt_deny = [line for line in block if line != "/prompts/*"]
-        self.assertFalse(self._excluded(without_prompt_deny, "prompts/plan-change.prompt.md"), "prompt body admitted by the mutant")
+        self.assertFalse(self._excluded(without_prompt_deny, "prompts/plan-spec.prompt.md"), "prompt body admitted by the mutant")
         # Both mutants still agree with the golden on the other side, so the failure is specific.
         self.assertFalse(self._excluded(without_index, "index.md"))
         self.assertTrue(self._excluded(without_prompt_deny, "README.md"))
@@ -5536,8 +5549,8 @@ class TechdocsCarrierLiteralPinTests(unittest.TestCase):
                     "Skip rendering and docs validation after the merge",
             },
             "**Changed Prepare Serialization Points carrier.**": {
-                "`170-plan-change.prompt.md` changed":
-                    "`170-plan-change.prompt.md` was unchanged",
+                "`170-plan-spec.prompt.md` changed":
+                    "`170-plan-spec.prompt.md` was unchanged",
                 "freshly extracted `.wavefoundry/framework/install/lifecycle-prompts/prepare-wave.prompt.md`":
                     "pre-upgrade lifecycle baseline",
                 "merge only that grammar": "replace the entire prompt",
@@ -6215,6 +6228,37 @@ print(json.dumps({"key": key, "first": first, "second": second, "text": text}))
             self.assertEqual(data["first"], [data["key"]])
             self.assertEqual(data["second"], [])
             self._assert_patch_policy(data["text"])
+
+
+class StaleDefaultSkillNameTests(unittest.TestCase):
+    """Which default skill names a declared extension skill may take."""
+
+    @default_profile_only("names the default skill folders literally")
+    def test_a_declared_skill_frees_only_an_earlier_default_name(self):
+        earlier = ".claude/skills/wf-plan-change/SKILL.md"
+        current = ".claude/skills/wf-plan-spec/SKILL.md"
+        self.assertIn(earlier, ras.stale_skill_paths({}))
+        self.assertNotIn(earlier, ras.stale_skill_paths({"wf-plan-change": {}}))
+        # A profile that renames the plan prompt no longer renders the current
+        # default skill. That name stays retired even when a skill declares it.
+        renamed = tuple(skill for skill in ras.SKILL_REGISTRY if skill.name != "wf-plan-spec")
+        with patch.object(ras, "SKILL_REGISTRY", renamed):
+            self.assertIn(current, ras.stale_skill_paths({}))
+            self.assertIn(current, ras.stale_skill_paths({"wf-plan-spec": {}}))
+            self.assertIn("wf-plan-spec", ras.skill_name_collisions({"wf-plan-spec": {}}))
+
+    @default_profile_only("supplies its own shortcut table")
+    def test_a_profile_that_kept_the_earlier_plan_shortcut_is_recognised(self):
+        names = {"plan-change": "Plan spec", "implement-wave": "Implement batch",
+                 "close-wave": "Close batch", "prepare-wave": "Prepare batch"}
+        shipped = (
+            "PROACTIVELY use when the user asks how this repository's source code or project "
+            "documentation works and answering needs an investigation — behavior, architecture, "
+            "specs, framework scripts, indexing, chunking, or retrieval. A direct lookup, such as "
+            "finding a definition or reading one value, needs no subagent. Do not use for wave "
+            "lifecycle commands (Plan change, Implement batch, Close batch, Prepare batch, etc.)."
+        )
+        self.assertIn(shipped, ras.previous_guru_descriptions(names.__getitem__))
 
 
 if __name__ == "__main__":

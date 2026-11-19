@@ -189,7 +189,7 @@ class ModelBundleTests(unittest.TestCase):
 
         # 1v0r0 repair (F7): closed benchmark census. `benchmarks/` may carry
         # retired identifiers ONLY at the exact paths below, each covered by a
-        # census class from the change doc's Requirement 7; any FUTURE
+        # census class from the spec's Requirement 7; any FUTURE
         # benchmark file naming a retired identifier fails here.
         bench_root = SCRIPTS / "benchmarks"
         bench_source = (bench_root / "embed_bench.py").read_text(encoding="utf-8")

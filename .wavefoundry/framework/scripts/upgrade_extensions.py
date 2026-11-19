@@ -2779,7 +2779,7 @@ def repair_declaring_scaffold(root) -> list[str]:
     """Fence a scaffold's example block so it stops declaring review targets.
 
     1.15.6 ships a docs-lint ERROR for a scaffold that declares review
-    targets, because a declaring template hands every change doc created from
+    targets, because a declaring template hands every spec created from
     it a roster its author never chose. (1.15.5 is the release the field
     report came from, not the release carrying the rule.) That rule is class-a: the docs gate
     subprocesses the freshly extracted ``docs_lint.py``, so it fires on the
@@ -2791,7 +2791,7 @@ def repair_declaring_scaffold(root) -> list[str]:
     gate, so it is class-a too and clears the contamination on the same run.
     It is safe in a scaffold and only in a scaffold: every declaration in a
     template is by definition an example, so fencing cannot destroy a real
-    target. Authored change docs are never touched.
+    target. Authored specs are never touched.
 
     Returns the repaired paths so the caller can report what it changed;
     reporting from the repair is the only option, because the reconciliation

@@ -30,9 +30,9 @@ Tasks:
 
 9. **Unknowns and verification** — Maintain an **Open questions / weak evidence** subsection (in `current-state` or `domain-map`) listing boundaries that could not be verified from inventory; set `Verification method` metadata on draft docs where the repo uses it. Mirror or link material **watchlist** items in `docs/missing-docs.md` when they represent doc debt, not transient chat notes.
 
-10. **Boundary behavioral invariants** — For each major integration edge from task 3, capture **runtime semantics** that implementers and **architecture-reviewer** must not accidentally violate: message/event ordering expectations, **idempotency** or retry behavior, **consistency** (strong vs eventual vs best-effort), error propagation, and **ownership of reconciliation** after partial failure. Prefer a **Boundary invariants** subsection in `docs/architecture/layering-rules.md` (table keyed by edge) or one short paragraph per edge in `docs/architecture/data-and-control-flow.md` when the invariant is inseparable from a flow narrative. Label **inferred** vs **verified** (spec or code citation).
+10. **Boundary behavioral invariants** — For each major integration edge from task 3, capture **runtime semantics** that implementers and **architecture-reviewer** must not accidentally violate: message/event ordering expectations, **idempotency** or retry behavior, **consistency** (strong vs eventual vs best-effort), error propagation, and **ownership of reconciliation** after partial failure. Prefer a **Boundary invariants** subsection in `docs/architecture/layering-rules.md` (table keyed by edge) or one short paragraph per edge in `docs/architecture/data-and-control-flow.md` when the invariant is inseparable from a flow narrative. Label **inferred** vs **verified** (behavior contract or code citation).
 
-11. **Data and control flow** — Create or refresh `docs/architecture/data-and-control-flow.md`: **primary control paths** (user action, timer, IPC, job), **where authoritative state is read and written**, and **which domain owns each mutation**. Prefer named paths that reuse **domain-map** identifiers; optional Mermaid or numbered step lists; avoid duplicating full spec text — link `docs/specs/*.md` where behavior is contractual.
+11. **Data and control flow** — Create or refresh `docs/architecture/data-and-control-flow.md`: **primary control paths** (user action, timer, IPC, job), **where authoritative state is read and written**, and **which domain owns each mutation**. Prefer named paths that reuse **domain-map** identifiers; optional Mermaid or numbered step lists; avoid duplicating full behavior contract text — link `docs/specs/*.md` where behavior is contractual.
 
 12. **Testing architecture** — Create or refresh `docs/architecture/testing-architecture.md`: unit vs integration vs E2E (or repo-appropriate tiers), **which module or package owns which test targets**, where doubles/mocks are allowed vs forbidden, CI entrypoints, and **minimum verification bar** for cross-module changes. Use the same module names as `domain-map.md` so **qa-reviewer** and **release-reviewer** align with architecture vocabulary.
 
@@ -59,12 +59,12 @@ Alignment with review and roles:
 Routing guidance for later prompts:
 
 - **Implement / plan prompts** — Point implementers at `docs/ARCHITECTURE.md` and the relevant child doc before cross-cutting edits.
-- **190-close-wave** / promotion — Architectural decisions discovered during a change should update `docs/ARCHITECTURE.md` or `docs/architecture/decisions/` and, when boundaries move, **domain-map** / **layering-rules**; when flows or state ownership change, **data-and-control-flow**; when test topology or CI gates change, **testing-architecture**; when integration invariants change, **layering-rules** (boundary invariants) and linked specs.
+- **190-close-wave** / promotion — Architectural decisions discovered during a change should update `docs/ARCHITECTURE.md` or `docs/architecture/decisions/` and, when boundaries move, **domain-map** / **layering-rules**; when flows or state ownership change, **data-and-control-flow**; when test topology or CI gates change, **testing-architecture**; when integration invariants change, **layering-rules** (boundary invariants) and linked behavior contracts.
 
 Guardrails:
 
 - Do not overstate boundaries when evidence is weak — label inference vs verified fact.
 - Be explicit about what must stay **serialized** across agents or workstreams.
 - Avoid copy-pasting large code blocks; use paths, module names, and short interface summaries.
-- Do not contradict `docs/specs/*.md` contracts; architecture docs **interpret** layout and runtime — specs remain behavior authority where they exist.
+- Do not contradict `docs/specs/*.md` contracts; architecture docs **interpret** layout and runtime — behavior contracts remain behavior authority where they exist.
 - Preserve repo-specific depth already in canonical architecture docs when refreshing; **extend and reconcile**, do not replace with generic pack boilerplate.

@@ -34,7 +34,7 @@ from historical_fixture_support import historical_bytes
 # The record filename and the live waves root the loaded profile uses.
 RECORD = vocabulary_profile.RECORD_FILENAME
 WAVES_REL = record_paths.WAVES_ROOT
-# The member status label of a change document in the loaded profile.
+# The member status label of a spec in the loaded profile.
 STATUS_LABEL = vocabulary_profile.MEMBER_STATUS_LABEL
 
 
@@ -57,6 +57,24 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
             body = replacements[0][0] if replacements else "current carrier\n"
             path.write_text("operator prefix\n" + body + "operator suffix\n", encoding="utf-8")
         return root
+
+    def test_earlier_text_sides_are_frozen(self):
+        # Each earlier-text side is byte-matched against text an earlier release
+        # wrote into installed prompts, so it is never reworded with the rest of
+        # the framework. The other tests here read the earlier side from the
+        # table itself and cannot see a rewording; this pin can.
+        import hashlib
+
+        earlier = [
+            old
+            for replacements in review_policy_reconcile.KNOWN_SECTION_REPLACEMENTS.values()
+            for old, _new in replacements
+        ]
+        self.assertEqual(len(earlier), 15)
+        self.assertEqual(
+            hashlib.sha256(json.dumps(earlier).encode("utf-8")).hexdigest(),
+            "017c35a8da6b85304edd693e6e41c336edd4e46a626f223c4013a50eebb82c06",
+        )
 
     def test_registry_and_reconciler_share_exact_carrier_scope(self):
         registry = {
@@ -1134,7 +1152,7 @@ class LockAndPublicationPolicyTests(unittest.TestCase):
 
     @staticmethod
     def _change_doc_with_progress_log() -> bytes:
-        """A change doc carrying every requirement-bearing section.
+        """A spec carrying every requirement-bearing section.
 
         `## Progress Log` sits in the middle so the sensitivity cases below also
         prove the excluded region ends at the next `## ` heading instead of
@@ -1460,7 +1478,7 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
         # any real document. Assert the PROPERTY (no location-shaped number),
         # not one spelling of it; `L22` and `offset 341` are equally misleading.
         reason = reasons["code-reviewer"][0]
-        self.assertIn("matched in undeclared change-document prose", reason)
+        self.assertIn("matched in undeclared spec prose", reason)
         self.assertIn("lib/widget.js", reason)
         self.assertIsNone(
             re.search(r"(?:line|offset|L|:)\s*\d+", reason),
@@ -1986,7 +2004,7 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
         required review than it has today. Asserts that invariant rather than a
         fixed keep/revert count, because a downstream repository will differ.
 
-        Measured here at delivery: 814 change documents, 138 declared before
+        Measured here at delivery: 814 specs, 138 declared before
         and 37 after, 101 reverting to whole-document fallback, 95 gaining
         lanes, and ZERO losing any.
         """
@@ -2001,7 +2019,7 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
             if p.name != "wave.md"
         ]
         if len(docs) <= 100:
-            # This repository's own change-doc corpus; a distribution lacks it.
+            # This repository's own spec corpus; a distribution lacks it.
             upstream_fixture(root.joinpath(
                 *record_paths.WAVES_ROOT.split("/"), "1uo1x declaration-and-digest-boundaries",
                 "1uo1w-bug prose-flips-declared-mode-and-drops-lanes.md"))
@@ -2028,7 +2046,7 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
                 losses.append((path.name, sorted(before - after)))
         self.assertEqual(
             losses, [],
-            "no change document may lose a required lane; a stricter "
+            "no spec may lose a required lane; a stricter "
             "declaration rule must only ever restore coverage",
         )
 
@@ -2212,7 +2230,7 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
 
         The siblings `normalize_gardener_date` and `normalize_progress_log`
         normalize a SINGLE line and degrade on any other count. Copying that
-        contract here is wrong: a change document legitimately carries both
+        contract here is wrong: a spec legitimately carries both
         `Change Status:` and `Status:`, and 794 of 1457 documents in this
         repository have exactly that pair. Under `!= 1` every one of them
         stops normalizing, so the digest moves on each status advance and the
@@ -2278,7 +2296,7 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
 
         # A sentinel that cannot occur in the corpus. Counting the production
         # `<workflow-status>` marker instead reports a false 3 for this wave's
-        # own change doc, which quotes that marker in its Rationale prose.
+        # own spec, which quotes that marker in its Rationale prose.
         sentinel = "<<<census-sentinel-9f3a>>>"
         losses = []
         for path in docs:
@@ -2316,7 +2334,10 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
         self.assertFalse(appended)
         self.assertEqual(retained["council_seats"], ["red-team", "code-reviewer"])
 
-    def test_checkbox_tracking_preserves_ac_deferral_but_not_completion_or_tasks(self):
+    def test_checkbox_tracking_resets_ac_deferral_and_completion_but_keeps_criterion_text(self):
+        """Change 23q1h: the AC `[~]` mark is tracking like `[x]` (renamed from
+        ``..._preserves_ac_deferral_...``, whose rule this change reverses); the
+        criterion's text, a note in a non-canonical form included, stays digested."""
         base = (
             "# Change\n\n## Acceptance Criteria\n\n"
             "- [ ] AC-1: required contract\n- [~] AC-2: deferred *operator decision*\n"
@@ -2325,11 +2346,18 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
         )
         completed = base.replace("- [ ] AC-1", "- [x] AC-1")
         task_variant = completed.replace("- [x] implement it", "- [ ] implement it")
+        reopened_ac = completed.replace("- [~] AC-2", "- [ ] AC-2")
         deferred_ac = completed.replace("AC-2: deferred", "AC-2: materially deferred")
         canonical = gardener_metadata.canonical_review_policy_body
         self.assertEqual(canonical(base.encode()), canonical(completed.encode()))
         self.assertEqual(canonical(completed.encode()), canonical(task_variant.encode()))
+        self.assertEqual(canonical(completed.encode()), canonical(reopened_ac.encode()))
         self.assertNotEqual(canonical(completed.encode()), canonical(deferred_ac.encode()))
+        self.assertNotEqual(
+            canonical(completed.encode()),
+            canonical(reopened_ac.replace(" *operator decision*", "").encode()),
+            "a note in a non-canonical form is criterion text",
+        )
 
     def test_lane_selection_uses_only_serialization_paths_and_explicit_requests(self):
         prose_only = "# Change\n\n## Scope\n\nSecurity boundary latency build_pack.py events.jsonl.\n"
@@ -2337,7 +2365,7 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
             "# Change\n\n## Serialization Points\n\n"
             "- `.wavefoundry/framework/scripts/review_policy.py`; "
             "`.wavefoundry/framework/scripts/tests/test_review_policy.py`; "
-            "`.wavefoundry/framework/seeds/170-plan-change.prompt.md`\n"
+            "`.wavefoundry/framework/seeds/170-plan-spec.prompt.md`\n"
         )
         lanes, reasons = review_policy.select_required_review_lanes(
             requested_lanes=(), project_lanes=(), change_texts=(prose_only, paths)
@@ -2375,8 +2403,8 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
         # legacy coverage instead of dropping to nothing. This assertion was
         # inverted before the delivery review: it required a prose-only corpus to
         # recruit nothing, and the AC-2 census then measured what that costs —
-        # 775 change docs losing lanes, zero gaining any, and five of six
-        # non-closed change docs at an EMPTY roster. Silent loss of all review is
+        # 775 specs losing lanes, zero gaining any, and five of six
+        # non-closed specs at an EMPTY roster. Silent loss of all review is
         # a worse failure than the over-recruitment this change removes, so prose
         # scoring survives exactly where nothing better exists, and only there.
         requested, reasons = review_policy.select_required_review_lanes(
@@ -2468,8 +2496,8 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
     def test_an_undeclared_plan_keeps_its_coverage_instead_of_dropping_to_zero(self):
         """Delivery finding: path-only scoring was retroactive.
 
-        Measured over the corpus, 775 change docs lost lanes and none gained
-        any, and five of six non-closed change docs fell to an EMPTY roster,
+        Measured over the corpus, 775 specs lost lanes and none gained
+        any, and five of six non-closed specs fell to an EMPTY roster,
         because every plan authored before the explicit-path contract describes
         its targets in prose. An un-migrated plan must keep the coverage it had.
         """
@@ -2517,7 +2545,11 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
         )
 
     def test_each_checkbox_transition_direction_is_pinned_independently(self):
-        """Requirement 2 states seven directions; pin each rather than a subset."""
+        """Every AC and task marker direction, pinned one by one.
+
+        Change 23q1h moved the AC `[~]` directions from "moves the digest" to
+        "free" and added the canonical status note; a rationale in another form
+        is criterion text and still moves the digest."""
 
         def doc(ac_mark: str, ac_note: str, task_mark: str) -> bytes:
             return (
@@ -2528,21 +2560,27 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
 
         canonical = gardener_metadata.canonical_review_policy_body
         # The AC marker comparisons hold the LABEL byte-identical, so only the
-        # marker can move the digest. Varying the note as well would let this
-        # test pass on a canonicalizer that wrongly normalizes an AC `[~]`,
-        # because the note text alone would still differ.
+        # marker can move the digest.
         note = " *operator removed this*"
         ac_open = canonical(doc(" ", note, " "))
         ac_done = canonical(doc("x", note, " "))
         ac_deferred = canonical(doc("~", note, " "))
         self.assertEqual(ac_open, ac_done, "AC [ ]->[x] must be free")
-        self.assertNotEqual(ac_done, ac_deferred, "AC [x]->[~] must move the digest")
-        self.assertNotEqual(ac_deferred, ac_done, "AC [~]->[x] must move the digest")
+        self.assertEqual(ac_done, ac_deferred, "AC [x]->[~] must be free")
+        self.assertEqual(ac_deferred, ac_open, "AC [~]->[ ] must be free")
         self.assertNotEqual(
             ac_deferred,
             canonical(doc("~", " *operator removed this after review*", " ")),
-            "editing a [~] rationale must move the digest",
+            "editing a rationale outside the canonical note form must move the digest",
         )
+        plain = canonical(doc(" ", "", " "))
+        for mark in (" ", "x", "~"):
+            for status in (" *Status: removed*", " *Status: removed after review*"):
+                with self.subTest(ac_mark=mark, status=status):
+                    self.assertEqual(
+                        canonical(doc(mark, status, " ")), plain,
+                        "a canonical status note, added or edited, is tracking",
+                    )
         for before, after in ((" ", "x"), ("x", "~"), ("~", "x"), ("~", " ")):
             with self.subTest(task_transition=f"{before}->{after}"):
                 self.assertEqual(
@@ -2717,7 +2755,7 @@ class RecordkeepingChurnTests(unittest.TestCase):
 
         plain = self._canon(self._doc())
         prefixed = self._canon(
-            self._doc(handoff=self.TEMPLATE_HANDOFF + " Change doc scaffolded 2026-06-05.")
+            self._doc(handoff=self.TEMPLATE_HANDOFF + " Spec scaffolded 2026-06-05.")
         )
         self.assertNotEqual(
             plain, prefixed,
@@ -2787,7 +2825,7 @@ class RecordkeepingChurnTests(unittest.TestCase):
     def test_trailing_whitespace_inside_a_fence_is_preserved(self):
         """AC-2 negative half. In a fence the whitespace can be the subject.
 
-        A change document demonstrating one-space versus two-space behaviour in
+        A spec demonstrating one-space versus two-space behaviour in
         a fenced example must not become indistinguishable from itself.
         """
 
@@ -3011,7 +3049,7 @@ class RecordkeepingChurnTests(unittest.TestCase):
     def test_absent_and_single_headings_are_never_reported(self):
         """AC-7 negative half. Zero matches is NORMAL, not malformed.
 
-        89 of 825 change documents carry no Session Handoff section at all.
+        89 of 825 specs carry no Session Handoff section at all.
         Conflating absent with duplicated is the defect the shipped
         `len(matches) != 1` predicate has, and reporting it would produce a
         diagnostic on 89 healthy documents.
@@ -3058,7 +3096,7 @@ class RecordkeepingChurnTests(unittest.TestCase):
         """Mutation-found: a fenced example must not raise a blocking diagnostic.
 
         The detector's output flows into `_prepare_policy_state`'s
-        `(None, errors)`, which blocks receipt publication. A change document
+        `(None, errors)`, which blocks receipt publication. A spec
         that DEMONSTRATES a duplicate heading inside a fenced example would
         otherwise block its own prepare. This document class is exactly what a
         plan about heading hazards looks like.
@@ -3270,7 +3308,12 @@ class ReceiptSectionContextTests(unittest.TestCase):
         self.assertNotEqual(a["documents"][0]["raw_sha256"], b["documents"][0]["raw_sha256"])
         self.assertEqual(review_policy.compare_receipt_sections({"review_context": a}, {"review_context": b})["documents"], [])
         self.assertEqual(review_policy.normalized_review_text(before), review_policy.normalized_review_text(after))
-        changed = review_policy.build_review_context({"abc12-enh example": before.replace("[ ]", "[~]")})
+        # Change 23q1h: a criterion deferred with a canonical note is tracking
+        # noise too; the control is a label edit.
+        deferred = review_policy.build_review_context({"abc12-enh example": before.replace(
+            "- [ ] AC-1: Keep label", "- [~] AC-1: Keep label *Status: dropped*")})
+        self.assertEqual(review_policy.compare_receipt_sections({"review_context": a}, {"review_context": deferred})["documents"], [])
+        changed = review_policy.build_review_context({"abc12-enh example": before.replace("Keep label", "Keep a label")})
         self.assertTrue(review_policy.compare_receipt_sections({"review_context": a}, {"review_context": changed})["documents"])
 
     def test_supersession_diagnostic_names_sections_with_bounded_fallback(self):

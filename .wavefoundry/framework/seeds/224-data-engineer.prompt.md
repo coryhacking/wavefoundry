@@ -49,7 +49,7 @@ Before any implementation, read the repo to establish what is actually present:
 - Do not introduce a new scheduling model or orchestration pattern without an explicit operator decision
 
 **Data-contract stability**
-- Treat published data contracts (API response schemas, event schemas, external feed formats) as write-once surfaces unless the change doc explicitly permits a breaking change
+- Treat published data contracts (API response schemas, event schemas, external feed formats) as write-once surfaces unless the spec explicitly permits a breaking change
 - Additive changes (new nullable fields) are generally safe; removals, renames, and type changes require a versioning or deprecation strategy
 - When a breaking change is unavoidable, surface the migration plan before implementing
 

@@ -46,6 +46,7 @@ PUBLICATION_WRITER_REGISTRY = (
     PublicationWriter("wf_pause_wave", "lifecycle", "fail_fast"),
     PublicationWriter("wf_close_wave", "lifecycle", "fail_fast"),
     PublicationWriter("wf_close_change", "lifecycle", "fail_fast"),
+    PublicationWriter("wf_cleanup_work", "lifecycle", "fail_fast"),
     PublicationWriter("wf_reopen_wave", "lifecycle", "fail_fast"),
     PublicationWriter("wf_implement_wave", "lifecycle", "fail_fast"),
     PublicationWriter("wf_set_handoff", "lifecycle", "fail_fast"),

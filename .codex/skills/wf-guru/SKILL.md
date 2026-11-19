@@ -1,6 +1,6 @@
 ---
 name: wf-guru
-description: PROACTIVELY use when the user asks how repository source code or project documentation works and answering needs an investigation — explaining behavior, pipelines, architecture, specs, framework scripts, indexing, chunking, retrieval, or MCP tools. A direct lookup, such as finding a definition or reading one value, needs no skill; call the code_* tools directly. Not for wave lifecycle commands (Plan change, Implement wave, Close wave, etc.).
+description: PROACTIVELY use when the user asks how repository source code or project documentation works and answering needs an investigation — explaining behavior, pipelines, architecture, behavior contracts, framework scripts, indexing, chunking, retrieval, or MCP tools. A direct lookup, such as finding a definition or reading one value, needs no skill; call the code_* tools directly. Not for wave lifecycle commands (Plan spec, Implement wave, Close wave, etc.).
 ---
 
 # Wavefoundry Guru (skill — optional native surface)

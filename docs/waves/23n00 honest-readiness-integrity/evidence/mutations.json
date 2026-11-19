@@ -1,0 +1,114 @@
+[
+  {
+    "mutation": "identity:_nonempty_string(signoff_key)",
+    "test": "test_write_and_read_boundary_matrix",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "mutation": "identity:actor == signoff_key",
+    "test": "test_write_and_read_boundary_matrix",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "mutation": "identity:actor != \"operator\"",
+    "test": "test_write_and_read_boundary_matrix",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "mutation": "identity:not is_council_actor(actor)",
+    "test": "test_write_and_read_boundary_matrix",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "mutation": "identity:signoff_key != \"operator-signoff\"",
+    "test": "test_write_and_read_boundary_matrix",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "mutation": "identity:not is_council_signoff_key(signoff_key)",
+    "test": "test_write_and_read_boundary_matrix",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "mutation": "identity:phase == \"readiness\"",
+    "test": "test_write_and_read_boundary_matrix",
+    "detected": true,
+    "failures": 2,
+    "errors": 0
+  },
+  {
+    "mutation": "record:claim kind",
+    "test": "test_write_and_read_boundary_matrix",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "mutation": "record:phase",
+    "test": "test_write_and_read_boundary_matrix",
+    "detected": true,
+    "failures": 2,
+    "errors": 0
+  },
+  {
+    "mutation": "writer:null carveout removed",
+    "test": "test_explicit_null_round_trip_and_other_checks_are_true",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "mutation": "writer:null allowed all fields",
+    "test": "test_false_missing_and_other_null_checks_remain_refused",
+    "detected": true,
+    "failures": 4,
+    "errors": 0
+  },
+  {
+    "mutation": "writer:false accepted",
+    "test": "test_false_missing_and_other_null_checks_remain_refused",
+    "detected": true,
+    "failures": 5,
+    "errors": 0
+  },
+  {
+    "mutation": "writer:blank rationale",
+    "test": "test_false_missing_and_other_null_checks_remain_refused",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  },
+  {
+    "mutation": "reader:type restriction removed",
+    "test": "test_write_and_read_boundary_matrix",
+    "detected": true,
+    "failures": 12,
+    "errors": 0
+  },
+  {
+    "mutation": "reader:execution restriction removed",
+    "test": "test_false_missing_and_other_null_checks_remain_refused",
+    "detected": true,
+    "failures": 9,
+    "errors": 0
+  },
+  {
+    "mutation": "reader:blank rationale",
+    "test": "test_false_missing_and_other_null_checks_remain_refused",
+    "detected": true,
+    "failures": 1,
+    "errors": 0
+  }
+]

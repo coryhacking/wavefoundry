@@ -166,15 +166,18 @@ class UpgradeTests(_Harness):
     def test_upgrade_replaces_an_affected_tool_uv_before_any_dependency_install(self):
         self.venv_uv.parent.mkdir(parents=True)
         self.venv_uv.write_text("", encoding="utf-8")
-        rc, out, err = self._run(["--upgrade-uv"], probe=self._reports("0.13.5"), uv_path=self.venv_uv,
-                                 versions=[(0, 12, 22), (0, 13, 5), (0, 13, 5)])
+        pin = self.index.UV_BOOTSTRAP_REQUIREMENT
+        version = pin.split("==")[1]
+        pinned = tuple(map(int, version.split(".")))
+        rc, out, err = self._run(["--upgrade-uv"], probe=self._reports(version), uv_path=self.venv_uv,
+                                 versions=[(0, 12, 22), pinned, pinned])
         self.assertEqual(rc, 0, err)
         self.assertEqual(self.installs, 1)
         # The install runs under the held install lock (the harness lock is "lock").
         self.assertEqual(self.install_locks, ["lock"])
         self.assertEqual(self.events, ["upgrade", "deps", "index"])
-        self.assertIn("Upgrading uv to the pinned uv==0.13.5 (GHSA-hq85-5cpj-mr62)", out)
-        self.assertIn("is now 0.13.5", out)
+        self.assertIn(f"Upgrading uv to the pinned {pin} (GHSA-hq85-5cpj-mr62)", out)
+        self.assertIn(f"is now {version}", out)
         self.assertNotIn("uv not found", out + err)
         self.assertNotIn("ADVISORY:", err)
         for argv in self.forwarded:
@@ -183,8 +186,10 @@ class UpgradeTests(_Harness):
     def test_upgrade_with_a_satisfying_uv_installs_nothing(self):
         self.venv_uv.parent.mkdir(parents=True)
         self.venv_uv.write_text("", encoding="utf-8")
-        rc, out, err = self._run(["--upgrade-uv"], probe=self._reports("0.13.5"), uv_path=self.venv_uv,
-                                 versions=[(0, 13, 5), (0, 13, 5)])
+        version = self.index.UV_BOOTSTRAP_REQUIREMENT.split("==")[1]
+        pinned = tuple(map(int, version.split(".")))
+        rc, out, err = self._run(["--upgrade-uv"], probe=self._reports(version), uv_path=self.venv_uv,
+                                 versions=[pinned, pinned])
         self.assertEqual(rc, 0, err)
         self.assertEqual(self.installs, 0)
         self.assertIn("already satisfies", out)

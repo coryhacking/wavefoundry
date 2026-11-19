@@ -65,7 +65,7 @@ When one or more items above are false, treat the framework as still hardening r
 
 ### Example A: feature planning into wave start
 
-1. A non-trivial change is identified and routed into `Plan change`.
+1. A non-trivial change is identified and routed into `Plan spec`.
 2. Planning creates or updates one `change-id`, acceptance criteria, and the next delivery slice.
 3. The wave is defined only after the change scope and shared assumptions are stable enough to execute together.
 4. The seeded project runs the readiness gate, records the required implementer, reviewer, and persona lanes, and blocks start until that evaluation is clean.
@@ -81,7 +81,7 @@ When one or more items above are false, treat the framework as still hardening r
 ### Example C: change and wave closure
 
 1. All planned wave work is complete, archived, or intentionally deferred.
-2. `Review wave` reruns the readiness evaluation during final review; `Close change` (optional) marks a reviewed change `complete`; `Close wave` then reconciles the final wave state and checks behind-the-scenes maintenance work.
+2. `Review wave` reruns the readiness evaluation during final review; `Close spec` (optional) marks a reviewed change `complete`; `Close wave` then reconciles the final wave state and checks behind-the-scenes maintenance work.
 3. Durable lessons are promoted into canonical docs, workflow memory, personas, and typed memory records where appropriate.
 4. Temporary execution artifacts are archived or frozen, and the feature closes with a clear final review outcome.
 

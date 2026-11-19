@@ -2498,7 +2498,7 @@ def _reap_stranded_vector_rows(
     readable again (``index_build(content='all', mode='rebuild')``; a rebuild
     during the outage drops the subtree); the deferral is reported to the
     caller as ``stranded_reap_deferred``. The same accepted posture as the
-    sidecar breaker, recorded in the change doc.
+    sidecar breaker, recorded in the spec.
 
     Returns ``{"docs": N, "code": M, "total": N+M, "paths_by_table": {...},
     "preserved_by_table": {...}, "deferred_by_table": {...}}``: row counts
@@ -2794,8 +2794,8 @@ def _plan_orphan_store_reconcile(
                 "would_remove": would_remove,
                 "store_rows": store_rows,
             }
-            # Operator consequence (accepted, recorded in the 1u8nz change
-            # doc): secret_scan_cache has no alternative healer, so a
+            # Operator consequence (accepted, recorded in the 1u8nz
+            # spec): secret_scan_cache has no alternative healer, so a
             # mass-orphaned cache defers indefinitely on a static corpus;
             # deferral is loud and has no silent data effect.
             msg = (
@@ -3982,7 +3982,7 @@ def _layer_publication_state(
 ) -> "dict[str, str]":
     """Which layers this build publishes, and which it must mark stale.
 
-    The rule the change doc states, encoded once so both build paths and the
+    The rule the spec states, encoded once so both build paths and the
     tests read the same function:
 
     * a layer this build published gets ``published`` at this generation;
@@ -4630,7 +4630,7 @@ def _build_index_locked(
     # A fresh install (no tables) is NOT a reset and stays scoped. This also
     # applies to graph-only runs (they publish a completion epoch): on a
     # reset store a graph refresh first converges semantic state — a
-    # deliberate integrity-over-latency trade, documented in the tool spec.
+    # deliberate integrity-over-latency trade, documented in the tool-surface behavior contract.
     if content != "all" and index_dir is not None:
         _known_models = meta.get("model_versions") or {}
         _unprovenanced = [

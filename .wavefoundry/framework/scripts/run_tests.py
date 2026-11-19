@@ -64,6 +64,31 @@ _REPO_GUARD_EXCLUDE = frozenset({
     ".wavefoundry/framework/test-cache.json",
     ".wavefoundry/framework/test-run.lock",
 })
+# Change 23nqu: the documentation root, the same literal the reconcile path
+# uses. A change under it during a run is tolerated (listed in the output and
+# the receipt) unless it lands in a wave that was open when the run started or
+# in one of these policy files, which set review, gate, attribution and scan
+# behaviour. The producers own no shared constant this module can import
+# cheaply; a test pins each path to its producer.
+_DOCS_ROOT_REL = "docs"
+_POLICY_FILES = frozenset({
+    "docs/workflow-config.json",
+    "docs/repo-profile.json",
+    "docs/contributors.json",
+    "docs/scan-rules.toml",
+    "docs/reconcile-dispositions.json",
+})
+# The receipt's informational list of tolerated paths is bounded.
+_TOLERATED_RECEIPT_MAX_PATHS = 200
+_TOLERATED_HEADING = (
+    "FILES CHANGED DURING THE TEST RUN AND TOLERATED: these paths under docs/ "
+    "changed during the run; they are outside the waves open at its start and "
+    "the policy files, so the run was not refused for them. A write here that "
+    "bypasses the in-worker guard (a child process started without it, a shell "
+    "or git command, a native write) is not caught by the end-of-run comparison:"
+)
+_LAST_TOLERATED_CHANGES: "list[str]" = []
+_LAST_TOLERANCE_OFF_REASON = ""
 
 # Wave 1p9j0: msvcrt.locking (native Windows) is mandatory byte-range, so the run lock is taken on
 # a SENTINEL byte at this high fixed offset — NOT byte 0 — so the same-handle pid write/truncate at
@@ -484,6 +509,10 @@ class _RepoSnapshot(dict):
         self.observation = {}
         self.editorial = {}
         self.capture_error = None
+        # Change 23nqu: set only when both the record layout and the wave
+        # record matcher were read for this snapshot. An empty carrier map
+        # alone cannot tell "no records" from "layout unreadable".
+        self.layout_known = False
 
 
 def _capture_reconciliation(snapshot: _RepoSnapshot) -> None:
@@ -541,8 +570,10 @@ def _record_layout(root: Path):
 
 
 def _carrier_kinds(root: Path, rels: set[str]) -> dict[str, str]:
-    roots = _record_layout(root)
-    matcher = _wave_record_matcher(root)
+    return _carrier_kinds_for(_record_layout(root), _wave_record_matcher(root), rels)
+
+
+def _carrier_kinds_for(roots, matcher, rels: set[str]) -> dict[str, str]:
     if roots is None or matcher is None:
         return {}
     kinds = {}
@@ -645,8 +676,10 @@ def repo_state_snapshot(repo_root: Path | None = None) -> "dict[str, tuple | Non
         return None
     rels = {p for p in listing.stdout.decode("utf-8", errors="surrogateescape").split("\0") if p}
     rels.add(_GUARD_OVERRIDES_REL)
-    carriers = _carrier_kinds(root, rels)
+    roots, matcher = _record_layout(root), _wave_record_matcher(root)
+    carriers = _carrier_kinds_for(roots, matcher, rels)
     snapshot = _RepoSnapshot(root, carriers)
+    snapshot.layout_known = roots is not None and matcher is not None
     try:
         with _observation_lock(root) if carriers else contextlib.nullcontext():
             for rel in rels:
@@ -824,6 +857,65 @@ def _repo_state_changes(before: "dict[str, tuple | None]",
     return sorted(changed - _bookkeeping_changes(before, after, changed))
 
 
+_STATUS_LINE_RE = re.compile(r"(?m)^Status:(.*)$")
+
+
+def _open_wave_folders(before) -> "tuple[set[str] | None, str]":
+    """Change 23nqu: folders of the waves open at the start of the run.
+
+    Decided only from the record bytes captured in the start snapshot. Returns
+    ``(None, reason)`` when the set cannot be determined: the record layout
+    or the wave record matcher could not be read, a wave record has no
+    captured bytes (absent, not a regular file, or under a linked ancestor),
+    or its status is unparseable (not UTF-8, no ``Status:`` line or more than
+    one, or a value that is not a known container status). The caller then
+    tolerates nothing.
+    """
+    if not isinstance(before, _RepoSnapshot) or not before.layout_known:
+        return None, "the record layout could not be read"
+    try:
+        # Imported lazily: the close gate loads this module by path.
+        from wave_lint_lib.constants import CONTAINER_STATUSES, OPEN_CONTAINER_STATUSES
+    except Exception:  # noqa: BLE001
+        return None, "the open wave statuses could not be loaded"
+    folders = set()
+    for rel, kind in sorted(before.carriers.items()):
+        if kind != "wave":
+            continue
+        value = before.get(rel)
+        if not isinstance(value, tuple) or len(value) != 3 or not isinstance(value[2], bytes):
+            return None, f"the wave record {rel} could not be read or is a link"
+        try:
+            text = value[2].decode("utf-8")
+        except UnicodeError:
+            return None, f"the status of {rel} could not be parsed"
+        lines = _STATUS_LINE_RE.findall(text)
+        status = lines[0].strip(" \t\r`").lower() if len(lines) == 1 else ""
+        if status not in CONTAINER_STATUSES:
+            return None, f"the status of {rel} could not be parsed"
+        if status in OPEN_CONTAINER_STATUSES:
+            folders.add(Path(rel).parent.as_posix() + "/")
+    return folders, ""
+
+
+def _tolerated_changes(before, changed: "list[str]") -> "tuple[list[str], str]":
+    """Change 23nqu: the changed paths a run tolerates, and why none may be.
+
+    A path is tolerated when it is under the documentation root, is not a
+    policy file, and is not under the folder of a wave that was open at the
+    start of the run. Everything else (the framework tree, the edit-gate file,
+    any path outside the documentation root) keeps refusing the run. When the
+    open-wave set cannot be determined nothing is tolerated.
+    """
+    folders, reason = _open_wave_folders(before)
+    if folders is None:
+        return [], reason
+    prefix = _DOCS_ROOT_REL + "/"
+    return sorted(rel for rel in changed
+                  if rel.startswith(prefix) and rel not in _POLICY_FILES
+                  and not any(rel.startswith(folder) for folder in folders)), ""
+
+
 def _stray_artifact_failure(preexisting: list[str],
                             repo_before: "dict[str, tuple | None] | None" = None,
                             repo_root: Path | None = None) -> str | None:
@@ -834,9 +926,11 @@ def _stray_artifact_failure(preexisting: list[str],
     again and every created, modified or deleted tracked or non-ignored file,
     and any change to the edit-gate file, fails the run. A second snapshot
     that cannot be taken (for example a timed-out listing) also fails the run,
-    with the cause stated.
+    with the cause stated. Change 23nqu: a changed path under the
+    documentation root outside the waves open at the start and the policy
+    files is tolerated instead, kept in ``_LAST_TOLERATED_CHANGES``.
     """
-    global _LAST_EXECUTION_EVIDENCE
+    global _LAST_EXECUTION_EVIDENCE, _LAST_TOLERATED_CHANGES, _LAST_TOLERANCE_OFF_REASON
     created = [p for p in stray_artifact_paths() if p not in preexisting]
     changed: list[str] = []
     unverified = ""
@@ -850,8 +944,15 @@ def _stray_artifact_failure(preexisting: list[str],
             unverified = _repo_state_unavailable_reason or "the second snapshot failed"
         else:
             changed = _repo_state_changes(repo_before, repo_after)
+    # Change 23nqu: the recovery evidence stays the change comparison's own
+    # result; documentation tolerance applies only to the message and exit.
     if _RECONCILIATION_CAPTURE:
         _LAST_EXECUTION_EVIDENCE = (repo_before, repo_after, created, unverified, changed)
+    tolerated, off_reason = _tolerated_changes(repo_before, changed) if changed else ([], "")
+    _LAST_TOLERATED_CHANGES = tolerated
+    _LAST_TOLERANCE_OFF_REASON = off_reason
+    tolerated_set = set(tolerated)
+    changed = [rel for rel in changed if rel not in tolerated_set]
     if not created and not changed and not unverified:
         return None
     parts = []
@@ -869,10 +970,15 @@ def _stray_artifact_failure(preexisting: list[str],
             "temporary roots, but these tracked, non-ignored or edit-gate paths "
             "were created, modified or deleted:\n  "
             + "\n  ".join(changed)
-            + "\nA concurrent edit by an operator or agent during the run, "
-            "including opening or closing an edit gate, also trips this guard "
-            "unless it is validated canonical bookkeeping. Re-run after material "
-            "inputs settle. Otherwise fix "
+            + "\nA concurrent edit by an operator or agent during the run also "
+            "trips this guard when it touches the framework tree, the edit gate "
+            "(including opening or closing an edit gate), the folder of a wave "
+            "that was open when the run started (unless it is validated canonical "
+            "bookkeeping), a policy file under docs/, or any path outside docs/. "
+            "Other changes under docs/ are tolerated and listed."
+            + (f" Documentation tolerance is off for this run: {_LAST_TOLERANCE_OFF_REASON}."
+               if _LAST_TOLERANCE_OFF_REASON else "")
+            + " Re-run after material inputs settle. Otherwise fix "
             "the offending test to write under a temporary root."
         )
     if unverified:
@@ -1281,7 +1387,9 @@ def _run_file(file_path: Path) -> FileResult:
     roots = _record_layout(_REPO_ROOT)
     if roots is None:
         return FileResult(file_path.name, 1, "Cannot establish worker record protection: invalid record layout.\n", 0, 0, 0, None)
-    env = test_worker_guard.worker_environment(env, _REPO_ROOT, (roots.waves_rel, roots.plans_rel))
+    # Change 23nqu: the documentation root is protected as well, because the
+    # end-of-run comparison now tolerates most changes under it.
+    env = test_worker_guard.worker_environment(env, _REPO_ROOT, (roots.waves_rel, roots.plans_rel, _DOCS_ROOT_REL))
     nonce = uuid.uuid4().hex
     cmd = [_test_runner_python(), "-B", "-c",
            "import test_worker_guard; test_worker_guard.install(); "
@@ -1428,6 +1536,10 @@ def _execute_files(ordered_files: list[Path]) -> tuple[int, list[FileResult]]:
     # neither waits while holding: the suite releases and re-waits here when a
     # build holds; the build releases its lock before waiting on the suite.
     # Bounded cycles with safe endgames on both sides make ties converge.
+    global _LAST_TOLERATED_CHANGES, _LAST_TOLERANCE_OFF_REASON
+    # Change 23nqu: tolerated paths belong to this execution only.
+    _LAST_TOLERATED_CHANGES = []
+    _LAST_TOLERANCE_OFF_REASON = ""
     lock_file = None
     for _yield_cycle in range(3):
         build_wait_error = _wait_for_index_build()
@@ -1530,6 +1642,8 @@ def _execute_files(ordered_files: list[Path]) -> tuple[int, list[FileResult]]:
         # Evaluated before the failed-files branch so a failing run still
         # names any repository path it changed (wave 1z8ox, 1z8ov).
         stray_failure = _stray_artifact_failure(preexisting_strays, repo_before)
+        if _LAST_TOLERATED_CHANGES:
+            print(_TOLERATED_HEADING + "\n  " + "\n  ".join(_LAST_TOLERATED_CHANGES), flush=True)
         # Change 22qoy: census the real framework tree after the pool and before
         # the exit clean below removes the evidence; it can fail every outcome.
         bytecode_failure = _framework_bytecode_failure()
@@ -2031,6 +2145,18 @@ def _preserve_refused_run(report, after_hash):
         print(f"run_tests: optional recovery evidence unavailable: {str(exc)[:256]}", file=sys.stderr)
 
 
+def _tolerated_receipt_field() -> "dict | None":
+    """Change 23nqu: the receipt's informational list; no gate reads it."""
+    if not _LAST_TOLERATED_CHANGES:
+        return None
+    paths = sorted(_LAST_TOLERATED_CHANGES)
+    return {"tolerated_changes": {
+        "paths": paths[:_TOLERATED_RECEIPT_MAX_PATHS],
+        "count": len(paths),
+        "truncated": len(paths) > _TOLERATED_RECEIPT_MAX_PATHS,
+    }}
+
+
 def _publish_default_success(report, inputs_hash, results):
     """Share receipt publication ownership with reconciliation, after workers."""
     import qualification_report
@@ -2042,7 +2168,8 @@ def _publish_default_success(report, inputs_hash, results):
         if _hash_inputs() != inputs_hash:
             print("FRAMEWORK INPUTS CHANGED BEFORE RECEIPT PUBLICATION: no new green receipt.", file=sys.stderr)
             return 1
-        _write_cache(inputs_hash, sum(r.test_count for r in results), {r.name: r.elapsed_s for r in results})
+        _write_cache(inputs_hash, sum(r.test_count for r in results), {r.name: r.elapsed_s for r in results},
+                     execution=_tolerated_receipt_field())
         try:
             qualification_report.validate(report)
             qualification_report.write_report(_REPO_ROOT, qualification_report.LAST_DEFAULT, report)

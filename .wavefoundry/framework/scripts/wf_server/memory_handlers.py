@@ -823,7 +823,7 @@ def _memory_propose_response_locked(
 ) -> dict[str, Any]:
     """Draft candidate memory records from a wave's typed review evidence.
 
-    Reads the wave's ``events.jsonl`` heads + admitted change-doc Decision Logs
+    Reads the wave's ``events.jsonl`` heads + admitted spec Decision Logs
     and drafts durable-shaped ``candidate`` records (never auto-promoted).
     ``dry_run`` (default) returns the drafts; ``create`` requires explicit
     source-event selection, skipping exact/normalized duplicates so

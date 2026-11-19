@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-08
+Last verified: 2026-11-18
 
 **Shortcut phrases:** `Archetype review` · `Archetype council`
 
@@ -50,7 +50,7 @@ Operators may invoke other archetypes ad hoc (e.g., `Archetype review with Da Vi
 
 ## How to invoke
 
-1. Provide the artifact: a change doc, AC table, README draft, ADR, naming decision, or any text-precision-heavy surface.
+1. Provide the artifact: a spec, AC table, README draft, ADR, naming decision, or any text-precision-heavy surface.
 2. State the invocation: `Archetype review` (default five seats) or `Archetype review with <swap-in> swapped in for <default>` (declared swap).
 3. The council runs Phase 0 (moderator declaration) → Phase 1 (optional primer) → Phase 2 (seats in isolation) → Phase 3 (synthesis + verdict).
 4. Record the verdict line in the artifact's review section.
@@ -91,7 +91,7 @@ The findings are preserved in `1p318`'s Decision Log under "Three-persona review
 | **Prepare wave** | Lifecycle gate — Wave Council readiness pass is embedded; records `council-readiness` signoff |
 | **Review wave** | Lifecycle gate — Wave Council delivery pass is embedded; records `council-delivery` signoff |
 | **Evaluate decision** | Architecture / technology decision specifically — produces an ADR |
-| **Review plan** | Optional no-signoff stress test of a change doc, or current-wave fallback, before or after admission and before implementation (natural-language aliases: **Interrogate this plan**, **Stress-test this plan**); distinct from **Review wave** |
+| **Review plan** | Optional no-signoff stress test of a spec, or current-wave fallback, before or after admission and before implementation (natural-language aliases: **Interrogate this plan**, **Stress-test this plan**); distinct from **Review wave** |
 
 ---
 

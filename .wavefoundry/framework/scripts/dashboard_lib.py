@@ -39,6 +39,7 @@ from review_evidence import (
     review_status_human_table,
     review_status_rows,
     validate_review_evidence_records,
+    wave_record_closed,
 )
 
 
@@ -1029,12 +1030,15 @@ def _review_evidence_dashboard_state(
     # Wave 1zyb4: the rows read like the wave's status block, which keeps the
     # council-key spelling it already uses (comparison stays canonical).
     display_keys = review_status_display_keys(text, status_keys)
+    # Change 23q1g: a closed wave's status is not re-derived under the
+    # delivery membership rule; both status calls pass the record's status.
+    closed = wave_record_closed(text)
     projection = (
         render_review_evidence_projection(
             empty_external_finding_synthesis_section(), records
         ).strip()
         + "\n\n"
-        + review_status_human_table(records, display_keys)
+        + review_status_human_table(records, display_keys, wave_closed=closed)
     )
     try:
         expected_wave = render_review_evidence_projection(text, records)
@@ -1068,7 +1072,7 @@ def _review_evidence_dashboard_state(
             "why": str(row["why"]),
             "next_action": str(row["next_action"]),
         }
-        for row in review_status_rows(records, display_keys)
+        for row in review_status_rows(records, display_keys, wave_closed=closed)
     ]
     return {
         "integrity": "ok",
@@ -1154,7 +1158,7 @@ def _stat_mtime_iso(path: Path) -> str | None:
 
 
 def parse_change_doc(root: Path, change_path: Path, text: str | None = None) -> ChangeRecord:
-    """Parse one change doc. Wave 1zxo0 (1zxns): a caller that already read
+    """Parse one spec. Wave 1zxo0 (1zxns): a caller that already read
     the doc under the member-doc rule passes ``text``, and no read happens here."""
     try:
         if text is None:
@@ -1223,7 +1227,7 @@ def parse_change_doc(root: Path, change_path: Path, text: str | None = None) -> 
 def _unreadable_change_record(
     root: Path, change_path: Path, read_error: str
 ) -> ChangeRecord:
-    """Degraded record for a change document that cannot be read (wave 1v1df).
+    """Degraded record for a spec that cannot be read (wave 1v1df).
 
     Identity fields keep the same stem-derived fallbacks the misparse produced
     (so nothing downstream loses its join key), but the unreadability is now

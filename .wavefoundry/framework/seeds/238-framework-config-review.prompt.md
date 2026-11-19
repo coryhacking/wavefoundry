@@ -30,7 +30,7 @@ Walk whichever of these exist in the repository:
 - **Seeds** (`.wavefoundry/framework/seeds/`) and **rendered prompts** (`docs/prompts/`).
 - **Standing guardrails / constraints** — stage gates, edit gates, review requirements, commit/close policies.
 - **The memory index** — the persistent agent-memory store, if present.
-- **Planning / spec / architecture docs** — `docs/architecture/`, decision records, per-area `AGENTS.md` intent sections.
+- **Planning / behavior contract / architecture docs** — `docs/architecture/`, decision records, per-area `AGENTS.md` intent sections.
 
 ## Audit checks (removal-biased)
 
@@ -59,7 +59,7 @@ When a finding touches a factor doc, its **Verdict** is `revise` (regenerate the
 
 ## Doc-sync verification
 
-Self-updating docs are unreliable; **verifying sync is the reliable move.** For planning / spec / architecture docs and per-area `AGENTS.md`, check that each load-bearing section still matches the code it describes. Surface drifted sections as findings (`revise`) — do **not** auto-rewrite them. Spot-check against the actual code (use the `code_*` tools / `code_ask`); a doc that confidently describes a structure that no longer exists is worse than no doc.
+Self-updating docs are unreliable; **verifying sync is the reliable move.** For planning / behavior contract / architecture docs and per-area `AGENTS.md`, check that each load-bearing section still matches the code it describes. Surface drifted sections as findings (`revise`) — do **not** auto-rewrite them. Spot-check against the actual code (use the `code_*` tools / `code_ask`); a doc that confidently describes a structure that no longer exists is worse than no doc.
 
 ---
 

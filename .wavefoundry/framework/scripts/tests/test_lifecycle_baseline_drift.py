@@ -4,6 +4,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import sys
 import subprocess
 import tempfile
@@ -104,6 +105,38 @@ class BaselineDriftTests(unittest.TestCase):
             self.put(destination, "B\n")
             self.put(".wavefoundry/framework/install/lifecycle-prompts/" + template, "B\n")
         self.assertEqual(renderer.lifecycle_baseline_drift(self.root, incoming), [])
+
+    def test_a_baseline_at_an_earlier_default_name_is_still_reported(self):
+        # Before the render moves it, a Close prompt installed under the
+        # earlier default name is where the manifest registers it. The report
+        # compares it there instead of dropping it for a missing new path.
+        earlier = "docs/prompts/close-change.prompt.md"
+        template = "lifecycle-prompts/close-change.prompt.md"
+        self.put(earlier, "A\n")
+        self.put(".wavefoundry/framework/install/" + template, "A\n")
+        incoming = {template: "B\n"}
+        # No manifest: nothing registers the earlier doc, so the profile's
+        # path is used and the absent file is skipped, as before.
+        self.assertEqual(renderer.lifecycle_baseline_drift(self.root, incoming), [])
+        self.put("docs/prompts/prompt-surface-manifest.json", json.dumps(
+            {"public_prompt_surface": [{"doc": earlier, "shortcut": "Close change"}]}))
+        findings = renderer.lifecycle_baseline_drift(self.root, incoming)
+        self.assertEqual(self.states(findings), {earlier: "upstream_changed_local_matches_previous"})
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "needs symbolic links")
+    def test_a_manifest_linked_outside_the_repository_does_not_stop_the_report(self):
+        # The manifest read is refused, not followed; the report falls back to
+        # the profile's paths instead of failing as a whole.
+        with tempfile.TemporaryDirectory() as outside:
+            target = Path(outside) / "manifest.json"
+            target.write_text("{}", encoding="utf-8")
+            link = self.root / "docs/prompts/prompt-surface-manifest.json"
+            link.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.symlink(target, link)
+            except OSError as exc:  # no link privilege on this host
+                self.skipTest(f"cannot create a symbolic link: {type(exc).__name__}")
+            self.assertEqual(renderer.lifecycle_baseline_drift(self.root, {}), [])
 
     def test_current_empty_dynamic_plans_root_and_real_materialization(self):
         with patch.object(renderer.record_paths, "PLANS_ROOT", "work/proposals"):

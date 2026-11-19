@@ -65,7 +65,7 @@ LIFECYCLE_PROMPT_MAP: Mapping[str, Path] = {
     # entry here. Their saving is not a one-time procedure lookup: it recurs on
     # every call and is measured per write via
     # `workflow_instruction_proxy(avoided_authoring_tokens=...)`. They also earn
-    # no content-source credit, because they return no change-doc content and
+    # no content-source credit, because they return no spec content and
     # `_context_source_paths` credits only content that is in the envelope.
 }
 

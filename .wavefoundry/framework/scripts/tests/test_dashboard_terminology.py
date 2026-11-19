@@ -43,7 +43,7 @@ This phase matters because it catches avoidable mistakes before code or docs sta
 When Prepare is done well, the team has a shared picture of what will happen next, what is still uncertain, and what the operator needs to watch closely during implementation.`""": 'Framework lifecycle explanatory body intentionally stays canonical.',
     """`This is the coding pass. Once Prepare says the wave is ready, the coding agent takes over and uses the wave record plus each admitted change plan as the working guide.
 
-The first job is to read the wave and the change docs carefully enough to understand what belongs in scope. Then the work happens one change at a time: make the edits that match the plan, check the tasks and acceptance criteria, and keep the write set inside the admitted boundaries.
+The first job is to read the wave and the specs carefully enough to understand what belongs in scope. Then the work happens one change at a time: make the edits that match the plan, check the tasks and acceptance criteria, and keep the write set inside the admitted boundaries.
 
 Implementation is not just about moving text around. The agent also writes or updates tests, runs them, and confirms that the result matches the agreed intent instead of drifting into a new shape of work. If the change no longer matches what Prepare approved, the right move is to stop and send it back for another pass instead of widening the scope on the fly.
 

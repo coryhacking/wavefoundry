@@ -44,7 +44,7 @@ def _call_tool(mcp, name: str, args: dict) -> dict:
 
 def _files_under(root: Path) -> list[str]:
     """Every project file under ``docs/`` (the server's own runtime state under
-    ``.wavefoundry/``, such as producer locks, is not a change-doc write)."""
+    ``.wavefoundry/``, such as producer locks, is not a spec write)."""
     docs = Path(root) / "docs"
     return sorted(p.relative_to(root).as_posix() for p in docs.rglob("*") if p.is_file())
 
@@ -282,11 +282,12 @@ class GuidanceTests(unittest.TestCase):
 
 
 class SkillGuidanceTests(unittest.TestCase):
-    """The shipped wf-plan-change skill offers no retired kind's scaffold."""
+    """The shipped plan skill offers no retired kind's scaffold."""
 
     def test_the_plan_change_skill_lists_no_retired_scaffold(self):
         import render_agent_surfaces
-        skill = next(s for s in render_agent_surfaces.SKILL_REGISTRY if s.name == "wf-plan-change")
+        name = vocabulary_profile.skill_name("plan-change")
+        skill = next(s for s in render_agent_surfaces.SKILL_REGISTRY if s.name == name)
         line = next(l for l in skill.body.splitlines() if "`wf_new_<kind>`" in l)
         scaffolds = [w.strip() for w in line.split("(", 1)[1].split(")", 1)[0].split(",")]
         self.assertIn("enhancement", scaffolds)

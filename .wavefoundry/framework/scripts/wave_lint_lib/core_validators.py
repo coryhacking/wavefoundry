@@ -86,7 +86,7 @@ def check_scaffold_declares_nothing(root: Path, only: set[Path] | None = None) -
             failures.append(
                 f"{rel}: scaffold declares review targets ({named}). "
                 "A template is copied, so its declarations become every new "
-                "change doc's declarations, silently replacing the lanes its "
+                "spec's declarations, silently replacing the lanes its "
                 "author would otherwise get. Put the example inside a fenced "
                 "block — fenced regions declare nothing."
             )
@@ -645,7 +645,9 @@ def check_prompt_name_migration(root: Path) -> list[str]:
     if error or not isinstance(data, dict):
         return []
     try:
-        pending = _vocab.pending_prompt_name_keys(data.get("prompt_names"))
+        pending = _vocab.pending_prompt_name_keys(
+            data.get("prompt_names"), _vocab.registered_prompt_docs(data)
+        )
     except ValueError as exc:
         return [f"docs/prompts/prompt-surface-manifest.json: invalid `prompt_names` ({exc})"]
     if not pending:

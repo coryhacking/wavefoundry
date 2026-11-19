@@ -1397,7 +1397,7 @@ class ModernizationBriefingTests(unittest.TestCase):
         self.assertIn('assigned proposal/ACs', context)
         self.assertNotIn('assigned change/ACs', context)
         self.assertIn('Wavefoundry modernization briefing', context)
-        self.assertIn('.wavefoundry/framework/seeds/180-implement-change.prompt.md', context)
+        self.assertIn('.wavefoundry/framework/seeds/180-implement-spec.prompt.md', context)
         self.assertIn('docs/agents/guru.md', context)
 
     def test_unrelated_misleading_and_malformed_payloads_are_silent(self):
@@ -1514,7 +1514,7 @@ print(json.dumps({"events": events, "reads": reads}), file=sys.stderr)
 
     def test_context_preserves_canonical_guidance_and_authority(self):
         context = json.loads(self.run_hook(self.payload()))["hookSpecificOutput"]["additionalContext"]
-        for required in ("AGENTS.md", "180-implement-change.prompt.md", "docs/agents/guru.md",
+        for required in ("AGENTS.md", "180-implement-spec.prompt.md", "docs/agents/guru.md",
                          "owned paths", "forbidden paths", "Investigation may precede readiness",
                          "repository stage gate", "actual available tools", "MCP first", "Gapfill:",
                          "coordinator", "no tools or permissions", "operator authorization"):
@@ -4188,7 +4188,7 @@ class RosterRegistrationParityTests(unittest.TestCase):
         self.assertIn('_load_script("mcp_tool_roster")', source)
 
 
-# Change 1zrag: the 13 rendered hooks that carry HOOK_BOOTSTRAP (census in the change doc).
+# Change 1zrag: the 13 rendered hooks that carry HOOK_BOOTSTRAP (census in the spec).
 _BOOTSTRAP_HOOKS = {
     ".claude/hooks/pre-edit.py": ("claude_pre_edit_source", "gate"),
     ".claude/hooks/post-edit.py": ("claude_post_edit_source", "degrade"),

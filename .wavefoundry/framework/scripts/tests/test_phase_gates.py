@@ -28,7 +28,7 @@ class PhaseGateTests(unittest.TestCase):
             'command': [sys.executable, '-c', 'print("release passed")']}]
         _write_config(self.root, self.config)
         self.wave_md, self.wave = _build_one(self.srv, self.root, 'sensor-fixture', status='active')
-        # Wave 1zoju (1zodx): the change document's header carries its status
+        # Wave 1zoju (1zodx): the spec's header carries its status
         # from the start, so a later status change moves no receipt input.
         doc = self.change_doc()
         title, rest = doc.read_text().split('\n', 1)
@@ -73,8 +73,8 @@ class PhaseGateTests(unittest.TestCase):
         self.match_doc_status('complete')
 
     def match_doc_status(self, status):
-        """Wave 1zoju (1zodx): close refuses status drift, so the change
-        document's header carries the same status as its wave record."""
+        """Wave 1zoju (1zodx): close refuses status drift, so the
+        spec's header carries the same status as its wave record."""
         label = vocabulary_profile.MEMBER_STATUS_LABEL
         doc = self.change_doc()
         doc.write_text(doc.read_text().replace(f'{label}: `planned`', f'{label}: `{status}`', 1))

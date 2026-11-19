@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-05
+Last verified: 2026-11-18
 
 ## What This Document Covers
 
@@ -12,7 +12,7 @@ How semantic search works in Wavefoundry, why the design choices were made the w
 
 ## Why Semantic Search at All
 
-Wavefoundry's docs corpus (wave records, change docs, prompts, seeds, architecture docs) is navigated by agents that often don't know the exact file name or keyword to search for. They might ask "how do I start a wave?" when the relevant docs say "prepare wave" or "wave lifecycle." Lexical search fails this class of query; embedding-based semantic search handles it naturally.
+Wavefoundry's docs corpus (wave records, specs, prompts, seeds, architecture docs) is navigated by agents that often don't know the exact file name or keyword to search for. They might ask "how do I start a wave?" when the relevant docs say "prepare wave" or "wave lifecycle." Lexical search fails this class of query; embedding-based semantic search handles it naturally.
 
 The trade-off is operational complexity: the model must be cached locally before the server can embed queries, and the stored index vectors must have been produced by the same model that's used at query time. Both of these constraints are enforced explicitly rather than left implicit.
 

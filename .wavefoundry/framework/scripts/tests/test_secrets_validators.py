@@ -2223,7 +2223,7 @@ def _reset_lifecycle_floor() -> None:
 
 class TestSecretFindingIdShape(unittest.TestCase):
     """AC-1 / AC-7 / AC-8 — new scanner findings use `<prefix>-sec`, no slug,
-    and `sec` is collision-safe but not a public change-doc kind."""
+    and `sec` is collision-safe but not a public change kind."""
 
     _STRIPE_KEY = "sk_live_ABCDEFGHIJKLMNOPQRSTUVWX"
 
@@ -2293,7 +2293,7 @@ regex = '''SECRET_B_[A-Z]{8}'''
                 self.assertRegex(fid, r"^[0-9a-z]{5}-sec$")
 
     def test_sec_not_a_public_change_doc_kind(self) -> None:  # AC-7 — guard
-        """`sec` must never become a normal change-doc kind. Assert the
+        """`sec` must never become a normal change kind. Assert the
         `wf_new_*` kind lists are unchanged (do not include `sec`)."""
         import server_impl
         self.assertNotIn("sec", server_impl.VALID_CHANGE_KINDS)

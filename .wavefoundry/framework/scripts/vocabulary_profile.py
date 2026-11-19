@@ -158,6 +158,33 @@ def tier_noun(tier: str, *, plural: bool = False, title: bool = False, article: 
     return noun
 
 
+# The item name the shipped prose is written with (fixed, not edited, never
+# derived from ITEM_NAME): ``planning_noun`` compares ITEM_NAME with it exactly.
+SHIPPED_ITEM_NAME = "Change"
+
+_PLANNING_NOUN_FORMS = ("doc", "docs", "article", "documents", "hyphen")
+
+
+def planning_noun(form: str = "doc") -> str:
+    """The noun for the planning document in renderer and message strings that
+    compose it from the profile (wave 23lxd, change 23myn Requirement 10).
+
+    Under the shipped item name it is "spec" ("specs" for ``docs`` and
+    ``documents``, "a spec" for ``article``). Under any other ITEM_NAME it is
+    the item form those strings used before: "<item> doc", "<item> docs",
+    "<article> <item> doc" (with ITEM_NAME_ARTICLE), "<item> documents" or the
+    hyphenated "<item>-doc". Read at call time, so a patched profile applies.
+    """
+    if form not in _PLANNING_NOUN_FORMS:
+        raise ValueError(f"unknown planning noun form: {form!r}")
+    if ITEM_NAME == SHIPPED_ITEM_NAME:
+        return {"doc": "spec", "docs": "specs", "article": "a spec",
+                "documents": "specs", "hyphen": "spec"}[form]
+    item = ITEM_NAME.lower()
+    return {"doc": f"{item} doc", "docs": f"{item} docs", "article": f"{ITEM_NAME_ARTICLE} {item} doc",
+            "documents": f"{item} documents", "hyphen": f"{item}-doc"}[form]
+
+
 PREVIOUS_STATUS_LABEL = f"Previous {MEMBER_STATUS_LABEL}"
 
 # The change-kind token of a change id (``<prefix>-<kind> <slug>``), wave
@@ -192,32 +219,50 @@ MINTABLE_CHANGE_KINDS = tuple(kind for kind in CHANGE_KINDS if kind not in RETIR
 def retired_kind_message(kind: str) -> str:
     """The one refusal sentence for a retired change kind, on every surface."""
     return (
-        f"Change kind {kind!r} is retired for new change docs; existing {kind!r} ids stay valid. "
+        f"Change kind {kind!r} is retired for new changes; existing {kind!r} ids stay valid. "
         "Plan the work as one or more enhancement changes with kind 'enh' (wf_new_enhancement)."
     )
 
 
 # The tier-named lifecycle prompts (wave 1zyb4, change 1zxnw). Fixed, not
-# edited: a distribution renames one through PROMPT_NAME_OVERRIDES above. Each
-# key is the prompt's default slug; its public prompt is
-# ``docs/prompts/<slug>.prompt.md``, its agent body
-# ``docs/prompts/agents/<slug>.prompt.md`` and its skill (where the framework
+# edited: a distribution renames one through PROMPT_NAME_OVERRIDES above. A
+# key is a stable identifier, not a file name: it stays when a default slug is
+# renamed (see EARLIER_DEFAULT_PROMPT_SLUGS). The public prompt is
+# ``docs/prompts/<slug>.prompt.md``, the agent body
+# ``docs/prompts/agents/<slug>.prompt.md`` and the skill (where the framework
 # registers one) ``wf-<slug>``.
 DEFAULT_PROMPT_NAMES: "dict[str, dict[str, object]]" = {
-    "plan-change": {"slug": "plan-change", "shortcut": "Plan change", "aliases": ()},
+    "plan-change": {"slug": "plan-spec", "shortcut": "Plan spec", "aliases": ("Plan change",)},
     "create-wave": {"slug": "create-wave", "shortcut": "Create wave", "aliases": ()},
-    "add-change-to-wave": {"slug": "add-change-to-wave", "shortcut": "Add change to wave", "aliases": ()},
+    "add-change-to-wave": {
+        "slug": "add-spec-to-wave", "shortcut": "Add spec to wave", "aliases": ("Add change to wave",),
+    },
     "remove-change-from-wave": {
-        "slug": "remove-change-from-wave", "shortcut": "Remove change from wave", "aliases": (),
+        "slug": "remove-spec-from-wave", "shortcut": "Remove spec from wave",
+        "aliases": ("Remove change from wave",),
     },
     "prepare-wave": {"slug": "prepare-wave", "shortcut": "Prepare wave", "aliases": ("Ready wave",)},
     "implement-wave": {"slug": "implement-wave", "shortcut": "Implement wave", "aliases": ()},
-    "implement-change": {"slug": "implement-change", "shortcut": "Implement change", "aliases": ()},
+    "implement-change": {
+        "slug": "implement-spec", "shortcut": "Implement spec", "aliases": ("Implement change",),
+    },
     "pause-wave": {"slug": "pause-wave", "shortcut": "Pause wave", "aliases": ()},
     "review-wave": {"slug": "review-wave", "shortcut": "Review wave", "aliases": ()},
     "close-wave": {"slug": "close-wave", "shortcut": "Close wave", "aliases": ()},
-    "close-change": {"slug": "close-change", "shortcut": "Close change", "aliases": ()},
+    "close-change": {"slug": "close-spec", "shortcut": "Close spec", "aliases": ("Close change",)},
     "plan-arc": {"slug": "plan-arc", "shortcut": "Plan arc", "aliases": ("Plan initiative",)},
+}
+# The default slug a key had before its default was renamed. A repository
+# rendered under the earlier default has no ``prompt_names`` entry for the key,
+# and its manifest still registers the earlier doc: that registration is the
+# authority to move it (``applied_prompt_slugs``). These are not retired names;
+# a distribution may use one for another key.
+EARLIER_DEFAULT_PROMPT_SLUGS: "dict[str, str]" = {
+    "plan-change": "plan-change",
+    "add-change-to-wave": "add-change-to-wave",
+    "remove-change-from-wave": "remove-change-from-wave",
+    "implement-change": "implement-change",
+    "close-change": "close-change",
 }
 # Framework prompt slugs a renamed prompt may not take: the untiered and
 # product-named prompts, the agent bodies without a public twin, the retired
@@ -458,24 +503,54 @@ def prompt_names_record_problems(record: object) -> list[str]:
     return problems
 
 
-def applied_prompt_slugs(record: object) -> "dict[str, str]":
+def registered_prompt_docs(manifest: object) -> "frozenset[str]":
+    """The ``doc`` paths a prompt-surface manifest registers in
+    ``public_prompt_surface``; empty when the manifest has no such list."""
+    entries = manifest.get("public_prompt_surface") if isinstance(manifest, dict) else None
+    if not isinstance(entries, list):
+        return frozenset()
+    return frozenset(
+        entry["doc"] for entry in entries
+        if isinstance(entry, dict) and isinstance(entry.get("doc"), str)
+    )
+
+
+def applied_prompt_slugs(record: object, registered_docs: "Iterable[str]" = ()) -> "dict[str, str]":
     """Every key's applied slug from a manifest ``prompt_names`` object
     (``None`` when absent: every key at its default). Raises ``ValueError``
-    naming the problems when the object is invalid."""
+    naming the problems when the object is invalid.
+
+    A key whose default was renamed (``EARLIER_DEFAULT_PROMPT_SLUGS``) is
+    applied at its earlier default when all of these hold: the record has no
+    entry for the key, ``registered_docs`` (the manifest's public prompt docs)
+    registers the earlier doc, and the earlier slug is not another key's
+    applied slug. Every reader of applied names passes the manifest's docs, so
+    the renderer, the server and lint agree on where a prompt is.
+    """
     applied = {key: default["slug"] for key, default in DEFAULT_PROMPT_NAMES.items()}
-    if record is None:
-        return applied
-    problems = prompt_names_record_problems(record)
-    if problems:
-        raise ValueError("; ".join(problems))
-    applied.update(record)
+    recorded: "dict[str, str]" = {}
+    if record is not None:
+        problems = prompt_names_record_problems(record)
+        if problems:
+            raise ValueError("; ".join(problems))
+        recorded = dict(record)
+        applied.update(recorded)
+    registered = frozenset(registered_docs)
+    for key, earlier in EARLIER_DEFAULT_PROMPT_SLUGS.items():
+        if key in recorded or applied[key] == earlier:
+            continue
+        if f"docs/prompts/{earlier}.prompt.md" not in registered:
+            continue
+        if any(slug == earlier for other, slug in applied.items() if other != key):
+            continue
+        applied[key] = earlier
     return applied
 
 
-def pending_prompt_name_keys(record: object) -> "list[str]":
-    """The keys whose applied slug (from a manifest ``prompt_names`` object,
-    ``None`` meaning defaults) differs from the slug in this profile."""
-    applied = applied_prompt_slugs(record)
+def pending_prompt_name_keys(record: object, registered_docs: "Iterable[str]" = ()) -> "list[str]":
+    """The keys whose applied slug (see ``applied_prompt_slugs``) differs from
+    the slug in this profile."""
+    applied = applied_prompt_slugs(record, registered_docs)
     return [key for key in DEFAULT_PROMPT_NAMES if applied[key] != prompt_slug(key)]
 
 

@@ -15,7 +15,7 @@ It typically includes:
 - readiness-evaluation state, including which reviewer and persona lanes were selected and whether the gate is still valid
 - carry-forward decisions for unfinished scope under the same `change-id`
 - durable workflow lessons promoted into long-lived memory docs when they are likely to recur
-- **architectural decisions** — why an approach was chosen, not just what was done; capture when the reasoning is non-obvious and not recoverable from git history or change docs
+- **architectural decisions** — why an approach was chosen, not just what was done; capture when the reasoning is non-obvious and not recoverable from git history or specs
 - **validated approaches** — positive confirmations of non-obvious choices that worked well; auto-memory should capture these equally with corrections, not only save when something went wrong
 - **wave-close retrospective findings** — non-obvious learnings surfaced at closure and promoted to auto-memory or `docs/references/project-context-memory.md`
 
@@ -42,7 +42,7 @@ role retrospectives, handoff stays session state, and memory records stay retrie
 from them at lifecycle checkpoints.
 
 At review and close, do not start the typed memory layer from an empty corpus: `memory_propose(wave_id)`
-drafts `candidate` records from the wave's own typed review evidence (change-doc Decision Logs and repaired
+drafts `candidate` records from the wave's own typed review evidence (spec Decision Logs and repaired
 real-defect findings), so the durable lessons the wave already produced become records instead of being
 re-derived. It is conservative and agent-validated: drafts are `candidate` only, carry a stable source-event
 identity, and a focused agent uses `memory_validate` to promote, retain, reject, or rewrite each draft after

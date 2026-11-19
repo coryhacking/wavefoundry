@@ -7,7 +7,9 @@ import copy
 import hashlib
 import json
 import os
+import re
 import shutil
+import stat
 import sys
 import tempfile
 import threading
@@ -22,7 +24,7 @@ if str(SCRIPTS) not in sys.path:
 import wave_work as work  # noqa: E402
 import vocabulary_profile as vp  # noqa: E402
 from gardener_metadata import canonical_review_policy_body  # noqa: E402
-from record_layout_support import patch_layout, waves_dir, waves_rel  # noqa: E402
+from record_layout_support import default_profile_only, patch_layout, waves_dir, waves_rel  # noqa: E402
 
 
 @unittest.skipUnless(work._SAFE_DELETE, "descriptor-safe work I/O unavailable")
@@ -841,6 +843,1097 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(work.cleanup_work(self.root, self.wave, expected_generation=generation)["outcome"], "removed")
         self.assertFalse(self.read()["available"])
         self.assertFalse(self.path.exists())
+
+
+def tree_snapshot(top: Path) -> dict:
+    """Every entry under ``top`` with its type, mode and bytes (links by target text)."""
+    out = {}
+    for dirpath, dirnames, filenames in os.walk(top, followlinks=False):
+        for name in dirnames + filenames:
+            path = Path(dirpath) / name
+            info = os.lstat(path)
+            rel = path.relative_to(top).as_posix()
+            if os.path.islink(path):
+                out[rel] = ("link", os.readlink(path))
+            elif path.is_dir():
+                out[rel] = ("dir", info.st_mode)
+            elif not stat.S_ISREG(info.st_mode):
+                # Never open a FIFO or device: the read would block.
+                out[rel] = ("other", info.st_mode)
+            else:
+                out[rel] = ("file", info.st_mode, path.read_bytes())
+    return out
+
+
+def _nth_call_fails(real, n, exc):
+    """Fail the Nth call (directory order is not alphabetical everywhere)."""
+    calls = {"count": 0}
+
+    def wrapper(name, *args, **kwargs):
+        if name != work.OWNER_FILE:
+            calls["count"] += 1
+            if calls["count"] == n:
+                raise exc
+        return real(name, *args, **kwargs)
+    return wrapper
+
+
+@unittest.skipUnless(work._SAFE_DELETE, "descriptor-safe work I/O unavailable")
+class PartialRemovalTests(unittest.TestCase):
+    """Change 23phc AC-2: a partial deletion is reported as partial."""
+
+    def setUp(self):
+        self.base = Path(tempfile.mkdtemp(prefix="wf-work-partial-")).resolve()
+        self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
+        self.root = self.base / "repo"
+        self.wave = waves_dir(self.root) / "abc12 example" / vp.RECORD_FILENAME
+        self.wave.parent.mkdir(parents=True)
+        self.wave.write_text("# Wave\n")
+        self.generation = work.ensure_work(self.root, self.wave)["generation"]
+        self.path = self.root / work.WORK_ROOT / "abc12"
+        for index in range(5):
+            (self.path / f"f{index}").write_text(str(index))
+
+    def cleanup(self):
+        return work.cleanup_work(self.root, self.wave, expected_generation=self.generation)
+
+    def test_failure_after_a_removal_is_partially_removed_with_entry_operation_and_errno(self):
+        denied = PermissionError(errno.EACCES, "denied")
+        with mock.patch.object(work.os, "unlink", side_effect=_nth_call_fails(os.unlink, 2, denied)):
+            result = self.cleanup()
+        self.assertEqual(result["outcome"], "partially_removed", result)
+        self.assertGreaterEqual(result["removed_entries"], 1)
+        self.assertEqual(result["failed_operation"], "unlink")
+        self.assertIn(result["failed_errno"], ("EACCES", "EPERM"))
+        remaining = sorted(p.name for p in self.path.iterdir() if p.name != work.OWNER_FILE)
+        self.assertIn(result["failed_entry"], remaining)
+        self.assertEqual(len(remaining), 5 - result["removed_entries"])
+        self.assertNotIn("ACL", json.dumps(result))
+        # Retry authority is unchanged: the owner file stayed in place.
+        self.assertEqual(work.describe_work(self.root, self.wave)["generation"], self.generation)
+        self.assertEqual(self.cleanup()["outcome"], "removed")
+
+    def test_failure_before_any_removal_stays_preserved_and_names_the_entry(self):
+        denied = PermissionError(errno.EPERM, "denied")
+        with mock.patch.object(work.os, "unlink", side_effect=_nth_call_fails(os.unlink, 1, denied)):
+            result = self.cleanup()
+        self.assertEqual(result["outcome"], "preserved", result)
+        self.assertEqual(result["removed_entries"], 0)
+        self.assertIn(result["failed_entry"], {f"f{index}" for index in range(5)})
+        self.assertEqual(result["failed_operation"], "unlink")
+        self.assertEqual(result["failed_errno"], "EPERM")
+        self.assertEqual(len(list(self.path.iterdir())), 6)
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root ignores directory permissions")
+    def test_real_read_only_subdirectory_names_its_entry(self):
+        locked = self.path / "zz"
+        locked.mkdir()
+        (locked / "locked").write_text("kept")
+        os.chmod(locked, 0o500)
+        self.addCleanup(os.chmod, locked, 0o700)
+        result = self.cleanup()
+        self.assertIn(result["outcome"], ("partially_removed", "preserved"), result)
+        self.assertEqual(result["failed_entry"], "zz/locked")
+        self.assertEqual(result["failed_operation"], "unlink")
+        self.assertIn(result["failed_errno"], ("EACCES", "EPERM"))
+        self.assertNotIn("ACL", json.dumps(result))
+        self.assertEqual((locked / "locked").read_text(), "kept")
+
+    def test_nested_progress_counts_removed_children_and_the_owner_is_not_counted(self):
+        nested = self.path / "nested"
+        nested.mkdir()
+        (nested / "child").write_text("x")
+        self.assertEqual(self.cleanup()["outcome"], "removed")
+        real = os.rmdir
+
+        def fail_top(name, *args, **kwargs):
+            if name == "abc12":
+                raise PermissionError(errno.EACCES, "denied")
+            return real(name, *args, **kwargs)
+        generation = work.ensure_work(self.root, self.wave)["generation"]
+        (self.path / "one").write_text("1")
+        with mock.patch.object(work.os, "rmdir", side_effect=fail_top):
+            result = work.cleanup_work(self.root, self.wave, expected_generation=generation)
+        # Every entry went, then the folder itself failed: partial, owner restored.
+        self.assertEqual(result["outcome"], "partially_removed", result)
+        self.assertEqual(result["removed_entries"], 1)
+        self.assertEqual((result["failed_entry"], result["failed_operation"]), (".", "rmdir"))
+        self.assertTrue((self.path / work.OWNER_FILE).is_file())
+
+
+@unittest.skipUnless(work._SAFE_DELETE, "descriptor-safe work I/O unavailable")
+class WorkInventoryTests(unittest.TestCase):
+    """Change 23phc AC-3: the read-only inventory and its classifier."""
+
+    ARCHIVE = "docs/archive-records"
+
+    def setUp(self):
+        self.base = Path(tempfile.mkdtemp(prefix="wf-work-inventory-")).resolve()
+        self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
+        self.root = self.base / "repo"
+        self.root.mkdir()
+        self.outside = self.base / "outside"
+        self.outside.mkdir()
+        for index in range(30):
+            (self.outside / f"big{index}").write_bytes(b"x" * 1000)
+
+    def record(self, key, status, *, slug="fixture"):
+        path = waves_dir(self.root) / f"{key} {slug}" / vp.RECORD_FILENAME
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"# Wave Record\n\nStatus: {status}\n", encoding="utf-8")
+        return path
+
+    def owned(self, record, files=2):
+        result = work.ensure_work(self.root, record)
+        self.assertTrue(result["available"], result)
+        folder = self.root / result["path"]
+        for index in range(files):
+            (folder / f"file{index}").write_bytes(b"ab")
+        return folder
+
+    def unowned(self, key, files=2):
+        folder = self.root / work.WORK_ROOT / key
+        folder.mkdir(parents=True)
+        for index in range(files):
+            (folder / f"file{index}").write_bytes(b"abc")
+        return folder
+
+    def fixture(self):
+        """closed, archived, not-found, active owned and active unowned folders."""
+        self.owned(self.record("abc12", "closed"))
+        archived = self.record("abc14", "closed", slug="old")
+        self.owned(archived)
+        archive_dir = self.root / self.ARCHIVE
+        archive_dir.mkdir(parents=True)
+        moved = archive_dir / archived.parent.name
+        archived.parent.rename(moved)
+        # An archive is read with the archive profile's record filename.
+        (moved / vp.RECORD_FILENAME).rename(moved / vp.archive_profile().RECORD_FILENAME)
+        gone = self.record("abc15", "closed", slug="gone")
+        self.owned(gone)
+        shutil.rmtree(gone.parent)
+        self.owned(self.record("abc13", "active"))
+        self.record("abc16", "active", slug="unowned")
+        self.unowned("abc16")
+        (self.root / work.WORK_ROOT / "plain.txt").write_text("skipped")
+
+    def inventory(self, **kwargs):
+        with patch_layout(archive_root=self.ARCHIVE):
+            return work.inventory_work_root(self.root, **kwargs)
+
+    def by_key(self, items):
+        return {item["key"]: item for item in items}
+
+    def test_leftovers_live_unowned_and_valid_live_work_are_classified(self):
+        self.fixture()
+        before = tree_snapshot(self.root)
+        result = self.inventory()
+        self.assertEqual(tree_snapshot(self.root), before, "the inventory must write nothing")
+        leftovers = self.by_key(result["leftovers"])
+        self.assertEqual({key: item["state"] for key, item in leftovers.items()},
+                         {"abc12": "closed", "abc14": "archived", "abc15": "not_found_in_checkout"})
+        self.assertIn("another branch", leftovers["abc15"]["state_note"])
+        self.assertEqual([item["key"] for item in result["live_unowned"]], ["abc16"])
+        self.assertEqual(result["live_unowned"][0]["ownership"], "missing")
+        self.assertEqual(result["live_owned"], 1)
+        self.assertNotIn("abc13", leftovers)
+        self.assertEqual(leftovers["abc12"]["entries"], 3)  # two files and the owner file
+        self.assertTrue(all(item["complete"] for item in leftovers.values()))
+        self.assertTrue(result["complete"], result)
+        # Change 23rzt: the plain file in the work root is reported as a loose
+        # entry, not as a folder (this assertion previously required its absence).
+        self.assertEqual((result["loose_count"], result["loose_entries"]),
+                         (1, [{"name": "plain.txt", "kind": "file", "bytes": len("skipped")}]))
+        folders = result["leftovers"] + result["live_unowned"] + result["unclassified"]
+        self.assertNotIn("plain.txt", [item["key"] for item in folders])
+        self.assertTrue(result["next_action"])
+
+    def test_archived_and_not_found_owners_report_structural_validity(self):
+        self.fixture()
+        leftovers = self.by_key(self.inventory()["leftovers"])
+        self.assertEqual(leftovers["abc14"]["ownership"], "valid")
+        self.assertEqual(leftovers["abc15"]["ownership"], "valid")
+        self.assertEqual(leftovers["abc12"]["ownership"], "valid")
+        # Known-bad control: the live wave-path match applied to an archived
+        # owner reports it invalid.
+        folder = self.root / work.WORK_ROOT / "abc14"
+        self.assertEqual(work._owner_state(folder, os.lstat(folder), waves_rel("abc14 old", vp.RECORD_FILENAME)),
+                         "valid")
+        self.assertEqual(work._owner_state(folder, os.lstat(folder), "elsewhere/" + vp.RECORD_FILENAME), "invalid")
+
+    def test_owner_by_path_read_used_on_native_windows_agrees(self):
+        self.fixture()
+        expected = {item["key"]: item["ownership"] for item in self.inventory()["leftovers"]}
+        with mock.patch.object(work, "_OWNER_READ_BY_DESCRIPTOR", False):
+            faked = {item["key"]: item["ownership"] for item in self.inventory()["leftovers"]}
+        self.assertEqual(faked, expected)
+
+    def test_malformed_linked_or_special_owner_is_invalid(self):
+        record = self.record("abc12", "closed")
+        folder = self.owned(record)
+        marker = folder / work.OWNER_FILE
+        original = marker.read_bytes()
+        cases = {
+            "not json": lambda: marker.write_text("{"),
+            "bad generation": lambda: marker.write_text(json.dumps({**json.loads(original), "generation": "x"})),
+            "relative repository": lambda: marker.write_text(json.dumps({**json.loads(original), "repository": "repo"})),
+            "link": lambda: (marker.unlink(), marker.symlink_to(self.outside / "big0")),
+            "fifo": lambda: (marker.unlink(), os.mkfifo(marker)),
+            "oversized": lambda: marker.write_bytes(b" " * 5000),
+        }
+        for name, damage in cases.items():
+            with self.subTest(case=name):
+                if marker.is_symlink() or marker.exists():
+                    marker.unlink()
+                marker.write_bytes(original)
+                damage()
+                item = self.by_key(self.inventory()["leftovers"])["abc12"]
+                self.assertEqual(item["ownership"], "invalid")
+
+    def test_symlink_inside_a_folder_adds_only_the_link_entry(self):
+        record = self.record("abc12", "closed")
+        folder = self.owned(record, files=0)
+        (folder / "link").symlink_to(self.outside, target_is_directory=True)
+        item = self.by_key(self.inventory()["leftovers"])["abc12"]
+        self.assertEqual(item["entries"], 2)  # the owner file and the link
+        self.assertLess(item["bytes"], 1000)
+        self.assertTrue(item["complete"])
+
+    def test_entry_bound_reports_an_incomplete_lower_bound(self):
+        record = self.record("abc12", "closed")
+        self.owned(record, files=10)
+        with mock.patch.object(work, "INVENTORY_ENTRY_LIMIT", 3):
+            result = self.inventory()
+        item = self.by_key(result["leftovers"])["abc12"]
+        self.assertFalse(item["complete"])
+        self.assertEqual(item["reason"], "entry_limit")
+        self.assertLessEqual(item["entries"], 3)
+        self.assertFalse(result["complete"])
+        self.assertLessEqual(result["entries_visited"], 3)
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root ignores directory permissions")
+    def test_unreadable_subdirectory_is_incomplete_not_empty(self):
+        record = self.record("abc12", "closed")
+        folder = self.owned(record)
+        hidden = folder / "hidden"
+        hidden.mkdir()
+        (hidden / "secret").write_text("x")
+        os.chmod(hidden, 0)
+        self.addCleanup(os.chmod, hidden, 0o700)
+        item = self.by_key(self.inventory()["leftovers"])["abc12"]
+        self.assertFalse(item["complete"])
+        self.assertTrue(item["reason"].startswith("unreadable:"), item)
+
+    def test_renamed_record_roots_classify_the_same_way(self):
+        import record_paths
+        current = (record_paths.WAVES_ROOT, record_paths.PLANS_ROOT)
+        with patch_layout(waves_root="alt/iterations", plans_root="alt/changes",
+                          archive_root="alt/archive"):
+            self.ARCHIVE = "alt/archive"
+            self.fixture()
+            result = work.inventory_work_root(self.root)
+        self.assertEqual({item["key"]: item["state"] for item in result["leftovers"]},
+                         {"abc12": "closed", "abc14": "archived", "abc15": "not_found_in_checkout"})
+        # Known-bad control: the same tree read under the unrenamed roots does
+        # not find the closed record.
+        with patch_layout(waves_root=current[0], plans_root=current[1], archive_root=None):
+            shipped = {item["key"]: item["state"] for item in work.inventory_work_root(self.root)["leftovers"]}
+        self.assertEqual(shipped["abc12"], "not_found_in_checkout")
+
+    def test_absent_work_root_creates_nothing_and_counts_as_empty(self):
+        self.record("abc12", "closed")
+        result = self.inventory()
+        self.assertFalse(result["present"])
+        self.assertTrue(result["complete"])
+        self.assertIsNone(result["reason"])
+        self.assertFalse((self.root / ".wavefoundry").exists())
+
+    def test_linked_work_root_or_parent_lists_no_children(self):
+        target = self.base / "linked"
+        (target / "work" / "abc12").mkdir(parents=True)
+        (target / "abc12").mkdir()
+        for link, destination in ((self.root / ".wavefoundry", target),
+                                  (self.root / ".wavefoundry" / "work", target)):
+            with self.subTest(link=link.relative_to(self.root).as_posix()):
+                if (self.root / ".wavefoundry").is_symlink():
+                    (self.root / ".wavefoundry").unlink()
+                shutil.rmtree(self.root / ".wavefoundry", ignore_errors=True)
+                link.parent.mkdir(parents=True, exist_ok=True)
+                link.symlink_to(destination, target_is_directory=True)
+                result = self.inventory()
+                self.assertFalse(result["complete"])
+                self.assertEqual(result["reason"], "work_root_link")
+                self.assertEqual(result["leftovers"] + result["live_unowned"] + result["unclassified"], [])
+                self.assertNotIn("abc12", json.dumps(result))
+
+    def test_missing_records_and_duplicate_ids_are_unreadable_or_ambiguous(self):
+        self.unowned("abc12")
+        (waves_dir(self.root) / "abc12 recordless").mkdir(parents=True)
+        self.unowned("abc13")
+        self.record("abc13", "closed", slug="one")
+        self.record("abc13", "closed", slug="two")
+        self.unowned("abc14")
+        (self.root / self.ARCHIVE / "abc14 archived-recordless").mkdir(parents=True)
+        self.unowned("abc15")
+        linked = self.record("abc15", "closed", slug="target")
+        alias = linked.parent.with_name("abc15 alias")
+        os.rename(linked.parent, self.base / "moved-record")
+        alias.symlink_to(self.base / "moved-record", target_is_directory=True)
+        result = self.inventory()
+        import record_paths
+        states = {item["key"]: item["state"] for item in result["unclassified"]}
+        expected = {"abc12": "unreadable", "abc13": "ambiguous", "abc14": "unreadable"}
+        if record_paths.NESTED:
+            # The nested discovery walk never enters a linked folder, so a
+            # linked record folder is not a candidate at all.
+            self.assertEqual(states, expected)
+            self.assertEqual([(i["key"], i["state"]) for i in result["leftovers"]],
+                             [("abc15", "not_found_in_checkout")])
+        else:
+            # The flat walk lists a linked folder; the classifier never follows it.
+            self.assertEqual(states, {**expected, "abc15": "unreadable"})
+            self.assertEqual(result["leftovers"], [])
+
+    def test_untrusted_child_names_are_escaped_and_bounded(self):
+        self.unowned("weird\x1bname" + "x" * 200)
+        item = self.inventory()["leftovers"][0]
+        self.assertNotIn("\x1b", item["key"])
+        self.assertLessEqual(len(item["key"]), 83)
+        self.assertEqual(item["state"], "not_found_in_checkout")
+
+    def test_single_folder_inventory_includes_valid_live_work(self):
+        self.owned(self.record("abc13", "active"))
+        folder = work.inventory_work_folder(self.root, "abc13")
+        self.assertEqual((folder["state"], folder["ownership"], folder["entries"]), ("active", "valid", 3))
+        self.assertIsNone(work.inventory_work_folder(self.root, "abc99"))
+
+
+class WorkCitationTests(unittest.TestCase):
+    """Change 23phc Requirement 7: the cited-work-path search."""
+
+    def setUp(self):
+        self.base = Path(tempfile.mkdtemp(prefix="wf-work-cite-")).resolve()
+        self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
+
+    def write(self, name, text):
+        path = self.base / name
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_only_this_keys_folder_matches(self):
+        cited = self.write("record.md", "one\nsee .wavefoundry/work/abc12/notes.md\n"
+                                      "and `.wavefoundry/work/abc12`\n.wavefoundry/work/abc123/x\n"
+                                      ".wavefoundry/work/\n.wavefoundry/work/abc13/y\n")
+        result = work.find_work_path_citations(self.base, "abc12", [(cited, True)])
+        self.assertEqual(result["hits"], [{"path": "record.md", "line": 2}, {"path": "record.md", "line": 3}])
+        self.assertEqual(result["coverage"], "complete")
+
+    def test_unreadable_required_input_is_named_and_absent_optional_is_skipped(self):
+        cited = self.write("record.md", ".wavefoundry/work/abc12/x\n")
+        bad = self.write("change.md", "")
+        bad.write_bytes(b"\xff\xfe")
+        result = work.find_work_path_citations(
+            self.base, "abc12", [(cited, True), (bad, True), (self.base / "handoff.md", False)])
+        self.assertEqual(result["coverage"], "incomplete")
+        self.assertEqual(result["unreadable"], ["change.md"])
+        self.assertEqual(len(result["hits"]), 1)
+
+
+class _DeviceStat:
+    """An ``os.stat_result`` stand-in with a different ``st_dev``."""
+
+    def __init__(self, real, device):
+        self._real, self.st_dev = real, device
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+@unittest.skipUnless(work._SAFE_DELETE, "descriptor-safe work I/O unavailable")
+class ExplicitCleanupTests(unittest.TestCase):
+    """Change 23q0s: explicit, operator-directed cleanup of one work folder."""
+
+    def setUp(self):
+        self.base = Path(tempfile.mkdtemp(prefix="wf-work-explicit-")).resolve()
+        self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
+        self.root = self.base / "repo"
+        self.root.mkdir()
+        self.record = self.make_record("abc12", "closed")
+        self.folder = self.unowned("abc12", files=4)
+        self.sibling = self.unowned("abc13", files=2)
+        self.make_record("abc13", "closed", slug="sibling")
+        self.outside = self.base / "outside"
+        self.outside.mkdir()
+        (self.outside / "keep.txt").write_text("keep")
+        (self.root / "notes.txt").write_text("outside the work root")
+
+    def make_record(self, key, status, *, slug="fixture"):
+        path = waves_dir(self.root) / f"{key} {slug}" / vp.RECORD_FILENAME
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"# Wave Record\n\nStatus: {status}\n", encoding="utf-8")
+        return path
+
+    def unowned(self, key, files=2):
+        folder = self.root / work.WORK_ROOT / key
+        folder.mkdir(parents=True, exist_ok=True)
+        for index in range(files):
+            (folder / f"f{index}").write_text(str(index))
+        return folder
+
+    def preview(self, key="abc12"):
+        result = work.explicit_cleanup(self.root, key)
+        self.assertEqual(result["outcome"], "preview", result)
+        return result
+
+    def apply(self, token, key="abc12"):
+        return work.explicit_cleanup(self.root, key, apply=True, confirmation=token)
+
+    def owner_files(self):
+        return sorted(p for p in (self.root / work.WORK_ROOT).rglob(work.OWNER_FILE))
+
+    # AC-1 -------------------------------------------------------------------
+
+    def test_default_and_dry_run_preview_write_nothing(self):
+        before = tree_snapshot(self.base)
+        for result in (work.explicit_cleanup(self.root, "abc12"),
+                       work.explicit_cleanup(self.root, "abc12", apply=False)):
+            self.assertEqual(result["outcome"], "preview", result)
+            self.assertEqual(result["state"], "closed")
+            self.assertEqual(result["ownership"], "missing")
+            self.assertEqual((result["entries"], result["complete"]), (4, True))
+            self.assertEqual([c["name"] for c in result["children"]], ["f0", "f1", "f2", "f3"])
+            self.assertEqual({c["type"] for c in result["children"]}, {"file"})
+            self.assertTrue(result["apply_possible"])
+            self.assertRegex(result["confirmation"], r"^[0-9a-f]{64}$")
+        self.assertEqual(tree_snapshot(self.base), before, "a preview must write nothing")
+        self.assertEqual(self.owner_files(), [])
+
+    def test_invalid_keys_are_refused_with_the_tree_unchanged(self):
+        os.symlink(self.outside, self.root / work.WORK_ROOT / "lnk12")
+        (self.root / work.WORK_ROOT / "fil12").write_text("a file named like a key")
+        before = tree_snapshot(self.base)
+        cases = {"../x": "work_key_invalid", "abc12/def": "work_key_invalid", "ABC12": "work_key_invalid",
+                 "": "work_key_invalid", None: "work_key_invalid", "abc12*": "work_key_invalid",
+                 "lnk12": "work_entry_not_directory", "fil12": "work_entry_not_directory"}
+        for key, reason in cases.items():
+            for apply in (False, True):
+                with self.subTest(key=key, apply=apply):
+                    result = work.explicit_cleanup(self.root, key, apply=apply, confirmation="x" * 64)
+                    self.assertEqual((result["outcome"], result["reason"]), ("refused", reason), result)
+        self.assertEqual(tree_snapshot(self.base), before)
+
+    def test_preview_bounds_and_escapes_child_names(self):
+        for index in range(60):
+            (self.folder / f"n{index:02d}").write_text("x")
+        (self.folder / "bad\nname").write_text("x")
+        result = self.preview()
+        self.assertEqual(len(result["children"]), work.CHILD_PREVIEW_LIMIT)
+        self.assertTrue(result["children_truncated"])
+        self.assertTrue(all("\n" not in child["name"] for child in result["children"]))
+
+    # AC-2 and AC-4 ------------------------------------------------------------
+
+    def test_apply_removes_only_the_unowned_closed_folder(self):
+        (self.folder / "nested").mkdir()
+        (self.folder / "nested" / "deep").write_text("deep")
+        os.symlink(self.outside, self.folder / "outside-link")
+        keep = {"sibling": tree_snapshot(self.sibling), "outside": tree_snapshot(self.outside),
+                "record": self.record.read_bytes(), "notes": (self.root / "notes.txt").read_bytes()}
+        token = self.preview()["confirmation"]
+        result = self.apply(token)
+        self.assertEqual(result["outcome"], "removed", result)
+        self.assertFalse(os.path.lexists(self.folder))
+        self.assertEqual({"sibling": tree_snapshot(self.sibling), "outside": tree_snapshot(self.outside),
+                          "record": self.record.read_bytes(), "notes": (self.root / "notes.txt").read_bytes()},
+                         keep, "only the named folder may change; the link target stays intact")
+        self.assertEqual(self.owner_files(), [])
+        # Idempotent: the folder is gone.
+        self.assertEqual(self.apply(token)["outcome"], "absent")
+
+    def test_valid_and_invalid_owner_folders_are_eligible(self):
+        shutil.rmtree(self.folder)
+        self.assertTrue(work.ensure_work(self.root, self.record)["available"])
+        with self.subTest(owner="valid"):
+            self.assertEqual(self.preview()["ownership"], "valid")
+            self.assertEqual(self.apply(self.preview()["confirmation"])["outcome"], "removed")
+        for owner in (b'{"schema": 2}', b"not json"):
+            with self.subTest(owner=owner):
+                folder = self.unowned("abc12", files=1)
+                (folder / work.OWNER_FILE).write_bytes(owner)
+                self.assertEqual(self.preview()["ownership"], "invalid")
+                self.assertEqual(self.apply(self.preview()["confirmation"])["outcome"], "removed")
+        self.assertEqual(self.owner_files(), [])
+
+    def test_not_found_in_checkout_folder_is_labelled_and_cleanable(self):
+        folder = self.unowned("zzq99", files=1)
+        result = self.preview("zzq99")
+        self.assertEqual(result["state"], "not_found_in_checkout")
+        self.assertIn("another branch or checkout", result["state_note"])
+        self.assertIsNone(result["record"])
+        self.assertEqual(self.apply(result["confirmation"], "zzq99")["outcome"], "removed")
+        self.assertFalse(folder.exists())
+
+    # AC-3 ---------------------------------------------------------------------
+
+    def assert_refused(self, result, reason):
+        self.assertEqual((result["outcome"], result["reason"]), ("refused", reason), result)
+
+    def test_empty_and_wrong_tokens_are_stale(self):
+        before = tree_snapshot(self.base)
+        token = self.preview()["confirmation"]
+        for wrong in ("", None, token[:-1] + ("0" if token[-1] != "0" else "1"), token.upper()):
+            with self.subTest(token=wrong):
+                self.assert_refused(self.apply(wrong), "preview_stale")
+        self.assertEqual(tree_snapshot(self.base), before)
+
+    def test_owner_created_or_changed_after_preview_is_stale(self):
+        token = self.preview()["confirmation"]
+        owner = self.folder / work.OWNER_FILE
+        owner.write_bytes(b"{}")
+        self.assert_refused(self.apply(token), "preview_stale")
+        token = self.preview()["confirmation"]
+        owner.write_bytes(b"{ }")
+        before = tree_snapshot(self.base)
+        self.assert_refused(self.apply(token), "preview_stale")
+        self.assertEqual(tree_snapshot(self.base), before)
+
+    def test_live_and_reopened_states_are_refused(self):
+        token = self.preview()["confirmation"]
+        for status in ("active", "implementing", "paused", "planned", "ready"):
+            with self.subTest(status=status):
+                self.record.write_text(f"# Wave Record\n\nStatus: {status}\n")
+                before = tree_snapshot(self.base)
+                result = self.apply(token)
+                self.assert_refused(result, "work_state_not_cleanable")
+                self.assertEqual(result["state"], status)
+                preview = self.preview()
+                self.assertFalse(preview["apply_possible"])
+                self.assertIsNone(preview["confirmation"])
+                self.assertEqual(tree_snapshot(self.base), before)
+
+    def test_ambiguous_and_unreadable_states_are_refused(self):
+        with self.subTest(state="ambiguous"):
+            token = self.preview()["confirmation"]
+            other = self.make_record("abc12", "closed", slug="duplicate")
+            result = self.apply(token)
+            self.assert_refused(result, "work_state_not_cleanable")
+            self.assertEqual(result["state"], "ambiguous")
+            shutil.rmtree(other.parent)
+        with self.subTest(state="unreadable: live folder without a record"):
+            token = self.preview()["confirmation"]
+            self.record.unlink()
+            result = self.apply(token)
+            self.assert_refused(result, "work_state_not_cleanable")
+            self.assertEqual(result["state"], "unreadable")
+            self.assertTrue(self.folder.exists())
+
+    def test_replaced_folder_is_stale(self):
+        token = self.preview()["confirmation"]
+        aside = self.root / "aside"
+        self.folder.rename(aside)
+        self.unowned("abc12", files=4)
+        before = tree_snapshot(self.base)
+        self.assert_refused(self.apply(token), "preview_stale")
+        self.assertEqual(tree_snapshot(self.base), before)
+
+    def test_token_bound_to_another_device_number_is_stale(self):
+        result = self.preview()
+        info = os.lstat(self.folder)
+        root = str(self.root.resolve())
+        same = work.cleanup_token(root, "abc12", [info.st_dev, info.st_ino], "absent", "closed",
+                                  result["record"])
+        self.assertEqual(same, result["confirmation"], "the oracle must reproduce the real token")
+        moved = work.cleanup_token(root, "abc12", [info.st_dev + 1, info.st_ino], "absent", "closed",
+                                   result["record"])
+        self.assert_refused(self.apply(moved), "preview_stale")
+        self.assertTrue((self.folder / "f0").exists())
+
+    def test_work_parent_replaced_by_a_link_is_refused(self):
+        token = self.preview()["confirmation"]
+        work_root = self.root / work.WORK_ROOT
+        aside = self.root / "work-aside"
+        work_root.rename(aside)
+        other = self.base / "other"
+        (other / "abc12").mkdir(parents=True)
+        (other / "abc12" / "victim").write_text("victim")
+        os.symlink(other, work_root)
+        before = tree_snapshot(self.base)
+        result = self.apply(token)
+        self.assert_refused(result, "work_root_link")
+        self.assertEqual(tree_snapshot(self.base), before)
+
+    def test_unsupported_host_previews_without_token_and_refuses_apply(self):
+        token = self.preview()["confirmation"]
+        before = tree_snapshot(self.base)
+        with mock.patch.object(work, "_SAFE_DELETE", False):
+            preview = work.explicit_cleanup(self.root, "abc12")
+            result = self.apply(token)
+        self.assertEqual(preview["outcome"], "preview", preview)
+        self.assertFalse(preview["apply_possible"])
+        self.assertIsNone(preview["confirmation"])
+        self.assertIn("safe_work_io_unsupported", preview["apply_blockers"])
+        self.assertEqual((preview["entries"], preview["state"], preview["ownership"]), (4, "closed", "missing"))
+        self.assertEqual(len(preview["children"]), 4)
+        self.assert_refused(result, "safe_work_io_unsupported")
+        self.assertEqual(tree_snapshot(self.base), before)
+
+    def mid_deletion(self, change, *, stage="unlink", at=2):
+        """Run apply and call ``change`` at the ``at``-th ``stage`` checkpoint."""
+        token = self.preview()["confirmation"]
+        seen = {"count": 0}
+
+        def checkpoint(name):
+            if name == stage:
+                seen["count"] += 1
+                if seen["count"] == at:
+                    change()
+        with mock.patch.object(work, "_checkpoint", side_effect=checkpoint):
+            result = self.apply(token)
+        self.assertGreaterEqual(seen["count"], at, "the change must have happened")
+        return result
+
+    def assert_partial(self, result, reasons):
+        self.assertEqual(result["outcome"], "partially_removed", result)
+        self.assertIn(result["reason"], reasons)
+        self.assertEqual(result["removed_entries"], 1)
+
+    def test_owner_changed_during_deletion_stops_after_one_entry(self):
+        owner = self.folder / work.OWNER_FILE
+        owner.write_bytes(b"{}")
+        keep = tree_snapshot(self.outside), tree_snapshot(self.sibling)
+        result = self.mid_deletion(lambda: owner.write_bytes(b"{ }"))
+        self.assert_partial(result, {"work_owner_changed"})
+        self.assertEqual(len([p for p in self.folder.iterdir() if p.name != work.OWNER_FILE]), 3)
+        self.assertEqual(owner.read_bytes(), b"{ }")
+        self.assertEqual((tree_snapshot(self.outside), tree_snapshot(self.sibling)), keep)
+
+    def test_owner_created_during_deletion_stops_after_one_entry(self):
+        owner = self.folder / work.OWNER_FILE
+        result = self.mid_deletion(lambda: owner.write_bytes(b"{}"))
+        self.assert_partial(result, {"work_owner_changed"})
+        self.assertEqual(len([p for p in self.folder.iterdir() if p.name != work.OWNER_FILE]), 3)
+
+    def test_folder_swapped_during_deletion_stops_after_one_entry(self):
+        aside = self.root / "aside"
+        replacement = {}
+
+        def swap():
+            self.folder.rename(aside)
+            self.unowned("abc12", files=3)
+            replacement.update(tree_snapshot(self.folder))
+        result = self.mid_deletion(swap)
+        self.assert_partial(result, {"work_identity_changed"})
+        self.assertEqual(len(list(aside.iterdir())), 3, "the previewed folder keeps its other entries")
+        self.assertEqual(tree_snapshot(self.folder), replacement, "the new folder is untouched")
+
+    def test_work_parent_replaced_during_deletion_stops_after_one_entry(self):
+        work_root = self.root / work.WORK_ROOT
+        aside = self.root / "work-aside"
+        other = self.base / "other"
+        (other / "abc12").mkdir(parents=True)
+        (other / "abc12" / "victim").write_text("victim")
+        target = tree_snapshot(other)
+
+        def replace():
+            work_root.rename(aside)
+            os.symlink(other, work_root)
+        result = self.mid_deletion(replace)
+        # _anchor's no-follow walk raises before it can compare identities.
+        self.assert_partial(result, {"work_parent_changed", "work_io_failed"})
+        self.assertEqual(len(list((aside / "abc12").iterdir())), 3)
+        self.assertEqual(tree_snapshot(other), target)
+
+    def test_nested_directory_change_is_caught_before_rmdir_child(self):
+        for child in list(self.folder.iterdir()):
+            child.unlink()
+        (self.folder / "d").mkdir()
+        (self.folder / "d" / "x").write_text("x")
+        owner = self.folder / work.OWNER_FILE
+        owner.write_bytes(b"{}")
+        result = self.mid_deletion(lambda: owner.write_bytes(b"{ }"), stage="rmdir_child", at=1)
+        self.assert_partial(result, {"work_owner_changed"})
+        self.assertTrue((self.folder / "d").is_dir())
+
+    def test_folder_on_another_device_is_refused(self):
+        real_fstat = os.fstat
+        inode = os.lstat(self.folder).st_ino
+        token = self.preview()["confirmation"]
+
+        def fstat(fd):
+            info = real_fstat(fd)
+            return _DeviceStat(info, info.st_dev + 1) if info.st_ino == inode else info
+        before = tree_snapshot(self.base)
+        with mock.patch.object(work.os, "fstat", side_effect=fstat):
+            preview = work.explicit_cleanup(self.root, "abc12")
+            results = [self.apply(token), self.apply("")]
+        self.assertEqual(preview["outcome"], "preview", preview)
+        self.assertIn("work_filesystem_changed", preview["apply_blockers"])
+        self.assertIsNone(preview["confirmation"])
+        for result in results:
+            self.assert_refused(result, "work_filesystem_changed")
+        self.assertEqual(tree_snapshot(self.base), before)
+
+    def test_nested_directory_on_another_device_is_kept(self):
+        """Requirement 5 (DELIV-Q0S-NESTED-MOUNT-UNPINNED): a directory inside
+        the folder on another device, as a mount point reads, stops apply
+        before anything in it is removed."""
+        mount = self.folder / "mnt"
+        mount.mkdir()
+        (mount / "precious.txt").write_text("on another filesystem")
+        inode = os.lstat(mount).st_ino
+        real = {name: getattr(os, name) for name in ("stat", "lstat", "fstat")}
+
+        def other_device(name):
+            def patched(*args, **kwargs):
+                info = real[name](*args, **kwargs)
+                return _DeviceStat(info, info.st_dev + 1) if info.st_ino == inode else info
+            return patched
+        keep = tree_snapshot(self.outside), tree_snapshot(self.sibling)
+        with mock.patch.object(work.os, "stat", side_effect=other_device("stat")), \
+                mock.patch.object(work.os, "lstat", side_effect=other_device("lstat")), \
+                mock.patch.object(work.os, "fstat", side_effect=other_device("fstat")):
+            preview = self.preview()
+            # The preview's sizing walk reads entries through scandir, which
+            # this patch does not reach, so it still offers a token: the
+            # deletion's own device comparison is what is under test.
+            self.assertIsNotNone(preview["confirmation"], preview)
+            result = self.apply(preview["confirmation"])
+        # Entries listed before the mount point may already be gone.
+        self.assertIn(result["outcome"], {"partially_removed", "preserved"}, result)
+        self.assertEqual((result["reason"], result["failed_entry"]), ("work_filesystem_changed", "mnt"), result)
+        self.assertEqual((mount / "precious.txt").read_text(), "on another filesystem")
+        self.assertTrue(mount.is_dir())
+        self.assertEqual((tree_snapshot(self.outside), tree_snapshot(self.sibling)), keep)
+
+    def test_unsafe_owner_entries_are_refused_promptly(self):
+        owner = self.folder / work.OWNER_FILE
+        cases = {"large": lambda: owner.write_bytes(b"x" * 4097),
+                 "link": lambda: os.symlink(self.outside / "keep.txt", owner),
+                 "directory": lambda: owner.mkdir(),
+                 "hard link": lambda: os.link(self.outside / "keep.txt", owner)}
+        if hasattr(os, "mkfifo"):
+            cases["fifo"] = lambda: os.mkfifo(owner)
+        for name, make in cases.items():
+            with self.subTest(owner=name):
+                make()
+                before = tree_snapshot(self.base)
+                outcome = {}
+                thread = threading.Thread(target=lambda: outcome.update(
+                    preview=work.explicit_cleanup(self.root, "abc12"),
+                    apply=self.apply("x" * 64)), daemon=True)
+                thread.start()
+                thread.join(timeout=10)
+                self.assertFalse(thread.is_alive(), "an unsafe owner entry must not block")
+                self.assertEqual(outcome["preview"]["owner_entry"], "unsafe")
+                self.assertIn("unsafe_owner_entry", outcome["preview"]["apply_blockers"])
+                self.assertIsNone(outcome["preview"]["confirmation"])
+                self.assert_refused(outcome["apply"], "unsafe_owner_entry")
+                self.assertEqual(tree_snapshot(self.base), before)
+                if owner.is_dir() and not owner.is_symlink():
+                    owner.rmdir()
+                else:
+                    owner.unlink()
+
+    # AC-5 ---------------------------------------------------------------------
+
+    def test_permission_failure_is_partial_then_a_fresh_preview_and_apply_removes(self):
+        modes = {p.name: p.stat().st_mode for p in self.folder.iterdir()}
+        denied = PermissionError(errno.EACCES, "denied")
+        token = self.preview()["confirmation"]
+        with mock.patch.object(work.os, "unlink", side_effect=_nth_call_fails(os.unlink, 2, denied)):
+            result = self.apply(token)
+        self.assertEqual(result["outcome"], "partially_removed", result)
+        self.assertEqual(result["removed_entries"], 1)
+        self.assertEqual((result["failed_operation"], result["failed_errno"]), ("unlink", "EACCES"))
+        remaining = {p.name: p.stat().st_mode for p in self.folder.iterdir()}
+        self.assertIn(result["failed_entry"], remaining)
+        self.assertEqual(len(remaining), 3)
+        self.assertEqual({name: modes[name] for name in remaining}, remaining, "permissions are never changed")
+        self.assertEqual(self.owner_files(), [], "no owner file is written")
+        self.assertEqual(self.apply(self.preview()["confirmation"])["outcome"], "removed")
+
+    @unittest.skipUnless(sys.platform == "darwin", "macOS deny-delete ACL")
+    def test_macos_deny_delete_acl_is_reported_as_partial(self):
+        import subprocess
+
+        locked = self.folder / "zz-locked"
+        locked.write_text("kept")
+        acl = subprocess.run(["chmod", "+a", "everyone deny delete", str(locked)], capture_output=True)
+        if acl.returncode != 0:
+            self.skipTest("cannot set an ACL here: " + acl.stderr.decode(errors="replace"))
+        self.addCleanup(subprocess.run, ["chmod", "-N", str(locked)], capture_output=True)
+        real_listdir = os.listdir
+        token = self.preview()["confirmation"]
+        # Deterministic order only; the denial itself is the real ACL.
+        with mock.patch.object(work.os, "listdir", side_effect=lambda fd: sorted(real_listdir(fd))):
+            result = self.apply(token)
+        if result["outcome"] == "removed":
+            self.skipTest("this file system does not enforce deny-delete ACL entries")
+        self.assertEqual(result["outcome"], "partially_removed", result)
+        self.assertEqual(result["removed_entries"], 4)
+        self.assertEqual((result["failed_entry"], result["failed_operation"]), ("zz-locked", "unlink"))
+        self.assertIn(result["failed_errno"], ("EPERM", "EACCES"))
+        self.assertEqual(locked.read_text(), "kept")
+        self.assertEqual(self.owner_files(), [])
+
+
+class WorkRootLooseEntryTests(unittest.TestCase):
+    """Change 23rzt AC-2: plain files and links directly in the work root.
+
+    No owned folder is needed, so this runs on every host, native Windows
+    included; only the link cases depend on the host being able to create links.
+    """
+
+    def setUp(self):
+        self.base = Path(tempfile.mkdtemp(prefix="wf-work-loose-")).resolve()
+        self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
+        self.root = self.base / "repo"
+        self.work = self.root / work.WORK_ROOT
+        self.work.mkdir(parents=True)
+        self.outside = self.base / "outside"
+        self.outside.mkdir()
+
+    def record(self, key, status, slug="fixture"):
+        path = waves_dir(self.root) / f"{key} {slug}" / vp.RECORD_FILENAME
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"# Wave Record\n\nStatus: {status}\n", encoding="utf-8")
+
+    def folders(self):
+        """Two folders: a closed record's and a live record's."""
+        self.record("abc12", "closed")
+        self.record("abc13", "active", slug="live")
+        for key in ("abc12", "abc13"):
+            (self.work / key).mkdir()
+            (self.work / key / "scratch.txt").write_bytes(b"abcd")
+
+    def files(self):
+        (self.work / "a-brief.md").write_bytes(b"x" * 10)
+        (self.work / "b-build.log").write_bytes(b"x" * 300)
+        (self.work / "c-notes.txt").write_bytes(b"x")
+
+    def link(self, name, target):
+        try:
+            os.symlink(target, self.work / name)
+        except (OSError, NotImplementedError, AttributeError) as exc:
+            self.skipTest(f"symbolic links cannot be created on this host ({type(exc).__name__}: {exc})")
+
+    @staticmethod
+    def folder_view(result):
+        return {field: result[field] for field in ("leftovers", "live_unowned", "unclassified", "live_owned",
+                                                     "totals", "next_action", "complete", "reason", "present")}
+
+    def test_files_and_links_are_listed_with_kind_and_size_and_folders_are_unchanged(self):
+        self.folders()
+        control = work.inventory_work_root(self.root)
+        self.assertEqual((control["loose_count"], control["loose_entries"]), (0, []))
+        self.files()
+        large = self.outside / "large.bin"
+        large.write_bytes(b"x" * 1_000_000)
+        self.link("outside-link", large)
+        self.link("dangling-link", self.outside / "missing")
+        before = tree_snapshot(self.root)
+        touched = []
+        real_stat, real_open, real_scandir = os.stat, os.open, os.scandir
+
+        def spy(real):
+            def call(path, *args, **kwargs):
+                touched.append(os.fspath(path) if isinstance(path, (str, bytes, os.PathLike)) else path)
+                return real(path, *args, **kwargs)
+            return call
+        with mock.patch.object(os, "stat", spy(real_stat)), mock.patch.object(os, "open", spy(real_open)), \
+                mock.patch.object(os, "scandir", spy(real_scandir)):
+            result = work.inventory_work_root(self.root)
+        self.assertEqual(tree_snapshot(self.root), before, "the inventory must write nothing")
+        self.assertEqual(self.folder_view(result), self.folder_view(control), "folder results are unchanged")
+        self.assertEqual(result["loose_count"], 5)
+        self.assertEqual(result["loose_entries"], [
+            {"name": "b-build.log", "kind": "file", "bytes": 300},
+            {"name": "a-brief.md", "kind": "file", "bytes": 10},
+            {"name": "c-notes.txt", "kind": "file", "bytes": 1},
+            {"name": "dangling-link", "kind": "link", "bytes": None},
+            {"name": "outside-link", "kind": "link", "bytes": None},
+        ])
+        named = [str(item) for item in touched]
+        for target in (str(large), str(self.outside / "missing"), "outside-link", "dangling-link"):
+            self.assertFalse([item for item in named if item.endswith(target)],
+                             f"no stat, open or listing may reach {target}")
+
+    def test_count_is_exact_and_the_list_is_capped_largest_first(self):
+        count = work.LOOSE_ENTRY_LIST_CAP + 5
+        for index in range(count):
+            (self.work / f"f{index:03d}.log").write_bytes(b"x" * (index + 1))
+        result = work.inventory_work_root(self.root)
+        self.assertEqual(result["loose_count"], count)
+        self.assertEqual(len(result["loose_entries"]), work.LOOSE_ENTRY_LIST_CAP)
+        self.assertEqual([item["bytes"] for item in result["loose_entries"]],
+                         list(range(count, 5, -1)), "the cap drops the smallest files")
+        self.assertTrue(result["complete"])
+
+    def test_entry_limit_makes_the_count_a_lower_bound(self):
+        for index in range(10):
+            (self.work / f"f{index}.log").write_bytes(b"x")
+        result = work.inventory_work_root(self.root, entry_limit=4)
+        self.assertFalse(result["complete"])
+        self.assertEqual(result["reason"], "entry_limit")
+        self.assertEqual(result["loose_count"], 4)
+        self.assertLessEqual(result["entries_visited"], 4)
+        bound = "(a lower bound: the listing stopped early)"
+        self.assertIn(f"4 loose file(s) or link(s) directly in {work.WORK_ROOT.as_posix()}/ {bound}: ",
+                      work.loose_entries_message(result))
+        # The control: a complete listing does not call its count a lower bound.
+        self.assertNotIn(bound, work.loose_entries_message(work.inventory_work_root(self.root)))
+
+    def test_sizes_are_reported_without_a_measuring_walk(self):
+        self.folders()
+        self.files()
+        result = work.inventory_work_root(self.root, measure=False)
+        self.assertIsNone(result["leftovers"][0]["bytes"], "folders are not measured")
+        self.assertEqual({item["name"]: item["bytes"] for item in result["loose_entries"]},
+                         {"b-build.log": 300, "a-brief.md": 10, "c-notes.txt": 1})
+
+    def test_an_entry_whose_metadata_cannot_be_read_is_not_listed_and_marks_the_result_incomplete(self):
+        self.files()
+        real_scandir = os.scandir
+
+        class Unreadable:
+            def __init__(self, entry):
+                self._entry = entry
+                self.name, self.path = entry.name, entry.path
+
+            def stat(self, *, follow_symlinks=True):
+                raise PermissionError(errno.EACCES, "denied", self.path)
+
+        class Listing:
+            def __init__(self, path):
+                self._listing = real_scandir(path)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                self._listing.close()
+
+            def __iter__(self):
+                for entry in self._listing:
+                    yield Unreadable(entry) if entry.name == "a-brief.md" else entry
+
+        def scandir(path):
+            return Listing(path) if Path(path) == self.work else real_scandir(path)
+        with mock.patch.object(work.os, "scandir", scandir):
+            result = work.inventory_work_root(self.root)
+        self.assertFalse(result["complete"])
+        self.assertEqual(result["reason"], "unreadable:EACCES")
+        self.assertEqual(result["loose_count"], 2)
+        self.assertNotIn("a-brief.md", [item["name"] for item in result["loose_entries"]])
+
+    def test_untrusted_names_are_escaped_and_bounded(self):
+        name = "weird\x1bname" + "x" * 200
+        try:
+            (self.work / name).write_bytes(b"x")
+        except OSError as exc:
+            self.skipTest(f"this file system refuses the name ({exc})")
+        listed = work.inventory_work_root(self.root)["loose_entries"][0]["name"]
+        self.assertNotIn("\x1b", listed)
+        self.assertLessEqual(len(listed), 83)
+        message = work.loose_entries_message(work.inventory_work_root(self.root))
+        self.assertIn(listed, message)
+        self.assertNotIn("\x1b", message)
+
+    def test_the_upgrade_report_does_not_carry_the_loose_entries(self):
+        import upgrade_wavefoundry
+
+        self.folders()
+        self.files()
+        report = upgrade_wavefoundry._run_work_root_inventory(self.root)
+        self.assertTrue(report["reported"], report)
+        fields = upgrade_wavefoundry._work_root_fields({"work_root": report})
+        for carried in (report, fields):
+            self.assertFalse([key for key in carried if key.startswith("loose")], carried)
+        self.assertNotIn("b-build.log", json.dumps([report, fields]))
+
+
+@default_profile_only("a census of the shipped seeds, templates and this repository's prompt copies")
+class LooseFileGuidanceTests(unittest.TestCase):
+    """Change 23rzt AC-1: every "Disposable work" section that tells the
+    coordinator to put the work path in briefs states where an agent's own
+    files go and who acts on a loose one. The sections are found, not listed."""
+
+    FRAMEWORK = SCRIPTS.parent
+    ROOTS = (FRAMEWORK / "seeds", FRAMEWORK / "install" / "lifecycle-prompts", SCRIPTS.parents[2] / "docs" / "prompts")
+    IN_SCOPE_MINIMUM = 13
+    RULE = (
+        "Write every file you create for a wave, including coordinator briefs, logs, captured test output "
+        "and build output, inside that wave's own work folder, in a child folder when that helps",
+        "never write a file directly in `.wavefoundry/work/`",
+        "Before the wave exists, keep the content in task context until a lifecycle call reports the work area.",
+        "If you wrote such a file for a wave, move it into that wave's folder while the wave is open, or delete it.",
+        "Leave any other loose file in place, including one you are not sure you wrote",
+        "and report it to the operator, who decides.",
+        "Never move a file you did not write into a wave's folder: close removes that folder with everything in it.",
+    )
+    SEED_209_RULE = (
+        "write it inside the wave's own work folder, in a child folder when that helps, never directly in "
+        "`.wavefoundry/work/`",
+        "before the wave exists, keep it in task context until a lifecycle call reports the work area",
+        "If you wrote a loose file there for a wave, move it into that wave's folder while the wave is open, "
+        "or delete it.",
+        "Leave any other loose file in place, including one you are not sure you wrote, and report it to the "
+        "operator, who decides.",
+        "Never move a file you did not write into a wave's folder: close removes that folder with everything in it.",
+    )
+    _HEADING = re.compile(r"^(#{2,3}) Disposable work$")
+
+    @classmethod
+    def sections(cls) -> list[tuple[Path, str]]:
+        found = []
+        for top in cls.ROOTS:
+            for path in sorted(top.glob("*.md")):
+                lines = path.read_text(encoding="utf-8").splitlines()
+                for index, line in enumerate(lines):
+                    match = cls._HEADING.match(line)
+                    if not match:
+                        continue
+                    body = []
+                    for following in lines[index + 1:]:
+                        level = len(following) - len(following.lstrip("#"))
+                        if 0 < level <= len(match.group(1)) and following[level:level + 1] == " ":
+                            break
+                        body.append(following)
+                    found.append((path, "\n".join(body)))
+        return found
+
+    def test_every_in_scope_section_states_the_rule(self):
+        in_scope = [(path, body) for path, body in self.sections() if "briefs" in body]
+        self.assertGreaterEqual(len(in_scope), self.IN_SCOPE_MINIMUM, [str(path) for path, _ in in_scope])
+        for path, body in in_scope:
+            for fragment in self.RULE:
+                with self.subTest(path=path.name, parent=path.parent.name, fragment=fragment[:40]):
+                    self.assertIn(fragment, " ".join(body.split()))
+
+    def test_seed_209_briefing_guidance_states_the_rule(self):
+        text = (self.FRAMEWORK / "seeds" / "209-agent-harness-core.prompt.md").read_text(encoding="utf-8")
+        bullet = next(line for line in text.splitlines()
+                      if line.startswith("- Pass briefing packets in the agent task context."))
+        for fragment in self.SEED_209_RULE:
+            with self.subTest(fragment=fragment[:40]):
+                self.assertIn(fragment, bullet)
+
+
+class NextActionTests(unittest.TestCase):
+    def test_cleanup_tool_is_named_only_when_registered(self):
+        import mcp_tool_roster
+
+        with mock.patch.object(work, "_SAFE_DELETE", True):
+            self.assertEqual(work.cleanup_tool_registered(), work.CLEANUP_TOOL in mcp_tool_roster.TOOL_TIERS)
+            with mock.patch.dict(mcp_tool_roster.TOOL_TIERS, clear=False):
+                mcp_tool_roster.TOOL_TIERS.pop(work.CLEANUP_TOOL, None)
+                self.assertNotIn(work.CLEANUP_TOOL, work.retained_work_next_action("abc12"))
+                mcp_tool_roster.TOOL_TIERS[work.CLEANUP_TOOL] = "write"
+                self.assertIn(f"{work.CLEANUP_TOOL}(work_key='abc12')", work.retained_work_next_action("abc12"))
+        with mock.patch.object(work, "_SAFE_DELETE", False):
+            text = work.retained_work_next_action("abc12")
+            self.assertNotIn(work.CLEANUP_TOOL, text)
+            self.assertIn("remove it yourself", text)
 
 
 if __name__ == "__main__":

@@ -4297,11 +4297,11 @@ class ReviewPlanInstallingUpgradeTests(unittest.TestCase):
         ),
         (
             "Optional stress-test of a consolidated change doc before wave admission. Walks every unresolved decision branch in Requirements, Acceptance Criteria, and Scope.",
-            "Optional stress-test of a consolidated change doc, or the current wave record when no change is specified, before or after admission and before implementation. Walks every unresolved decision branch in Requirements, Acceptance Criteria, and Scope.",
+            "Optional stress-test of a consolidated spec, or the current wave record when no change is specified, before or after admission and before implementation. Walks every unresolved decision branch in Requirements, Acceptance Criteria, and Scope.",
         ),
         (
             "Given a change doc as context:",
-            "Given a change doc as context, or the current wave record when no change is specified:",
+            "Given a spec as context, or the current wave record when no change is specified:",
         ),
         (
             "- Before admitting a complex or high-risk change",
@@ -4328,7 +4328,7 @@ class ReviewPlanInstallingUpgradeTests(unittest.TestCase):
         ),
         (
             "- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md` or `docs/plans/<change-id>.md`) or wave record (`docs/waves/<wave-id>/wave.md`).",
-            ("- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md` or `docs/plans/<change-id>.md`) or, when no change is specified, the current wave record (`docs/waves/<wave-id>/wave.md`).",),
+            ("- Load the target spec (`docs/waves/<wave-id>/<change-id>.md` or `docs/plans/<change-id>.md`) or, when no change is specified, the current wave record (`docs/waves/<wave-id>/wave.md`).",),
         ),
         (
             "- Do not re-plan or derive new scope during interrogation; record emergent scope items as follow-on candidates rather than introducing them inline.",
@@ -9884,6 +9884,83 @@ class BoundedUpgradeReportingTests(unittest.TestCase):
                 owned.unlink(missing_ok=True)
 
 
+class WorkRootUpgradeReportTests(unittest.TestCase):
+    """Change 23phc AC-4: the upgrade report lists leftover work and deletes nothing."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+
+    def fixture(self, waves_root=None):
+        import record_paths
+        import vocabulary_profile
+        waves_root = waves_root or record_paths.WAVES_ROOT
+        record = self.root / waves_root / "abc12 closed-earlier" / vocabulary_profile.RECORD_FILENAME
+        record.parent.mkdir(parents=True)
+        record.write_text("# Wave Record\n\nStatus: closed\n", encoding="utf-8")
+        live = self.root / waves_root / "abc13 live" / vocabulary_profile.RECORD_FILENAME
+        live.parent.mkdir(parents=True)
+        live.write_text("# Wave Record\n\nStatus: active\n", encoding="utf-8")
+        for key in ("abc12", "abc13"):
+            folder = self.root / ".wavefoundry/work" / key
+            folder.mkdir(parents=True)
+            (folder / "scratch.bin").write_bytes(b"x" * 64)
+
+    def snapshot(self):
+        return {p.relative_to(self.root).as_posix(): (p.read_bytes() if p.is_file() else None)
+                for p in sorted((self.root / ".wavefoundry").rglob("*"))}
+
+    def worker(self, layout=None):
+        from record_layout_support import run_script_with_layout
+        env = {**os.environ, "WAVEFOUNDRY_REPORTING_SKIP_SCAN": "1"}
+        env.pop("PYTHONPYCACHEPREFIX", None)
+        args = ["--reconciliation-report", "--root", str(self.root)]
+        if layout is None:
+            proc = subprocess.run([sys.executable, "-B", str(UPGRADE_PATH), *args], cwd=str(self.root),
+                                  env=env, capture_output=True, text=True, check=False, timeout=120)
+        else:
+            proc = run_script_with_layout(UPGRADE_PATH, args, layout=layout, cwd=self.root, env=env)
+        self.assertEqual(proc.returncode, 0, proc.stderr[-2000:])
+        return json.loads(proc.stdout.strip().splitlines()[-1])
+
+    def test_worker_process_lists_leftovers_and_the_summary_carries_them(self):
+        self.fixture()
+        before = self.snapshot()
+        report = self.worker()
+        self.assertEqual(self.snapshot(), before, "the upgrade report must delete or write nothing")
+        self.assertTrue(report["work_root"]["reported"], report["work_root"])
+        self.assertEqual([(item["path"], item["state"], item["bytes"]) for item in report["work_root"]["leftovers"]],
+                         [(".wavefoundry/work/abc12", "closed", 64)])
+        fields = self.mod._report_fields(report)
+        self.assertEqual(fields["work_root_state"], "complete")
+        self.assertEqual(fields["work_leftovers"], report["work_root"]["leftovers"])
+        lines = "\n".join(self.mod._work_root_summary_lines(fields))
+        self.assertIn(".wavefoundry/work/abc12: closed, 64 logical bytes", lines)
+        self.assertIn("nothing was deleted", lines)
+
+    def test_renamed_record_roots_classify_the_same_leftover_in_the_worker_process(self):
+        layout = {"waves_root": "alt/iterations", "plans_root": "alt/changes"}
+        self.fixture(waves_root=layout["waves_root"])
+        renamed = self.worker(layout=layout)["work_root"]["leftovers"]
+        self.assertEqual([(item["path"], item["state"]) for item in renamed],
+                         [(".wavefoundry/work/abc12", "closed")])
+        # Known-bad control: the unrenamed layout cannot see these records.
+        shipped = self.worker()["work_root"]["leftovers"]
+        self.assertEqual({item["state"] for item in shipped}, {"not_found_in_checkout"})
+
+    def test_older_worker_or_inventory_failure_degrades_to_not_reported(self):
+        self.assertEqual(self.mod._report_fields({})["work_root_state"], "not_reported")
+        import wave_work
+        with patch.object(wave_work, "inventory_work_root", side_effect=RuntimeError("boom")):
+            result = self.mod._run_work_root_inventory(self.root)
+        self.assertFalse(result["reported"])
+        self.assertEqual(result["reason"], "inventory_RuntimeError")
+        with patch.dict(sys.modules, {"wave_work": types.SimpleNamespace()}):
+            self.assertEqual(self.mod._run_work_root_inventory(self.root)["reason"], "older_modules")
+
+
 class DelegatedSummaryContractTests(unittest.TestCase):
     """Wave 1u44o requirement 5: PERMANENT contract test.
 
@@ -12098,6 +12175,21 @@ class JournalMigrationTests(_JournalMigrationFixture, unittest.TestCase):
     demanding all template fields; role journals with wave-id REFERENCES being
     mis-relocated before the filename check).
     """
+
+    def test_pristine_oracle_bytes_are_frozen(self):
+        # The oracle must equal what the retired scaffold writer produced, so
+        # its text is never reworded with the rest of the framework. Every
+        # other test here builds its journal from the same function and cannot
+        # see a change to it; this pin and the literal line below can.
+        scaffold = self.ext._pristine_journal_template("1zaac s", "s", "2026-01-05")
+        self.assertEqual(
+            hashlib.sha256(scaffold.encode("utf-8")).hexdigest(),
+            "092d2c4eba8f6d9ab1fe68c48c0853f01d1ed5038720349560b82c9d0aa53df4",
+        )
+        self.assertIn(
+            "Preserve the change-doc contracts admitted at prepare time; surface drift ",
+            scaffold,
+        )
 
     def test_pristine_scaffold_is_deleted(self):
         self._write_pristine("1aaaa demo-wave", "demo-wave", "2026-01-05")

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-10
+Last verified: 2026-11-18
 
 Wavefoundry reports **Estimated context avoided** while its tools support a wave.
 The source component uses whole eligible file sizes as a baseline, converted with
@@ -32,7 +32,7 @@ estimated context avoided =
 Derived artifact credit uses the UTF-8/4 size of textual
 artifacts a tool persisted that the caller did not supply (canonical review
 ledger records and their projections, drafted memory records, generated
-change-doc scaffolds, and the platform surfaces a sync render actually
+spec scaffolds, and the platform surfaces a sync render actually
 changed — its manifest records new-or-changed content from inside the write
 chokepoints, so a byte-identical re-render credits nothing), floored per
 artifact after subtracting the caller-supplied request. It is a deterministic byte count of a real persisted
@@ -48,7 +48,7 @@ Artifact tools may additionally carry content source credit for the state
 files they demonstrably READ on the caller's behalf — the evidence tool
 consumes the canonical ledger and the wave record to validate, order, and
 re-project; the memory validator reads the candidate record; the proposer
-reads its source change docs; the change lookup returns the documents it
+reads its source specs; the change lookup returns the documents it
 read, so it credits exactly the docs whose content its response conveys
 (untruncated rows only). These ride the same source-proof machinery as
 retrieval credit (opaque identifiers, stat-signature versions, once-only per
@@ -223,7 +223,7 @@ recorded `Gapfill:` entry anywhere in the wave record clears it.
 
 That footprint is **bounded to the wave**, not to the whole working tree: it
 counts only changed files matching the `## Serialization Points` declared by
-the wave's admitted change docs, so unrelated working-tree dirt cannot become
+the wave's admitted specs, so unrelated working-tree dirt cannot become
 evidence about this wave. The consequence is that a wave whose admitted changes
 declare no targets has no trustworthy file-count signal, and the sensor stays
 **silent** rather than guessing: it never fires, in either direction. Declaring

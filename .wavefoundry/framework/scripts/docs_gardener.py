@@ -192,12 +192,146 @@ def _outside_archive(root: Path, paths: list[Path]) -> list[Path]:
     return kept
 
 
-def resolve_metadata_targets(root: Path, args: argparse.Namespace) -> list[Path]:
+def _modification_time(path: Path) -> float:
+    return path.stat().st_mtime
+
+
+def _without_date_line(data: bytes) -> str:
+    # Compare as the checkout sees it: CRLF and LF are the same content, so a
+    # core.autocrlf=true working copy matches its LF blob.
+    text = data.replace(b"\r\n", b"\n").decode("utf-8", errors="surrogateescape")
+    return LAST_VERIFIED_PATTERN.sub(r"\g<1>", text, count=1)
+
+
+# One timeout for the whole batched HEAD read (change 23qo8). With the 120
+# second ``git diff`` before it, the run stays inside the callers' 180 second
+# gardener limit.
+HEAD_READ_TIMEOUT_SECONDS = 45
+_BATCH_OBJECT_HEADER = re.compile(rb"(?:[0-9a-f]{40}|[0-9a-f]{64}) ([a-z]+) ([0-9]+)")
+_BATCH_SUBMODULE_REPLY = re.compile(rb"(?:[0-9a-f]{40}|[0-9a-f]{64}) submodule")
+
+
+def _read_head_versions(root: Path, paths: list[Path]) -> dict[Path, bytes]:
+    """The ``HEAD`` bytes of each document in ``paths`` that Git returned,
+    read with one ``git cat-file --batch`` call (change 23qo8).
+
+    A document absent from the result has no usable ``HEAD`` version and
+    counts as differing. That covers a name holding a line feed, carriage
+    return or NUL (never sent), a ``missing``, ``ambiguous`` or ``submodule``
+    reply and a non-blob object. Any framing violation leaves that document
+    and every later one unread; a start failure, a timeout, a non-zero exit
+    or bytes after the last reply leave every document unread. Input and
+    output stay bytes so each reply's size frames it exactly. Nothing from
+    Git's output is reported."""
+    sent: list[tuple[Path, bytes]] = []
+    for path in paths:
+        try:
+            name = b"HEAD:./" + os.fsencode(path.relative_to(root).as_posix())
+        except (ValueError, UnicodeError):
+            continue
+        if b"\n" in name or b"\r" in name or b"\0" in name:
+            continue
+        sent.append((path, name))
+    if not sent:
+        return {}
+    try:
+        proc = _run_tree_kill(
+            ["git", "-C", str(root), "cat-file", "--batch"],
+            input=b"".join(name + b"\n" for _, name in sent),
+            capture_output=True,
+            timeout=HEAD_READ_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except Exception:  # never raise because of the read; nothing is stamped less
+        return {}
+    data = proc.stdout
+    if proc.returncode != 0 or not isinstance(data, bytes):
+        return {}
+    versions: dict[Path, bytes] = {}
+    # Git writes unpadded decimal sizes. No object in this reply can need
+    # more digits than the entire reply's byte length.
+    max_size_digits = len(str(len(data)))
+    pos = 0
+    for path, name in sent:
+        end = data.find(b"\n", pos)
+        if end < 0:
+            return versions
+        header = data[pos:end]
+        if header in (name + b" missing", name + b" ambiguous") or _BATCH_SUBMODULE_REPLY.fullmatch(header):
+            pos = end + 1
+            continue
+        match = _BATCH_OBJECT_HEADER.fullmatch(header)
+        if match is None or match.end(2) - match.start(2) > max_size_digits:
+            return versions
+        start = end + 1
+        stop = start + int(match.group(2))
+        if data[stop:stop + 1] != b"\n":
+            return versions
+        if match.group(1) == b"blob":
+            versions[path] = data[start:stop]
+        pos = stop + 1
+    if pos != len(data):
+        return {}
+    return versions
+
+
+def _differs_from_head_outside_date_line(path: Path, head: bytes | None) -> bool:
+    """True unless the document matches ``head``, its committed version, apart
+    from the ``Last verified`` line. A version that was not obtained (``None``)
+    or a working file that cannot be read counts as differing, so a failure
+    never suppresses a stamp."""
+    if head is None:
+        return True
+    try:
+        return _without_date_line(head) != _without_date_line(path.read_bytes())
+    except OSError:
+        return True
+
+
+def _changed_since_stamp(path: Path, run_date: str) -> bool:
+    """True when the document's modification date is later than its stamp,
+    its stamp is later than the run's date, or either cannot be read."""
+    try:
+        with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
+            match = LAST_VERIFIED_PATTERN.search(handle.read())
+    except OSError:
+        return True
+    if match is None:
+        return True  # nothing to stamp; refresh_last_verified leaves it alone
+    try:
+        stamp = date.fromisoformat(match.group(2))
+    except ValueError:
+        return True
+    try:
+        if stamp > date.fromisoformat(run_date):
+            return True
+    except ValueError:
+        return True
+    try:
+        modified = date.fromtimestamp(_modification_time(path))
+    except (OSError, OverflowError, ValueError):
+        return True
+    return modified > stamp
+
+
+def resolve_metadata_targets(root: Path, args: argparse.Namespace,
+                             run_date: str | None = None) -> list[Path]:
     if args.all_docs:
         return _outside_archive(root, sorted(iter_markdown_docs(root)))
     if args.paths:
         return _outside_archive(root, resolve_path_args(root, args.paths))
-    return _outside_archive(root, collect_changed_markdown_paths(root))
+    # Default mode (change 23qfz): stamp a Git-changed document only when it
+    # changed since its stamp and differs from HEAD outside the date line, so
+    # an uncommitted document is not re-dated on every later day.
+    if run_date is None:
+        run_date = date.today().isoformat()
+    candidates = [
+        path
+        for path in _outside_archive(root, collect_changed_markdown_paths(root))
+        if _changed_since_stamp(path, run_date)
+    ]
+    heads = _read_head_versions(root, candidates)
+    return [path for path in candidates if _differs_from_head_outside_date_line(path, heads.get(path))]
 
 
 def refresh_last_verified(path: Path, date_value: str) -> bool:
@@ -351,7 +485,7 @@ def gardener_run(root: Path, args: argparse.Namespace) -> tuple[int, list[str]]:
     updated_paths: list[str] = []
     stamped_paths: list[str] = []
 
-    targets = resolve_metadata_targets(root, args)
+    targets = resolve_metadata_targets(root, args, date_value)
     for path in targets:
         if refresh_last_verified(path, date_value):
             rel = path.relative_to(root).as_posix()  # Wave 1p6dx: forward-slash rels in output

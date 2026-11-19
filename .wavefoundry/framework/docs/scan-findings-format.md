@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-11-18
 
 The canonical schema for **`docs/scan-findings.json`** — the committed ledger the
 hardcoded-secrets scanner uses to record, classify, and gate every match. It is
@@ -82,7 +82,7 @@ matching `^[0-9a-z]{5}-sec$` (e.g. `1p8l0-sec`). The `<prefix>` is the same
 5-character (6 after the distant overflow horizon) base36 lifecycle prefix family used by waves, changes, and ADRs (see
 `lifecycle_id.py`), with a `sec` suffix.
 
-- **No slug.** Unlike change-doc ids (`<prefix>-<kind> <slug>`), a scanner finding
+- **No slug.** Unlike change ids (`<prefix>-<kind> <slug>`), a scanner finding
   id carries **no generated slug**. Finding context lives in the structured record
   fields (`file`, `line`, `rule_id`, `line_hash`, `context_hash`, `matched_text`),
   so a slug would only duplicate already-structured data and add avoidable
@@ -90,7 +90,7 @@ matching `^[0-9a-z]{5}-sec$` (e.g. `1p8l0-sec`). The `<prefix>` is the same
 - **Collision-safe.** New ids dedupe against existing lifecycle
   prefixes (plans, waves, ADRs) **and** against existing ids in this file,
   including multiple findings minted during the same scan.
-- **`sec` is scanner-scoped.** `sec` is **not** a public change-doc kind — it never
+- **`sec` is scanner-scoped.** `sec` is **not** a public change kind — it never
   appears in `wf_new_*` kind lists, `VALID_CHANGE_KINDS`, or plan/wave
   scaffolding. It is owned by the scanner and the lifecycle library only.
 - **Distinct from reviewer-lane finding ids.** Security-reviewer lane findings use

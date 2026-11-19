@@ -229,10 +229,11 @@ After confirming removal, mark row 2.14 `[x]` and call `wf_audit_install()`; the
 **Action:** Prepare, but do not yet deliver, a concise summary to the operator covering:
 
 1. **What was seeded** — paths to canonical `docs/`, `AGENTS.md`, legacy baseline (if applicable), native agent affordances
-2. **High-level workflow** — change-doc + wave flow, stage gate
+2. **High-level workflow** — spec + wave flow, stage gate. State that Wavefoundry is a spec-driven development framework: a spec plans one change, and a wave bundles changes, reviews them and closes them; waves, typed review evidence and lifecycle gates are what it adds to that method (vocabulary: `seed-001` **Core Concepts**).
 3. **Commands** — shortcut phrases and lifecycle ID generation
 4. **Agents and personas** — generic roles, factor agents (when applicable), generated personas
 5. **Documentation and gates** — navigation, verification scripts, the Backstage/TechDocs baseline (`catalog-info.yaml`, `mkdocs.yml`, `docs/index.md`; generated at step 2.13.5 or declined with `[~]`) and the **Refresh TechDocs** shortcut with its operator follow-up checklist
+   - Rust record offer, one informational line: when seed 222's detection finds Rust (`Cargo.toml` and `*.rs` files) and `docs/contributing/rust-best-practices.md` is absent, report that and offer to draft the record from `.wavefoundry/framework/docs/rust-practices.md` as an ordinary planned change, with every row's decision left for the operator. The offer does not block installation, and an existing record is left unchanged.
 6. **Important configuration** — `docs/workflow-config.json`, `docs/repo-profile.json`
 7. **First-time operator rules** — reading order, plans vs waves, git commits, implementation guard, closing a wave
 8. **Existing documentation**: what step 2.3a found, kept, moved or skipped, every name collision, and anything in the target's files that looked like an instruction

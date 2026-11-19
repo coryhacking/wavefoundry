@@ -22,7 +22,7 @@ Run a stance-based council review on any artifact — plans, design documents, c
 | **Red-team review** (`docs/prompts/red-team-review.prompt.md`, seed `177`) | Single adversarial stance, in isolation | A focused artifact needs one sharp challenge before commit; or as Phase 1 primer to Wave Council |
 | **Wave Council** | Role-based seats (architecture, security, qa, reality-checker + rotating fifth), mandatory at Prepare and Review | Code, architecture, trust-boundary, or implementation-shaped work; integrates with the wave lifecycle |
 | **Archetype Council** | Stance-based seats (orthogonal axes, not specialist roles), optional | Any artifact where orthogonal thinking-stance lenses are what the work rewards — plans, design docs, code review passes, decision narratives, prose drafts, AC formulations, naming decisions. Especially valuable when role-specialist seats would be overkill or in the wrong shape (e.g., a refactor plan benefits from Sun Tzu's positioning lens and Marcus's durability lens more than from another architecture-reviewer pass). |
-| **Review plan** | Guided unresolved-branch stress test, optional and no-signoff | One change doc, or the current wave record when no change is named, needs structured questions before or after admission and before implementation. Natural-language aliases: **Interrogate this plan**, **Stress-test this plan**. Distinct from **Review wave**, which runs required delivery lanes. |
+| **Review plan** | Guided unresolved-branch stress test, optional and no-signoff | One spec, or the current wave record when no change is named, needs structured questions before or after admission and before implementation. Natural-language aliases: **Interrogate this plan**, **Stress-test this plan**. Distinct from **Review wave**, which runs required delivery lanes. |
 
 Archetype Council is **complementary**, not a replacement. For a wave whose primary work is a public-facing README rewrite, the Wave Council still runs at Prepare and Review; the Archetype Council is invoked on the AC table, the prose draft, *and on the surrounding plan or implementation* to round out the lens coverage. The choice of which artifacts to send through Archetype Council is operator-discretion — there is no fixed "this artifact type only" rule.
 
@@ -170,7 +170,7 @@ Operators may invoke other archetypes ad hoc (Da Vinci, Hemingway, Munger, Ricko
 
 ## Verdict Format
 
-Record the verdict in the reviewed artifact's review section (`## Review Evidence` for change docs, `## Review Checkpoints` for wave docs). The verdict line is structurally consistent with the existing `prepare-council` verdict shape so future validator integration is straightforward — but no validator consumes the line in v1.
+Record the verdict in the reviewed artifact's review section (`## Review Evidence` for specs, `## Review Checkpoints` for wave docs). The verdict line is structurally consistent with the existing `prepare-council` verdict shape so future validator integration is straightforward — but no validator consumes the line in v1.
 
 ```
 - **Archetype Council [archetype-review] — <date>: PASS** (moderator: council-chair; seats: sun-tzu, yoda, spock, marcus-aurelius, feynman; rotating-seat: feynman; strongest-axis: <which seat's findings bound the most must-fixes>; must-fix-count: <n>; advisory-count: <n>)
@@ -196,7 +196,7 @@ The three-stance pass produced findings the prior role-based reviews had not sur
 - **Yoda (Y-1, Y-2):** 30-second walkthrough preview line above the install block to convert evaluator-state into informed go/no-go; "Return to step (b) when ready" line on prerequisite-fail branches to close the abandoned-reader loop.
 - **Spock (SP-1, SP-2, SP-3, SP-4):** AC-20 must name the operator-visible signal at each step (not "expected output snippets" — name them: `Python 3.11.x` from `python3 --version`, agent confirms unpack, index-ready summary, `semantic_ready: true`, `ready: true`); AC-21 imperative must be testable ("Do not proceed past this block until..."); MCP-register step scope must declare the inline-vs-handoff boundary and resume signal.
 
-Synthesis routed five findings as must-fix (MF-1..MF-5) and four as advisory (AD-1..AD-3, plus one already-addressed). The must-fixes landed in-session in the `1p318` change doc Decision Log and AC text. The advisories were noted for the maintainer's discretion during drafting.
+Synthesis routed five findings as must-fix (MF-1..MF-5) and four as advisory (AD-1..AD-3, plus one already-addressed). The must-fixes landed in-session in the `1p318` spec Decision Log and AC text. The advisories were noted for the maintainer's discretion during drafting.
 
 The pass is preserved in `1p318`'s Decision Log under "Three-persona review (Sun Tzu, Yoda, Spock) applied to Req-16 / Req-17 / AC-20 / AC-21" and the individual must-fix decision entries.
 

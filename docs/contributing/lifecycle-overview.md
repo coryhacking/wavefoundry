@@ -2,25 +2,25 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-08
+Last verified: 2026-11-18
 
 Adapted from `.wavefoundry/framework/seeds/001-framework-lifecycle-overview.md` for Wavefoundry's specific reviewer roles, personas, and artifact paths.
 
 ## Overview
 
-The Wave Framework lifecycle is the delivery model for non-trivial work in Wavefoundry. A **wave** is the coordination unit: it admits one or more **changes** (consolidated change docs), enforces reviewer lanes, and closes with a documented record of what was done, what was deferred, and what was learned.
+The Wave Framework lifecycle is the delivery model for non-trivial work in Wavefoundry. A **wave** is the coordination unit: it admits one or more **changes** (consolidated specs), enforces reviewer lanes, and closes with a documented record of what was done, what was deferred, and what was learned.
 
 ## Typical Delivery Sequence
 
 ```
-Plan change
-  → author change doc at docs/plans/<change-id>.md
+Plan spec
+  → author spec at docs/plans/<change-id>.md
 
 Create wave
   → create docs/waves/<wave-id>/wave.md
   → wave-coordinator manages admission and execution
 
-Add change to wave
+Add spec to wave
   → admit change into wave; relocate doc to docs/waves/<wave-id>/
 
 Prepare wave (stage gate — required before implementation)
@@ -28,7 +28,7 @@ Prepare wave (stage gate — required before implementation)
   → when enabled, run Wave Council readiness pass and record `council-readiness`
   → required reviewers confirmed; product-owner acknowledgment if product-impacting
 
-Implement wave / Implement change
+Implement wave / Implement spec
   → implementer executes and verifies computationally
   → Review wave runs required inferential lanes
   → blocking findings return wave to implementation through the delivery repair loop
@@ -39,7 +39,7 @@ Review wave
   → when enabled, run Wave Council delivery pass and record `council-delivery`
   → AC scope gap check; AC priority reconciliation against shipped behavior
 
-Close change (per change, optional)
+Close spec (per change, optional)
   → wf_close_change marks one reviewed change complete and activates its dependents
 
 Close wave (the only wave close)
@@ -57,12 +57,12 @@ Close wave (the only wave close)
 | Framework script change | code-reviewer, qa-reviewer |
 | MCP tool contract change | architecture-reviewer, docs-contract-reviewer |
 | Packaging / build change | code-reviewer, release-reviewer |
-| Self-hosted docs change | docs-contract-reviewer (if behavioral specs changed) |
+| Self-hosted docs change | docs-contract-reviewer (if behavior contracts changed) |
 
 ## Persona Agents
 
-- **framework-operator** — invoked during spec authoring, MCP tool design review, and acceptance of install/upgrade behavior changes
-- **wave-coordinator** — invoked during spec authoring for wave lifecycle behavior changes
+- **framework-operator** — invoked during behavior-contract authoring, MCP tool design review, and acceptance of install/upgrade behavior changes
+- **wave-coordinator** — invoked during behavior-contract authoring for wave lifecycle behavior changes
 
 ## Wave Council
 
@@ -88,7 +88,7 @@ Use **Pause wave** to park session state in `docs/agents/session-handoff.md` and
 
 Generate with the MCP `wave_new_<kind>` / `wf_create_wave` tools (preferred — they dedupe against on-disk IDs). CLI fallback when MCP is unavailable: `wf lifecycle-id --kind <kind> --slug <slug>`
 
-Kind options: `wave`, `bug`, `enh`, `change`, `doc`, `debt`, `ref`, `task`, `maint`, `ops`. The `feat` kind is retired for new change docs (`--kind feat` exits 2 and names `enh`) and stays valid for existing ids.
+Kind options: `wave`, `bug`, `enh`, `change`, `doc`, `debt`, `ref`, `task`, `maint`, `ops`. The `feat` kind is retired for new changes (`--kind feat` exits 2 and names `enh`) and stays valid for existing ids.
 
 See `docs/workflow-config.json` `lifecycle_id_policy` for epoch details.
 

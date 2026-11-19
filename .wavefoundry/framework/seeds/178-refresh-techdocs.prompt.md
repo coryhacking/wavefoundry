@@ -45,7 +45,7 @@ The `technical-writer` specialist coordinates this step (its role doc: precision
 | `software-architect` or `architecture-reviewer` | The current-state and boundary narrative; verification of every dogfood edit under `docs/architecture/` | The writer restates only what `docs/ARCHITECTURE.md` and its children already state, with citations |
 | `security-reviewer` | The security posture summary, sourced from `docs/SECURITY.md` and the threat model when present; never inventing controls | Omit the posture section rather than guessing; say so |
 | `qa-reviewer` or `reality-checker` | Verification of every claim that names behavior | The writer verifies against the tree and marks each claim as writer-verified |
-| `docs-contract-reviewer` (existing-only per seed 100) | Signoff that the pages match the code and the specs, including the audience invariant below | `qa-reviewer` or the writer performs and names the docs-contract check |
+| `docs-contract-reviewer` (existing-only per seed 100) | Signoff that the pages match the code and the behavior contracts, including the audience invariant below | `qa-reviewer` or the writer performs and names the docs-contract check |
 
 The writer then authors or refreshes the published pages: `docs/index.md` (landing narrative), `docs/references/project-overview.md`, `docs/ARCHITECTURE.md` and its `docs/architecture/*` children, `docs/references/*`. Rules:
 

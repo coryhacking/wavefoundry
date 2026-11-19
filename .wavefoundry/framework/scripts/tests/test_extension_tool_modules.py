@@ -4190,7 +4190,7 @@ class ExtensionLifecycleToolTests(unittest.TestCase):
         stock_locked = sorted(n for n, labels in self.stock["markers"].items() if "lock" in labels)
         self.assertEqual(self.out["lock_tools"], self.out["lock_tools_after"])
         self.assertNotIn("acme_record", self.out["lock_tools_after"])
-        self.assertEqual(len(self.out["lock_tools_after"]), 12)  # wave 1zlu1 added wf_close_change
+        self.assertEqual(len(self.out["lock_tools_after"]), 13)  # wave 1zlu1 added wf_close_change; 23q0s wf_cleanup_work
         self.assertTrue(set(stock_locked) <= set(self.out["lock_tools_after"]))
         self.assertNotIn("acme_make", self.out["artifact_extractors_after"])
         self.assertEqual(self.out["artifact_extractors"], self.out["artifact_extractors_after"])
@@ -4486,6 +4486,9 @@ NON_BEHAVIOR_COLLECTIONS = {
     # (wave 1zlu1, F3); it reserves no name and keys no served behaviour.
     ("wf_server/server_impl.py", "_OVERRIDE_OMITTABLE_CORE_PARAMETERS"),
     ("upgrade_extensions.py", "_CONFIG_KEY_RENAMES"),
+    # The explicit cleanup tool's name, used only to word the retained-work
+    # next action when the roster lists it (change 23q0s); keys no behaviour.
+    ("wave_work.py", "CLEANUP_TOOL"),
     ("wave_lint_lib/constants.py", "WORKFLOW_REQUIRED_KEYS"),
 }
 # Built from a classified collection, so they hold the same names: each maps to

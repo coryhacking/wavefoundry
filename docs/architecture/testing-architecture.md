@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-10
+Last verified: 2026-11-18
 
 ## Tensorwell qualification
 
@@ -84,7 +84,7 @@ Production scanner scope, rules, input guards, and qualification settings are un
 | TechDocs external publication oracle (wave 1vry5) | Version-pinned MkDocs/pathspec publication differential, escaped-separator classification table, and finite before/after matcher-cost corpus. This is a permanent source-repository harness, not a runtime dependency or ordinary unit test | `.wavefoundry/framework/scripts/tests/oracle/techdocs_boundary_differential.py`; wave-scoped retained JSON artifact | Disposable scratch venv with `mkdocs==1.6.1` and `pathspec==1.1.1`; exact command in the harness docstring |
 | Independent-reference review contract (waves 1shv4/1sq4a) | Contract and distribution tests pin the bounded independent-reference rule, code/QA carrier wording, proof ceiling, and install/upgrade propagation. They prove the rule is delivered and internally coherent—not that an agent adhered to it during a review | `test_render_agent_surfaces.py`, `test_setup_wavefoundry.py`, `test_upgrade_wavefoundry.py`, existing `test_review_evidence.py` independence checks | Same runner |
 | Build-epoch fault injection (wave 1sed7) | The SQLite-only state contract: epoch state-machine/CAS unit tests (`BuildEpochTests`), structured no-fallback failure injection at every mandatory boundary + a fresh-process kill between fence and finalize (`EpochOrderingAndFaultTests`), legacy meta.json convergence-by-reconstruction (`LegacyConvergenceTests`), and the reader seqlock at the MCP tool boundary — mid-search epoch mutation discards results (`EpochSeqlockConcurrencyTests`) | `test_index_state_store.py`, `test_indexer.py`, `test_server_tools_lifecycle.py` | Same runner |
-| Review-protocol propagation and state (waves 1skt1/1slep/1stwj/1tomw/1to78) | Typed carrier-registry census plus public-path integration through fresh setup, packaged install, real full-upgrade extraction, direct `wf render-surfaces`, and self-host reconciliation. Fixtures pin receipt-delta attribution, delivery currency across receipt rotation, temporary-evidence advisories, compact authoring, direct canonical `events.jsonl` parsing (the sole machine authority; no receipt or hash sidecar), required judgment refusal, lane-scoped approval chronology, generated-Markdown non-authority, empty-run provenance, serialized append/replay/fault recovery, public MCP registration/schema, missing-carrier creation, Guru-absent execution, idempotency, malformed-ledger fail-closed behavior, initial-delivery close gating, multi-finding repair cycles, progressive multi-lane reverification, legacy batch-run compatibility, aggregate convergence timing, and fixed-role semantic-index exclusion. The crash matrix at the ledger's atomic-replace seam is two-tier: exception-injection cuts at the named boundaries remain as fast equivalents, and true-termination cuts kill a spawned child process (venv python) via `os._exit` at each named boundary (before the ledger replace; after the replace, before projection), with the parent asserting the surviving on-disk state, canonical parseability, and exact-replay convergence; a shipped torn-write known-bad control proves those oracles can fail. A rollback-boundary negative control restores a complete older but internally valid ledger and proves local structural validation accepts it (the documented boundary; Git/backups are the optional history authority) while corruption, partial writes, invalid relationships, and declared-missing authority remain rejected. A role-aware live-surface deletion census fails when shipped code, current seeds/carriers, install/upgrade/package assets, or current architecture/spec docs retain the removed adoption sidecar names, adoption-only symbols, deleted inline-ledger machinery, or prose-evidence helpers outside their bounded roles (the authority facade module is the one legitimate home for the prose helpers); the census is test-inclusive, covering `.wavefoundry/framework/scripts/tests/` with per-file allowances for named negative-assertion and probe sites, every allowance load-bearing (an allowance whose file is gone or no longer carries the token fails the census); archived closed-wave records are excluded. Setup/upgrade/package tests place byte sentinels in historical target waves and prove those paths install source/carriers without scanning or mutating wave history; subsequent public creation is external-ledger-only | `test_review_evidence.py`, `test_events_only_residue_census.py`, `test_render_agent_surfaces.py`, `test_server_tools_lifecycle.py`, `test_indexer.py`, build-pack/setup/upgrade/render integration tests | Same runner |
+| Review-protocol propagation and state (waves 1skt1/1slep/1stwj/1tomw/1to78) | Typed carrier-registry census plus public-path integration through fresh setup, packaged install, real full-upgrade extraction, direct `wf render-surfaces`, and self-host reconciliation. Fixtures pin receipt-delta attribution, delivery currency across receipt rotation, temporary-evidence advisories, compact authoring, direct canonical `events.jsonl` parsing (the sole machine authority; no receipt or hash sidecar), required judgment refusal, lane-scoped approval chronology, generated-Markdown non-authority, empty-run provenance, serialized append/replay/fault recovery, public MCP registration/schema, missing-carrier creation, Guru-absent execution, idempotency, malformed-ledger fail-closed behavior, initial-delivery close gating, multi-finding repair cycles, progressive multi-lane reverification, legacy batch-run compatibility, aggregate convergence timing, and fixed-role semantic-index exclusion. The crash matrix at the ledger's atomic-replace seam is two-tier: exception-injection cuts at the named boundaries remain as fast equivalents, and true-termination cuts kill a spawned child process (venv python) via `os._exit` at each named boundary (before the ledger replace; after the replace, before projection), with the parent asserting the surviving on-disk state, canonical parseability, and exact-replay convergence; a shipped torn-write known-bad control proves those oracles can fail. A rollback-boundary negative control restores a complete older but internally valid ledger and proves local structural validation accepts it (the documented boundary; Git/backups are the optional history authority) while corruption, partial writes, invalid relationships, and declared-missing authority remain rejected. A role-aware live-surface deletion census fails when shipped code, current seeds/carriers, install/upgrade/package assets, or current architecture/behavior contract docs retain the removed adoption sidecar names, adoption-only symbols, deleted inline-ledger machinery, or prose-evidence helpers outside their bounded roles (the authority facade module is the one legitimate home for the prose helpers); the census is test-inclusive, covering `.wavefoundry/framework/scripts/tests/` with per-file allowances for named negative-assertion and probe sites, every allowance load-bearing (an allowance whose file is gone or no longer carries the token fails the census); archived closed-wave records are excluded. Setup/upgrade/package tests place byte sentinels in historical target waves and prove those paths install source/carriers without scanning or mutating wave history; subsequent public creation is external-ledger-only | `test_review_evidence.py`, `test_events_only_residue_census.py`, `test_render_agent_surfaces.py`, `test_server_tools_lifecycle.py`, `test_indexer.py`, build-pack/setup/upgrade/render integration tests | Same runner |
 | Context-efficiency telemetry (wave 1stwj) | Closed-ledger arithmetic for 18 retrieval and five lifecycle tools; exact structural-path census; phase/source/version and event uniqueness across real processes; general attribution; store-identity-loss freeze; accounting-gap poisoning; paired-evaluation quality gate/attachment; lifecycle/reload/upgrade projection; install/package/upgrade non-mutation | `test_context_efficiency.py`, `test_server_context_efficiency.py`, the `test_server_tools*` shards, render/setup/package/upgrade integration tests | Same runner |
 | Memory supply and exploration-estimate integrity (waves 1stwm/1sxj7) | Real compact review-event repair chains, admitted-change Decision Logs, escaped pipes, implementation-only anchors, Unicode/evidence identity, concurrent add/propose idempotency, SQLite event replay and origin budgets, exact-match passive/explicit surfaces, current source-cost authority, lazy schema extension, and lifecycle/reload/upgrade projection | `test_memory_records.py`, `test_context_efficiency.py` | Same runner |
 | Commit provenance integrity (waves 1sufq/1sxj7) | Canonical local commit identity, anchored landing grammar, explicit metadata authority, mixed blame coverage, conflict propagation, file-relevance labeling, exact public input union, and read-only/traversal controls | `test_commit_provenance.py`, `test_server_context_efficiency.py` | Same runner |
@@ -201,6 +201,23 @@ in-memory observations of the current checkout, not copied qualification
 checkouts. A complete default run additionally captures bounded reconciliation
 evidence as described below; ordinary guard semantics remain unchanged.
 
+Change 23nqu narrows what the end-of-run comparison refuses. A changed path
+under `docs/` is tolerated: it is listed under `FILES CHANGED DURING THE TEST
+RUN AND TOLERATED` and recorded in the receipt's informational
+`tolerated_changes` field. These still refuse: the framework tree, the edit-gate
+file, the folder of any wave whose record status was open in the start snapshot
+(other than the bookkeeping below), the five policy files
+(`docs/workflow-config.json`, `docs/repo-profile.json`, `docs/contributors.json`,
+`docs/scan-rules.toml`, `docs/reconcile-dispositions.json`) and any path outside
+`docs/`. Open status is read from the record bytes captured in the start
+snapshot, through the layout and vocabulary owners, so a wave opened during the
+run is not in the set. The snapshot carries an explicit flag that both the
+record layout and the wave record matcher were read; without it, or when a
+record in the start snapshot has no captured bytes (absent, linked or not a
+regular file) or an unparseable status, nothing is tolerated. Tolerance is
+applied only to the refusal message and exit status: a refused run's recovery
+evidence keeps the comparison's full change list.
+
 Existing canonical wave/change carriers and declared sibling ledgers are
 recognized through the layout/profile owners. Under the existing publication
 lock, the runner takes a short consistent observation of related bytes; it
@@ -209,12 +226,14 @@ failure is reported. Both ledger endpoints must parse and validate, old bytes
 must remain an exact prefix, and no new policy receipt is tolerated. Generated
 review views must match their endpoint's canonical renderer. The authored
 remainder uses `gardener_metadata.canonical_review_policy_body`: ordinary
-status/date/completion and the canonical Progress Log may change, while AC
-labels, `[~]`, substantive handoff prose and plan meaning remain material.
+status/date/completion and deferral marks, a criterion's canonical
+`*Status: ...*` note and the canonical Progress Log may change, while AC
+labels, substantive handoff prose and plan meaning remain material.
 Existing context-efficiency projection normalization remains. A new, deleted,
 linked, malformed or uncertain carrier, a forged view or rewritten ledger
-cannot obtain the bookkeeping exemption. The standalone session handoff has
-no filename exemption; update it outside the run.
+cannot obtain the bookkeeping exemption. The standalone session handoff gets
+no filename exemption either; it is tolerated, with any other document under
+`docs/` outside the waves open at the start, and may be updated during a run.
 
 `test_worker_guard.py` installs an audit hook before test imports in ordinary
 and optional-report workers. An inherited source-only
@@ -225,9 +244,12 @@ working directory. The shim compiles the guard source directly, bypassing adjace
 guard bytecode; this does not authenticate source or other imports. Fork inherits
 the hook. Guard source-load and installation failures are fatal. Protected carrier writes through audited opens, replacement,
 deletion and relevant link/directory operations are refused, including
-supported relative, symlink-alias and descriptor-relative paths. Nested
-runners retain outer protected roots; unrelated scratch fixtures stay
-writable. Canonical publication also checks the inherited marker before
+supported relative, symlink-alias and descriptor-relative paths. The
+protected roots are the configured waves and plans roots and, since change
+23nqu, the whole `docs/` directory of the repository under test, so a Python
+write there fails at the write. Creating an already existing directory stays
+allowed. Nested runners retain outer protected roots; unrelated scratch
+fixtures stay writable. Canonical publication also checks the inherited marker before
 mutating a protected root, including descendants launched without site
 initialization. Expected guard refusals and malformed-marker errors are translated
 to the normal publication-unavailable result before any lock or write. The helper ships as a declared dependency of `review_evidence`;
@@ -237,7 +259,10 @@ install no hook and change no cache policy.
 This is an accidental-write guard, not writer authentication or hostile-code
 isolation. Isolated/site-disabled Python, a cleared bootstrap environment,
 native or ctypes writes, shell programs and pre-opened descriptors are not
-universally intercepted. Unclassified resulting changes still fail; a bypass
+universally intercepted. Unclassified resulting changes still fail when they
+land outside `docs/`, in a wave open at the start of the run or in a policy
+file; such a bypass writing elsewhere under `docs/` is tolerated and listed
+rather than refused, which is the detection change 23nqu gives up. A bypass
 that produces exactly valid exempt bookkeeping can be indistinguishable from
 an external coordinator. The environment marker does not prove identity.
 The Git listing retains its 60-second process-tree deadline; absent Git or a
@@ -281,7 +306,7 @@ proof in the wave's `verify_shards.py` evidence).
 
 The actor census reads the explicit framework-relative inventory at `tests/fixtures/framework-text-ownership.json`, including zero-hit production files, framework tests/fixtures and the inventory itself. The loader accepts valid unique paths in any input order and returns a sorted tuple; duplicate, escaping, absolute and non-string paths still refuse. Ordinary test runs never add files found in a downstream checkout; an absent owned file, unexpected owned occurrence or stale occurrence allowance fails. Maintainers update/check ownership from the upstream tracked tree with `python3 -B .wavefoundry/framework/scripts/tests/framework_text_ownership.py --update` or `--check`. Stage new owned files first, or supply each new path with `--include <framework-relative-path>` to both commands. A zero-hit owned omission is detected by that explicit tracked-set comparison.
 
-Reconcile expectations use literal canonical keys. The hook-contract test reads the shipped journal seed rather than a checkout-owned spec. Council digest tests derive earlier spellings from the legacy table and built-in actor but encode the tiny historical payload through an independent test-local frozen reference (explicit schema/evaluator/fields/body hash, JSON and hashlib); shipped-default and no-phases goldens cross-check it. Renamed trees keep the historical assertion without a profile skip. Neutral parcel/task examples stage real prior slug ownership to retain two-stage prompt reuse, collision, rollback, retry and first-render coverage.
+Reconcile expectations use literal canonical keys. The hook-contract test reads the shipped journal seed rather than a checkout-owned behavior contract. Council digest tests derive earlier spellings from the legacy table and built-in actor but encode the tiny historical payload through an independent test-local frozen reference (explicit schema/evaluator/fields/body hash, JSON and hashlib); shipped-default and no-phases goldens cross-check it. Renamed trees keep the historical assertion without a profile skip. Neutral parcel/task examples stage real prior slug ownership to retain two-stage prompt reuse, collision, rollback, retry and first-render coverage.
 
 `test_legacy_council_actors` loads copied declarations and real lifecycle producers to verify canonical writes, byte-preserved replay, request conflicts, authority refusals, runtime role collisions and actual MCP reload. Its repair controls preserve both council actor equivalence and a legitimate distinct-reviewer case. Fixture gardening and post-write lint are stubbed in this actor owner; role-link upgrade tests separately use the real docs gate. Local subprocess and scratch-tree results do not qualify native Windows execution or a downstream merge.
 
@@ -321,7 +346,7 @@ four pieces, all test infrastructure in
   the profile tree in vocabulary alone.
 - **Builders.** `RecordTreeBuilder` writes records the way a profile expects:
   the waves root and its required `README.md`, container records with the
-  profile's filename and markers, member blocks, change documents and plans
+  profile's filename and markers, member blocks, specs and plans
   (written in the shipped labels, then passed through
   `vocabulary_profile.localize_template`), and archive records in the archive
   profile's vocabulary. `localized_docs_lint_fixture` copies the docs-lint
@@ -509,7 +534,7 @@ The worked pattern is a fallback parser compared with a grammar-backed parser ov
 
 ### Golden Tool-Surface Guard (wave 1y0do)
 
-The public MCP tool surface is a verification seam that the server refactor waves (`1y0h1` registry, `1y0h2` handler split) and the record-layout wave (`1y0gz`) are judged against. `tests/test_tool_surface_golden.py` boots the real `server.build_server` with `build_handler` stubbed and compares a deterministic serialization of every registered tool (name, roster tier, input schema, annotations; prose descriptions excluded) to the committed fixture `tests/fixtures/tool-surface-golden.json`. Regeneration requires `WF_UPDATE_TOOL_SURFACE_GOLDEN=1` and is a named step in the change doc that alters the surface. Each profile asset under `tests/fixtures/profiles/` that declares tools also has a golden of the surface served under that declaration alone, at `tests/fixtures/tool-surface-golden/<profile>.json` (wave `1zyc3`); the same flag regenerates it. Because `_load_extension_module` loads a declared module only from the real scripts directory, an asset that declares `EXTENSION_MODULES` or `EXTENSION_HELPER_MODULES` boots in a scratch copy made by `copy_scripts_tree` and `apply_profile`, in a subprocess with a timeout of at least 300 seconds; module-free assets boot in process. Both boots share one serializer in the stdlib-only `tests/tool_surface_support.py`, which `copy_scripts_tree` copies with the other support modules (wave `1zyb3`). Skills are not part of a golden, since the server never serves them; `DeclaredProfileSkillTests` pins the `declared` asset's skill by rendering a temporary repository. The module also pins runtime roster parity in both directions and proves the wrapper composition order by behavior through a triple-wrapped tool, with the five wrong permutations as negative controls. See `docs/contributing/build-and-verification.md` for the regeneration command.
+The public MCP tool surface is a verification seam that the server refactor waves (`1y0h1` registry, `1y0h2` handler split) and the record-layout wave (`1y0gz`) are judged against. `tests/test_tool_surface_golden.py` boots the real `server.build_server` with `build_handler` stubbed and compares a deterministic serialization of every registered tool (name, roster tier, input schema, annotations; prose descriptions excluded) to the committed fixture `tests/fixtures/tool-surface-golden.json`. Regeneration requires `WF_UPDATE_TOOL_SURFACE_GOLDEN=1` and is a named step in the spec that alters the surface. Each profile asset under `tests/fixtures/profiles/` that declares tools also has a golden of the surface served under that declaration alone, at `tests/fixtures/tool-surface-golden/<profile>.json` (wave `1zyc3`); the same flag regenerates it. Because `_load_extension_module` loads a declared module only from the real scripts directory, an asset that declares `EXTENSION_MODULES` or `EXTENSION_HELPER_MODULES` boots in a scratch copy made by `copy_scripts_tree` and `apply_profile`, in a subprocess with a timeout of at least 300 seconds; module-free assets boot in process. Both boots share one serializer in the stdlib-only `tests/tool_surface_support.py`, which `copy_scripts_tree` copies with the other support modules (wave `1zyb3`). Skills are not part of a golden, since the server never serves them; `DeclaredProfileSkillTests` pins the `declared` asset's skill by rendering a temporary repository. The module also pins runtime roster parity in both directions and proves the wrapper composition order by behavior through a triple-wrapped tool, with the five wrong permutations as negative controls. See `docs/contributing/build-and-verification.md` for the regeneration command.
 
 ### TechDocs External Oracle Tier
 
@@ -672,7 +697,7 @@ runner is absent — every repository that consumes the packaged framework, sinc
 is a documented no-op.
 
 This is the machine-visible half of moving whole-suite assertions out of per-change
-acceptance criteria; the feedforward half is seed `170-plan-change.prompt.md`
+acceptance criteria; the feedforward half is seed `170-plan-spec.prompt.md`
 *"Acceptance criteria assert what the change controls"* and the sensor half is the
 `docs-lint` AC-shape validator.
 
@@ -778,7 +803,7 @@ retrieval-quality floors and the response-size ceiling remain hard.
 A guard, validator member, carve-out, or tuning constant is landed only when a
 named test fails with it deleted or loosened; a pin that passes for an unrelated
 reason is not a pin. The implementer records the mutant and the failing test in
-the change document's Progress Log before requesting review, and each delivery
+the spec's Progress Log before requesting review, and each delivery
 lane reports a mutation table (mechanism, mutation, failing test or NOT CAUGHT)
 as the prose projection of its `known_bad_detection_method: focused-mutation`
 evidence. Review rounds run against a frozen tree: the briefing packet carries a
@@ -976,7 +1001,7 @@ Minimum verification bar for any framework script change:
 
 ## Framework Script Hygiene
 
-Tests write only under temporary roots, never into the repository under test. The runner's repository-state guard (see the Canonical Runner section) rejects material/unclassified tracked or non-ignored changes and edit-gate changes; supported worker writes to exemption-capable carriers are refused before mutation.
+Tests write only under temporary roots, never into the repository under test. The runner's repository-state guard (see the Canonical Runner section) rejects material/unclassified tracked or non-ignored changes and edit-gate changes, apart from the tolerated documentation changes of change 23nqu; supported worker writes under the waves, plans and `docs/` roots are refused before mutation.
 
 Run tests with `python3 -B .wavefoundry/framework/scripts/run_tests.py`. Bytecode goes only to the project cache `.wavefoundry/cache/pycache/` (see **Bytecode cache** in the Canonical Runner section); a stray `__pycache__` under `.wavefoundry/framework/` is a defect to report, not routine cleanup, although the runner still removes any it finds under the framework directory.
 
@@ -1055,6 +1080,13 @@ Known boolean gate closure only classifies eligibility. Markdown location and a
 nonempty attestation never establish semantic equivalence or human authentication.
 Incomplete workers, changed inputs, unknown paths, links, stray artifacts and
 uncaptured changed bytes remain refused.
+
+Eligibility is unchanged by the documentation tolerance of change 23nqu: only an
+edit to an existing non-record Markdown file under `docs/`, plus a known gate
+closure, can be accepted. The recovery record is built from the guard's change
+list before tolerance is applied, so inspection accepts and refuses the same
+paths as before, and a refused run that also holds a created or deleted
+documentation file (such as a new plan) still cannot be reconciled.
 
 The runner and existing publication locks protect supported publication; rechecks
 immediately precede writes. The failed original is immutable; a separate annotated

@@ -323,6 +323,19 @@ class ReceiptTests(unittest.TestCase):
             ('wave_work', '_same', '_identity(left) == _identity(right)'),
             ('wave_work', '_anchor', 'current != identities'),
             ('wave_work', '_empty_directory', 'info.st_dev != os.fstat(fd).st_dev'),
+            # Change 23phc: the read-only inventory never crosses a device;
+            # both compare fresh stats taken within the one call.
+            ('wave_work', '_inventory', 'folder_info.st_dev != work_info.st_dev'),
+            ('wave_work', '_measure', 'full.st_dev != device'),
+            # Change 23p9t: the record-folder walk does not enter a directory
+            # on another device; both stats are taken within the one call.
+            ('wave_work', 'inventory_record_extras', 'info.st_dev != device'),
+            # Change 23q0s: explicit cleanup compares the folder's fresh fstat
+            # with its parent's and with the listing taken in the same call.
+            ('wave_work', 'located', 'os.fstat(fd).st_dev != os.fstat(parent).st_dev'),
+            ('wave_work', '_delete_explicit', 'os.fstat(fd).st_dev != os.fstat(parent).st_dev'),
+            ('wave_work', 'explicit_cleanup', 'directory.st_dev == os.fstat(parent).st_dev'),
+            ('wave_work', 'explicit_cleanup', 'directory.st_ino != listed.st_ino'),
         })
         observed = set().union(*(scan(name, source) for name, source in sources.items()))
         self.assertEqual(observed, allowed)

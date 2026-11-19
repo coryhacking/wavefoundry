@@ -537,10 +537,18 @@ class LifecycleGoldenTests(unittest.TestCase):
                 if isinstance(schema, dict):
                     council = schema['evidence'].pop('council_approval')
                     self.assertIn('intent_fit', council['required_fields'])
+                    # Wave 23n00: only the known-bad check gains the scoped
+                    # specialist-readiness null option and rationale guidance.
+                    checks = schema['integrity_checks']
+                    self.assertEqual(checks['known_bad_detected']['null_allowed_for'],
+                                     ['operator-signoff', 'specialist-readiness-with-scope-rationale'])
+                    checks['known_bad_detected']['null_allowed_for'] = ['operator-signoff']
+                    self.assertEqual(checks['known_bad_detection_method'].pop('meaning'),
+                                     'Detection method, or inspected-scope rationale for an unaffected specialist readiness lane')
                 if route.startswith('close:'):
                     # Wave 1zoju (1zodx): close gains the blocking
-                    # `change_status_drift` gate; these fixtures' change
-                    # documents carry no header status, so every close
+                    # `change_status_drift` gate; these fixtures'
+                    # specs carry no header status, so every close
                     # capture reports it. It is the one declared addition.
                     response['diagnostics'] = [
                         diagnostic for diagnostic in response['diagnostics']

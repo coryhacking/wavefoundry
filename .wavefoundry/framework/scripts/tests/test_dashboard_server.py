@@ -1352,7 +1352,7 @@ class UnreadableWaveRecordTests(unittest.TestCase):
       path, which reopened the broken file when CWD == root);
     - a permission-broken wave.md silently vanished (`except OSError:
       continue`);
-    - a decode-broken admitted change doc raised UnicodeDecodeError out of
+    - a decode-broken admitted spec raised UnicodeDecodeError out of
       `collect_changes` (`parse_change_doc` wrapped only OSError), and a
       permission-broken one silently misparsed (file stem as change_id,
       status unknown, no marker).
@@ -1475,7 +1475,7 @@ class UnreadableWaveRecordTests(unittest.TestCase):
 
     def test_decode_broken_change_doc_degrades_instead_of_crashing(self):
         """1v1df AC-7 (red-first): `parse_change_doc` wrapped only OSError, so
-        a decode-broken admitted change doc raised UnicodeDecodeError out of
+        a decode-broken admitted spec raised UnicodeDecodeError out of
         `collect_changes`; post-fix the change renders with `read_error`
         bound to the record."""
         change_path = (_waves_dir(self.root) / "12x test-wave"
@@ -1500,7 +1500,7 @@ class UnreadableWaveRecordTests(unittest.TestCase):
                              "absolute filesystem path")
 
     def test_permission_broken_change_doc_is_not_a_silent_misparse(self):
-        """1v1df AC-7 (red-first): pre-fix a permission-broken change doc
+        """1v1df AC-7 (red-first): pre-fix a permission-broken spec
         silently misparsed through empty-text substitution (file stem as
         change_id, status unknown, NO marker). A wrong fix that widens the
         wrap while keeping the substitution stays red here, because the
@@ -2002,7 +2002,7 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
         self.assertIn('This is the readiness gate. The council reviews the change, works through the open questions, and decides whether the wave is actually safe to start.', js)
         self.assertIn('This is the coding pass.', js)
         self.assertIn('Once Prepare says the wave is ready, the coding agent takes over and uses the wave record plus each admitted change plan as the working guide.', js)
-        self.assertIn('The first job is to read the wave and the change docs carefully enough to understand what belongs in scope.', js)
+        self.assertIn('The first job is to read the wave and the specs carefully enough to understand what belongs in scope.', js)
         self.assertIn('Then the work happens one change at a time: make the edits that match the plan, check the tasks and acceptance criteria, and keep the write set inside the admitted boundaries.', js)
         self.assertIn('Implementation is not just about moving text around.', js)
         self.assertIn('The agent also writes or updates tests, runs them, and confirms that the result matches the agreed intent instead of drifting into a new shape of work.', js)

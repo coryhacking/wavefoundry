@@ -316,7 +316,7 @@ class AmbiguousWaveResourceTests(_NestedRepo):
 
 class NestedStateSourcesTests(_NestedRepo):
     """Finding `commit-provenance-nested-wave-dir` (server half): the
-    memory-propose state-source resolver locates a change doc inside a wave
+    memory-propose state-source resolver locates a spec inside a wave
     folder grouped below the waves root."""
 
     def test_memory_propose_state_sources_find_a_nested_change_doc(self):
@@ -364,7 +364,7 @@ class FlatDepthRuleTests(_NestedRepo):
 
 class NestedPlanDocsTests(_NestedRepo):
     def test_plan_docs_nested_under_the_plans_root_are_found_in_both_modes(self):
-        # Requirement 5: change-doc lookup keeps its recursive behaviour.
+        # Requirement 5: spec lookup keeps its recursive behaviour.
         plan = self.srv.change_create(self.root, "enh", "grouped-plan", mode="create")
         change_id = plan["id"]
         plans = self.root / "project" / "records" / "plans"

@@ -274,7 +274,7 @@ print(json.dumps(out))
 
 def _wave_set_records(dest: Path, profile: dict[str, str]) -> Path:
     """The docs-lint fixture localized into ``profile``'s names and the
-    asset's layout, with a ``Wave:`` back-reference on one change doc and a
+    asset's layout, with a ``Wave:`` back-reference on one spec and a
     ``Wave: TBD`` plan."""
     localized_docs_lint_fixture(dest, vocabulary=profile, layout=LAYOUT)
     path = sorted((dest / WAVE_DIR_REL).glob("00058-*.md"))[0]

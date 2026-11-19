@@ -9,7 +9,7 @@ Intent:
 
 - Run the `red-team` specialist in isolation against one artifact — a plan, code change, ADR, design, prose document, workflow, or decision narrative — producing a single sharp adversarial challenge with named failure modes and a strongest-alternative, without convening a council and without recording any review authority.
 
-This is the standalone form of the capability `docs/agents/specialists/red-team.md` already defines (seed `225-red-team.prompt.md` when the role doc is absent). Reach for **Council review** when the artifact needs multiple specialist seats, **Archetype review** when it needs multiple stance-based seats, and **Review plan** when a change doc — or the current wave record when no change is named — needs unresolved branches stress-tested before or after admission and before implementation. **Interrogate this plan** and **Stress-test this plan** remain natural-language aliases. Review plan records no signoff and satisfies no gate; **Review wave** is the distinct required-lane delivery review. The chooser table in `docs/prompts/archetype-council.prompt.md` routes among them.
+This is the standalone form of the capability `docs/agents/specialists/red-team.md` already defines (seed `225-red-team.prompt.md` when the role doc is absent). Reach for **Council review** when the artifact needs multiple specialist seats, **Archetype review** when it needs multiple stance-based seats, and **Review plan** when a spec — or the current wave record when no change is named — needs unresolved branches stress-tested before or after admission and before implementation. **Interrogate this plan** and **Stress-test this plan** remain natural-language aliases. Review plan records no signoff and satisfies no gate; **Review wave** is the distinct required-lane delivery review. The chooser table in `docs/prompts/archetype-council.prompt.md` routes among them.
 
 ---
 
@@ -42,7 +42,7 @@ Follow the specialist doc's Operating Invariants and produce its Output Shape un
 
 ### Recording
 
-- Run against a wave artifact (an admitted change doc, a wave record, an implementation under an open wave): record the outcome as a dated entry in that wave's `## Review Checkpoints` section.
+- Run against a wave artifact (an admitted spec, a wave record, an implementation under an open wave): record the outcome as a dated entry in that wave's `## Review Checkpoints` section.
 - Run against anything else: the output is conversation-level. No record is required to invoke this command.
 
 ### Authority boundary

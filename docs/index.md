@@ -2,11 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-07
+Last verified: 2026-11-18
 
 **Wavefoundry helps a small team create, take over, improve, modernize, replace and sustain significant software systems with AI agents.** It connects human intent to project knowledge, bounded deliveries, review evidence and continuing work across contributors and tools.
 
 The long-term destination is an autonomous engineering laboratory that expands a small team's capacity while people retain control of purpose, consequential decisions and authority. The current product is the local foundation: a Wave Framework seed pack, lifecycle tooling, an MCP server, code intelligence, typed memory and durable handoffs. Optional vision and arc workflows connect a longer-term destination to useful waves; autonomous program execution remains a roadmap goal. Read the [product overview](references/wavefoundry-overview.md) and the repository's [Vision and Roadmap](https://github.com/coryhacking/wavefoundry/blob/main/VISION.md).
+
+Wavefoundry is a spec-driven development framework. A spec plans one change, and a wave bundles the changes its specs describe, reviews them and closes them. Durable descriptions of implemented behavior are kept separately as behavior contracts under `docs/specs/`; the four terms are defined in the [Project overview](references/project-overview.md#vocabulary).
 
 You can use that foundation to build something new, improve a running service, replace an obsolete component or inherit a system with fragmented knowledge. Start with the planning depth the work needs. Project records remain visible in the repository and usable across supported agent hosts.
 
@@ -31,8 +33,8 @@ For work spanning several deliveries, the optional path is **vision → horizon 
 
 Every code change moves through the same lifecycle. The bold phrases are shortcut commands agents understand; in Claude Code, Codex, and Antigravity each is also a `/wf-` skill that points at the same prompt ([Project overview](references/project-overview.md), Workflow Overview; full catalog: [Workflow and agent commands](prompts/index.md)).
 
-1. **Plan change**: author a consolidated change doc under `docs/plans/`.
-2. **Create wave / Add change to wave**: admit the change into a wave under `docs/waves/<wave-id>/`.
+1. **Plan spec**: author a consolidated spec under `docs/plans/`.
+2. **Create wave / Add spec to wave**: admit the change into a wave under `docs/waves/<wave-id>/`.
 3. **Prepare wave**: confirm readiness. Readying does not open the wave; any number of waves can be readied in parallel.
 4. **Implement wave**: open a readied wave and execute the admitted changes. Only one wave may be OPEN at a time, and that guard fires here, at activation, not at readiness (`wf_prepare_wave` docstring and `wf_implement_wave`, `wf_server/server_impl.py`).
 5. **Review wave**: run the required review lanes. Review evidence lives in `docs/waves/<id>/events.jsonl`, the sole machine authority; `wave.md` is a generated projection ([Data and control flow](architecture/data-and-control-flow.md), State Ownership; [Domain map](architecture/domain-map.md), Dependency Direction Rules).

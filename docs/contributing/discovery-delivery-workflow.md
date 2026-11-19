@@ -2,11 +2,11 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-07
+Last verified: 2026-11-18
 
 ## Working Modes
 
-**Discovery** — use when scope, durable decisions, risk posture, or wave shape are still unresolved. Produce: a refined change doc, architecture decision records, or a wave plan. Output: draft change doc at `docs/plans/`.
+**Discovery** — use when scope, durable decisions, risk posture, or wave shape are still unresolved. Produce: a refined spec, architecture decision records, or a wave plan. Output: draft spec at `docs/plans/`.
 
 **Delivery** — use when scope is approved and wave execution can proceed. Pre-condition: Prepare wave passed. Output: implemented and reviewed changes committed to the repo.
 
@@ -21,7 +21,7 @@ If delivery uncovers a new durable decision or invalidated shared assumption, re
 
 ## Delivery Pre-conditions
 
-1. Consolidated change doc exists and is admitted into a wave
+1. Consolidated spec exists and is admitted into a wave
 2. Prepare wave has passed cleanly; declared review-enabled waves require the typed `council-readiness` approval on the current receipt. Legacy prose-verdict and review-disabled behavior are preserved.
 3. Required review lanes identified
 

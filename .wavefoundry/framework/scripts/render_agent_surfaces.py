@@ -310,6 +310,8 @@ REVIEW_PROTOCOL_CARRIER_BLOCK = dedent(
 _vp_doc = vocabulary_profile.prompt_doc
 _vp_shortcut = vocabulary_profile.shortcut
 _vp_skill = vocabulary_profile.skill_name
+# Change 23myn Requirement 10: the planning-document noun in skill prose.
+_vp_planning = vocabulary_profile.planning_noun
 
 
 def _vp_wave(**kwargs) -> str:
@@ -499,7 +501,7 @@ CLAUDE_GURU_AGENT = dedent(
     """\
     ---
     name: guru
-    description: PROACTIVELY use when the user asks how this repository's source code or project documentation works and answering needs an investigation — behavior, architecture, specs, framework scripts, indexing, chunking, or retrieval. A direct lookup, such as finding a definition or reading one value, needs no subagent. Do not use for wave lifecycle commands (@PLAN@, @IMPLEMENT@, @CLOSE@, @PREPARE@, etc.).
+    description: PROACTIVELY use when the user asks how this repository's source code or project documentation works and answering needs an investigation — behavior, architecture, behavior contracts, framework scripts, indexing, chunking, or retrieval. A direct lookup, such as finding a definition or reading one value, needs no subagent. Do not use for wave lifecycle commands (@PLAN@, @IMPLEMENT@, @CLOSE@, @PREPARE@, etc.).
     tools: Read, Grep, Glob, Bash, ToolSearch, mcp__wavefoundry__code_ask, mcp__wavefoundry__code_search, mcp__wavefoundry__code_keyword, mcp__wavefoundry__code_lexical, mcp__wavefoundry__code_read, mcp__wavefoundry__code_outline, mcp__wavefoundry__code_definition, mcp__wavefoundry__code_references, mcp__wavefoundry__code_callhierarchy, mcp__wavefoundry__code_dependencies, mcp__wavefoundry__code_impact, mcp__wavefoundry__code_list_files, mcp__wavefoundry__code_constants, mcp__wavefoundry__code_pattern, mcp__wavefoundry__code_callgraph, mcp__wavefoundry__code_graph_path, mcp__wavefoundry__code_graph_community, mcp__wavefoundry__docs_search, mcp__wavefoundry__seed_get
     ---
 
@@ -557,15 +559,45 @@ def previous_guru_descriptions(shortcut=None) -> tuple[str, ...]:
         "documentation works. Do not use for wave lifecycle commands ({plan}, Implement wave, "
         "Close wave, etc.)."
     )
+    # The investigation wording, shipped with the earlier default plan
+    # shortcut before that shortcut was renamed.
+    investigation_form = (
+        "PROACTIVELY use when the user asks how this repository's source code or project "
+        "documentation works and answering needs an investigation — behavior, architecture, "
+        "specs, framework scripts, indexing, chunking, or retrieval. A direct lookup, such as "
+        "finding a definition or reading one value, needs no subagent. Do not use for wave "
+        "lifecycle commands ({plan}, {implement}, {close}, {prepare}, etc.)."
+    )
     defaults = {"implement": "Implement wave", "close": "Close wave", "prepare": "Prepare wave"}
     texts = [
         long_form.format(plan="Plan feature", **defaults),
         long_form.format(plan="Plan change", **defaults),
+        investigation_form.format(plan="Plan change", **defaults),
+        # The investigation wording with the project's current shortcuts,
+        # shipped before durable documents were called behavior contracts.
+        investigation_form.format(
+            plan=shortcut("plan-change"),
+            implement=shortcut("implement-wave"),
+            close=shortcut("close-wave"),
+            prepare=shortcut("prepare-wave"),
+        ),
         long_form.format(
             plan=shortcut("plan-change"),
             implement=shortcut("implement-wave"),
             close=shortcut("close-wave"),
             prepare=shortcut("prepare-wave"),
+        ),
+        # A profile that renamed the other lifecycle prompts but kept the
+        # earlier default plan shortcut shipped that shortcut with its own
+        # names for the rest.
+        *(
+            form.format(
+                plan="Plan change",
+                implement=shortcut("implement-wave"),
+                close=shortcut("close-wave"),
+                prepare=shortcut("prepare-wave"),
+            )
+            for form in (investigation_form, long_form)
         ),
         short_form.format(plan="Plan feature"),
         short_form.format(plan="Plan change"),
@@ -774,20 +806,21 @@ WF_COUNCIL_SKILL_BODY = dedent(
     - Prose, naming, AC formulation, or decision narrative: **Archetype review**, `docs/prompts/archetype-council.prompt.md`.
     - One sharp adversarial challenge on a single artifact: **Red-team review**, `docs/prompts/red-team-review.prompt.md`.
     - These on-demand reviews record no lifecycle signoffs and satisfy no gate; when a prompt directs recording against a wave, use the `wf_review_event` MCP tool.
-    - Boundary: the open wave's REQUIRED review lanes run under @REVIEW@ (`@REVIEW_SKILL@`), and a change doc or current wave record gets Review plan (`wf-review-plan`; aliases: Interrogate this plan, Stress-test this plan) before implementation; this router is for on-demand reviews outside both.
+    - Boundary: the open @CONTAINER@'s REQUIRED review lanes run under @REVIEW@ (`@REVIEW_SKILL@`), and @PLANNING_ARTICLE@ or current @CONTAINER@ record gets Review plan (`wf-review-plan`; aliases: Interrogate this plan, Stress-test this plan) before implementation; this router is for on-demand reviews outside both.
     """
-).replace("@REVIEW_SKILL@", _vp_skill("review-wave")).replace("@REVIEW@", _vp_shortcut("review-wave"))
+).replace("@REVIEW_SKILL@", _vp_skill("review-wave")).replace("@REVIEW@", _vp_shortcut("review-wave")).replace(
+    "@CONTAINER@", _vp_wave()).replace("@PLANNING_ARTICLE@", _vp_planning("article"))
 
 SKILL_REGISTRY: "tuple[Skill, ...]" = (
     Skill(
         name=_vp_skill("plan-change"),
-        description=f"Plan {_vp_change(article=True)} of any kind (feature, bug fix, enhancement, refactor, documentation, tech debt, task, maintenance, operations) and produce a consolidated {_vp_change()} doc ready for {_vp_wave()} admission. The {_vp_shortcut('plan-change')} workflow.",
+        description=f"Plan {_vp_change(article=True)} of any kind (feature, bug fix, enhancement, refactor, documentation, tech debt, task, maintenance, operations) and produce a consolidated {_vp_planning()} ready for {_vp_wave()} admission. The {_vp_shortcut('plan-change')} workflow.",
         body=_thin_pointer_body(
             f"Plan {_vp_change(article=True)}",
             _vp_doc("plan-change"),
             (
                 f"The workflow selects the scaffold among the `wf_new_<kind>` MCP creation tools (bug, enhancement, refactor, documentation, tech debt, task, maintenance, operations, change) by {_vp_change()} kind, then admits the doc with `wf_add_change`.",
-                f"Gate reminder: planning writes docs only; no repository code edits until the stage gate ({_vp_change()} doc, {_vp_wave()} admission, recorded readiness) is satisfied.",
+                f"Gate reminder: planning writes docs only; no repository code edits until the stage gate ({_vp_planning()}, {_vp_wave()} admission, recorded readiness) is satisfied.",
             ),
         ),
     ),
@@ -813,7 +846,7 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
             _vp_doc("implement-wave"),
             (
                 f"Prefer the `wf_implement_wave` MCP tool to open the readied {_vp_wave()} and receive the ordered {_vp_change()} list and watchpoints.",
-                f"Gate reminder: the stage gate applies before any code edit ({_vp_change()} doc, {_vp_wave()} admission, recorded readiness); mark ACs and tasks as work completes, not at {_vp_wave()} end.",
+                f"Gate reminder: the stage gate applies before any code edit ({_vp_planning()}, {_vp_wave()} admission, recorded readiness); mark ACs and tasks as work completes, not at {_vp_wave()} end.",
                 f"Single-{_vp_change()} variant: {_vp_shortcut('implement-change')} (`{_vp_doc('implement-change')}`).",
             ),
         ),
@@ -862,13 +895,13 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
     ),
     Skill(
         name="wf-review-plan",
-        description=f"Review {_vp_change(article=True)} doc, or the current {_vp_wave()} record when no {_vp_change()} is specified, before implementation by walking every unresolved decision branch one question at a time. "
+        description=f"Review {_vp_planning('article')}, or the current {_vp_wave()} record when no {_vp_change()} is specified, before implementation by walking every unresolved decision branch one question at a time. "
         f"The Review plan workflow; distinct from {_vp_shortcut('review-wave')}.",
         body=_thin_pointer_body(
             "Review a plan",
             "docs/prompts/review-plan.prompt.md",
             (
-                f"Review the named {_vp_change()} doc, or fall back to the current {_vp_wave()} record when no {_vp_change()} is specified; this may run before or after admission, but only before implementation.",
+                f"Review the named {_vp_planning()}, or fall back to the current {_vp_wave()} record when no {_vp_change()} is specified; this may run before or after admission, but only before implementation.",
                 "Self-answer from project resources first; surface only the questions that genuinely need operator judgment.",
                 f"This optional review records no typed signoff and satisfies no lifecycle gate; use `{_vp_skill('review-wave')}` for the open {_vp_wave()}'s required delivery-review lanes.",
             ),
@@ -914,12 +947,12 @@ SKILL_REGISTRY: "tuple[Skill, ...]" = (
         name="wf-council",
         # Wave 200ey (change 200ew): the protocol's display name is a profile constant.
         description=f"Convene an on-demand review on one artifact, choosing among the role-based {vocabulary_profile.COUNCIL_DISPLAY_NAME}, the stance-based Archetype Council, and standalone Red-team review. "
-        f"Not the open {_vp_wave()}'s required lanes ({_vp_shortcut('review-wave')}) and not Review plan, the optional {_vp_change()}-doc or current-{_vp_wave()} stress test whose aliases are Interrogate this plan and Stress-test this plan.",
+        f"Not the open {_vp_wave()}'s required lanes ({_vp_shortcut('review-wave')}) and not Review plan, the optional {_vp_planning('hyphen')} or current-{_vp_wave()} stress test whose aliases are Interrogate this plan and Stress-test this plan.",
         body=WF_COUNCIL_SKILL_BODY,
     ),
     Skill(
         name="wf-guru",
-        description="PROACTIVELY use when the user asks how repository source code or project documentation works and answering needs an investigation — explaining behavior, pipelines, architecture, specs, framework scripts, indexing, chunking, retrieval, or MCP tools. A direct lookup, such as finding a definition or reading one value, needs no skill; call the code_* tools directly. "
+        description="PROACTIVELY use when the user asks how repository source code or project documentation works and answering needs an investigation — explaining behavior, pipelines, architecture, behavior contracts, framework scripts, indexing, chunking, retrieval, or MCP tools. A direct lookup, such as finding a definition or reading one value, needs no skill; call the code_* tools directly. "
         f"Not for wave lifecycle commands ({_vp_shortcut('plan-change')}, {_vp_shortcut('implement-wave')}, {_vp_shortcut('close-wave')}, etc.).",
         body=WF_GURU_SKILL_BODY,
         requires_doc=GURU_ROLE_REL,
@@ -1132,7 +1165,7 @@ def skill_name_collisions(skills: object = None) -> dict[str, str]:
         for _host, folder in SKILL_HOSTS:
             prefix = f"{folder}/{name}".casefold()
             if any(rel.casefold() == prefix or rel.casefold().startswith(prefix + "/")
-                   for rel in stale_skill_paths()):
+                   for rel in stale_skill_paths(skills)):
                 collisions[name] = f"the name renders to the retired skill path {folder}/{name}"
                 break
     return collisions
@@ -3149,17 +3182,19 @@ def _moved_prompt_link_report(
     return tuple(dict.fromkeys(report))
 
 
-def _applied_close_change_entry(data: dict) -> "tuple[str, str]":
-    """The Close change manifest entry at the APPLIED name (wave 1zyb4, change
+def _applied_close_change_entry(data: dict, entries: "list[object]") -> "tuple[str, str]":
+    """The Close manifest entry at the APPLIED name (wave 1zyb4, change
     1zxnw): the manifest's ``prompt_names`` record for ``close-change``, else
-    the default. The profile migration that runs next moves it to the profile's
-    name, so the repair never adds a second entry while a close chain is only
-    partly applied."""
+    the earlier default while ``entries`` still registers it, else the default.
+    The profile migration that runs next moves it to the profile's name, so the
+    repair never adds a second entry while a close chain or a default rename is
+    only partly applied."""
 
+    registered = vocabulary_profile.registered_prompt_docs({"public_prompt_surface": entries})
     try:
-        applied = vocabulary_profile.applied_prompt_slugs(data.get("prompt_names"))
+        applied = vocabulary_profile.applied_prompt_slugs(data.get("prompt_names"), registered)
     except ValueError:
-        applied = vocabulary_profile.applied_prompt_slugs(None)
+        applied = vocabulary_profile.applied_prompt_slugs(None, registered)
     slug = applied["close-change"]
     if slug == vocabulary_profile.prompt_slug("close-change"):
         shortcut = vocabulary_profile.shortcut("close-change")
@@ -3208,7 +3243,7 @@ def _repair_change_prompt_manifest(repo_root: Path) -> "list[str]":
                 }
                 changed = True
         updated.append(entry)
-    close_doc, close_shortcut = _applied_close_change_entry(data)
+    close_doc, close_shortcut = _applied_close_change_entry(data, updated)
     if not any(
         isinstance(entry, dict) and entry.get("doc") == close_doc for entry in updated
     ):
@@ -4133,16 +4168,22 @@ class ProfilePromptMigration:
     # Wave 200xy (200xx): False when the manifest record could not be read, so
     # no name was recorded and the later passes skip the profile's paths.
     record_readable: bool = True
+    # Keys whose prompt is still at an earlier default name while the manifest
+    # record could not be read: with no registration to authorize the move, the
+    # later passes skip those keys' paths too.
+    stranded_keys: "tuple[str, ...]" = ()
 
 
 def unrecorded_profile_prompt_paths(migration: ProfilePromptMigration) -> "frozenset[str]":
     """The public and agent prompt paths of every key the profile renames,
-    when the migration could not read the manifest record; empty otherwise.
+    and of every key stranded at an earlier default name, when the migration
+    could not read the manifest record; empty otherwise.
 
     A file written there with no record is a migration input the next render
-    cannot place (a chain then finds its target occupied), so every pass that
-    writes, creates or requires a file at one of these paths skips it for the
-    render (wave 200xy, change 200xx). Empty under the default profile.
+    cannot place (a chain then finds its target occupied, and a default rename
+    finds both names present), so every pass that writes, creates or requires
+    a file at one of these paths skips it for the render (wave 200xy, change
+    200xx). Empty under the default profile with nothing stranded.
     """
 
     if migration.record_readable:
@@ -4150,9 +4191,26 @@ def unrecorded_profile_prompt_paths(migration: ProfilePromptMigration) -> "froze
     return frozenset(
         path
         for key, default in vocabulary_profile.DEFAULT_PROMPT_NAMES.items()
-        if vocabulary_profile.prompt_slug(key) != default["slug"]
+        if vocabulary_profile.prompt_slug(key) != default["slug"] or key in migration.stranded_keys
         for path in (vocabulary_profile.prompt_doc(key), vocabulary_profile.agent_prompt_doc(key))
     )
+
+
+def _stranded_earlier_default_keys(repo_root: Path) -> "tuple[str, ...]":
+    """Keys whose public prompt or agent body is present at an earlier default
+    name while nothing is at the profile's name for that file."""
+
+    stranded: list[str] = []
+    for key, earlier in vocabulary_profile.EARLIER_DEFAULT_PROMPT_SLUGS.items():
+        if vocabulary_profile.prompt_slug(key) == earlier:
+            continue
+        for source, target in zip(
+            _prompt_pair_paths(earlier), _prompt_pair_paths(vocabulary_profile.prompt_slug(key))
+        ):
+            if os.path.lexists(repo_root / source) and not os.path.lexists(repo_root / target):
+                stranded.append(key)
+                break
+    return tuple(stranded)
 
 
 @dataclass(frozen=True)
@@ -4383,7 +4441,12 @@ def migrate_profile_prompt_names(repo_root: Path) -> ProfilePromptMigration:
     prompt and agent body move by exact byte copy and unlink, and the manifest
     records the key before the next key moves, so a rerun after an
     interruption converges. Under the default profile with no ``prompt_names``
-    key nothing is read beyond the manifest and nothing is written.
+    key and no prompt registered at an earlier default name, nothing is read
+    beyond the manifest and nothing is written.
+
+    A key whose default slug was renamed moves from its earlier default when
+    the manifest registers the earlier doc and records no name for the key
+    (``vocabulary_profile.applied_prompt_slugs``).
     """
 
     profiled = any(
@@ -4394,7 +4457,9 @@ def migrate_profile_prompt_names(repo_root: Path) -> ProfilePromptMigration:
     try:
         _path, _original, data = _read_prompt_manifest(repo_root)
         record_invalid = True
-        applied = vocabulary_profile.applied_prompt_slugs(data.get("prompt_names"))
+        applied = vocabulary_profile.applied_prompt_slugs(
+            data.get("prompt_names"), vocabulary_profile.registered_prompt_docs(data)
+        )
         # Plan initiative was a fixed public prompt before the optional Arc
         # record. Its manifest registration supplies rename authority; a file
         # with that name alone is left to the preservation-aware agent merge.
@@ -4409,11 +4474,12 @@ def migrate_profile_prompt_names(repo_root: Path) -> ProfilePromptMigration:
         # Silent under the default profile with an absent or unreadable
         # manifest (docs-lint requires and checks it); reported otherwise.
         diagnostics: "tuple[str, ...]" = ()
-        if profiled or record_invalid:
+        stranded = _stranded_earlier_default_keys(repo_root)
+        if profiled or record_invalid or stranded:
             skipped = (
                 " The lifecycle prompts at the profile's names were not materialized in this "
                 "render; a rerun after the manifest exists creates them."
-                if profiled
+                if profiled or stranded
                 else ""
             )
             diagnostics = (
@@ -4422,7 +4488,8 @@ def migrate_profile_prompt_names(repo_root: Path) -> ProfilePromptMigration:
                 f"repair or create it, then rerun `wf render-surfaces`.{skipped}",
             )
         return ProfilePromptMigration(
-            written=(), link_report=(), diagnostics=diagnostics, record_readable=False
+            written=(), link_report=(), diagnostics=diagnostics, record_readable=False,
+            stranded_keys=stranded,
         )
     order, pairs, conflicts = _profile_prompt_plan(repo_root, applied)
     if conflicts:
@@ -4449,20 +4516,45 @@ def migrate_profile_prompt_names(repo_root: Path) -> ProfilePromptMigration:
     )
 
 
-def stale_skill_paths() -> "tuple[str, ...]":
-    """``STALE_SKILL_PATHS`` plus, for every mapped prompt the profile renames,
-    its default skill path on each host, unless a current registry skill uses
-    that name (a chain reuses it and the render overwrites it)."""
+def _default_skill_names(key: str) -> "tuple[str, ...]":
+    """The skill names a mapped prompt had under the defaults: its current
+    default and, when the default was renamed, its earlier default."""
+
+    names = [f"wf-{vocabulary_profile.DEFAULT_PROMPT_NAMES[key]['slug']}"]
+    earlier = vocabulary_profile.EARLIER_DEFAULT_PROMPT_SLUGS.get(key)
+    if earlier is not None and f"wf-{earlier}" not in names:
+        names.append(f"wf-{earlier}")
+    return tuple(names)
+
+
+def stale_skill_paths(declared: object = None) -> "tuple[str, ...]":
+    """``STALE_SKILL_PATHS`` plus, for every mapped prompt, the skill path of
+    each default name it no longer renders at (the default the profile renames
+    and an earlier default), unless a current registry skill uses that name (a
+    chain reuses it and the render overwrites it) or a declared extension
+    skill does (``declared``: the declaration mapping, default the live
+    ``EXTENSION_SKILLS``; read raw, never through ``declared_skills``, which
+    calls back here)."""
 
     current = {skill.name for skill in SKILL_REGISTRY}
+    if declared is None:
+        declared = getattr(mcp_tool_extensions, "EXTENSION_SKILLS", {})
+    declared_names = (
+        {name.casefold() for name in declared if isinstance(name, str)}
+        if isinstance(declared, Mapping) else set()
+    )
     extra: list[str] = []
     for key in SKILL_PROMPT_KEYS:
-        default = f"wf-{vocabulary_profile.DEFAULT_PROMPT_NAMES[key]['slug']}"
-        if default in current:
-            continue
-        for _host_root, skills_dir in SKILL_HOSTS:
-            extra.append(f"{skills_dir}/{default}/SKILL.md")
-    return STALE_SKILL_PATHS + tuple(extra)
+        for index, default in enumerate(_default_skill_names(key)):
+            if default in current:
+                continue
+            # A declared skill may take an earlier default name; the current
+            # default stays reserved as before.
+            if index and default.casefold() in declared_names:
+                continue
+            for _host_root, skills_dir in SKILL_HOSTS:
+                extra.append(f"{skills_dir}/{default}/SKILL.md")
+    return STALE_SKILL_PATHS + tuple(dict.fromkeys(extra))
 
 
 def _stale_operator_skill_policy_paths(repo_root: Path) -> list[str]:
@@ -4473,12 +4565,12 @@ def _stale_operator_skill_policy_paths(repo_root: Path) -> list[str]:
     for key in SKILL_PROMPT_KEYS:
         if _vp_skill(key) not in operators:
             continue
-        default = f"wf-{vocabulary_profile.DEFAULT_PROMPT_NAMES[key]['slug']}"
-        for host_root, skills_dir in SKILL_HOSTS:
-            if skills_dir not in (".codex/skills", ".agents/skills") or not (repo_root / host_root).is_dir():
-                continue
-            if f"{skills_dir}/{default}/SKILL.md" in stale:
-                paths.append(f"{skills_dir}/{default}/agents/openai.yaml")
+        for default in _default_skill_names(key):
+            for host_root, skills_dir in SKILL_HOSTS:
+                if skills_dir not in (".codex/skills", ".agents/skills") or not (repo_root / host_root).is_dir():
+                    continue
+                if f"{skills_dir}/{default}/SKILL.md" in stale:
+                    paths.append(f"{skills_dir}/{default}/agents/openai.yaml")
     return paths
 
 
@@ -4696,6 +4788,25 @@ def materialize_baseline_template(template_name: str, content: str, generated_at
     return vocabulary_profile.localize_template(content)
 
 
+def _applied_prompt_docs(repo_root: Path) -> "dict[str, str]":
+    """Each mapped lifecycle prompt's profile path mapped to its applied path
+    (``vocabulary_profile.applied_prompt_slugs`` over the manifest); empty when
+    the manifest or its record cannot be read, or the manifest path is refused
+    (a link leaving the repository), so callers use the profile paths."""
+
+    try:
+        _path, _original, data = _read_prompt_manifest(repo_root)
+        slugs = vocabulary_profile.applied_prompt_slugs(
+            data.get("prompt_names"), vocabulary_profile.registered_prompt_docs(data)
+        )
+    except (ValueError, RuntimeError):
+        return {}
+    return {
+        vocabulary_profile.prompt_doc(key): f"docs/prompts/{slug}.prompt.md"
+        for key, slug in slugs.items()
+    }
+
+
 def lifecycle_baseline_drift(repo_root: Path, incoming: dict[str, str]) -> list[dict]:
     """Compare project-owned copies without inferring their installation origin.
 
@@ -4703,7 +4814,10 @@ def lifecycle_baseline_drift(repo_root: Path, incoming: dict[str, str]) -> list[
     decoded as UTF-8. Previous templates are always read from the target.
     """
     findings = []
-    pairs = [(destination, "lifecycle-prompts/" + template)
+    # A lifecycle baseline is compared where it is: at its applied name, which
+    # before a pending prompt-name migration is not the profile's name.
+    applied = _applied_prompt_docs(repo_root)
+    pairs = [(applied.get(destination, destination), "lifecycle-prompts/" + template)
              for destination, template in LIFECYCLE_PROMPT_BASELINES]
     pairs.extend(scaffold_baselines(repo_root))
 

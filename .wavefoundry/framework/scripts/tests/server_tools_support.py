@@ -224,7 +224,7 @@ def make_declared_wave(srv, root, slug, *, status="planned", change_ids=(),
                        ready=False, readiness_run=False, approvals=(), doc_gate_stubs):
     """Build lifecycle prerequisites through real producers, never guessed JSONL.
 
-    Change documents already exist (use the canonical change creator); callers
+    Specs already exist (use the canonical change creator); callers
     may customize their content before admission. The sole synthetic escape is
     the produced Status line, applied after all producers for tests of later
     lifecycle phases. Producers always receive canonical planned state.

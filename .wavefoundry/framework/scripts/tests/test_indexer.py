@@ -4257,7 +4257,7 @@ class LanceDriftEligibilityBuildTests(unittest.TestCase):
         """Pin ``docs/workflow-config.json``'s ``chunks_emitted`` to 0 after a
         docs-only full build. The file emits only code-KIND chunks, so a
         docs-only build records a positive count while writing zero rows —
-        the per-kind residual the change doc names as deferred out-of-scope
+        the per-kind residual the spec names as deferred out-of-scope
         (it would otherwise be drift-flagged here and drown the assertions).
         On the live repo the equivalent files have code-table rows from
         all-mode setup; pinning the field keeps these fixtures focused on
@@ -7639,7 +7639,7 @@ class OrphanStoreReconcileTests(_OrphanStoreCase):
     """Wave 1u8o2 (1u8nz) AC-1/AC-4: one incremental build reconciles orphaned
     graph and sidecar rows, inside the build epoch, driving the real stores.
     Red-first: pre-fix, the zero-change incremental left all three stores
-    holding the orphans (probe-proven; see the change doc's Progress Log)."""
+    holding the orphans (probe-proven; see the spec's Progress Log)."""
 
     def test_one_incremental_reconciles_graph_and_sidecar_orphans(self):
         # AC-1: red against pre-fix code (orphans survive), green post-fix.
@@ -7822,7 +7822,7 @@ class LanceSelfHealOrderingPinTests(_OrphanStoreCase):
     def test_ordering_ignored_but_present_retires(self):
         # Ignored-but-present: scope departure retires rows while files stay on
         # disk (shipped Lance behavior; the graph aligns to it per the parity
-        # decision in the change doc).
+        # decision in the spec).
         self._seed()
         (self.root / ".gitignore").write_text(self._IGNORE_RULES, encoding="utf-8")
         self._run_build(full=False)
@@ -7867,7 +7867,7 @@ class OrphanReconcilePlanUnitTests(_OrphanStoreCase):
             )
 
     def test_present_but_out_of_scope_parity(self):
-        # Decision (recorded in the change doc): freshness and graph rows for
+        # Decision (recorded in the spec): freshness and graph rows for
         # present-but-out-of-scope paths retire (parity with the shipped Lance
         # eligibility reap); the secret-scan cache keeps them (its candidate
         # set is all tracked files, wider than the index corpus by design).
@@ -8075,7 +8075,7 @@ class OrphanRetirementCallerCensusTests(unittest.TestCase):
     """Wave 1u8o2 (1u8nz) AC-4: the no-out-of-epoch-deletion clause. The new
     deletion APIs are reachable only from the build-epoch reap seam, pinned
     by a reference census over the framework scripts (the universal negative
-    is census-verified; the recorded census lives in the change doc)."""
+    is census-verified; the recorded census lives in the spec)."""
 
     def _script_sources(self) -> dict[str, str]:
         return {
@@ -8211,7 +8211,7 @@ class EligibilityReapAbsenceGuardTests(_OrphanStoreCase):
     (``os.scandir`` for the walk, ``_orphan_path_stat`` for classification),
     never ``chmod``, which is vacuous under root and flaky across platforms.
 
-    Red-first (recorded in the change doc's Progress Log): on the pre-fix
+    Red-first (recorded in the spec's Progress Log): on the pre-fix
     tree the first build under a denied directory reaped every row of the
     subtree and dropped its layer hashes, and the recovery build re-embedded
     the subtree from scratch."""

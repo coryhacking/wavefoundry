@@ -150,9 +150,13 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("test_render_agent_surfaces.py", '"historical `wave.md` or `events.jsonl`"'): "shipped-template-text",
     ("test_render_agent_surfaces.py", "- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md`"):
         "shipped-template-text",
+    ("test_render_agent_surfaces.py", "- Load the target spec (`docs/waves/<wave-id>/<change-id>.md`"):
+        "shipped-template-text",
     ("test_render_agent_surfaces.py", '"waves/1vj4e x/wave.md",'): "shipped-template-text",
     ("test_shipped_reference_docs.py", 'self.assertIn("docs/waves/", normalized)'): "shipped-template-text",
     ("test_upgrade_wavefoundry.py", "- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md`"):
+        "shipped-template-text",
+    ("test_upgrade_wavefoundry.py", "- Load the target spec (`docs/waves/<wave-id>/<change-id>.md`"):
         "shipped-template-text",
     ("test_vocabulary_writers.py", '"- `docs/waves/1abc some slug/set.md`"'): "shipped-template-text",
 }

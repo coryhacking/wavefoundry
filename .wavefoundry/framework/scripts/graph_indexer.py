@@ -477,7 +477,7 @@ _RELATION_KEYWORD_NOISE = frozenset({
 # never touch non-SQL candidate streams.
 # A sane common ANSI + mainstream-dialect superset, deliberately extensible;
 # a rare dialect straggler leaking is strictly better than systematic noise.
-# Known limitation (accepted in the change doc): an unquoted table literally
+# Known limitation (accepted in the spec): an unquoted table literally
 # named like a keyword (e.g. `values`) is suppressed as a bare reference; it
 # still survives schema-qualified (`schema.values`).
 _SQL_RELATION_KEYWORD_STOPLIST = frozenset({
@@ -1111,7 +1111,7 @@ def _gitignored_paths(root: Path) -> frozenset[str]:
 # `.gitattributes` `linguist-generated=true` annotation.
 #
 # Coverage in this change: Java/JVM + C#. Multi-language follow-up (Go, TS/JS,
-# Rust, Swift, Kotlin, Python) is deferred per the change doc — operator
+# Rust, Swift, Kotlin, Python) is deferred per the spec — operator
 # validation of Java+C# coverage informs the follow-up's architectural shape.
 
 # Header substrings matched in the first 200 bytes (case-sensitive).
@@ -7573,7 +7573,7 @@ def _sql_embedded_has_interior_error(sql_text: str) -> bool:
     `object_reference` — those are TRAILING and are kept.
 
     Discriminator (empirically validated against the live tree-sitter-sql
-    grammar before ship — change-doc R8 / AC-9): refuse when the earliest ERROR
+    grammar before ship — spec R8 / AC-9): refuse when the earliest ERROR
     node starts before the earliest `object_reference` (the statement's target).
     Unlike the TRUNCATE any-ERROR gate, this distinguishes interior corruption
     from an unmodeled trailing clause, so valid dialect is not over-rejected.
@@ -16102,7 +16102,7 @@ class GraphIndexSession:
                 # runs only for that arm; TRUNCATE keeps its own any-ERROR gate
                 # above (its minimal `TRUNCATE <ident>` grammar cannot separate
                 # interior from trailing). Discriminator empirically validated
-                # against the live grammar before ship (change-doc R8/AC-9).
+                # against the live grammar before ship (spec R8/AC-9).
                 if any(
                     str(ref.get("statement") or "") in ("delete", "update", "insert")
                     for ref in analysis.get("references", [])
@@ -17535,7 +17535,7 @@ def retire_orphaned_graph_paths(
     mass-removal circuit breaker, so an unreadable path never reaches this
     function as the sole trigger.
 
-    Caller census (recorded in the 1u8nz change doc): one production callee
+    Caller census (recorded in the 1u8nz spec): one production callee
     path, ``_execute_orphan_store_reconcile`` in indexer.py, reaches this
     function, wired at BOTH reap seams inside ``_build_index_locked``'s build
     epoch: the zero-change idle pass and the changed/build-path reap. On the

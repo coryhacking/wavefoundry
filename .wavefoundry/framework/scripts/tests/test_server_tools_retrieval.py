@@ -2884,7 +2884,7 @@ class SemanticEmbeddingRegressionTests(unittest.TestCase):
                 "language": None,
                 "lines": [1, 5],
                 "section": "Changes",
-                "text": "Prepare wave: validate change docs and admit them to the active wave folder.",
+                "text": "Prepare wave: validate specs and admit them to the active wave folder.",
             },
             {
                 "id": "c-install",
@@ -14166,12 +14166,13 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
         names = sorted(self.srv._registered_mcp_tool_names(mcp))
 
         def assert_tool_registry(candidate: list[str]) -> None:
-            self.assertEqual(len(candidate), 92)  # 2347r adds the read-tier wf_stats
+            self.assertEqual(len(candidate), 93)  # 2347r adds the read-tier wf_stats; 23q0s adds wf_cleanup_work
             self.assertEqual(
                 hashlib.sha256("\n".join(candidate).encode("utf-8")).hexdigest(),
                 # 1vqqi: roster digest re-measured after wf_techdocs_audit joined the surface;
-                # 1zlu1: re-measured after wf_close_change joined it.
-                "1b2f109bb02ddb809f414edbec17d2642c16eccd8e755b82065a16ab35a135b3",
+                # 1zlu1: re-measured after wf_close_change joined it; 23q0s: after
+                # wf_cleanup_work (the old value is this roster minus that name).
+                "05deeab173e4c2024816ab6e66b8fe398da0889654a489ab8ff6ddeb44590221",
             )
 
         assert_tool_registry(names)

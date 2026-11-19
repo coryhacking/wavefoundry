@@ -14,8 +14,21 @@ import render_agent_surfaces as ras
 import vocabulary_profile as vp
 from upstream_fixture_support import source_repository_fixture
 
+import test_rust_practices_baseline as baseline_tests
+
 FRAMEWORK = SCRIPTS.parent
 ROOT = FRAMEWORK.parent.parent
+BASELINE = baseline_tests.BASELINE
+RECORD = "docs/contributing/rust-best-practices.md"
+RUST_PRECEDENCE = (
+    r"record.*governs",
+    r"where the record is silent, the project's existing configuration and dominant patterns govern",
+    r"informs proposals only",
+    r"relevant baseline entry through its index, not the whole document",
+    r"Propose, never apply, a baseline practice",
+)
+# Rust-specific tokens that must not appear in the all-stacks blocks.
+RUST_TOKENS = ("Rust", "Cargo", "Clippy", "rust-practices", "rust-best-practices", "crate")
 
 
 def seed(number: str) -> str:
@@ -145,7 +158,7 @@ class LanguageGuidanceTests(unittest.TestCase):
         for number, path in (("212", "docs/agents/performance-reviewer.md"),
                              ("212", "docs/prompts/agents/performance-reviewer.prompt.md"),
                              ("222", "docs/agents/software-engineer.md"),
-                             ("180", "docs/prompts/implement-change.prompt.md")):
+                             ("180", "docs/prompts/implement-spec.prompt.md")):
             with self.subTest(seed=number):
                 self.assert_existing_merge(text, number, path)
                 with self.assertRaises(AssertionError):
@@ -157,6 +170,97 @@ class LanguageGuidanceTests(unittest.TestCase):
         perf_rule = next(p for p in paragraphs(text) if "212" in p and "docs/agents/performance-reviewer.md" in p)
         self.assertRegex(perf_rule, r"(?i)replace.*inherited")
         self.assertRegex(perf_rule, r"(?i)when present|if present")
+
+    def assert_rust_precedence(self, text: str) -> None:
+        block = re.search(r"(?ms)^\*\*Rust[^\n]*\n(.*?)(?=^---|^\*\*|^##|\Z)", text)
+        self.assertIsNotNone(block)
+        rust = block.group(0)
+        for pattern in RUST_PRECEDENCE:
+            self.assertRegex(rust, pattern)
+        self.assertIn(f"`{BASELINE}`", rust)
+        self.assertIn(f"`{RECORD}`", rust)
+        for name in ("Backend", "SQL", "Testing"):
+            shared = re.search(rf"(?ms)^\*\*{name}[^\n]*\(all stacks\)\*\*\n(.*?)(?=^---|^\*\*|^##|\Z)", text)
+            self.assertIsNotNone(shared, name)
+            for token in RUST_TOKENS:
+                self.assertNotIn(token, shared.group(0), (name, token))
+
+    def test_rust_block_carries_record_precedence(self):
+        text = seed("222")
+        self.assert_rust_precedence(text)
+        self.assertIn("Candidate lints, as proposals only", text)
+        self.assertRegex(text, r"(?i)never enable them automatically or without explicit operator direction")
+        line = next(l for l in text.splitlines() if l.startswith("- Propose, never apply"))
+        moved = text.replace(line + "\n", "", 1).replace(
+            "**Backend and service development (all stacks)**\n",
+            "**Backend and service development (all stacks)**\n" + line + "\n", 1)
+        bolded = text.replace(line, "**Note:** " + line[2:], 1)
+        for mutant in (moved, bolded):
+            with self.assertRaises(AssertionError):
+                self.assert_rust_precedence(mutant)
+
+    def assert_reviewer_rust_sentence(self, paragraph: str) -> None:
+        for pattern in (r"For Rust, review the change against the project's record", r"citing the row",
+                        r"reasoned N/A when the project has no record", r"claimed verification"):
+            self.assertRegex(paragraph, pattern)
+        self.assertIn(f"`{RECORD}`", paragraph)
+
+    def test_reviewer_workaround_check_cites_the_rust_record(self):
+        check = next(p for p in paragraphs(seed("221")) if "workaround" in p.lower())
+        self.assert_reviewer_rust_sentence(check)
+        with self.assertRaises(AssertionError):
+            self.assert_reviewer_rust_sentence(re.sub(r" For Rust, review.*", "", check))
+        reviewer = source_repository_fixture(ROOT / "docs/agents/code-reviewer.md").read_text(encoding="utf-8")
+        local = next(l for l in reviewer.splitlines() if "Compiler and type-checker workarounds" in l)
+        self.assert_reviewer_rust_sentence(local)
+
+    def test_upgrade_merge_rules_name_builder_and_review_carriers(self):
+        text = seed("160")
+        self.assert_existing_merge(text, "222", "docs/agents/software-engineer.md")
+        self.assert_existing_merge(text, "221", "docs/agents/code-reviewer.md")
+        removed = "\n".join(l for l in text.splitlines() if "Changed project-owned review carriers" not in l)
+        with self.assertRaises(AssertionError):
+            self.assert_existing_merge(removed, "221", "docs/agents/code-reviewer.md")
+
+    def assert_record_offer(self, text: str, blocked: str) -> None:
+        lines = [l for l in text.splitlines() if "Rust record offer" in l]
+        self.assertEqual(len(lines), 1)
+        offer = lines[0]
+        self.assertRegex(offer, r"^\s+- ")
+        for pattern in (r"one informational line", rf"does not block {blocked}", r"existing record is left unchanged",
+                        r"Cargo\.toml", r"ordinary planned change", r"decision left for the operator"):
+            self.assertRegex(offer, pattern)
+        self.assertIn(f"`{RECORD}`", offer)
+        self.assertIn(f"`{BASELINE}`", offer)
+
+    def test_install_and_upgrade_summaries_offer_the_record(self):
+        upgrade, install = seed("160"), seed("012")
+        self.assert_record_offer(upgrade, "the upgrade")
+        self.assert_record_offer(install, "installation")
+        summary = re.search(r"(?ms)^### 2\.15 .*?(?=^### |\Z)", install).group(0)
+        topics = re.findall(r"^\d+\. \*\*(.+?)\*\*", summary, re.MULTILINE)
+        self.assertEqual(len(topics), 8)
+        self.assertIn("This eight-topic list is the authoritative structure", summary)
+        self.assertIn("Rust record offer", summary)
+        for mutant in (install.replace("does not block installation", "must finish first", 1),
+                       install.replace("   - Rust record offer", "- Rust record offer", 1),
+                       install.replace(", and an existing record is left unchanged", "", 1)):
+            with self.assertRaises(AssertionError):
+                self.assert_record_offer(mutant, "installation")
+
+    def changed_rust_sentences(self) -> list[str]:
+        rust = re.search(r"(?ms)^\*\*Rust[^\n]*\n(.*?)(?=^---|^\*\*|^##|\Z)", seed("222")).group(0)
+        review = next(p for p in paragraphs(seed("221")) if "workaround" in p.lower())
+        offers = [l for number in ("160", "012") for l in seed(number).splitlines() if "Rust record offer" in l]
+        return [rust, review.split("For Rust,", 1)[1], *offers]
+
+    def test_changed_rust_seed_text_has_no_agent_imperative_or_identifier(self):
+        for sentence in self.changed_rust_sentences():
+            with self.subTest(sentence=sentence[:60]):
+                self.assertEqual(baseline_tests.imperative_hits(sentence), [])
+                self.assertEqual(baseline_tests.identifier_hits(sentence), [])
+        self.assertTrue(baseline_tests.imperative_hits("Then add the lint to the manifest file."))
+        self.assertTrue(baseline_tests.identifier_hits("As decided in 2abcd."))
 
     def test_local_carriers_keep_project_guidance_and_receive_additions(self):
         def local(path):

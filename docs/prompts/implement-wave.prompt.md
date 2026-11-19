@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-11
+Last verified: 2026-11-18
 
 Shortcut: **`Implement wave`**
 
 ## Host-neutral orchestration
 
-Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose models and reasoning effort per implementation or verification task; accept changes only after coordinator integration checks. Use only available host capabilities; sequential implementation does not satisfy required independent review.
+Follow `.wavefoundry/framework/seeds/180-implement-spec.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose models and reasoning effort per implementation or verification task; accept changes only after coordinator integration checks. Use only available host capabilities; sequential implementation does not satisfy required independent review.
 
 ## Purpose and readiness
 
@@ -16,7 +16,7 @@ Implement the admitted changes, then hand the evidence to **Review wave**. **Pre
 
 Activation enforces the single-OPEN invariant: pause any other OPEN wave in the same configured activation scope before `wf_implement_wave` opens this readied wave.
 
-**Structural workarounds.** When the only local fix to a compiler, borrow-checker or type-checker error is a structural workaround, stop and report the ownership or type conflict to the coordinator. With no coordinator, record the conflict in the change doc and resolve it within admitted scope; ask the operator only when the fix leaves that scope. This adds no approval or gate and preserves the existing operator decision for deviation from a dominant pattern.
+**Structural workarounds.** When the only local fix to a compiler, borrow-checker or type-checker error is a structural workaround, stop and report the ownership or type conflict to the coordinator. With no coordinator, record the conflict in the spec and resolve it within admitted scope; ask the operator only when the fix leaves that scope. This adds no approval or gate and preserves the existing operator decision for deviation from a dominant pattern.
 
 **Readback before editing:**
 
@@ -32,7 +32,7 @@ Correct an agent-only misreading directly from the established requirement. Rout
 4. Run focused tests per change and the canonical suite before delivery review; verify that the change addresses the stated problem.
 5. Follow seed 209's typed authoring contract: the coordinator is the writing hand; record `repair_start` before mutation and obtain distinct fresh reverification, treating `recommended_fix` as a hypothesis to re-derive from the code.
 
-- **Landing rule for guards** (seed 180/209, wave `1wuju`): a guard, validator member, carve-out, or tuning constant is landed only when a named test fails with it deleted or loosened; record the mutant and the failing test in the change doc's Progress Log before requesting review. A pin that passes for an unrelated reason is not a pin.
+- **Landing rule for guards** (seed 180/209, wave `1wuju`): a guard, validator member, carve-out, or tuning constant is landed only when a named test fails with it deleted or loosened; record the mutant and the failing test in the spec's Progress Log before requesting review. A pin that passes for an unrelated reason is not a pin.
 - **External blockers** (seed 209): when a gate is blocked by an artifact this wave does not own, present the exact fix and a yes/no decision to the operator in the same message that reports the block.
 
 ## Framework Script Changes
@@ -51,7 +51,7 @@ Before the first edit, call `memory_brief(context='pre_implementation', targets=
 
 Keep routine briefings, per-seat reports, probe captures, source baselines and green logs in task context or the lifecycle-reported disposable work area. Consolidate final outcomes and evidence in the existing wave/change records under seed 209's Review Artifact Discipline; preserve cited and unique proof, explaining retained exceptions inline in `wave.md`.
 
-Consume successful typed-write continuation actions and confirm current readiness/delivery authority without repeating unchanged review or list calls. Finish material verification-input edits before the canonical suite; validated routine ledger/projection updates and normalized progress/status/completion may continue under seed 209's Continuation And Qualification Discipline. Use Progress Log during a run and update the standalone session handoff outside it. Routine recording alone does not require another suite or reviewer cycle; reuse only a successful receipt matching current inputs. Required lanes, focused independent repair review and final full docs validation remain unchanged. An operator-authorized close uses one canonical mutation; dry-run resolves uncertain checks and is not a compulsory extra gate.
+Consume successful typed-write continuation actions and confirm current readiness/delivery authority without repeating unchanged review or list calls. Finish material verification-input edits before the canonical suite; validated routine ledger/projection updates and normalized progress/status/completion may continue under seed 209's Continuation And Qualification Discipline. Use Progress Log during a run; the standalone session handoff and other documentation outside the wave under test may also change during it, as seed 209 describes. Routine recording alone does not require another suite or reviewer cycle; reuse only a successful receipt matching current inputs. Required lanes, focused independent repair review and final full docs validation remain unchanged. An operator-authorized close uses one canonical mutation; dry-run resolves uncertain checks and is not a compulsory extra gate.
 
 Implementation is complete only when the admitted behavior, docs, tests, and review evidence agree. It does not authorize commit, release, or wave closure.
 
@@ -109,3 +109,5 @@ Repository-wide single-OPEN activation is the default. Distributions may set `re
 ## Disposable work
 
 Use the lifecycle-reported `.wavefoundry/work/<wave-id>/`, keyed by the resolved unique prefix, for shared temporary work; include the path and availability notices in coordinator briefs. Follow seed 180’s **Disposable work** and seed 209’s **Review Artifact Discipline**. Reads and dry-runs create nothing; unavailable work is advisory and existing host permissions apply.
+
+Write every file you create for a wave, including coordinator briefs, logs, captured test output and build output, inside that wave's own work folder, in a child folder when that helps; never write a file directly in `.wavefoundry/work/`. Before the wave exists, keep the content in task context until a lifecycle call reports the work area. `wf_audit` and close report files and links left directly in the work root as the advisory `work_root_loose_files`. If you wrote such a file for a wave, move it into that wave's folder while the wave is open, or delete it. Leave any other loose file in place, including one you are not sure you wrote (a name that starts with a wave id does not prove who wrote it), and report it to the operator, who decides. Never move a file you did not write into a wave's folder: close removes that folder with everything in it.

@@ -5,7 +5,7 @@ Intent:
 - Identify and generate persona agents that represent the users, operators, administrators, and deployers of the software system being built.
 - Ground persona synthesis in project evidence. When evidence is insufficient, ask the user targeted questions before generating personas.
 
-Persona agents are distinct from agent roles. Agent roles (planner, implementer, reviewer, wave-coordinator) represent the AI participants who build the software. Persona agents represent the humans who use, operate, deploy, or administer it. Both are invocable agents in the workflow, but personas give the user perspective during design, spec authoring, and acceptance.
+Persona agents are distinct from agent roles. Agent roles (planner, implementer, reviewer, wave-coordinator) represent the AI participants who build the software. Persona agents represent the humans who use, operate, deploy, or administer it. Both are invocable agents in the workflow, but personas give the user perspective during design, behavior contract authoring, and acceptance.
 
 Evidence sources to inspect:
 
@@ -30,7 +30,7 @@ Tasks:
    - **Goals** — what outcomes they rely on the system to deliver
    - **Workflows** — how they set up, configure, and use the system day-to-day; when `docs/architecture/domain-map.md` (and `data-and-control-flow.md` when present) name deployable domains, reference those **same names** for touchpoints (for example which app, daemon, or API surface the persona interacts with)
    - **Failure modes** — what goes wrong for them and how they recognize it
-   - **Invocation signals** — which phases and change types should invoke this persona (spec authoring, design review, acceptance, edge-case analysis)
+   - **Invocation signals** — which phases and change types should invoke this persona (behavior contract authoring, design review, acceptance, edge-case analysis)
    - **Operating identity** — the persona's stance, priorities, decision pressure, success criteria, and what they are responsible for noticing during software delivery
    - **Salience triggers** — persona-specific signals that should cause an agent to stop and record a typed memory candidate before context is lost, such as repeated workflow friction, trust-risk, operator-signal, confidence-shift, or a hard-to-rediscover domain constraint
 5. Do not generate persona journals — the journal system is retired. Durable persona lessons are captured as typed memory records with evidence references and validated at wave close.
@@ -76,10 +76,10 @@ Persona docs-lint contract (exact structure the docs gate enforces — author to
 - **`## Operating identity`** must describe the persona perspective or role (one of: persona, perspective, role, evaluate, protect).
 - **`## Salience triggers`** must contain at least one salience-marker word: `critical`, `high`, `medium`, `low`, `operator`, `compaction`, `restart`, `regression`, `security`, `release`, or `trust`.
 
-**Do not add a `## Scope` section.** `## Scope` is a plan/change doc concept — it describes what a wave or change covers. It has no meaning in a persona doc, which defines a user or operator role, not a delivery boundary. The docs gate rejects any persona doc that contains `## Scope`.
+**Do not add a `## Scope` section.** `## Scope` is a plan/spec concept — it describes what a wave or change covers. It has no meaning in a persona doc, which defines a user or operator role, not a delivery boundary. The docs gate rejects any persona doc that contains `## Scope`.
 
 Persona docs use only these sections (short reference):
 
 **Who** · **Goals** · **Workflows** · **Failure modes** · **Invocation signals** · **Operating identity** · **Salience triggers**
 
-**Do not include wave-id references in persona doc content.** A wave-id records when a persona was synthesized — it is synthesis metadata, not part of the persona's definition. Wave-id references belong in wave records and change docs, not in persona docs. A persona's evidence should be embedded inline in the **Who** and **Goals** sections where it is contextually useful (e.g. "Evidence: E2E fixtures distinguish admin vs. non-admin users in `apps/web/e2e/...`").
+**Do not include wave-id references in persona doc content.** A wave-id records when a persona was synthesized — it is synthesis metadata, not part of the persona's definition. Wave-id references belong in wave records and specs, not in persona docs. A persona's evidence should be embedded inline in the **Who** and **Goals** sections where it is contextually useful (e.g. "Evidence: E2E fixtures distinguish admin vs. non-admin users in `apps/web/e2e/...`").

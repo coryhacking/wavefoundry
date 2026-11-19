@@ -21,7 +21,7 @@ This specialist runs in one of two modes, dispatched by the coordinator:
 
 Used during readiness (before implementation). Focus: challenge the plan itself before any code is written.
 
-- Identify the three to five highest-risk assumptions in the change doc.
+- Identify the three to five highest-risk assumptions in the spec.
 - For each: state the assumption, ask what breaks if it is wrong, and say what evidence would be needed to verify it.
 - Challenge scope boundaries: is the claimed non-goal actually safe to defer? Is the scope large enough to deliver the stated outcome?
 - Challenge acceptance criteria: are they testable without ambiguity? Are the success conditions reachable given the current architecture?

@@ -607,9 +607,48 @@ def is_operator_finding_evidence(record: Mapping[str, Any]) -> bool:
     )
 
 
+def _specialist_readiness_identity(signoff_key: Any, actor: Any, phase: Any) -> bool:
+    """The existing exact specialist identity, with no council/operator exception."""
+    return (
+        _nonempty_string(signoff_key)
+        and actor == signoff_key
+        and actor != "operator"
+        and not is_council_actor(actor)
+        and signoff_key != "operator-signoff"
+        and not is_council_signoff_key(signoff_key)
+        and phase == "readiness"
+    )
+
+
+def _specialist_readiness_record(record: Mapping[str, Any]) -> bool:
+    context = record.get("verification_context")
+    claim = record.get("claim_id")
+    return (
+        record.get("claim_kind") == "approval"
+        and isinstance(claim, str) and claim.startswith("approval:")
+        and isinstance(context, Mapping)
+        and _specialist_readiness_identity(
+            claim.removeprefix("approval:"), context.get("actor"), approval_record_phase(record)
+        )
+    )
+
+
+READINESS_KNOWN_BAD_GUIDANCE = (
+    "At readiness, use a refuted plan claim, a deliberately omitted known census "
+    "site, or a rejected invalid review input when applicable. Only an unaffected "
+    "specialist readiness approval may explicitly set known_bad_detected=null, "
+    "with known_bad_detection_method explaining the inspected scope and why no "
+    "surface in that lane is affected. No findings, an unrun control or missing "
+    "evidence does not establish non-applicability. Never change false to true "
+    "merely to pass validation. Council and delivery approvals still require true."
+)
+
+
 def _accepts_not_applicable_integrity(record: Mapping[str, Any]) -> bool:
-    """Null integrity checks are legal only on an operator sign-off approval record
-    and on the operator's own finding evidence (the operator close)."""
+    """Whole-record null exception for operator signoff and operator-close evidence.
+
+    The specialist readiness exception is field-specific and handled separately.
+    """
     return (
         record.get("claim_kind") == "approval" and is_operator_approval_record(record)
     ) or is_operator_finding_evidence(record)
@@ -798,12 +837,18 @@ def review_action_input_schema() -> dict[str, Any]:
             **{
                 field: {
                     "kind": "boolean",
-                    "null_allowed_for": ["operator-signoff"],
+                    "null_allowed_for": ["operator-signoff"] + (
+                        ["specialist-readiness-with-scope-rationale"]
+                        if field == "known_bad_detected" else []
+                    ),
                     "null_meaning": "not applicable",
                 }
                 for field in INTEGRITY_CHECK_BOOLEAN_FIELDS
             },
-            INTEGRITY_CHECK_METHOD_FIELD: {"kind": "string"},
+            INTEGRITY_CHECK_METHOD_FIELD: {
+                "kind": "string",
+                "meaning": "Detection method, or inspected-scope rationale for an unaffected specialist readiness lane",
+            },
         },
     }
 
@@ -1901,6 +1946,118 @@ def _approval_rows(
     }
 
 
+# Change 23q1h: the criterion status a council-delivery or operator-signoff
+# approval saw. The tool appends it as the final line of the record's free-text
+# `limitations`, which earlier frameworks accept; no record field is added.
+CRITERION_STATUS_LINE_PREFIX = "Criterion status when recorded: "
+CRITERION_STATUS_SIGNOFF_KEYS = (COUNCIL_DELIVERY_SIGNOFF_KEY, "operator-signoff")
+
+
+def criterion_note_hash(notes: Iterable[str]) -> str:
+    """First 12 hex characters of SHA-256 over the notes joined by ``\\n``; ``""`` for none."""
+
+    notes = tuple(notes)
+    if not notes:
+        return ""
+    return hashlib.sha256("\n".join(notes).encode("utf-8")).hexdigest()[:12]
+
+
+def criterion_status_map(
+    change_texts: Mapping[str, str],
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Per change id, each criterion with a leading AC id that is deferred or noted.
+
+    Items and notes are read by ``gardener_metadata.criterion_statuses``, the
+    reading the review-policy digest uses. A duplicate AC id keeps its first
+    criterion.
+    """
+
+    import change_doc_checklist
+    import gardener_metadata
+
+    result: dict[str, dict[str, dict[str, Any]]] = {}
+    for change_id, text in change_texts.items():
+        entries: dict[str, dict[str, Any]] = {}
+        for status in gardener_metadata.criterion_statuses(text):
+            if not (status["deferred"] or status["notes"]):
+                continue
+            ac_id = change_doc_checklist.leading_ac_id(str(status["text"]))
+            if ac_id is None:
+                continue
+            entries.setdefault(ac_id, {
+                "deferred": bool(status["deferred"]),
+                "note": criterion_note_hash(status["notes"]),
+            })
+        result[change_id] = entries
+    return result
+
+
+def format_criterion_status_line(status_map: Mapping[str, Any]) -> str:
+    """The recorded line: the prefix and compact, key-sorted ASCII JSON."""
+
+    return CRITERION_STATUS_LINE_PREFIX + json.dumps(
+        status_map, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
+
+
+def parse_criterion_status_line(limitations: Any) -> dict[str, dict[str, dict[str, Any]]] | None:
+    """The map from the FINAL line of ``limitations``; ``None`` when absent or malformed."""
+
+    if not isinstance(limitations, str):
+        return None
+    last = limitations.split("\n")[-1]
+    if not last.startswith(CRITERION_STATUS_LINE_PREFIX):
+        return None
+    try:
+        value = json.loads(last[len(CRITERION_STATUS_LINE_PREFIX):])
+    except ValueError:
+        return None
+    if not isinstance(value, dict):
+        return None
+    for entries in value.values():
+        if not isinstance(entries, dict):
+            return None
+        for entry in entries.values():
+            if (
+                not isinstance(entry, dict)
+                or set(entry) != {"deferred", "note"}
+                or not isinstance(entry["deferred"], bool)
+                or not isinstance(entry["note"], str)
+            ):
+                return None
+    return value
+
+
+def criterion_status_changes(
+    recorded: Mapping[str, Mapping[str, Mapping[str, Any]]],
+    current: Mapping[str, Mapping[str, Mapping[str, Any]]],
+) -> list[tuple[str, str, str]]:
+    """``(change id, AC id, case)`` for each criterion narrowed after the record.
+
+    Only change ids the record lists are compared. A criterion deferred or
+    noted now is reported when it was not recorded (``deferred`` or
+    ``noted``), when it is deferred now and was recorded as not deferred
+    (``deferred``), or when its note hash differs (``note changed``). A
+    criterion recorded but now neither deferred nor noted is not reported.
+    """
+
+    changes: list[tuple[str, str, str]] = []
+    for change_id in sorted(recorded):
+        then_entries = recorded[change_id]
+        for ac_id, now in sorted((current.get(change_id) or {}).items()):
+            then = then_entries.get(ac_id)
+            if then is None:
+                case = "deferred" if now["deferred"] else "noted"
+            elif now["deferred"] and not then["deferred"]:
+                case = "deferred"
+            elif now["note"] != then["note"]:
+                case = "note changed"
+            else:
+                continue
+            changes.append((change_id, ac_id, case))
+    return changes
+
+
 UNSETTLED_SECURITY_NEXT_ACTION = (
     "operator decision required: settle by fresh evidence, or the operator closes it"
 )
@@ -2284,12 +2441,138 @@ def _guided_repair_cycle(records: Iterable[Mapping[str, Any]]) -> int:
     return highest + 1 if highest in completed else highest
 
 
+_WAVE_RECORD_CLOSED_RE = re.compile(r"(?mi)^Status:\s*closed\s*$")
+
+
+def wave_record_closed(wave_text: str | None) -> bool:
+    """Whether a wave record's status is closed, by the predicate lint uses.
+
+    Change 23q1g: a closed wave's review status is never re-derived under the
+    delivery membership rule, so every render that has the record's text
+    reads the status with this one predicate.
+    """
+    return bool(wave_text) and _WAVE_RECORD_CLOSED_RE.search(str(wave_text)) is not None
+
+
+def receipt_change_ids(receipt: Mapping[str, Any] | None) -> frozenset[str] | None:
+    """The change ids a review-policy receipt lists, or None without that data.
+
+    The data is the receipt's ``policy_inputs.changes`` list. A missing or
+    non-list value is no data; an empty list is data (no change listed).
+    """
+    if not isinstance(receipt, Mapping):
+        return None
+    inputs = receipt.get("policy_inputs")
+    changes = inputs.get("changes") if isinstance(inputs, Mapping) else None
+    if not isinstance(changes, list):
+        return None
+    return frozenset(
+        str(entry["change_id"])
+        for entry in changes
+        if isinstance(entry, Mapping) and isinstance(entry.get("change_id"), str)
+    )
+
+
+def delivery_approval_admissions(
+    rows: tuple[Mapping[str, Any], ...],
+    approval_position: int,
+    current_receipt: Mapping[str, Any] | None,
+) -> tuple[str, ...]:
+    """Change ids admitted after a delivery approval was recorded (change 23q1g).
+
+    The receipt in force at the approval is the last ``review_policy_receipt``
+    whose ledger index is below the approval's; the ledger is append-only, so
+    order is the record of what was in force. Ids are compared whole. When no
+    receipt precedes the approval, or either receipt has no change-set data,
+    nothing is reported, so the approval stays current.
+    """
+    if current_receipt is None or approval_position < 0:
+        return ()
+    in_force = None
+    for row in rows[:approval_position]:
+        if row.get("record_type") == review_policy.REVIEW_POLICY_RECEIPT_RECORD_TYPE:
+            in_force = row
+    if in_force is None:
+        return ()
+    before = receipt_change_ids(in_force)
+    now = receipt_change_ids(current_receipt)
+    if before is None or now is None:
+        return ()
+    return tuple(sorted(now - before))
+
+
+_DELIVERY_ADVISORY_SECTION_NAMES = frozenset({"requirements", "acceptance criteria"})
+
+
+def delivery_section_change_advisories(
+    records: Iterable[Mapping[str, Any]],
+) -> tuple[dict[str, Any], ...]:
+    """Requirements or criteria text changed since a delivery approval (change 23q1g).
+
+    Advisory only: it never changes an approval's currency and is never
+    written into the persisted status text. For each receipt in force at a
+    latest delivery approval that is not the current receipt, the existing
+    section comparison is filtered to Requirements and Acceptance Criteria of
+    changes both receipts list. When the comparison is unavailable (the
+    normalizer differs, or a receipt has no review context) the entry says
+    so with the comparison's limitations.
+    """
+    rows = tuple(dict(record) for record in records)
+    current = current_policy_receipt(rows)
+    if current is None:
+        return ()
+    receipt_type = review_policy.REVIEW_POLICY_RECEIPT_RECORD_TYPE
+    in_force_by_id: dict[str, dict[str, Any]] = {}
+    for claim, (position, _record) in _approval_rows(rows, approval_phase="delivery").items():
+        in_force = None
+        for row in rows[:position]:
+            if row.get("record_type") == receipt_type:
+                in_force = row
+        if in_force is None or in_force.get("receipt_id") == current.get("receipt_id"):
+            continue
+        entry = in_force_by_id.setdefault(
+            str(in_force.get("receipt_id")), {"receipt": in_force, "signoff_keys": []}
+        )
+        entry["signoff_keys"].append(claim.removeprefix("approval:"))
+    advisories: list[dict[str, Any]] = []
+    for receipt_id, entry in sorted(in_force_by_id.items()):
+        comparison = review_policy.compare_receipt_sections(entry["receipt"], current)
+        base = {
+            "in_force_receipt_id": receipt_id,
+            "current_receipt_id": str(current.get("receipt_id")),
+            "signoff_keys": sorted(entry["signoff_keys"]),
+        }
+        if not comparison["available"]:
+            advisories.append({
+                **base, "available": False, "changes": [],
+                "limitations": list(comparison["limitations"]),
+            })
+            continue
+        changes = []
+        for document in comparison["documents"]:
+            if document.get("status") != "changed":
+                continue
+            sections = sorted({
+                str(section["heading"])
+                for section in document.get("sections", [])
+                if str(section.get("key", "")).split(":", 1)[-1]
+                in _DELIVERY_ADVISORY_SECTION_NAMES
+            })
+            if sections:
+                changes.append({"change_id": document["change_id"], "sections": sections})
+        if changes:
+            advisories.append({**base, "available": True, "changes": changes, "limitations": []})
+    return tuple(advisories)
+
+
 def review_authority_projection(
     records: Iterable[Mapping[str, Any]],
     required_signoff_keys: Iterable[str],
     *,
     approval_phase: str | None = None,
     required_run_kind: str | None = None,
+    wave_closed: bool = False,
+    rerecord_signoff_keys: Iterable[str] = (),
 ) -> dict[str, Any]:
     """Derive the canonical structured current-state and guided actions.
 
@@ -2297,8 +2580,21 @@ def review_authority_projection(
     presentations and the guided review surface.  It deliberately owns the
     approval-affect relation so callers never parse ``why`` prose or reproduce
     ``_finding_affects_signoff``.
+
+    Change 23q1g: a delivery-phase approval (decided by
+    ``approval_record_phase``) is not current when the current receipt lists a
+    change id absent from the receipt in force when it was recorded.
+    ``wave_closed`` is the wave record's status; a closed wave's status is
+    never re-derived under that rule. The default applies the rule, so a
+    caller that forgets to pass the status shows a difference rather than
+    silently disabling it.
+
+    Change 23q1h: ``rerecord_signoff_keys`` names current approvals the
+    delivery gate requires to be recorded again; each gets the approval
+    action while its status row is left as the ledger reads it.
     """
 
+    rerecord = {canonical_signoff_key(key) for key in rerecord_signoff_keys}
     rows = tuple(dict(record) for record in records)
     if approval_phase is not None and approval_phase not in APPROVAL_PHASES:
         raise ValueError("approval_phase must be readiness or delivery")
@@ -2468,11 +2764,22 @@ def review_authority_projection(
             and approval_record.get("policy_receipt_id")
             == current_receipt.get("receipt_id")
         )
+        # Change 23q1g: membership currency for delivery-phase approvals.
+        admitted_after_approval: tuple[str, ...] = ()
+        if (
+            not wave_closed
+            and approval_record is not None
+            and approval_record_phase(approval_record) == "delivery"
+        ):
+            admitted_after_approval = delivery_approval_admissions(
+                rows, approval_position, current_receipt
+            )
         approval_valid = bool(
             approval_record is not None
             and actor_valid
             and independence_valid
             and receipt_binding_current
+            and not admitted_after_approval
         )
         blocking: list[dict[str, Any]] = []
         for fact in finding_facts:
@@ -2558,6 +2865,16 @@ def review_authority_projection(
             state = "pending"
             if approval_record is None:
                 why = "no current executed approval"
+            elif admitted_after_approval:
+                listed = ", ".join(f"`{item}`" for item in admitted_after_approval[:8])
+                if len(admitted_after_approval) > 8:
+                    listed += f" (+{len(admitted_after_approval) - 8} more)"
+                why = (
+                    "approval predates the admission of "
+                    f"{_vocab.tier_noun('item', plural=len(admitted_after_approval) > 1)} "
+                    f"{listed}: the receipt in force when it was recorded did not list "
+                    f"{'them' if len(admitted_after_approval) > 1 else 'it'}"
+                )
             elif not context_valid:
                 why = (
                     "approval evidence has a missing or malformed "
@@ -2602,12 +2919,20 @@ def review_authority_projection(
             why = f"{why}; {unsettled_why}" if state == "withheld" else unsettled_why
             next_action = UNSETTLED_SECURITY_NEXT_ACTION
             state = "withheld"
+        known_bad_na_reason = None
+        if (approval_record is not None and _specialist_readiness_record(approval_record)
+                and "known_bad_detected" in approval_record
+                and approval_record["known_bad_detected"] is None):
+            known_bad_na_reason = str(approval_record.get("known_bad_detection_method", ""))
+            why += "; known-bad control not applicable: " + known_bad_na_reason
         status_row = {
             "signoff_key": key,
             "state": state,
             "why": why,
             "next_action": next_action,
         }
+        if known_bad_na_reason is not None:
+            status_row["known_bad_not_applicable_reason"] = known_bad_na_reason
         status_rows.append(status_row)
         # Presence, validity and finding currency are different facts. Keep
         # the historical status vocabulary while exposing the precise cause
@@ -2616,7 +2941,7 @@ def review_authority_projection(
             approval_state = "absent"
         elif not (context_valid and actor_valid and independence_valid):
             approval_state = "invalid"
-        elif not receipt_binding_current:
+        elif not receipt_binding_current or admitted_after_approval:
             approval_state = "stale"
         elif blocking or operator_unsettled:
             approval_state = "withheld"
@@ -2751,7 +3076,10 @@ def review_authority_projection(
             continue
         if (
             not required_run_present
-            or fact["approval_current"]
+            or (
+                fact["approval_current"]
+                and canonical_signoff_key(fact["signoff_key"]) not in rerecord
+            )
             or fact["has_unresolved_blocking_findings"]
         ):
             continue
@@ -2837,11 +3165,13 @@ def review_status_rows(
     required_signoff_keys: Iterable[str],
     *,
     approval_phase: str | None = None,
+    wave_closed: bool = False,
 ) -> tuple[dict[str, Any], ...]:
     """Preserve the historical presentation over the structured authority."""
 
     projection = review_authority_projection(
-        records, required_signoff_keys, approval_phase=approval_phase
+        records, required_signoff_keys, approval_phase=approval_phase,
+        wave_closed=wave_closed,
     )
     return tuple(projection["status_rows"])
 
@@ -2849,12 +3179,18 @@ def review_status_rows(
 def review_status_human_table(
     records: Iterable[Mapping[str, Any]],
     required_signoff_keys: Iterable[str],
+    *,
+    wave_closed: bool = False,
 ) -> str:
     lines = [
         "| Signoff | State | Why | Next action |",
         "| --- | --- | --- | --- |",
     ]
-    status_rows = review_status_rows(records, required_signoff_keys)
+    records = tuple(records)
+    required_signoff_keys = tuple(required_signoff_keys)
+    status_rows = review_status_rows(
+        records, required_signoff_keys, wave_closed=wave_closed
+    )
     if not status_rows:
         lines.append("| — | — | — | — |")
     for row in status_rows:
@@ -2866,6 +3202,15 @@ def review_status_human_table(
             )
             + " |"
         )
+    # The main table defaults specialist rows to delivery. Preserve the distinct
+    # readiness N/A account without claiming a delivery approval or a detected defect.
+    for row in review_status_rows(
+        records, required_signoff_keys, approval_phase="readiness",
+        wave_closed=wave_closed,
+    ):
+        if "known_bad_not_applicable_reason" in row:
+            lines.append("\nReadiness " + _markdown_cell(row["signoff_key"]) + ": "
+                         + _markdown_cell(row["why"]) + ".")
     return "\n".join(lines)
 
 
@@ -3246,9 +3591,15 @@ class ReviewAuthority:
 
     def _typed_state(self, key: str, approval_phase: str) -> str:
         rows = review_status_rows(
-            self.records, (key,), approval_phase=approval_phase
+            self.records, (key,), approval_phase=approval_phase,
+            wave_closed=self.wave_closed,
         )
         return rows[0]["state"] if rows else "pending"
+
+    @property
+    def wave_closed(self) -> bool:
+        """The record's status, read from its text (change 23q1g)."""
+        return wave_record_closed(self.wave_text)
 
     def signoff_current(
         self,
@@ -3531,7 +3882,7 @@ def render_review_status_projection(
     body = _GENERATED_SIGNOFF_LINE_RE.sub(preserve_generated, body).strip("\r\n")
     owned = (
         f"{REVIEW_STATUS_MARKER_BEGIN}\n"
-        f"{review_status_human_table(rows, keys)}\n"
+        f"{review_status_human_table(rows, keys, wave_closed=wave_record_closed(text))}\n"
         f"{REVIEW_STATUS_MARKER_END}"
     )
     # ``_REVIEW_EVIDENCE_SECTION_RE`` consumes the heading's terminating LF.
@@ -3654,7 +4005,9 @@ def _retained_context_description(context_id: Any, repair_id: str) -> str:
             "record the review from a fresh context")
 
 
-def _current_review_evidence_ids(rows: list[Mapping[str, Any]]) -> set[str]:
+def _current_review_evidence_ids(
+    rows: list[Mapping[str, Any]], *, wave_closed: bool = False
+) -> set[str]:
     kinds = _evidence_run_kinds(rows)
     latest = {}
     for row in rows:
@@ -3665,17 +4018,21 @@ def _current_review_evidence_ids(rows: list[Mapping[str, Any]]) -> set[str]:
     for phase in APPROVAL_PHASES:
         for claim, (_, row) in _approval_rows(rows, approval_phase=phase).items():
             key = claim.removeprefix("approval:")
-            status = review_status_rows(rows, (key,), approval_phase=phase)
+            status = review_status_rows(
+                rows, (key,), approval_phase=phase, wave_closed=wave_closed
+            )
             if status and status[0]["state"] == "approved":
                 current.add(str(row.get("evidence_record_id")))
     return current
 
 
-def review_context_summary(records: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def review_context_summary(
+    records: Iterable[Mapping[str, Any]], *, wave_closed: bool = False
+) -> list[dict[str, Any]]:
     """Describe actual context-bearing rows, retaining superseded contradictions."""
     rows = list(records)
     kinds = _evidence_run_kinds(rows)
-    current = _current_review_evidence_ids(rows)
+    current = _current_review_evidence_ids(rows, wave_closed=wave_closed)
     summary: dict[str, dict[str, Any]] = {}
     for position, row in enumerate(rows):
         context = row.get("verification_context")
@@ -3828,6 +4185,8 @@ def _independence_defect_description(
 
 def repair_independence_violations(
     records: Iterable[Mapping[str, Any]],
+    *,
+    wave_closed: bool = False,
 ) -> tuple[str, ...]:
     """Audit current repair chains and current phase-specific approvals.
 
@@ -3911,7 +4270,7 @@ def repair_independence_violations(
             "and distinct-context reverification; that new legal chain "
             "supersedes this one and makes the close audit eligible to clear."
         )
-    current_ids = _current_review_evidence_ids(rows)
+    current_ids = _current_review_evidence_ids(rows, wave_closed=wave_closed)
     for position, row in enumerate(rows):
         if (str(row.get("evidence_record_id")) not in current_ids
                 or str(row.get("evidence_record_id")) in chain_defect_ids):
@@ -4039,10 +4398,11 @@ def build_compact_review_event(
             integrity_checks, integrity_errors = dict(OPERATOR_APPROVAL_INTEGRITY_DEFAULT), ()
         else:
             # An operator approval may state true, false or null (not applicable) per
-            # check; every other approval must affirm all five.
+            # check; specialist readiness permits only the known-bad N/A field.
             integrity_checks, integrity_errors = _validated_integrity_checks(
                 event.get("integrity_checks"), executed=not operator_approval,
                 label="approval event", allow_not_applicable=operator_approval,
+                specialist_readiness=_specialist_readiness_identity(signoff_key, actor, approval_phase),
             )
         errors.extend(integrity_errors)
         if _nonempty_string(signoff_key):
@@ -4718,10 +5078,13 @@ def _validated_integrity_checks(
     executed: bool,
     label: str,
     allow_not_applicable: bool = False,
+    specialist_readiness: bool = False,
 ) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
     """Validate the exact caller-owned integrity assertion object.
 
-    Executed approvals and findings must affirm every boolean.  Non-executed
+    Executed approvals and findings must affirm every applicable boolean.
+    Specialist readiness permits only explicit known_bad_detected null with the
+    required method carrying its scope rationale. Non-executed
     findings still use the same exact, typed shape, but may honestly carry a
     false check.  Operator sign-offs (which run no check of their own) pass
     ``allow_not_applicable`` and may also carry null, meaning not applicable.
@@ -4741,12 +5104,16 @@ def _validated_integrity_checks(
         errors.append(f"{label} integrity_checks has unsupported fields: " + ", ".join(extra))
     for field in INTEGRITY_CHECK_BOOLEAN_FIELDS:
         field_value = value.get(field)
-        if field_value is None and allow_not_applicable:
+        if field_value is None and (allow_not_applicable or (
+            specialist_readiness and field == "known_bad_detected" and field in value
+        )):
             continue
         if field_value is None and field in value:
             errors.append(
                 f"{label} integrity_checks.{field} must be boolean: null (not "
-                "applicable) is accepted only on an operator-signoff approval"
+                "applicable) is accepted on an operator-signoff approval, or only for "
+                "known_bad_detected on an unaffected specialist readiness approval. "
+                + READINESS_KNOWN_BAD_GUIDANCE
             )
         elif not isinstance(field_value, bool):
             errors.append(
@@ -4756,9 +5123,9 @@ def _validated_integrity_checks(
         elif executed and field_value is not True:
             errors.append(
                 f"executed {label} cannot carry integrity_checks.{field}=false: "
-                "affirm it honestly, or do not record the claim as executed "
-                "(for a specialist or council approval: do not approve; "
-                "record a finding or repair first)"
+                "affirm only checks actually demonstrated; otherwise do not "
+                "record the claim as executed. "
+                + READINESS_KNOWN_BAD_GUIDANCE
             )
     method = value.get(INTEGRITY_CHECK_METHOD_FIELD)
     if not _nonempty_string(method):
@@ -4999,12 +5366,16 @@ def _validate_evidence_shape(record: Mapping[str, Any], index: int) -> list[str]
         if not isinstance(record.get(field), bool):
             errors.append(f"{label}: `{field}` must be boolean")
     not_applicable_allowed = _accepts_not_applicable_integrity(record)
+    specialist_readiness = _specialist_readiness_record(record)
     for field in INTEGRITY_CHECK_BOOLEAN_FIELDS:
         value = record.get(field)
-        if value is None and field in record and not not_applicable_allowed:
+        if value is None and field in record and not (not_applicable_allowed or (
+            specialist_readiness and field == "known_bad_detected"
+        )):
             errors.append(
                 f"{label}: `{field}` must be boolean: null (not applicable) is "
-                "accepted only on an operator sign-off approval"
+                "accepted for operator evidence, or only for known_bad_detected on "
+                "an unaffected specialist readiness approval. " + READINESS_KNOWN_BAD_GUIDANCE
             )
         elif not (isinstance(value, bool) or (value is None and field in record)):
             errors.append(f"{label}: `{field}` must be boolean")
@@ -5069,14 +5440,16 @@ def _validate_evidence_shape(record: Mapping[str, Any], index: int) -> list[str]
     if record.get("execution_status") == "executed" and not (
         is_operator_approval_record(record) or is_operator_finding_evidence(record)
     ) and any(
-        record.get(field) is not True for field in integrity_fields
+        record.get(field) is not True and not (
+            specialist_readiness and field == "known_bad_detected"
+            and field in record and record[field] is None
+        ) for field in integrity_fields
     ):
         errors.append(
             f"{label}: executed evidence cannot carry a false evidence-integrity "
-            "check: affirm all five honestly, or do not record the claim as "
-            "executed (for a specialist or council approval: do not approve; "
-            "record a finding or repair first; an operator sign-off may carry false "
-            "or null (not applicable) checks)"
+            "check: affirm only checks actually demonstrated; otherwise do not "
+            "record the claim as executed. Operator signoff and operator-close "
+            "evidence retain their separate exceptions. " + READINESS_KNOWN_BAD_GUIDANCE
         )
     if record.get("claim_kind") == "lane_reassessment":
         if record.get("execution_status") != "executed":
@@ -6045,8 +6418,15 @@ __all__ = [
     "security_candidate_state",
     "security_factor_unsettled",
     "unsettled_security_factors",
+    "CRITERION_STATUS_LINE_PREFIX",
+    "CRITERION_STATUS_SIGNOFF_KEYS",
+    "criterion_note_hash",
+    "criterion_status_changes",
+    "criterion_status_map",
     "derive_review_depth",
     "empty_external_finding_synthesis_section",
+    "format_criterion_status_line",
+    "parse_criterion_status_line",
     "is_canonical_wave_events_path",
     "is_id_shaped_wave_dir_name",
     "lane_has_signoff_in_evidence",
@@ -6073,4 +6453,8 @@ __all__ = [
     "review_status_signoff_keys",
     "validate_external_review_evidence",
     "validate_review_evidence_records",
+    "delivery_approval_admissions",
+    "delivery_section_change_advisories",
+    "receipt_change_ids",
+    "wave_record_closed",
 ]

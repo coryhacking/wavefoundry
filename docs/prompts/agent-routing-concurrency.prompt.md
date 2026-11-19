@@ -2,11 +2,11 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-06
+Last verified: 2026-11-18
 
 ## Host-neutral orchestration
 
-Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neutral orchestration** across the lifecycle. Allocate only useful independent work with explicit owned/forbidden paths and dependencies; serialize shared writes and check worker tool access before delegation. Use only available host capabilities; sequential implementation does not satisfy required independent review.
+Follow `.wavefoundry/framework/seeds/180-implement-spec.prompt.md` **Host-neutral orchestration** across the lifecycle. Allocate only useful independent work with explicit owned/forbidden paths and dependencies; serialize shared writes and check worker tool access before delegation. Use only available host capabilities; sequential implementation does not satisfy required independent review.
 
 ## Read-Only vs Write-Owning Lanes
 

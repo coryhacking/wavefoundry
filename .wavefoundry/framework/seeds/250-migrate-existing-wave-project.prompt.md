@@ -64,7 +64,7 @@ Do not install the canonical framework at top-level `framework/` inside arbitrar
 ## Migration Rules
 
 - This is an explicit migration, not a silent side effect of package upgrade.
-- Preserve local `docs/`, `AGENTS.md`, waves, plans, historical journals, personas, specs, architecture docs, reports, and project-specific customizations.
+- Preserve local `docs/`, `AGENTS.md`, waves, plans, historical journals, personas, behavior contracts, architecture docs, reports, and project-specific customizations.
 - Treat `agent-workflows/wave-context-framework/` as the old vendored framework source.
 - Treat `.wavefoundry/framework/` as the new vendored framework source/cache for target repositories.
 - Treat rendered local prompt and agent surfaces under `docs/` as target-owned outputs.

@@ -1587,6 +1587,39 @@
       },
       "tier": "read"
     },
+    "wf_cleanup_work": {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "confirmation": {
+            "default": "",
+            "title": "Confirmation",
+            "type": "string"
+          },
+          "mode": {
+            "default": "dry_run",
+            "title": "Mode",
+            "type": "string"
+          },
+          "work_key": {
+            "title": "Work Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "work_key"
+        ],
+        "title": "wf_cleanup_workArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
     "wf_close_change": {
       "annotations": {
         "destructiveHint": true,

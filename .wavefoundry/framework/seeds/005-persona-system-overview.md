@@ -11,7 +11,7 @@ Persona agents represent the **humans who use or operate the software**, not the
 They are invoked during the development workflow to give the user perspective:
 
 - **Wave readiness review** — which user/operator perspectives must participate before implementation begins?
-- **Spec authoring** — does this contract cover how I actually use this?
+- **Behavior contract authoring** — does this contract cover how I actually use this?
 - **Design review** — does this change work for my configuration or workflow?
 - **Acceptance** — does this meet my goals without introducing new friction?
 - **Edge-case analysis** — what would I encounter in this situation?
@@ -24,7 +24,7 @@ Persona agents are AI agents — they can be invoked, they have defined roles, a
 |---|---|---|
 | **Who they represent** | Builders: planners, implementers, reviewers, coordinators | Users, operators, admins, deployers of the software |
 | **What they do** | Plan, implement, review, coordinate, close | Validate designs, surface user-facing edge cases, accept from the user's perspective |
-| **When invoked** | Throughout the full development workflow | During readiness review, design, spec authoring, and acceptance |
+| **When invoked** | Throughout the full development workflow | During readiness review, design, behavior contract authoring, and acceptance |
 | **Where defined** | `docs/agents/` | `docs/agents/personas/` |
 
 Do not conflate persona agents with agent roles. They are complementary, not interchangeable.
@@ -59,7 +59,7 @@ Persona docs use a fixed set of sections. Do not add sections from other doc typ
 
 **Who** · **Goals** · **Workflows** · **Failure modes** · **Invocation signals** · **Operating identity** · **Salience triggers**
 
-`## Scope` is a plan/change doc concept and must not appear in persona docs. Persona docs define a user or operator role — they do not have a delivery boundary or wave anchor. Evidence supporting a persona's existence belongs inline in **Who** and **Goals**, not in a separate section.
+`## Scope` is a plan/spec concept and must not appear in persona docs. Persona docs define a user or operator role — they do not have a delivery boundary or wave anchor. Evidence supporting a persona's existence belongs inline in **Who** and **Goals**, not in a separate section.
 
 ## Related Docs
 

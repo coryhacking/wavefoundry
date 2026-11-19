@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-11
+Last verified: 2026-11-18
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
 ## Host-neutral orchestration
 
-Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neutral orchestration** for task-fit model allocation, bounded delegation and independent handoff throughout Prepare-to-Close. Host choice is per task or wave; native wrappers remain pointers to shared project guidance. Choose model and effort per assignment using exposed host controls; inheritance is a fallback, not a decision. Keep the rationale in existing work notes and distinguish requested settings from observed runtime identity (unknown when unavailable). Check actual worker capabilities rather than assuming inherited tools.
+Follow `.wavefoundry/framework/seeds/180-implement-spec.prompt.md` **Host-neutral orchestration** for task-fit model allocation, bounded delegation and independent handoff throughout Prepare-to-Close. Host choice is per task or wave; native wrappers remain pointers to shared project guidance. Choose model and effort per assignment using exposed host controls; inheritance is a fallback, not a decision. Keep the rationale in existing work notes and distinguish requested settings from observed runtime identity (unknown when unavailable). Check actual worker capabilities rather than assuming inherited tools.
 
 ## Auto-Guru routing (code and documentation Q&A)
 
@@ -46,7 +46,7 @@ Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neut
 
 A declared skill whose full name collides is withheld while unrelated skills render. Renderer manifests and `wf_sync_surfaces` report `partial_skill_delivery` and structured `skill_collisions`; MCP adds an advisory `skill_collision` diagnostic. Upgrade saves that report in its owned checkpoint and carries it through summary and cleanup. A missing older report is unknown, not proof of complete delivery. A clean later render clears the partial report. This changes reporting, not name ownership or permission rules.
 
-One registry (`render_agent_surfaces.render_skills`, wave `1p6lp`) renders every Wavefoundry skill as standard `SKILL.md` (frontmatter `name`/`description` + thin-pointer body) into each **active** skill host directory. A host is active when its root directory exists. On the Claude host only, the operator-owned skills `wf-close-wave`, `wf-close-change`, `wf-package` and `wf-upgrade` also carry `disable-model-invocation: true` (wave `2136r`), so Claude runs them only when the operator invokes them by name.
+One registry (`render_agent_surfaces.render_skills`, wave `1p6lp`) renders every Wavefoundry skill as standard `SKILL.md` (frontmatter `name`/`description` + thin-pointer body) into each **active** skill host directory. A host is active when its root directory exists. On the Claude host only, the operator-owned skills `wf-close-wave`, `wf-close-spec`, `wf-package` and `wf-upgrade` also carry `disable-model-invocation: true` (wave `2136r`), so Claude runs them only when the operator invokes them by name.
 
 The same four eligible operator-owned skills also receive `agents/openai.yaml` containing `policy.allow_implicit_invocation: false` under active `.agents/skills/` and `.codex/skills/` roots (wave `21fgr`). [OpenAI's skill guidance](https://learn.chatgpt.com/docs/build-skills) documents `.agents/skills/` discovery and this explicit-invocation policy; `.codex/skills/` remains a compatibility carrier. The renderer owns the literal sidecar bytes and creates missing files only. An existing exact match is unchanged; any custom or unreadable sidecar is preserved byte-for-byte with a notice that the policy was not applied. Reconcile the policy manually, or remove or rename that file and render again to regenerate it; the renderer does not merge YAML. All nested and leaf output paths are preflighted for symlinks before host writes.
 
@@ -56,12 +56,12 @@ When an existing profile migration retires a default operator-skill path, the re
 
 | Skill | Backing prompt(s) | Gate |
 |-------|-------------------|------|
-| `wf-plan-change` | `docs/prompts/plan-change.prompt.md` | none |
+| `wf-plan-spec` | `docs/prompts/plan-spec.prompt.md` | none |
 | `wf-prepare-wave` | `docs/prompts/prepare-wave.prompt.md` | none |
 | `wf-implement-wave` | `docs/prompts/implement-wave.prompt.md` | none |
 | `wf-review-wave` | `docs/prompts/review-wave.prompt.md` | none |
 | `wf-close-wave` | `docs/prompts/close-wave.prompt.md` | none |
-| `wf-close-change` | `docs/prompts/close-change.prompt.md` | none (the backing prompt is a renderer lifecycle baseline, present wherever skills render) |
+| `wf-close-spec` | `docs/prompts/close-spec.prompt.md` | none (the backing prompt is a renderer lifecycle baseline, present wherever skills render) |
 | `wf-review-plan` | `docs/prompts/review-plan.prompt.md` | none; phrase aliases **Interrogate this plan** and **Stress-test this plan** do not render a second skill |
 | `wf-evaluate-decision` | `docs/prompts/evaluate-decision.prompt.md` | none |
 | `wf-memory-review` | `docs/prompts/memory-review.prompt.md` | none |
@@ -76,7 +76,7 @@ When an existing profile migration retires a default operator-skill path, the re
 | `wf-plan-arc` (optional outcome record and continuation) | `docs/prompts/plan-arc.prompt.md` | backing prompt present; seed 100 authors from seed 171 missing-only, seed 160 reconciles changes, then render |
 | `wf-envision` (product vision and roadmap) | `docs/prompts/envision-project.prompt.md` | backing prompt present (seed 100 authors it from seed 179 when missing; seed 160 guides changed-seed179 reconciliation; render surfaces afterward) |
 
-Every skill emits to each active host dir among `.codex/skills/`, `.claude/skills/`, `.agents/skills/` (all three active here; 19 skill directories in each as of 2026-11-10). Skills render on `wf setup` and **Upgrade Wavefoundry**; rendering is independent of `enabled_agent_roles`, which gates agent-role wrappers, not skills. A skill with a `requires_doc` gate (wave `1ve3a`) emits only where that repo-relative doc exists, so the skill follows the capability rather than a repo identity. Workflow bodies are thin pointers; workflow content stays in the backing prompt docs. Tool-only skills such as `wf-stats` name the tool and structure its returned data without a backing prompt or recounting. Stale-cleaned legacy paths: `.claude/skills/upgrade-wave.md` (flat, frontmatter-less), `.codex/skills/auto-guru/` (pre-namespace), the retired interrogate-plan skill (renamed `wf-review-plan`) and the feature-named planning skill (renamed `wf-plan-change`, wave 1zyc5).
+Every skill emits to each active host dir among `.codex/skills/`, `.claude/skills/`, `.agents/skills/` (all three active here; 19 skill directories in each as of 2026-11-10). Skills render on `wf setup` and **Upgrade Wavefoundry**; rendering is independent of `enabled_agent_roles`, which gates agent-role wrappers, not skills. A skill with a `requires_doc` gate (wave `1ve3a`) emits only where that repo-relative doc exists, so the skill follows the capability rather than a repo identity. Workflow bodies are thin pointers; workflow content stays in the backing prompt docs. Tool-only skills such as `wf-stats` name the tool and structure its returned data without a backing prompt or recounting. Stale-cleaned legacy paths: `.claude/skills/upgrade-wave.md` (flat, frontmatter-less), `.codex/skills/auto-guru/` (pre-namespace), the retired interrogate-plan skill (renamed `wf-review-plan`) and the feature-named planning skill (renamed `wf-plan-spec`, wave 1zyc5).
 
 ## Host launcher contracts
 

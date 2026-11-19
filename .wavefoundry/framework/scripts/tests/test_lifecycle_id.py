@@ -311,7 +311,7 @@ class BorrowFromFutureTests(unittest.TestCase):
 
     def test_borrow_skips_taken_change_doc_in_plans(self) -> None:
         mod = self.mod
-        # Simulate a staged change doc that owns the natural prefix
+        # Simulate a staged spec that owns the natural prefix
         (self.repo_root / "docs" / "plans" / "0b2w6-enh something.md").touch()
         ts = datetime.fromtimestamp(1735691400, tz=timezone.utc)  # → '0b2w6'
         prefix = mod.next_available_prefix(ts, policy=self._policy(), repo_root=self.repo_root)

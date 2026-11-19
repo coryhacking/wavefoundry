@@ -10,8 +10,8 @@ review. Two sources feed the checks:
   targeted AST parse of the OWNING module source, never by importing the heavy
   module and never by regex over scattered literals.
 
-Also home to the scaffolding-integrity rules (1seau AC-5): admitted change
-docs must carry a truthful ``Wave:`` reference, and wave records must not use
+Also home to the scaffolding-integrity rules (1seau AC-5): admitted
+specs must carry a truthful ``Wave:`` reference, and wave records must not use
 unbracketed pre-approval signoff phrasing. Both rules scope to NON-closed
 waves — closed waves are history.
 """
@@ -360,7 +360,7 @@ def check_wave_scaffolding_integrity(root: Path) -> list[str]:
                     "use the bracketed placeholder `<approved when operator confirms "
                     "closure>` until the operator actually approves"
                 )
-        # (a) admitted change docs: truthful Wave: reference.
+        # (a) admitted specs: truthful Wave: reference.
         for doc in sorted(wave_dir.glob("*.md")):
             if doc.name == _vocab.RECORD_FILENAME:
                 continue
@@ -377,7 +377,7 @@ def check_wave_scaffolding_integrity(root: Path) -> list[str]:
             if value.upper() == "TBD":
                 line = doc_text.count("\n", 0, m.start()) + 1
                 failures.append(
-                    f"ERROR: {rel}:{line}: admitted change doc still says '{_vocab.BACKREF_LABEL}: TBD' — "
+                    f"ERROR: {rel}:{line}: admitted spec still says '{_vocab.BACKREF_LABEL}: TBD' — "
                     f"set it to `{wave_dir.name}`"
                 )
             elif value != wave_dir.name and not wave_dir.name.startswith(value):

@@ -8,9 +8,9 @@ Use this when you want a single command-style request such as:
 
 Intent:
 
-- Given a change doc as context, or the current wave record when no change is specified, walk every unresolved decision branch one question at a time, provide a recommended answer derived from project resources when possible, and surface only questions that genuinely require operator judgment. It may run before or after plan admission, but only before implementation. Stop when all branches in Requirements, Acceptance Criteria, and Scope are resolved.
+- Given a spec as context, or the current wave record when no change is specified, walk every unresolved decision branch one question at a time, provide a recommended answer derived from project resources when possible, and surface only questions that genuinely require operator judgment. It may run before or after plan admission, but only before implementation. Stop when all branches in Requirements, Acceptance Criteria, and Scope are resolved.
 
-- During plan review, ACs marked `[~]` (intentionally not met) are treated as resolved and skipped — the convention's contract is that a `[~]` AC carries its rationale inline. See `170-plan-change.prompt.md` "AC and task checkbox states — the `[~]` marker" for the canonical definition.
+- During plan review, ACs marked `[~]` (intentionally not met) are treated as resolved and skipped — the convention's contract is that a `[~]` AC carries its rationale inline. See `170-plan-spec.prompt.md` "AC and task checkbox states — the `[~]` marker" for the canonical definition.
 
 Before reviewing, consult all available project resources to self-answer questions without operator input:
 
@@ -33,7 +33,7 @@ Read Rationale as reference for the brief, without reopening the whole section o
 
 Plan-review contract:
 
-1. Walk every unresolved decision branch in the change doc's **Requirements**, **Acceptance Criteria**, and **Scope** sections, or the corresponding planning sections of the current wave record when no change is specified.
+1. Walk every unresolved decision branch in the spec's **Requirements**, **Acceptance Criteria**, and **Scope** sections, or the corresponding planning sections of the current wave record when no change is specified.
 2. Ask one question at a time in default interactive mode.
 3. With each question, provide a recommended answer and cite the project resource or reasoning that supports it.
 4. Before asking the operator, attempt to self-answer from the project resources listed above. Only surface the question to the operator when it genuinely requires human judgment (product intent, business priority, user expectation, or an architectural tradeoff not resolvable from project evidence).
@@ -46,7 +46,7 @@ Plan-review contract:
 
 Scope of plan review:
 
-- Bounded to the **Requirements**, **Acceptance Criteria**, and **Scope** sections of the change doc (or current wave record when no change doc is specified).
+- Bounded to the **Requirements**, **Acceptance Criteria**, and **Scope** sections of the spec (or current wave record when no change is specified).
 - Do not re-derive the full plan from scratch or extend this into a re-planning exercise.
 - Use the brief in Rationale as reference; review decisions remain bounded to Requirements, Acceptance Criteria, and Scope. Explicitly resolved Decision Log entries are not in scope.
 - Do not require the operator to answer questions that project resources already answer.

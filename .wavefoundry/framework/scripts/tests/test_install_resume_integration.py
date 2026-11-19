@@ -103,7 +103,7 @@ class PartialPromptInstallIntegrationTests(unittest.TestCase):
         seed = (FRAMEWORK / "seeds/100-project-prompt-surface-bootstrap.prompt.md").read_text(
             encoding="utf-8"
         )
-        self.assertIn("- `docs/prompts/plan-change.prompt.md`", seed)
+        self.assertIn("- `docs/prompts/plan-spec.prompt.md`", seed)
         prompt = self.root / prompt_rel
         authored_bytes = prompt.read_bytes()
         prompt.unlink()

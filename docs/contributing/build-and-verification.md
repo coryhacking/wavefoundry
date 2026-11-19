@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-10
+Last verified: 2026-11-18
 
 ## Verification Commands
 
@@ -76,16 +76,47 @@ diagnostic only: they are never delivery, release, or close-gate evidence. One
 complete canonical run (`python3 .wavefoundry/framework/scripts/run_tests.py`)
 remains the delivery authority.
 
-Finish material source, test, configuration, edit-gate and plan edits before
-that run. Routine coordinator bookkeeping may continue through canonical
-append-only review publication and normalized progress/status/completion in
-existing recognized wave/change records. The runner validates both ledger
-endpoints and generated views; it does not ignore a file merely because it is
-named `events.jsonl` or lives under `docs/`. Use the canonical Progress Log for
-continuation during a run, and update the standalone session handoff outside
-it. Valid routine recording alone requires neither another test run nor
-another review. Real findings retain their phase/lane effects; material plans
-retain the existing re-Prepare rules.
+Finish material source, test, configuration and edit-gate edits, and edits to
+the wave under test, before that run. Planning new work may continue during it
+(change 23nqu): a file of any type under `docs/` that is created, modified or
+deleted during the run does not refuse it. The run lists each such path under
+the heading `FILES CHANGED DURING THE TEST RUN AND TOLERATED` and records the
+list in the receipt as the informational `tolerated_changes` field (sorted,
+bounded with a count and a truncation flag, absent when nothing was tolerated,
+read by no gate). Writing or moving a plan, creating a planned wave, and
+editing the session handoff during a run are all tolerated.
+
+These still refuse the run: any path under the framework tree; the edit-gate
+file; the folder of a wave whose record status was open (`active` or
+`implementing`) in the snapshot taken when the run started, apart from the
+routine bookkeeping below; the policy files `docs/workflow-config.json`,
+`docs/repo-profile.json`, `docs/contributors.json`, `docs/scan-rules.toml` and
+`docs/reconcile-dispositions.json`; and any path outside `docs/`. A waves or
+plans root configured outside `docs/` gets no tolerance. So pausing, closing or
+admitting a spec to the wave open at the start refuses the run, while a wave
+opened during the run is not in that set. The guard fails closed: when the
+record layout cannot be read, a wave record in the start snapshot cannot be read
+or is a link, or a status cannot be parsed, nothing under `docs/` is tolerated
+for that run.
+
+Routine coordinator bookkeeping on the wave open at the start may continue
+through canonical append-only review publication and normalized
+progress/status/completion in existing recognized wave/change records. The
+runner validates both ledger endpoints and generated views; it does not ignore
+a file in that wave's folder merely because it is named `events.jsonl`. Such
+bookkeeping is not a change and is not listed as tolerated. Valid routine
+recording alone requires neither another test run nor another review. Real
+findings retain their phase/lane effects; material plans retain the existing
+re-Prepare rules.
+
+The protection given up: the in-worker write guard now refuses a Python write
+under `docs/` of the real repository, but a write there that bypasses it (a
+child process started without the guard, a shell or git command, a native
+write) is no longer caught by the end-of-run comparison unless it lands in a
+wave open at the start or in a policy file. Before change 23nqu the end-of-run
+comparison caught it. A test that reads a live document may also see it change
+during the run, so do not render prompt surfaces or edit documents a test reads
+while a run is in progress.
 
 Ordinary receipt publication requires the passing full suite, the repository
 guard and the final framework input-hash comparison to succeed. The explicit
@@ -203,6 +234,14 @@ Code, configuration, framework changes, new/deleted documents, links, canonical
 authority changes, unknown differences, failed/incomplete workers, stray test
 artifacts and missing evidence cannot qualify through this operation.
 
+Eligible documentation is unchanged by the run-time tolerance above: only an
+edit to an existing Markdown file under `docs/` that is not a record (wave
+records, specs, ledgers and plans are canonical authority). Most documentation
+changes no longer refuse a run at all, so reconciliation is needed less often,
+but the recovery record of a refused run is built from the changed paths as
+they stand before tolerance. A refused run that also holds a created or deleted
+documentation file, such as a new plan, therefore still cannot be reconciled.
+
 The original failed attempt and its exit status remain intact. Accepted detail
 and the ordinary green receipt identify the original execution plus its separate
 reconciliation; reuse retains that annotation. Inspection and acceptance bind the
@@ -224,7 +263,7 @@ for a proven exception.
 
 `tests/test_tool_surface_golden.py` boots the real `server.build_server` with a stub handler and serializes every registered MCP tool (implementation tools and the runner survivors) to `tests/fixtures/tool-surface-golden.json`: name, roster tier, complete input schema, and annotations. Tool descriptions and prose `description` strings at schema nodes are excluded; an input property that happens to be named `description` is still covered. The test fails with a per-tool, per-key diff on any drift.
 
-A golden diff is a public contract change. It must be named in the change doc that causes it, and the fixture is regenerated as a deliberate step, never as a reflex:
+A golden diff is a public contract change. It must be named in the spec that causes it, and the fixture is regenerated as a deliberate step, never as a reflex:
 
 ```bash
 WF_UPDATE_TOOL_SURFACE_GOLDEN=1 python3 .wavefoundry/framework/scripts/run_tests.py --file test_tool_surface_golden.py
@@ -547,11 +586,13 @@ A stray `__pycache__` under `.wavefoundry/framework/` is a defect to report, not
 
 Use the lifecycle-reported `.wavefoundry/work/<wave-id>/` (resolved unique prefix, without a `waves/` subdirectory) for shared temporary files. Include its path and availability notice in coordinator briefs. Optional `receipts/`, `reviews/`, `tests/` and `scratch/` directories are created only when needed. Successful mutating Create/Prepare/Implement/Reopen calls establish ownership lazily; read-only calls and dry-runs create nothing. Existing host permissions apply. Unavailable work adds no lifecycle gate, and unrelated pre-existing directories are never adopted silently.
 
+Write every file you create for a wave, including coordinator briefs, logs, captured test output and build output, inside that wave's own work folder, in a child folder when that helps; never write a file directly in `.wavefoundry/work/`. Before the wave exists, keep the content in task context until a lifecycle call reports the work area. `wf_audit` and close report files and links left directly in the work root as the advisory `work_root_loose_files`. If you wrote such a file for a wave, move it into that wave's folder while the wave is open, or delete it. Leave any other loose file in place, including one you are not sure you wrote (a name that starts with a wave id does not prove who wrote it), and report it to the operator, who decides. Never move a file you did not write into a wave's folder: close removes that folder with everything in it.
+
 The managed `.gitignore` block includes `.wavefoundry/work/` on install and upgrade while preserving unrelated rules; tracked scratch is reported, never automatically untracked. Machine-authority/index and reconciliation exclusions omit the exact work prefix, and repository-state observation omits its files even if tracked. Framework input hashing and packaging traverse only `.wavefoundry/framework/`, a sibling of work; genuine source changes remain detected.
 
 Keep work through planned, ready, active and paused states. Before finalizing evidence, preserve unique proof in maintained records, tests or explicitly retained evidence; new durable approvals must not rely solely on scratch paths. For example, place a trial capture in `.wavefoundry/work/12345/tests/probe.log`, record its command, exact source identity, final result and limitations in that wave’s `wave.md`, and promote a unique reproducer into a maintained test or cited evidence outside work. After closure removes the capture, the final claim still has a durable explanation and reproducible basis. Do not rewrite immutable ledger references or migrate historical evidence automatically.
 
-Only successful operator-authorized whole-wave closure attempts cleanup of the verified owned area, after the lifecycle transition commits. Dry-run, failed close and single-change close preserve work; cleanup failure is advisory and an authorized repeated close may retry. Reopening creates a new generation protected from stale cleanup. Unsupported safe deletion preserves files with a notice; native Windows lacks the required descriptor-safe operations, so work areas and snapshots are unavailable and focused re-review falls back to full review. No sweeper, expiry, process killing or new approval authority is introduced.
+Only successful operator-authorized whole-wave closure attempts cleanup of the verified owned area, after the lifecycle transition commits. Dry-run, failed close and single-change close preserve work; cleanup failure is advisory and an authorized repeated close may retry. Reopening creates a new generation protected from stale cleanup. Unsupported safe deletion preserves files with a notice; native Windows lacks the required descriptor-safe operations, so work areas and snapshots are unavailable and focused re-review falls back to full review. No sweeper, expiry, process killing or new approval authority is introduced. Work that close leaves in place is reported, not deleted: the advisory `work_retained` diagnostic at close, `work_leftovers_present` at every later close, `wf_audit`'s `data.work_root` and the upgrade summary's `work_leftovers` keep it visible until someone removes it. Files and links left directly in the work root are reported the same way, by `wf_audit` and at close as the advisory `work_root_loose_files`; the upgrade summary does not list them.
 
 New owner records bind the root and work directory through nonzero inode continuity, permitting actual case aliases and same-filesystem root renames. Persisted device IDs are diagnostic history, never equality requirements across reboots. Legacy records without root identity preserve work when a rename cannot be proved. Snapshot reads may reuse a positively verified internal publisher construction link, with no deletion during reads; external or unproved links still require full review. Hosts without the required safe descriptor operations report unavailable work/snapshots and retain full-review fallback. Cross-volume moves are not qualified by the POSIX checks. This change adds no native Windows work-area implementation.
 
@@ -690,6 +731,6 @@ The notice appears once per `wf` invocation or direct MCP serving startup, on st
 
 Keep routine briefing packets, per-seat reports, raw probes, copied source and green worker logs in task context or temporary storage. wave.md retains final decisions, disagreements, source/profile identities, reproducible commands/results/limits, memory disposition and an evidence index. Keep immutable events.jsonl, admitted docs, cited originals and unreconstructable dirty-tree baselines. A permanent supporting artifact needs unique long-run value that canonical tests, exact Git history and the summary cannot preserve; explain the exception inline.
 
-Before close, reconcile mutable watchpoints and handoff. Prune only verified wave-owned, redundant, uncited material with contained identity-checked unlink; uncertain, unique or cited proof stays. No age expiry, automatic deletion, reference resolver, cleanup sidecar or extra gate is introduced. Consume successful typed-write continuation actions, finish material documentation/render edits before the canonical suite, and reuse a current matching green test receipt. Validated routine bookkeeping may continue under the runner contract above without another suite or reviewer cycle solely for recording it. Changed, red or unproven inputs still require fresh qualification. A close dry-run is useful for unresolved checks; current authority permits one operator-authorized close mutation. Required specialists, readiness Council and fresh full docs gates remain unchanged.
+Before close, reconcile mutable watchpoints and handoff. Prune only verified wave-owned, redundant, uncited material with contained identity-checked unlink; uncertain, unique or cited proof stays. Close reports citation state for the closing wave folder's extra files in the advisory `record_extras_present`, and the Close prompt's folder-cleanup step gives each one a disposition (keep, summarize then remove, or remove); no age expiry, automatic deletion, cleanup sidecar or extra gate is introduced. Consume successful typed-write continuation actions, finish material documentation/render edits before the canonical suite, and reuse a current matching green test receipt. Validated routine bookkeeping may continue under the runner contract above without another suite or reviewer cycle solely for recording it. Changed, red or unproven inputs still require fresh qualification. A close dry-run is useful for unresolved checks; current authority permits one operator-authorized close mutation. Required specialists, readiness Council and fresh full docs gates remain unchanged.
 
 Review memory proposals before creating files: select only source events that change a future action and supplement canonical guidance. Use `memory_propose(..., mode='dry_run')`, then create with explicit `source_events`. Omitted or empty selection writes nothing. Put a no-new-memory retrospective in wave.md; actual pending selected candidates still require validation even if their targets disappear. Consumer upgrades perform one advisory inventory pass without drafting, source/profile suites, routine evidence generation or broad memory maintenance. Their render → docs gate → incremental index order is preserved.

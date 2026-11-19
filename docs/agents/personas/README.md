@@ -2,9 +2,9 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-20
+Last verified: 2026-11-18
 
-Persona agents represent the humans who use, operate, or administer Wavefoundry. They are invoked during spec authoring, design review, and acceptance of operator-facing behavior changes. Persona docs carry `Category: operate` so the dashboard can group them consistently.
+Persona agents represent the humans who use, operate, or administer Wavefoundry. They are invoked during behavior-contract authoring, design review, and acceptance of operator-facing behavior changes. Persona docs carry `Category: operate` so the dashboard can group them consistently.
 
 Personas are distinct from agent roles (planner, implementer, wave-coordinator). Roles build the software; personas speak as the people who use or operate it.
 
@@ -13,13 +13,13 @@ Personas are distinct from agent roles (planner, implementer, wave-coordinator).
 | File | Persona | Invocation Triggers |
 |------|---------|-------------------|
 | `framework-operator.md` | Framework Operator | Install/upgrade behavior changes; MCP tool design review; operator-facing CLI changes |
-| `wave-coordinator.md` | Wave Coordinator (persona) | Wave lifecycle behavior changes; wave execution spec authoring; acceptance of coordinator-facing changes |
+| `wave-coordinator.md` | Wave Coordinator (persona) | Wave lifecycle behavior changes; wave execution behavior-contract authoring; acceptance of coordinator-facing changes |
 
 ## Persona Review Policy
 
 Per `docs/workflow-config.json` `persona_review_policy`:
 - Invoke for change types: `feat`, `enh`, `change`
-- Invoke phases: spec authoring, design review, acceptance
+- Invoke phases: behavior-contract authoring, design review, acceptance
 - Findings: advisory (not gating)
 
 ## Coverage Check

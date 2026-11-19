@@ -424,7 +424,7 @@ def _existing_prefixes(repo_root: Path) -> set[str]:
             add(stem)
     if record_paths.record_root_is_dir(roots.waves, roots.waves_rel):
         # Wave 1y043: every candidate folder (flat or nested) contributes its
-        # own prefix and the prefixes of the change docs it holds.
+        # own prefix and the prefixes of the specs it holds.
         candidates = record_paths.walk_wave_candidates(repo_root, roots)
         for wave_dir in candidates:
             add(wave_dir.name)

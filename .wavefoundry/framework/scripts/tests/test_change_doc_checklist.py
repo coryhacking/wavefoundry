@@ -1,4 +1,4 @@
-"""Unit tests for the shared change-document checklist parser (wave 1zime, 1zimq)."""
+"""Unit tests for the shared spec checklist parser (wave 1zime, 1zimq)."""
 from __future__ import annotations
 
 import sys

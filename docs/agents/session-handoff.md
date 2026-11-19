@@ -2,9 +2,17 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-12
+Last verified: 2026-11-19
 
 ## Current state
+
+Wave **23n00 honest-readiness-integrity** is OPEN and implemented, with all five specialist delivery approvals and council-delivery recorded. Change **23mzz** permits only specialist readiness `known_bad_detected: null` with the inspected-scope rationale in the existing method field. Other four checks, false rejection, council/delivery requirements and existing operator exceptions remain intact. No code edits remain; framework and seed gates are closed.
+
+All five ACs and all tasks pass. Canonical green receipt: 12,847 tests across 250 files, 12 skips, 603.650 seconds. Focused default/second/declared profiles pass, 16 guard mutants are assertion-killed, and independent delivery reviewers report no findings. All 12,847 workers passed across 250 files (12 skips), but review recording overlapped that run and its receipt was refused. The final unchanged host-permission run passed; a sandboxed attempt had refused local loopback test servers. Full docs validation passes. No close, commit, push or release is authorized by the implementation request.
+
+Unrelated terminology plans remain outside this wave. MCP reports setup inputs changed; setup was not run. Current tests execute fresh source; reconnect/reload the host before relying on newly loaded tool behavior.
+
+## Previous state
 
 Wave **237ef instruction-file-audit-follow-ups** is OPEN, implemented and delivery-reviewed (operator direction "implement 237ef", then "review and implement", 2026-11-12). Both changes are `implemented`, all ten ACs and every task are `[x]`. Close, commit and release are not authorized.
 
@@ -217,7 +225,7 @@ The final 43-path review map SHA256 is `a516c0b045e161c3daeb38dad02eca0cbb5b8c84
 
 ## Earlier delivery — 22brz
 
-**Implemented and reviewed; wave 22bs0 remains open.** Change `22brz-enh initiative-planning-and-continuation` delivers the lightweight **Plan initiative** / `wf-plan-initiative` workflow: a 631-word local prompt with three steps, a response by default and no tracker, routine council/reader or new lifecycle gate. Thin skills rendered under `.codex`, `.claude` and `.agents`; bootstrap, reconciliation, catalogs and conditional Envision/Plan change bridges are in place.
+**Implemented and reviewed; wave 22bs0 remains open.** Change `22brz-enh initiative-planning-and-continuation` delivers the lightweight **Plan initiative** / `wf-plan-initiative` workflow: a 631-word local prompt with three steps, a response by default and no tracker, routine council/reader or new lifecycle gate. Thin skills rendered under `.codex`, `.claude` and `.agents`; bootstrap, reconciliation, catalogs and conditional Envision/Plan spec bridges are in place.
 
 Verification: 239 focused tests, a small linked multi-wave walkthrough with changed-priority and unrelated-work checks, and fresh/custom/conflicting prompt reconciliation pass. Full framework suite: 12,300 tests / 216 files / 12 expected skips, source hash `3d4096b5b1c2caed05f17c251aa450dc7dc72e3acd9b4c81bff7488fac48cf4b`. The first sandbox-restricted run failed on local socket/process/cache permissions; the unchanged host-access run passed. Unique evidence is retained in the wave’s `delivery-evidence.json`; routine logs are disposable.
 
@@ -294,7 +302,7 @@ No new memory was selected: close-capture dry-run returned zero candidates; the 
 
 ## Prior Session — 2026-10-28
 
-**Current — idle (2026-10-28):** Wave `21y6d envision-adaptive-roadmap` is closed. It delivered ambitious product vision and adaptable technical/nontechnical roadmap guidance, adoption instructions, a request-preserving Plan change bridge, and matching upgrade/discovery surfaces. Required reviews and current 12,291-test receipt passed closure; no active wave or remaining authorized implementation work.
+**Current — idle (2026-10-28):** Wave `21y6d envision-adaptive-roadmap` is closed. It delivered ambitious product vision and adaptable technical/nontechnical roadmap guidance, adoption instructions, a request-preserving Plan spec bridge, and matching upgrade/discovery surfaces. Required reviews and current 12,291-test receipt passed closure; no active wave or remaining authorized implementation work.
 
 **Accepted limitation:** AC-5 selective-reading verification is intentionally deferred. A and A2 read the complete adopted vision; substantive adoption/request outcomes passed in the retained original cases, but selective reading remains unproven. No product harm or meaningful overhead was measured. Council intent is partially. The operator explicitly accepted this scope and authorized the exact independently validated three-row waiver append as a one-time exception to the missing MCP writer capability. All prior ledger bytes were preserved; this grants no future writer exception.
 
@@ -307,6 +315,8 @@ No new memory was selected: close-capture dry-run returned zero candidates; the 
 **Local test build:** Operator requested a new local 1.38.0 package after repairing both source-history profile test defects. Repair wave `21u6x profile-source-history-censuses` is implemented, independently reviewed and closed on 2026-10-28; its prior implementation and release commits are pushed. Default qualification passed 12,290 tests / 214 files / 12 skips / 554.293s. Renamed qualification passed 12,282 / 214 / 29 skips / 555.459s; its 17 extra skips are marked default-profile-only and exact comparison passed. Declared qualification passed 12,290 / 214 / 12 skips / 552.235s and exact comparison passed. No qualification exception used. Retain previously approved uv 0.12.22; all 18 wheel hashes reverified against PyPI and all three dashboard dependencies against npm. Created and verified /Users/coryhacking/.wavefoundry/dist/wavefoundry-1.38.0.pzmt.zip (1.38.0+pzmt), 10,908,868 bytes, SHA-256 7c474a191b4e85a3641552bda6c4658f30357ca5bbca4cf5db83731e0e7e7981. Outer CRC/path/source/changelog/version/manifest/executable entry and nested bridge/feature digests, CRC and upgrade scripts verified; all 254 framework files match disk. Single public output; model-set unchanged. VERSION/manifest stamped, no release, tag, upload or commit performed. Provenance truthfully names fb32ae19 with dirty source. MCP reported setup_inputs_changed after the stamp; no setup/reload run.
 
 **Active wave:** *(none)*
+
+**Wave `23lxe` backed out and deleted (2026-11-17):** wave `23lxe spec-tools-label-and-key` renamed four tools to `wf_*_spec`, the label to `Spec ID:`, the parameter to `spec_id` and the receipt key. It was implemented and passed delivery review, then removed from the tree on operator decision: "spec" is the name people read and "change" stays the name tools and records use. Its wave folder was deleted on operator instruction. A local, gitignored archive of its files and records is under `.wavefoundry/work/23lxe/backout/`. Wave `23lxd` (prompt names and prose) was then reopened, amended and reviewed again: its specs no longer name follow-on changes; eleven composed strings follow the vocabulary profile's item noun on the operator's decision, which settled finding `INTENT-DEL-1`; all lane and council approvals are current (council delivery intent fit `partially`, by the operator's chosen scope) and the wave is paused. Last full suite: 12,873 tests, OK. Nothing is committed. Pending for the operator: sign-off, commit and close of `23lxd`. Planned and not readied: wave `23p89 retained-work-and-test-run-tolerance` (`23phc` and `23nqu`). Decided by the operator and not yet written as specs: two changes on when review approvals lapse (late admission, stale-receipt refusal, closed-wave guard and three accidental receipt rotations; then deferral behaviour).
 
 **Last closed wave:** `21y6d envision-adaptive-roadmap` — closed 2026-10-28 with selective-reading verification explicitly deferred; all remaining reviews, qualification and evidence retention complete.
 
@@ -485,3 +495,7 @@ Automatic reuse of a full-class embedding model on CPU remains outside this wave
 20qvq's focused integration, model-bundle and compatibility tests passed; two sandbox-only mocked uv fixture failures passed when rerun with the required temporary-file permissions. Four guard mutants were detected. 20oqx's focused upgrade/storage and real process-resume tests passed, including eight guard mutants. These are focused results, not a combined green suite claim.
 
 20qvn is the only open wave; its implementer owns source integration and may delegate disjoint attribution/parser files. Reviewers do not write source or ledger. One final canonical suite is planned after implementation settles. Do not repeat qualification merely for review bookkeeping.
+
+## Local package continuation
+
+Operator selected version **1.44.0** for the next local test package. Operator subsequently requested an immediate local test build for wave 23n00 alone. Built and verified `~/.wavefoundry/dist/wavefoundry-1.44.0.q41m.zip` (1.44.0+q41m); packed validator matches the source and the changelog includes the wave. The other wave can join a later build. No commit, push or official release is authorized.

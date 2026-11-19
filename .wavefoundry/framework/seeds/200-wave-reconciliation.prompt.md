@@ -21,7 +21,7 @@ Use this helper when:
 - adding a change to a wave
 - removing a change from a wave
 - pausing a wave
-- reconciling wave review state before closure — includes running an AC scope gap check (required ACs met, important/nice-to-have items surfaced, not-this-scope deferrals confirmed) so the operator can decide on follow-on scope before closure; when **`Prepare wave`** recorded **`## AC priority`** on an admitted change doc, reconciliation must include **product-owner** delivery scope sign-off before merge (per **`seed-100`**) and **`qa-reviewer`** required-row verification or deferrals at **`Review wave`** (record in **`wave.md` Review checkpoints**)
+- reconciling wave review state before closure — includes running an AC scope gap check (required ACs met, important/nice-to-have items surfaced, not-this-scope deferrals confirmed) so the operator can decide on follow-on scope before closure; when **`Prepare wave`** recorded **`## AC priority`** on an admitted spec, reconciliation must include **product-owner** delivery scope sign-off before merge (per **`seed-100`**) and **`qa-reviewer`** required-row verification or deferrals at **`Review wave`** (record in **`wave.md` Review checkpoints**)
 - closing a wave
 - moving unfinished changes or tasks to a later wave
 - recording invalidated assumptions
@@ -41,7 +41,7 @@ Required wave planning-mode handoff semantics (when writing or updating `docs/ag
 
 - `Mode: wf_prepare_wave`
 - Active wave ID and active change IDs
-- **In-scope files** — list every file explicitly named under `## Scope` (`**In scope:**`) in the admitted change doc; add a gate warning: "All listed surfaces are gated by the Stage Gate (wave-admitted surfaces) in `AGENTS.md` — do not edit these files until `Prepare wave` passes."
+- **In-scope files** — list every file explicitly named under `## Scope` (`**In scope:**`) in the admitted spec; add a gate warning: "All listed surfaces are gated by the Stage Gate (wave-admitted surfaces) in `AGENTS.md` — do not edit these files until `Prepare wave` passes."
 - Next lifecycle step: `Prepare wave`
 - Any open blockers or decisions outstanding before readiness
 
@@ -49,10 +49,10 @@ Example in-scope file list entry:
 
 ```
 - In-scope files (gated — do not edit before Prepare wave):
-  - `.wavefoundry/framework/seeds/180-implement-change.prompt.md`
+  - `.wavefoundry/framework/seeds/180-implement-spec.prompt.md`
   - `AGENTS.md`
   - `docs/prompts/implement-wave.prompt.md`
-  - (full list from change doc ## Scope)
+  - (full list from spec ## Scope)
 ```
 
 The generic "next lifecycle step: Prepare wave" line alone is not sufficient — the file list makes the gate visible before any edit is attempted.
@@ -61,7 +61,7 @@ Required wave start semantics:
 
 - `wave-id`
 - `Status: active`
-- admitted change docs physically present in `docs/waves/<wave-id>/`
+- admitted specs physically present in `docs/waves/<wave-id>/`
 - objective
 - coordinator
 - active changes
@@ -106,9 +106,9 @@ Required wave close semantics:
 - next-wave handoff
 - explicit readiness or non-readiness of the next wave
 - explicit statement of whether the wave closed because the objective was satisfied, superseded, or intentionally cut at an operational boundary
-- **wave-owned change docs**: confirm every admitted change doc for this wave exists at `docs/waves/<wave-id>/<change-id>.md` (expected after `Prepare wave`); if any stale `docs/plans/` references remain, repair them before closure instead of introducing a second move through `docs/plans/completed/`
+- **wave-owned specs**: confirm every admitted spec for this wave exists at `docs/waves/<wave-id>/<change-id>.md` (expected after `Prepare wave`); if any stale `docs/plans/` references remain, repair them before closure instead of introducing a second move through `docs/plans/completed/`
 - **retrospective prompt**: after closure artifacts are recorded, ask "what was non-obvious in this wave that a future session should know?" — surface zero or more memory candidates; capture architectural decisions (why an approach was chosen), validated approaches that should carry forward (positive confirmations, not only corrections), and workflow discoveries; promote findings to auto-memory or `docs/references/project-context-memory.md`
-- **idle handoff**: update `docs/agents/session-handoff.md` to record the closed wave ID and a one-line summary of what shipped, so the next session has recent history without running `wf_list_waves`; include an **Open questions / Deferred decisions** section for any intent not captured in a change doc
+- **idle handoff**: update `docs/agents/session-handoff.md` to record the closed wave ID and a one-line summary of what shipped, so the next session has recent history without running `wf_list_waves`; include an **Open questions / Deferred decisions** section for any intent not captured in a spec
 
 Recommended reconciliation outputs:
 

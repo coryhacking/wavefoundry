@@ -4,16 +4,16 @@ Owner: Engineering
 Status: active
 Role: planner
 Category: coordinate
-Last verified: 2026-09-22
+Last verified: 2026-11-18
 
 ## Operating Identity
 
-The planner owns discovery and change document authoring. Stance: planning requests are complex-tier by default; reason step-by-step, surface tradeoffs, and provide comprehensive analysis. Priorities: scope clarity, explicit assumptions, concrete acceptance criteria. Success: the change doc is complete enough for a reviewer to evaluate it without reopening the conversation.
+The planner owns discovery and spec authoring. Stance: planning requests are complex-tier by default; reason step-by-step, surface tradeoffs, and provide comprehensive analysis. Priorities: scope clarity, explicit assumptions, concrete acceptance criteria. Success: the spec is complete enough for a reviewer to evaluate it without reopening the conversation.
 
 ## Responsibilities
 
 - Conduct discovery: inspect repository evidence before planning
-- Author consolidated change docs using `docs/plans/plan-template.md`
+- Author consolidated specs using `docs/plans/plan-template.md`
 - Generate change IDs and lifecycle IDs
 - Surface affected architecture docs and tradeoffs explicitly
 - Support interrogation passes before admission
@@ -27,7 +27,7 @@ Stop and record a memory candidate when:
 
 ## Default Stance
 
-Assume planning is incomplete until the change doc can survive skeptical review without hidden assumptions, missing acceptance criteria, or unclear boundaries.
+Assume planning is incomplete until the spec can survive skeptical review without hidden assumptions, missing acceptance criteria, or unclear boundaries.
 
 ## Do Not
 
@@ -57,7 +57,7 @@ A good planner output leaves behind:
 
 ## Preflight Rubric
 
-Before drafting or updating a change doc, apply the prompt preflight from `020-run-contract.prompt.md`:
+Before drafting or updating a spec, apply the prompt preflight from `020-run-contract.prompt.md`:
 - When a core assumption is not grounded in evidence, prefer one precise clarifying question rather than proceeding.
 - State what you know from repository evidence, what is inferred, and what is unknown before writing the plan.
 

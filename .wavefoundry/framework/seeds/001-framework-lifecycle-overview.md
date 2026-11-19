@@ -24,9 +24,11 @@ The **wave** is the primary delivery unit. A wave is a bounded, reviewable conta
 - All changes admitted into a wave are implemented and reviewed together as a unit
 - The wave is what gets committed and delivered — individual changes do not ship independently outside a wave
 - When a wave closes, admitted changes are either complete or explicitly carried forward into the next wave
-- The wave folder (`docs/waves/<wave-id>/`) is the active working home and permanent archive: it holds `wave.md`, the admitted change docs relocated there during `Add change to wave`, and any reports from the wave's period
+- The wave folder (`docs/waves/<wave-id>/`) is the active working home and permanent archive: it holds `wave.md`, the admitted specs relocated there during `Add spec to wave`, and any reports from the wave's period
 
 ## Core Concepts
+
+Four terms name the moving parts. A **spec** is the document that plans one change. A **change** is the unit of work a spec describes; it has an id and a status, and a wave delivers changes. Tools, record labels and identifiers are named for the change they track (`wf_add_change`, the default record label `Change ID:`, `change_id`). A **wave** is the reviewed bundle of changes. A **behavior contract** is a durable document under `docs/specs/` that describes implemented, tested behavior. Earlier text calls a spec a "change doc" and a behavior contract a "spec". The earlier phrases `Plan change`, `Add change to wave`, `Remove change from wave`, `Implement change` and `Close change` remain aliases of `Plan spec`, `Add spec to wave`, `Remove spec from wave`, `Implement spec` and `Close spec`.
 
 - **wave**: the primary delivery unit — a bounded, reviewable container for one or more changes that are planned, implemented, reviewed, and committed together
 - **`wave-id`**: uniquely identifies a wave using the format `<prefix> <slug>`:
@@ -34,8 +36,8 @@ The **wave** is the primary delivery unit. A wave is a bounded, reviewable conta
   - `<slug>` — kebab-case human-readable description of the wave's theme
   - Example: `1a2yy routine-behavior-contract`
   - The legacy baseline wave reserves `00000` as its prefix: `00000 wave-zero-plans-and-specs`
-- **change**: a tracked unit of work admitted into a wave — a bug fix, feature, enhancement, refactor, or other concrete change; represented by a consolidated change document that starts in `docs/plans/<change-id>.md` and moves into `docs/waves/<wave-id>/<change-id>.md` during `Add change to wave` before implementation
-- **change-id**: identifies one tracked change within a wave, using the format `<prefix>-<kind> <slug>` where `<kind>` is one of: `bug`, `feat`, `enh`, `change`, `doc`, `debt`, `ref`, `task`, `maint`, `ops`; for example `1mgvf-enh routine-status-contract-centralization`. The `feat` kind is retired for new change docs and stays valid for existing ids: a change doc is one scoped change, so a large feature is planned as several changes (usually `enh`), possibly across waves
+- **change**: a tracked unit of work admitted into a wave — a bug fix, feature, enhancement, refactor, or other concrete change; represented by a spec that starts in `docs/plans/<change-id>.md` and moves into `docs/waves/<wave-id>/<change-id>.md` during `Add spec to wave` before implementation
+- **change-id**: identifies one tracked change within a wave, using the format `<prefix>-<kind> <slug>` where `<kind>` is one of: `bug`, `feat`, `enh`, `change`, `doc`, `debt`, `ref`, `task`, `maint`, `ops`; for example `1mgvf-enh routine-status-contract-centralization`. The `feat` kind is retired for new changes and stays valid for existing ids: a change is one scoped unit of work, so a large feature is planned as several changes (usually `enh`), possibly across waves
 - **active wave**: the wave currently being implemented and reviewed
 - **carry-forward**: a change not completed when a wave closed, admitted into the next wave with its unfinished work made explicit
 - **close**: the wave closure step that promotes durable outcomes into canonical docs, archives completed artifacts, and marks the wave permanently closed
@@ -43,10 +45,10 @@ The **wave** is the primary delivery unit. A wave is a bounded, reviewable conta
 ## Lifecycle At A Glance
 
 1. Plan the wave — define scope, admit changes, establish review gates.
-2. Ready the wave — validate that admitted change docs are already wave-owned, repair placement drift if needed, evaluate the admitted changes, select required implementer, reviewer, persona, and council lanes, run the Wave Council readiness pass when the project enables it, and block start until readiness is clean.
+2. Ready the wave — validate that admitted specs are already wave-owned, repair placement drift if needed, evaluate the admitted changes, select required implementer, reviewer, persona, and council lanes, run the Wave Council readiness pass when the project enables it, and block start until readiness is clean.
 3. Implement the wave — consume the current readiness approval, then implement and run focused computational checks for all admitted changes.
 4. Review the wave — run required review lanes as a unified set, run the Wave Council delivery pass when the project enables it, and rerun readiness at final review.
-5. Close and commit the wave — record completion, reconcile wave-owned change docs and reports, commit the result.
+5. Close and commit the wave — record completion, reconcile wave-owned specs and reports, commit the result.
 6. Either plan the next wave (carry incomplete changes forward) or close out the work.
 
 - **Execution ordering:** Steps 3–4 are distinct: implementation produces complete evidence first, then **`Review wave`** runs the required inferential lanes. A high-risk boundary may request the named focused checkpoint below, but routine reviewer passes belong to Review. **Close** verifies that the delivery review is current.
@@ -58,7 +60,7 @@ flowchart TD
     A[Start work request] --> B[Read canonical change workflow and classify the work]
     B --> C{Needs structured wave planning?}
     C -->|No| D[Stay in the smaller change workflow]
-    C -->|Yes| E[Create change documents for each admitted change]
+    C -->|Yes| E[Create specs for each admitted change]
     E --> F[Define the wave: objective, admitted changes, review gates, dependencies]
     F --> G[Confirm assumptions, completion criteria, and participant roster]
     G --> H{Wave scope bounded and implementation-ready?}
@@ -68,10 +70,10 @@ flowchart TD
 ```
 
 - Start by classifying the work and deciding whether it can stay in the smaller default workflow or needs the full wave lifecycle.
-- Create a consolidated change document (`docs/plans/<change-id>.md`) for each tracked change admitted into the wave, then move the admitted docs into `docs/waves/<wave-id>/` during `Add change to wave` before implementation begins.
+- Create a consolidated spec (`docs/plans/<change-id>.md`) for each tracked change admitted into the wave, then move the admitted docs into `docs/waves/<wave-id>/` during `Add spec to wave` before implementation begins.
 - Define the wave record under `docs/waves/<wave-id>/wave.md` with: objective, admitted changes as `## Changes`, completion criteria, review checkpoints, and participant roster.
 - A wave may admit one or more changes when their assumptions, dependencies, and review timing are compatible enough to execute together.
-- For exact planning rules, use the seeded project's feature workflow, planning prompt, and plan/spec conventions.
+- For exact planning rules, use the seeded project's feature workflow, planning prompt, and spec conventions.
 
 ## 2. Ready The Wave
 
@@ -86,7 +88,7 @@ flowchart TD
 ```
 
 - A wave should not start implementation until a readiness evaluation has passed.
-- Readiness includes validating that admitted change docs are already in `docs/waves/<wave-id>/`, repairing staged-only drift when needed, and clearing duplicate staging copies.
+- Readiness includes validating that admitted specs are already in `docs/waves/<wave-id>/`, repairing staged-only drift when needed, and clearing duplicate staging copies.
 - The readiness evaluation determines which implementer lanes, reviewer lanes, persona lanes, and any required Wave Council seats must participate.
 - If a user asks to implement the wave directly, the coordinator should run or confirm this readiness evaluation automatically first.
 - When the project enables Wave Council, readiness is not complete until the council-chair has synthesized the isolated council-seat outputs into a current `council-readiness` approval. Declared waves store that authority in `events.jsonl`; legacy waves retain their prose verdict contract.
@@ -96,7 +98,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     A[Confirm wave is ready and docs are wave-owned] --> B[Implement admitted changes within wave scope]
-    B --> C[Update wave-owned change docs and wave state as facts change]
+    B --> C[Update wave-owned specs and wave state as facts change]
     C --> D[Run required verification and documentation updates]
     D --> E{Verification passed?}
     E -->|No| F[Fix issues or return to planning if assumptions changed]
@@ -107,7 +109,7 @@ flowchart TD
 - Implementation should stay inside the admitted wave scope; changes outside the wave must wait for the next wave.
 - Implementation should start only after readiness has passed; otherwise the coordinator must block and repair the prerequisites first.
 - `Prepare wave` owns the one pre-code critique: failure-first review, packet completeness, and the current readiness approval. `Implement wave` consumes that authority instead of repeating it.
-- Admitted change docs should already live under `docs/waves/<wave-id>/` after `Add change to wave`; `Prepare wave` repairs drift defensively if staging copies remain.
+- Admitted specs should already live under `docs/waves/<wave-id>/` after `Add spec to wave`; `Prepare wave` repairs drift defensively if staging copies remain.
 - Verification follows the project's build, test, docs, and smoke-check procedures before wave closure.
 - For exact reviewer roles, personas, and gate triggers, use the seeded project's agent-team workflow and review docs.
 - When the project enables Wave Council, delivery review includes a second council pass after implementation: isolated seat outputs first, then council-chair synthesis into a recorded `council-delivery` verdict.
@@ -140,7 +142,7 @@ When the distinct `Review wave` phase begins and Wave Council is enabled, counci
 
 ### Finding Classification (CRITIC)
 
-After an exceptional checkpoint or the delivery review, the coordinator evaluates every finding against the change doc's `## Acceptance Criteria` before deciding which loop to activate. "All reviewer lanes clean" is not sufficient — the exit condition is "all acceptance criteria met."
+After an exceptional checkpoint or the delivery review, the coordinator evaluates every finding against the spec's `## Acceptance Criteria` before deciding which loop to activate. "All reviewer lanes clean" is not sufficient — the exit condition is "all acceptance criteria met."
 
 ### Root Cause Capture (Reflexion)
 
@@ -154,7 +156,7 @@ The implement loop has three distinct levels. The finding type — not severity 
 |---|---|---|---|
 | **1** | Micro | Implementer observes test/build failure within a single task | Fix in place; stays internal to the implementer sub-agent; no Progress Log entry required |
 | **2** | Focused independent checkpoint | Implementation exposes a logic, behavior, or coverage risk that is not safely implementer-internal but does not invalidate scope or an acceptance criterion | Request one named reviewer for the affected boundary, fix and re-check that boundary, then continue; this is exceptional, not the routine delivery review |
-| **3** | Wave lifecycle | Finding invalidates an acceptance criterion, contradicts the approved plan, crosses an architecture boundary, or reveals a scope or requirement ambiguity | Stop, surface to operator, route to `Plan change` or re-`Prepare wave` before continuing |
+| **3** | Wave lifecycle | Finding invalidates an acceptance criterion, contradicts the approved plan, crosses an architecture boundary, or reveals a scope or requirement ambiguity | Stop, surface to operator, route to `Plan spec` or re-`Prepare wave` before continuing |
 
 **Finding escalation reference:**
 
@@ -163,11 +165,11 @@ The implement loop has three distinct levels. The finding type — not severity 
 | Code quality, style, formatting | 1 | Fix in place and rerun focused computational checks |
 | Missing test coverage | 2 | Request a named QA checkpoint for the affected boundary, add tests, and re-check it |
 | Logic error, missing behavior | 2 | Request a named code-review checkpoint for the affected boundary, fix, and re-check it |
-| Scope creep discovered during implementation | 3 | Stop, update change doc, operator resolution, re-Prepare |
-| Finding invalidates an acceptance criterion | 3 | Stop, surface to operator, route to Plan change or re-Prepare |
+| Scope creep discovered during implementation | 3 | Stop, update spec, operator resolution, re-Prepare |
+| Finding invalidates an acceptance criterion | 3 | Stop, surface to operator, route to Plan spec or re-Prepare |
 | Architecture boundary violation | 3 | Stop, route to architecture-reviewer + operator, re-Prepare |
-| Requirement ambiguity blocking implementation | 3 | Stop, operator resolution, update change doc, re-Prepare |
-| Accepted tradeoff with recorded rationale | Exit loop | Record in change doc, continue |
+| Requirement ambiguity blocking implementation | 3 | Stop, operator resolution, update spec, re-Prepare |
+| Accepted tradeoff with recorded rationale | Exit loop | Record in spec, continue |
 
 ### Auditability and Resume
 
@@ -178,7 +180,7 @@ The structured Thought→Action→Observe record in `## Progress Log` means any 
 ```mermaid
 flowchart TD
     A[All admitted changes complete or explicitly deferred] --> B[Reconcile changes: complete, deferred, or carry-forward]
-    B --> C[Confirm change docs are already rooted in the wave folder]
+    B --> C[Confirm specs are already rooted in the wave folder]
     C --> D[Archive reports from the wave period into the wave folder]
     D --> E[Update wave.md with final status, Completed at, and review checkpoints]
     E --> F[Promote durable lessons to memory records and core memory docs]
@@ -190,7 +192,7 @@ flowchart TD
 ```
 
 - Closing a wave means reconciling every scoped change — not just marking the wave done.
-- Ensure all admitted change plan files were moved from `docs/plans/` into `docs/waves/<wave-id>/` during `Add change to wave`, then leave them there through closure.
+- Ensure all admitted change plan files were moved from `docs/plans/` into `docs/waves/<wave-id>/` during `Add spec to wave`, then leave them there through closure.
 - Move all reports from `docs/reports/` that fall within the wave's active period into `docs/waves/<wave-id>/` and summarize them in `## Reports` in `wave.md`.
 - Record `Completed at` in `wave.md` when the wave is formally closed.
 - Rerun the readiness evaluation during final review before closure so new reviewer or persona triggers introduced during implementation do not get skipped.
@@ -209,6 +211,6 @@ flowchart TD
 - `docs/contributing/discovery-delivery-workflow.md`
 - `docs/contributing/review-and-evals.md`
 - `docs/waves/README.md`
-- `docs/prompts/plan-change.prompt.md`
-- `docs/prompts/implement-change.prompt.md`
-- `docs/prompts/close-change.prompt.md`
+- `docs/prompts/plan-spec.prompt.md`
+- `docs/prompts/implement-spec.prompt.md`
+- `docs/prompts/close-spec.prompt.md`

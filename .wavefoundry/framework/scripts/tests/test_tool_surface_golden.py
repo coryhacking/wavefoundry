@@ -227,7 +227,7 @@ class ToolSurfaceGoldenTests(_BootedSurface):
             lines,
             [],
             "public tool surface drifted from fixtures/tool-surface-golden.json; "
-            "if the change is intentional, name it in the change doc and rerun with "
+            "if the change is intentional, name it in the spec and rerun with "
             f"{UPDATE_ENV}=1:\n" + "\n".join(lines),
         )
 
@@ -613,7 +613,7 @@ class ProfileToolSurfaceGoldenTests(unittest.TestCase):
                 self.assertEqual(
                     lines, [],
                     f"tool surface served under profile {name!r} drifted from {fixture.name}; "
-                    "if the change is intentional, name it in the change doc and rerun with "
+                    "if the change is intentional, name it in the spec and rerun with "
                     f"{UPDATE_ENV}=1:\n" + "\n".join(lines),
                 )
 

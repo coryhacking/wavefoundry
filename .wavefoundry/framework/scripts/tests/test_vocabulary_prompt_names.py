@@ -45,19 +45,20 @@ import vocabulary_profile  # noqa: E402
 PROFILE = load_profile("prompt-names")
 OVERRIDES = PROFILE["modules"]["vocabulary_profile"]["PROMPT_NAME_OVERRIDES"]
 
-# The pre-change literal table (AC-1).
+# The shipped literal table (AC-1). The five item-tier prompts carry the
+# spec names, with their earlier phrases as aliases.
 DEFAULT_TABLE = {
-    "plan-change": ("plan-change", "Plan change", ()),
+    "plan-change": ("plan-spec", "Plan spec", ("Plan change",)),
     "create-wave": ("create-wave", "Create wave", ()),
-    "add-change-to-wave": ("add-change-to-wave", "Add change to wave", ()),
-    "remove-change-from-wave": ("remove-change-from-wave", "Remove change from wave", ()),
+    "add-change-to-wave": ("add-spec-to-wave", "Add spec to wave", ("Add change to wave",)),
+    "remove-change-from-wave": ("remove-spec-from-wave", "Remove spec from wave", ("Remove change from wave",)),
     "prepare-wave": ("prepare-wave", "Prepare wave", ("Ready wave",)),
     "implement-wave": ("implement-wave", "Implement wave", ()),
-    "implement-change": ("implement-change", "Implement change", ()),
+    "implement-change": ("implement-spec", "Implement spec", ("Implement change",)),
     "pause-wave": ("pause-wave", "Pause wave", ()),
     "review-wave": ("review-wave", "Review wave", ()),
     "close-wave": ("close-wave", "Close wave", ()),
-    "close-change": ("close-change", "Close change", ()),
+    "close-change": ("close-spec", "Close spec", ("Close change",)),
     "plan-arc": ("plan-arc", "Plan arc", ("Plan initiative",)),
 }
 
@@ -263,6 +264,12 @@ def _drive(scripts: Path, jobs: list) -> "tuple[list, str]":
     return json.loads(result.stdout.strip().splitlines()[-1]), result.stderr
 
 
+def _shipped_slug(key: str) -> str:
+    """A key's shipped default slug; a fixed prompt's slug is its name."""
+    return DEFAULT_TABLE[key][0] if key in DEFAULT_TABLE else key
+
+
+# Prompt keys and fixed prompt names; the files are at the shipped slugs.
 MANIFEST_DOCS = (
     "plan-change", "create-wave", "add-change-to-wave", "remove-change-from-wave", "prepare-wave",
     "implement-wave", "implement-change", "pause-wave", "review-wave", "memory-review", "close-wave",
@@ -293,19 +300,19 @@ def build_fixture(default_scripts: Path, root: Path, *, close_change: bool = Tru
     (out,), _stderr = _drive(default_scripts, [{"action": "render", "root": str(root)}])
     assert "error" not in out, out
     prompts = root / "docs" / "prompts"
-    for slug, title in (("add-change-to-wave", "Add Change To Wave"),
-                        ("remove-change-from-wave", "Remove Change From Wave"),
-                        ("pause-wave", "Pause Wave")):
-        (prompts / f"{slug}.prompt.md").write_text(_authored(title), encoding="utf-8")
-    (prompts / "implement-change.prompt.md").write_bytes(IMPLEMENT_CHANGE_BYTES)
-    for slug in AGENT_BODIES:
+    for key, title in (("add-change-to-wave", "Add Change To Wave"),
+                       ("remove-change-from-wave", "Remove Change From Wave"),
+                       ("pause-wave", "Pause Wave")):
+        (prompts / f"{_shipped_slug(key)}.prompt.md").write_text(_authored(title), encoding="utf-8")
+    (prompts / f"{_shipped_slug('implement-change')}.prompt.md").write_bytes(IMPLEMENT_CHANGE_BYTES)
+    for key in AGENT_BODIES:
         (prompts / "agents").mkdir(exist_ok=True)
-        (prompts / "agents" / f"{slug}.prompt.md").write_text(
-            _authored(f"Agent body {slug}"), encoding="utf-8")
+        (prompts / "agents" / f"{_shipped_slug(key)}.prompt.md").write_text(
+            _authored(f"Agent body {key}"), encoding="utf-8")
     link = root / LINK_DOC
     link.write_text(_authored("Prompt Links").replace(
         "Project prose for Prompt Links.",
-        "See [the implement prompt](../prompts/implement-change.prompt.md) for the steps."),
+        f"See [the implement prompt](../prompts/{_shipped_slug('implement-change')}.prompt.md) for the steps."),
         encoding="utf-8")
     manifest_path = prompts / "prompt-surface-manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -313,31 +320,34 @@ def build_fixture(default_scripts: Path, root: Path, *, close_change: bool = Tru
     known = {entry["doc"] for entry in entries}
     shortcuts = {key: shortcut for key, (_slug, shortcut, _aliases) in DEFAULT_TABLE.items()}
     shortcuts.update({"memory-review": "Review memories", "review-plan": "Review plan"})
-    for slug in MANIFEST_DOCS:
-        doc = f"docs/prompts/{slug}.prompt.md"
+    for key in MANIFEST_DOCS:
+        doc = f"docs/prompts/{_shipped_slug(key)}.prompt.md"
         if doc not in known:
-            entries.append({"doc": doc, "shortcut": shortcuts[slug]})
+            entries.append({"doc": doc, "shortcut": shortcuts[key]})
     if not close_change:
-        entries = [e for e in entries if e["doc"] != "docs/prompts/close-change.prompt.md"]
-        (prompts / "close-change.prompt.md").unlink()
+        close_doc = f"docs/prompts/{_shipped_slug('close-change')}.prompt.md"
+        entries = [e for e in entries if e["doc"] != close_doc]
+        (root / close_doc).unlink()
     # Stage the synthetic first profile without changing the shipped default
     # key table: the final container profile reuses these neutral item names.
     staged = {"implement-change": ("implement-parcel", "Implement parcel"),
               "close-change": ("close-parcel", "Close parcel")}
     for key, (old_slug, old_shortcut) in staged.items():
+        shipped = _shipped_slug(key)
         for folder in (prompts, prompts / "agents"):
-            source = folder / f"{key}.prompt.md"
+            source = folder / f"{shipped}.prompt.md"
             if source.exists():
                 source.rename(folder / f"{old_slug}.prompt.md")
         for host in (".claude", ".codex", ".agents"):
-            source = root / host / "skills" / f"wf-{key}"
+            source = root / host / "skills" / f"wf-{shipped}"
             if source.exists():
                 source.rename(source.with_name(f"wf-{old_slug}"))
         for entry in entries:
-            if entry["doc"] == f"docs/prompts/{key}.prompt.md":
+            if entry["doc"] == f"docs/prompts/{shipped}.prompt.md":
                 entry.update(doc=f"docs/prompts/{old_slug}.prompt.md", shortcut=old_shortcut)
     link.write_text(link.read_text(encoding="utf-8").replace(
-        "../prompts/implement-change.prompt.md", "../prompts/implement-parcel.prompt.md"), encoding="utf-8")
+        f"../prompts/{_shipped_slug('implement-change')}.prompt.md", "../prompts/implement-parcel.prompt.md"),
+        encoding="utf-8")
     manifest["prompt_names"] = {key: row[0] for key, row in staged.items()}
     manifest["public_prompt_surface"] = entries
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -390,22 +400,25 @@ class DefaultNamePinTests(unittest.TestCase):
             ("docs/prompts/review-wave.prompt.md", "review-wave.prompt.md"),
             ("docs/prompts/close-wave.prompt.md", "close-wave.prompt.md"),
             ("docs/prompts/review-plan.prompt.md", "review-plan.prompt.md"),
-            ("docs/prompts/close-change.prompt.md", "close-change.prompt.md"),
+            ("docs/prompts/close-spec.prompt.md", "close-change.prompt.md"),
         ))
         self.assertEqual((ras.CLOSE_CHANGE_PROMPT, ras.CLOSE_CHANGE_SHORTCUT),
-                         ("docs/prompts/close-change.prompt.md", "Close change"))
+                         ("docs/prompts/close-spec.prompt.md", "Close spec"))
         self.assertEqual([s.name for s in ras.SKILL_REGISTRY], [
-            "wf-plan-change", "wf-prepare-wave", "wf-implement-wave", "wf-review-wave", "wf-close-wave",
-            "wf-close-change", "wf-review-plan", "wf-evaluate-decision", "wf-memory-review", "wf-pause-wave",
+            "wf-plan-spec", "wf-prepare-wave", "wf-implement-wave", "wf-review-wave", "wf-close-wave",
+            "wf-close-spec", "wf-review-plan", "wf-evaluate-decision", "wf-memory-review", "wf-pause-wave",
             "wf-council", "wf-guru", "wf-upgrade", "wf-package", "wf-code-cleanup", "wf-envision", "wf-techdocs",
             "wf-plan-arc", "wf-stats",
         ])
-        self.assertEqual(ras.stale_skill_paths(), ras.STALE_SKILL_PATHS)
+        # The two skills named for an earlier default are retired on render.
+        self.assertEqual(ras.stale_skill_paths(), ras.STALE_SKILL_PATHS + tuple(
+            f"{folder}/{name}/SKILL.md" for name in ("wf-plan-change", "wf-close-change")
+            for folder in (".codex/skills", ".claude/skills", ".agents/skills")))
         self.assertIn("The Prepare wave / Ready wave workflow.", ras.SKILL_REGISTRY[1].description)
-        self.assertIn("Single-change variant: Implement change (`docs/prompts/implement-change.prompt.md`).",
+        self.assertIn("Single-change variant: Implement spec (`docs/prompts/implement-spec.prompt.md`).",
                       ras.SKILL_REGISTRY[2].body)
-        self.assertIn("(**Plan change**, **Implement wave**, **Close wave**, etc.)", ras.CURSOR_AUTO_GURU_MDC)
-        self.assertIn("(Plan change, Implement wave, Close wave, Prepare wave, etc.)", ras.CLAUDE_GURU_AGENT)
+        self.assertIn("(**Plan spec**, **Implement wave**, **Close wave**, etc.)", ras.CURSOR_AUTO_GURU_MDC)
+        self.assertIn("(Plan spec, Implement wave, Close wave, Prepare wave, etc.)", ras.CLAUDE_GURU_AGENT)
         self.assertEqual(list(review_policy.REVIEW_POLICY_SURFACE_BLOCKS)[:5], [
             "docs/prompts/prepare-wave.prompt.md", "docs/prompts/review-wave.prompt.md",
             "docs/prompts/close-wave.prompt.md", "docs/prompts/implement-wave.prompt.md",
@@ -453,21 +466,21 @@ class DefaultNamePinTests(unittest.TestCase):
             "wf_close_wave": "docs/prompts/close-wave.prompt.md",
         })
         self.assertEqual(lint_constants.PROMPT_SURFACE_FILES, (
-            "docs/prompts/index.md", "docs/prompts/plan-change.prompt.md",
-            "docs/prompts/implement-change.prompt.md", "docs/prompts/close-change.prompt.md",
+            "docs/prompts/index.md", "docs/prompts/plan-spec.prompt.md",
+            "docs/prompts/implement-spec.prompt.md", "docs/prompts/close-spec.prompt.md",
             "docs/prompts/agent-routing-concurrency.prompt.md",
         ))
         self.assertEqual(reconcile_scan._RETIRED_FINALIZE_PROMPT_SUGGESTION, (
             "merge unique guidance into docs/prompts/close-wave.prompt.md or "
-            "docs/prompts/close-change.prompt.md, then remove the retired prompt"))
+            "docs/prompts/close-spec.prompt.md, then remove the retired prompt"))
         self.assertEqual(reconcile_scan._CLOSE_CHANGE_OR_WAVE_SUGGESTION,
-                         "Close change (one change) or Close wave (the wave)")
+                         "Close spec (one change) or Close wave (the wave)")
         suggestions = {retired: suggestion for _p, retired, suggestion in reconcile_scan._RETIRED_CHANGE_PROMPT_PATTERNS}
-        self.assertEqual(suggestions["wf-plan-feature"], "wf-plan-change")
+        self.assertEqual(suggestions["wf-plan-feature"], "wf-plan-spec")
         self.assertEqual(suggestions["docs/prompts/agents/implement-feature.prompt.md"],
-                         "docs/prompts/agents/implement-change.prompt.md")
-        self.assertEqual(suggestions["Plan feature"], "Plan change")
-        self.assertEqual(suggestions["Implement feature"], "Implement change")
+                         "docs/prompts/agents/implement-spec.prompt.md")
+        self.assertEqual(suggestions["Plan feature"], "Plan spec")
+        self.assertEqual(suggestions["Implement feature"], "Implement spec")
         self.assertEqual(reconcile_scan._PROFILE_PROMPT_NAME_PATTERNS, ())
         self.assertEqual(reconcile_scan._PROFILE_GURU_DESCRIPTION_PHRASES, ())
 
@@ -522,7 +535,7 @@ class ValidationTests(unittest.TestCase):
             "fixed shortcut, case-insensitive": (
                 {"plan-change": {"slug": "plan-task", "shortcut": "review PLAN"}}, "plan-change"),
             "two-key cycle": ({
-                "implement-wave": {"slug": "implement-change", "shortcut": "Implement batch"},
+                "implement-wave": {"slug": "implement-spec", "shortcut": "Implement batch"},
                 "implement-change": {"slug": "implement-wave", "shortcut": "Do task"},
             }, "implement-wave"),
         }
@@ -587,11 +600,34 @@ class ValidationTests(unittest.TestCase):
         stems = {p.name[: -len(".prompt.md")] for d in ("docs/prompts", "docs/prompts/agents")
                  for p in (REPO_ROOT / d).glob("*.prompt.md")}
         retired = {"interrogate-plan", "plan-feature", "implement-feature", "finalize-feature", "index", "plan-initiative"}
-        self.assertEqual(set(vocabulary_profile.FIXED_PROMPT_SLUGS) - retired,
-                         stems - set(vocabulary_profile.DEFAULT_PROMPT_NAMES))
+        default_slugs = {entry["slug"] for entry in vocabulary_profile.DEFAULT_PROMPT_NAMES.values()}
+        self.assertEqual(set(vocabulary_profile.FIXED_PROMPT_SLUGS) - retired, stems - default_slugs)
+
+    def test_no_default_prompt_is_named_for_change(self) -> None:
+        """The rename rule, derived from the table: no default slug or
+        shortcut has "change" as a word, and every key renamed by it keeps
+        its earlier slug and phrase (the "spec" word back to "change")."""
+        import re
+
+        word = re.compile(r"(?i)(?:^|[^a-z])change(?:$|[^a-z])")
+        for key, row in vocabulary_profile.DEFAULT_PROMPT_NAMES.items():
+            with self.subTest(key=key):
+                self.assertIsNone(word.search(row["shortcut"]), row["shortcut"])
+                self.assertIsNone(word.search(row["slug"]), row["slug"])
+        renamed = {key for key in vocabulary_profile.DEFAULT_PROMPT_NAMES if word.search(key)}
+        self.assertEqual(renamed, set(vocabulary_profile.EARLIER_DEFAULT_PROMPT_SLUGS))
+        self.assertEqual(len(renamed), 5)
+        for key, earlier in vocabulary_profile.EARLIER_DEFAULT_PROMPT_SLUGS.items():
+            row = vocabulary_profile.DEFAULT_PROMPT_NAMES[key]
+            with self.subTest(key=key):
+                self.assertEqual(earlier, key)
+                self.assertEqual(row["slug"], re.sub(r"(?<![a-z])change(?![a-z])", "spec", earlier))
+                earlier_phrase = re.sub(r"(?<![a-z])spec(?![a-z])", "change", row["shortcut"])
+                self.assertNotEqual(earlier_phrase, row["shortcut"])
+                self.assertIn(earlier_phrase, row["aliases"])
 
     def test_applied_record_problems(self) -> None:
-        self.assertEqual(vocabulary_profile.applied_prompt_slugs(None)["close-change"], "close-change")
+        self.assertEqual(vocabulary_profile.applied_prompt_slugs(None)["close-change"], "close-spec")
         for record in ([], {"bogus": "x"}, {"close-change": "Close Wave"}):
             with self.subTest(record=record), self.assertRaises(ValueError):
                 vocabulary_profile.applied_prompt_slugs(record)
@@ -713,14 +749,14 @@ class ProfileMigrationTests(unittest.TestCase):
     def test_migration_moves_byte_for_byte_and_records_names(self) -> None:
         root = self._copy(self.fixture, "migrate-only")
         before = {rel: (root / rel).read_bytes() for rel in (
-            "docs/prompts/plan-change.prompt.md", "docs/prompts/implement-wave.prompt.md",
+            "docs/prompts/plan-spec.prompt.md", "docs/prompts/implement-wave.prompt.md",
             "docs/prompts/implement-parcel.prompt.md", "docs/prompts/close-wave.prompt.md",
             "docs/prompts/close-parcel.prompt.md", "docs/prompts/agents/implement-wave.prompt.md",
             "docs/prompts/agents/implement-parcel.prompt.md", "docs/prompts/prepare-wave.prompt.md")}
         (out,), _ = _drive(self.profiled, [{"action": "migrate", "root": str(root)}])
         self.assertNotIn("error", out)
         prompts = root / "docs" / "prompts"
-        self.assertEqual((prompts / "plan-task.prompt.md").read_bytes(), before["docs/prompts/plan-change.prompt.md"])
+        self.assertEqual((prompts / "plan-task.prompt.md").read_bytes(), before["docs/prompts/plan-spec.prompt.md"])
         # The chain: the container prompt now holds the item's old name, and
         # the item prompt (CRLF) moves on first.
         self.assertEqual((prompts / "implement-parcel.prompt.md").read_bytes(),
@@ -733,7 +769,7 @@ class ProfileMigrationTests(unittest.TestCase):
                          before["docs/prompts/agents/implement-wave.prompt.md"])
         self.assertEqual((prompts / "agents/do-task.prompt.md").read_bytes(),
                          before["docs/prompts/agents/implement-parcel.prompt.md"])
-        for gone in ("plan-change", "implement-wave", "close-wave", "prepare-wave", "pause-wave"):
+        for gone in ("plan-spec", "implement-wave", "close-wave", "prepare-wave", "pause-wave"):
             self.assertFalse((prompts / f"{gone}.prompt.md").exists(), gone)
         manifest = self._manifest(root)
         self.assertEqual(manifest["prompt_names"], {key: spec["slug"] for key, spec in OVERRIDES.items()})
@@ -758,7 +794,7 @@ class ProfileMigrationTests(unittest.TestCase):
         self.assertEqual((root / LINK_DOC).read_bytes(), link_before)
         for host in (".claude", ".codex", ".agents"):
             skills = root / host / "skills"
-            for gone in ("wf-plan-change", "wf-prepare-wave", "wf-implement-wave", "wf-review-wave",
+            for gone in ("wf-plan-spec", "wf-plan-change", "wf-prepare-wave", "wf-implement-wave", "wf-review-wave",
                          "wf-close-wave", "wf-pause-wave"):
                 self.assertFalse((skills / gone).exists(), f"{host} {gone}")
             for present in ("wf-plan-task", "wf-prepare-batch", "wf-implement-parcel", "wf-finish-task",
@@ -839,7 +875,7 @@ class ProfileMigrationTests(unittest.TestCase):
         self.assertNotIn("prompt_names", self._manifest(root))
         self.assertEqual(second, {"written": []})
         prompts = root / "docs" / "prompts"
-        self.assertEqual((prompts / "implement-change.prompt.md").read_bytes(), IMPLEMENT_CHANGE_BYTES)
+        self.assertEqual((prompts / "implement-spec.prompt.md").read_bytes(), IMPLEMENT_CHANGE_BYTES)
         for gone in ("plan-task", "do-task", "finish-task", "prepare-batch"):
             self.assertFalse((prompts / f"{gone}.prompt.md").exists(), gone)
 
@@ -874,7 +910,7 @@ class ProfileMigrationTests(unittest.TestCase):
         cases = {}
         root = self._copy(self.fixture, "conflict-target")
         (root / "docs/prompts/plan-task.prompt.md").write_text(_authored("Plan Task"), encoding="utf-8")
-        cases["target exists"] = (root, ["docs/prompts/plan-change.prompt.md -> docs/prompts/plan-task.prompt.md"])
+        cases["target exists"] = (root, ["docs/prompts/plan-spec.prompt.md -> docs/prompts/plan-task.prompt.md"])
         root = self._copy(self.fixture, "conflict-cycle")
         (root / "docs/prompts/do-task.prompt.md").write_text(_authored("Do Task"), encoding="utf-8")
         manifest = self._manifest(root)
@@ -998,8 +1034,8 @@ def build_fresh_target(root: Path) -> Path:
         (root / host).mkdir()
     prompts = root / "docs" / "prompts"
     (prompts / "prompt-surface-manifest.json").unlink()
-    for slug in ("plan-change", "implement-change", "close-change"):
-        (prompts / f"{slug}.prompt.md").unlink()
+    for key in ("plan-change", "implement-change", "close-change"):
+        (prompts / f"{_shipped_slug(key)}.prompt.md").unlink()
     return root
 
 
@@ -1307,6 +1343,347 @@ class DefaultRenderIdentityTests(unittest.TestCase):
             self.assertEqual(_tree_digest(root), before)
             manifest = json.loads((root / "docs/prompts/prompt-surface-manifest.json").read_text(encoding="utf-8"))
             self.assertNotIn("prompt_names", manifest)
+
+
+# ---------------------------------------------------------------------------
+# The default rename from "change" to "spec": installed repositories migrate
+# ---------------------------------------------------------------------------
+
+SKILL_FOLDERS = (".claude/skills", ".codex/skills", ".agents/skills")
+EARLIER_SKILLS = ("wf-plan-change", "wf-close-change")
+EARLIER_AGENT_BODIES = ("plan-change", "implement-change")
+_EARLIER_ANCHOR = "# Framework prompt slugs a renamed prompt may not take:"
+
+
+def _earlier_scripts_tree(dest: Path) -> Path:
+    """A scripts tree that ships the earlier default names: each renamed key
+    takes back its earlier slug and its alias as its shortcut. It stands for
+    the framework a repository was rendered with before the rename."""
+    scripts = _scripts_tree(dest, None)
+    path = scripts / "vocabulary_profile.py"
+    text = path.read_text(encoding="utf-8")
+    assert text.count(_EARLIER_ANCHOR) == 1, "anchor moved"
+    restore = (
+        "DEFAULT_PROMPT_NAMES = {\n"
+        "    key: ({**row, 'slug': EARLIER_DEFAULT_PROMPT_SLUGS[key], 'shortcut': row['aliases'][0], 'aliases': ()}\n"
+        "          if key in EARLIER_DEFAULT_PROMPT_SLUGS else row)\n"
+        "    for key, row in DEFAULT_PROMPT_NAMES.items()\n"
+        "}\n"
+        "EARLIER_DEFAULT_PROMPT_SLUGS = {}\n"
+    )
+    path.write_text(text.replace(_EARLIER_ANCHOR, restore + _EARLIER_ANCHOR), encoding="utf-8")
+    return scripts
+
+
+def _write_manifest(root: Path, manifest: dict) -> None:
+    (root / "docs/prompts/prompt-surface-manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+
+def _read_manifest(root: Path) -> dict:
+    return json.loads((root / "docs/prompts/prompt-surface-manifest.json").read_text(encoding="utf-8"))
+
+
+def build_earlier_default_tree(earlier_scripts: Path, root: Path) -> Path:
+    """A lint-clean target rendered by the earlier framework: the five
+    prompts, two agent bodies and two skills at the earlier default names,
+    every prompt registered in the manifest, no ``prompt_names`` record."""
+    shutil.copytree(DOCS_LINT_FIXTURE, root)
+    for host in (".claude", ".codex", ".agents"):
+        (root / host).mkdir()
+    prompts = root / "docs" / "prompts"
+    manifest = _read_manifest(root)
+    # The fixture models a current repository; take it back to the earlier names.
+    for key in ("plan-change", "implement-change", "close-change"):
+        (prompts / f"{_shipped_slug(key)}.prompt.md").rename(prompts / f"{key}.prompt.md")
+    for entry in manifest["public_prompt_surface"]:
+        if entry["doc"] == f"docs/prompts/{_shipped_slug('plan-change')}.prompt.md":
+            entry.update(doc="docs/prompts/plan-change.prompt.md", shortcut="Plan change")
+    _write_manifest(root, manifest)
+    (out,), _stderr = _drive(earlier_scripts, [{"action": "render", "root": str(root)}])
+    assert "error" not in out, out
+    for key, title in (("add-change-to-wave", "Add Change To Wave"),
+                       ("remove-change-from-wave", "Remove Change From Wave")):
+        (prompts / f"{key}.prompt.md").write_text(_authored(title), encoding="utf-8")
+    (prompts / "implement-change.prompt.md").write_bytes(IMPLEMENT_CHANGE_BYTES)
+    (prompts / "agents").mkdir(exist_ok=True)
+    for key in EARLIER_AGENT_BODIES:
+        (prompts / "agents" / f"{key}.prompt.md").write_text(_authored(f"Agent body {key}"), encoding="utf-8")
+    manifest = _read_manifest(root)
+    known = {entry["doc"] for entry in manifest["public_prompt_surface"]}
+    # Every mapped public prompt present is registered, as an install does.
+    for key, (slug, shortcut, aliases) in DEFAULT_TABLE.items():
+        if key in vocabulary_profile.EARLIER_DEFAULT_PROMPT_SLUGS:
+            slug, shortcut = key, aliases[0]
+        doc = f"docs/prompts/{slug}.prompt.md"
+        if doc not in known and (root / doc).is_file():
+            manifest["public_prompt_surface"].append({"doc": doc, "shortcut": shortcut})
+    _write_manifest(root, manifest)
+    return root
+
+
+def _earlier_files(root: Path) -> "dict[str, bytes]":
+    """The bytes of every earlier-named prompt and agent body, by path."""
+    out = {}
+    for key in vocabulary_profile.EARLIER_DEFAULT_PROMPT_SLUGS:
+        for rel in _prompt_pair(key):
+            if (root / rel).is_file():
+                out[rel] = (root / rel).read_bytes()
+    return out
+
+
+def _renamed_rel(rel: str) -> str:
+    """The path an earlier-named prompt or agent body moves to."""
+    folder, name = rel.rsplit("/", 1)
+    key = name[: -len(".prompt.md")]
+    return f"{folder}/{_shipped_slug(key)}.prompt.md"
+
+
+class DefaultSpecRenameMigrationTests(unittest.TestCase):
+    """The shipped prompts renamed from "change" to "spec": a repository
+    rendered under the earlier defaults moves on render, by the
+    ``EARLIER_DEFAULT_PROMPT_SLUGS`` rule, and nothing of a distribution's
+    moves."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.default, cls.profiled, base = _Trees.get()
+        cls.work = Path(tempfile.mkdtemp(dir=base))
+        cls.earlier = _earlier_scripts_tree(cls.work / "earlier-scripts")
+        cls.tree = build_earlier_default_tree(cls.earlier, cls.work / "earlier-tree")
+
+    def _copy(self, name: str, source: "Path | None" = None) -> Path:
+        dest = self.work / name
+        shutil.copytree(source or self.tree, dest, symlinks=True)
+        return dest
+
+    def test_the_earlier_tree_holds_the_earlier_names(self) -> None:
+        # The fixture is what it claims to be, or the tests below prove nothing.
+        files = _earlier_files(self.tree)
+        self.assertEqual(len(files), 7, sorted(files))
+        for folder in SKILL_FOLDERS:
+            for name in EARLIER_SKILLS:
+                self.assertTrue((self.tree / folder / name / "SKILL.md").is_file(), f"{folder} {name}")
+        for folder in (".codex/skills", ".agents/skills"):
+            self.assertTrue((self.tree / folder / "wf-close-change/agents/openai.yaml").is_file(), folder)
+        manifest = _read_manifest(self.tree)
+        self.assertNotIn("prompt_names", manifest)
+        docs = {entry["doc"] for entry in manifest["public_prompt_surface"]}
+        for key in (*vocabulary_profile.EARLIER_DEFAULT_PROMPT_SLUGS, "implement-wave"):
+            self.assertIn(f"docs/prompts/{key}.prompt.md", docs)
+
+    def _assert_migrated(self, root: Path, before: "dict[str, bytes]") -> None:
+        for rel, data in before.items():
+            with self.subTest(moved=rel):
+                self.assertFalse(os.path.lexists(root / rel), rel)
+                self.assertEqual((root / _renamed_rel(rel)).read_bytes(), data)
+        manifest = _read_manifest(root)
+        self.assertNotIn("prompt_names", manifest)
+        entries = manifest["public_prompt_surface"]
+        docs = [entry["doc"] for entry in entries]
+        shortcuts = [entry["shortcut"] for entry in entries]
+        self.assertEqual(len(docs), len(set(docs)), docs)
+        self.assertEqual(len(shortcuts), len(set(shortcuts)), shortcuts)
+        for key in vocabulary_profile.EARLIER_DEFAULT_PROMPT_SLUGS:
+            self.assertIn({"doc": f"docs/prompts/{_shipped_slug(key)}.prompt.md",
+                           "shortcut": DEFAULT_TABLE[key][1]}, entries)
+            self.assertNotIn(f"docs/prompts/{key}.prompt.md", docs)
+        for folder in SKILL_FOLDERS:
+            for name in ("wf-plan-spec", "wf-close-spec"):
+                self.assertTrue((root / folder / name / "SKILL.md").is_file(), f"{folder} {name}")
+            for name in EARLIER_SKILLS:
+                self.assertFalse(os.path.lexists(root / folder / name), f"{folder} {name}")
+        claude_close = (root / ".claude/skills/wf-close-spec/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("\ndisable-model-invocation: true\n", claude_close)
+
+    def test_render_moves_the_earlier_names_and_converges(self) -> None:
+        root = self._copy("render")
+        before = _earlier_files(root)
+        (first, second, lint), _stderr = _drive(self.default, [
+            {"action": "render", "root": str(root)}, {"action": "render", "root": str(root)},
+            {"action": "lint", "root": str(root)}])
+        self.assertNotIn("error", first)
+        self._assert_migrated(root, before)
+        self.assertEqual(second, {"written": []})
+        self.assertEqual(lint["pending"], [])
+        self.assertEqual(lint["rc"], 0, lint["output"][-3000:])
+
+    def test_render_from_the_feature_names_ends_at_the_spec_names(self) -> None:
+        root = self._copy("feature")
+        prompts = root / "docs" / "prompts"
+        manifest = _read_manifest(root)
+        for key, shortcut in (("plan-change", "Plan feature"), ("implement-change", "Implement feature")):
+            feature = key.replace("change", "feature")
+            for folder in (prompts, prompts / "agents"):
+                (folder / f"{key}.prompt.md").rename(folder / f"{feature}.prompt.md")
+            for entry in manifest["public_prompt_surface"]:
+                if entry["doc"] == f"docs/prompts/{key}.prompt.md":
+                    entry.update(doc=f"docs/prompts/{feature}.prompt.md", shortcut=shortcut)
+        _write_manifest(root, manifest)
+        before = {rel.replace("feature", "change"): data for rel, data in (
+            (str(path.relative_to(root).as_posix()), path.read_bytes())
+            for path in sorted(prompts.rglob("*feature.prompt.md")))}
+        self.assertEqual(len(before), 4, sorted(before))
+        before.update(_earlier_files(root))
+        (first, second, lint), _stderr = _drive(self.default, [
+            {"action": "render", "root": str(root)}, {"action": "render", "root": str(root)},
+            {"action": "lint", "root": str(root)}])
+        self.assertNotIn("error", first)
+        self.assertEqual(list(prompts.rglob("*feature.prompt.md")), [])
+        self._assert_migrated(root, before)
+        self.assertEqual(second, {"written": []})
+        self.assertEqual(lint["rc"], 0, lint["output"][-3000:])
+
+    def test_differing_files_at_both_names_write_nothing(self) -> None:
+        root = self._copy("both-names")
+        (root / "docs/prompts/plan-spec.prompt.md").write_text(_authored("Plan Spec"), encoding="utf-8")
+        before = _tree_digest(root)
+        (out,), _stderr = _drive(self.default, [{"action": "render", "root": str(root)}])
+        self.assertIn("prompt name migration blocked", out["error"])
+        self.assertIn("docs/prompts/plan-change.prompt.md -> docs/prompts/plan-spec.prompt.md", out["error"])
+        self.assertIn("All files were preserved and nothing was written", out["error"])
+        self.assertEqual(_tree_digest(root), before)
+
+    def test_lint_reports_the_pending_migration_before_the_render(self) -> None:
+        root = self._copy("lint-pending")
+        (lint,), _stderr = _drive(self.default, [{"action": "lint", "root": str(root)}])
+        self.assertNotEqual(lint["rc"], 0)
+        self.assertEqual(len(lint["pending"]), 1, lint["pending"])
+        self.assertIn("migration pending", lint["pending"][0])
+        for key in vocabulary_profile.EARLIER_DEFAULT_PROMPT_SLUGS:
+            self.assertIn(f"`{key}`", lint["pending"][0])
+        self.assertIn("wf render-surfaces", lint["pending"][0])
+
+    def test_a_missing_or_unreadable_manifest_adds_no_baseline_beside_an_earlier_prompt(self) -> None:
+        for case in ("missing", "unreadable"):
+            with self.subTest(manifest=case):
+                root = self._copy(f"manifest-{case}")
+                manifest = root / "docs/prompts/prompt-surface-manifest.json"
+                if case == "missing":
+                    manifest.unlink()
+                else:
+                    manifest.write_text("{not json", encoding="utf-8")
+                close_before = (root / "docs/prompts/close-change.prompt.md").read_bytes()
+                (migrated, rendered), stderr = _drive(self.default, [
+                    {"action": "migrate", "root": str(root)}, {"action": "render", "root": str(root)}])
+                self.assertEqual(migrated["written"], [])
+                self.assertEqual(len(migrated["diagnostics"]), 1, migrated["diagnostics"])
+                self.assertIn("repair or create it", migrated["diagnostics"][0])
+                self.assertIn("were not materialized in this render", migrated["diagnostics"][0])
+                self.assertNotIn("error", rendered)
+                self.assertIn("repair or create it", stderr)
+                self.assertFalse(os.path.lexists(root / "docs/prompts/close-spec.prompt.md"))
+                self.assertEqual((root / "docs/prompts/close-change.prompt.md").read_bytes(), close_before)
+
+    def test_a_declared_skill_may_take_an_earlier_default_name(self) -> None:
+        declared = {"wf-plan-change": {
+            "title": "Distribution planning",
+            "description": "Plan with the distribution's checklist. The distribution planning workflow.",
+            "prompt_doc": "docs/prompts/dist-plan.prompt.md",
+            "summary": ["Read the prompt doc before the first step."],
+        }}
+        scripts = _scripts_tree(self.work / "declared-scripts", None)
+        apply_profile(scripts, {"description": "A skill at an earlier default name.",
+                                "modules": {"mcp_tool_extensions": {"EXTENSION_SKILLS": declared}}})
+        # A distribution that adopts the name after the rename: no earlier
+        # core skill is left at it. The declared skill renders there and a
+        # second render keeps it.
+        root = self._copy("declared")
+        for folder in SKILL_FOLDERS:
+            shutil.rmtree(root / folder / "wf-plan-change")
+        (root / "docs/prompts/dist-plan.prompt.md").write_text(_authored("Dist Plan"), encoding="utf-8")
+        (out, second), stderr = _drive(scripts, [{"action": "render", "root": str(root)},
+                                                 {"action": "render", "root": str(root)}])
+        self.assertNotIn("error", out)
+        self.assertEqual(second, {"written": []})
+        self.assertNotIn("retired skill path", stderr)
+        for folder in SKILL_FOLDERS:
+            skill = (root / folder / "wf-plan-change/SKILL.md").read_text(encoding="utf-8")
+            self.assertIn("name: wf-plan-change", skill)
+            self.assertIn("The distribution planning workflow.", skill)
+            self.assertTrue((root / folder / "wf-plan-spec/SKILL.md").is_file())
+            # Not declared: still the earlier default, so it is removed.
+            self.assertFalse(os.path.lexists(root / folder / "wf-close-change"), folder)
+        # With the earlier core skill still there, the declared name keeps
+        # the folder: it is not removed as retired (the existing file is
+        # not the declared skill's, so the render leaves it as it is).
+        root = self._copy("declared-over-core")
+        (root / "docs/prompts/dist-plan.prompt.md").write_text(_authored("Dist Plan"), encoding="utf-8")
+        before = {folder: (root / folder / "wf-plan-change/SKILL.md").read_bytes() for folder in SKILL_FOLDERS}
+        (out,), stderr = _drive(scripts, [{"action": "render", "root": str(root)}])
+        self.assertNotIn("error", out)
+        self.assertNotIn("retired skill path", stderr)
+        for folder in SKILL_FOLDERS:
+            self.assertEqual((root / folder / "wf-plan-change/SKILL.md").read_bytes(), before[folder])
+            self.assertFalse(os.path.lexists(root / folder / "wf-close-change"), folder)
+
+    def _profile_scripts(self, name: str, overrides: dict) -> Path:
+        scripts = _scripts_tree(self.work / name, None)
+        apply_profile(scripts, {"description": "Reuses an earlier default slug.",
+                                "modules": {"vocabulary_profile": {"PROMPT_NAME_OVERRIDES": overrides}}})
+        return scripts
+
+    def test_a_profile_keeps_its_names(self) -> None:
+        """Under the prompt-names profile a render of an applied tree moves or
+        removes none of the profile's prompts or skills."""
+        root = self._copy("profiled", self.tree)
+        (applied,), _ = _drive(self.profiled, [{"action": "render", "root": str(root)}])
+        self.assertNotIn("error", applied)
+        self.assertEqual(_read_manifest(root)["prompt_names"],
+                         {key: spec["slug"] for key, spec in OVERRIDES.items()})
+        owned = {rel: digest for rel, digest in _tree_digest(root).items()
+                 if any(rel in _prompt_pair(spec["slug"]) for spec in OVERRIDES.values())
+                 or any(rel.startswith(f"{folder}/wf-{spec['slug']}/")
+                        for folder in SKILL_FOLDERS for spec in OVERRIDES.values())}
+        self.assertTrue(any(rel.endswith("/SKILL.md") for rel in owned))
+        self.assertIn("docs/prompts/do-task.prompt.md", owned)
+        (second, lint), _ = _drive(self.profiled, [
+            {"action": "render", "root": str(root)}, {"action": "lint", "root": str(root)}])
+        self.assertEqual(second, {"written": []})
+        after = _tree_digest(root)
+        self.assertEqual({rel: after.get(rel) for rel in owned}, owned)
+        self.assertEqual(lint["pending"], [])
+        self.assertEqual(lint["rc"], 0, lint["output"][-3000:])
+
+    def test_a_profile_giving_the_container_an_earlier_default_slug(self) -> None:
+        """The container prompt at ``implement-change`` (an earlier default
+        slug, recorded as applied) stays put with its skill, whether the
+        profile also renames the item prompt or leaves it at its default; and
+        the same profile adopted from an earlier-default tree chains."""
+        container_name = {"slug": "implement-change", "shortcut": "Implement batch"}
+        profiles = {
+            "item-renamed": ({"implement-wave": container_name,
+                              "implement-change": {"slug": "do-item", "shortcut": "Do item"}}, "do-item"),
+            "item-default": ({"implement-wave": container_name}, _shipped_slug("implement-change")),
+        }
+        for name, (overrides, item_slug) in profiles.items():
+            with self.subTest(profile=name):
+                scripts = self._profile_scripts(f"container-scripts-{name}", overrides)
+                root = self._copy(f"container-{name}")
+                (root / "docs/prompts/agents/implement-wave.prompt.md").write_text(
+                    _authored("Agent body implement-wave"), encoding="utf-8")
+                container = (root / "docs/prompts/implement-wave.prompt.md").read_bytes()
+                container_agent = (root / "docs/prompts/agents/implement-wave.prompt.md").read_bytes()
+                item_agent = (root / "docs/prompts/agents/implement-change.prompt.md").read_bytes()
+                (adopted,), _ = _drive(scripts, [{"action": "render", "root": str(root)}])
+                self.assertNotIn("error", adopted)
+                prompts = root / "docs" / "prompts"
+                # The adoption chains: the item leaves the earlier default slug first.
+                self.assertEqual((prompts / f"{item_slug}.prompt.md").read_bytes(), IMPLEMENT_CHANGE_BYTES)
+                self.assertEqual((prompts / f"agents/{item_slug}.prompt.md").read_bytes(), item_agent)
+                self.assertEqual((prompts / "implement-change.prompt.md").read_bytes(), container)
+                self.assertEqual((prompts / "agents/implement-change.prompt.md").read_bytes(), container_agent)
+                self.assertFalse(os.path.lexists(prompts / "implement-wave.prompt.md"))
+                self.assertEqual(_read_manifest(root)["prompt_names"],
+                                 {key: spec["slug"] for key, spec in overrides.items()})
+                kept = {rel: digest for rel, digest in _tree_digest(root).items()
+                        if rel in (*_prompt_pair("implement-change"), *_prompt_pair(item_slug))
+                        or any(rel.startswith(f"{folder}/wf-implement-change/") for folder in SKILL_FOLDERS)}
+                self.assertIn(".claude/skills/wf-implement-change/SKILL.md", kept)
+                (second,), _ = _drive(scripts, [{"action": "render", "root": str(root)}])
+                self.assertEqual(second, {"written": []})
+                after = _tree_digest(root)
+                self.assertEqual({rel: after.get(rel) for rel in kept}, kept)
 
 
 def tearDownModule() -> None:  # noqa: N802 (unittest name)

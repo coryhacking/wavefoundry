@@ -129,6 +129,7 @@ ROUTED = {
     ("dashboard_lib.py", "get_file_diff._run", "_run_tree_kill"): 1,
     ("dashboard_lib.py", "list_git_changed_files.run", "_run_tree_kill"): 1,
     ("docs_gardener.py", "collect_changed_markdown_paths", "_run_tree_kill"): 1,
+    ("docs_gardener.py", "_read_head_versions", "_run_tree_kill"): 1,
     ("graph_indexer.py", "_gitignored_paths", "_run_tree_kill"): 1,
     ("graph_quality_eval.py", "_git_value", "_run_tree_kill"): 1,
     ("graph_indexer.py", "_physical_perf_core_count", "_run_tree_kill"): 1,

@@ -1018,7 +1018,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_FOUND, "Not found")
 
     def _handle_doc(self) -> None:
-        """Serve raw markdown for a wave or change document."""
+        """Serve raw markdown for a wave or spec."""
         params = parse_qs(urlparse(self.path).query)
         doc_type  = (params.get("type") or [""])[0]
         doc_id    = unquote((params.get("id")   or [""])[0]).strip()

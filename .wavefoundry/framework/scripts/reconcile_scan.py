@@ -310,7 +310,7 @@ _RETIRED_CHANGE_PROMPT_PATTERNS: tuple[
             r"170\-plan\-feature\.prompt\.md(?![\w.-])"
         ),
         "170-plan-feature.prompt.md",
-        ".wavefoundry/framework/seeds/170-plan-change.prompt.md",
+        ".wavefoundry/framework/seeds/170-plan-spec.prompt.md",
     ),
     (
         re.compile(
@@ -318,7 +318,7 @@ _RETIRED_CHANGE_PROMPT_PATTERNS: tuple[
             r"180\-implement\-feature\.prompt\.md(?![\w.-])"
         ),
         "180-implement-feature.prompt.md",
-        ".wavefoundry/framework/seeds/180-implement-change.prompt.md",
+        ".wavefoundry/framework/seeds/180-implement-spec.prompt.md",
     ),
     (
         re.compile(
@@ -502,7 +502,7 @@ def _stale_prompt_extension_hits(
 # ``build_pack.should_exclude`` (``rel == d or rel.startswith(d + "/")``). Raw substring matching
 # over-excludes in-scope operator docs: e.g. `docs/reports-overview.md` is NOT under `docs/reports/`,
 # and a substring check would wrongly drop it. The framework pack tree, generated index, wave/report
-# history, and vcs/build dirs are excluded; ``docs/reports`` is the change doc's added history root.
+# history, and vcs/build dirs are excluded; ``docs/reports`` is the spec's added history root.
 _STATIC_EXCLUDED_DIRS: tuple[str, ...] = (
     ".git",
     "__pycache__",

@@ -529,6 +529,8 @@ from lifecycle_gate_support import (
     _select_prepare_council_rotating_seat,
     _wave_change_doc_path,
     _wave_uses_external_review_evidence,
+    admitted_change_texts,
+    delivery_deferral_findings,
     policy_input_error_cause,
     receipt_supersession_attribution,
 )
@@ -599,7 +601,12 @@ from review_policy import (
 from review_evidence import (
     COUNCIL_DELIVERY_SIGNOFF_KEY,
     COUNCIL_READINESS_SIGNOFF_KEY,
+    CRITERION_STATUS_LINE_PREFIX,
+    CRITERION_STATUS_SIGNOFF_KEYS,
+    canonical_approval_claim_id,
     canonical_signoff_key,
+    criterion_status_map,
+    format_criterion_status_line,
     legacy_signoff_key_spellings,
     COUNCIL_ACTOR,
     LEGACY_COUNCIL_ACTORS,
@@ -648,6 +655,8 @@ from review_evidence import (
     validate_external_review_evidence,
     closed_legacy_inline_record,
     validate_review_evidence_records,
+    delivery_section_change_advisories,
+    wave_record_closed,
 )
 
 
@@ -1090,11 +1099,11 @@ INFRASTRUCTURE_PATH_SEGMENTS: frozenset = frozenset({
 # Demotion weights for narrative/feedback sources in code_ask explanatory queries.
 # Applied to post-rerank cross-encoder scores; see _demote_doc_results.
 # Calibrated 2026-05-18 against live query data (change 12q5v).
-_DEMOTION_WAVES = 0.75  # docs/waves/ — historical change docs
+_DEMOTION_WAVES = 0.75  # docs/waves/ — historical specs
 _DEMOTION_PLANS = 0.60  # docs/plans/ — pre-admission drafts
 _DEMOTION_SEEDS = 0.60  # kind=seed or .wavefoundry/framework/seeds/ — framework guidance
 _DEMOTION_JRNLS = 0.50  # journals/reports/feedback — observational notes
-# Wave 1p66s: reference prose (architecture docs, specs, ADRs) is legitimate secondary
+# Wave 1p66s: reference prose (architecture docs, behavior contracts, ADRs) is legitimate secondary
 # context for a code question but must not OUTRANK the implementing source — a gentler
 # down-weight than the narrative/historical tiers above (which are weaker evidence).
 _DEMOTION_REFDOCS = 0.80  # docs/architecture/, docs/specs/, ADRs
@@ -3444,7 +3453,7 @@ class WaveIndex:
         # reference/narrative docs for code-implementation questions); applied up front so the floor +
         # drop-off operate on the adjusted relevance and the demoted prose tail falls below the cutoff.
         # Wave 1p66s: extended from explanatory-only to navigational ("where is X implemented") and to
-        # architecture/spec/ADR paths, so a spec no longer outranks the implementing source.
+        # architecture/behavior-contract/ADR paths, so a behavior contract no longer outranks the implementing source.
         _prefixes = _record_prefixes(self.root)
         if question_type in _DOC_DEMOTION_INTENTS:
             all_candidates, _ = _demote_doc_results(all_candidates, question_type, _prefixes)
@@ -4473,7 +4482,7 @@ def get_change(root: Path, change_id_prefix: str) -> Optional[str]:
     if matches[0].get("read_error"):
         # `_resolve_change_doc_matches` now MATCHES an unreadable document and
         # reports the cause rather than skipping it. Returning its empty
-        # `content` here would hand back a blank change doc with no signal --
+        # `content` here would hand back a blank spec with no signal --
         # the silent-drop failure this wave exists to prevent, relocated.
         return None
     return str(matches[0].get("content") or "")
@@ -4490,7 +4499,8 @@ def _profile_prompt_path(root: Path, shortcut: str) -> Optional[Path]:
     profile renamed does not, because under a name swap it can mean another
     prompt. The applied slug is where the file actually is: the manifest's
     ``prompt_names`` record, an absent record meaning the shipped names (as the
-    renderer reads it, before a profile's prompts are migrated), and the
+    renderer reads it, before a profile's prompts are migrated; an earlier
+    default name while the manifest still registers it), and the
     profile's own slug only when the record is invalid. A hand-edited record
     that disagrees with the files misroutes exactly as the renderer would.
     """
@@ -4501,15 +4511,17 @@ def _profile_prompt_path(root: Path, shortcut: str) -> Optional[Path]:
     if key is None:
         return None
     record = None
+    registered: "frozenset[str]" = frozenset()
     try:
         manifest = json.loads(_read_repo_text_checked(
             root, root / "docs" / "prompts" / _PROMPT_SURFACE_MANIFEST_NAME))
         if isinstance(manifest, dict):
             record = manifest.get("prompt_names")
+            registered = _vocab.registered_prompt_docs(manifest)
     except Exception:  # missing, refused or unreadable manifest: no record
         record = None
     try:
-        slug = _vocab.applied_prompt_slugs(record)[key]
+        slug = _vocab.applied_prompt_slugs(record, registered)[key]
     except ValueError:
         slug = _vocab.prompt_slug(key)
     return root / "docs" / "prompts" / f"{slug}.prompt.md"
@@ -4721,7 +4733,7 @@ def make_diagnostic(code, message, *, recovery_tools=None, recovery_usage="", ad
 
 
 def change_doc_response(root, kind, slug, *, cache=None) -> dict:
-    """Create a change doc of ``kind`` exactly as ``wf_new_<kind>`` does (change 1zimp).
+    """Create a spec of ``kind`` exactly as ``wf_new_<kind>`` does (change 1zimp).
 
     ``kind`` must be in ``vocabulary_profile.CHANGE_KINDS`` (the core kinds
     plus a distribution's ``EXTRA_CHANGE_KINDS``); any other value is refused
@@ -4782,7 +4794,7 @@ def refresh_index_for_paths(root, paths):
 
 
 def read_member_doc_bytes(folder, path, *, root) -> bytes:
-    """Read a member change doc under the member-doc read rule (change 200ew).
+    """Read a member spec under the member-doc read rule (change 200ew).
 
     ``path.parent`` must be ``folder``, the file a regular file inside the
     resolved ``folder`` and repository ``root`` and not a runtime lock, and at
@@ -5006,12 +5018,12 @@ def _help_catalog() -> dict[str, Any]:
             "plan_change": {
                 "recommended_chain": ["wf_new_enhancement", "wf_get_change", "wf_validate_docs"],
                 "rationale": (
-                    "Create the change doc with the kind-specific tool, inspect it, then validate docs state. "
-                    "The feat kind is retired for new change docs (wave 1zli8): plan a large feature as several "
+                    "Create the spec with the kind-specific tool, inspect it, then validate docs state. "
+                    "The feat kind is retired for new changes (wave 1zli8): plan a large feature as several "
                     "changes, possibly across waves."
                 ),
                 "fallback_tools": ["wf_new_bug", "wf_new_maintenance", "wf_new_change"],
-                "next_step": "Create the change document with wf_new_enhancement or another fitting wf_new_<kind> tool first.",
+                "next_step": "Create the spec with wf_new_enhancement or another fitting wf_new_<kind> tool first.",
                 "usage": "wf_new_enhancement(slug='my-change')",
             },
             "inspect_wave": {
@@ -5028,7 +5040,7 @@ def _help_catalog() -> dict[str, Any]:
                 "recommended_chain": ["wf_create_wave", "wf_add_change", "wf_prepare_wave"],
                 "rationale": (
                     "Create the wave, admit planned changes, then run transactional prepare checks. "
-                    "Capture in-flight observations in the change doc's Progress Log and durable "
+                    "Capture in-flight observations in the spec's Progress Log and durable "
                     "lessons as memory candidates (memory_add) — waves no longer use journals."
                 ),
                 "fallback_tools": ["wf_help"],
@@ -6695,12 +6707,12 @@ def seed_get_response(index: WaveIndex, name: str) -> dict[str, Any]:
 
 
 def _detect_wave_status_drift(root: Path, wave: dict) -> list[dict[str, Any]]:
-    """Compare wave.md change statuses against actual change doc files.
+    """Compare wave.md change statuses against actual spec files.
 
     Returns a list of drift entries: ``{"change_id": ..., "wave_md_status": ..., "file_status": ...}``
-    for any change whose status differs between wave.md and its change doc file.
-    Wave 1zoju (1zodx): read through docs-lint's one detector, so the change
-    document is found only at its exact path and its status is read from its
+    for any change whose status differs between wave.md and its spec file.
+    Wave 1zoju (1zodx): read through docs-lint's one detector, so the
+    spec is found only at its exact path and its status is read from its
     header, as ``wf_close_change`` and wave close read it.
     """
     from wave_lint_lib.wave_validators import member_status_drift
@@ -6794,15 +6806,15 @@ def wf_current_wave_response(root: Path, cache: Optional[McpRepoCache] = None) -
                 drift_summary = "; ".join(
                     f"{d['change_id']}: wave record "
                     f"{('`' + d['wave_md_status'] + '`') if d['wave_md_status'] else 'no readable status'}"
-                    f" vs change document "
+                    f" vs spec "
                     f"{('`' + d['file_status'] + '`') if d['file_status'] else 'no header status'}"
                     for d in drifts
                 )
                 diagnostics.append(
                     _diagnostic(
                         "change_status_drift",
-                        f"Change status drift: the wave record and change documents disagree for: {drift_summary}. "
-                        "Reconcile the wave record and the change document.",
+                        f"Change status drift: the wave record and specs disagree for: {drift_summary}. "
+                        "Reconcile the wave record and the spec.",
                         recovery_tools=["wf_get_change", "wf_validate_docs"],
                         recovery_usage=f"wf_get_change(change_id={drifts[0]['change_id']!r})",
                     )
@@ -6962,12 +6974,12 @@ def wf_list_plans_response(root: Path, limit: int = 50, cache: Optional[McpRepoC
 
 @_fail_closed_on_record_layout("wf_get_change")
 def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -> dict[str, Any]:
-    """Look up a single change doc by ID, or return all changes for a wave.
+    """Look up a single spec by ID, or return all changes for a wave.
 
     When ``wave_id`` is provided and ``change_id`` is omitted (or empty), returns all
-    admitted change docs for that wave in ``data.changes``, each with ``id``, ``status``,
+    admitted specs for that wave in ``data.changes``, each with ``id``, ``status``,
     ``path``, and ``content``.  Content per change is capped at 300 lines to avoid
-    overly large responses for waves with many large change docs.
+    overly large responses for waves with many large specs.
     """
     wave_id_s = (wave_id or "").strip()
     change_id_s = (change_id or "").strip()
@@ -7116,7 +7128,7 @@ def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -
             diagnostics=[
                 _diagnostic(
                     "change_not_found",
-                    f"No change doc found matching '{change_id_s}'.",
+                    f"No spec found matching '{change_id_s}'.",
                     recovery_tools=["wf_list_plans", "wf_current_wave"],
                     recovery_usage="wf_list_plans()",
                 )
@@ -7132,7 +7144,7 @@ def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -
             diagnostics=[
                 _diagnostic(
                     "ambiguous_change_id",
-                    f"Multiple change docs match '{change_id_s}': {candidates}. Use a more specific change ID.",
+                    f"Multiple specs match '{change_id_s}': {candidates}. Use a more specific change ID.",
                     recovery_tools=["wf_list_plans", "wf_current_wave"],
                     recovery_usage="wf_list_plans()",
                 )
@@ -7278,7 +7290,7 @@ def wf_get_prompt_response(root: Path, shortcut: str, cache: Optional[McpRepoCac
 
 
 def _parse_wave_address(address: str) -> Optional[dict[str, Any]]:
-    """Parse ``doc:``, ``code:``, or ``seed:`` anchor strings from search tools and the spec."""
+    """Parse ``doc:``, ``code:``, or ``seed:`` anchor strings from search tools and the behavior contract."""
     s = (address or "").strip()
     if not s:
         return None
@@ -7662,7 +7674,7 @@ def _refuse_unlistable_change_sources(
             bases.append(roots.plans)
         top, top_rel = roots.waves, roots.waves_rel
         # Every candidate folder, not only those holding a record, so the
-        # lookup sees what the id mint sees (a change doc in a non-wave folder).
+        # lookup sees what the id mint sees (a spec in a non-wave folder).
         folders = record_paths.walk_wave_candidates(root, roots)
     for folder in folders:
         try:
@@ -7701,7 +7713,7 @@ def _resolve_change_doc_matches(root: Path, change_id_prefix: str) -> list[dict[
                 continue
             try:
                 # Wave 200xy (200v1): the lock check runs first, judged on the
-                # resolved path, so a change doc symlinked to a runtime lock
+                # resolved path, so a spec symlinked to a runtime lock
                 # stays ``refused``; the read then applies the member-doc rule
                 # (``lstat`` regular file, contained, non-blocking, capped), so
                 # a link or special file is never followed or opened.
@@ -7802,7 +7814,7 @@ def _archive_root_real(root: Path) -> Optional[Path]:
 
 
 def _archived_change_matches(root: Path, change_id_prefix: str) -> list[dict[str, Any]]:
-    """Archived change documents whose id (the archive profile's member id
+    """Archived specs whose id (the archive profile's member id
     label, else the file stem) matches the token; marked ``archived``."""
     token = (change_id_prefix or "").strip().lower()
     archive_real = _archive_root_real(root) if token else None
@@ -8021,7 +8033,7 @@ def _mark_change_item_response(
             message = (
                 f"Expected exactly one {target_section} item matching `{item_label}`; found {len(candidates)}. "
                 "Do not choose arbitrarily. Read the admitted change and retry with the exact full label; "
-                "if the labels are identical, make them distinct in the change document before retrying."
+                "if the labels are identical, make them distinct in the spec before retrying."
             )
         else:
             message = (
@@ -8045,6 +8057,43 @@ def _mark_change_item_response(
     # 23042: a criterion whose continuation holds a fenced block keeps the
     # first-line form, because readers that blank fenced lines (the inline-note
     # lint) would end the item at the fence and miss a trailing status line.
+    if (
+        state == "~" and target_section == "Acceptance Criteria"
+        and reason.strip() and ("*" in reason or "\n" in reason or "\r" in reason)
+    ):
+        # Change 23q1h: a note whose reason holds `*` or a line break is not
+        # the canonical form, so the digest would move with no receipt
+        # published; refuse it and write nothing.
+        return _response(
+            "error",
+            {},
+            diagnostics=[_diagnostic(
+                "tilde_rationale_required",
+                "The deferral reason may not contain `*` or a line break, because the "
+                "criterion's `*Status: ...*` note would not be recognised. Retry wf_mark_ac "
+                "with a one-line `reason` without `*`.",
+            )],
+        )
+    if state == "~" and target_section == "Acceptance Criteria" and reason.strip():
+        # DELIV-Q1H-REDEFER: a criterion already carrying canonical notes (kept
+        # as history after a re-tick, or written by hand) has them replaced by
+        # the new reason, never stacked: the digest reads the same notes, so a
+        # second deferral moves no digest and leaves one note.
+        import gardener_metadata
+
+        first_start, note_lines = gardener_metadata.criterion_note_positions(lines).get(
+            index, (None, ())
+        )
+        for note_index in sorted(note_lines, reverse=True):
+            del lines[note_index]
+            block_end -= 1
+        if first_start is not None:
+            ending = "\r" if line.endswith("\r") else ""
+            line = line[:first_start].rstrip(" \t") + ending
+            lines[index] = line
+            match = change_doc_checklist.CHECKLIST_ITEM_RE.match(line)
+            mark_start, mark_end = match.span("mark")
+            text_end = match.end("text")
     block_fenced = block_end > index + 1 and any(
         change_doc_checklist.fenced_line_flags([raw_line.rstrip("\r") for raw_line in lines])[index + 1:block_end]
     )
@@ -8061,9 +8110,12 @@ def _mark_change_item_response(
         lines.insert(block_end, f"{prefix}  *Status: {reason.strip()}*{ending}")
         block_end += 1
     elif state == "~" and target_section == "Acceptance Criteria" and reason.strip():
+        # Change 23q1h: the first-line note takes the canonical
+        # ` *Status: <reason>*` form, which the review-policy digest reads as
+        # tracking, like the continuation-line form above.
         lines[index] = (
             line[:mark_start] + state + line[mark_end:text_end]
-            + f" *{reason.strip()}*" + line[text_end:]
+            + f" *Status: {reason.strip()}*" + line[text_end:]
         )
     else:
         lines[index] = line[:mark_start] + state + line[mark_end:]
@@ -8109,151 +8161,56 @@ def _mark_change_item_response(
     if updated_raw == raw:
         return _response("ok", {**data, "changed": False})
 
-    # Completion and task tracking are receipt-neutral. An AC deferral is
-    # different: its `[~]` marker changes the approved contract, so publish the
-    # new receipt and projections with the document update or write nothing.
-    refresh_receipt = (
-        state == "~"
-        and target_section == "Acceptance Criteria"
-        and _wave_uses_external_review_evidence(root, wave_md)
-        and _read_workflow_config(root).get("wave_review") is not None
-    )
-    if not refresh_receipt:
-        _atomic_replace_text(path, updated_raw, "wf-mark")
-        return _response("ok", {**data, "changed": True, "applied": True})
+    # Change 23q1h: completion, deferral and task marks are all digest-neutral
+    # (a criterion's canonical status note included), so marking writes only
+    # the document and publishes no receipt. A deferral or note that a current
+    # council-delivery or operator-signoff approval did not see is reported
+    # here; the shared delivery gate blocks on it until that approval is
+    # recorded again.
+    rerecord = _mark_delivery_rerecord_diagnostics(
+        root, wave_md, admitted_text, change_id, text, updated
+    ) if target_section == "Acceptance Criteria" else []
+    _atomic_replace_text(path, updated_raw, "wf-mark")
+    return _response("ok", {**data, "changed": True, "applied": True}, diagnostics=rerecord or None)
 
-    try:
-        with project_state_publication_lock(root):
-            live_wave, live_read_error = _read_wave_record_text(wave_md)
-            if live_wave is None:
-                # The record was readable at the gate above and vanished
-                # before publication; nothing has been written yet.
-                return _wave_record_unreadable_response(
-                    root, wave_md, live_read_error,
-                    data={**data, "changed": False, "review_receipt_refreshed": False},
-                )
-            change_ids = _extract_change_ids_from_wave_text(live_wave)
-            if change_id not in change_ids:
-                raise ValueError(
-                    f"admitted change `{change_id}` is no longer listed by the wave; retry after reading the current wave"
-                )
-            council_brief = _build_prepare_council_brief(
-                wave_md.parent.name, live_wave, change_ids, typed=True
+
+def _mark_delivery_rerecord_diagnostics(
+    root: Path, wave_md: Path, wave_text: str, change_id: str, before: str, after: str
+) -> list[dict[str, Any]]:
+    """Advisory: delivery approvals a criterion mark makes record-again (change 23q1h)."""
+
+    if not _wave_uses_external_review_evidence(root, wave_md):
+        return []
+    records, ledger_errors = read_review_event_ledger(wave_md)
+    if ledger_errors:
+        return []
+
+    def findings(text: str) -> dict[str, set[tuple[str, str, str]]]:
+        return {
+            finding["signoff_key"]: set(finding["changes"])
+            for finding in delivery_deferral_findings(
+                root, wave_md, wave_text, records, change_text_overrides={change_id: text}
             )
-            policy_state, policy_errors = _prepare_policy_state(
-                root,
-                wave_md,
-                live_wave,
-                change_ids,
-                council_brief,
-                change_text_overrides={change_id: updated},
-            )
-            if policy_errors or policy_state is None:
-                detail = "; ".join(policy_errors) or "review-policy selection is unavailable"
-                raise ValueError(detail)
-            if not policy_state["receipt_append_required"]:
-                raise ValueError(
-                    "the deferred AC did not produce a new review-policy receipt; retry after repairing the policy state"
-                )
-            final_wave = _publish_prepare_policy_state(
-                root,
-                wave_md,
-                live_wave,
-                policy_state,
-                change_updates=((path, text, updated, updated_raw),),
-            )
-    except ProjectPublicationUnavailable as exc:
-        # Wave 1yd99: `ProjectPublicationUnavailable` derives from `RuntimeError`,
-        # so the narrow tuple below never caught it and this call site raised
-        # unhandled.  The clause is distinct rather than a widening of that tuple:
-        # folding contention into it would re-label a busy lock as a stale receipt
-        # and hide the real cause from an operator.  `wf_mark_ac` is not a
-        # registered publication writer, so unlike the prepare call site it has no
-        # wrapper to fall back on.  Non-advisory, and pre-write: the lock is taken
-        # before anything is published, so nothing partial is left behind.
-        return _response(
-            "error",
-            {**data, "changed": False, "review_receipt_refreshed": False},
-            diagnostics=[_diagnostic(
-                "project_publication_busy",
-                "The AC was not deferred because the project publication lock could "
-                f"not be taken: {publication_unavailable_detail(exc)}. Retry the same wf_mark_ac "
-                "call once the other lifecycle write finishes; nothing was changed.",
-                recovery_tools=["wf_mark_ac"],
-                recovery_usage=(
-                    f"wf_mark_ac(wave_id={wave_md.parent.name!r}, change_id=..., ac_id=..., state='~')"
-                ),
-            )],
-        )
-    except (OSError, ValueError) as exc:
-        return _response(
-            "error",
-            {**data, "changed": False, "review_receipt_refreshed": False},
-            diagnostics=[_diagnostic(
-                "review_receipt_refresh_failed",
-                "The AC was not deferred because its review receipt could not be refreshed: "
-                f"{_read_error_detail(exc)}. Fix the stated wave or review-evidence problem, then retry the same wf_mark_ac call; do not edit the checkbox or receipt manually.",
-                recovery_tools=["wf_review_wave", "wf_mark_ac"],
-                recovery_usage=(
-                    f"wf_review_wave(wave_id={wave_md.parent.name!r}, phase='prepare')"
-                ),
-            )],
-        )
+        }
 
-    receipt = dict(policy_state["receipt"])
-    action_keys = _guided_review_signoff_keys(
-        root, wave_md, final_wave, approval_phase="readiness"
-    )
-    review_actions, action_diagnostics = _guided_review_actions(
-        (*policy_state["records"], receipt),
-        action_keys,
-        root=root, wave_md=wave_md,
-        approval_phase="readiness",
-        required_run_kind="readiness",
-    )
-    return _response(
-        "ok",
-        {
-            **data,
-            "changed": True,
-            "applied": True,
-            "review_receipt_refreshed": {
-                "receipt_id": receipt["receipt_id"],
-                "policy_input_digest": receipt["policy_input_digest"],
-                "evaluator_version": receipt["evaluator_version"],
-                "review_actions": review_actions,
-            },
-        },
-        # The write is correct and stays; only the silence was the defect.
-        # Publishing here moves any current readiness approval to non-current,
-        # and reporting that only as a payload field left the operator with an
-        # `ok` and an empty diagnostic list while their approvals lapsed.
-        diagnostics=[
-            _diagnostic(
-                "review_policy_receipt_superseded",
-                "Deferring this acceptance criterion changed the approved contract and "
-                "published a new review-policy receipt, so any current readiness approval "
-                "is now non-current and must be re-recorded"
-                + receipt_supersession_attribution(
-                    policy_state,
-                    change_ids,
-                    # The receipt is ALREADY published here, so the one this
-                    # helper calls "pending" is the new current one.
-                    labels=("superseded receipt", "new current receipt"),
-                ),
-                recovery_tools=["wf_review_wave", "wf_review_event"],
-                recovery_usage=f"wf_review_wave(wave_id={wave_id!r}, phase='prepare')",
-            ),
-            *action_diagnostics,
-        ],
-        next_tools=["wf_review_event", "wf_review_wave"],
-    )
-
-
-
-
-
-
+    earlier = findings(before)
+    diagnostics = []
+    for key, changes in sorted(findings(after).items()):
+        seen = {(cid, ac_id) for cid, ac_id, _case in earlier.get(key, set())}
+        new = sorted(change for change in changes if change[:2] not in seen)
+        if not new:
+            continue
+        named = "; ".join(f"`{cid}` {ac_id} ({case})" for cid, ac_id, case in new)
+        diagnostics.append(_diagnostic(
+            "delivery_approval_rerecord_required",
+            f"The current `{key}` approval was recorded before this mark ({named}); Review "
+            f"and Close block until `{key}` is recorded again with a fresh context_id. "
+            "Readiness approvals are unaffected.",
+            recovery_tools=["wf_review_wave", "wf_review_event"],
+            recovery_usage=f"wf_review_wave(wave_id={wave_md.parent.name!r}, phase='implementation')",
+            advisory=True,
+        ))
+    return diagnostics
 
 
 def _pid_is_running(pid: int) -> bool:
@@ -8472,7 +8429,7 @@ _MARKDOWN_LINK_PATTERN = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")
 def _broken_relative_links_after_relocation(doc_text: str) -> list[str]:
     """Return relative markdown link targets that used ``../waves/`` anchoring.
 
-    When a change doc is relocated from ``docs/plans/`` to a wave folder the
+    When a spec is relocated from ``docs/plans/`` to a wave folder the
     relative path depth changes.  Links written as ``../waves/<something>`` were
     valid from ``docs/plans/`` but become invalid from the wave folder (which is
     already *inside* ``docs/waves/``).  This helper returns each such link target
@@ -9153,7 +9110,7 @@ def wf_add_change_response(
         return _response("error", {"wave_id": wave_id, "change_id": change_id, "mode": mode_s}, diagnostics=[_refuse_if_archived(root, wave_id, "wave") or _diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
     change_matches = _resolve_change_doc_matches(root, change_id)
     if not change_matches:
-        return _response("error", {"wave_id": wave_id, "change_id": change_id, "mode": mode_s}, diagnostics=[_refuse_if_archived(root, change_id, "change") or _diagnostic("change_not_found", f"No change doc found matching '{change_id}'.", recovery_tools=["wf_list_plans"], recovery_usage="wf_list_plans()")], next_tools=["wf_list_plans"], usage="wf_list_plans()")
+        return _response("error", {"wave_id": wave_id, "change_id": change_id, "mode": mode_s}, diagnostics=[_refuse_if_archived(root, change_id, "change") or _diagnostic("change_not_found", f"No spec found matching '{change_id}'.", recovery_tools=["wf_list_plans"], recovery_usage="wf_list_plans()")], next_tools=["wf_list_plans"], usage="wf_list_plans()")
     if len(change_matches) > 1:
         return _response(
             "error",
@@ -9161,7 +9118,7 @@ def wf_add_change_response(
             diagnostics=[
                 _diagnostic(
                     "ambiguous_change_id",
-                    f"Multiple change docs match '{change_id}'. Use a more specific ID.",
+                    f"Multiple specs match '{change_id}'. Use a more specific ID.",
                     recovery_tools=["wf_list_plans"],
                     recovery_usage="wf_list_plans()",
                 )
@@ -9244,7 +9201,7 @@ def wf_add_change_response(
             usage="wf_current_wave()",
         )
     relocated = source_path == target_path
-    # Refuse an undecodable or unreadable change document BEFORE any mutation.
+    # Refuse an undecodable or unreadable spec BEFORE any mutation.
     # `_resolve_change_doc_matches` now MATCHES such a document (it reports the
     # read failure rather than skipping), so without this guard `create` would
     # relocate the file out of `docs/plans/`, fail at the metadata repair, and
@@ -9269,7 +9226,7 @@ def wf_add_change_response(
                 diagnostics=[
                     _diagnostic(
                         "change_doc_unreadable",
-                        f"Could not read change doc {_repo_rel(root, _readability_probe)}: "
+                        f"Could not read spec {_repo_rel(root, _readability_probe)}: "
                         f"{_read_error_detail(exc)}. Nothing was moved or admitted.",
                         recovery_tools=["wf_get_change"],
                         recovery_usage=f"wf_get_change(change_id={canonical_change_id!r})",
@@ -9304,7 +9261,7 @@ def wf_add_change_response(
                     diagnostics=[
                         _diagnostic(
                             "change_relocation_failed",
-                            f"Failed to relocate change doc to {_repo_rel(root, target_path)}: {exc}",
+                            f"Failed to relocate spec to {_repo_rel(root, target_path)}: {exc}",
                             recovery_tools=["wf_get_change"],
                             recovery_usage=f"wf_get_change(change_id={canonical_change_id!r})",
                         )
@@ -9435,7 +9392,7 @@ def wf_remove_change_response(
                     diagnostics=[
                         _diagnostic(
                             "change_relocation_failed",
-                            f"Failed to move change doc back to {_repo_rel(root, location['staged_path'])}: {exc}",
+                            f"Failed to move spec back to {_repo_rel(root, location['staged_path'])}: {exc}",
                             recovery_tools=["wf_get_change"],
                             recovery_usage=f"wf_get_change(change_id={change_id!r})",
                         )
@@ -9472,7 +9429,7 @@ def _lifecycle_module() -> Any:
 
 
 def new_change(root: Path, kind: str, slug: str, change_id: str | None = None) -> dict:
-    """Generate a lifecycle ID and scaffold a change doc. Returns path and ID.
+    """Generate a lifecycle ID and scaffold a spec. Returns path and ID.
 
     When ``change_id`` is provided (wave 1p3dk / 1p3ds defect-B fix), reuse it
     instead of calling ``build_id`` a second time. Without this, callers like
@@ -9516,7 +9473,7 @@ def change_create(root: Path, kind: str, slug: str, mode: str = "create") -> dic
 
     # Wave 1p3dk / 1p3ds: dry_run previews the id without burning the slot.
     # When mode == "create", reuse the same id when handing off to new_change
-    # so a single change-doc creation consumes exactly one lifecycle prefix
+    # so a single spec creation consumes exactly one lifecycle prefix
     # (closes defect B from the field report).
     change_id = _lifecycle_module().build_id(
         kind, slug, legacy=False, commit=(mode == "create"), repo_root=root,
@@ -9622,7 +9579,7 @@ def _change_create_response(
         diagnostics.append(
             _diagnostic(
                 "already_exists",
-                f"Change doc already exists at {result['path']}.",
+                f"Spec already exists at {result['path']}.",
                 recovery_tools=["wf_get_change", "wf_validate_docs"],
                 recovery_usage=f"wf_get_change(change_id={result['id']!r})",
             )
@@ -9761,9 +9718,9 @@ def wf_audit_response(
 ) -> dict[str, Any]:
     """Aggregate read-only audit: wave state + docs validation + a bounded index snapshot.
 
-    Returns a single ``data`` payload with three sub-objects (``wave``,
-    ``validation``, ``index``) and a top-level ``ready`` boolean that is
-    ``True`` only when all three sub-checks pass:
+    Returns a single ``data`` payload whose sub-objects include ``wave``,
+    ``validation``, ``index`` and ``work_root``, and a top-level ``ready``
+    boolean that is ``True`` only when these three sub-checks pass:
     - wave is active or planned
     - docs-lint reports zero failures
     - ``metadata_ready`` is ``True`` in the bounded index snapshot
@@ -10104,6 +10061,33 @@ def wf_audit_response(
             "vendored_scripts_unreadable", _VENDORED_SCRIPTS_UNREADABLE_MESSAGE,
         ))
 
+    # Change 23phc: disposable work left under the work root, report-only; the
+    # bounded inventory never changes ``ready``.
+    try:
+        import wave_work as _wave_work
+
+        work_root_data = _wave_work.inventory_work_root(root)
+    except Exception as exc:  # noqa: BLE001 - advisory must never block audit
+        work_root_data = {"present": None, "complete": False, "reason": "inventory_failed:" + type(exc).__name__,
+                          "leftovers": [], "live_unowned": [], "unclassified": [],
+                          "loose_count": 0, "loose_entries": []}
+    if work_root_data.get("leftovers"):
+        _leftovers = work_root_data["leftovers"]
+        _shown = ", ".join(
+            f"{item['key']} ({item['state']}, {item['bytes']} bytes"
+            + ("" if item.get("complete") else ", lower bound") + ")"
+            for item in _leftovers[:10]
+        ) + (f" and {len(_leftovers) - 10} more" if len(_leftovers) > 10 else "")
+        _leftover_diagnostic = _diagnostic(
+            "work_leftovers_present",
+            f"{len(_leftovers)} work folder(s) under {work_root_data.get('work_root')}/ belong to closed, "
+            f"archived or not-found records: {_shown}. {work_root_data.get('next_action')}",
+            recovery_tools=["wf_audit"], recovery_usage="wf_audit()", advisory=True,
+        )
+        _leftover_diagnostic["detail"] = {"count": len(_leftovers), "keys": [item["key"] for item in _leftovers[:50]]}
+        diagnostics.append(_leftover_diagnostic)
+    diagnostics.extend(_work_root_loose_diagnostics(work_root_data))
+
     # 1p8gy AC-6: memory advisories relevant to the audited wave.
     _mem_advisories = _memory_advisories_for_wave(root, wave_data) if wave_data else []
 
@@ -10141,6 +10125,7 @@ def wf_audit_response(
             "harness_coverage": harness_coverage,
             "harness_coherence": harness_coherence,
             "vendored_scripts": vendored_scripts,
+            "work_root": work_root_data,
         },
         diagnostics=diagnostics,
         next_tools=next_tools,
@@ -11114,8 +11099,8 @@ def _prepare_council_verdict_locations(
 ) -> list[str]:
     """Repository-relative ``path`` under ``heading`` for each verdict-shaped
     line in the wave record (outside Review Checkpoints unless
-    ``include_review_checkpoints``) and in each admitted change document; an
-    unreadable or absent change document is skipped (other gates report it)."""
+    ``include_review_checkpoints``) and in each admitted spec; an
+    unreadable or absent spec is skipped (other gates report it)."""
     locations: list[str] = []
 
     def _add(path: Path, heading: str) -> None:
@@ -11432,8 +11417,16 @@ def _guided_review_actions(
     required_run_kind: str,
     root: Path | None = None,
     wave_md: Path | None = None,
+    wave_closed: bool = False,
+    rerecord_signoff_keys: Iterable[str] = (),
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Return the bounded public action payload from the canonical projection."""
+    """Return the bounded public action payload from the canonical projection.
+
+    ``wave_closed`` is the wave record's status (change 23q1g); every caller
+    passes it, and the default applies the delivery membership rule.
+    ``rerecord_signoff_keys`` are current approvals the delivery gate requires
+    to be recorded again (change 23q1h).
+    """
 
     records = tuple(records)
     required_signoff_keys = tuple(required_signoff_keys)
@@ -11442,6 +11435,8 @@ def _guided_review_actions(
         required_signoff_keys,
         approval_phase=approval_phase,
         required_run_kind=required_run_kind,
+        wave_closed=wave_closed,
+        **({"rerecord_signoff_keys": tuple(rerecord_signoff_keys)} if rerecord_signoff_keys else {}),
     )
     payload = {
         "available": True,
@@ -11665,7 +11660,9 @@ def _review_evidence_list_response(
     else:
         try:
             required_keys = required_review_status_keys(root, wave_text, records)
-            authority_projection = review_authority_projection(records, required_keys)
+            authority_projection = review_authority_projection(
+                records, required_keys, wave_closed=wave_record_closed(wave_text)
+            )
             for fact in authority_projection["finding_facts"]:
                 chain_summary[fact["finding_id"]] = {
                     "head_record_id": fact["head_record_id"],
@@ -11694,7 +11691,9 @@ def _review_evidence_list_response(
             "truncated": truncated,
             "record_cap": REVIEW_EVIDENCE_LIST_CAP,
             "summary": review_evidence_summary(records),
-            "context_summary": review_context_summary(records),
+            "context_summary": review_context_summary(
+                records, wave_closed=wave_record_closed(wave_text)
+            ),
             "chain_summary": chain_summary,
             "approvals": approvals,
         },
@@ -11874,9 +11873,12 @@ def wf_review_event_response(
 ) -> dict[str, Any]:
     """Preview or append a compact semantic review event to a marked wave.
 
-    Receipt rotation lapses readiness approvals only; delivery approvals do not lapse solely from rotation,
-    and ``review_policy_receipt_stale`` blocks implementation-phase review until
-    re-Prepare without touching them.
+    Receipt rotation lapses readiness approvals; a delivery approval lapses only when
+    the current receipt lists a change absent from the receipt in force when it was
+    recorded (a late admission), and ``review_policy_receipt_stale`` blocks
+    implementation-phase review until re-Prepare without touching them.
+    Recording a delivery approval, including ``operator-signoff``, is refused with
+    ``review_policy_receipt_stale`` while the receipt is stale: re-Prepare first.
 
     ``event="list"`` is the read-only listing surface (wave 1t59p / 1t6ow):
     it branches before any write-path validation, ignores ``mode``, and never
@@ -12040,6 +12042,26 @@ def wf_review_event_response(
             usage=f"wf_review_wave(wave_id={wave_id!r}, phase={review_phase!r})",
         )
     semantic_event.update(evidence_payload)
+    # Change 23q1h: the recorded criterion status line is the tool's alone; a
+    # caller's text carrying its prefix anywhere is refused before anything
+    # is built or appended.
+    if (
+        event == "approval"
+        and CRITERION_STATUS_LINE_PREFIX in str(semantic_event.get("limitations") or "")
+    ):
+        return _response(
+            "error",
+            {"wave_id": wave_id, "mode": mode_s, "event": event},
+            diagnostics=[_diagnostic(
+                "invalid_review_event",
+                f"limitations may not contain {CRITERION_STATUS_LINE_PREFIX.strip()!r}: "
+                "the tool records the criterion status itself; remove that text and retry",
+                recovery_tools=["wf_review_wave"],
+                recovery_usage=f"wf_review_wave(wave_id={wave_id!r}, phase={review_phase!r})",
+            )],
+            next_tools=["wf_review_wave"],
+            usage=f"wf_review_wave(wave_id={wave_id!r}, phase={review_phase!r})",
+        )
     readiness_approval = bool(
         event == "approval"
         and approval_phase == "readiness"
@@ -12166,7 +12188,20 @@ def wf_review_event_response(
                 if existing_bundle is not None:
                     break
         replayed = existing_bundle is not None
-        if readiness_approval and existing_bundle is None:
+        # Change 23q1g: a delivery approval (keyed on the validated approval
+        # phase, not the signoff key) is refused while the receipt is stale,
+        # through the same recompute. The exemption is checked first: with no
+        # receipt the recompute always reports an append, so a wave with no
+        # receipt and no re-prepare marker is not refused.
+        delivery_approval = bool(event == "approval" and approval_phase == "delivery")
+        delivery_staleness_checked = bool(
+            delivery_approval
+            and (
+                current_policy_receipt(current.records) is not None
+                or has_reprepare_marker(original)
+            )
+        )
+        if (readiness_approval or delivery_staleness_checked) and existing_bundle is None:
             # Only a genuinely NEW append is checked.  An idempotent replay of an
             # already-recorded approval must still replay: the record is already in
             # the ledger, so refusing it would report that the approval could never
@@ -12252,9 +12287,18 @@ def wf_review_event_response(
                     diagnostics=[
                         _diagnostic(
                             "review_policy_receipt_stale",
-                            "A readiness approval cannot bind an already-superseded receipt: "
-                            "a policy input has moved and the next Prepare will publish a new "
-                            "receipt, so this approval could never satisfy a gate"
+                            (
+                                "A readiness approval cannot bind an already-superseded receipt: "
+                                "a policy input has moved and the next Prepare will publish a new "
+                                "receipt, so this approval could never satisfy a gate"
+                                if readiness_approval
+                                else
+                                "A delivery approval cannot be recorded while the review-policy "
+                                "receipt is stale: a policy input has moved since the last "
+                                f"Prepare (for example an admitted {_vocab.tier_noun('item')}), "
+                                f"so re-Prepare the {_vocab.tier_noun('container')}, then record "
+                                "the approval again; nothing was written"
+                            )
                             + receipt_supersession_attribution(
                                 recompute_state, recompute_change_ids
                             ),
@@ -12344,6 +12388,29 @@ def wf_review_event_response(
                         for error in build_errors
                     ],
                     next_tools=["wf_help"],
+                )
+            if (
+                event == "approval"
+                and canonical_signoff_key(signoff_key) in CRITERION_STATUS_SIGNOFF_KEYS
+                and current_policy_receipt(current.records) is not None
+            ):
+                # Change 23q1h: record which criteria were deferred or noted
+                # when this approval was given, as the final line of its
+                # free-text `limitations`. Appended after the request digest
+                # was computed, so a retry of the same request still replays.
+                claim = f"approval:{canonical_signoff_key(signoff_key)}"
+                status_line = format_criterion_status_line(criterion_status_map(
+                    admitted_change_texts(
+                        root, wave_md, _extract_change_ids_from_wave_text(original)
+                    )
+                ))
+                appended = tuple(
+                    {**row, "limitations": f"{row['limitations']}\n{status_line}"}
+                    if row.get("record_type") == "executable_evidence"
+                    and canonical_approval_claim_id(row.get("claim_id")) == claim
+                    and isinstance(row.get("limitations"), str)
+                    else row
+                    for row in appended
                 )
             proposed_records = (*current.records, *appended)
             record_errors = validate_review_evidence_records(proposed_records)
@@ -12460,6 +12527,7 @@ def wf_review_event_response(
                 proposed_records,
                 action_keys,
                 root=root, wave_md=wave_md,
+                wave_closed=wave_record_closed(projected),
                 approval_phase=continuation_phase,
                 required_run_kind=(
                     "readiness"
@@ -13041,7 +13109,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
                 _diagnostic(
                     "prepare_council_verdict_missing",
                     f"Technical checks passed. Ready to run prepare-phase {_vocab.COUNCIL_DISPLAY_NAME} review. "
-                    "Run each council seat in isolation against the admitted change docs, "
+                    "Run each council seat in isolation against the admitted specs, "
                     "record the verdict in ## Review Checkpoints with a structured 'prepare-council' line, "
                     f"then call wf_prepare_wave(mode={mode_s!r}) again to complete this step.",
                     recovery_tools=["wf_prepare_wave"],
@@ -13283,9 +13351,13 @@ _REVIEW_PHASE_ALIASES = {"readiness": "prepare", "delivery": "implementation"}
 def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementation") -> dict[str, Any]:
     """Inspect canonical phase review actions.
 
-    Receipt rotation lapses readiness approvals only; delivery approvals do not lapse solely from rotation,
-    and ``review_policy_receipt_stale`` blocks implementation-phase review until
-    re-Prepare without touching them.
+    Receipt rotation lapses readiness approvals; a delivery approval lapses only when
+    the current receipt lists a change absent from the receipt in force when it was
+    recorded (a late admission), and ``review_policy_receipt_stale`` blocks
+    implementation-phase review until re-Prepare without touching them.
+    Advisory ``delivery_approval_scope_changed`` reports Requirements or Acceptance
+    Criteria text changed since a delivery approval (or that the comparison is
+    unavailable); it never blocks and never changes an approval.
     """
     phase_s = (phase or "implementation").strip().lower()
     phase_s = _REVIEW_PHASE_ALIASES.get(phase_s, phase_s)
@@ -13430,6 +13502,7 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
                 authority.records,
                 action_keys,
                 root=root, wave_md=wave_md,
+                wave_closed=authority.wave_closed,
                 approval_phase="readiness",
                 required_run_kind="readiness",
             )
@@ -13519,12 +13592,43 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
                 recovery_usage="wf_current_wave()",
             ))
     if phase_s == "implementation" and shared["authority"].typed:
-        for violation in repair_independence_violations(shared["authority"].records):
+        for violation in repair_independence_violations(
+            shared["authority"].records, wave_closed=shared["authority"].wave_closed
+        ):
             if "review_context_retained" in violation:
                 diagnostics.append(_diagnostic(
                     "review_context_retained", violation, advisory=True,
                     recovery_tools=["wf_review_event"],
                 ))
+        # Change 23q1g: advisory only, never a block and never persisted.
+        if not shared["authority"].wave_closed:
+            for advisory in delivery_section_change_advisories(shared["authority"].records):
+                approvals = ", ".join(advisory["signoff_keys"])
+                if advisory["available"]:
+                    changed = "; ".join(
+                        f"`{item['change_id']}`: " + ", ".join(item["sections"])
+                        for item in advisory["changes"]
+                    )
+                    diagnostics.append(_diagnostic(
+                        "delivery_approval_scope_changed",
+                        f"Requirements or Acceptance Criteria text changed after the delivery "
+                        f"approval(s) of {approvals} (receipt {advisory['in_force_receipt_id']} "
+                        f"to {advisory['current_receipt_id']}): {changed}. The approvals stay "
+                        "current; consider whether the delivery review still covers the changed text.",
+                        advisory=True,
+                        recovery_tools=["wf_review_event"],
+                    ))
+                else:
+                    diagnostics.append(_diagnostic(
+                        "delivery_approval_scope_comparison_unavailable",
+                        f"Whether Requirements or Acceptance Criteria text changed after the "
+                        f"delivery approval(s) of {approvals} cannot be determined (receipt "
+                        f"{advisory['in_force_receipt_id']} to {advisory['current_receipt_id']}): "
+                        + " ".join(advisory["limitations"])
+                        + " The approvals stay current.",
+                        advisory=True,
+                        recovery_tools=["wf_review_event"],
+                    ))
     review_blocking = [*invalid_id_diagnostics, *shared["blocking_diagnostics"]]
     diagnostics = [*invalid_id_diagnostics, *diagnostics]
     status = "ok" if not review_blocking else "error"
@@ -13570,8 +13674,10 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
             shared["authority"].records,
             action_keys,
             root=root, wave_md=wave_md,
+            wave_closed=shared["authority"].wave_closed,
             approval_phase="delivery",
             required_run_kind="initial_delivery",
+            rerecord_signoff_keys=shared.get("rerecord_signoff_keys") or (),
         )
         _review_data["review_actions"] = review_actions
         diagnostics.extend(action_diagnostics)
@@ -13628,7 +13734,7 @@ def _wave_code_footprint(root: Path, wave_md: Path) -> Optional[int]:
     """Count changed non-doc files within this wave's declared footprint.
 
     An implementation advisory must not turn unrelated working-tree dirt into
-    evidence about this wave.  Use the admitted change docs' Serialization
+    evidence about this wave.  Use the admitted specs' Serialization
     Points as the bounded file universe; a wave with no declared targets has no
     trustworthy file-count signal and stays silent.
     """
@@ -13722,7 +13828,7 @@ def _retrieval_posture_thresholds(root: Path) -> tuple[int, int]:
 
 def _wave_has_gapfill_note(wave_md: Path) -> bool:
     # Per-document, and catching decode failures too: an `except OSError` around
-    # the whole loop let one undecodable change doc abort the scan, and because
+    # the whole loop let one undecodable spec abort the scan, and because
     # both call sites wrap this in `except Exception` the effect was to silently
     # disable the retrieval-posture sensor rather than to crash visibly.
     # The loop's targets include the wave record itself, so each read routes
@@ -13987,7 +14093,7 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
     # All gates passed — build implementation context
     change_ids = _extract_change_ids_from_wave_text(wave_text)
 
-    # The wave record owns dependency declarations. Legacy change-doc lines
+    # The wave record owns dependency declarations. Legacy spec lines
     # remain a secondary source; prose and workstream tables are not a grammar.
     dependency_advisories: list[dict[str, Any]] = []
     wave_dependencies = _wave_member_dependencies(wave_text)
@@ -14192,7 +14298,7 @@ def _confirmed_secret_notice(root: Path) -> dict[str, Any] | None:
 def _generate_wf_close_wave_summary(
     wave_id: str, wave_text: str, wave_md: Path, root: Optional[Path] = None,
 ) -> str:
-    """Synthesize a wave close summary from structured fields in the wave record and change docs.
+    """Synthesize a wave close summary from structured fields in the wave record and specs.
 
     Format: one prose paragraph, the authored intent outcome when present, then one
     bullet per admitted change. Each bullet states the change's outcome from its
@@ -14371,7 +14477,7 @@ def _close_summary_deferral_note(text: str, continuation: list[str]) -> str:
 
 
 def _close_summary_criteria(document: str) -> tuple[list[str], list[tuple[str, str]]]:
-    """``(completed labels, [(deferred label, note)])`` from a change document.
+    """``(completed labels, [(deferred label, note)])`` from a spec.
 
     Read as the close gate reads it, through ``change_doc_checklist``: every
     ``## Acceptance Criteria`` section with fenced lines blanked, any list marker, and
@@ -14528,6 +14634,347 @@ def _close_open_work_records(wave_text: str) -> list[tuple[Optional[str], Option
     return open_records
 
 
+def _close_record_extras(root: Path, wave_md: Path, text: Optional[str]) -> list[dict[str, Any]]:
+    """Advisory ``record_extras_present`` for the closing record's folder (change 23p9t).
+
+    Lists every entry other than the record, its ledger and its admitted
+    specs, with sizes and citation state from the record text (``text``, which
+    in create mode is the closed text just written), the admitted specs and the
+    decoded ledger values. ``text`` ``None`` means the record could not be read: the
+    recognized set cannot be derived, so the report names the record and lists
+    no files. Reports only; never writes, never blocks and never raises.
+    """
+    import review_evidence
+    import wave_work
+
+    folder = wave_md.parent
+    folder_rel = _repo_rel(root, folder)
+    detail: Optional[dict[str, Any]] = None
+    try:
+        if text is None:
+            detail = {"folder": folder_rel, "files": 0, "bytes": 0, "cited_in_ledger": 0, "cited_in_record": 0,
+                      "not_cited": 0, "complete": False, "reason": "record_unreadable",
+                      "unreadable": [_repo_rel(root, wave_md)], "entry_limit": wave_work.RECORD_EXTRAS_ENTRY_LIMIT,
+                      "list_cap": wave_work.RECORD_EXTRAS_LIST_CAP, "listed": [], "not_listed": 0,
+                      "directories": []}
+        else:
+            recognized = {wave_md.name, review_evidence.EVENTS_FILENAME}
+            spec_paths: list[Path] = []
+            for change_id in _extract_change_ids_from_wave_text(text):
+                try:
+                    spec_path = _wave_change_doc_path(root, wave_md, change_id)
+                except Exception:  # noqa: BLE001 - a rejected id names no file
+                    continue
+                recognized.add(spec_path.name)
+                spec_paths.append(spec_path)
+            unreadable: list[str] = []
+            record_texts = [text]
+
+            def _read(path: Path, *, missing_ok: bool) -> str:
+                try:
+                    _refuse_runtime_lock_target(root, path)
+                    return path.read_text(encoding="utf-8")
+                except FileNotFoundError:
+                    if not missing_ok:
+                        unreadable.append(_repo_rel(root, path))
+                    return ""
+                except Exception:  # noqa: BLE001 - named as unreadable input
+                    unreadable.append(_repo_rel(root, path))
+                    return ""
+
+            for spec_path in spec_paths:
+                record_texts.append(_read(spec_path, missing_ok=False))
+            # Read once; record_extras_report decodes its JSON lines once.
+            ledger_text = _read(folder / review_evidence.EVENTS_FILENAME, missing_ok=True)
+            detail = wave_work.record_extras_report(
+                folder, recognized, ledger_text, record_texts,
+                folder_rel=folder_rel, unreadable_inputs=unreadable)
+    except Exception as exc:  # noqa: BLE001 - reporting never fails a close
+        detail = {"folder": folder_rel, "files": 0, "bytes": 0, "cited_in_ledger": 0, "cited_in_record": 0,
+                  "not_cited": 0, "complete": False, "reason": "report_failed:" + type(exc).__name__,
+                  "unreadable": [], "entry_limit": None, "list_cap": None, "listed": [], "not_listed": 0,
+                  "directories": []}
+    if not detail["files"] and detail["complete"]:
+        return []
+    container = _vocab.tier_noun("container")
+    gap = "" if detail["complete"] else f" (coverage incomplete: {detail['reason']})"
+    unlisted = f", {detail['not_listed']} not listed" if detail["not_listed"] else ""
+    diagnostic = _diagnostic(
+        "record_extras_present",
+        f"The {container} folder {folder_rel}/ holds {detail['files']} extra file(s), {detail['bytes']} "
+        f"logical bytes, {detail['not_cited']} not cited by path and {detail['cited_in_ledger']} cited in "
+        f"the ledger{unlisted}{gap}; give each one a disposition (keep, summarize then remove, or remove) at the "
+        "Close prompt's folder-cleanup step.",
+        advisory=True,
+    )
+    diagnostic["detail"] = detail
+    return [diagnostic]
+
+
+def _work_root_loose_diagnostics(inventory: Optional[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The advisory ``work_root_loose_files`` for plain files and links directly
+    in the work root (change 23rzt), or nothing. Report-only; never raises."""
+    try:
+        import wave_work
+
+        message = wave_work.loose_entries_message(inventory or {})
+        if not message:
+            return []
+        diagnostic = _diagnostic("work_root_loose_files", message, recovery_tools=["wf_audit"],
+                                 recovery_usage="wf_audit()", advisory=True)
+        diagnostic["detail"] = {
+            "count": inventory["loose_count"], "complete": bool(inventory.get("complete", True)),
+            "cap": wave_work.LOOSE_ENTRY_LIST_CAP,
+            "names": [item["name"] for item in inventory.get("loose_entries") or []],
+        }
+        return [diagnostic]
+    except Exception:  # noqa: BLE001 - an advisory never fails its caller
+        return []
+
+
+def _close_work_reporting(
+    root: Path, wave_md: Path, text: str, work_cleanup: Optional[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], Optional[dict[str, Any]]]:
+    """Advisory close diagnostics for disposable work (change 23phc).
+
+    Returns ``(diagnostics, work_cleanup)``: ``work_retained`` when this close
+    left the closed record's own work folder in place, ``work_leftovers_present``
+    for other leftover folders (immediate children only, no sizing walk),
+    ``work_root_loose_files`` for plain files and links directly in the work
+    root (change 23rzt), and
+    ``work_path_cited`` when the record, its admitted change documents or the
+    handoff cite this record's own work folder. Reports only; never writes
+    and never raises.
+    """
+    import wave_work
+
+    diagnostics: list[dict[str, Any]] = []
+    container = _vocab.tier_noun("container")
+    try:
+        key = wave_work.work_key_for(root, wave_md)
+    except Exception:  # noqa: BLE001 - reporting never fails a close
+        key = None
+    if work_cleanup is not None and work_cleanup.get("outcome") not in ("removed", "absent"):
+        try:
+            work_cleanup = wave_work.describe_retained(root, key, work_cleanup)
+        except Exception:  # noqa: BLE001
+            work_cleanup = {**work_cleanup, "reason": wave_work.notice_reason(work_cleanup.get("notice")),
+                            "next_action": wave_work.retained_work_next_action(key)}
+        failure = ""
+        if work_cleanup.get("failed_entry"):
+            failure = (f"; failed at {work_cleanup['failed_entry']} ({work_cleanup.get('failed_operation')}"
+                       + (f", {work_cleanup['failed_errno']}" if work_cleanup.get("failed_errno") else "") + ")")
+        if work_cleanup.get("removed_entries"):
+            failure += f"; {work_cleanup['removed_entries']} entries were removed first"
+        if work_cleanup.get("entries") is None:
+            size = "its size was not measured"
+        else:
+            size = (f"{work_cleanup['entries']} entries, {work_cleanup['bytes']} logical bytes"
+                    + ("" if work_cleanup.get("complete") else
+                       f" (lower bound: {work_cleanup.get('completeness_reason')})"))
+        diagnostic = _diagnostic(
+            "work_retained",
+            f"Close kept the work folder {work_cleanup.get('path') or '(unknown)'}: outcome "
+            f"{work_cleanup.get('outcome')}, reason {work_cleanup.get('reason')}{failure}; {size}. "
+            f"The {container} stays closed. {work_cleanup.get('next_action')}",
+            recovery_tools=["wf_audit"], recovery_usage="wf_audit()", advisory=True,
+        )
+        diagnostic["detail"] = {field: work_cleanup.get(field) for field in (
+            "path", "outcome", "reason", "notice", "removed_entries", "failed_entry", "failed_operation",
+            "failed_errno", "entries", "bytes", "complete", "completeness_reason", "next_action")}
+        diagnostics.append(diagnostic)
+    inventory: dict[str, Any] = {}
+    try:
+        inventory = wave_work.inventory_work_root(root, measure=False)
+        leftovers = [item["key"] for item in inventory["leftovers"] if item["key"] != key]
+    except Exception:  # noqa: BLE001
+        leftovers = []
+    if leftovers:
+        shown = ", ".join(leftovers[:20]) + (f" and {len(leftovers) - 20} more" if len(leftovers) > 20 else "")
+        diagnostic = _diagnostic(
+            "work_leftovers_present",
+            f"{len(leftovers)} work folder(s) under {wave_work.WORK_ROOT.as_posix()}/ belong to closed, "
+            f"archived or not-found records: {shown}. Run wf_audit() to see their sizes and next steps.",
+            recovery_tools=["wf_audit"], recovery_usage="wf_audit()", advisory=True,
+        )
+        diagnostic["detail"] = {"count": len(leftovers), "keys": leftovers[:50]}
+        diagnostics.append(diagnostic)
+    diagnostics.extend(_work_root_loose_diagnostics(inventory))
+    if key:
+        documents: list[tuple[Path, bool]] = [(wave_md, True)]
+        try:
+            for change_id in _extract_change_ids_from_wave_text(text):
+                documents.append((_wave_change_doc_path(root, wave_md, change_id), True))
+        except Exception:  # noqa: BLE001
+            pass
+        documents.append((root / "docs" / "agents" / "session-handoff.md", False))
+        # A document that resolves to a runtime lock is never opened; it is
+        # reported as an input the search could not read.
+        refused: list[str] = []
+        readable: list[tuple[Path, bool]] = []
+        for path, required in documents:
+            try:
+                _refuse_runtime_lock_target(root, path)
+            except RuntimeLockTargetRefused:
+                refused.append(_repo_rel(root, path))
+                continue
+            readable.append((path, required))
+        try:
+            cited = wave_work.find_work_path_citations(root, key, readable)
+        except Exception:  # noqa: BLE001
+            cited = {"hits": [], "coverage": "complete", "unreadable": []}
+        if refused:
+            cited = {**cited, "coverage": "incomplete", "unreadable": [*cited["unreadable"], *refused]}
+        if cited["hits"] or cited["unreadable"]:
+            where = ", ".join(f"{hit['path']}:{hit['line']}" for hit in cited["hits"][:20]) or "no lines found"
+            gap = ("; coverage incomplete, could not read: " + ", ".join(cited["unreadable"])
+                   if cited["unreadable"] else "")
+            diagnostic = _diagnostic(
+                "work_path_cited",
+                f"Maintained records cite the disposable work folder {wave_work.WORK_ROOT.as_posix()}/{key}/ "
+                f"({where}{gap}). Copy any unique proof to durable evidence before the folder is cleaned up.",
+                advisory=True,
+            )
+            diagnostic["detail"] = {"hits": cited["hits"], "coverage": cited["coverage"],
+                                    "unreadable": cited["unreadable"]}
+            diagnostics.append(diagnostic)
+    return diagnostics, work_cleanup
+
+
+_CLEANUP_WORK_MODES = ["dry_run", "apply"]
+
+
+def _cleanup_work_reason_message(reason: str, result: dict[str, Any]) -> str:
+    """Operator text for an explicit-cleanup refusal or partial removal (change 23q0s)."""
+    container = _vocab.tier_noun("container")
+    path = result.get("path") or "the work folder"
+    messages = {
+        "work_key_invalid": "work_key must be one work key of 5 to 12 lowercase letters or digits; "
+                            "paths, separators and wildcards are refused.",
+        "work_folder_not_found": f"{path} is not an existing folder.",
+        "work_entry_not_directory": f"{path} is a link or not a directory; only a plain folder can be cleaned.",
+        "work_root_link": "The work root .wavefoundry/work is a link or not a plain directory chain; nothing was removed.",
+        "work_state_not_cleanable": (
+            f"The {container} state for this key is '{result.get('state')}'. Only closed, completed, archived "
+            f"or not-found-in-checkout keys can be cleaned; live, ambiguous and unreadable keys are refused."),
+        "unsafe_owner_entry": f"{path}/.owner.json is not a single regular file of at most 4,096 bytes.",
+        "work_filesystem_changed": f"{path} or a directory inside it is on a different file system from its parent.",
+        "preview_stale": ("The confirmation is empty or does not match the folder as it is now (identity, owner "
+                          f"file or {container} state changed, or the device number changed after a reboot). "
+                          "Run a fresh preview and show it to the operator."),
+        "safe_work_io_unsupported": ("This host has no descriptor-relative deletion (native Windows), so the "
+                                     "framework will not remove work here; removing the folder is the operator's own action."),
+        "work_owner_changed": f"{path}/.owner.json changed during deletion.",
+        "work_identity_changed": f"{path} was replaced by another directory.",
+        "work_parent_changed": "The work root was replaced.",
+    }
+    text = messages.get(reason, f"Removal stopped: {reason}.")
+    if result.get("outcome") == "partially_removed":
+        text += (f" {result.get('removed_entries')} entries were removed before it stopped at "
+                 f"{result.get('failed_entry')} ({result.get('failed_operation')}"
+                 + (f", {result['failed_errno']}" if result.get("failed_errno") else "")
+                 + "). Nothing was restored; repair the cause, then run a fresh preview and apply.")
+    elif result.get("outcome") == "refused":
+        text += " Nothing was removed."
+    return text
+
+
+def _cleanup_work_citations(root: Path, key: str, result: dict[str, Any]) -> dict[str, Any]:
+    """``work_path_cited`` search for one work key: always the handoff, plus the
+    record and its admitted change documents when a record was found."""
+    import wave_work
+
+    documents: list[tuple[Path, bool]] = [(root / "docs" / "agents" / "session-handoff.md", False)]
+    record = result.get("record")
+    if record:
+        wave_md = root / record
+        documents.append((wave_md, True))
+        text, _read_error = _read_wave_record_text(wave_md)
+        if text is not None:  # an unreadable record is reported by the search below
+            try:
+                profile = None if result.get("record_live") else _vocab.archive_profile()
+                for change_id in _extract_change_ids_from_wave_text(text, profile):
+                    documents.append((_wave_change_doc_path(root, wave_md, change_id), True))
+            except Exception:  # noqa: BLE001
+                pass
+    refused: list[str] = []
+    readable: list[tuple[Path, bool]] = []
+    for path, required in documents:
+        try:
+            _refuse_runtime_lock_target(root, path)
+        except RuntimeLockTargetRefused:
+            refused.append(_repo_rel(root, path))
+            continue
+        readable.append((path, required))
+    cited = wave_work.find_work_path_citations(root, key, readable)
+    if refused:
+        cited = {**cited, "coverage": "incomplete", "unreadable": [*cited["unreadable"], *refused]}
+    return cited
+
+
+def wf_cleanup_work_response(
+    root: Path, work_key: Any, mode: Any = "dry_run", confirmation: Any = "",
+) -> dict[str, Any]:
+    """Preview or apply explicit cleanup of one work folder (change 23q0s).
+
+    The registered tool holds the lifecycle mutation lock, and on apply the
+    project publication lock, around this call; the wave-state recheck and
+    token comparison run inside them.
+    """
+    import wave_work
+
+    mode_s = mode.strip().lower() if isinstance(mode, str) else ""
+    if mode_s not in _CLEANUP_WORK_MODES:
+        return _response(
+            "error", {"mode": mode, "valid_modes": _CLEANUP_WORK_MODES, "outcome": "refused",
+                      "reason": "invalid_mode"},
+            diagnostics=[_diagnostic("invalid_arguments",
+                                     f"Unsupported mode '{mode}'. Valid modes: {_CLEANUP_WORK_MODES}.")],
+            next_tools=["wf_help"], usage="wf_help()")
+    result = wave_work.explicit_cleanup(root, work_key, apply=mode_s == "apply", confirmation=confirmation)
+    data: dict[str, Any] = {"mode": mode_s, **result}
+    diagnostics: list[dict[str, Any]] = []
+    outcome = result["outcome"]
+    key = result.get("work_key")
+    if outcome == "preview":
+        try:
+            cited = _cleanup_work_citations(root, key, result)
+        except Exception as exc:  # noqa: BLE001 - the preview still reports
+            cited = {"key": key, "hits": [], "coverage": "incomplete",
+                     "unreadable": ["citation_search_failed:" + type(exc).__name__]}
+        data["citations"] = cited
+        if cited["hits"] or cited["unreadable"]:
+            where = ", ".join(f"{hit['path']}:{hit['line']}" for hit in cited["hits"][:20]) or "no lines found"
+            gap = ("; coverage incomplete, could not read: " + ", ".join(cited["unreadable"])
+                   if cited["unreadable"] else "")
+            diagnostic = _diagnostic(
+                "work_path_cited",
+                f"Maintained records cite the disposable work folder {wave_work.WORK_ROOT.as_posix()}/{key}/ "
+                f"({where}{gap}). Copy any unique proof to durable evidence before the folder is cleaned up.",
+                advisory=True,
+            )
+            diagnostic["detail"] = {"hits": cited["hits"], "coverage": cited["coverage"],
+                                    "unreadable": cited["unreadable"]}
+            diagnostics.append(diagnostic)
+        if result["apply_possible"]:
+            data["next_action"] = (
+                "Show this preview to the operator. Call wf_cleanup_work(work_key='" + key + "', mode='apply', "
+                "confirmation='<confirmation>') only when the operator directs removal of this folder in the "
+                "current request; apply removes whatever the folder holds at that moment.")
+        else:
+            data["next_action"] = "Apply is not possible: " + ", ".join(result["apply_blockers"]) + "."
+            if "safe_work_io_unsupported" in result["apply_blockers"]:
+                data["next_action"] += (" This host cannot remove work safely; review the folder and remove it "
+                                        "yourself once nothing in it is needed.")
+        return _response("ok", data, diagnostics=diagnostics)
+    if outcome in ("removed", "absent"):
+        return _response("ok", data)
+    reason = result.get("reason") or "work_io_failed"
+    return _response("error", data, diagnostics=[_diagnostic(
+        reason, _cleanup_work_reason_message(reason, result),
+        recovery_tools=["wf_cleanup_work"], recovery_usage=f"wf_cleanup_work(work_key='{key or '<key>'}')")])
+
+
 @_configured_phase_envelope
 @_fail_closed_on_record_layout("wf_close_wave")
 def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cache: Optional[McpRepoCache] = None) -> dict[str, Any]:
@@ -14564,9 +15011,11 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     # gate cannot be evaluated over a record that cannot be read.
     text, wave_read_error = _read_wave_record_text(wave_md)
     if text is None:
+        # Change 23p9t: the folder report rides every close return, advisory.
         return _wave_record_unreadable_response(
             root, wave_md, wave_read_error,
             data={"wave_id": wave_id, "mode": mode_s},
+            sibling_diagnostics=_close_record_extras(root, wave_md, None),
         )
     gate_ctx = lifecycle_gates.GateContext(root, wave_md, text, mode_s, lint_result, "close")
     shared_result = lifecycle_gates.CLOSE_SHARED_GATES[0](gate_ctx)
@@ -14596,7 +15045,7 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
             for record_id, status in open_records
         )
         diagnostics.append(_diagnostic("open_changes_remaining", f"Wave has unresolved change statuses: {open_list}.", recovery_tools=["wf_current_wave"], recovery_usage="wf_current_wave()"))
-    # Wave 1zoju (1zodx): a member whose wave-record status and change-document
+    # Wave 1zoju (1zodx): a member whose wave-record status and spec
     # status disagree blocks close before close's own writes, so the drift is
     # never archived. An already-closed wave re-closes convergently (1seax).
     from wave_lint_lib import wave_validators as _drift_validators
@@ -14608,12 +15057,12 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
 
             drift_list = "; ".join(
                 f"`{change_id}` is {_drift_value(wave_status)} in the wave record "
-                f"but {_drift_value(doc_status)} in its change document"
+                f"but {_drift_value(doc_status)} in its spec"
                 for change_id, wave_status, doc_status in drifted
             )
             diagnostics.append(_diagnostic(
                 "change_status_drift",
-                f"The wave record and change documents disagree for: {drift_list}. "
+                f"The wave record and specs disagree for: {drift_list}. "
                 "Update whichever side is wrong, then close again.",
                 recovery_tools=["wf_get_change", "wf_current_wave"],
                 recovery_usage=f"wf_get_change(change_id={drifted[0][0]!r})",
@@ -14641,7 +15090,9 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
             )
         )
     if authority.typed:
-        independence_errors = repair_independence_violations(authority.records)
+        independence_errors = repair_independence_violations(
+            authority.records, wave_closed=authority.wave_closed
+        )
         diagnostics.extend(
             _diagnostic(
                 REVIEW_EVIDENCE_INDEPENDENCE_INVALID,
@@ -14713,8 +15164,8 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
         _close_next_tools, _close_usage = _blocked_envelope_hint(
             diagnostics, ["wf_validate_docs", "wf_current_wave"], "wf_validate_docs()"
         )
-        return _close_envelope("error", {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed, "required_council_signoffs": required_council_signoffs, "framework_test_receipt": framework_test_receipt, **secrets_notice, **scanner_skip_notice(root)}, diagnostics=diagnostics + ([empty_roster_advisory] if empty_roster_advisory else []) + gate_diagnostics, next_tools=_close_next_tools, usage=_close_usage)
-    # Generate the wave summary from structured change doc fields (12sq4).
+        return _close_envelope("error", {"wave_id": wave_id, "mode": mode_s, "lint_passed": lint_result["passed"], "garden_passed": garden_passed, "required_council_signoffs": required_council_signoffs, "framework_test_receipt": framework_test_receipt, **secrets_notice, **scanner_skip_notice(root)}, diagnostics=diagnostics + ([empty_roster_advisory] if empty_roster_advisory else []) + _close_record_extras(root, wave_md, text) + gate_diagnostics, next_tools=_close_next_tools, usage=_close_usage)
+    # Generate the wave summary from structured spec fields (12sq4).
     try:
         wave_summary = _generate_wf_close_wave_summary(wave_id, text, wave_md, root)
     except (OSError, UnicodeError, ValueError) as exc:
@@ -14726,7 +15177,7 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
                 f"Could not read an admitted change while generating the close summary: {exc}",
                 recovery_tools=["wf_validate_docs"],
                 recovery_usage="wf_validate_docs()",
-            )] + gate_diagnostics,
+            )] + _close_record_extras(root, wave_md, text) + gate_diagnostics,
             next_tools=["wf_validate_docs", "wf_current_wave"],
             usage="wf_validate_docs()",
         )
@@ -14757,6 +15208,7 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
                     {"wave_id": wave_id, "mode": mode_s},
                     diagnostics=[
                         _diagnostic("review_projection_failed", str(exc)),
+                        *_close_record_extras(root, wave_md, text),
                         *gate_diagnostics,
                     ],
                     next_tools=["wf_review_event", "wf_validate_docs"],
@@ -14809,6 +15261,13 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     # not (fail-safe — never affects the result).
     if mode_s == "create":
         _regenerate_codebase_map_safe(root)
+    # Change 23phc: retained and leftover work, and citations of this record's
+    # own work folder, as advisory diagnostics. Reports only; dry-run has no
+    # cleanup result and so never reports `work_retained`.
+    work_diagnostics, work_cleanup = _close_work_reporting(root, wave_md, text, work_cleanup)
+    # Change 23p9t: extra files in the record folder, advisory. In create mode
+    # ``text`` is the closed record just written, so it equals the disk.
+    work_diagnostics = work_diagnostics + _close_record_extras(root, wave_md, text)
     envelope = _close_envelope(
         "dry_run" if mode_s == "dry_run" else "ok",
         {"wave_id": wave_id, "mode": mode_s, "updated": updated, "transitioned_to_closed": transitioned_to_closed, "handoff_path": handoff_rel, "wave_summary": wave_summary,
@@ -14816,7 +15275,7 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
          **({"work_cleanup": work_cleanup} if work_cleanup is not None else {}),
          **({"index_optimize": close_optimize} if close_optimize else {}),
          **({"memory": memory_summary} if memory_summary else {}), **secrets_notice},
-        diagnostics=advisory_diagnostics + ([empty_roster_advisory] if empty_roster_advisory else []) + gate_diagnostics or None,
+        diagnostics=advisory_diagnostics + ([empty_roster_advisory] if empty_roster_advisory else []) + work_diagnostics + gate_diagnostics or None,
         next_tools=["wf_current_wave"],
         usage="wf_current_wave()",
     )
@@ -14933,7 +15392,7 @@ def _close_change_rewrite_block(text: str, change_id: str, new_status: str, prev
 
 
 def _close_change_doc_header(raw: str) -> tuple[str, str]:
-    """``(leading metadata, rest)``: the change document split at its first
+    """``(leading metadata, rest)``: the spec split at its first
     ``## `` heading line."""
     match = re.search(r"(?m)^## ", raw)
     if match is None:
@@ -14942,7 +15401,7 @@ def _close_change_doc_header(raw: str) -> tuple[str, str]:
 
 
 def _close_change_doc_status(raw: str) -> Optional[str]:
-    """The change document's status as docs-lint reads it, from its leading
+    """The spec's status as docs-lint reads it, from its leading
     metadata; ``None`` when it has no readable status line."""
     from wave_lint_lib import constants as lint_constants
 
@@ -14952,9 +15411,9 @@ def _close_change_doc_status(raw: str) -> Optional[str]:
 
 
 def _close_change_rewrite_doc(raw: str, new_status: str) -> Optional[str]:
-    """``raw`` with the change document's member-status and ``Status:``
+    """``raw`` with the spec's member-status and ``Status:``
     header lines set to ``new_status``.  No previous-status line is written
-    into a change document: it is a review-policy carrier key that is not
+    into a spec: it is a review-policy carrier key that is not
     normalized, so writing it would move the digest."""
     header, rest = _close_change_doc_header(raw)
     match = re.search(rf"(?m)^{_vocab.MEMBER_STATUS_LABEL_RE}:\s+`([a-z0-9-]+)`[ \t]*(?=\r?$)", header)
@@ -15070,7 +15529,7 @@ def wf_close_change_response(
     """Close one admitted change (`complete`) and activate its dependents.
 
     Wave 1zlu1 (1zlu2).  ``dry_run`` reports every failing gate and the
-    planned writes; ``create`` (alias ``apply``) writes the change document
+    planned writes; ``create`` (alias ``apply``) writes the spec
     header and the wave-record block, moves each dependent whose wave-record
     ``Depends On:`` names the closed change and whose dependencies are now all
     done from ``planned``/``blocked`` to ``ready``, and restores every written
@@ -15174,7 +15633,7 @@ def wf_close_change_response(
             recovery_usage=f"wf_get_change(change_id={change_id!r})",
         ))
 
-    # Gate: the change document exists and is readable.  Wave 1zv87 (1zv85):
+    # Gate: the spec exists and is readable.  Wave 1zv87 (1zv85):
     # only for an admitted change; no path is built from an unadmitted id.
     admitted = block is not None and record is not None
     doc_path = _wave_change_doc_path(root, wave_md, change_id) if admitted else None
@@ -15182,7 +15641,7 @@ def wf_close_change_response(
     if doc_path is not None and not os.path.lexists(doc_path):
         diagnostics.append(_diagnostic(
             "change_doc_missing",
-            f"No change document at {_repo_rel(root, doc_path)}.",
+            f"No spec at {_repo_rel(root, doc_path)}.",
             recovery_tools=["wf_get_change", "wf_current_wave"],
             recovery_usage=f"wf_get_change(change_id={change_id!r})",
         ))
@@ -15354,7 +15813,7 @@ def wf_close_change_response(
         statuses_after[candidate.record_id] = _CLOSE_CHANGE_ACTIVATED_STATUS
         written_ids.append(candidate.record_id)
         activated.append({**entry, "status": _CLOSE_CHANGE_ACTIVATED_STATUS})
-    # Legacy: a dependency declared only in a change document's own
+    # Legacy: a dependency declared only in a spec's own
     # `Depends On:` line is reported, never activated.
     for other in records:
         if other.record_id == change_id or change_id in other.depends_on:
@@ -15381,7 +15840,7 @@ def wf_close_change_response(
             })
             advisories.append(_diagnostic(
                 "dependencies_not_in_wave_record",
-                f"`{other.record_id}` declares a dependency on `{change_id}` only in its change document; "
+                f"`{other.record_id}` declares a dependency on `{change_id}` only in its spec; "
                 f"dependencies are read from the {_vocab.RECORD_FILENAME} `Depends On:` line, so it was not activated.",
                 recovery_tools=["wf_current_wave"], recovery_usage="wf_current_wave()", advisory=True,
             ))
@@ -17814,7 +18273,7 @@ def _doc_demotion_weight(path: str, kind: str, prefixes: tuple[str, str] | None 
             history = False
     if history or "reports" in parts or "feedback" in name or "journal" in name:
         return _DEMOTION_JRNLS
-    # Wave 1p66s: reference prose — architecture docs, specs, and ADRs. ADRs live under
+    # Wave 1p66s: reference prose — architecture docs, behavior contracts, and ADRs. ADRs live under
     # docs/architecture/decisions/ (covered by the architecture prefix); docs/specs/ added
     # explicitly. Gentler than the narrative tiers — still valid context, just not ahead of code.
     if normalized.startswith("docs/architecture/") or normalized.startswith("docs/specs/"):
@@ -17828,7 +18287,7 @@ def _doc_demotion_weight(path: str, kind: str, prefixes: tuple[str, str] | None 
 _EXPLANATORY_LIKE_QUESTION_TYPES = ("explanatory", "assessment")
 
 # Wave 1p66s: code-implementation intents whose answer should lead with implementing
-# source, so reference prose (specs/ADRs/architecture/narrative) is demoted below code.
+# source, so reference prose (behavior contracts/ADRs/architecture/narrative) is demoted below code.
 _DOC_DEMOTION_INTENTS = (*_EXPLANATORY_LIKE_QUESTION_TYPES, "navigational")
 
 
@@ -17837,7 +18296,7 @@ def _demote_doc_results(
 ) -> tuple[list[dict], int]:
     """Down-weight narrative/reference doc sources for code-implementation intents so the
     implementing source is not outranked by prose (1p66s extends this from explanatory-only
-    to navigational "where is X" and to architecture/spec/ADR paths). Demotion is a
+    to navigational "where is X" and to architecture/behavior-contract/ADR paths). Demotion is a
     down-weight, never an exclusion — a genuinely doc-answerable result still surfaces."""
     if question_type not in _DOC_DEMOTION_INTENTS:
         return results, 0
@@ -19124,7 +19583,7 @@ def _context_source_paths(
                     paths.add(path)
         add_rows("incoming", "file", ("snippet",))
     elif tool_name == "code_commit_provenance":
-        # The resolved wave record / change docs whose recorded reasoning
+        # The resolved wave record / specs whose recorded reasoning
         # (Decision Log excerpt) the response surfaces in lieu of re-reading them.
         add_rows("provenance", "path", ("excerpt", "rationale"))
     return sorted(paths)
@@ -20741,7 +21200,7 @@ def _review_evidence_cost_focus(
 _LIFECYCLE_MUTATION_LOCK_NAME = _lifecycle_lock_authority.LIFECYCLE_MUTATION_LOCK_REL.name
 _LIFECYCLE_MUTATION_LOCK_SENTINEL = _lifecycle_lock_authority.LIFECYCLE_MUTATION_LOCK_SENTINEL
 
-# The covered set comes from the writer CENSUS in the 1seat change doc: every
+# The covered set comes from the writer CENSUS in the 1seat spec: every
 # mutating MCP tool is dispositioned there as lifecycle-lock / protected-by-
 # another-lock / independent-with-rationale. This frozenset is the
 # lifecycle-lock column of that census.
@@ -20754,6 +21213,8 @@ _LIFECYCLE_MUTATION_LOCK_TOOLS: frozenset[str] = frozenset({
     "wf_close_wave",
     # Wave 1zlu1 (1zlu2): closes one change and activates its dependents.
     "wf_close_change",
+    # Wave 23q0t (23q0s): explicit removal of one retained work folder.
+    "wf_cleanup_work",
     "wf_reopen_wave",
     "wf_implement_wave",
     "wf_set_handoff",
@@ -23546,7 +24007,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
         Prefer when: searching for code by concept, behavior, or intent (e.g. "React component with loading state").
         Use code_keyword instead when the exact token, symbol, or string is known — always available, deterministic.
-        Use docs_search instead when the answer is in a spec, architecture doc, or prompt rather than source code.
+        Use docs_search instead when the answer is in a behavior contract, architecture doc, or prompt rather than source code.
         When the code index is absent: returns status='error' with a diagnostic — does not crash.
         Degraded serving: with a PUBLISHED index (complete build epoch) but an
         unavailable semantic model, serves BM25 results from the FTS layer with the requested
@@ -23674,7 +24135,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Prefer when: you know the seed name or number. Use docs_search instead when searching for seed content by concept.
 
         Args:
-            name: Seed name or partial slug, e.g. "plan-change" or "020-run-contract".
+            name: Seed name or partial slug, e.g. "plan-spec" or "020-run-contract".
         """
         bad = _ensure_no_extra_args("seed_get", kwargs)
         if bad is not None:
@@ -24265,9 +24726,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         - symbol_extraction_method: "graph" when agent mode followed published graph edges; otherwise
           omitted with an empty second_hop_symbols list.
         - validation_required: present and true when question_type is explanatory or assessment and the top
-          citation is a doc or doc-summary (spec, architecture, or reference doc). When present,
-          code_read in next_tools is a REQUIRED continuation — not optional. A spec citation is
-          the starting point, not the answer; read the implementation file named in the spec's
+          citation is a doc or doc-summary (behavior contract, architecture, or reference doc). When present,
+          code_read in next_tools is a REQUIRED continuation — not optional. A behavior contract citation is
+          the starting point, not the answer; read the implementation file named in the behavior contract's
           source metadata before synthesizing.
         - index_freshness: "current" | "stale" | "unknown" (unknown = the check could not
           determine freshness — treat results as potentially stale, verify with index_health)
@@ -24373,7 +24834,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wf_list_plans(limit: int = 50, **kwargs: Any) -> dict[str, Any]:
-        """List pending plan/change docs in docs/plans that have not yet been admitted to a wave.
+        """List pending specs in docs/plans that have not yet been admitted to a wave.
 
         Use this to answer "what changes are planned but not in a wave?" before reaching for ls or grep.
 
@@ -24387,12 +24848,12 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_READONLY_TOOL)
     def wf_get_change(change_id: str = "", wave_id: str = "", **kwargs: Any) -> dict[str, Any]:
-        """Return a change doc by ID, or all change docs for a wave in bulk.
+        """Return a spec by ID, or all specs for a wave in bulk.
 
-        **Single lookup (default):** provide ``change_id`` to return one change doc.
+        **Single lookup (default):** provide ``change_id`` to return one spec.
 
         **Bulk mode:** provide ``wave_id`` without ``change_id`` to return all admitted
-        change docs for that wave in ``data.changes``, each with ``id``, ``status``,
+        specs for that wave in ``data.changes``, each with ``id``, ``status``,
         ``path``, and ``content``. Content is capped at 300 lines per doc.
 
         Args:
@@ -24411,7 +24872,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         """Return the full rendered prompt for a Wave Framework shortcut phrase.
 
         Args:
-            shortcut: Shortcut phrase, e.g. "Prepare wave" or "Plan change".
+            shortcut: Shortcut phrase, e.g. "Prepare wave" or "Plan spec".
         """
         bad = _ensure_no_extra_args("wf_get_prompt", kwargs)
         if bad is not None:
@@ -24623,8 +25084,12 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Default ``mode='dry_run'`` previews without writing. Use ``mode='create'``
         (or its ``apply`` alias) to write; successful results report ``mode`` and ``applied``.
         Required-priority deferrals need a reason under the same rule as docs-lint.
-        A successful deferred AC also refreshes its review receipt; it never
-        carries an approval forward and returns the fresh review actions.
+        The reason is written as a ``*Status: <reason>*`` note and may not hold
+        ``*`` or a line break. A mark writes only the document: a deferral and
+        its note leave the review-policy digest unchanged, so no receipt is
+        published and no readiness approval lapses. A current council-delivery
+        or operator-signoff approval recorded before the deferral is named in
+        an advisory and must be recorded again before Review and Close pass.
         """
         bad = _ensure_no_extra_args("wf_mark_ac", kwargs)
         if bad is not None:
@@ -24781,9 +25246,17 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def wf_review_wave(wave_id: str, phase: str = "implementation", **kwargs: Any) -> dict[str, Any]:
         """Inspect one review phase and return its canonical guided actions.
 
-        Receipt rotation lapses readiness approvals only; delivery approvals do not lapse solely from rotation,
-        and ``review_policy_receipt_stale`` blocks implementation-phase review until
-        re-Prepare without touching them.
+        Receipt rotation lapses readiness approvals; a delivery approval lapses only when
+        the current receipt lists a change absent from the receipt in force when it was
+        recorded (a late admission), and ``review_policy_receipt_stale`` blocks
+        implementation-phase review until re-Prepare without touching them.
+        Advisory ``delivery_approval_scope_changed`` reports Requirements or Acceptance
+        Criteria text changed since a delivery approval (or that the comparison is
+        unavailable); it never blocks and never changes an approval.
+        A criterion deferral lapses no readiness approval; ``delivery_approval_predates_deferral``
+        blocks until a ``council-delivery`` or ``operator-signoff`` approval recorded before a
+        criterion was deferred or its status note added or changed is recorded again, and
+        advisories ``deferred_criterion_scope_change`` and ``criterion_status_note`` list them.
 
         This is the sole guided inspection entry point. It runs the existing
         full docs validation once, validates typed review authority, and returns
@@ -24930,9 +25403,15 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     ) -> dict[str, Any]:
         """Preview, append, or LIST compact executable-review evidence without hand-authoring JSONL.
 
-        Receipt rotation lapses readiness approvals only; delivery approvals do not lapse solely from rotation,
-        and ``review_policy_receipt_stale`` blocks implementation-phase review until
-        re-Prepare without touching them.
+        Receipt rotation lapses readiness approvals; a delivery approval lapses only when
+        the current receipt lists a change absent from the receipt in force when it was
+        recorded (a late admission), and ``review_policy_receipt_stale`` blocks
+        implementation-phase review until re-Prepare without touching them.
+        Recording a delivery approval, including ``operator-signoff``, is refused with
+        ``review_policy_receipt_stale`` while the receipt is stale: re-Prepare first.
+        A ``council-delivery`` or ``operator-signoff`` approval gets a final ``limitations`` line
+        ``Criterion status when recorded: {json}`` naming the deferred and noted criteria; the
+        tool alone writes it, and a request whose ``limitations`` carries that prefix is refused.
 
         ``event`` is ``approval``, ``finding``, ``run``, or ``list``.
 
@@ -24969,7 +25448,15 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         phase (a readiness approval attests to the review of the current tree
         or plan, not unimplemented product behavior; the seed-209 field table
         defines each boolean) plus a non-empty ``known_bad_detection_method``.
-        An ``operator-signoff`` approval is the exception: it runs no check of
+        Only an unaffected specialist readiness approval may explicitly use
+        ``known_bad_detected: null``: ``known_bad_detection_method`` must explain
+        the inspected scope and why no relevant surface in that lane is affected.
+        The other four checks stay true. No findings, an unrun control or missing
+        evidence does not establish non-applicability; false remains refused.
+        Council and delivery approvals gain no exception. Readiness-safe controls
+        include a refuted plan claim, an omitted known census site or a rejected
+        invalid review input. An ``operator-signoff`` approval is the exception
+        for all five checks: it runs no check of
         its own, so do not ask the operator for values. Omit ``integrity_checks``
         (stored as ``null``, not applicable, with a not-applicable method), or
         pass ``true``, ``false`` or ``null`` per check only as the operator states.
@@ -25110,8 +25597,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 boundary_values_realistic, assertions_non_vacuous,
                 known_bad_detected, and known_bad_detection_method. Affirm each
                 boolean honestly for the recording phase per the seed-209 field
-                table; a claim that cannot affirm one is not recorded as
-                executed. Optional for an operator-signoff approval: omitted
+                table. Only an unaffected specialist readiness approval may use
+                known_bad_detected=null with its inspected-scope rationale in
+                known_bad_detection_method; the other four remain true.
+                Optional for an operator-signoff approval: omitted
                 means null (not applicable); stated values may be true, false
                 or null.
             record_type: list only — filter rows to one record type
@@ -25356,6 +25845,12 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         blockers. Missing history means no recorded skips, not complete coverage.
         The coverage reader is read-only; docs validation still runs scanning.
 
+        Record folder extras: every response for a found record, blocked or
+        not, carries an advisory ``record_extras_present`` when the record's
+        folder holds entries other than the record, its ledger and its admitted
+        specs, listing sizes and citation state (exact forward-slash path
+        match). It never blocks, deletes or changes the close result.
+
         Repair-independence audit: while the target wave's status
         is non-closed (including explicitly reopened archives), close audits
         each finding's current/latest repair chain and surfaces
@@ -25410,9 +25905,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
         Gate (every failing gate is reported, in dry_run and create): the wave
         is OPEN (active or implementing); the change is admitted to it; its
-        change document exists and is readable; its status is closable (read
+        spec exists and is readable; its status is closable (read
         from the docs-lint constants: ready, active, review or implemented)
-        and agrees between the wave record and the change document; it has no
+        and agrees between the wave record and the spec; it has no
         silent `[ ]` AC or task (the close-wave checkbox gate, this change
         only); every dependency on its wave-record `Depends On:` line is done
         (terminal or implemented); the review authority Review and Close read
@@ -25420,7 +25915,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         refuses with `review_ledger_unreadable`; a legacy prose record has
         none) and names no unsettled security candidate.
 
-        Writes (create): `complete` into the change document's status lines
+        Writes (create): `complete` into the spec's status lines
         and the wave-record block, with the previous status recorded in the
         wave record only. Each other change whose wave-record `Depends On:`
         names the closed change, is `planned` or `blocked`, and whose
@@ -25449,6 +25944,54 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 handler.root, wave_id, change_id, mode=mode, cache=handler.cache
             )
 
+    @mcp.tool(annotations=_DESTRUCTIVE_TOOL)
+    def wf_cleanup_work(work_key: str, mode: str = "dry_run", confirmation: str = "", **kwargs: Any) -> dict[str, Any]:
+        """Preview, or on the operator's direction remove, ONE retained work folder.
+
+        Targets exactly `.wavefoundry/work/<work_key>/`, where work_key is one
+        key of 5 to 12 lowercase letters or digits naming an existing plain
+        folder (no paths, links, files, bulk form or wildcard).
+
+        dry_run (default) writes nothing and returns the inventory (entries,
+        logical bytes, completeness under the 10,000-entry bound), up to 50
+        child names with types, ownership, the state of the matching record
+        (`not_found_in_checkout` means no record in this checkout; it may
+        exist on another branch or checkout), `work_path_cited` hits from
+        the handoff and the record and its change documents, whether apply
+        is possible here and a confirmation token. No token is returned when
+        apply is not possible (for example on native Windows).
+
+        apply removes the folder only when its state is closed, completed,
+        archived or not_found_in_checkout, its `.owner.json` is absent or one
+        regular file of at most 4,096 bytes, it is on its parent's file
+        system, and `confirmation` equals the token recomputed now. The token
+        binds the repository root, the key, the folder's device and inode,
+        the owner file's hash and the record state; it does not bind
+        contents, and a device change after a reboot makes it stale
+        (`preview_stale`: preview again). Ownership is not required. Every
+        unlink and rmdir re-checks the parent chain, folder identity, device
+        and owner bytes; links are removed, never followed. Outcomes:
+        removed, absent, refused (reason, nothing removed) or
+        partially_removed (count, failing entry, operation, errno; nothing is
+        restored). Native Windows refuses apply (`safe_work_io_unsupported`).
+        Call apply only when the operator directs cleanup of that key in the
+        current request, after showing the preview. Refused, preview
+        included, while an upgrade is in progress.
+
+        Args:
+            work_key: One work key, for example "abc12".
+            mode: "dry_run" (default) or "apply"; anything else is refused.
+            confirmation: The token from the latest preview (apply only).
+        """
+        bad = _ensure_no_extra_args("wf_cleanup_work", kwargs)
+        if bad is not None:
+            return bad
+        handler = get_handler()
+        mutating = isinstance(mode, str) and mode.strip().lower() == "apply"
+        lock = project_state_publication_lock(handler.root) if mutating else contextlib.nullcontext()
+        with lock:
+            return wf_cleanup_work_response(handler.root, work_key, mode=mode, confirmation=confirmation)
+
     # --- Change creation ---
 
     def _new_change_response(kind: str, slug: str) -> dict[str, Any]:
@@ -25456,7 +25999,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wf_new_feature(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Retired: the feat kind is no longer minted for new change docs.
+        """Retired: the feat kind is no longer minted for new specs.
 
         Always returns a change_kind_retired error and writes nothing; existing feat ids
         stay valid. Use wf_new_enhancement instead, and plan a large feature as several
@@ -25472,7 +26015,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wf_new_bug(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded bug change doc (kind=bug). Returns the ID and path.
+        """Create a scaffolded bug spec (kind=bug). Returns the ID and path.
 
         Use for: fixing a defect in existing behavior (something that worked and is now broken, or never worked as intended).
 
@@ -25486,7 +26029,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wf_new_enhancement(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded enhancement change doc (kind=enh). Returns the ID and path.
+        """Create a scaffolded enhancement spec (kind=enh). Returns the ID and path.
 
         Use for: improving or extending existing functionality (making something that works better or more capable).
 
@@ -25500,7 +26043,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wf_new_refactor(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded refactor change doc (kind=ref). Returns the ID and path.
+        """Create a scaffolded refactor spec (kind=ref). Returns the ID and path.
 
         Use for: code structure changes with no user-visible behavior change (rename, extract, reorganize).
 
@@ -25514,7 +26057,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wf_new_change(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded general change doc (kind=change). Returns the ID and path.
+        """Create a scaffolded general spec (kind=change). Returns the ID and path.
 
         Use for: changes that don't fit a more specific kind. Prefer enh, bug, ref, doc, debt, task, maint, or ops first.
 
@@ -25528,9 +26071,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wf_new_documentation(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded documentation change doc (kind=doc). Returns the ID and path.
+        """Create a scaffolded documentation spec (kind=doc). Returns the ID and path.
 
-        Use for: docs-only changes — new or updated docs, specs, seeds, or prompts with no code changes.
+        Use for: docs-only changes — new or updated docs, behavior contracts, seeds, or prompts with no code changes.
 
         Args:
             slug: Kebab-case slug, e.g. "document-install-flow".
@@ -25542,7 +26085,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wf_new_tech_debt(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded technical debt change doc (kind=debt). Returns the ID and path.
+        """Create a scaffolded technical debt spec (kind=debt). Returns the ID and path.
 
         Use for: cleanup of known technical debt — removing workarounds, paying down accumulated shortcuts.
 
@@ -25556,7 +26099,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wf_new_task(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded task change doc (kind=task). Returns the ID and path.
+        """Create a scaffolded task spec (kind=task). Returns the ID and path.
 
         Use for: one-off tasks with no ongoing code artifact (e.g. fixture refresh, data migration, one-time audit).
 
@@ -25570,7 +26113,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wf_new_maintenance(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded maintenance change doc (kind=maint). Returns the ID and path.
+        """Create a scaffolded maintenance spec (kind=maint). Returns the ID and path.
 
         Use for: routine upkeep with no new behavior — rotating generated surfaces, version bumps, dependency updates.
 
@@ -25584,7 +26127,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wf_new_operations(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded operations change doc (kind=ops). Returns the ID and path.
+        """Create a scaffolded operations spec (kind=ops). Returns the ID and path.
 
         Use for: operational or process changes — release checklists, runbooks, deployment procedures.
 
@@ -25669,9 +26212,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         """Aggregate read-only audit: wave state + docs validation + a FAST index readiness snapshot.
 
         Returns ``data.ready`` (``true`` only when wave is active/planned, docs-lint
-        passes, and ``metadata_ready`` is ``true``), plus three sub-objects:
+        passes, and ``metadata_ready`` is ``true``), plus sub-objects that include
         ``wave`` (current wave record), ``validation`` (lint pass/fail + errors),
-        and ``index`` (bounded metadata readiness snapshot).
+        ``index`` (bounded metadata readiness snapshot) and ``work_root`` (the
+        retained work-folder inventory).
 
         The index leg is metadata-only by design: it reads the
         completed-build epoch, table-directory presence, and recorded store meta,
@@ -25909,7 +26453,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
               - ``"preflight_to_docs_gate"`` *(default)* — phases 0–3: pre-flight
                 checks, zip adoption, surface rendering, pruning, docs gate.
                 Run this first. The agent's editing pass (drift detection, journal
-                reconciliation, spec gap remediation) follows after this completes.
+                reconciliation, behavior contract gap remediation) follows after this completes.
               - ``"update_index"`` — phase 4 *(default post-editing choice)*:
                 incremental docs index update (blocking) then code (background).
                 Re-embeds only files that changed since the last run.
@@ -26259,7 +26803,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
         Fills the memory corpus from work a wave already did instead of waiting
         for hand-authored records. Two local, read-only sources: each admitted
-        change doc's ## Decision Log (-> `decision` candidates) and the canonical
+        spec's ## Decision Log (-> `decision` candidates) and the canonical
         events.jsonl repaired real-defect findings (-> `failed_attempt`, or
         `fragile_file` for a file repaired more than once in the wave). No raw
         transcripts. CONSERVATIVE: only durable-shaped signals with a concrete
@@ -27465,26 +28009,26 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return _read_doc_or_not_found(get_handler().root / "docs" / "agents" / "session-handoff.md", "docs/agents/session-handoff.md")
 
     # --- Read-only MCP Resource Templates ---
-    # Parameterized reads for change docs, waves, prompts, seeds, and architecture docs.
+    # Parameterized reads for specs, waves, prompts, seeds, and architecture docs.
 
     @mcp.resource(
         "wavefoundry://change/{change_id}",
         name="change_doc",
-        description="Read a change doc by ID or prefix. Returns the raw markdown content.",
+        description="Read a spec by ID or prefix. Returns the raw markdown content.",
         mime_type="text/markdown",
     )
     @_resource_unavailable_on_unreadable
     def resource_change(change_id: str) -> str:
-        """Return the change doc matching the given ID or prefix."""
+        """Return the spec matching the given ID or prefix."""
         root = get_handler().root
         matches = _resolve_change_doc_matches(root, change_id)
         if not matches:
-            return f"# Not Found\n\nNo change doc found matching `{change_id}`. Use `wf_get_change(change_id=...)` for structured lookup.\n"
+            return f"# Not Found\n\nNo spec found matching `{change_id}`. Use `wf_get_change(change_id=...)` for structured lookup.\n"
         if len(matches) > 1:
             lines = [
                 "# Ambiguous Change",
                 "",
-                f"Multiple change docs match `{change_id}`. Use `wf_get_change(change_id=...)` for structured lookup.",
+                f"Multiple specs match `{change_id}`. Use `wf_get_change(change_id=...)` for structured lookup.",
                 "",
             ]
             for match in matches:
@@ -27494,7 +28038,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             return _runtime_lock_refused_markdown(str(matches[0]["path"]))
         if matches[0].get("read_error"):
             # Never hand back an empty body for a document that could not be
-            # read; the spec promises `# Not Found` for absent resources and an
+            # read; the behavior contract promises `# Not Found` for absent resources and an
             # unreadable one must not read as empty.
             return (
                 "# Unreadable Change\n\n"

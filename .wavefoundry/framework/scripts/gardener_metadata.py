@@ -56,6 +56,21 @@ _SESSION_HANDOFF_HEADING_RE = re.compile(r"^##[ \t]+Session Handoff\s*$")
 _SECTION_HEADING_PREFIX = "## "
 _SECTION_HEADING_RE = re.compile(r"^##[ \t]+(?P<name>[^\r\n]+?)\s*$")
 _CHECKBOX_LINE_RE = re.compile(r"^(?P<prefix>\s*-\s*\[)(?P<mark>[ x~X])(?P<suffix>\]\s+.*)$")
+# Change 23q1h: an Acceptance Criteria item may also sit in a blockquote, as
+# the mark tools allow; Tasks keep the unquoted form above.
+_AC_CHECKBOX_LINE_RE = re.compile(
+    r"^(?P<prefix>\s*(?:>[ \t]*)*-\s*\[)(?P<mark>[ x~X])(?P<suffix>\]\s+.*)$"
+)
+# Change 23q1h: a criterion's canonical status note. The one pattern serves
+# both forms: searched at the end of an item's first line (after a space and
+# some item text) and matched against a whole continuation line once its
+# blockquote prefix and indentation are set aside. The reason holds no `*`
+# and no line break, so the note is recognised exactly where it was written.
+_STATUS_NOTE_RE = re.compile(r"\*Status:(?P<reason>[^*\r\n]*)\*$")
+# A checklist item at any marker: it ends the previous criterion's block.
+_CHECKLIST_ITEM_START_RE = re.compile(
+    r"^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+\[[^\]\r\n]\][ \t]+\S"
+)
 
 
 def is_gardener_date_line(line: str) -> bool:
@@ -145,7 +160,7 @@ def normalize_review_tracking_status(text: str, *, replacement: str | None) -> s
         if key_match and key_match.group("key") in _CARRIER_METADATA_KEYS:
             continue
         break
-    # One or two matches are both legitimate: a change document carries
+    # One or two matches are both legitimate: a spec carries
     # `Change Status:` and `Status:`, and 794 of 1457 documents in this
     # repository have exactly that pair.  The siblings above degrade on
     # `len(matches) != 1` because they normalize a SINGLE line; copying that
@@ -218,16 +233,66 @@ def normalize_progress_log(text: str, *, replacement: str | None) -> str:
     return "\n".join([*lines[:start], *body, *lines[end:]])
 
 
-def normalize_checkbox_tracking(text: str) -> str:
-    """Stabilize completion tracking without hiding an AC contract deferral.
+def _split_quote(line: str) -> tuple[int, str]:
+    """``(depth, rest)``: the blockquote ``>`` markers prefixing ``line`` and the
+    text after them (one optional space or tab after each marker belongs to it)."""
 
-    Only list items in the canonical Acceptance Criteria and Tasks sections are
-    considered, and fenced lines are excluded.  An AC ``[~]`` is deliberately
-    preserved; all other completion/task markers canonicalize to ``[ ]``.
+    depth = 0
+    index = 0
+    length = len(line)
+    while True:
+        probe = index
+        while probe < length and line[probe] in " \t":
+            probe += 1
+        if probe < length and line[probe] == ">":
+            depth += 1
+            index = probe + 1
+            if index < length and line[index] in " \t":
+                index += 1
+            continue
+        return depth, line[index:] if depth else line
+
+
+def _first_line_notes(line: str, match: re.Match[str]) -> tuple[re.Match[str], ...]:
+    """The canonical notes ending an item's first line, in document order.
+
+    Each note follows a space, and some item text precedes the first. A run
+    of canonical notes (``... *Status: A* *Status: B*``, as a hand edit that
+    defers again leaves) is read whole, so no earlier note of the run stays
+    digested; any other text between two notes ends the run.
     """
 
-    lines = text.split("\n")
-    fenced = _fenced_line_flags(lines)
+    notes: list[re.Match[str]] = []
+    end = len(line)
+    while True:
+        note = _STATUS_NOTE_RE.search(line, 0, end)
+        if note is None or line[note.start() - 1: note.start()] != " ":
+            break
+        notes.append(note)
+        end = note.start() - 1
+    # The earliest note of the run is item text when nothing precedes it.
+    if notes and not line[match.start("suffix") + 1: notes[-1].start()].strip():
+        notes.pop()
+    return tuple(reversed(notes))
+
+
+def _criterion_blocks(
+    lines: list[str], fenced: list[bool]
+) -> list[tuple[int, re.Match[str], tuple[re.Match[str], ...], tuple[int, ...], int]]:
+    """Every Acceptance Criteria item: ``(index, match, first-line notes,
+    continuation note line indexes, block end)``.
+
+    The one reading of criteria and their status notes (change 23q1h): the
+    review-policy normalizer below, the criterion status recorded on delivery
+    approvals and the delivery gate all use it, so a note cannot be out of the
+    digest and out of the recorded status at once.  An item's block is its
+    line and the following lines at its blockquote depth that are not blank,
+    not fenced, not a heading and not another checklist item, and that are
+    indented or are a note line; a note line that follows no item is not a
+    note.
+    """
+
+    blocks = []
     section = ""
     for index, line in enumerate(lines):
         if fenced[index]:
@@ -236,16 +301,118 @@ def normalize_checkbox_tracking(text: str) -> str:
         if heading:
             section = heading.group("name").strip().lower()
             continue
-        if section not in {"acceptance criteria", "tasks"}:
+        if section != "acceptance criteria":
+            continue
+        match = _AC_CHECKBOX_LINE_RE.match(line)
+        if match is None:
+            continue
+        depth = _split_quote(line)[0]
+        notes: list[int] = []
+        end = index + 1
+        for probe in range(index + 1, len(lines)):
+            if fenced[probe]:
+                break
+            probe_depth, rest = _split_quote(lines[probe])
+            if probe_depth != depth or not rest.strip():
+                break
+            if rest.lstrip().startswith("#") or _CHECKLIST_ITEM_START_RE.match(rest):
+                break
+            if _STATUS_NOTE_RE.fullmatch(rest.strip()):
+                notes.append(probe)
+            elif not rest.startswith((" ", "\t")):
+                break
+            end = probe + 1
+        blocks.append((index, match, _first_line_notes(line, match), tuple(notes), end))
+    return blocks
+
+
+def criterion_note_positions(lines: list[str]) -> dict[int, tuple[int | None, tuple[int, ...]]]:
+    """Per Acceptance Criteria item line index: where its canonical notes are.
+
+    ``(first-line note start, continuation note line indexes)``, the start
+    being the column where the item's first-line run of notes begins (None
+    without one). ``lines`` may keep a ``\\r`` or trailing spaces; they are
+    set aside, as ``normalize_carriers`` does, before the shared reading, so a
+    writer replacing a note finds exactly the notes the digest removes.
+    """
+
+    stripped = [line.rstrip() for line in lines]
+    fenced = _fenced_line_flags(stripped)
+    return {
+        index: (firsts[0].start() if firsts else None, note_lines)
+        for index, _match, firsts, note_lines, _end in _criterion_blocks(stripped, fenced)
+    }
+
+
+def criterion_statuses(text: str) -> tuple[dict[str, object], ...]:
+    """Each Acceptance Criteria item with its mark and canonical status notes.
+
+    Change 23q1h: the carriers are stabilized first, exactly as
+    ``canonical_review_policy_body`` does, so a CRLF line or a trailing space
+    reads as it does for the digest.  ``text`` is the item's first-line text
+    after the mark, ``notes`` the reason of each canonical note in document
+    order (stripped), and ``quote`` the item as written, one line.
+    """
+
+    lines = normalize_carriers(text).split("\n")
+    fenced = _fenced_line_flags(lines)
+    statuses = []
+    for index, match, firsts, note_lines, end in _criterion_blocks(lines, fenced):
+        reasons = [first.group("reason").strip() for first in firsts]
+        for note_index in note_lines:
+            note = _STATUS_NOTE_RE.fullmatch(_split_quote(lines[note_index])[1].strip())
+            reasons.append(note.group("reason").strip())
+        quote = " ".join(
+            _split_quote(line)[1].strip() for line in lines[index:end]
+        )
+        statuses.append({
+            "mark": match.group("mark"),
+            "deferred": match.group("mark") == "~",
+            "text": match.group("suffix")[1:].strip(),
+            "notes": tuple(reasons),
+            "quote": quote,
+        })
+    return tuple(statuses)
+
+
+def normalize_checkbox_tracking(text: str) -> str:
+    """Stabilize completion and deferral tracking in Acceptance Criteria and Tasks.
+
+    Only list items in the canonical Acceptance Criteria and Tasks sections are
+    considered, and fenced lines are excluded.  Every completion, deferral and
+    task marker canonicalizes to ``[ ]``.  In Acceptance Criteria a criterion's
+    canonical status note is removed too, whatever its mark: a trailing
+    `` *Status: <reason>*`` on its first line (a run of them, read whole) and
+    a continuation line that is
+    exactly ``*Status: <reason>*`` (change 23q1h), so deferring, reopening or
+    re-ticking a criterion moves no digest.  Every other byte of a criterion,
+    including a note in any other form, stays digested.
+    """
+
+    lines = text.split("\n")
+    fenced = _fenced_line_flags(lines)
+    dropped: set[int] = set()
+    for index, match, firsts, note_lines, _end in _criterion_blocks(lines, fenced):
+        line = lines[index]
+        if firsts:
+            line = line[: firsts[0].start()].rstrip()
+        lines[index] = f"{match.group('prefix')} {line[match.end('mark'):]}"
+        dropped.update(note_lines)
+    section = ""
+    for index, line in enumerate(lines):
+        if fenced[index]:
+            continue
+        heading = _SECTION_HEADING_RE.fullmatch(line)
+        if heading:
+            section = heading.group("name").strip().lower()
+            continue
+        if section != "tasks":
             continue
         match = _CHECKBOX_LINE_RE.match(line)
         if match is None:
             continue
-        mark = match.group("mark").lower()
-        if section == "acceptance criteria" and mark == "~":
-            continue
         lines[index] = f"{match.group('prefix')} {match.group('suffix')}"
-    return "\n".join(lines)
+    return "\n".join(line for index, line in enumerate(lines) if index not in dropped)
 
 
 def normalize_carriers(text: str) -> str:
@@ -267,7 +434,7 @@ def normalize_carriers(text: str) -> str:
     or more, so the rule normalized 2 lines and left 24 churning.
 
     Trailing whitespace INSIDE a fence is preserved, because there it can be the
-    subject rather than the formatting: a change document that demonstrates
+    subject rather than the formatting: a spec that demonstrates
     one-space versus two-space behaviour in a fenced example would otherwise
     become indistinguishable from itself. Interior whitespace is untouched
     everywhere.
@@ -342,7 +509,7 @@ def ambiguous_excluded_headings(text: str) -> tuple[str, ...]:
     half lives here and is surfaced by the caller as a diagnostic.
 
     Ambiguity is two or more exact headings. Zero is the NORMAL absent case --
-    89 of 825 change documents carry no ``## Session Handoff`` at all -- and is
+    89 of 825 specs carry no ``## Session Handoff`` at all -- and is
     never reported, because conflating absent with duplicated is exactly the
     defect the shipped ``len(matches) != 1`` predicate has.
     """
@@ -400,12 +567,15 @@ def canonical_review_policy_body(body: bytes) -> bytes:
     Carrier stabilization (BOM, line endings, trailing newline, lone trailing
     space) followed by five narrow section normalizations: leading workflow-status metadata,
     the gardener-owned date line, the body of the one canonical ``## Progress
-    Log`` section, a boilerplate ``## Session Handoff`` body, and completion-tracking checkbox markers in Acceptance Criteria
-    and Tasks. An Acceptance Criteria
-    ``[~]`` is deliberately NOT normalized, because an intentional non-delivery
-    changes the contract and must supersede the receipt. Every other section, and
-    every checkbox LABEL, stays digested byte for byte, so a plan edit still
-    supersedes the receipt.
+    Log`` section, a boilerplate ``## Session Handoff`` body, and completion and
+    deferral checkbox markers in Acceptance Criteria and Tasks, with a
+    criterion's canonical ``*Status: <reason>*`` note (change 23q1h). A
+    deferral therefore supersedes no receipt and lapses no readiness approval;
+    the delivery approvals judge it instead, through the criterion status they
+    record and the shared delivery gate. Every other section, and every
+    checkbox LABEL, stays digested byte for byte, so a plan edit, including a
+    reworded criterion or a note in any other form, still supersedes the
+    receipt.
     """
 
     try:
@@ -430,6 +600,7 @@ __all__ = [
     "SESSION_HANDOFF_TEMPLATE_BODY",
     "ambiguous_excluded_headings",
     "canonical_review_policy_body",
+    "criterion_statuses",
     "is_gardener_date_line",
     "normalize_gardener_date",
     "normalize_review_tracking_status",

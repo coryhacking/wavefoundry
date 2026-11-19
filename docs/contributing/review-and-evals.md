@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-10
+Last verified: 2026-11-18
 
 ## Review Lane Summary
 
@@ -73,10 +73,10 @@ This readiness orchestration does not alter ledger run kinds, validation, projec
 ## Readiness Checklist (Prepare Wave)
 
 Before implementation begins, the wave-coordinator confirms:
-- [ ] All admitted changes have consolidated change docs at `docs/waves/<wave-id>/`
+- [ ] All admitted changes have consolidated specs at `docs/waves/<wave-id>/`
 - [ ] Required review lanes identified for each admitted change
 - [ ] Every required lane has a current readiness approval bound to the current receipt; council approval does not replace lane approvals
-- [ ] AC priority recorded on each change doc (`## AC priority`)
+- [ ] AC priority recorded on each spec (`## AC priority`)
 - [ ] product-owner acknowledgment recorded for product-impacting waves
 - [ ] `qa-reviewer` confirmed for any bug fix (per `review_policies.require_qa_reviewer_for_bug_fixes`)
 - [ ] `council-readiness` signoff recorded when `wave_review.enabled` (on declared waves this is a typed approval event in `events.jsonl`, projected into `## Review Evidence`; a prose signoff line satisfies the gate only on legacy waves)
@@ -423,7 +423,7 @@ Lance/FTS hybrid response-path gate.
 
 ## Docs-Contract Review
 
-At wave closure: if any `docs/specs/*.md` behavioral contract changed during the wave, record a docs-contract review with findings in `## Review Checkpoints`. If no specs changed, record `Docs-contract review: not applicable` with a one-line rationale.
+At wave closure: if any `docs/specs/*.md` behavioral contract changed during the wave, record a docs-contract review with findings in `## Review Checkpoints`. If no behavior contracts changed, record `Docs-contract review: not applicable` with a one-line rationale.
 
 <!-- wavefoundry:review-policy:begin -->
 ## Review-policy evidence baseline
@@ -456,3 +456,9 @@ The tools enforce `reverification_context_not_fresh`,
 for decidable independence contradictions as protocol policy, not caller
 authentication.
 <!-- wave:executable-review-evidence end -->
+
+## Readiness checks outside a specialist lane's scope
+
+An unaffected specialist readiness approval may explicitly record `known_bad_detected: null`. Use `known_bad_detection_method` to explain the inspected scope and why no relevant surface in that lane is affected. Keep the other four integrity checks true. A clean review, an unrun control or missing evidence is not a reason to use null. When a surface is affected, use a meaningful readiness-safe control: a refuted plan claim, a deliberately omitted known census site or a rejected invalid review input.
+
+The validator checks that the rationale is non-empty text; review assesses its truth and adequacy. False stays refused, omission is not null, and council and delivery requirements do not change. Existing operator-signoff and operator-close exceptions remain intact. Review output retains the not-applicable rationale; no required lane or approval is waived.

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-08-21
+Last verified: 2026-11-18
 
 The single index of every Wavefoundry **install-related asset** — where each one lives and the role it plays. The framework-side install assets are consolidated under `.wavefoundry/framework/install/`; each plays a role in the **source → ship → provision** flow. Use this page to find an install asset and understand its role before moving or editing one.
 
@@ -24,12 +24,13 @@ An asset's location is wired into its consumers (`build_pack` constants, `server
 | Install-prompt surface | The project's install prompt (lint-required surface) | `docs/prompts/install-wavefoundry.prompt.md` | Docs lint (core validators); operators invoking "Install Wavefoundry" |
 | Bootstrap entry point | Agent-readable file the operator extracts at repo root to start the install | `.wavefoundry/framework/install/install-wavefoundry.template.md` | `build_pack` (ships in zip) |
 | Workflow-config defaults | Framework-generic required sections merged absent-only during setup Step 0 | `.wavefoundry/framework/install/workflow-config.defaults.json` | `setup_wavefoundry`; `build_pack` (ships in zip) |
-| Plan-template baseline | Shipped change-doc scaffold materialized missing-only with a stamped verification date | `.wavefoundry/framework/install/plan-template.md` | `render_agent_surfaces`, `server_impl._default_template`; `build_pack` (ships in zip) |
+| Plan-template baseline | Shipped spec scaffold materialized missing-only with a stamped verification date | `.wavefoundry/framework/install/plan-template.md` | `render_agent_surfaces`, `server_impl._default_template`; `build_pack` (ships in zip) |
 | Backstage/TechDocs baseline templates | Shipped `*.template.*` sources of the missing-only `catalog-info.yaml`, `mkdocs.yml`, and `docs/index.md` trio (named so no `**/catalog-info.yaml` location glob can ingest a placeholder); rendered with `{{entity_name}}` + `{{generated_at}}` and a one-line generated-by stamp | `.wavefoundry/framework/install/catalog-info.template.yaml`, `mkdocs.template.yml`, `techdocs-index.template.md` | `render_agent_surfaces.render_techdocs_baseline` via `wf techdocs-baseline` or the `wf_techdocs_baseline` MCP tool (never the render pass, setup, or upgrade); `build_pack` (ships in zip) |
 | Install-log template | Scaffold for the install-log state machine | `.wavefoundry/framework/install/install-log.template.md` | `build_pack` (ships in zip); referenced by `server_impl`, `install_log_lib` |
 | Install-log live state | Operator-owned install log, copied from the template on first install; **never shipped** | `.wavefoundry/install-log.md` (target project) | install/upgrade flow; `wf_audit_install` |
 | Install-log format spec | Canonical schema for the install log | canonical: `docs/references/install-log-format.md` · shipped template: `.wavefoundry/framework/install/install-log-format.md` | `install_log_lib`, `server_impl`, install seeds; provisioned to targets (`1p4dc`) |
 | Scan-findings format spec | Canonical schema for secrets-scan findings | canonical: `docs/references/scan-findings-format.md` · shipped template: `.wavefoundry/framework/docs/scan-findings-format.md` (a secrets reference, not an install asset) | secrets flow; provisioned to targets (`1p455`) |
+| Rust practices baseline | Shipped menu of Rust practices, read in place and never copied into a project's `docs/`; a project's own `docs/contributing/rust-best-practices.md` record governs (a reference document, not an install asset) | `.wavefoundry/framework/docs/rust-practices.md` | `build_pack` (ships in zip with the framework tree; no registration); builder and reviewer guidance in seeds 222 and 221; the record offer in the seed 160 and seed 012 operator summaries |
 | Release-notes install block | The "Install" snippet embedded in release notes | `.wavefoundry/framework/install/install-block.md` | `build_pack` (`RELEASE_NOTES_INSTALL_BLOCK_REL`) |
 
 ## The shipped-template ↔ canonical invariant

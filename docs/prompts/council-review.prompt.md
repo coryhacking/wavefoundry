@@ -2,11 +2,11 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-24
+Last verified: 2026-11-18
 
 **Shortcut phrases:** `Council review` · `Run council` · `Wave Council review`
 
-Run a full Wave Council review on any artifact — a plan, implementation, decision, change doc, design, or approach. Use this whenever you want the structured two-phase adversarial review outside the normal wave lifecycle.
+Run a full Wave Council review on any artifact — a plan, implementation, decision, spec, design, or approach. Use this whenever you want the structured two-phase adversarial review outside the normal wave lifecycle.
 
 > **Note:** Standalone council reviews are advisory. They do not record `council-readiness` or `council-delivery` lifecycle signoffs in `## Review Evidence`. Those signoffs require the prepare-wave and review-wave lifecycle paths respectively.
 
@@ -50,7 +50,7 @@ Run each fixed seat in isolation. Each seat receives the standard briefing plus 
 - Contribute lane-specific findings independent of the primer
 - **Verify code-grounded:** check the artifact's load-bearing claims against the actual tree, not against the artifact's own prose — cited `file:line` sites and symbols must resolve, "X already does Y" claims must hold in the code, and "no other caller/site" censuses must be complete. Do not approve an artifact whose claims were checked only against its own text. (A readiness review answerable purely from plan prose is how nonexistent symbols, wrong caller censuses, and no-op mechanisms pass review.)
 
-When a council seat writes a finding that cites code, cite a **resolvable anchor** — a function, class, method, constant, test name, or a distinguishing expression — rather than a bare `file:line`. The reason is not tidiness, it is resolvability: `code_definition(symbol)` and `code_read` return today's text for a symbol anchor, while a line anchor can only be checked and drifts hardest when a sibling wave concurrently edits the target. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can distinguish a deliberate line anchor from a lapsed one. Deliberately historical citations, including line numbers already written into a change document's `## Progress Log` or `## Decision Log` rows, record what was verified at the time and are never rewritten to symbols.
+When a council seat writes a finding that cites code, cite a **resolvable anchor** — a function, class, method, constant, test name, or a distinguishing expression — rather than a bare `file:line`. The reason is not tidiness, it is resolvability: `code_definition(symbol)` and `code_read` return today's text for a symbol anchor, while a line anchor can only be checked and drifts hardest when a sibling wave concurrently edits the target. A line number is still correct for a module-level constant block, data file, specific line in a generated artifact, prose in a hand-authored markdown document, or deliberately historical citation; name that case inline so a reviewer can distinguish a deliberate line anchor from a lapsed one. Deliberately historical citations, including line numbers already written into a spec's `## Progress Log` or `## Decision Log` rows, record what was verified at the time and are never rewritten to symbols.
 
 The Verify code-grounded contract above is the review-phase application of the all-phase tenet defined in seed-209 ("Code-Grounded Verification"); authoring (seed-170) and implementing (seed-180) carry the same obligation in their own phases.
 
@@ -91,7 +91,7 @@ When the review is used for `Prepare wave`, a declared wave records the machine 
 ## Inputs
 
 Provide any of the following as context before saying "Council review":
-- A change doc, wave record, or plan
+- A spec, wave record, or plan
 - A block of code or implementation
 - A design, decision, or approach described in plain language
 - A specific question ("Is this the right approach?")
@@ -108,7 +108,7 @@ The council reviews what you give it. If the artifact is ambiguous, the red-team
 | **Prepare wave** | Lifecycle gate — council readiness pass is embedded; records `council-readiness` signoff |
 | **Review wave** | Lifecycle gate — council delivery pass is embedded; records `council-delivery` signoff |
 | **Evaluate decision** | Architecture/technology decision specifically — produces an ADR |
-| **Review plan** | Optional no-signoff stress test of a change doc, or current-wave fallback, before or after admission and before implementation (natural-language aliases: **Interrogate this plan**, **Stress-test this plan**); distinct from **Review wave** |
+| **Review plan** | Optional no-signoff stress test of a spec, or current-wave fallback, before or after admission and before implementation (natural-language aliases: **Interrogate this plan**, **Stress-test this plan**); distinct from **Review wave** |
 | **Framework config review** | Removal-biased audit of the agent operating surface (config/seeds/prompts/constraints/docs) — not an artifact review |
 
 <!-- wavefoundry:review-policy:begin -->

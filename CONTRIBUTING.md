@@ -92,8 +92,8 @@ exit clean before the change is mergeable.
 
 Wavefoundry develops itself using the Wave Framework. The expectation is:
 
-1. **Plan change** — for any non-trivial change, an agent (or you, by hand)
-   authors a change document under `docs/plans/<id>.md`.
+1. **Plan spec** — for any non-trivial change, an agent (or you, by hand)
+   authors a spec under `docs/plans/<id>.md`.
 2. **Create wave** and **Add change** — the change is admitted to a wave.
 3. **Prepare wave** — readiness check runs before any code edit. The stage
    gate is enforced; do not edit repository code before this step passes.

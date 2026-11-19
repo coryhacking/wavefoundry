@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-08
+Last verified: 2026-11-18
 
 Generic Wave Framework agent roles used in Wavefoundry delivery work. Agent docs carry `Category:` metadata for dashboard grouping; role-bearing docs also carry `Role:` and define operating identity, salience triggers, and memory responsibilities.
 
@@ -10,15 +10,15 @@ Generic Wave Framework agent roles used in Wavefoundry delivery work. Agent docs
 
 | Role | Doc | Primary Responsibility |
 |------|-----|----------------------|
-| planner | `docs/agents/planner.md` | Discovery, change doc authoring, wave planning |
+| planner | `docs/agents/planner.md` | Discovery, spec authoring, wave planning |
 | wave-coordinator | `docs/agents/wave-coordinator.md` | Wave admission, execution order, closure |
 | council-chair | `docs/agents/specialists/council-chair.md` | Wave Council synthesis and verdict ownership |
-| implementer | `docs/agents/implementer.md` | Code changes per admitted change doc |
+| implementer | `docs/agents/implementer.md` | Code changes per admitted spec |
 | code-reviewer | `docs/agents/code-reviewer.md` | Implementation correctness and pattern compliance |
 | architecture-reviewer | `docs/agents/architecture-reviewer.md` | Boundary and layering impact |
 | qa-reviewer | `docs/agents/qa-reviewer.md` | Verification coverage and defect risk |
 | security-reviewer | `docs/agents/security-reviewer.md` | Trust and safety boundaries |
-| docs-contract-reviewer | `docs/agents/docs-contract-reviewer.md` | Behavioral spec consistency |
+| docs-contract-reviewer | `docs/agents/docs-contract-reviewer.md` | Behavior contract consistency |
 | performance-reviewer | `docs/agents/performance-reviewer.md` | Performance and reliability impact |
 | release-reviewer | `docs/agents/release-reviewer.md` | Packaging and distribution integrity |
 

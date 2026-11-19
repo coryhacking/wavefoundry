@@ -693,11 +693,11 @@ class RetiredFeaturePromptNameTests(unittest.TestCase):
                     "docs/prompts/agents/implement-feature.prompt.md",
                     vp.agent_prompt_doc("implement-change"),
                 ),
-                (6, "170-plan-feature.prompt.md", ".wavefoundry/framework/seeds/170-plan-change.prompt.md"),
+                (6, "170-plan-feature.prompt.md", ".wavefoundry/framework/seeds/170-plan-spec.prompt.md"),
                 (
                     7,
                     "180-implement-feature.prompt.md",
-                    ".wavefoundry/framework/seeds/180-implement-change.prompt.md",
+                    ".wavefoundry/framework/seeds/180-implement-spec.prompt.md",
                 ),
                 (8, "190-finalize-feature.prompt.md", ".wavefoundry/framework/seeds/190-close-wave.prompt.md"),
                 (9, "Plan feature", vp.shortcut("plan-change")),
@@ -1054,7 +1054,7 @@ class ArchiveSectionExclusionTests(unittest.TestCase):
     ROW = (
         "| 2026-04-06 | docs/agents/journals/ created at init; retired, see docs/agents/memory/ | "
         "ran `.wavefoundry/bin/docs-lint`; used `wave_close` and `mcp__wavefoundry__wave_audit`; "
-        "see docs/prompts/plan-change.md | Historical record only |"
+        "see docs/prompts/plan-spec.md | Historical record only |"
     )
 
     def setUp(self):
@@ -1064,7 +1064,7 @@ class ArchiveSectionExclusionTests(unittest.TestCase):
         root = Path(td)
         (root / "docs" / "prompts").mkdir(parents=True)
         # makes the stale `.md` prompt reference resolvable, so that producer fires
-        (root / "docs" / "prompts" / "plan-change.prompt.md").write_text("# p\n", encoding="utf-8")
+        (root / "docs" / "prompts" / "plan-spec.prompt.md").write_text("# p\n", encoding="utf-8")
         (root / self.ARCHIVE).write_text(missing_docs, encoding="utf-8")
         return root
 

@@ -4,11 +4,11 @@ Owner: Engineering
 Status: active
 Role: wave-coordinator
 Category: persona
-Last verified: 2026-10-06
+Last verified: 2026-11-18
 
 ## Who
 
-- A developer or engineering lead in a target repository who runs wave lifecycle commands: **Plan change**, **Create wave**, **Add change to wave**, **Prepare wave**, **Implement wave**, **Review wave**, **Close wave**
+- A developer or engineering lead in a target repository who runs wave lifecycle commands: **Plan spec**, **Create wave**, **Add spec to wave**, **Prepare wave**, **Implement wave**, **Review wave**, **Close wave**
 - May also act as implementer for small teams
 - Not a Wavefoundry maintainer — operates the framework as a user of their own project's delivery system
 
@@ -22,10 +22,10 @@ Last verified: 2026-10-06
 ## Workflows
 
 **Starting a delivery wave:**
-1. **Plan change** → change doc at `docs/plans/`
+1. **Plan spec** → spec at `docs/plans/`
 2. **Create wave** → wave record at `docs/waves/<wave-id>/`
-3. **Add change to wave** → admission; product-owner noted if needed
-4. **Prepare wave** → readiness confirmation; change doc relocated; AC priority recorded
+3. **Add spec to wave** → admission; product-owner noted if needed
+4. **Prepare wave** → readiness confirmation; spec relocated; AC priority recorded
 
 **Running a wave:**
 1. **Implement wave** (or delegate to implementer)
@@ -54,7 +54,7 @@ Last verified: 2026-10-06
 - Any change to `docs/prompts/prepare-wave.prompt.md`, `docs/prompts/implement-wave.prompt.md`, `docs/prompts/review-wave.prompt.md`, or `docs/prompts/close-wave.prompt.md`
 - Any change to the `## Shortcut Phrases` table in `AGENTS.md` or the public commands table in `docs/prompts/index.md`
 - Any change to the wave record schema in `docs/waves/README.md` or `docs/workflow-config.json` `wf_implement_wave`
-- Any change that affects what "Prepare wave passed" means (readiness criteria, AC priority recording, change doc relocation)
+- Any change that affects what "Prepare wave passed" means (readiness criteria, AC priority recording, spec relocation)
 - A proposed change softens the Prepare wave requirement without mechanical enforcement replacing it: escalate to architecture-reviewer before admission
 - A closure requirement is removed without an equivalent guarantee: escalate to wave-coordinator agent role before admission
 

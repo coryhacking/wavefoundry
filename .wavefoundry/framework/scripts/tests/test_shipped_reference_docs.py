@@ -548,7 +548,7 @@ class ImplementationNarrationGuidanceTests(unittest.TestCase):
     """20bw2: source and existing managed carriers state the same routing rule."""
 
     def test_participant_instruction_keeps_narration_and_material_decisions_distinct(self):
-        seed = (REPO_ROOT / ".wavefoundry/framework/seeds/180-implement-change.prompt.md").read_text("utf-8")
+        seed = (REPO_ROOT / ".wavefoundry/framework/seeds/180-implement-spec.prompt.md").read_text("utf-8")
         participant = seed.split("Participant responsibilities inside an active wave:")[1].split("Required tasks:")[0]
         self.assertNotIn("(Progress Logs, Decision Logs, the session handoff)", participant)
         self.assertIn("canonical `## Progress Log`", participant)

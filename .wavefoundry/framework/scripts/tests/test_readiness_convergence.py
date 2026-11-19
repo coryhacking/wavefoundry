@@ -425,7 +425,7 @@ class ReadinessProtocolPins(unittest.TestCase):
 
     def test_essential_protocol_rules_and_deleted_rule_controls(self):
         groups = [(self.SURFACES, self.RULES), ((
-            '.wavefoundry/framework/seeds/170-plan-change.prompt.md',
+            '.wavefoundry/framework/seeds/170-plan-spec.prompt.md',
             vocabulary_profile.prompt_doc('plan-change')), self.SHAPE_RULES), ((
             '.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md',
             'docs/contributing/review-and-evals.md'), (

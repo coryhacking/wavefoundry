@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-06-27
+Last verified: 2026-11-18
 
 Shortcut: **`Start dashboard`**
 
@@ -58,4 +58,4 @@ Startup tries the preferred or recorded host-local port first, then scans the co
 
 - Local-only by default; no remote exposure or auth layer.
 - Read-only; the dashboard does not mutate repository state.
-- The dashboard is an operational surface, not a replacement for `wave.md`, change docs, or MCP tools as the canonical source of truth.
+- The dashboard is an operational surface, not a replacement for `wave.md`, specs, or MCP tools as the canonical source of truth.

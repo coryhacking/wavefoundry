@@ -45,7 +45,7 @@ def tiered(clause: str, *, seed: bool = False) -> str:
     if seed:
         return clause.format(
             **SHIPPED_NOUNS,
-            doc={key: f"docs/prompts/{key}.prompt.md" for key in vp.DEFAULT_PROMPT_NAMES},
+            doc={key: f"docs/prompts/{spec['slug']}.prompt.md" for key, spec in vp.DEFAULT_PROMPT_NAMES.items()},
             shortcut={key: spec["shortcut"] for key, spec in vp.DEFAULT_PROMPT_NAMES.items()},
         )
     return clause.format(

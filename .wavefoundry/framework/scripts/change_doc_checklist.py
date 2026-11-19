@@ -1,6 +1,6 @@
-"""Shared change-document checklist parser (wave 1zime, change 1zimq).
+"""Shared spec checklist parser (wave 1zime, change 1zimq).
 
-Stdlib only.  One reading of a change document's checklist for every gate and
+Stdlib only.  One reading of a spec's checklist for every gate and
 lint rule that counts its items: the close-time hard gate
 (``lifecycle_gate_support._collect_silent_unchecked_items_for_close``),
 Prepare's per-change section gate, docs-lint's AC and task rules and the

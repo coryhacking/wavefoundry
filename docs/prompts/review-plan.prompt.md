@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-19
+Last verified: 2026-11-18
 
 Shortcut: **`Review plan`** | Aliases: **`Interrogate this plan`**, **`Stress-test this plan`**
 
 ## Purpose
 
-Optional stress-test of a consolidated change doc, or the current wave record when no change is specified, before or after admission and before implementation. Walks every unresolved decision branch in Requirements, Acceptance Criteria, and Scope.
+Optional stress-test of a consolidated spec, or the current wave record when no change is specified, before or after admission and before implementation. Walks every unresolved decision branch in Requirements, Acceptance Criteria, and Scope.
 
 **Compare the draft with its brief:**
 
@@ -20,9 +20,9 @@ Read Rationale as reference for the brief, without reopening the whole section o
 
 ## Behavior
 
-Given a change doc as context, or the current wave record when no change is specified:
+Given a spec as context, or the current wave record when no change is specified:
 1. Walk every unresolved decision branch one question at a time.
-2. Provide a recommended answer and cite the supporting project resource (source code, specs, architecture docs, references, agent docs).
+2. Provide a recommended answer and cite the supporting project resource (source code, behavior contracts, architecture docs, references, agent docs).
 3. Self-answer without operator input when derivable from repository evidence.
 4. Return `Self-Answered Questions`, `Operator Questions` or a batch `Question List`, and the `Stop Condition`.
 5. Stop when all branches in Requirements, Acceptance Criteria, and Scope are resolved.
@@ -33,7 +33,7 @@ Support `--batch` mode for a full question list rather than interactive back-and
 
 - Before or after admitting a complex or high-risk change, but before implementation
 - When multiple valid approaches exist and the tradeoffs need surfacing
-- When the change doc's acceptance criteria feel underspecified
+- When the spec's acceptance criteria feel underspecified
 
 ## This Is Not a Gate
 

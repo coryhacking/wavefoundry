@@ -252,7 +252,7 @@ _AC_PRIORITY_VALUES = {"required", "important", "nice-to-have", "not-this-scope"
 # Wave 1p31b (1p32k): include `~` as a valid checkbox mark for intentionally-deferred ACs and tasks.
 # A `[~]` AC is one that was reconsidered, removed by operator direction during implementation,
 # or genuinely narrowed by scope-discovery — it is neither satisfied nor still in-scope-but-unmet.
-# See seed `170-plan-change.prompt.md` for the canonical definition.
+# See seed `170-plan-spec.prompt.md` for the canonical definition.
 _AC_LINE_RE = re.compile(r"^\s*-\s+(?:(?:\[(?P<mark>[ xX~])\])\s+)?(?P<text>.+?)\s*$", re.MULTILINE)
 _AC_ID_RE = re.compile(r"(AC-[\w\-]+)")
 
@@ -660,11 +660,11 @@ def _check_ac_asserts_repository_state(text: str, rel: str) -> list[str]:
     Polarity is registered ``advisory`` in ``SENSOR_POLARITY_REGISTRY`` (wave
     1wuju): findings travel the ``WARNING:`` channel and never fail lint.  Wave
     1yzj9 recorded the decision to keep it advisory permanently; under the
-    warning the pattern's rate in change docs fell from about half to about 1%.
+    warning the pattern's rate in specs fell from about half to about 1%.
     Guidance alone had already failed at scale, so the sensor is the durable
     half.  Scope comes
     from the CALL SITE: these AC validators run only inside the wave-owned
-    change-doc loop, which `_wave_requires_wave_owned_change_docs` gates to
+    spec loop, which `_wave_requires_wave_owned_change_docs` gates to
     ready/active/implementing (or explicitly activated) waves.  Closed-wave records
     and parked `docs/plans/*.md` drafts are therefore never reached; a carrier
     enters scope when its wave is readied or activated, and the wave that owns it
@@ -687,7 +687,7 @@ def _check_ac_asserts_repository_state(text: str, rel: str) -> list[str]:
             "from this change's own evidence. Whole-suite/tree health is a gate concern, not an acceptance criterion. "
             "Write instead: \"the change's own suites and every test it adds pass; the documents "
             "this change authors or edits validate; and no failure elsewhere is attributable to "
-            "this change\". See `.wavefoundry/framework/seeds/170-plan-change.prompt.md` "
+            "this change\". See `.wavefoundry/framework/seeds/170-plan-spec.prompt.md` "
             "\"Acceptance criteria assert what the change controls\""
         )
     return failures
@@ -787,7 +787,7 @@ def _check_tilde_required_ac_has_inline_note(text: str, rel: str) -> list[str]:
             "Wrap the rationale in italics (e.g. *Operator-directed removal during implementation, "
             "see Decision Log entry on <date>*) or include at least "
             f"{_INLINE_NOTE_MIN_CHARS} characters of prose explaining the deferral. "
-            "See seed `170-plan-change.prompt.md` for the convention."
+            "See seed `170-plan-spec.prompt.md` for the convention."
         )
     return failures
 
@@ -1112,7 +1112,7 @@ def _is_activated_wave(text: str) -> bool:
 
 
 def _wave_requires_wave_owned_change_docs(text: str) -> bool:
-    """Ready/active/implementing waves and activated waves must keep admitted change docs under the wave folder only.
+    """Ready/active/implementing waves and activated waves must keep admitted specs under the wave folder only.
 
     `implementing` is the status every OPEN wave actually holds (1v0lx: its
     omission let a missing admitted doc pass lint exactly where implementation
@@ -1299,7 +1299,7 @@ def status_drift_exempt(wave_text: str) -> bool:
 
 
 def change_doc_header_status(raw: str) -> str | None:
-    """A change document's status from its leading metadata (wave 1zoju,
+    """A spec's status from its leading metadata (wave 1zoju,
     1zodx): CRLF normalised, the text before the first ``## `` heading, the
     first member-status match; ``None`` when absent. This is the reading
     ``wf_close_change`` uses."""
@@ -1314,9 +1314,9 @@ def member_status_drift(wave_text: str, wave_dir: Path, *,
                         change_id: str | None = None,
                         root: Path | None = None) -> list[tuple[str, str | None, str | None]]:
     """``(change_id, wave_status, doc_status)`` for each wave-record member
-    whose change document at ``wave_dir / f"{change_id}.md"`` exists and whose
-    header status differs (wave 1zoju, 1zodx). A missing or unreadable change
-    document is not drift; a header with no readable status is drift with
+    whose spec at ``wave_dir / f"{change_id}.md"`` exists and whose
+    header status differs (wave 1zoju, 1zodx). A missing or unreadable
+    spec is not drift; a header with no readable status is drift with
     ``doc_status`` ``None``. ``change_id`` limits the comparison to one member
     (one document read). Wave 1zxo0 (1zxns): each document is read under the
     member-doc rule inside ``root`` (without it, the wave folder bounds the
@@ -1922,7 +1922,7 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
             report_drift(path, text)
         elif only is not None:
             # The incremental path skips the sibling wave record unless it is
-            # in scope, so an in-scope change document compares its own member.
+            # in scope, so an in-scope spec compares its own member.
             sibling = path.parent / _vocab.RECORD_FILENAME
             sibling_text = read_record_text(root, sibling) if os.path.lexists(sibling) else None
             if sibling_text is not None:
@@ -2178,10 +2178,10 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
                                            _check_ac_asserts_repository_state(change_text, change_rel),
                                            failures, warnings)
                     if not _H1_TITLE_RE.search(change_text):
-                        failures.append(f"{change_rel}: change doc must have an H1 title (`# Title text`) — used by the dashboard")
+                        failures.append(f"{change_rel}: spec must have an H1 title (`# Title text`) — used by the dashboard")
                     for section in _CHANGE_DOC_REQUIRED_SECTIONS:
                         if section not in change_text:
-                            failures.append(f"{change_rel}: change doc is missing required section `{section}` — used by the dashboard")
+                            failures.append(f"{change_rel}: spec is missing required section `{section}` — used by the dashboard")
                 staging = roots.plans / f"{change_id}.md"
                 if staging.is_file():
                     failures.append(
@@ -2550,7 +2550,7 @@ def check_persona_docs(root: Path, only: set[Path] | None = None, skip: set[Path
             if section not in text:
                 failures.append(f"{rel}: missing required section `{section}`")
         if "## Scope" in text:
-            failures.append(f"{rel}: persona docs must not contain `## Scope` (plan/change doc concept — use `## Who` and `## Goals` for evidence)")
+            failures.append(f"{rel}: persona docs must not contain `## Scope` (plan/spec concept — use `## Who` and `## Goals` for evidence)")
         for section in (
             "## Who",
             "## Goals",

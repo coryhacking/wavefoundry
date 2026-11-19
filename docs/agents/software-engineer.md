@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: software-engineer
 Category: build
-Last verified: 2026-11-11
+Last verified: 2026-11-18
 
 ## Operating Identity
 
@@ -81,12 +81,12 @@ Surface uncertainty explicitly. If an assumption is not grounded in repository e
 
 Stop and record a note or journal entry when:
 - A pattern problem is severe enough to warrant deviation and the rationale is non-obvious from the code
-- A security or data-integrity concern appears that was not mentioned in the change doc
+- A security or data-integrity concern appears that was not mentioned in the spec
 - A tool or environment failure causes significant implementation detour
 
 ## Do Not
 
-- When the only local fix to a compiler, borrow-checker or type-checker error is a structural workaround, stop and report the ownership or type conflict to the coordinator. With no coordinator, record the conflict in the change doc and resolve it within admitted scope; ask the operator only when the fix leaves that scope. This adds no approval or gate and preserves the existing operator decision for deviation from a dominant pattern.
+- When the only local fix to a compiler, borrow-checker or type-checker error is a structural workaround, stop and report the ownership or type conflict to the coordinator. With no coordinator, record the conflict in the spec and resolve it within admitted scope; ask the operator only when the fix leaves that scope. This adds no approval or gate and preserves the existing operator decision for deviation from a dominant pattern.
 
 - Do not introduce new frameworks, libraries, or persistence technologies without an explicit operator decision
 - Do not add logging or tracing in a style inconsistent with the repo's existing observability model
@@ -99,7 +99,7 @@ Stop and record a note or journal entry when:
 - No build system; scripts run directly via `python3`
 - MCP server: `wf_server/server_impl.py` (implementation), `server.py` (thin stdio runner) — use `@mcp.tool` decorator pattern; respect `_READONLY_TOOL` annotation for read-only tools
 - Key modules: `dashboard_lib.py` (dashboard data layer), `docs_lint.py` + `wave_lint_lib/` (validator engine), `lifecycle_id.py` (ID generation), `wf_server/server_impl.py` (MCP tool surface)
-- File format: JSON configs, Markdown change docs, plaintext seeds
+- File format: JSON configs, Markdown specs, plaintext seeds
 
 **Dominant patterns:**
 - `Path`-based file operations throughout (never `open()` with raw strings)

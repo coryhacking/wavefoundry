@@ -268,15 +268,16 @@ class DocsLintFixtureTests(_DocsLintFixture, unittest.TestCase):
                 b"# Agent Body\r\n\r\nOwner: Engineering\r\nStatus: active\r\n"
                 b"Last verified: 2026-03-21\r\n\r\nProject-only implementation note.\r\n"
             )
-            (prompts / "plan-change.prompt.md").unlink()
+            shipped_plan = vocabulary_profile.DEFAULT_PROMPT_NAMES["plan-change"]
+            (prompts / f"{shipped_plan['slug']}.prompt.md").unlink()
             (prompts / "plan-feature.prompt.md").write_bytes(plan_bytes)
             (prompts / "agents").mkdir()
             (prompts / "agents" / "implement-feature.prompt.md").write_bytes(agent_bytes)
             manifest = prompts / "prompt-surface-manifest.json"
             manifest.write_text(
                 manifest.read_text(encoding="utf-8")
-                .replace("docs/prompts/plan-change.prompt.md", "docs/prompts/plan-feature.prompt.md")
-                .replace('"Plan change"', '"Plan feature"'),
+                .replace(f"docs/prompts/{shipped_plan['slug']}.prompt.md", "docs/prompts/plan-feature.prompt.md")
+                .replace(json.dumps(shipped_plan["shortcut"]), '"Plan feature"'),
                 encoding="utf-8",
             )
             index = prompts / "index.md"
@@ -2507,7 +2508,7 @@ class DocsLintFixtureTests(_DocsLintFixture, unittest.TestCase):
         self.assertIn("persona docs must not contain `## Scope`", result.stderr)
 
     def test_change_doc_with_wave_id_prose_not_flagged_as_wave_record(self) -> None:
-        """A change doc that mentions wave-id in prose must not be misclassified as a wave record."""
+        """A spec that mentions wave-id in prose must not be misclassified as a wave record."""
         root = self.copy_fixture()
         change_doc = root / self.WAVE_DOC_PATH.parent / "00058-bug fixture-core.md"
         change_doc.write_text(
@@ -3616,7 +3617,7 @@ class HeadingBlankLineCheckTests(unittest.TestCase):
 
         with patch.object(helpers, "archive_root", lambda root: Path(root) / "docs" / "archive"):
             self.assertEqual(findings(), sorted([change, live]))
-            # Closing the record makes its change document history.
+            # Closing the record makes its spec history.
             record = self.root / self.helper.WAVE_DOC_PATH
             text = record.read_text(encoding="utf-8")
             self.assertEqual(text.count("Status: active"), 1)
@@ -3885,7 +3886,7 @@ class ReviewCycleChurnControlPinTests(unittest.TestCase):
         self.assertIn("| `time_budget` | Wall-clock budget for the seat or lane", seed)
         self.assertIn("| `sweep_rule` | For delivery lanes: targeted tests per mutant, whole-file runs only for survivors", seed)
         self.assertIn("**Frozen tree per round (wave 1wuju):** while any lane runs against a briefing packet, no edit lands under `files_in_scope`.", seed)
-        self.assertIn("`frozen_boundary` freezes the finding SET at convergence and `policy_input_digest` hashes change-document bodies; neither freezes code.", seed)
+        self.assertIn("`frozen_boundary` freezes the finding SET at convergence and `policy_input_digest` hashes spec bodies; neither freezes code.", seed)
         self.assertIn("records a process finding, `tree_moved_under_review`, rather than re-sweeping silently", seed)
         self.assertIn("**External blocker escalation (wave 1wuju):**", seed)
         self.assertIn("presents the exact fix and a yes/no decision to the operator in the same message that reports the block", seed)
@@ -3897,14 +3898,14 @@ class ReviewCycleChurnControlPinTests(unittest.TestCase):
         # the first pins left deletable.
         self.assertIn("(working-tree content, so modified and untracked files count)", seed)
         self.assertIn("The coordinator collects every lane's findings, repairs once per round, re-snapshots once, and issues a new packet with a new `tree_fingerprint`.", seed)
-        self.assertIn("a pin that passes for an unrelated reason is not a pin. The implementer records the mutant and the failing test in the change document's Progress Log before requesting review.", seed)
+        self.assertIn("a pin that passes for an unrelated reason is not a pin. The implementer records the mutant and the failing test in the spec's Progress Log before requesting review.", seed)
         # Delivery review DOCS-DEL-2: the report-at-budget tail of the packet row.
         self.assertIn("| `time_budget` | Wall-clock budget for the seat or lane; report at the budget with what is in hand and list what was not run (wave 1wuju) |", seed)
 
     def test_seeds_180_and_190_carry_the_implementer_and_close_hooks(self) -> None:
-        seed180 = self._seed("180-implement-change.prompt.md")
+        seed180 = self._seed("180-implement-spec.prompt.md")
         self.assertIn("Landing rule for guards (seed-209, wave 1wuju): a guard, validator member, carve-out, or tuning constant is landed only when a named test fails with it deleted or loosened", seed180)
-        self.assertIn("record the mutant and the failing test in the change document's Progress Log before requesting review. A pin that passes for an unrelated reason is not a pin.", seed180)
+        self.assertIn("record the mutant and the failing test in the spec's Progress Log before requesting review. A pin that passes for an unrelated reason is not a pin.", seed180)
         self.assertIn("presents the exact fix and a yes/no decision to the operator in the same message that reports the block (seed-209, wave 1wuju)", seed180)
         seed190 = self._seed("190-close-wave.prompt.md")
         self.assertIn("Do not close with an unreconciled `tree_moved_under_review` finding", seed190)
@@ -3945,7 +3946,7 @@ class ReviewCycleChurnControlPinTests(unittest.TestCase):
         self.assertEqual(authored.count("When the current receipt-derived `required_council_signoffs` lists `council-delivery`"), 2)
         self.assertNotIn("When `wave_review.enabled` is true", authored)
         self.assertNotIn("When Wave Council is enabled", authored)
-        self.assertEqual(authored.count("when the change doc carries an `## AC Priority` table"), 2)
+        self.assertEqual(authored.count("when the spec carries an `## AC Priority` table"), 2)
         self.assertIn("Record findings and approvals through `wf_review_event`", authored)
         self.assertIn("Review wave does not close the wave, mark completion or commit changes", authored)
         agent = self._doc("prompts", "agents", "review-wave.prompt.md")
@@ -3961,7 +3962,7 @@ class AdvisoryFirstRulePinTests(unittest.TestCase):
     DOCS_DIR = SCRIPTS_ROOT.parent.parent.parent / "docs"
 
     def test_seed_170_states_the_advisory_first_rule_and_the_registered_polarity(self) -> None:
-        seed = (self.SEEDS_DIR / "170-plan-change.prompt.md").read_text(encoding="utf-8")
+        seed = (self.SEEDS_DIR / "170-plan-spec.prompt.md").read_text(encoding="utf-8")
         self.assertIn("**New docs-lint sensors ship advisory.**", seed)
         self.assertIn("The sensor is registered `advisory` in the docs-lint\nsensor polarity registry", seed)
         # Wave 1yzj9: the recorded decision replaces the pending flip.
@@ -3978,8 +3979,8 @@ class AdvisoryFirstRulePinTests(unittest.TestCase):
         self.assertIn("are review notes at close, never a closure blocker", seed)
 
     def test_prompt_surfaces_and_contributing_docs_are_reconciled(self) -> None:
-        plan = (self.DOCS_DIR / "prompts" / "plan-change.prompt.md").read_text(encoding="utf-8")
-        self.assertIn("runs an advisory sensor on change documents", plan)
+        plan = (self.DOCS_DIR / "prompts" / "plan-spec.prompt.md").read_text(encoding="utf-8")
+        self.assertIn("runs an advisory sensor on specs", plan)
         self.assertIn("new docs-lint sensors ship advisory the same way", plan)
         # Delivery review DOCS-DEL-2: the two seed-170 clauses the round-1 repair added.
         self.assertIn("it stays advisory by recorded decision (wave `1yzj9`)", plan)
@@ -4127,8 +4128,8 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
         "hand-authored markdown document, or deliberately historical "
         "citation; name that case inline so a reviewer can distinguish a "
         "deliberate line anchor from a lapsed one. Deliberately historical "
-        "citations, including line numbers already written into a change "
-        "document's `## Progress Log` or `## Decision Log` rows, record what "
+        "citations, including line numbers already written into a spec's "
+        "`## Progress Log` or `## Decision Log` rows, record what "
         "was verified at the time and are never rewritten to symbols."
     )
 
@@ -4165,7 +4166,7 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
         the reconciled sentence in the project-owned prompt doc, because no
         renderer owns either file and nothing else would notice the drift.
         """
-        seed = (self.SEEDS_DIR / "170-plan-change.prompt.md").read_text(encoding="utf-8")
+        seed = (self.SEEDS_DIR / "170-plan-spec.prompt.md").read_text(encoding="utf-8")
         self.assertIn(
             "### Acceptance criteria assert what the change controls", seed,
             "seed 170 AC-locality section header")
@@ -4193,10 +4194,10 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
             "seed 170 must not promise a close gate that a pack-vendored repo lacks "
             "(ARCH-DEL-4)")
         prompt = (SCRIPTS_ROOT.parent.parent.parent / "docs" / "prompts"
-                  / "plan-change.prompt.md").read_text(encoding="utf-8")
+                  / "plan-spec.prompt.md").read_text(encoding="utf-8")
         self.assertIn(
             "An acceptance criterion asserts an outcome **this change controls**", prompt,
-            "docs/prompts/plan-change.prompt.md reconciled AC-locality rule")
+            "docs/prompts/plan-spec.prompt.md reconciled AC-locality rule")
         self.assertIn(
             "the state of files this change never touches", prompt,
             "the prompt keeps the seed's fourth example (DOCS-DEL-12)")
@@ -4311,7 +4312,7 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
 
     def test_health_predicate_window_keeps_an_incidental_mention_silent(self) -> None:
         """QA-DEL-8: the window that rejects an aside had no test, so widening it
-        (the direction that produces false positives on live change docs) was
+        (the direction that produces false positives on live specs) was
         invisible to the suite."""
         from wave_lint_lib import wave_validators
 
@@ -4337,11 +4338,11 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
         """1v1dh: the author-phase citation variant, head sentence exact plus
         load-bearing clauses (the resolvability reason and the carve-out
         table), unconditional per the family's failure-not-skip rule."""
-        text = (self.SEEDS_DIR / "170-plan-change.prompt.md").read_text(
+        text = (self.SEEDS_DIR / "170-plan-spec.prompt.md").read_text(
             encoding="utf-8"
         )
         head = (
-            "When a change document cites code, cite a **resolvable anchor** "
+            "When a spec cites code, cite a **resolvable anchor** "
             "— a function, class, method, constant, test name, or a "
             "distinguishing expression — rather than a bare `file:line`."
         )
@@ -4363,7 +4364,7 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
         """1v1dh: the implement-phase citation bullet, head exact plus the
         anchor vocabulary (as seed 180 words it), the name-the-case-inline
         obligation, and the history-falsification clause."""
-        text = (self.SEEDS_DIR / "180-implement-change.prompt.md").read_text(
+        text = (self.SEEDS_DIR / "180-implement-spec.prompt.md").read_text(
             encoding="utf-8"
         )
         self.assertIn(
@@ -4430,8 +4431,8 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
         seed_209 = (self.SEEDS_DIR / "209-agent-harness-core.prompt.md").read_text(encoding="utf-8")
         self.assertEqual(seed_209.count(canonical), 1, "canonical statement missing or duplicated in 209")
         for name in (
-            "170-plan-change.prompt.md",
-            "180-implement-change.prompt.md",
+            "170-plan-spec.prompt.md",
+            "180-implement-spec.prompt.md",
             "211-guru.prompt.md",
             "237-council-review.prompt.md",
             "215-council-chair.prompt.md",
@@ -4442,7 +4443,7 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
     def test_authoring_seed_carries_code_grounded_obligation(self) -> None:
         """1tmb4 AC-2/AC-3: seed 170 states the authoring obligation, names the
         three high-risk claim shapes, and carries the fix-absent AC rule."""
-        text = (self.SEEDS_DIR / "170-plan-change.prompt.md").read_text(encoding="utf-8")
+        text = (self.SEEDS_DIR / "170-plan-spec.prompt.md").read_text(encoding="utf-8")
         self.assertIn("Code-grounded authoring", text)
         self.assertIn("X already does Y", text)
         self.assertIn("no other caller/site", text)
@@ -4475,7 +4476,7 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
     def test_implement_seed_carries_premise_exercise_obligation(self) -> None:
         """1tmb4 AC-4: seed 180 requires exercising a plan premise before
         building on it, with the stop-and-report path."""
-        text = (self.SEEDS_DIR / "180-implement-change.prompt.md").read_text(encoding="utf-8")
+        text = (self.SEEDS_DIR / "180-implement-spec.prompt.md").read_text(encoding="utf-8")
         self.assertIn("A plan is evidence, not proof.", text)
         self.assertIn("stop and report", text)
 
@@ -4522,7 +4523,7 @@ class CouncilSeedVerificationContractTests(unittest.TestCase):
                 )
         # Non-vacuity guard: the known carriers must trip the signature, so
         # a signature regression cannot silently empty the scan domain.
-        for known in ("180-implement-change.prompt.md", "211-guru.prompt.md"):
+        for known in ("180-implement-spec.prompt.md", "211-guru.prompt.md"):
             self.assertIn(known, carriers)
 
     def test_seed_237_carries_roster_honesty_contract(self) -> None:
@@ -6231,7 +6232,7 @@ class SerializationPointsTokenGrammarPinTests(unittest.TestCase):
         "declare the directory that holds globbed files",
     )
     FRAMEWORK_CARRIERS = (
-        ("seeds/170-plan-change.prompt.md", "Prose declares NOTHING in either form"),
+        ("seeds/170-plan-spec.prompt.md", "Prose declares NOTHING in either form"),
         ("seeds/040-docs-structure-bootstrap.prompt.md", "one stray English word makes the whole bullet prose, in either form"),
         ("seeds/160-upgrade-wavefoundry.prompt.md", "State both declaration forms, because prose declares nothing"),
         ("seeds/160-upgrade-wavefoundry.prompt.md", "names both declaration forms"),
@@ -6394,14 +6395,14 @@ class ScaffoldDeclaresNothingTests(unittest.TestCase):
         """Blocking set equals repairable set.
 
         The upgrade repairs scaffolds only, so nothing else may block: a
-        change doc the upgrade cannot rewrite must never halt the docs gate.
-        Uses this wave's own change doc, which declares ten real targets.
+        spec the upgrade cannot rewrite must never halt the docs gate.
+        Uses this wave's own spec, which declares ten real targets.
         """
 
         from wave_lint_lib.core_validators import check_scaffold_declares_nothing
 
         root = Path(__file__).resolve().parents[4]
-        # This repository's own change doc, under whichever record root the
+        # This repository's own spec, under whichever record root the
         # loaded layout keeps it in (the live root, or the archive root a
         # profile moves pre-adoption records to).
         record_roots = [record_paths.WAVES_ROOT] + ([record_paths.ARCHIVE_ROOT] if record_paths.ARCHIVE_ROOT else [])
@@ -6414,12 +6415,12 @@ class ScaffoldDeclaresNothingTests(unittest.TestCase):
             upstream_fixture(root.joinpath(*record_paths.WAVES_ROOT.split("/"))
                              / "1ur6o closure-narrative-digest-boundary"
                              / "1ur6p-bug scaffold-declaring-targets-has-no-mechanical-gate.md")
-        self.assertTrue(declaring, "fixture must find this wave's change doc")
+        self.assertTrue(declaring, "fixture must find this wave's spec")
         failures = check_scaffold_declares_nothing(root)
         for path in declaring:
             self.assertNotIn(
                 path.name, " ".join(failures),
-                "an authored change doc must never block",
+                "an authored spec must never block",
             )
 
     def test_the_rule_delegates_to_the_shipped_parser(self):
@@ -7066,7 +7067,7 @@ class SeedProfileKeyTests(unittest.TestCase):
 
 class LineEndingParityTests(unittest.TestCase):
     """Wave 1zls7 (1zodv, AC-6): docs-lint gives the same per-change findings
-    for a wave record and change doc saved with CRLF endings as for the same
+    for a wave record and spec saved with CRLF endings as for the same
     documents saved with LF endings, through the real CLI over a temp root."""
 
     def setUp(self) -> None:

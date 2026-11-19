@@ -5,7 +5,7 @@
     "wave_lifecycle",
     "platform_hooks"
   ],
-  "framework_revision": "1.43.0+q35k",
+  "framework_revision": "1.44.0+q4h2",
   "generated_artifacts": [
     "docs/prompts/prompt-surface-manifest.json",
     "docs/agents/session-handoff.md",
@@ -50,20 +50,20 @@
       "shortcut": "Plan arc"
     },
     {
-      "doc": "docs/prompts/plan-change.prompt.md",
-      "shortcut": "Plan change"
+      "doc": "docs/prompts/plan-spec.prompt.md",
+      "shortcut": "Plan spec"
     },
     {
       "doc": "docs/prompts/create-wave.prompt.md",
       "shortcut": "Create wave"
     },
     {
-      "doc": "docs/prompts/add-change-to-wave.prompt.md",
-      "shortcut": "Add change to wave"
+      "doc": "docs/prompts/add-spec-to-wave.prompt.md",
+      "shortcut": "Add spec to wave"
     },
     {
-      "doc": "docs/prompts/remove-change-from-wave.prompt.md",
-      "shortcut": "Remove change from wave"
+      "doc": "docs/prompts/remove-spec-from-wave.prompt.md",
+      "shortcut": "Remove spec from wave"
     },
     {
       "doc": "docs/prompts/prepare-wave.prompt.md",
@@ -74,8 +74,8 @@
       "shortcut": "Implement wave"
     },
     {
-      "doc": "docs/prompts/implement-change.prompt.md",
-      "shortcut": "Implement change"
+      "doc": "docs/prompts/implement-spec.prompt.md",
+      "shortcut": "Implement spec"
     },
     {
       "doc": "docs/prompts/pause-wave.prompt.md",
@@ -94,8 +94,8 @@
       "shortcut": "Close wave"
     },
     {
-      "doc": "docs/prompts/close-change.prompt.md",
-      "shortcut": "Close change"
+      "doc": "docs/prompts/close-spec.prompt.md",
+      "shortcut": "Close spec"
     },
     {
       "doc": "docs/prompts/review-plan.prompt.md",

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-08
+Last verified: 2026-11-18
 
 Durable reusable workflow guidance discovered during waves and promoted from journals.
 
@@ -10,7 +10,7 @@ Durable reusable workflow guidance discovered during waves and promoted from jou
 
 The auto-memory system recognizes four file types: `user`, `feedback`, `project`, `reference`. Two content categories that are particularly easy to miss and worth capturing explicitly:
 
-**Architectural decisions** (`project` type) — why an approach was chosen, not just what was done. Capture when the reasoning is non-obvious and not recoverable from git history or the change doc alone. Lead with the decision, then **Why:** and **How to apply:** lines.
+**Architectural decisions** (`project` type) — why an approach was chosen, not just what was done. Capture when the reasoning is non-obvious and not recoverable from git history or the spec alone. Lead with the decision, then **Why:** and **How to apply:** lines.
 
 **Validated approaches** (`feedback` type) — positive confirmations that a non-obvious choice worked well. The memory system skews toward corrections if only failures are saved; confirmations of working patterns carry equal weight. Record from both failure and success.
 

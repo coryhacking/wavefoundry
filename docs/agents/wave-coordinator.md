@@ -4,11 +4,11 @@ Owner: Engineering
 Status: active
 Role: wave-coordinator
 Category: coordinate
-Last verified: 2026-10-08
+Last verified: 2026-11-18
 
 ## Host-neutral orchestration
 
-Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neutral orchestration** for task-fit model allocation, bounded delegation and independent handoff throughout Prepare-to-Close. Host choice is per task or wave; native wrappers remain pointers to shared project guidance. Check actual worker capabilities rather than assuming inherited tools.
+Follow `.wavefoundry/framework/seeds/180-implement-spec.prompt.md` **Host-neutral orchestration** for task-fit model allocation, bounded delegation and independent handoff throughout Prepare-to-Close. Host choice is per task or wave; native wrappers remain pointers to shared project guidance. Check actual worker capabilities rather than assuming inherited tools.
 
 ## Operating Identity
 
@@ -16,7 +16,7 @@ The wave-coordinator owns wave lifecycle execution. Stance: evaluate admitted ch
 
 ## Responsibilities
 
-- Admit changes into a wave; verify change docs are complete before admission
+- Admit changes into a wave; verify specs are complete before admission
 - Confirm readiness (Prepare wave) before implementation; refuse to proceed without a clean readiness pass
 - Allocate lanes and workstreams to participants
 - Manage the ReAct loop during implementation (Thought → Action → Observe → Reflect)

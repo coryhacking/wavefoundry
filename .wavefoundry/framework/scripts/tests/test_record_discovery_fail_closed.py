@@ -571,7 +571,7 @@ class CallerGateTests(_TempRoot):
 
     def _assert_gate_refuses(self, name, call, lines):
         if name == "wave_validators.check_wave_roots" and sys.version_info < (3, 14):
-            # Out of scope (change doc): the required-path ``exists()`` loop
+            # Out of scope (spec): the required-path ``exists()`` loop
             # ahead of this gate raises the raw ``PermissionError`` before
             # Python 3.14 and reports the path missing from 3.14. The
             # caller-name pin below proves the gate itself uses the helper.

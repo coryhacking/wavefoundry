@@ -835,7 +835,7 @@ def save_exceptions(root: Path, exceptions: list[dict]) -> None:
 # data and add avoidable collision/determinism work.
 #
 # `sec` is deliberately scoped to the scanner + the lifecycle library here — it
-# is NOT a public change-doc kind (it never appears in `wf_new_*` kind lists,
+# is NOT a public change kind (it never appears in `wf_new_*` kind lists,
 # `VALID_CHANGE_KINDS`, or plan/wave scaffolding). The lifecycle CLI/MCP minting
 # tools do not expose it; only the scanner mints `<prefix>-sec`.
 # ---------------------------------------------------------------------------

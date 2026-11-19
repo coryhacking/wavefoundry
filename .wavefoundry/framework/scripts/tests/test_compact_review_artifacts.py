@@ -16,7 +16,7 @@ from prompt_vocabulary_support import prime_profile_render, shipped_prompt_vocab
 
 SEEDS = SCRIPTS_ROOT.parent / "seeds"
 CORE = "209-agent-harness-core.prompt.md"
-IMPLEMENT = "180-implement-change.prompt.md"
+IMPLEMENT = "180-implement-spec.prompt.md"
 CHAIR = "215-council-chair.prompt.md"
 # Raw canonical seeds retain shipped vocabulary; profile renderers consume or
 # point to those sources. Derive the source expectation from the shared fixture
@@ -36,16 +36,16 @@ class CompactReviewArtifactContractTests(unittest.TestCase):
             "memory disposition and the evidence index",
             "unique long-run proof that canonical tests, exact Git history",
             f"Explain each retained exception inline in `{CANONICAL_RECORD}`",
-            "preserve historical conclusions, admitted change docs and immutable `events.jsonl`",
+            "preserve historical conclusions, admitted specs and immutable `events.jsonl`",
             "wave-owned, verified redundant material with no live references",
             "check containment, file identity, uniqueness and references",
             "keep cited originals unless their consumers are explicitly migrated",
             "keep unreconstructable dirty-tree baselines",
             "Only the designated owned `.wavefoundry/work/<wave-id>/` is eligible for automatic best-effort cleanup after successful operator-authorized whole-wave closure",
             "ordinary wave-folder evidence keeps these manual protections",
-            "No age expiry, blanket deletion, reference resolver, cleanup sidecar or automatic deletion gate",
+            "Close reports citation state for the closing wave folder's extra files and never deletes them; no age expiry, blanket deletion, cleanup sidecar or automatic deletion gate",
             "consume its returned continuation actions and current receipt identity",
-            "Finish source, test, configuration, edit-gate and substantive plan edits before the final canonical suite",
+            "Finish source, test, configuration and edit-gate edits, and substantive edits to the wave under test, before the final canonical suite",
             "Validated routine bookkeeping may continue",
             "Reuse a successful test receipt only when its source input identity matches",
             "changed inputs, a red result, or missing/unreadable proof still stop qualification",
@@ -182,6 +182,79 @@ class CompactReviewArtifactContractTests(unittest.TestCase):
                 renderer.render_agent_surfaces(root)
                 with self.subTest(removed=phrase), self.assertRaises(AssertionError):
                     assert_completion(carrier.read_text(encoding="utf-8"))
+
+    # Change 23p9t: the Close disposition step for a record folder's extras.
+    CLOSE_STEP = (
+        "Give every extra file in the wave folder a disposition before the final docs validation and the close write",
+        "read its advisory `record_extras_present`",
+        "**Keep**: the file stays, and one line in `## Review Checkpoints` names it (or its group) and says why it is kept",
+        "When a file is kept only because of a loose mention, that line cites it by path",
+        "list the folder yourself and review every extra, including the files the report does not list",
+        "When `complete` is false, likewise review the folder by hand",
+        # Two pins around the record file's name, which this test must not spell
+        # (the profile literal census refuses a default-layout literal here).
+        "A file the report does not list has no citation state or flags from the tool, so judge it yourself: "
+        "search `events.jsonl`,",
+        "and the admitted specs for its path, its name and its containing "
+        "directories, apply the same keep rules to what you find, and keep the file unless you establish that "
+        "nothing refers to it",
+        "Before removing a `not_cited` file whose four booleans are all false, search `events.jsonl` for the file's name stem",
+        "search the folder's other extras for its name; a match means the file is referenced, so keep it",
+        "`events.jsonl` is matched against the decoded string values of its lines",
+        "**Summarize, then remove**",
+        "**Remove**: remove the file with no summary",
+        "Always keep a `cited_in_ledger` file, because the ledger is never rewritten",
+        "When the citation sits in a spec section other than the Progress Log, keep the file",
+        "Keep a `not_cited` file whose `name_in_ledger`, `name_in_record` or `directory_in_ledger` is true",
+        "Write summaries and rewritten citations only into `## Review Checkpoints` or a spec's Progress Log",
+        "A summary in a Progress Log contains no line that starts with `## `",
+        "Before removing a file, check the kept extras for references to it",
+        "Read `record_extras_present` again on the close write's response",
+        "What is worth keeping in a wave folder",
+        "Worth keeping: proof that cannot be reproduced from a recorded command, the tests and Git history",
+        "Cite a kept file by its path, not only by its directory",
+        "Paths are compared exactly as written, in forward-slash form, on every platform",
+    )
+    CLOSE_TEMPLATE_STEP = (
+        "advisory `record_extras_present`",
+        "Give every listed file one disposition",
+        "Always keep a\n   `cited_in_ledger` file",
+        "`name_in_ledger`, `name_in_record` or `directory_in_ledger` true",
+        "search the ledger\n   for its name stem and the other extras for its name; a match keeps it",
+        "list the\n   folder yourself and give every extra a disposition under the same rules,\n   including files the report does not list",
+        "review the folder by hand\n   when `complete` is false",
+        "An unlisted file has no citation state or flags,\n   so search the ledger, the record and the specs for its path, name and\n"
+        "   directories, and keep it unless nothing refers to it",
+        "the tool removes nothing and blocks nothing",
+    )
+
+    def test_close_disposition_step_in_seed_repository_copy_and_template(self) -> None:
+        def section(text: str) -> str:
+            return text.split("## Wave-folder cleanup\n", 1)[1].split("\nPromotion destinations", 1)[0]
+
+        def assert_step(text: str, phrases) -> None:
+            for phrase in phrases:
+                self.assertIn(phrase, text)
+
+        seed = section((SEEDS / "190-close-wave.prompt.md").read_text(encoding="utf-8"))
+        assert_step(seed, self.CLOSE_STEP)
+        self.assertNotIn("reference resolver", seed)
+        template = (SCRIPTS_ROOT.parent / "install/lifecycle-prompts/close-wave.prompt.md").read_text(encoding="utf-8")
+        assert_step(template, self.CLOSE_TEMPLATE_STEP)
+        # The earlier guidance to keep unlisted files unreviewed is replaced.
+        self.assertNotIn("are unreviewed: keep them", seed)
+        self.assertNotIn("keep any file the report does not list", template)
+        repo_copy = SCRIPTS_ROOT.parents[2] / vocabulary_profile.prompt_doc("close-wave")
+        if repo_copy.is_file():
+            authored = repo_copy.read_text(encoding="utf-8")
+            assert_step(authored, self.CLOSE_STEP)
+            if shipped_prompt_vocabulary():
+                # This repository's copy is hand-edited to match the seed section.
+                self.assertIn(seed, authored)
+        for phrases, text in ((self.CLOSE_STEP, seed), (self.CLOSE_TEMPLATE_STEP, template)):
+            for phrase in phrases:
+                with self.subTest(removed=phrase), self.assertRaises(AssertionError):
+                    assert_step(text.replace(phrase, "REVERSED OBLIGATION"), phrases)
 
 
 if __name__ == "__main__":

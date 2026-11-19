@@ -78,7 +78,7 @@ class _CloseChangeCase(unittest.TestCase):
 
     def wave(self, members: "list[tuple]", *, status: str = "active", docs: "dict[str, str] | None" = None) -> Path:
         """``members`` are ``(change_id, status, previous, depends_on)``;
-        ``docs`` overrides a change document's text."""
+        ``docs`` overrides a spec's text."""
         text = self.builder.container_text(WAVE_ID, [], title="Fixture", status=status, vocab=self.builder.live)
         blocks = "\n\n".join(
             _member(m[0], m[1], previous=m[2] if len(m) > 2 else None, depends_on=m[3] if len(m) > 3 else ())

@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-07
+Last verified: 2026-11-18
 
 Shortcut: **`Review wave`**
 
 ## Host-neutral orchestration
 
-Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose reviewer models and effort for the actual review risks. Read the existing scope, fingerprint, commands/results, findings and next action; independently verify the current tree. A host change does not itself establish independence. Use only available host capabilities; sequential implementation does not satisfy required independent review.
+Follow `.wavefoundry/framework/seeds/180-implement-spec.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose reviewer models and effort for the actual review risks. Read the existing scope, fingerprint, commands/results, findings and next action; independently verify the current tree. A host change does not itself establish independence. Use only available host capabilities; sequential implementation does not satisfy required independent review.
 
 ## Purpose
 
@@ -20,7 +20,7 @@ Run all required review lanes against the admitted changes. Review is not option
 
 All review, repair, and reverification investigation follows the run contract's Retrieval Rules (`.wavefoundry/framework/seeds/020-run-contract.prompt.md`): MCP retrieval tools first, for every lane and briefed subagent; executed probes remain shell work.
 
-1. Read the wave record and each admitted change doc; confirm which review lanes were required at readiness.
+1. Read the wave record and each admitted spec; confirm which review lanes were required at readiness.
 2. On every delivery review, the coordinator first drafts one `Intent outcome:` paragraph, prefixed `YYYY-MM-DD: `, in the existing exact `## Review Checkpoints` section (never a second such section): achieved, partial or not established, citing the delivery evidence, the plan's measure of success when one exists, and material limitations. Assign the independent check to `qa-reviewer` when it is in the current required delivery roster; otherwise assign one reviewer already in that roster. If the roster is empty, record `No independent delivery-lane intent check ran` in `## Review Checkpoints`; do not add a lane or claim an independent check occurred. The assigned reviewer independently confirms or corrects whether the delivered work achieves each admitted change's Product Intent and the wave Objective, citing delivery evidence and material limitations, whether or not delivery Council is required. A correction showing unachieved intent is a typed finding under seed 209; a wording-only correction is editorial. The coordinator incorporates corrections before close.
 3. Run each required lane:
   - `code-reviewer` — correctness, pattern compliance, branch completeness, re-entrant safety for mutable state
@@ -30,8 +30,8 @@ All review, repair, and reverification investigation follows the run contract's 
   - Brief every lane with the seed-209 packet fields `tree_fingerprint` (`git hash-object` over the reviewed paths), `time_budget`, and `sweep_rule` (targeted tests per mutant, whole-file runs only for survivors), and require a mutation table in each report (wave `1wuju`).
   - **Frozen tree per round:** no edit lands under the reviewed paths while a lane runs; collect every lane's findings, repair once, re-snapshot once, and re-brief with a new fingerprint. A lane that finds the fingerprint changed records `tree_moved_under_review` (seed 209). Neither `frozen_boundary` nor `policy_input_digest` freezes code; a repair landed while a lane is still running invalidates that lane's evidence for the paths it touched. Each lane reports at its `time_budget` with what is in hand and lists what was not run.
 4. When the current receipt-derived `required_council_signoffs` lists `council-delivery`, run the Wave Council delivery pass in two phases: first, the `council-chair` declares a **primer depth tier** (`lightweight` / `standard` / `full`) based on trust boundaries touched, files in scope, and change type; (1) `red-team` runs the adversarial primer (`council-adversarial-primer` mode) first at the declared depth — strongest challenge, best alternative, `primer_questions`, and an `efficacy_replay` of each change's motivating case through its mechanism; (2) fixed seats each receive the standard briefing plus the primer and must address it, including the `efficacy_replay`, before producing findings; rotating fifth seat finds the strongest unconsidered alternative; `council-chair` synthesizes all outputs; record `council-delivery` (on declared waves as a typed approval event via `wf_review_event`, which projects into `## Review Evidence`; only legacy prose waves record the signoff line directly) and summarize the reasoning in `## Review Checkpoints`. The checkpoint must include the seat roster, the rotating fifth seat, any material disagreements, and how they were resolved or why they remain unresolved. Delivery review verifies the current typed readiness authority on declared waves; it does not treat a prose `prepare-council` checkpoint as machine evidence. Legacy waves retain their prose compatibility contract. The council-chair's `intent_fit` judges the same draft using the assigned reviewer's assessment when available (seed 215); the coordinator revises a corrected draft before close. The typed `council-delivery` approval records the confirmed verdict as `evidence.intent_fit` (`establishes`, `partially` or `does_not`); a `does_not` verdict does not block, and Review and Close show it to the operator before sign-off.
-5. **AC scope gap check:** when the change doc carries an `## AC Priority` table, after confirming required ACs are met, surface important/nice-to-have items not in admitted scope; confirm not-this-scope deferrals.
-6. **AC priority reconciliation:** when the change doc carries an `## AC Priority` table, reconcile it against delivered behavior; update if scope shifted; `qa-reviewer` must attest every required row has verification evidence or a recorded deferral. **`[~]` AC verification:** for every AC marked `[~]` (intentionally not met), `qa-reviewer` confirms the inline status note is present and legitimate (names when / who / why). A silent `[~]` with no recorded rationale is a finding — surface it as a review-pass blocker under seed 170's "AC and task checkbox states — the `[~]` marker" convention.
+5. **AC scope gap check:** when the spec carries an `## AC Priority` table, after confirming required ACs are met, surface important/nice-to-have items not in admitted scope; confirm not-this-scope deferrals.
+6. **AC priority reconciliation:** when the spec carries an `## AC Priority` table, reconcile it against delivered behavior; update if scope shifted; `qa-reviewer` must attest every required row has verification evidence or a recorded deferral. **`[~]` AC verification:** for every AC marked `[~]` (intentionally not met), `qa-reviewer` confirms the inline status note is present and legitimate (names when / who / why). A silent `[~]` with no recorded rationale is a finding — surface it as a review-pass blocker under seed 170's "AC and task checkbox states — the `[~]` marker" convention.
 7. Record findings and approvals through `wf_review_event`; the wave record `## Review Checkpoints` keeps the narrative summary. Legacy prose waves retain their recording contract.
 8. Blocking findings open a recorded repair cycle. The implementer repairs the affected boundary and each blocking lane independently reverifies it before delivery approval is restored. After the first delivery cycle, an editorial-only finding (wording that is true but imprecise, drifted citations, formatting) is repaired inline in the current cycle and recorded in the Progress Log; it does not by itself open another repair cycle. Every finding that needs verification, a boundary repair, or escalation retains its existing action-matrix route. An editorial finding that makes a shipped claim FALSE is a correctness defect. A scope, requirement, or AC change is recorded in the section that owns it, and the Progress Log row points at that edit rather than substituting for it.
 
@@ -43,7 +43,7 @@ All review, repair, and reverification investigation follows the run contract's 
 
 ## AC and Task Verification Truth Hierarchy
 
-The change document is the coordination layer, not the authority layer. The source of truth is:
+The spec is the coordination layer, not the authority layer. The source of truth is:
 
 1. Code and tests — actual delivered behavior
 2. Review evidence — verification that the behavior exists and is correct
@@ -54,6 +54,8 @@ Reviewers must not treat checked ACs or tasks as proof of completion. For every 
 ## Required Before Close
 
 All required lanes must have current typed delivery approvals before **Close wave** can proceed, with the narrative summary in `## Review Checkpoints`. When the current receipt-derived `required_council_signoffs` lists `council-delivery`, that approval must also be current (a typed approval event on declared waves, projected into `## Review Evidence`; a prose line counts only on legacy waves).
+
+A change admitted after delivery review leaves the receipt stale until re-Prepare, which then shows the earlier delivery approvals, including `council-delivery` and `operator-signoff`, as not current; re-Prepare first, then record those approvals again.
 
 Review wave does not close the wave, mark completion or commit changes; those actions remain operator-owned.
 
@@ -120,3 +122,5 @@ For stale readiness, use the guided review actions and seed 209’s **Focused re
 ## Disposable work
 
 Use the lifecycle-reported `.wavefoundry/work/<wave-id>/`, keyed by the resolved unique prefix, for shared temporary work; include the path and availability notices in coordinator briefs. Follow seed 180’s **Disposable work** and seed 209’s **Review Artifact Discipline**. Reads and dry-runs create nothing; unavailable work is advisory and existing host permissions apply. Receipt copies and review notes are disposable aids; preserve unique proof before final evidence and keep durable approval authority in its existing records.
+
+Write every file you create for a wave, including coordinator briefs, logs, captured test output and build output, inside that wave's own work folder, in a child folder when that helps; never write a file directly in `.wavefoundry/work/`. Before the wave exists, keep the content in task context until a lifecycle call reports the work area. `wf_audit` and close report files and links left directly in the work root as the advisory `work_root_loose_files`. If you wrote such a file for a wave, move it into that wave's folder while the wave is open, or delete it. Leave any other loose file in place, including one you are not sure you wrote (a name that starts with a wave id does not prove who wrote it), and report it to the operator, who decides. Never move a file you did not write into a wave's folder: close removes that folder with everything in it.

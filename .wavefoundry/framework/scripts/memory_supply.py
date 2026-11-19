@@ -5,7 +5,7 @@ Turns a wave's OWN typed review evidence into candidate memory records so the
 memory corpus fills from work the wave already did, instead of staying empty
 until someone hand-authors records. Two local, read-only sources:
 
-  - each admitted change doc's ``## Decision Log`` -> ``decision`` candidates,
+  - each admitted spec's ``## Decision Log`` -> ``decision`` candidates,
   - the canonical ``events.jsonl`` heads' repaired real-defect findings ->
     ``failed_attempt`` (a single repair) or ``fragile_file`` (a file repaired
     more than once in the wave) candidates.

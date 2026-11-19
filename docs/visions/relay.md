@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-27
+Last verified: 2026-11-18
 
 ## Purpose
 
@@ -28,7 +28,7 @@ This is a new service proposal. No Relay implementation or separate service repo
 
 | Foundation | Current evidence | What Relay would add |
 |---|---|---|
-| Host-neutral collaboration guidance | [Seed 180](../../.wavefoundry/framework/seeds/180-implement-change.prompt.md), **Host-neutral orchestration**, requires scoped delegation, actual capability checks, integrated evidence, and artifact-based handoff. It does not require shared chat or a session registry. | Durable participant discovery and communication across host boundaries. |
+| Host-neutral collaboration guidance | [Seed 180](../../.wavefoundry/framework/seeds/180-implement-spec.prompt.md), **Host-neutral orchestration**, requires scoped delegation, actual capability checks, integrated evidence, and artifact-based handoff. It does not require shared chat or a session registry. | Durable participant discovery and communication across host boundaries. |
 | Per-host MCP entry point | [server.py](../../.wavefoundry/framework/scripts/server.py), `main`, builds the server and runs the stdio transport. | A shared service reached by separate MCP processes; process-local memory cannot serve as the common room. |
 | Independent service integration precedent | [Embedding architecture](../architecture/embedding-model.md), **Optional Tensorwell execution**, and [tensorwell_client.py](../../.wavefoundry/framework/scripts/tensorwell_client.py), `_request`, describe and implement a bounded client to a separately owned service. | A separate communication responsibility with its own protocol and lifecycle; Tensorwell is an architectural precedent, not a proposed chat backend. |
 | Review authority | [review_evidence.py](../../.wavefoundry/framework/scripts/review_evidence.py), module contract and `_validate_evidence_shape`, separates canonical evidence validation from deciding whether a claim is true. | Messages can point to evidence and request review; they do not become approval records by being delivered. |

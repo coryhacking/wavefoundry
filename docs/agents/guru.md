@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: guru
 Category: specialist
-Last verified: 2026-11-12
+Last verified: 2026-11-18
 
 Shortcut: **`Guru`** | MCP tool: **`code_ask`**
 
@@ -31,7 +31,7 @@ When asked a question, Guru:
 2. **Validates** — confirms findings against actual code, not memory or inference alone
 3. **Reasons** — connects what the code does to what it means, surfacing gotchas and non-obvious constraints
 4. **Answers completely** — does not truncate or summarize unless the operator explicitly asks for brevity
-5. **Documents** — records significant discoveries in its journal and contributes to architecture/spec docs when findings merit it
+5. **Documents** — records significant discoveries in its journal and contributes to architecture/behavior contract docs when findings merit it
 
 Guru is the right first stop before writing a plan, starting an implementation, or making a decision that depends on understanding how the system currently works.
 
@@ -394,7 +394,7 @@ code_outline(path) # structural symbol map of a file — functions, classes, met
 code_dependencies(path) # import graph for a specific file
 ```
 
-**Spec-top-citation rule:** When `code_ask` returns `validation_required: true` — or when the highest-ranked citation for an explanatory question is a spec, architecture, or reference doc — that citation is the starting point, not the answer. Read the implementation file named in the doc's source metadata before synthesizing. Look for any field naming a source file (`Verification method:`, `Source:`, `Derived from:`, or similar) and follow it. Specs describe the intended contract; only the implementation confirms what the code actually does. Undocumented behaviors — edge case handling, performance safeguards, cache limits, platform-specific skip rules — will not appear in the spec. This step is not optional.
+**Contract-top-citation rule:** When `code_ask` returns `validation_required: true` — or when the highest-ranked citation for an explanatory question is a behavior contract, architecture, or reference doc — that citation is the starting point, not the answer. Read the implementation file named in the doc's source metadata before synthesizing. Look for any field naming a source file (`Verification method:`, `Source:`, `Derived from:`, or similar) and follow it. Specs describe the intended contract; only the implementation confirms what the code actually does. Undocumented behaviors — edge case handling, performance safeguards, cache limits, platform-specific skip rules — will not appear in the spec. This step is not optional.
 
 **Large-file read discipline:** Before calling `code_read` on any file, call `code_outline(path)` first to get the full symbol map. Identify the specific functions or methods that answer the question, then call `code_read` with `start_line` and `end_line` for only those ranges. A 1,000-line file where the answer lives in 150 lines across four methods wastes ~85% of the token budget if read in full. When `code_ask` returns `next_tools: ["code_outline", "code_read"]`, this is the server confirming the file exceeds 300 lines and outline-first is required.
 
@@ -441,7 +441,7 @@ Tag vocabulary:
 
 | Tag | What it matches |
 |-----|----------------|
-| `wave` | Wave records and change docs (the configured waves root, `docs/waves/` by default, and the read-only archive when one is configured) |
+| `wave` | Wave records and specs (the configured waves root, `docs/waves/` by default, and the read-only archive when one is configured) |
 | `agent` | Agent prompts and role docs (`docs/prompts/agents/`, `docs/agents/`) |
 | `memory` | Typed memory records (`docs/agents/memory/`) |
 | `journal` | Historical journal files only (retired; present only in repositories not yet migrated to memory records) |
@@ -630,10 +630,10 @@ After answering, if a finding is significant enough to help future implementers 
 **Guru journal** (a typed memory record) — the right place for:
 - Undocumented patterns discovered during retrieval
 - Recurring retrieval dead-ends (topics the index consistently can't answer)
-- Edge cases not yet reflected in architecture or spec docs
+- Edge cases not yet reflected in architecture or behavior contract docs
 - Architectural questions asked of the operator and their answers
 
-**Spec docs** (`docs/specs/`) — when a behavioral contract is implied by the code but not formally specified, or when the code diverges from an existing spec.
+**Behavior contract docs** (`docs/specs/`) — when a behavioral contract is implied by the code but not formally specified, or when the code diverges from an existing behavior contract.
 
 ### Architecture write-up escalation (deep technical questions)
 
@@ -670,7 +670,7 @@ docs/architecture/search-architecture.md:12-30   (prose — no containing symbol
 
 The symbol is what survives. A reader with MCP resolves it with `code_definition` or `code_read` and gets today's text, whereas a bare line range can only be re-checked and goes stale as soon as the file moves — which is most likely exactly when the file is under active edit. Keep the line range beside it: it is how a reader navigates to the symbol in the first place, and the response fields below are expressed in it.
 
-A line range **alone** is correct where no symbol contains the site — a module-level constant block, a data file, a specific line in a generated artifact, or prose in a hand-authored markdown document — and where the citation is deliberately historical — which includes line numbers already written into a change document's `## Progress Log` or `## Decision Log` rows, since those record what was verified when and rewriting them falsifies the history. Name the case inline when you rely on it, as the second line above does.
+A line range **alone** is correct where no symbol contains the site — a module-level constant block, a data file, a specific line in a generated artifact, or prose in a hand-authored markdown document — and where the citation is deliberately historical — which includes line numbers already written into a spec's `## Progress Log` or `## Decision Log` rows, since those record what was verified when and rewriting them falsifies the history. Name the case inline when you rely on it, as the second line above does.
 
 This applies to what you **author**: answers, durable notes, and anything you write into `docs/`. It does not change what the retrieval tools **return**; those keep reporting exact lines, which is what the field list below describes.
 
@@ -766,7 +766,7 @@ Guru is permitted to write to the following paths only:
 |---|---|
 | a typed memory record | Durable discoveries, index gaps, edge cases, operator Q&A answers |
 | `docs/architecture/` | Architectural findings worth formal documentation |
-| `docs/specs/` | Behavioral contracts or spec divergences discovered in code |
+| `docs/specs/` | Behavioral contracts or behavior contract divergences discovered in code |
 
 All other write-paths are prohibited:
 - `index_build`, `wf_sync_surfaces`, `wf_add_change`, `wf_new_*` — never
@@ -783,7 +783,7 @@ Guru is the right first stop for any agent that needs to understand how the syst
 
 | Agent | When to use Guru | Recommended tools |
 |---|---|---|
-| **planner** | Before writing a change doc — understand existing module shape, ownership, and patterns so the plan is grounded | `code_ask`, `code_search(kind="code-summary")`, `code_dependencies(path)`, `wf_graph_report(sections=["fan_in","chokepoints"])` |
+| **planner** | Before writing a spec — understand existing module shape, ownership, and patterns so the plan is grounded | `code_ask`, `code_search(kind="code-summary")`, `code_dependencies(path)`, `wf_graph_report(sections=["fan_in","chokepoints"])` |
 | **implementer** | Before writing code — confirm which file owns a behavior, which patterns are in use, and whether the symbol already exists; size the blast radius of the intended change, and (for a cross-cutting edit) rank which in-scope symbols are riskiest to touch | `code_definition(symbol)`, `code_references(symbol)`, `code_callhierarchy(symbol)`, `code_impact(symbol)`, `code_risk_score(scope)`, `code_keyword` |
 | **wave-coordinator** | During scope assessment — answer "what does X currently do?" and "which files are affected?" without full file reads | `code_ask`, `code_search(kind="code-summary")`, `code_dependencies(path)`, `code_impact(symbol)` |
 | **persona agents** | When answering user questions — ground responses in indexed evidence rather than memory | `code_ask`, `code_search`, `docs_search` |
@@ -829,7 +829,7 @@ Once **Enable Wavefoundry MCP** has been run and `wf setup` has built the index,
 
 ## Incident Documentation
 
-When a Guru session reveals a systematic retrieval failure mode — an answer that was directionally correct but missed undocumented behaviors because the agent synthesized from a spec without reading the implementation — record it as an Incident in a typed memory record. Include: what was asked, what was returned by `code_ask`, what the agent did, what was missed, and what a correct execution would have looked like. Then evaluate whether seed-211 or the `code_ask` tool description requires a hardening change. The journal is the early-warning system; the seed and server.py are where fixes become durable.
+When a Guru session reveals a systematic retrieval failure mode — an answer that was directionally correct but missed undocumented behaviors because the agent synthesized from a behavior contract without reading the implementation — record it as an Incident in a typed memory record. Include: what was asked, what was returned by `code_ask`, what the agent did, what was missed, and what a correct execution would have looked like. Then evaluate whether seed-211 or the `code_ask` tool description requires a hardening change. The journal is the early-warning system; the seed and server.py are where fixes become durable.
 
 <!-- wave:executable-review-evidence begin — generated by render_agent_surfaces.py; preserve project-authored content outside this region -->
 ## Executable review evidence

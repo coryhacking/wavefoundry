@@ -252,8 +252,10 @@ class RepoGuardMutantTests(RepoGuardTestBase):
         self._assert_guard_failed(ret, out, err, "tracked.txt")
 
     def test_full_run_fails_when_a_test_creates_a_non_ignored_file(self):
-        ret, out, err = self._main(["--no-cache"], "write", self.repo / "docs" / "new.md")
-        self._assert_guard_failed(ret, out, err, "docs/new.md")
+        # Change 23nqu: re-based outside docs/, where a created file still
+        # refuses the run (the in-worker guard now refuses a write under docs/).
+        ret, out, err = self._main(["--no-cache"], "write", self.repo / "src" / "new.py")
+        self._assert_guard_failed(ret, out, err, "src/new.py")
 
     def test_full_run_fails_when_a_test_deletes_a_tracked_file(self):
         ret, out, err = self._main(["--no-cache"], "delete", self.repo / "tracked.txt")
@@ -586,12 +588,24 @@ class CanonicalBookkeepingTests(RepoGuardTestBase):
 
     def test_material_change_carriers_fail(self):
         before = self.change.read_text()
+        # Change 23q1h: a deferral with a canonical `*Status: ...*` note is
+        # bookkeeping now (the pair was `[ ] AC-1` -> `[~] AC-1`); a deferral
+        # whose reason is in another form changes criterion text and stays material.
         for old, new in [('Preserve the label.', 'Alter the label.'),
-                         ('[ ] AC-1', '[~] AC-1'),
+                         ('[ ] AC-1: Preserve the label.', '[~] AC-1: Preserve the label. *dropped*'),
                          ('Substantive restriction.', 'A changed restriction.')]:
             with self.subTest(material=new):
                 self.change.write_text(before)
                 self._assert_rejected(lambda: self.change.write_text(before.replace(old, new)))
+
+    def test_a_canonical_deferral_is_bookkeeping(self):
+        """Change 23q1h: deferring a criterion with a canonical note leaves the
+        review-policy digest, so the runner tolerates it like a tick."""
+        before = self.change.read_text()
+        deferred = before.replace('[ ] AC-1: Preserve the label.', '[~] AC-1: Preserve the label. *Status: dropped*')
+        self.assertNotEqual(deferred, before)
+        ret, out, err = self._external_main(['--no-cache'], lambda: self.change.write_text(deferred))
+        self.assertEqual(ret, 0, out + err)
 
     def test_source_change_with_same_size_and_restored_mtime_fails_final_hash(self):
         source = run_tests._FRAMEWORK_DIR / 'source.py'
@@ -646,8 +660,14 @@ class CanonicalBookkeepingTests(RepoGuardTestBase):
         self._assert_rejected(publish)
 
     def test_unregistered_or_new_ledger_does_not_gain_an_exemption(self):
-        other = self.repo / 'docs' / 'events.jsonl'
-        self._assert_rejected(lambda: other.write_text('{}\n'))
+        # Change 23nqu: re-based on paths that still refuse. An unregistered
+        # ledger inside the folder of the wave open at the start, and one
+        # outside docs/; docs/events.jsonl itself is now tolerated.
+        for other in (self.wave.parent / 'nested' / 'events.jsonl', self.repo / 'other' / 'events.jsonl'):
+            with self.subTest(path=other.relative_to(self.repo).as_posix()):
+                other.parent.mkdir(exist_ok=True)
+                self._assert_rejected(lambda: other.write_text('{}\n'))
+                other.unlink()
 
     def test_missing_worker_marker_mutant_reaches_and_changes_valid_progress(self):
         import test_worker_guard
@@ -664,6 +684,44 @@ class CanonicalBookkeepingTests(RepoGuardTestBase):
         self.assertEqual(ret, 0, out + err)
         self.assertEqual(self.change.read_text(), after)
         self.assertTrue(self.cache_file.exists(), 'the negative control must expose the missing prevention')
+
+    def test_open_wave_bookkeeping_is_not_listed_as_tolerated(self):
+        # Change 23nqu, AC-5: on a wave open at the start, a Progress Log edit,
+        # an append-only ledger write without a new receipt and a telemetry-only
+        # record change are not changes and are not listed as tolerated.
+        import context_efficiency
+
+        def publish():
+            self._publish()
+            snapshot = context_efficiency.empty_checkpoint("1abcd")
+            snapshot["generation"] = 3
+            self.wave.write_text(context_efficiency.replace_checkpoint_block(self.wave.read_text(), snapshot))
+        ret, out, err = self._external_main(['--no-cache'], publish)
+        self.assertEqual(ret, 0, out + err)
+        self.assertIn('Recorded progress.', self.change.read_text())
+        self.assertIn('wave:context-efficiency begin', self.wave.read_text())
+        self.assertNotIn('TOLERATED', out + err)
+        self.assertNotIn('tolerated_changes', json.loads(self.cache_file.read_text()))
+
+    def test_policy_receipt_in_open_wave_is_refused_not_tolerated(self):
+        # Change 23nqu, AC-2.3: the folder of a wave open at the start refuses.
+        import review_policy
+        receipt, _ = review_policy.build_policy_receipt({
+            'schema_version': 1, 'evaluator_version': 7,
+            'policy_input_digest': 'changed-policy', 'delivery_mode': 'targeted',
+            'primer_depth': 'standard', 'council_seats': ['red-team'],
+            'requested_lanes': [], 'required_lanes': [],
+            'delivery_council_required': False}, None)
+        def publish():
+            with self.evidence.project_state_publication_lock(self.repo):
+                self.ledger.write_bytes(self.evidence.canonical_review_events_bytes([receipt]))
+                self.wave.write_text(self._render(self.wave.read_text(), [receipt]))
+        ret, out, err = self._external_main(['--no-cache'], publish)
+        self.assertEqual(ret, 1, out + err)
+        self.assertIn('REPOSITORY CHANGED DURING THE TEST RUN', err)
+        self.assertIn(self.ledger.relative_to(self.repo).as_posix(), err)
+        self.assertNotIn('AND TOLERATED', out)
+        self.assertFalse(self.cache_file.exists())
 
     def test_regular_file_replaced_by_symlink_is_not_bookkeeping(self):
         fixture = self.tmp / 'replacement.md'
@@ -733,13 +791,60 @@ class ProtectedWorkerTests(RepoGuardTestBase):
             self.assertEqual(result.returncode, 0, result.output)
         self.assertEqual(self.protected.read_text(), 'protected\n')
         # -I drops the inherited site hook. This admitted raw route is not an
-        # authentication boundary; unclassified bytes still fail the parent.
-        (self.tests_dir / 'test_mutant.py').write_text('import subprocess, sys, unittest\nclass Control(unittest.TestCase):\n    def test_raw(self):\n        subprocess.run([sys.executable, "-I", "-B", "-c", ' + repr(child) + '], check=True)\n')
+        # authentication boundary; unclassified bytes still fail the parent
+        # when they land in a wave open at the start of the run (change 23nqu
+        # re-based this on an open wave: the folder had no record before).
+        import vocabulary_profile
+        (self.protected.parent / vocabulary_profile.RECORD_FILENAME).write_text('# Wave\n\nStatus: implementing\n')
+        raw = ('import subprocess, sys, unittest\nclass Control(unittest.TestCase):\n    def test_raw(self):\n'
+               '        subprocess.run([sys.executable, "-I", "-B", "-c", {!r}], check=True)\n')
+        (self.tests_dir / 'test_mutant.py').write_text(raw.format(child))
         ret, out, err = self._main(['--no-cache'], 'none', self.protected)
         self.assertEqual(ret, 1, out + err)
         self.assertIn('REPOSITORY CHANGED', err)
         self.assertEqual(self.protected.read_text(), 'bad')
         self.assertFalse(self.cache_file.exists())
+        # The stated limit: the same raw route writing elsewhere under docs/
+        # is no longer caught; it is tolerated and listed.
+        note = self.repo / 'docs' / 'notes.md'
+        note.write_text('before\n')
+        (self.tests_dir / 'test_mutant.py').write_text(raw.format(
+            f'from pathlib import Path; Path({str(note)!r}).write_text("bad")'))
+        ret, out, err = self._main(['--no-cache'], 'none', note)
+        self.assertEqual(ret, 0, out + err)
+        self.assertEqual(note.read_text(), 'bad')
+        self.assertIn('FILES CHANGED DURING THE TEST RUN AND TOLERATED', out)
+        self.assertIn('docs/notes.md', out)
+
+    def test_documentation_root_write_refuses_and_record_roots_only_control_allows_it(self):
+        # Change 23nqu, AC-3: the fixture repository's docs/ outside the waves
+        # and plans roots is protected; the reverse control drops it again.
+        import test_worker_guard
+        target = self.repo / 'docs' / 'agents' / 'session-handoff.md'
+        code = f'p = Path({str(target)!r})\np.parent.mkdir(parents=True, exist_ok=True)\np.write_text("written by a test")'
+        result = self._worker(code)
+        self.assertNotEqual(result.returncode, 0, result.output)
+        self.assertIn('PermissionError', result.output)
+        self.assertIn('test worker cannot mutate protected record path', result.output)
+        self.assertFalse(target.exists())
+        real = test_worker_guard.worker_environment
+        def record_roots_only(env, root, dirs):
+            self.assertIn('docs', dirs)
+            return real(env, root, tuple(d for d in dirs if d != 'docs'))
+        with patch.object(test_worker_guard, 'worker_environment', side_effect=record_roots_only):
+            result = self._worker(code)
+        self.assertEqual(result.returncode, 0, result.output)
+        self.assertEqual(target.read_text(), 'written by a test')
+
+    def test_existing_directory_creation_under_documentation_root_is_still_allowed(self):
+        # Change 23nqu: the exist_ok allowance is kept for the new root.
+        # The directories exist before the worker runs (created here, outside
+        # it); a profile may move the waves root, so docs/agents is used.
+        docs = self.repo / 'docs'
+        (docs / 'agents').mkdir(parents=True, exist_ok=True)
+        result = self._worker(f'Path({str(docs)!r}).mkdir(parents=True, exist_ok=True)\n'
+                              f'os.makedirs({str(docs / "agents")!r}, exist_ok=True)')
+        self.assertEqual(result.returncode, 0, result.output)
 
     def test_descriptor_protection_uses_host_primitive_when_tests_mock_fcntl(self):
         code = (f'from unittest.mock import patch\n'
@@ -783,6 +888,298 @@ class ProtectedWorkerTests(RepoGuardTestBase):
                                               'self.assertIn("Ran 1 test", result.output)'))
         self.assertEqual(result.returncode, 0, result.output)
         self.assertEqual((inner / 'fixture.txt').read_text(), 'bad')
+
+
+_POLICY_PATHS = ("docs/workflow-config.json", "docs/repo-profile.json", "docs/contributors.json",
+                 "docs/scan-rules.toml", "docs/reconcile-dispositions.json")
+
+
+class DocumentationToleranceBase(RepoGuardTestBase):
+    """Change 23nqu fixture: a wave open at the start, a planned wave, plans,
+    the session handoff, recorded data and the five policy files."""
+
+    def setUp(self):
+        super().setUp()
+        import record_paths
+        import vocabulary_profile
+        self.record_name = vocabulary_profile.RECORD_FILENAME
+        self.waves = self.repo / record_paths.WAVES_ROOT
+        self.plans = self.repo / record_paths.PLANS_ROOT
+        # A wave open at the start, in the framework's own projected form.
+        self.open_record = self._wave('1aaaa open', _projected_record(_RECORD_BODY))
+        self.open_spec = self.open_record.with_name('1aaab-enh open-spec.md')
+        self.open_spec.write_text('# Open spec\n\n## Requirements\n\nOriginal body.\n')
+        self.planned_record = self._wave('1bbbb planned', '# Wave 1bbbb\n\nStatus: planned\n')
+        self.planned_spec = self.planned_record.with_name('1bbbc-enh planned-spec.md')
+        self.planned_spec.write_text(self.open_spec.read_text())
+        self.handoff = self.repo / 'docs/agents/session-handoff.md'
+        self.handoff.parent.mkdir(parents=True)
+        self.handoff.write_text('# Handoff\n\nBefore.\n')
+        self.data = self.repo / 'docs/data/recorded.json'
+        self.data.parent.mkdir(parents=True)
+        self.data.write_text('{"a": 1}\n')
+        self.plans.mkdir(parents=True)
+        for rel in _POLICY_PATHS:
+            (self.repo / rel).write_text('{}\n')
+
+    def _wave(self, folder, text):
+        record = self.waves / folder / self.record_name
+        record.parent.mkdir(parents=True)
+        record.write_text(text)
+        return record
+
+    def rel(self, path):
+        return path.relative_to(self.repo).as_posix()
+
+    def tolerated(self, out):
+        heading = 'FILES CHANGED DURING THE TEST RUN AND TOLERATED'
+        if heading not in out:
+            return []
+        block = out.split(heading, 1)[1].split('\n', 1)[1]
+        return [line.strip() for line in block.splitlines() if line.startswith('  ')]
+
+    def assert_refused(self, ret, out, err, *rels):
+        self.assertEqual(ret, 1, out + err)
+        self.assertIn('REPOSITORY CHANGED DURING THE TEST RUN', err)
+        self.assertIn('concurrent edit by an operator or agent', err)
+        self.assertIn('edit gate', err)
+        for rel in rels:
+            self.assertIn('\n  ' + rel + '\n', err + '\n')
+            self.assertNotIn(rel, self.tolerated(out))
+        self.assertFalse(self.cache_file.exists(), out + err)
+
+    def planning(self):
+        """Plan new work during the run: the 23lxd replay."""
+        kept = self.plans / '1cccc-enh kept-plan.md'
+        moved = self.plans / '1cccd-enh moved-plan.md'
+        kept.write_text('# Kept\n')
+        moved.write_text('# Moved\n')
+        wave = self._wave('1ccce new', '# Wave 1ccce\n\nStatus: planned\n')
+        wave.with_name('events.jsonl').write_text('')
+        moved.rename(wave.with_name(moved.name))
+        self.handoff.write_text('# Handoff\n\nAfter.\n')
+        self.data.write_text('{"a": 2}\n')
+        # Telemetry-only writes on the wave open at the start.
+        self.open_record.write_text(_projected_record(_RECORD_BODY, _STAGES, generation=9))
+        return sorted([self.rel(kept), self.rel(wave), self.rel(wave.with_name('events.jsonl')),
+                       self.rel(wave.with_name(moved.name)), self.rel(self.handoff), self.rel(self.data)])
+
+class DocumentationToleranceTests(DocumentationToleranceBase):
+    """Change 23nqu: changes under docs/ during a run are tolerated and listed,
+    except in a wave open at the start of the run and in the policy files."""
+
+    def test_planning_during_a_full_run_is_tolerated_listed_and_receipted(self):
+        expected = []
+        ret, out, err = self._external_main(['--no-cache'], lambda: expected.extend(self.planning()))
+        self.assertEqual(ret, 0, out + err)
+        self.assertNotIn('REPOSITORY CHANGED', err)
+        self.assertEqual(self.tolerated(out), expected)
+        self.assertNotIn(self.rel(self.open_record), out)
+        receipt = json.loads(self.cache_file.read_text())
+        self.assertEqual(receipt['result'], 'ok')
+        self.assertEqual(receipt['tolerated_changes'], {'paths': expected, 'count': len(expected), 'truncated': False})
+
+    def test_planning_during_a_focused_run_is_tolerated_and_listed(self):
+        expected = []
+        ret, out, err = self._external_main(['--file', 'test_mutant.py'], lambda: expected.extend(self.planning()))
+        self.assertEqual(ret, 0, out + err)
+        self.assertEqual(self.tolerated(out), expected)
+        self.assertFalse(self.cache_file.exists(), 'a focused run never writes the receipt')
+
+    def test_each_case_that_affects_the_work_under_test_still_refuses(self):
+        source = run_tests._FRAMEWORK_DIR / 'source.py'
+        gate = self.repo / run_tests._GUARD_OVERRIDES_REL
+        outside = self.repo / 'src' / 'module.py'
+        outside.parent.mkdir()
+        cases = [('framework file', source, 'changed = 1\n'),
+                 ('edit-gate file', gate, '{"framework_edit_allowed": {"enabled": true}}\n'),
+                 ('outside docs', outside, 'x = 1\n')]
+        cases += [(rel, self.repo / rel, '{"changed": true}\n') for rel in _POLICY_PATHS]
+        for name, path, text in cases:
+            with self.subTest(case=name):
+                original = path.read_bytes() if path.exists() else None
+                ret, out, err = self._external_main(['--no-cache'], lambda: path.write_text(text))
+                self.assert_refused(ret, out, err, self.rel(path))
+                if original is None:
+                    path.unlink()
+                else:
+                    path.write_bytes(original)
+
+    def test_open_wave_spec_edit_refuses_while_the_same_planned_wave_edit_is_tolerated(self):
+        def publish():
+            for spec in (self.open_spec, self.planned_spec):
+                spec.write_text(spec.read_text().replace('Original body.', 'Changed body.'))
+        ret, out, err = self._external_main(['--no-cache'], publish)
+        self.assert_refused(ret, out, err, self.rel(self.open_spec))
+        self.assertEqual(self.tolerated(out), [self.rel(self.planned_spec)])
+
+    def test_closing_a_wave_open_at_the_start_refuses(self):
+        for status in ('closed', 'paused'):
+            with self.subTest(status=status):
+                text = self.open_record.read_text()
+                ret, out, err = self._external_main(['--no-cache'], lambda: self.open_record.write_text(
+                    text.replace('Status: implementing', f'Status: {status}')))
+                self.assert_refused(ret, out, err, self.rel(self.open_record))
+                self.open_record.write_text(text)
+
+    def test_admitting_a_spec_to_a_wave_open_at_the_start_refuses(self):
+        plan = self.plans / '1dddd-enh admitted.md'
+        plan.write_text('# Admitted\n')
+        ret, out, err = self._external_main(['--no-cache'], lambda: plan.rename(self.open_record.with_name(plan.name)))
+        self.assert_refused(ret, out, err, self.rel(self.open_record.with_name(plan.name)))
+        self.assertEqual(self.tolerated(out), [self.rel(plan)])
+
+    def test_a_wave_opened_during_the_run_does_not_join_the_refused_set(self):
+        def publish():
+            self.planned_record.write_text('# Wave 1bbbb\n\nStatus: active\n')
+            self.planned_spec.write_text('# Planned spec\n\nRewritten.\n')
+        ret, out, err = self._external_main(['--no-cache'], publish)
+        self.assertEqual(ret, 0, out + err)
+        self.assertEqual(self.tolerated(out), sorted([self.rel(self.planned_record), self.rel(self.planned_spec)]))
+
+    def test_receipt_list_is_bounded_with_a_count_and_truncation_flag(self):
+        def publish():
+            for name in ('c', 'a', 'b'):
+                (self.repo / 'docs' / f'{name}.md').write_text(name)
+        with patch.object(run_tests, '_TOLERATED_RECEIPT_MAX_PATHS', 2):
+            ret, out, err = self._external_main(['--no-cache'], publish)
+        self.assertEqual(ret, 0, out + err)
+        self.assertEqual(json.loads(self.cache_file.read_text())['tolerated_changes'],
+                         {'paths': ['docs/a.md', 'docs/b.md'], 'count': 3, 'truncated': True})
+
+    def test_receipt_with_and_without_the_field_are_both_proven_by_the_close_gate(self):
+        import lifecycle_gate_support
+        import lifecycle_gates
+        receipts = {}
+        ret, out, err = self._main(['--no-cache'], 'none', self.repo / 'unused')
+        self.assertEqual(ret, 0, out + err)
+        receipts['absent'] = self.cache_file.read_text()
+        self.cache_file.unlink()
+        ret, out, err = self._external_main(['--no-cache'], lambda: self.handoff.write_text('changed\n'))
+        self.assertEqual(ret, 0, out + err)
+        receipts['present'] = self.cache_file.read_text()
+        self.assertNotIn('tolerated_changes', json.loads(receipts['absent']))
+        self.assertEqual(json.loads(receipts['present'])['tolerated_changes']['paths'], [self.rel(self.handoff)])
+        for name, text in receipts.items():
+            with self.subTest(receipt=name):
+                gate_root = self.tmp / f'gate-{name}'
+                runner = gate_root / lifecycle_gate_support._FRAMEWORK_TEST_RUNNER_REL
+                runner.parent.mkdir(parents=True)
+                runner.with_name('test-cache.json').write_text(text)
+                # The real reader protocol over this run's own receipt bytes.
+                runner.write_text('import json\nfrom pathlib import Path\n'
+                                  f'def _hash_inputs(): return {json.loads(text)["inputs_hash"]!r}\n'
+                                  "def _read_cache(): return json.loads(Path(__file__).with_name('test-cache.json').read_text())\n")
+                self.assertEqual(lifecycle_gates._framework_test_receipt_status(gate_root)['state'], 'proven')
+
+    def test_nested_layout_renamed_record_and_archive_root_are_classified(self):
+        import record_paths
+        import vocabulary_profile
+        nested_open = self.waves / 'group' / '1eeee nested' / 'set.md'
+        nested_planned = self.waves / 'group' / '1eeef nested-planned' / 'set.md'
+        archived = self.repo / 'docs/archive/1ffff old' / 'set.md'
+        for record, status in ((nested_open, 'active'), (nested_planned, 'planned'), (archived, 'closed')):
+            record.parent.mkdir(parents=True)
+            record.write_text(f'# Wave\n\nStatus: {status}\n')
+            record.with_name('notes.md').write_text('before\n')
+        # Records named by the renamed vocabulary only; the shipped name is now
+        # an ordinary document, so the old open record no longer counts.
+        with patch.object(record_paths, 'NESTED', True), \
+                patch.object(record_paths, 'ARCHIVE_ROOT', 'docs/archive'), \
+                patch.object(vocabulary_profile, 'RECORD_FILENAME', 'set.md'):
+            def publish():
+                for record in (nested_open, nested_planned, archived):
+                    record.with_name('notes.md').write_text('after\n')
+            ret, out, err = self._external_main(['--no-cache'], publish)
+        self.assert_refused(ret, out, err, self.rel(nested_open.with_name('notes.md')))
+        self.assertEqual(self.tolerated(out), sorted([self.rel(nested_planned.with_name('notes.md')),
+                                                      self.rel(archived.with_name('notes.md'))]))
+
+    def test_policy_paths_match_their_producers(self):
+        import reconcile_scan
+        from wave_lint_lib import constants
+        self.assertEqual(run_tests._POLICY_FILES, frozenset(_POLICY_PATHS))
+        self.assertEqual(reconcile_scan.WORKFLOW_CONFIG_REL, 'docs/workflow-config.json')
+        self.assertEqual(reconcile_scan.DISPOSITIONS_REL, 'docs/reconcile-dispositions.json')
+        self.assertEqual(constants.SCAN_RULES_PROJECT_PATH, 'docs/scan-rules.toml')
+        # No constant exists for these two; pin the producers' own spelling.
+        self.assertIn('(Path(root) / "docs" / "contributors.json")',
+                      (SCRIPTS_DIR / 'operator_identity.py').read_text(encoding='utf-8'))
+        self.assertIn('root / "docs/repo-profile.json"', (SCRIPTS_DIR / 'project_stats.py').read_text(encoding='utf-8'))
+        self.assertEqual(run_tests._DOCS_ROOT_REL + '/', 'docs/')
+        # Generated output stays tolerated.
+        self.assertNotIn('docs/scan-findings.json', run_tests._POLICY_FILES)
+
+
+class DocumentationToleranceFailsClosedTests(DocumentationToleranceBase):
+    """Change 23nqu, AC-4: an undeterminable open-wave set tolerates nothing."""
+
+    def _refuses_the_handoff(self):
+        ret, out, err = self._external_main(['--no-cache'], lambda: self.handoff.write_text('changed\n'))
+        self.assert_refused(ret, out, err, self.rel(self.handoff))
+        self.assertIn('Documentation tolerance is off for this run', err)
+        self.assertEqual(self.tolerated(out), [])
+
+    def test_unreadable_layout_refuses_through_the_classifier(self):
+        # The worker launch fails every file when the layout itself is
+        # invalid, so a full run cannot isolate this branch. Drive the end-of-
+        # run comparison on real snapshots instead, with the control first.
+        before = run_tests.repo_state_snapshot(self.repo)
+        self.assertTrue(before.layout_known)
+        self.handoff.write_text('changed\n')
+        self.assertIsNone(run_tests._stray_artifact_failure([], before, self.repo))
+        self.assertEqual(run_tests._LAST_TOLERATED_CHANGES, [self.rel(self.handoff)])
+        self.handoff.write_text('# Handoff\n\nBefore.\n')
+        with patch.object(run_tests, '_record_layout', return_value=None):
+            before = run_tests.repo_state_snapshot(self.repo)
+        self.assertFalse(before.layout_known)
+        self.handoff.write_text('changed again\n')
+        message = run_tests._stray_artifact_failure([], before, self.repo)
+        self.assertIsNotNone(message)
+        self.assertIn(self.rel(self.handoff), message)
+        self.assertIn('the record layout could not be read', message)
+        self.assertEqual(run_tests._LAST_TOLERATED_CHANGES, [])
+
+    def test_unreadable_matcher_refuses_a_full_run(self):
+        with patch.object(run_tests, '_wave_record_matcher', return_value=None):
+            self._refuses_the_handoff()
+
+    def test_unparseable_status_refuses_a_full_run(self):
+        good = self.planned_record.read_bytes()
+        variants = {'unknown value': b'# Wave\n\nStatus: someday\n',
+                    'no status line': b'# Wave\n\nNo status here.\n',
+                    'two status lines': b'# Wave\n\nStatus: planned\nStatus: planned\n',
+                    'not utf-8': b'# Wave\n\nStatus: planned\n\xff\xfe\n'}
+        for name, data in variants.items():
+            with self.subTest(variant=name):
+                self.planned_record.write_bytes(data)
+                self._refuses_the_handoff()
+                self.handoff.write_text('# Handoff\n\nBefore.\n')
+        self.planned_record.write_bytes(good)
+        # Spaces and backticks around a known status are accepted.
+        self.planned_record.write_text('# Wave\n\nStatus: ` planned `\n')
+        ret, out, err = self._external_main(['--no-cache'], lambda: self.handoff.write_text('changed\n'))
+        self.assertEqual(ret, 0, out + err)
+
+    def test_unreadable_or_linked_record_refuses_a_full_run(self):
+        # The same branch: a record with no captured bytes.
+        linked = self.tmp / 'linked-record.md'
+        linked.write_bytes(self.planned_record.read_bytes())
+        self.planned_record.unlink()
+        self.planned_record.symlink_to(linked)
+        with self.subTest(case='link'):
+            self._refuses_the_handoff()
+        self.planned_record.unlink()
+        self.planned_record.write_bytes(linked.read_bytes())
+        self.handoff.write_text('# Handoff\n\nBefore.\n')
+        if os.name == 'nt' or os.geteuid() == 0:
+            return
+        self.planned_record.chmod(0)
+        try:
+            with self.subTest(case='unreadable'):
+                self._refuses_the_handoff()
+        finally:
+            self.planned_record.chmod(0o644)
 
 
 class RenamedBookkeepingProfileTests(unittest.TestCase):

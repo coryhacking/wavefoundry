@@ -10,6 +10,8 @@
 
 Our vision is an **autonomous engineering laboratory** that gives a small team the capacity of an exceptional engineering organization: independently tested outcomes, continuity across contributors and tools, and the knowledge needed to care for the result. People retain control of purpose, consequential tradeoffs and authority. This is the destination; today's product supplies the local harness, planning workflows, code intelligence, review evidence and handoffs that support it. See the [Vision and Roadmap](VISION.md).
 
+**Wavefoundry is a spec-driven development framework.** A *spec* plans one change: why it is needed, what it must do, what is in scope and how success is tested. A *wave* bundles the changes its specs describe, reviews them against recorded evidence and closes them together. Durable descriptions of implemented, tested behavior live separately as *behavior contracts* under `docs/specs/`. Waves, review evidence and enforced gates are what Wavefoundry adds to the method.
+
 Wavefoundry runs locally. There is no required hosted service, account or telemetry.
 
 An installed, qualified local Tensorwell service can optionally share the pinned embedding
@@ -25,13 +27,24 @@ and reranking models. MCP startup can start its existing configuration in the ba
 
 Start with code intelligence or a bounded change. Add longer-horizon planning when the work needs it; a small fix does not need a new hierarchy.
 
+### Coming from Spec Kit or OpenSpec
+
+If you already work spec-first, the documents map across like this. The Spec Kit and OpenSpec cells were checked against each project's official documentation on 2026-11-16; both tools change, so treat them as a starting point.
+
+| What it is | Wavefoundry | Spec Kit | OpenSpec |
+| --- | --- | --- | --- |
+| The document that plans one piece of work | A **spec**: one file, `docs/plans/<id>.md`, moved into its wave folder on admission | A feature directory `specs/<feature>/` holding `spec.md`, `plan.md` and `tasks.md` | A change proposal folder `openspec/changes/<name>/` holding `proposal.md`, delta specs, `design.md` and `tasks.md` |
+| The durable description of current behavior | A **behavior contract** under `docs/specs/` | None mandated; the team chooses what happens to the feature documents after delivery, and the constitution persists | Main specs under `openspec/specs/` |
+| The unit that is reviewed and delivered together | A **wave**: one or more changes, readied, reviewed and closed as a bundle | No core equivalent found | No equivalent found |
+| What happens when the work is done | The spec stays in its closed wave folder as the record | Left to the team's retention policy | The change folder is archived and its deltas merge into the main specs |
+
 ---
 
 ## What you get
 
-**A path from vision to delivery.** `Envision project` establishes the product destination and an adaptable roadmap. Optional `Plan arc` records a bounded outcome that can span multiple waves. `Plan change` defines the individual changes, and waves carry those changes through implementation and review. Horizons describe progress toward the vision; arcs connect useful outcomes to the waves that advance them. These records support planning today; autonomous coordination of a program remains part of the roadmap.
+**A path from vision to delivery.** `Envision project` establishes the product destination and an adaptable roadmap. Optional `Plan arc` records a bounded outcome that can span multiple waves. `Plan spec` defines the individual changes, and waves carry those changes through implementation and review. Horizons describe progress toward the vision; arcs connect useful outcomes to the waves that advance them. These records support planning today; autonomous coordination of a program remains part of the roadmap.
 
-**A structured delivery lifecycle** — plan change(s) → prepare wave → implement → review → close. Two phases are enforced gates. `Prepare wave` refuses to advance an incomplete change doc. `Close wave` refuses without operator signoff.
+**A structured delivery lifecycle** — plan spec(s) → prepare wave → implement → review → close. Two phases are enforced gates. `Prepare wave` refuses to advance an incomplete spec. `Close wave` refuses without operator signoff.
 
 **A local MCP server with working knowledge of your codebase.** The same server that runs the lifecycle indexes your code and docs locally and exposes them as agent tools:
 
@@ -171,7 +184,7 @@ After `Install Wavefoundry` finishes, your repository has the following shape. I
 docs/
   prompts/           Public command catalog
   waves/             Wave records — your delivery history
-  plans/             Change docs being authored
+  plans/             Specs being authored
   architecture/      Architecture docs
   agents/            Agent role docs, memory records, session handoff
   references/        Long-form project references
@@ -186,9 +199,9 @@ Wavefoundry writes only to the paths above. The framework itself is committed so
 
 What each `docs/` subdirectory carries — the agent reads these to ground its work:
 
-- **`docs/prompts/`** — the catalog the agent looks up to route shortcut phrases (`Plan change`, `Create wave`, and the rest).
+- **`docs/prompts/`** — the catalog the agent looks up to route shortcut phrases (`Plan spec`, `Create wave`, and the rest).
 - **`docs/waves/`** — your delivery history. Each closed wave is a committed record of who decided what, who reviewed, and what shipped.
-- **`docs/plans/`** — staging area for change docs being authored before admission into a wave.
+- **`docs/plans/`** — staging area for specs being authored before admission into a wave.
 - **`docs/architecture/`** — domain map, layering rules, current-state snapshots, data/control flow, ADRs. The agent reads this before drafting plans so it doesn't violate boundaries.
 - **`docs/agents/`** — role docs (wave-coordinator, planner, reviewer specialists), persona definitions, typed memory records, and the session handoff file. The agent reads its own role description and any active watchpoints before each step.
 - **`docs/references/`** — durable project context: memory, known pitfalls, project overview.
@@ -213,14 +226,14 @@ If a required model cannot download, first retry `wf setup` when network access 
 
 Three turns of conversation, end to end. Step 3 includes a structural refusal you can't talk past — that's the point of the framework.
 
-Every `>` line below is a shortcut phrase; in Claude Code, Codex, and Antigravity you can equally type the matching skill (`/wf-plan-change`, `/wf-prepare-wave`, `/wf-implement-wave`, `/wf-close-wave` — see [Skills](#skills-the-lifecycle-as-slash-commands)). Same workflow, either way.
+Every `>` line below is a shortcut phrase; in Claude Code, Codex, and Antigravity you can equally type the matching skill (`/wf-plan-spec`, `/wf-prepare-wave`, `/wf-implement-wave`, `/wf-close-wave` — see [Skills](#skills-the-lifecycle-as-slash-commands)). Same workflow, either way.
 
 ### 1. Plan a change
 
 ```
-> Plan change: add /healthz endpoint to the API server
+> Plan spec: add /healthz endpoint to the API server
 
-[agent reads docs/architecture/, drafts the change doc]
+[agent reads docs/architecture/, drafts the spec]
 
 Agent: I've drafted docs/plans/12abc-feat add-healthz-endpoint.md
 with Rationale, Requirements, Acceptance Criteria, Tasks, and Risks.
@@ -229,7 +242,7 @@ Want me to admit it into a new wave?
 > yes, create a wave for it
 ```
 
-The agent created a *change doc* (the planning artifact for one unit of work) and is ready to roll it into a *wave* (the delivery unit that admits one or more changes).
+The agent created a *spec* (the planning artifact for one unit of work) and is ready to roll it into a *wave* (the delivery unit that admits one or more changes).
 
 ### 2. Create wave, admit, prepare
 
@@ -242,14 +255,14 @@ Agent: Created docs/waves/12abd api-healthz/wave.md. Admitting 12abc...
 > Prepare wave
 
 Agent: Running readiness checks…
-       - Change docs complete: ✓
+       - Specs complete: ✓
        - AC priority recorded: ✓
        - Required review lanes selected: code-review, qa-review: ✓
        - Wave Council readiness review: PASS
        Wave status: planned and readied. Implement wave next.
 ```
 
-`Prepare wave` is a real gate. Docs-lint must pass. Every admitted change doc must be complete. AC priority must be recorded. When configured, a structured council review must record `council-readiness`. Only then is the wave **readied** — it stays `planned`; a separate, single-OPEN-gated step (`Implement wave`) opens it to `active`/`implementing`. Any number of waves can be planned and readied in parallel; only one may be OPEN at a time.
+`Prepare wave` is a real gate. Docs-lint must pass. Every admitted spec must be complete. AC priority must be recorded. When configured, a structured council review must record `council-readiness`. Only then is the wave **readied** — it stays `planned`; a separate, single-OPEN-gated step (`Implement wave`) opens it to `active`/`implementing`. Any number of waves can be planned and readied in parallel; only one may be OPEN at a time.
 
 ### 3. Implement, review, close
 
@@ -286,7 +299,7 @@ That first-attempt refusal is the point. `wf_close_wave` blocks structurally —
 
 ### Lifecycle
 
-A change doc enters the pipeline by being admitted into a wave. The wave moves through five phases — **plan change(s)**, **prepare wave**, **implement**, **review**, **close** — and two of those phases are *enforced gates*:
+A spec enters the pipeline by being admitted into a wave. The wave moves through five phases — **plan spec(s)**, **prepare wave**, **implement**, **review**, **close** — and two of those phases are *enforced gates*:
 
 - **`Prepare wave`** blocks until docs lint passes. AC priority must be recorded on every admitted change. When configured, a structured council readiness review must be recorded.
 - **`Close wave`** blocks until every required reviewer lane has recorded a signoff and the operator has confirmed closure.
@@ -295,15 +308,15 @@ The agent cannot route around either gate. The transcript above shows what the r
 
 ### Waves
 
-A *wave* is the delivery unit. Work is admitted into a wave as one or more *change docs*, gated through `Prepare wave`, implemented through `Implement wave`, reconciled through `Review wave`, and sealed by `Close wave`.
+A *wave* is the delivery unit. Work is admitted into a wave as one or more *specs*, gated through `Prepare wave`, implemented through `Implement wave`, reconciled through `Review wave`, and sealed by `Close wave`.
 
 **Closest analogue:** a feature branch combined with a release notes draft. **Key difference:** the wave's lifecycle has *enforced gates* — the framework refuses to close when prerequisites aren't met, rather than relying on soft conventions.
 
-### Change docs
+### Specs
 
-A *change doc* is the structured planning artifact for one unit of work: Rationale, Requirements, Acceptance Criteria, Tasks, Risks, Decision Log.
+A *spec* is the structured planning artifact for one unit of work: Rationale, Requirements, Acceptance Criteria, Tasks, Risks, Decision Log.
 
-**Closest analogue:** a GitHub Issue plus a design doc plus an internal RFC. **Key difference:** the change doc lives next to the code in your repo (`docs/plans/` during planning, `docs/waves/<wave-id>/` after admission) and is what the agent reads, edits, and the framework lints.
+**Closest analogue:** a GitHub Issue plus a design doc plus an internal RFC. **Key difference:** the spec lives next to the code in your repo (`docs/plans/` during planning, `docs/waves/<wave-id>/` after admission) and is what the agent reads, edits, and the framework lints.
 
 ### Seeds
 
@@ -374,9 +387,9 @@ Hosts marked **skills** also receive the `/wf-…` lifecycle skills as project-l
 
 You'll use about six phrases day-to-day; the rest of the surface is there when you need it.
 
-- `Plan change` — author a change doc
+- `Plan spec` — author a spec
 - `Create wave` — open a delivery unit
-- `Add change to wave` — admit a change to the active wave
+- `Add spec to wave` — admit a change to the active wave
 - `Prepare wave` — readiness gate before implementation
 - `Implement wave` — coordinator-managed implementation loop with review lanes
 - `Close wave` — structured closure with operator signoff
@@ -389,13 +402,13 @@ You don't have to memorize the phrases. In hosts that support skills — **Claud
 
 | Skill | Same as saying |
 |---|---|
-| `/wf-plan-change` | `Plan change` (any kind: feature, bug fix, refactor, docs, …) |
-| `/wf-review-plan` | `Review plan` — optionally stress-test a change doc, or the current wave when none is named, before or after admission and before implementation; `Interrogate this plan` and `Stress-test this plan` remain phrase aliases |
+| `/wf-plan-spec` | `Plan spec` (any kind: feature, bug fix, refactor, docs, …) |
+| `/wf-review-plan` | `Review plan` — optionally stress-test a spec, or the current wave when none is named, before or after admission and before implementation; `Interrogate this plan` and `Stress-test this plan` remain phrase aliases |
 | `/wf-prepare-wave` | `Prepare wave` |
 | `/wf-implement-wave` | `Implement wave` |
 | `/wf-review-wave` | `Review wave` |
 | `/wf-close-wave` | `Close wave` |
-| `/wf-close-change` | `Close change`: close one reviewed change inside the open wave with `wf_close_change`; never closes the wave |
+| `/wf-close-spec` | `Close spec`: close one reviewed change inside the open wave with `wf_close_change`; never closes the wave |
 | `/wf-pause-wave` | `Pause wave` — park session state in the handoff |
 | `/wf-council` | Convene an on-demand review: Wave Council, Archetype Council, or a standalone Red-team review |
 | `/wf-evaluate-decision` | `Evaluate decision` — ADR-shaped comparison of two options |
@@ -435,7 +448,7 @@ Install, drive a small wave end-to-end, and decide whether the discipline fits y
 
 ### Lock-in 
 
-All planning artifacts (change docs, wave records) are Markdown in your `docs/` tree. They're readable, grep-able, and survive Wavefoundry being deleted. The semantic index in `.wavefoundry/index/` is regenerable from source. Removing Wavefoundry is `rm -rf .wavefoundry/` plus `rm .mcp.json AGENTS.md CLAUDE.md` if you don't want the host shims — your `docs/` directory still tells the story of what was shipped.
+All planning artifacts (specs, wave records) are Markdown in your `docs/` tree. They're readable, grep-able, and survive Wavefoundry being deleted. The semantic index in `.wavefoundry/index/` is regenerable from source. Removing Wavefoundry is `rm -rf .wavefoundry/` plus `rm .mcp.json AGENTS.md CLAUDE.md` if you don't want the host shims — your `docs/` directory still tells the story of what was shipped.
 
 ### Security 
 

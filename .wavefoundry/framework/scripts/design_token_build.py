@@ -11,7 +11,7 @@ design-system pipeline. It reads the DTCG token source under
     exports/ts/tokens.ts          Typed token constants (per-mode maps)
     exports/json/tokens.json      Flat resolved key -> value map (aliases resolved)
 
-Design constraints (see change doc 12atj):
+Design constraints (see spec 12atj):
 
 * **Extract, don't invent.** Every emitted value is derived from the DTCG
   source. Nothing is hand-authored or defaulted.

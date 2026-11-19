@@ -1,10 +1,10 @@
-# 230 - Author Spec
+# 230 - Author Behavior Contract
 
 **Applicable when:** the project has `docs/specs/*.md` behavioral contracts being authored or modified. Universal authoring lane.
 
 Intent:
 
-- Derive and write a durable behavior contract (spec) for a stable system boundary, API, or security-critical component — based on code evidence rather than design intent.
+- Derive and write a durable behavior contract for a stable system boundary, API, or security-critical component — based on code evidence rather than design intent.
 
 When to use:
 
@@ -13,19 +13,19 @@ When to use:
 - A new instrumentation module is added and its attribute output contract needs to be declared.
 - An existing component's behavior has been audited and verified in code.
 
-Do NOT use for in-flight change work — that belongs in a consolidated change document (`docs/plans/`). Specs are for stable contracts that are already implemented and tested.
+Do NOT use for in-flight change work — that belongs in a consolidated spec (`docs/plans/`). Behavior contracts describe stable boundaries that are already implemented and tested.
 
 ## Prerequisites
 
-Before authoring a spec, verify:
+Before authoring a behavior contract, verify:
 
 1. The component's behavior is observable in source code (not just comments or design docs).
 2. The component has unit or integration tests that define or confirm the behavior — cross-reference the test file.
-3. No existing spec in `docs/specs/` already covers this component (check `docs/specs/` index or README).
+3. No existing behavior contract in `docs/specs/` already covers this component (check `docs/specs/` index or README).
 
 ## Tasks
 
-### 1. Identify the component to spec
+### 1. Identify the component to document as a behavior contract
 
 Determine the exact scope:
 
@@ -45,23 +45,23 @@ Read the production source file(s) end-to-end. Do not rely on comments alone —
 - Caching model (cache sizes, eviction policy, cache invalidation triggers)
 - Date/string formatting patterns (copy exact format strings)
 
-Cross-reference the test file (`*Test.java`, `*Spec.groovy`, etc.) to identify behaviors that tests enforce — those are especially stable and spec-worthy.
+Cross-reference the test file (`*Test.java`, `*Spec.groovy`, etc.) to identify behaviors that tests enforce — those are especially stable and behavior-contract-worthy.
 
-### 3. Determine spec type and placement
+### 3. Determine behavior contract type and placement
 
 - Simple utility (validator, serializer, formatter) → single file, `docs/specs/<slug>.md`
 - Multi-class boundary (e.g., a subsystem's public API) → single file describing the boundary, not each class
 - Attribute key contract (span output) → `docs/specs/span-attribute-keys.md` or extend it
 - Configuration contract → `docs/specs/configuration-properties.md` or extend it
 
-Do not create one spec file per class unless the classes represent distinct, independently-consumed contracts.
+Do not create one behavior contract file per class unless the classes represent distinct, independently-consumed contracts.
 
-### 4. Write the spec
+### 4. Write the behavior contract
 
 Use this structure:
 
 ```markdown
-# Spec: <Component Name>
+# Behavior Contract: <Component Name>
 Owner: <team>
 Status: current
 Last verified: <YYYY-MM-DD>
@@ -77,8 +77,8 @@ One paragraph: what does this component do, why does it exist, who depends on it
 
 ## Scope
 
-**In scope:** what this spec covers.
-**Out of scope:** what it explicitly does not cover (with cross-references to other specs).
+**In scope:** what this behavior contract covers.
+**Out of scope:** what it explicitly does not cover (with cross-references to other behavior contracts).
 
 ## [Primary behavior sections]
 
@@ -89,20 +89,20 @@ Use plain prose for: semantics, security guarantees, threat mitigations.
 
 ## Change triggers
 
-Bullet list of conditions under which this spec must be updated.
+Bullet list of conditions under which this behavior contract must be updated.
 ```
 
-Spec quality bar:
+Behavior contract quality bar:
 
-- A reviewer unfamiliar with the codebase can confirm correctness by reading the spec, then reading the source.
+- A reviewer unfamiliar with the codebase can confirm correctness by reading the behavior contract, then reading the source.
 - All numeric limits and string constants are copied exactly from source (not paraphrased).
 - Security properties (what the component prevents, what it guarantees) are explicitly stated.
 - Thread-safety and lifecycle guarantees are explicit.
-- The spec says what is NOT in scope so readers know where else to look.
+- The behavior contract says what is NOT in scope so readers know where else to look.
 
-### 5. Update the specs index
+### 5. Update the behavior contracts index
 
-After writing the spec, update `docs/specs/README.md` (or create it if absent) to add the new spec to the index table. Each row: title linked to the spec file, component name, one-line summary of coverage. See existing rows in `docs/specs/README.md` for the format.
+After writing the behavior contract, update `docs/specs/README.md` (or create it if absent) to add the new behavior contract to the index table. Each row: title linked to the behavior contract file, component name, one-line summary of coverage. See existing rows in `docs/specs/README.md` for the format.
 
 ### 6. Resolve missing-docs entries
 
@@ -110,29 +110,29 @@ If `docs/missing-docs.md` listed this component as a documentation gap, move the
 
 ### 7. Update cross-references
 
-Check whether any of these docs reference the newly-specced component without a link:
+Check whether any of these docs reference the newly documented component without a link:
 
 - `docs/SECURITY.md`
 - `docs/architecture/threat-model.md`
 - `docs/architecture/domain-map.md`
 - `docs/architecture/data-and-control-flow.md`
 
-Add links to the new spec where relevant. Do not rewrite those docs — just add the link.
+Add links to the new behavior contract where relevant. Do not rewrite those docs — just add the link.
 
-*Consider **Archetype review** on the spec's interface contracts and acceptance section when the spec is text-precision-heavy (boundary contracts, attribute key declarations, configuration schemas). Default seats: Sun Tzu, Yoda, Spock, Marcus Aurelius, Feynman — Spock and Marcus Aurelius are particularly load-bearing for spec invariants and time-axis stability. Optional and operator-invoked. Seed: `236-archetype-council.prompt.md`.*
+*Consider **Archetype review** on the behavior contract's interface contracts and acceptance section when the behavior contract is text-precision-heavy (boundary contracts, attribute key declarations, configuration schemas). Default seats: Sun Tzu, Yoda, Spock, Marcus Aurelius, Feynman — Spock and Marcus Aurelius are particularly load-bearing for behavior contract invariants and time-axis stability. Optional and operator-invoked. Seed: `236-archetype-council.prompt.md`.*
 
 ## Required outputs
 
-- `docs/specs/<slug>.md` — the spec file
+- `docs/specs/<slug>.md` — the behavior contract file
 - Updated `docs/specs/README.md` index
 - Updated `docs/missing-docs.md` if the component was listed as a gap
 - Cross-reference links added to architecture docs where appropriate
 
 ## Guardrails
 
-- Do not spec behavior that is not yet implemented or not yet tested.
+- Do not write a behavior contract for behavior that is not yet implemented or not yet tested.
 - Do not include internal implementation details that are not part of the observable contract (private helper method logic, internal algorithm choices).
 - Do not include design rationale or "why we built it this way" — that belongs in a decision record (`docs/architecture/decisions/`).
 - If a constant or limit is a magic number with no comments, note it as "unspecified rationale" rather than guessing.
-- A spec file covers a **stable boundary**, not an in-progress feature. If the behavior is actively changing, write the change document first and spec after stabilization.
-- Specs are not release notes. Do not list historical changes — only the current behavior.
+- A behavior contract file covers a **stable boundary**, not an in-progress feature. If the behavior is actively changing, write the spec first and write the behavior contract after stabilization.
+- Behavior contracts are not release notes. Do not list historical changes — only the current behavior.

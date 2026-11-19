@@ -1044,9 +1044,8 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
         self.assertEqual(rows, ())
         self.assertIn(
             "executed approval event cannot carry "
-            "integrity_checks.assertions_non_vacuous=false: affirm it honestly, "
-            "or do not record the claim as executed (for a specialist or council "
-            "approval: do not approve; record a finding or repair first)",
+            "integrity_checks.assertions_non_vacuous=false: affirm only checks actually "
+            "demonstrated; otherwise do not record the claim as executed.",
             "\n".join(errors),
         )
 
@@ -1060,9 +1059,8 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
         self.assertEqual(rows, ())
         self.assertIn(
             "executed finding event cannot carry "
-            "integrity_checks.known_bad_detected=false: affirm it honestly, "
-            "or do not record the claim as executed (for a specialist or council "
-            "approval: do not approve; record a finding or repair first)",
+            "integrity_checks.known_bad_detected=false: affirm only checks actually "
+            "demonstrated; otherwise do not record the claim as executed.",
             "\n".join(errors),
         )
 
@@ -5767,7 +5765,7 @@ class OperatorApprovalHonestAttestationTests(unittest.TestCase):
                     event["intent_fit"] = "establishes"
                 _rows, errors = self.build(event)
                 self.assertTrue(any("cannot carry integrity_checks.known_bad_detected=false" in e for e in errors), errors)
-                self.assertTrue(any("for a specialist or council approval: do not approve" in e
+                self.assertTrue(any("affirm only checks actually demonstrated" in e
                                     for e in errors), errors)
 
     def test_retry_fingerprint_treats_an_omitted_operator_default_as_spelled_out(self):
@@ -5906,13 +5904,13 @@ class OperatorApprovalHonestAttestationTests(unittest.TestCase):
         self.assertNotIn("If any boolean cannot be honestly affirmed, do not approve", seed_text)
         # Wave 21s6f AC-6: null means not applicable, agents do not ask, no "may carry false".
         self.assertEqual(seed_text.count(
-            "| Yes | Boolean, or `null` (not applicable) on an `operator-signoff` approval;"), 5)
+            "| Yes | Boolean, or `null` (not applicable) on an `operator-signoff` approval;"), 4)
         self.assertIn("Do not ask the operator for check values: omit `integrity_checks`", seed_text)
         self.assertIn("stores all five booleans as `null` (not applicable)", seed_text)
         self.assertNotIn("may carry `false` integrity checks", seed_text)
         self.assertNotIn("supplied with honest `false` values", seed_text)
-        self.assertIn("For a specialist or council approval, if any boolean cannot be honestly affirmed", seed_text)
-        self.assertIn("`operator-signoff` approval is the one exception", seed_text)
+        self.assertIn("Except for the specialist readiness case below", seed_text)
+        self.assertIn("`operator-signoff` approval has a separate exception", seed_text)
         server = (framework / "scripts" / "wf_server" / "server_impl.py").read_text(encoding="utf-8")
         self.assertIn("An ``operator-signoff`` approval is the exception", server)
         self.assertIn("Optional for an operator-signoff approval", server)
@@ -6026,3 +6024,41 @@ class FocusedRereviewTests(unittest.TestCase):
             self.assertTrue(brief["lanes"][0]["full_review_required"])
             self.assertIn("stale", " ".join(brief["lanes"][0]["limitations"]))
             self.assertFalse(brief["lanes"][0]["documents"])
+
+
+class DeliveryMembershipHelperTests(unittest.TestCase):
+    """Change 23q1g: the pure helpers behind the delivery membership rule."""
+
+    def test_closed_uses_the_lint_predicate(self):
+        for text, closed in (
+            ("# Wave\nStatus: closed\n", True),
+            ("# Wave\nstatus:   CLOSED  \n", True),
+            ("# Wave\nStatus: completed\n", False),
+            ("# Wave\nStatus: implementing\n", False),
+            ("# Wave\nStatus: closed later\n", False),
+            ("", False),
+            (None, False),
+        ):
+            with self.subTest(text=text):
+                self.assertIs(subject.wave_record_closed(text), closed)
+
+    def test_change_set_data_is_the_receipt_change_list(self):
+        receipt = {"policy_inputs": {"changes": [{"change_id": "a"}, {"change_id": "b"}]}}
+        self.assertEqual(subject.receipt_change_ids(receipt), frozenset({"a", "b"}))
+        self.assertEqual(subject.receipt_change_ids({"policy_inputs": {"changes": []}}), frozenset())
+        for no_data in (None, {}, {"policy_inputs": None}, {"policy_inputs": {"changes": "x"}}):
+            with self.subTest(receipt=no_data):
+                self.assertIsNone(subject.receipt_change_ids(no_data))
+
+    def test_the_receipt_in_force_is_the_last_one_before_the_approval(self):
+        def receipt(rid, ids):
+            return {"record_type": "review_policy_receipt", "receipt_id": rid,
+                    "policy_inputs": {"changes": [{"change_id": i} for i in ids]}}
+        rows = (receipt("r1", ["a"]), receipt("r2", ["a", "b"]), {"record_type": "approval"},
+                receipt("r3", ["a", "b", "c"]))
+        self.assertEqual(subject.delivery_approval_admissions(rows, 2, rows[3]), ("c",))
+        self.assertEqual(subject.delivery_approval_admissions(rows, 2, rows[1]), ())
+        self.assertEqual(subject.delivery_approval_admissions(rows, 0, rows[3]), (), "no earlier receipt")
+        self.assertEqual(subject.delivery_approval_admissions(rows, 2, None), ())
+        renamed = (receipt("r1", ["a-old"]), {"record_type": "approval"}, receipt("r2", ["a-new"]))
+        self.assertEqual(subject.delivery_approval_admissions(renamed, 1, renamed[2]), ("a-new",))

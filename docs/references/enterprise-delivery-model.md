@@ -4,7 +4,7 @@
 
 Owner: Engineering
 Status: draft
-Last verified: 2026-11-10
+Last verified: 2026-11-18
 
 ---
 
@@ -69,7 +69,7 @@ This document describes how to apply Wavefoundry inside a four-tier delivery hie
   ┌─────────────────────────────────────────────────────┐
   │  CHANGE                       JIRA: Story/Sub-task  │
   │  · enh · bug · maint · doc · debt · ref · and more  │
-  │  · change doc · acceptance criteria · tasks         │
+  │  · spec · acceptance criteria · tasks         │
   └─────────────────────────────────────────────────────┘
 ```
 
@@ -195,11 +195,11 @@ In practice, most Cycles run 2–4 months because strategic objectives tend to h
 
 ### Change
 
-**What it is:** A sub-wave work item. A Change is the unit of implementation — a scoped piece of work with a change doc, acceptance criteria, and a defined kind (`bug`, `enh`, `maint`, `doc`, `debt`, `ref`, `task`, `ops`, `change`). The `feat` kind is retired for new change docs and stays valid for existing ids: a feature usually spans several changes, possibly across waves.
+**What it is:** A sub-wave work item. A Change is the unit of implementation — a scoped piece of work with a spec, acceptance criteria, and a defined kind (`bug`, `enh`, `maint`, `doc`, `debt`, `ref`, `task`, `ops`, `change`). The `feat` kind is retired for new changes and stays valid for existing ids: a feature usually spans several changes, possibly across waves.
 
 **JIRA analogue:** Story or Sub-task, depending on the parent Wave's JIRA level.
 
-**Artifacts:** Fully defined by the Wave Framework — change doc at `docs/plans/<change-id>.md`, admission into a Wave, progress tracking via tasks.
+**Artifacts:** Fully defined by the Wave Framework — spec at `docs/plans/<change-id>.md`, admission into a Wave, progress tracking via tasks.
 
 **Decision changes:** A Change of kind `change` is used for binding decisions that produce no immediate code — selecting a design direction, adopting a policy, recording a constraint. These are first-class Changes that can anchor a Wave, producing binding decisions that subsequent implementation Waves inherit.
 
@@ -217,7 +217,7 @@ JIRA is the system of record for stakeholder-facing tracking. The Wave Framework
 | Wave | Feature *or* Story | Feature when multi-Change; Story when single-Change |
 | Change | Story *or* Sub-task | Sub-unit of the Wave's objective |
 
-**Linking rule:** Every Wave has a JIRA Feature or Story ID as its anchor, recorded in `wave.md`. Every Change has a JIRA Story or Sub-task ID in its change doc. Swells reference JIRA Epics. Cycles reference the Investment Theme(s) they serve and are represented in JIRA as a Fix Version or labeled grouping.
+**Linking rule:** Every Wave has a JIRA Feature or Story ID as its anchor, recorded in `wave.md`. Every Change has a JIRA Story or Sub-task ID in its spec. Swells reference JIRA Epics. Cycles reference the Investment Theme(s) they serve and are represented in JIRA as a Fix Version or labeled grouping.
 
 **What lives where:**
 - *Status and stakeholder visibility* — JIRA
@@ -255,7 +255,7 @@ Cycle Open
     → Assign designated coordinator
 
     Wave lifecycle (for each Wave in the Swell)
-      → Plan change → Create wave → Add change → Prepare wave
+      → Plan spec → Create wave → Add spec to wave → Prepare wave
       → Implement → Review → Close
       (full Wave Framework lifecycle per docs/contributing/change-workflow.md)
 
@@ -434,7 +434,7 @@ The SDLC transformations achieving durable results share three characteristics:
 | Cycle | Manual artifact (`cycle.md`); `wave-dashboard` for portfolio visibility | No dedicated MCP tools yet; managed as a docs-tier artifact |
 | Swell | Manual artifact (`swell.md`); `wf_list_waves` to survey in-scope waves | Swell acts as a grouping label on wave docs |
 | Wave | Full MCP surface — `wf_create_wave`, `wf_current_wave`, `wf_prepare_wave`, `wf_implement_wave`, `wf_review_wave`, `wf_close_wave`, `wf_garden_docs`, `wf_audit`, `wf_validate_docs` | See `docs/prompts/index.md` for full command catalog |
-| Change | `wf_add_change`, `wf_get_change`, `wf_new_*` tools for each change kind | Change docs authored at `docs/plans/`; admitted into waves |
+| Change | `wf_add_change`, `wf_get_change`, `wf_new_*` tools for each change kind | Specs authored at `docs/plans/`; admitted into waves |
 
 The Wave Framework's full lifecycle governance — stage gates, reviewer lanes, Wave Council (when enabled), progress logs, journal watchpoints — applies at the Wave and Change tiers. Swell and Cycle tiers are lighter-weight: they govern narrative and outcome alignment, not implementation mechanics.
 

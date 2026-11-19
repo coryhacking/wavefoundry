@@ -269,6 +269,24 @@ class ReconciliationCLITests(guard.RepoGuardTestBase):
         self.refused(publish)
         self.assertIn("added/deleted", self.assert_refused())
 
+    def test_gate_closure_with_a_created_plan_stays_unreconcilable(self):
+        # Change 23nqu, AC-7: the created plan is tolerated by the guard, but
+        # the refused run's recovery record is built from the change list
+        # before tolerance, so reconcile still refuses it for the added file.
+        import record_paths
+        plan = self.repo / record_paths.PLANS_ROOT / "1abcf-enh new-plan.md"
+        plan.parent.mkdir(parents=True)
+        rel = plan.relative_to(self.repo).as_posix()
+        def publish():
+            self.close_and_edit()
+            plan.write_text("# New plan\n")
+        original = self.refused(publish)
+        self.assertIn(rel, original["recovery"]["guard_changed"])
+        self.assertIn(run_tests._GUARD_OVERRIDES_REL, original["recovery"]["guard_changed"])
+        reason = self.assert_refused()
+        self.assertIn("added/deleted", reason)
+        self.assertIn(rel, reason)
+
     def test_symlink_document_refuses(self):
         target = self.repo / "target.md"
         target.write_text("unrelated text")

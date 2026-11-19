@@ -173,7 +173,7 @@ class ReasoningSurfacingTests(_RepoCase):
         sha = self._commit("Land wave 1abcd: surfaced")
         v = cp.provenance_for_sha(self.root, sha)
         with_content = [r for r in v["provenance"] if r.get("decisions")]
-        self.assertTrue(with_content, "a change doc's Decision Log must be surfaced")
+        self.assertTrue(with_content, "a spec's Decision Log must be surfaced")
         row = with_content[0]
         self.assertIn("chose X over Y", "\n".join(row["decisions"]))
         self.assertIn("excerpt", row)  # content-bearing → credited by the metric census

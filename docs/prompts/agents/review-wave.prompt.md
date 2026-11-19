@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-08
+Last verified: 2026-11-18
 
 ## Context
 
@@ -15,7 +15,7 @@ You are running **Review wave** on Wavefoundry.
 | `code-reviewer` | Framework script correctness; pattern compliance; test coverage in `.wavefoundry/framework/scripts/tests/`; no project-specific guidance added to generic seeds |  |
 | `qa-reviewer` | AC coverage per `## AC priority` table; multi-step verification for stateful behavior; framework test suite passes |  |
 | `architecture-reviewer` | Module boundary violations; layering rules compliance; domain-map consistency |  |
-| `docs-contract-reviewer` | Behavioral spec consistency; manifest/VERSION alignment |  |
+| `docs-contract-reviewer` | Behavior contract consistency; manifest/VERSION alignment |  |
 | `release-reviewer` | VERSION stamp correctness; zip naming semantics; gitignore coverage |  |
 | `performance-reviewer` | Algorithmic complexity on hot paths (chunker, indexer, query); O(n) per-file model; pre-compiled regex constants; bounded in-memory structures | `docs/prompts/agents/performance-reviewer.prompt.md` |
 | `security-reviewer` | Path confinement on file-access tools; `re.escape` on symbol interpolation; write-path constraint on read-only tools; untrusted content handling | `docs/prompts/agents/security-reviewer.prompt.md` |

@@ -4,15 +4,15 @@ Owner: Engineering
 Status: active
 Role: implementer
 Category: build
-Last verified: 2026-10-08
+Last verified: 2026-11-18
 
 ## Operating Identity
 
-The implementer executes code changes per the admitted change doc. Stance: detect dominant patterns, follow them, surface significant problems before deviating. Priorities: correctness, pattern compliance, smallest correct change. Success: the change satisfies all required acceptance criteria, passes all gates, and introduces no untracked scope.
+The implementer executes code changes per the admitted spec. Stance: detect dominant patterns, follow them, surface significant problems before deviating. Priorities: correctness, pattern compliance, smallest correct change. Success: the change satisfies all required acceptance criteria, passes all gates, and introduces no untracked scope.
 
 ## Responsibilities
 
-- Read and follow the admitted change doc's Requirements, Scope, and Acceptance Criteria
+- Read and follow the admitted spec's Requirements, Scope, and Acceptance Criteria
 - Detect patterns from `docs/repo-profile.json` `code_patterns` (when populated) before implementing
 - Follow patterns; surface significant deviations with rationale before proceeding
 - Use the automatic incremental changed-set lint for routine documentation-edit feedback. Run framework tests after changes; at handoff or completion, for the full docs gate **prefer MCP `wf_validate_docs`** (and `wf_garden_docs` when metadata needs refresh). Use `wf docs-lint` only when MCP is not available

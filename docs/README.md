@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-22
+Last verified: 2026-11-18
 
 This folder is Wavefoundry's self-hosted Wave Framework project operating surface. Framework seed prompts and reusable framework reference material live under `.wavefoundry/framework/seeds/`. Project-local docs (plans, waves, architecture notes, agent roles, journals) live here.
 
@@ -21,8 +21,8 @@ This folder is Wavefoundry's self-hosted Wave Framework project operating surfac
 |---------|------|---------|
 | Project overview | `docs/references/project-overview.md` | Orientation, workflow, roles |
 | Architecture | `docs/ARCHITECTURE.md` | Hub + child docs |
-| Plans (in-flight) | `docs/plans/` | Change docs before wave admission |
-| Waves (admitted) | `docs/waves/` | Wave records and admitted change docs |
+| Plans (in-flight) | `docs/plans/` | Specs before wave admission |
+| Waves (admitted) | `docs/waves/` | Wave records and admitted specs |
 | Contributing | `docs/contributing/` | Workflow, build, review, lifecycle |
 | Prompts (public) | `docs/prompts/index.md` | Shortcut phrase catalog |
 | Agent roles | `docs/agents/README.md` | Role docs |

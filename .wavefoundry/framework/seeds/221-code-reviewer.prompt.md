@@ -25,7 +25,7 @@ Read the briefing packet. Identify which files are in scope, which acceptance cr
 
 ### Acceptance Criteria Coverage
 
-- For each required AC in the admitted change doc, identify which code change satisfies it.
+- For each required AC in the admitted spec, identify which code change satisfies it.
 - If a required AC has no corresponding code change, record it as a finding.
 - Do not treat "tests pass" as AC coverage unless you can connect specific tests to specific ACs.
 
@@ -57,7 +57,7 @@ For each finding, name the edge case or failure mode that produces the wrong out
 
 - **Error handling and failure paths** *(applies when: the change introduces or modifies `try/except`, error returns, exception types, or failure propagation)*. Are caught exceptions actually expected at this site, or is the `except` clause broad enough to swallow real bugs? Does the error path leave the system in a consistent state — no half-written files, no orphaned locks, no partial-write data, no in-memory state that contradicts on-disk state? Is the error reported in a form the caller can act on (a typed exception, an error code, a structured response), or only logged and forgotten?
 - **Suppressed failures** *(applies when: the change touches tests, assertions, lint or type configuration, timeouts, thresholds, or checks)*. Does any change make a failure disappear without fixing its cause: a skip or expected-failure mark, a loosened assertion, an ignore comment, a raised threshold, or a deleted check? A suppression with no evidence that the check itself was wrong is a finding.
-- **Compiler and type-checker workarounds** *(applies when: the change touches a statically checked language; otherwise state a reasoned N/A)*. Check whether each new copy, field check-out, runtime-checked cell or unchecked cast works around the data design. Copies in loops or request paths need a stated reason. Assess several workarounds on one type together; raise a finding when their combined design or cost is unsupported, even if each looks acceptable alone. Use the existing **Suppressed failures** check for suppressions.
+- **Compiler and type-checker workarounds** *(applies when: the change touches a statically checked language; otherwise state a reasoned N/A)*. Check whether each new copy, field check-out, runtime-checked cell or unchecked cast works around the data design. Copies in loops or request paths need a stated reason. Assess several workarounds on one type together; raise a finding when their combined design or cost is unsupported, even if each looks acceptable alone. Use the existing **Suppressed failures** check for suppressions. For Rust, review the change against the project's record, `docs/contributing/rust-best-practices.md`, citing the row, or state a reasoned N/A when the project has no record; check a row's claimed verification rather than assuming it from the presence of the row.
 - **Resource cleanup on every exit** *(applies when: the change opens files, acquires locks, spawns subprocesses, opens network connections, or starts background tasks)*. Are resources released on every code path including exceptions and early returns (`with` / `try/finally` / context managers)? Does every subprocess have a timeout, or could it hang and freeze the gate it's running under? Are background tasks tracked and joined, or could they outlive the process that spawned them?
 - **Diagnostic quality** *(applies when: the change adds logging, error messages, warnings, or any operator-visible output)*. Does the diagnostic message name the file, path, or symbol the operator can act on — or does it report a symptom without naming the cause? When a recurring diagnostic fires every cycle, does the code distinguish first-time from every-time (rate-limit, "fired N times in the last hour"), or does the operator learn to ignore it? Are stack traces preserved for unexpected errors — don't catch-and-re-raise without `from e`.
 - **Boundary arithmetic** *(applies when: the change touches slices, ranges, indexes, "first N" / "last N" operations, numeric arithmetic, or time arithmetic)*. Off-by-one is the canonical class — slices, ranges, and bounded operations. Edge cases to test explicitly: empty collection, single element, max-size collection, exact-boundary values. Float comparison with `==` or `<` (use tolerance, rounding, or an integer representation). Time arithmetic with timezones, daylight-saving transitions, and monotonic-vs-wall-clock distinctions.
@@ -66,7 +66,7 @@ For each finding, name the edge case or failure mode that produces the wrong out
 
 ### Multi-Site Consistency
 
-- When two functions implement the same policy, compare them for symmetry unless the change doc records an intentional difference.
+- When two functions implement the same policy, compare them for symmetry unless the spec records an intentional difference.
 - New helpers must follow the same pattern as existing helpers in the same module.
 
 ### Test Coverage

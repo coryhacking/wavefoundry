@@ -2490,7 +2490,7 @@ class PromptChunkerTests(unittest.TestCase):
     def test_seed_kind_takes_priority_over_prompt_suffix(self):
         # .prompt.md files under seeds/ stay kind="seed"
         source = "# Seed Prompt\n\n## Context\n\nFramework seed.\n"
-        chunks = self._chunks(source, ".wavefoundry/framework/seeds/170-plan-change.prompt.md")
+        chunks = self._chunks(source, ".wavefoundry/framework/seeds/170-plan-spec.prompt.md")
         non_summary = [c for c in chunks if c.kind != "doc-summary"]
         self.assertTrue(all(c.kind == "seed" for c in non_summary))
 
@@ -3445,7 +3445,7 @@ class MarkdownStructuralUnitDecompositionTests(unittest.TestCase):
 class TableDecompositionTests(unittest.TestCase):
     """AC-5, AC-13: pipe-table per-row decomposition with header row preserved
     on every emitted chunk. Real-world target: Decision Log / AC Priority /
-    Risks tables in change docs (committed tables reach 41K chars)."""
+    Risks tables in specs (committed tables reach 41K chars)."""
 
     @classmethod
     def setUpClass(cls):
@@ -5198,7 +5198,7 @@ class SiblingInitializerCensusTests(unittest.TestCase):
     C# static constructors are captured by the existing constructor path (no fix needed).
     Kotlin `init` blocks are DROPPED by the current grammar-specific path — a different
     function (chunk_kotlin_treesitter) and grammar node than Java's, so it is a materially
-    separate mechanism, DEFERRED (see the change-doc Decision Log) rather than folded into
+    separate mechanism, DEFERRED (see the spec Decision Log) rather than folded into
     this Java-scoped change. Both are pinned with the grammar active (no line-window
     fallback, which would be no evidence)."""
 

@@ -10,7 +10,7 @@ copy of the scripts tree with the shipped vocabulary and
 ``EXTRA_CHANGE_KINDS = ()``, and the declared-kind case (AC-3) in one with
 ``("decision",)``, so each holds under any test profile.
 
-Wave 1zli8 (change 1zlhx) retires ``feat`` for new change docs: the default
+Wave 1zli8 (change 1zlhx) retires ``feat`` for new specs: the default
 grammar keeps it (AC-3, existing ``-feat`` ids lint unchanged), and
 ``RETIRED_CHANGE_KINDS`` is the one source of the retired set (AC-6, a scratch
 tree retiring ``bug`` instead).
@@ -361,7 +361,7 @@ class DeclaredKindTests(unittest.TestCase):
 
 
 class ExistingFeatIdsTests(unittest.TestCase):
-    """Wave 1zli8 AC-3: a plan, change doc and wave record using ``-feat`` lint
+    """Wave 1zli8 AC-3: a plan, spec and wave record using ``-feat`` lint
     clean under the default grammar, although ``feat`` is retired for new docs."""
 
     @classmethod
@@ -530,7 +530,7 @@ class UndeclaredKindTests(unittest.TestCase):
 
 class LoadedProfileDecisionKindTests(unittest.TestCase):
     """Requirement 7: under the loaded profile (``--profile second`` declares
-    ``decision``) a planted ``decision`` change doc lints clean; under a
+    ``decision``) a planted ``decision`` spec lints clean; under a
     profile that does not declare it, it lints by name."""
 
     def test_planted_decision_change_doc_under_the_loaded_profile(self):

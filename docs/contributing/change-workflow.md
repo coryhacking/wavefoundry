@@ -2,23 +2,23 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-19
+Last verified: 2026-11-18
 
 ## Default Change Path
 
 All non-trivial work follows this sequence. Do not edit repository code before step 4 (Prepare wave).
 
-1. **Plan change** — write a consolidated change doc at `docs/plans/<change-id>.md` using `docs/plans/plan-template.md`. Generate a change ID with the MCP `wave_new_<kind>` tool (it dedupes against on-disk IDs); CLI fallback when MCP is unavailable: `wf lifecycle-id --kind <kind> --slug <slug>`.
+1. **Plan spec** — write a consolidated spec at `docs/plans/<change-id>.md` using `docs/plans/plan-template.md`. Generate a change ID with the MCP `wave_new_<kind>` tool (it dedupes against on-disk IDs); CLI fallback when MCP is unavailable: `wf lifecycle-id --kind <kind> --slug <slug>`.
 2. **Create wave** — create `docs/waves/<wave-id>/wave.md`. Generate a wave ID with the MCP `wf_create_wave` tool; CLI fallback when MCP is unavailable: `wf lifecycle-id --kind wave --slug <slug>`.
-3. **Add change to wave** — admit the change into the wave and relocate the active change doc from `docs/plans/` into `docs/waves/<wave-id>/`.
+3. **Add spec to wave** — admit the change into the wave and relocate the active spec from `docs/plans/` into `docs/waves/<wave-id>/`.
 4. **Prepare wave** — confirm readiness: validate admitted-doc placement, repair any staged-only doc, confirm all admitted changes are documented, select review lanes, record AC priority. The wave must have a clean Prepare wave pass before implementation begins.
-5. **Implement wave / Implement change** — execute admitted changes and focused computational verification; use an exceptional named checkpoint only at a high-risk boundary.
+5. **Implement wave / Implement spec** — execute admitted changes and focused computational verification; use an exceptional named checkpoint only at a high-risk boundary.
 6. **Review wave** — after implementation evidence is complete, all required inferential lanes (code, QA, architecture, etc.) must produce findings or be explicitly deferred with rationale; blocking findings return to implementation.
-7. **Close change** (per change, optional) then **Close wave** (the only wave close): all changes implemented, complete, or deferred; validate memory candidates; promote memory to canonical docs; clear session handoff.
+7. **Close spec** (per change, optional) then **Close wave** (the only wave close): all changes implemented, complete, or deferred; validate memory candidates; promote memory to canonical docs; clear session handoff.
 
 ## Route implementation narration and amendments
 
-New change docs use Product Intent for who benefits, the observable before/after outcome and material boundaries, including framework, maintenance and documentation work. One sentence can suffice. Rationale explains why now, Requirements specify behavior, Scope bounds work, Tasks describe implementation and ACs provide proof. Name at least one AC or a clearly identified combination that tests whether the intent was established. Use the wave Objective for the shared outcome. Clarify intent during material plan revisions; do not bulk-convert existing records or rewrite closed records and ledgers. Legacy records remain readable and closable under existing gates.
+New specs use Product Intent for who benefits, the observable before/after outcome and material boundaries, including framework, maintenance and documentation work. One sentence can suffice. Rationale explains why now, Requirements specify behavior, Scope bounds work, Tasks describe implementation and ACs provide proof. Name at least one AC or a clearly identified combination that tests whether the intent was established. Use the wave Objective for the shared outcome. Clarify intent during material plan revisions; do not bulk-convert existing records or rewrite closed records and ledgers. Legacy records remain readable and closable under existing gates.
 
 For example, operators need reliable answers without extra waiting: an implementation may replace a planned cache with a simpler bounded lookup while preserving that intent, provided it stays within existing scope and amendment, re-Prepare and authorization rules. Conversely, all renderer checks may pass for new agent instructions while improved agent adherence remains unestablished. Delivery proves the instructions arrived; observing behavior requires separate evidence. Intent grants no broader authority.
 
@@ -52,7 +52,7 @@ concern and must not be written as an acceptance criterion.
 The reason is locality. A criterion asserting whole-repository state measures the
 tree at a moment in time, so whether it can be marked depends on timing and on
 work owned by other people. Wave `1wpif` demonstrated both failure modes at once:
-three sibling change documents carried the same clause shape in three different
+three sibling specs carried the same clause shape in three different
 wordings, one was marked complete because the suite happened to be green when
 that lane finished, and two could not be marked at all because a *concurrent*
 wave's uncommitted document tripped a repository-wide test while `1wpif`'s own
@@ -74,7 +74,7 @@ fails validation; wave `1wuju` registered it advisory in the docs-lint sensor
 polarity registry, and wave `1yzj9` recorded the decision to keep it advisory),
 reading each AC bullet whole
 including its wrapped continuation lines and any loose-list continuation
-paragraph. It is scoped by wave `Status`, so it reaches only change documents in
+paragraph. It is scoped by wave `Status`, so it reaches only specs in
 a wave that is `ready`, `active`, or `implementing`, or that carries an explicit
 `Activated at:` line; closed records and parked `docs/plans/` drafts are never
 retroactively failed. The rule is deliberately asymmetric: it recognises a finite
@@ -83,7 +83,7 @@ unlisted repository-wide adjective (`untouched`, `prior`, `upstream`) passes
 silently and is left to review, while a compliant change-local criterion is never
 blocked; for a heuristic sensor the silent miss is the cheaper failure. Note that
 the incremental `--changed` lint the post-edit hook runs reaches the wave-owned
-AC validators only when `wave.md` itself is in the changed set, so a change-doc-only
+AC validators only when `wave.md` itself is in the changed set, so a spec-only
 edit gets its sensor signal from the full validation that Prepare, Review, and
 Close run, not from the hook.
 
@@ -92,7 +92,7 @@ deliberate — the wave that owns a criterion rewrites it — but it means reope
 an older wave can surface a lint warning on a document that was valid when
 it was authored. The fix is the one-line rewrite the diagnostic supplies, applied
 by the wave that owns the document. As of wave `1wuju` (re-derived by running the
-sensor over every change document in a non-closed wave, regardless of readiness,
+sensor over every spec in a non-closed wave, regardless of readiness,
 and over every parked plan), eight such criteria exist in this repository across
 four non-closed waves, plus five in parked plans. And `wf_close_wave`
 verifies the framework test receipt, so the whole-suite requirement stays
@@ -104,12 +104,12 @@ receipt stale, but the receipt is written only on a whole-suite pass, so a
 docs-triggered failure prevents a new one. A green receipt attests the framework
 code, not the tree.
 
-Canonical source: `.wavefoundry/framework/seeds/170-plan-change.prompt.md`,
+Canonical source: `.wavefoundry/framework/seeds/170-plan-spec.prompt.md`,
 *"Acceptance criteria assert what the change controls"*.
 
 ## Documentation-Only Changes
 
-Changes confined to `docs/` with no impact on framework behavior, seed prompts, or platform surfaces may skip the stage gate with an explicit operator waiver recorded in the session handoff or change doc.
+Changes confined to `docs/` with no impact on framework behavior, seed prompts, or platform surfaces may skip the stage gate with an explicit operator waiver recorded in the session handoff or spec.
 
 ## Git Commits
 

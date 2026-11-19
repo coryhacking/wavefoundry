@@ -1,0 +1,82 @@
+# Plan Spec
+
+Owner: Engineering
+Status: active
+Last verified: 2026-11-11
+
+Shortcut: **`Plan spec`** | Alias: **`Plan change`**
+
+## Purpose
+
+Author a consolidated spec at `docs/plans/<change-id>.md`. Wave admission and **Prepare wave** are required before implementation begins.
+
+**Brief before drafting:**
+
+Reuse the request, prior answers, and relevant project context before the Divergent Pre-Plan. Establish the relevant goal, consumer/audience, angle or approach, constraints, deliverable/format, exclusions, and observable success. Put why now in Rationale and the beneficiary, observable before/after outcome and material boundaries in Product Intent; summarize the brief to the operator before dependent drafting. For clear tasks, one concise sentence can suffice; do not require a field-filling interview or confirmation.
+
+Ask only questions whose answers materially change the result: at most three for small tasks and five for complex tasks per briefing pass, ceilings rather than quotas. Do not repeat known questions or restart a pass to evade the budget. State assumptions only for reversible implementation choices within established scope. Keep unresolved goal, scope, acceptance, or authorization decisions open until answered; pause dependent work and continue independent work while waiting. Silence is neither an answer nor approval. Reuse established durable preferences without creating another brief file.
+
+**Vision-to-plan bridge (when adopted):** Look first for a vision explicitly designated by the project (for example in `AGENTS.md` or the project overview) or directed by the operator. Git tracking is neither necessary nor sufficient: a designated uncommitted vision counts; a committed draft does not. Exclude unadopted, personal and draft visions. With no designation, root `VISION.md` is discovery-only: report it as available only when the request and already available project context make it plausibly relevant. Do not read it to decide relevance; consult it only if the operator directs. No vision means normal planning, without a new prerequisite or routine approval exchange.
+
+For an adopted vision, start with its opening, roadmap overview and relevant horizon; follow only references needed for consequential dependencies, constraints or conflicts, rather than reading the whole document by default. Identify which horizon and outcome the requested change advances, with relevant prerequisites and assumptions, in existing Product Intent or requirements. Do not select work or redirect the request to manufacture alignment. State legitimate nonalignment briefly; expose conflicts for operator decision before dependent drafting. **Delivery evidence informs horizon progress; recording it in the vision is an Envision revision or an explicit operator edit.** Met/missed exit evidence informs that revision; it does not authorize a changed destination or subsequent work. Plan spec leaves vision/review artifacts unchanged and adds no tracker, mandatory section or automatic write.
+
+**Arc context (when supplied):** Use the relevant arc record (or its distribution name, such as Epic) to identify how the requested change contributes and which consequential prerequisites apply, in existing Product Intent or requirements. Link to that record and recheck mutable facts against their current owners. It is not readiness authority. Do not redirect the request, rewrite arc progress or require Plan arc for ordinary changes.
+
+## Steps
+
+1. Clarify scope through discovery; classify by risk and blast radius.
+2. **Divergent Pre-Plan (required):** Before drafting the plan, execute a diverge → critique → select pass:
+   - **Diverge:** enumerate 2–3 distinct approaches differing in a meaningful assumption, strategy, or scope boundary — not just surface wording.
+   - **Critique:** for each approach, state its primary weakness or risk in one sentence. For an approach that adds or changes a mechanism, sensor or gate, apply the Mechanism efficacy questions under Code-grounded authoring before you select.
+   - **Select:** choose one approach and state in one sentence why it is preferred.
+   - Record the selected approach and the rejected alternatives (with weaknesses) in `## Decision Log`.
+3. Create the staged spec through MCP when available. The `feat` kind is retired for new changes (existing `feat` ids stay valid; `wf_new_feature` refuses and names `wf_new_enhancement`). A spec plans one scoped change that a single wave can close, so plan a large feature as several changes (usually `enh`), possibly across waves:
+   - `bug` → `wf_new_bug`
+   - `enh` → `wf_new_enhancement`
+   - `ref` → `wf_new_refactor`
+   - `change` → `wf_new_change`
+   - `doc` → `wf_new_documentation`
+   - `debt` → `wf_new_tech_debt`
+   - `task` → `wf_new_task`
+   - `maint` → `wf_new_maintenance`
+   - `ops` → `wf_new_operations`
+4. If MCP is unavailable, use the CLI fallback: `wf lifecycle-id --kind <kind> --slug <slug>`, then create `docs/plans/<change-id>.md` from `docs/plans/plan-template.md`.
+5. Author or refine the spec. Include:
+   - `## Rationale` — specific motivation a reviewer can understand
+   - `## Product Intent` — who benefits, the observable before/after outcome and material boundaries, for every kind including framework, maintenance and documentation. Describe the outcome rather than prescribe a mechanism. Rationale explains why now; Requirements specify behavior, Scope bounds work, Tasks describe implementation and ACs provide proof. Name at least one AC or a clearly identified combination that tests whether intent was established; renderer checks can prove delivered guidance, but improved agent behavior needs separate evidence.
+   - `## Requirements` — numbered behavioral requirements
+   - `## Scope` — in-scope / out-of-scope
+   - `## Acceptance Criteria` — testable outcomes written with stable checkbox identifiers: `- [ ] AC-1: <outcome>`, `- [ ] AC-2: <outcome>`, etc. Three checkbox states are canonical: `[ ]` (unmet, in scope), `[x]` (done), `[~]` (intentionally not met — operator-directed removal or scope-narrowing during implementation, with mandatory inline status note for required-priority ACs, written as `*Status: <reason>*`; a deferral lapses no readiness approval, and a delivery approval recorded before it is recorded again). See `.wavefoundry/framework/seeds/170-plan-spec.prompt.md` *"AC and task checkbox states — the `[~]` marker"* for the canonical convention. An acceptance criterion asserts an outcome **this change controls** and that a reviewer can verify from **this change's own evidence**; repository-wide or environment state (the whole test suite being green, machine load, another wave's artifacts, the state of files this change never touches) is a gate concern and must not be written as an AC. `docs-lint` runs an advisory sensor on specs in a readied, active, or implementing wave, or in any wave whose record carries an explicit `Activated at:` line (a paused wave that was once activated stays in scope): its findings are `WARNING:` lines that never fail validation, and it stays advisory by recorded decision (wave `1yzj9`); new docs-lint sensors ship advisory the same way, and a later recorded change either flips one to blocking on field data or records a decision to keep it advisory (the release checklist lists every advisory sensor without a recorded decision so the choice is made, not forgotten); it recognises a finite list of repository-scope words, so an unlisted repository-wide adjective passes silently to review while a compliant change-local criterion is never blocked. The diagnostic supplies the replacement sentence: write "the change's own suites and every test it adds pass; the documents this change authors or edits validate; and no failure elsewhere is attributable to this change" instead. See `.wavefoundry/framework/seeds/170-plan-spec.prompt.md` *"Acceptance criteria assert what the change controls"*.
+   - `## Tasks` — implementation checklist items written as checkboxes: `- [ ] <step>`. The `[~]` marker applies here too, with looser enforcement (no mandatory inline note).
+   - `## Affected architecture docs` — which architecture docs need updating, or N/A with rationale (required when the change crosses module boundaries, integration contracts, primary data/control paths, or test/release seams)
+   - if the operator's request clearly extends work already admitted into the current wave, prefer updating that existing change rather than creating a fresh one; extend that change's Acceptance Criteria and Tasks to capture the added scope, and create a new change only when the remaining work is materially different or should be tracked separately
+6. Surface assumptions explicitly; prefer one clarifying question over a wrong assumption.
+7. Note: **Review plan** is available as an optional stress-test of this spec, or of the current wave when no change is named, before or after admission and before implementation. **Interrogate this plan** and **Stress-test this plan** remain natural-language aliases. It records no typed signoff and satisfies no gate; **Review wave** is the distinct delivery-review lifecycle command.
+
+Code-grounded authoring (required; definition in seed-209, "Code-Grounded Verification"):
+
+- **Ports and rewrites:** when a change ports code between languages or rewrites a module, state the ownership and data model, the hot paths and what "equivalent" means in the existing spec sections. Tests and replay hashes can establish behavior parity; they do not prove design quality. Do not add a required heading for this guidance.
+- Before a claim about existing code enters `## Requirements`, `## Scope`, an Acceptance Criterion, or a `## Decision Log` rationale, verify it against the actual tree, and execute it where executable: render into the failing shape, call the dispatch path, run the census. Reading code and reasoning about it produces plausible, internally consistent, and false plans; every mechanism defect in the motivating incidents was killed by execution and none by argument.
+- Three claim shapes need the strongest evidence: "X already does Y" mechanism claims, "no other caller/site" censuses (run them with `limit=0`, state them exhaustively or narrow the claim to what the census supports), and a rationale that justifies a decision by a benefit (observe the benefit; a plan once kept a mechanism for behavior that never fired).
+- A load-bearing claim that cannot be executed is marked `inferred` or `unverified` in the plan, using seed-209's `execution_status` vocabulary, instead of asserted flatly. The reviewer then knows which premises the prepare council must probe first.
+- Write each Acceptance Criterion so that an implementation with the fix absent cannot satisfy it, and state the failing condition where it is not obvious. This is the authoring counterpart of the reviewer's known-bad rule in seed-209; an AC satisfiable by a no-op, or by documenting a defect the change itself introduces, is a defect in the plan.
+- **Mechanism efficacy:** before selecting an approach, test whether its mechanism will achieve the goal, in proportion to the change (one sentence for a small fix; each point for a new mechanism, sensor or gate): replay the motivating case through the mechanism and say whether it would catch or fix it; say whether the mechanism controls the outcome or only advises, and what makes someone act on the advice; name what it would flag wrongly, miss, or what would make it ignored; check whether existing data or an existing mechanism gives most of the value; and state how success will be measured after release. Record the answers with the selected approach in `## Decision Log`.
+
+### Plan shape and readiness repairs
+
+- A requirement naming a set the implementer must act on states the rule deriving that set; the derived set governs. Examples or a historical enumeration do not replace that rule.
+- An acceptance criterion names the observable outcome and kind of oracle. Exact mutation, known-bad and fixture mechanics are designed during implementation and judged at delivery; readiness verifies that the criterion can pass and can fail without prescribing those mechanics.
+- A readiness repair narrows or deletes a claim it cannot verify rather than elaborating it. Explicitly identify any new mechanism introduced by the repair as new review surface.
+
+## Stage Gate
+
+Use this prospectively for new plans and clarify intent concisely during an ordinary material revision of an existing plan. Existing Product Intent sections remain valid. Do not bulk-convert planned, readied, active or historical records, rotate other waves' receipts, or rewrite closed records and ledgers; legacy records remain readable and closable under existing gates.
+
+Repository code must not be edited until:
+1. This spec exists
+2. The change is admitted via **Create wave** / **Add spec to wave**
+3. **Prepare wave** has passed cleanly
+
+## Framework / Prompt-Surface Maintenance Plans
+
+When the change touches `docs/prompts/`, `AGENTS.md`, seed prompts, or hook configs, the plan must name intended file edits, protected surfaces, and read-only vs write-owning lanes before execution.

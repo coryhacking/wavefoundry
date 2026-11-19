@@ -22,7 +22,7 @@ Follow **`.cursor/rules/auto-guru.mdc`** (always-on Guru routing for code and do
 
 ## Key Guardrails
 
-- Stage gate before any code edit: change doc → wave admission → Prepare wave
+- Stage gate before any code edit: spec → wave admission → Prepare wave
 - Never commit without explicit operator instruction in the current session
 - Seed edits require `seed_edit_allowed` guard approval
 - Framework maintenance edits require `framework_edit_allowed` guard approval

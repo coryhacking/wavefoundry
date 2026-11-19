@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-11
+Last verified: 2026-11-18
 
 Reference doc for how target repositories declare custom data sources, port preferences, terminology, and file-activity scope for the local dashboard. The dashboard is a generic Wave Framework feature; this doc defines the knobs available to any seeded repo without forking the core UI or server.
 
@@ -59,7 +59,7 @@ The dashboard reads exclusively from Wave Framework doc conventions. There are n
 | Data domain | Source | Reader function |
 |---|---|---|
 | Wave status and progress | `docs/waves/<id>/wave.md` | `collect_waves` |
-| Change docs | `docs/waves/<id>/*.md`, `docs/plans/*.md` | `collect_changes` |
+| Specs | `docs/waves/<id>/*.md`, `docs/plans/*.md` | `collect_changes` |
 | Session handoff | `docs/agents/session-handoff.md` | `collect_dashboard_snapshot` |
 | Agent / persona / specialist info | `docs/agents/personas/`, `docs/agents/specialists/` | `collect_agents` |
 | Prompt count | `docs/prompts/prompt-surface-manifest.json` | `collect_dashboard_snapshot` |
@@ -114,7 +114,7 @@ Repos that do not use Wave Framework wave/plan conventions will see an empty das
 
 The v1 adapter model is config-driven, not plugin-driven. If a target repo needs to expose data not available in the Wave Framework conventions (e.g. a `TASKS.md` task tracker, CI test results, or a custom log file), the recommended approaches in priority order:
 
-1. **Model the data as Wave Framework docs.** If the data can be expressed as a wave, change doc, or progress log entry, the dashboard picks it up automatically with no extra config.
+1. **Model the data as Wave Framework docs.** If the data can be expressed as a wave, spec, or progress log entry, the dashboard picks it up automatically with no extra config.
 
 2. **Map to `include_dirs` for file activity.** If the primary signal needed is "how much activity happened in this directory today," add the directory to `include_dirs`. This is zero-code.
 

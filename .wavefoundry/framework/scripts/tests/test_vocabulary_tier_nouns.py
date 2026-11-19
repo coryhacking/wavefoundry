@@ -44,7 +44,7 @@ print(json.dumps(result))
 # Census (Progress Log of 2134r): every tier noun in SKILL_REGISTRY prose, as
 # exact spans per skill under the Set/Wave profile (container Set, item Wave).
 SET_WAVE_SPANS = {
-    "wf-plan-change": ["Plan a wave of any kind", "consolidated wave doc ready for set admission",
+    "wf-plan-spec": ["Plan a wave of any kind", "consolidated wave doc ready for set admission",
                        "# Plan a wave (", "by wave kind", "(wave doc, set admission, recorded readiness) is satisfied"],
     "wf-prepare-wave": ["Confirm a set's readiness", "# Prepare a set (", "recorded before the set readies",
                         "only one set may be OPEN"],
@@ -55,7 +55,7 @@ SET_WAVE_SPANS = {
     "wf-review-wave": ["Run the open set's required review lanes", "# Review a set ("],
     "wf-close-wave": ["Close and archive a set after", "# Close a set (", "Single wave: ",
                       "marks one wave `complete` inside the open set", "is still the only set close."],
-    "wf-close-change": ["Close one admitted wave inside the open set", "never closes the set (",
+    "wf-close-spec": ["Close one admitted wave inside the open set", "never closes the set (",
                         "is the only set close)", "# Close a wave (",
                         "has cleared the wave: a completed wave cannot be reopened",
                         "remains the only set close, whatever the wave count."],
@@ -69,6 +69,28 @@ SET_WAVE_SPANS = {
     "wf-plan-arc": ["bounded outcome across sets in a concise", "next useful set from relevant records",
                     "link to authoritative set evidence."],
 }
+
+# Change 23myn Requirement 10: the planning-document noun is "spec" under the
+# shipped item name, so these spans have their own default oracle instead of
+# the tier swap.
+DEFAULT_PLANNING_SPANS = {
+    "consolidated wave doc ready for set admission": "consolidated spec ready for wave admission",
+    "(wave doc, set admission, recorded readiness) is satisfied": "(spec, wave admission, recorded readiness) is satisfied",
+    "(wave doc, set admission, recorded readiness); mark ACs": "(spec, wave admission, recorded readiness); mark ACs",
+    "Review a wave doc, or the current set record when no wave is specified":
+        "Review a spec, or the current wave record when no change is specified",
+    "Review the named wave doc, or fall back to the current set record when no wave is specified":
+        "Review the named spec, or fall back to the current wave record when no change is specified",
+    "the optional wave-doc or current-set stress test": "the optional spec or current-wave stress test",
+}
+
+# The council skill's Boundary line, whose planning-document and container
+# nouns follow the profile since change 23myn (fixed words before it).
+DEFAULT_BOUNDARY = (
+    "- Boundary: the open wave's REQUIRED review lanes run under Review wave (`wf-review-wave`), "
+    "and a spec or current wave record gets Review plan (`wf-review-plan`; aliases: Interrogate this "
+    "plan, Stress-test this plan) before implementation; this router is for on-demand reviews outside both."
+)
 
 
 def _skills(profile: "dict | None") -> dict:
@@ -126,7 +148,8 @@ class SkillProseTests(unittest.TestCase):
         for name, spans in SET_WAVE_SPANS.items():
             text = "\n".join(self.default[name])
             for span in spans:
-                shipped = span.replace("set", "\0").replace("wave", "change").replace("\0", "wave")
+                shipped = DEFAULT_PLANNING_SPANS.get(span) or (
+                    span.replace("set", "\0").replace("wave", "change").replace("\0", "wave"))
                 with self.subTest(skill=name, span=shipped):
                     self.assertIn(shipped, text)
 
@@ -161,6 +184,44 @@ class SkillProseTests(unittest.TestCase):
             with self.subTest(literal=literal):
                 self.assertIn(literal, json.dumps(self.set_wave))
 
+    def test_council_boundary_line_follows_the_profile(self) -> None:
+        # Change 23myn Requirement 10: literal oracles for both profiles; the
+        # line used fixed words before, so it has no earlier renamed baseline.
+        self.assertIn(DEFAULT_BOUNDARY, self.default["wf-council"][1])
+        renamed = self.set_wave["wf-council"][1]
+        self.assertIn("- Boundary: the open set's REQUIRED review lanes run under", renamed)
+        self.assertIn("and a wave doc or current set record gets Review plan", renamed)
+
+    def test_default_profile_planning_strings_are_unchanged(self) -> None:
+        # Change 23myn: under the default profile each composed sentence keeps
+        # the bytes it had before the noun followed the profile.
+        sentences = {
+            "wf-plan-spec": [
+                "and produce a consolidated spec ready for wave admission.",
+                "Gate reminder: planning writes docs only; no repository code edits until the stage gate "
+                "(spec, wave admission, recorded readiness) is satisfied.",
+            ],
+            "wf-implement-wave": [
+                "Gate reminder: the stage gate applies before any code edit (spec, wave admission, recorded "
+                "readiness); mark ACs and tasks as work completes, not at wave end.",
+            ],
+            "wf-review-plan": [
+                "Review a spec, or the current wave record when no change is specified, before implementation",
+                "Review the named spec, or fall back to the current wave record when no change is specified; "
+                "this may run before or after admission, but only before implementation.",
+            ],
+            "wf-council": [
+                "and not Review plan, the optional spec or current-wave stress test whose aliases are "
+                "Interrogate this plan and Stress-test this plan.",
+                DEFAULT_BOUNDARY,
+            ],
+        }
+        for name, expected in sentences.items():
+            text = "\n".join(self.default[name])
+            for sentence in expected:
+                with self.subTest(skill=name, sentence=sentence[:40]):
+                    self.assertIn(sentence, text)
+
     def test_root_bridge_default_bytes_and_renamed_literal_oracle(self) -> None:
         # Default sentence pinned to 3d21af8e; renamed nouns are independent
         # literals, not computed by the helper whose output is under test.
@@ -170,6 +231,94 @@ class SkillProseTests(unittest.TestCase):
         renamed = "When compacting, preserve the open set and wave ids, the operator's scoped authorizations and decisions still pending, the files modified, and the exact verification commands with their last results; a summary never records an approval the operator did not give. After resuming, recheck mutable state such as open gates and set status with the tools instead of trusting the summary."
         self.assertEqual(self.default["_root_bridge"], prefix + default + suffix)
         self.assertEqual(self.set_wave["_root_bridge"], prefix + renamed + suffix)
+
+
+_SHIPPED_NOUNS = {"CONTAINER_NAME": "Wave", "CONTAINER_NAME_PLURAL": "Waves", "ITEM_NAME": "Change",
+                  "ITEM_NAME_PLURAL": "Changes", "CONTAINER_NAME_ARTICLE": "a", "ITEM_NAME_ARTICLE": "a"}
+_TICKET_NOUNS = {"ITEM_NAME": "Ticket", "ITEM_NAME_PLURAL": "Tickets",
+                 "CONTAINER_NAME": "Batch", "CONTAINER_NAME_PLURAL": "Batches"}
+
+
+class PlanningNounTests(unittest.TestCase):
+    """Change 23myn Requirement 10: ``vocabulary_profile.planning_noun`` and
+    the message strings composed from it, in process under patched profiles."""
+
+    def test_forms_under_the_shipped_item_name(self) -> None:
+        with mock.patch.multiple(vocabulary_profile, **_SHIPPED_NOUNS):
+            forms = {form: vocabulary_profile.planning_noun(form)
+                     for form in ("doc", "docs", "article", "documents", "hyphen")}
+            self.assertEqual(vocabulary_profile.planning_noun(), "spec")
+        self.assertEqual(forms, {"doc": "spec", "docs": "specs", "article": "a spec",
+                                 "documents": "specs", "hyphen": "spec"})
+
+    def test_forms_under_a_renamed_item(self) -> None:
+        with mock.patch.multiple(vocabulary_profile, **_TICKET_NOUNS):
+            forms = {form: vocabulary_profile.planning_noun(form)
+                     for form in ("doc", "docs", "article", "documents", "hyphen")}
+        self.assertEqual(forms, {"doc": "ticket doc", "docs": "ticket docs", "article": "a ticket doc",
+                                 "documents": "ticket documents", "hyphen": "ticket-doc"})
+        with mock.patch.multiple(vocabulary_profile, ITEM_NAME="Item", ITEM_NAME_ARTICLE="an"):
+            self.assertEqual(vocabulary_profile.planning_noun("article"), "an item doc")
+        # The shipped name is a fixed constant compared exactly, not the word "spec".
+        with mock.patch.object(vocabulary_profile, "ITEM_NAME", "Spec"):
+            self.assertEqual(vocabulary_profile.planning_noun(), "spec doc")
+        self.assertEqual(vocabulary_profile.SHIPPED_ITEM_NAME, "Change")
+        with self.assertRaises(ValueError):
+            vocabulary_profile.planning_noun("record")
+
+    def _attribution(self) -> str:
+        import lifecycle_gate_support as lgs
+        current = {"receipt_id": "a", "policy_inputs": {"project_policy_sha256": "x",
+                                                         "changes": [{"change_id": "1abcz-bug s", "h": 1}]}}
+        state = {"receipt": {"receipt_id": "b", "policy_inputs": {"project_policy_sha256": "x",
+                                                                   "changes": [{"change_id": "1abcz-bug s", "h": 2}]}},
+                 "records": []}
+        with mock.patch.object(lgs, "receipt_semantic_fields", lambda record: {}), \
+             mock.patch.object(lgs, "current_policy_receipt", lambda records: current), \
+             mock.patch.object(lgs.review_policy, "compare_receipt_sections",
+                               lambda a, b: {"available": False, "limitations": []}):
+            return str(lgs.receipt_supersession_attribution(state, ["1abcz-bug s"]))
+
+    def _stats(self) -> str:
+        # A static payload with both coverage keys: the real collector imports
+        # the server, which re-imports this module and would drop the patch.
+        import project_stats
+        coverage = {"missing_admitted_documents": 1, "unreadable_change_documents": 2}
+        return project_stats.format_report({"schema_version": 1, "sections": {"lifecycle": {"coverage": coverage}}})
+
+    def test_message_strings_under_the_shipped_profile(self) -> None:
+        import lifecycle_gate_support as lgs
+        with mock.patch.multiple(vocabulary_profile, **_SHIPPED_NOUNS):
+            self.assertIn("changed specs: 1abcz-bug s", self._attribution())
+            stats = self._stats()
+            self.assertIn("- Missing specs assigned to waves: 1", stats)
+            self.assertIn("- Unreadable specs: 2", stats)
+            self.assertIn("against the admitted specs and wave record. ",
+                          lgs._prepare_council_instructions(None, typed=True))
+
+    def test_message_strings_under_a_ticket_and_batch_profile(self) -> None:
+        with mock.patch.multiple(vocabulary_profile, **_TICKET_NOUNS):
+            self.assertIn("changed ticket docs: 1abcz-bug s", self._attribution())
+            stats = self._stats()
+            self.assertIn("- Missing ticket documents assigned to batches: 1", stats)
+            self.assertIn("- Unreadable ticket documents: 2", stats)
+
+    def test_article_form_reaches_the_rendered_skills(self) -> None:
+        # ITEM_NAME_ARTICLE is not a fork-editable constant, so patch it in
+        # process and reload the renderer, whose skill text is built at import.
+        import importlib
+        import render_agent_surfaces
+        try:
+            with mock.patch.multiple(vocabulary_profile, ITEM_NAME="Item", ITEM_NAME_PLURAL="Items",
+                                     ITEM_NAME_ARTICLE="an"):
+                renderer = importlib.reload(render_agent_surfaces)
+                descriptions = [skill.description for skill in renderer.SKILL_REGISTRY]
+                council_body = renderer.WF_COUNCIL_SKILL_BODY
+        finally:
+            importlib.reload(render_agent_surfaces)
+        self.assertTrue(any(text.startswith("Review an item doc, or the current ") for text in descriptions),
+                        descriptions)
+        self.assertIn("and an item doc or current ", council_body)
 
 
 if __name__ == "__main__":

@@ -619,7 +619,7 @@ class _Vocabulary:
 class RecordTreeBuilder:
     """Writes records under ``root`` the way a profile expects: the waves
     root and its required README, container records with the profile's
-    filename and markers, member blocks, change documents, plans, and the
+    filename and markers, member blocks, specs, plans, and the
     archive root's records in the archive profile's vocabulary.
 
     ``vocabulary`` and ``layout`` are the constants of ``vocabulary_profile``
@@ -718,7 +718,7 @@ class RecordTreeBuilder:
     def container(self, folder: str, wave_id: str, *, members: "list[tuple]" = (), title: str = "Fixture",
                   status: str = "active", group: str = "", archive: bool = False) -> Path:
         """A container folder with its record, an empty ``events.jsonl`` and a
-        change document per member; ``members`` are ``(change_id, status)``
+        spec per member; ``members`` are ``(change_id, status)``
         or ``(change_id, status, depends_on)``. ``group`` nests the folder one
         level down (the layout must be ``NESTED``); ``archive`` writes under
         the archive root in the archive profile's vocabulary."""
@@ -751,7 +751,7 @@ class RecordTreeBuilder:
         return path
 
     def plan(self, change_id: str, *, title: str = "Fixture Plan") -> Path:
-        """A planned change document in the plans root (``Wave: TBD``)."""
+        """A planned spec in the plans root (``Wave: TBD``)."""
         self.plans_dir.mkdir(parents=True, exist_ok=True)
         path = self.plans_dir / f"{change_id}.md"
         path.write_text(
@@ -808,7 +808,7 @@ def localized_docs_lint_fixture(dest: Path, *, vocabulary: "dict[str, Any] | Non
 
 
 def localize_record_text(text: str, *, vocabulary: "dict[str, Any] | None" = None) -> str:
-    """Record or change-document ``text`` written in the shipped vocabulary,
+    """Record or spec ``text`` written in the shipped vocabulary,
     rewritten into ``vocabulary`` (default: the loaded ``vocabulary_profile``):
     the id key, record title, summary and member headings, member id and
     status labels (``Previous`` status lines included), and line-leading

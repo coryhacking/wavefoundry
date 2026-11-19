@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-10
+Last verified: 2026-11-18
 
 Help the intended reader understand, decide or act accurately. Before drafting, identify that reader, what they already know, and what they need from this artifact. Let that task and the consequences of misunderstanding determine the detail. Brevity is useful when it removes effort without removing meaning.
 
@@ -12,7 +12,11 @@ Use this guide when authoring or substantially revising prose. Apply it to docum
 
 Start with the answer, intended outcome or decision the reader came for. Explain why it matters in concrete terms. Include the conditions, limits and supporting evidence needed to use it correctly. A status update should reveal the current result and next authorized action before recounting work performed.
 
-Separate observed facts, interpretations, proposals and unknowns. State the scope of evidence beside the claim it supports. A successful example proves that example; a planned test is still planned. Keep uncertainty visible when removing it would change a decision. Omit procedural history unless it explains a live constraint, tradeoff or continuation need.
+Separate observed facts, interpretations, proposals and unknowns. **Attribute claims used to make decisions.** Identify the source and keep the claim within what it observed. In a memory, “One operator preferred a single vision document” preserves the scope of the feedback. “Users want fewer reviews” changes both the audience and the request. Use a source description that protects confidential details. A successful example proves that example; a planned test is still planned. Keep uncertainty visible when removing it would change a decision. Omit procedural history unless it explains a live constraint, tradeoff or continuation need.
+
+For a project-specific claim, try swapping in another project's name. If the claim fits equally well, say what someone can do or observe here. Keep instructions written to apply across projects.
+
+**Check sentences that end in a promised benefit.** In a handoff, “the runner saves a receipt, ensuring reliable delivery” promises more than the receipt proves. “At close, the gate checks that the receipt records a passing suite for the current framework inputs” tells the operator what gets checked. Label an expected benefit when its effect remains unmeasured.
 
 ## Findable: put information where readers look
 
@@ -32,7 +36,7 @@ In a requirement, acceptance criterion or status claim, name the setting, file, 
 
 For example, “The importer must reject a record larger than 8 MiB before storing it; an operator may raise the limit for an approved migration” cannot become “Large records are usually rejected.” The shorter sentence loses the actor, threshold, timing, obligation and authorized exception. An abstract version fails differently: “The importer should reject oversized records where appropriate, using the configured size limit.” There, “the configured size limit” names no setting, “oversized” states no number, “where appropriate” leaves the obligation open, and “should” weakens **must**.
 
-There is no universal word or sentence limit. A long technical explanation can be necessary to expose a failure mode, dependency or consequential tradeoff. Remove repetition and needless indirection; retain the reasoning the reader needs to assess the result.
+There is no universal word or sentence limit. A long technical explanation can be necessary to expose a failure mode, dependency or consequential tradeoff. Cut a closing sentence that merely praises or repeats the work. Keep an ending that helps the reader decide, names an owner or next action, or explains a consequential uncertainty.
 
 ## Usable: support the next decision or action
 
@@ -43,10 +47,10 @@ Match the artifact to its purpose while preserving its existing contract:
 | Artifact | What the reader should recover |
 | --- | --- |
 | Vision | One coherent account of enduring purpose, intended future and beneficiary value; then the reasoning, useful stages and unresolved choices. Preserve ambition and distinguish selected direction from possibilities. |
-| Specification | Observable obligations, actors, conditions, inputs/outputs, exceptions and boundaries, with enough precision to verify behavior. |
+| Behavior contract | Observable obligations, actors, conditions, inputs/outputs, exceptions and boundaries, with enough precision to verify behavior. |
 | Architecture | Responsibilities, interactions, data/control flow, failure modes and consequential tradeoffs; explain why the boundaries matter. |
 | Decision record | The decision, relevant alternatives, evidence, assumptions and consequences, including costs and conditions for reconsideration. |
-| Change plan | The problem, intended outcome, scope and verification; show how the proposed work addresses the need. |
+| Spec | The problem, intended outcome, scope and verification; show how the proposed work addresses the need. |
 | Wave or status record | Current objective, actual progress, blockers, unresolved decisions and next authorized action, with evidence for completion claims. |
 | Review finding | The concrete failure, affected behavior, evidence, consequence and actionable correction; distinguish an error from an editorial preference. |
 | Handoff or release note | What changed, why it matters, verification and limits, remaining work, and the next step or operator action when needed. |

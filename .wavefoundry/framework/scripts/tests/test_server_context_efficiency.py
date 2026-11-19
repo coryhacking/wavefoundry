@@ -2963,8 +2963,8 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             )
 
     def test_get_change_credits_only_conveyed_content(self):
-        """Wave 1t3ek (1t15a) AC-2: wf_get_change credits exactly the change
-        docs whose content the response conveys — the single-change doc and
+        """Wave 1t3ek (1t15a) AC-2: wf_get_change credits exactly the
+        specs whose content the response conveys — the single spec and
         untruncated bulk rows — never truncated or content-less rows, and a
         replay with unchanged files dedupes to zero new credits."""
         with tempfile.TemporaryDirectory() as tmp:

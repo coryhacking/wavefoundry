@@ -10,7 +10,7 @@ MAX_INPUT_BYTES = 16384
 AGENT_PATTERN = '^code-modernization:[A-Za-z0-9][A-Za-z0-9_-]*$'
 BRIEFING = (
     "Wavefoundry modernization briefing: Read AGENTS.md and follow "
-    ".wavefoundry/framework/seeds/180-implement-change.prompt.md, "
+    ".wavefoundry/framework/seeds/180-implement-spec.prompt.md, "
     "especially Host-neutral orchestration and its canonical retrieval rules "
     "(docs/agents/guru.md for code/documentation investigation). "
     "Stay within the assigned change/ACs and owned paths; honor forbidden paths "

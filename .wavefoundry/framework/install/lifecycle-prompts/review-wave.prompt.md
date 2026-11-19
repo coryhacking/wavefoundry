@@ -8,7 +8,7 @@ Shortcut: **`Review wave`**
 
 ## Host-neutral orchestration
 
-Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose reviewer models and effort for the actual review risks. Read the existing scope, fingerprint, commands/results, findings and next action; independently verify the current tree. A host change does not itself establish independence. Use only available host capabilities; sequential implementation does not satisfy required independent review.
+Follow `.wavefoundry/framework/seeds/180-implement-spec.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose reviewer models and effort for the actual review risks. Read the existing scope, fingerprint, commands/results, findings and next action; independently verify the current tree. A host change does not itself establish independence. Use only available host capabilities; sequential implementation does not satisfy required independent review.
 
 ## Purpose
 
@@ -102,7 +102,7 @@ Brief each lane using seed 209's **Briefing Packet**, including
 
 ## AC and Task Verification Truth Hierarchy
 
-The change document coordinates work; it does not prove completion. Prefer:
+The spec coordinates work; it does not prove completion. Prefer:
 
 1. Code and tests: actual delivered behavior.
 2. Review evidence: verification that the behavior exists and is correct.
@@ -122,6 +122,11 @@ affects that lane. Implementer-authored verification can prove behavior but is
 not independent delivery approval. Keep operator signoff pending until the
 operator explicitly supplies it.
 
+A change admitted after delivery review leaves the receipt stale until
+re-Prepare, which then shows the earlier delivery approvals, including
+`council-delivery` and `operator-signoff`, as not current; re-Prepare first,
+then record those approvals again.
+
 Review wave ends when every required lane and any receipt-required council
 approval is current in `wf_review_wave`. It does not close the wave, mark
 completion or commit changes.
@@ -133,3 +138,5 @@ For stale readiness, use the guided review actions and seed 209’s **Focused re
 ## Disposable work
 
 Use the lifecycle-reported `.wavefoundry/work/<wave-id>/`, keyed by the resolved unique prefix, for shared temporary work; include the path and availability notices in coordinator briefs. Follow seed 180’s **Disposable work** and seed 209’s **Review Artifact Discipline**. Reads and dry-runs create nothing; unavailable work is advisory and existing host permissions apply. Receipt copies and review notes are disposable aids; preserve unique proof before final evidence and keep durable approval authority in its existing records.
+
+Write every file you create for a wave, including coordinator briefs, logs, captured test output and build output, inside that wave's own work folder, in a child folder when that helps; never write a file directly in `.wavefoundry/work/`. Before the wave exists, keep the content in task context until a lifecycle call reports the work area. `wf_audit` and close report files and links left directly in the work root as the advisory `work_root_loose_files`. If you wrote such a file for a wave, move it into that wave's folder while the wave is open, or delete it. Leave any other loose file in place, including one you are not sure you wrote (a name that starts with a wave id does not prove who wrote it), and report it to the operator, who decides. Never move a file you did not write into a wave's folder: close removes that folder with everything in it.

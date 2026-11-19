@@ -32,14 +32,14 @@ The Wave Framework addresses this by giving agents a persistent operating surfac
           │
           ▼
   ┌────────────────────┐
-  │        Plan        │  For each change: author a change doc with
+  │        Plan        │  For each change: author a spec with
   │                    │  WHY, WHAT, ACs, RISKS. Lives in docs/plans/.
   └─────────┬──────────┘
             │  Plan one change or bundle compatible changes together
             ▼
   ┌────────────────────┐
   │       Create       │  Open a delivery unit. Admit one or more
-  │                    │  change docs. Wave gets an ID (e.g. 12ecs).
+  │                    │  specs. Wave gets an ID (e.g. 12ecs).
   │  Change A ──┐      │  Changes with compatible assumptions and
   │  Change B ──┤ wave │  interfaces can share a single wave.
   │  Change C ──┘      │
@@ -126,7 +126,7 @@ installs and protocol-2 upgrades extract that package through `Upgrade Wavefound
 
 ### Waves
 
-A *wave* is the delivery unit. Work is never planned directly into production — it is first authored as a change document, admitted into a wave, and then implemented through the wave lifecycle. This keeps scope explicit, makes handoffs durable, and gives every closed wave a permanent record.
+A *wave* is the delivery unit. Work is never planned directly into production — it is first authored as a spec, admitted into a wave, and then implemented through the wave lifecycle. This keeps scope explicit, makes handoffs durable, and gives every closed wave a permanent record.
 
 ```
 Plan → Create → Admit → Prepare → Implement → Review → Close
@@ -290,7 +290,7 @@ wf_help()           ← Full shortcut phrase table
 ### Opening a wave
 
 ```
-Plan       ← Author a change doc and plan the work
+Plan       ← Author a spec and plan the work
 Create     ← Open a delivery unit
 Admit      ← Admit the change into the wave
 Prepare    ← Run readiness gate before touching code

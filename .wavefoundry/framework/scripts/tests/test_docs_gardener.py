@@ -651,3 +651,396 @@ class RecordLayoutGardenerTests(unittest.TestCase):
                 dg.gardener_run(self.root, args)
         self.assertIn("record_layout_invalid:", str(ctx.exception))
         self.assertIn("Last verified: 2000-01-01", doc.read_text(encoding="utf-8"))
+
+
+def _local_noon(days_from_today: int) -> float:
+    """Local noon of a day counted from the local today, as a POSIX time.
+
+    Built from a naive local datetime so the calendar day is the one the
+    gardener reads back with ``date.fromtimestamp`` on every host.
+    """
+    import datetime as _dt
+
+    day = _dt.date.today() + _dt.timedelta(days=days_from_today)
+    return _dt.datetime.combine(day, _dt.time(12, 0)).timestamp()
+
+
+def _day(days_from_today: int) -> str:
+    import datetime as _dt
+
+    return (_dt.date.today() + _dt.timedelta(days=days_from_today)).isoformat()
+
+
+class DefaultModeStampRuleTests(unittest.TestCase):
+    """Change 23qfz: the default mode stamps a Git-changed document only when
+    it differs from HEAD outside its date line and changed since its stamp."""
+
+    def setUp(self) -> None:
+        self.root = Path(tempfile.mkdtemp(prefix="docs-gardener-rule-")).resolve()
+        self._git("init")
+        self._git("config", "user.email", "t@e.st")
+        self._git("config", "user.name", "test")
+        self._git("config", "core.autocrlf", "false")
+        # A normalized manifest and handoff, committed, so a run writes only
+        # the documents the rule selects.
+        mp = dg.manifest_path(self.root)
+        mp.parent.mkdir(parents=True, exist_ok=True)
+        mp.write_text(dg.normalize_manifest_json(dg.default_manifest_payload(self.root)),
+                      encoding="utf-8", newline="")
+        handoff = self.root / "docs" / "agents" / "session-handoff.md"
+        handoff.parent.mkdir(parents=True, exist_ok=True)
+        handoff.write_bytes(b"# Session Handoff\n\nOwner: Engineering\nStatus: generated\n"
+                            b"Last verified: 2000-01-01\n")
+        self._git("add", "-A")
+        self._git("commit", "-m", "base")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def _git(self, *args: str) -> None:
+        subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True)
+
+    def _text(self, stamp: str, body: str = "Body.", newline: str = "\n") -> bytes:
+        text = f"# Doc\n\nOwner: Engineering\nStatus: active\nLast verified: {stamp}\n\n{body}\n"
+        return text.replace("\n", newline).encode("utf-8")
+
+    def _commit(self, rel: str, data: bytes) -> Path:
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        self._git("add", rel)
+        self._git("commit", "-m", f"add {rel}")
+        return path
+
+    def _set_mtime(self, path: Path, days_from_today: int) -> None:
+        when = _local_noon(days_from_today)
+        os.utime(path, (when, when))
+
+    def _run(self, *argv: str) -> tuple[list[str], list[str]]:
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code, paths = dg.gardener_run(self.root, dg.parse_args(list(argv)))
+        self.assertEqual(code, 0)
+        updated = [line[len("docs-gardener: updated "):]
+                   for line in out.getvalue().splitlines()
+                   if line.startswith("docs-gardener: updated ")]
+        return paths, updated
+
+    def test_edit_is_stamped_once_and_a_later_run_writes_nothing(self) -> None:
+        # AC-1: first edit stamped by a run with the local today (no --date);
+        # a later day's run with no further edit leaves the file alone.
+        doc = self._commit("docs/a.md", self._text(_day(-10)))
+        doc.write_bytes(self._text(_day(-10), "Body, edited."))
+        paths, updated = self._run()
+        self.assertEqual(updated, ["docs/a.md"])
+        self.assertEqual(paths, ["docs/a.md"])
+        self.assertEqual(doc.read_bytes(), self._text(_day(0), "Body, edited."))
+        before = (doc.read_bytes(), doc.stat().st_mtime_ns)
+        paths, updated = self._run("--date", _day(1))
+        self.assertEqual((paths, updated), ([], []))
+        self.assertEqual((doc.read_bytes(), doc.stat().st_mtime_ns), before)
+        # AC-2 case 1: edited again on a later day, stamped by the next run.
+        doc.write_bytes(self._text(_day(0), "Body, edited twice."))
+        self._set_mtime(doc, 2)
+        paths, updated = self._run("--date", _day(2))
+        self.assertEqual(updated, ["docs/a.md"])
+        self.assertEqual(doc.read_bytes(), self._text(_day(2), "Body, edited twice."))
+
+    def test_date_line_only_difference_is_never_stamped(self) -> None:
+        # AC-2 case 2: a hand edit of the date line, modified after its stamp.
+        doc = self._commit("docs/a.md", self._text(_day(-10)))
+        doc.write_bytes(self._text(_day(-5)))
+        self._set_mtime(doc, 0)
+        before = doc.read_bytes()
+        paths, updated = self._run("--date", _day(0))
+        self.assertEqual((paths, updated), ([], []))
+        self.assertEqual(doc.read_bytes(), before)
+
+    def test_date_line_only_difference_with_autocrlf_crlf_working_copy(self) -> None:
+        # AC-2 case 2 on a Windows-style checkout: the blob is LF, the working
+        # copy CRLF; only the date line differs once line endings are normalized.
+        self._git("config", "core.autocrlf", "true")
+        doc = self._commit("docs/crlf.md", self._text(_day(-10), newline="\r\n"))
+        blob = subprocess.run(["git", "-C", str(self.root), "show", "HEAD:docs/crlf.md"],
+                              check=True, capture_output=True).stdout
+        self.assertNotIn(b"\r\n", blob)  # the control: a raw comparison would differ
+        doc.write_bytes(self._text(_day(-5), newline="\r\n"))
+        self._set_mtime(doc, 0)
+        before = doc.read_bytes()
+        paths, updated = self._run("--date", _day(0))
+        self.assertEqual((paths, updated), ([], []))
+        self.assertEqual(doc.read_bytes(), before)
+        # A content change on the same checkout is still stamped, CRLF kept.
+        doc.write_bytes(self._text(_day(-5), "Body, edited.", newline="\r\n"))
+        self._set_mtime(doc, 0)
+        paths, updated = self._run("--date", _day(0))
+        self.assertEqual(updated, ["docs/crlf.md"])
+        self.assertEqual(doc.read_bytes(), self._text(_day(0), "Body, edited.", newline="\r\n"))
+
+    def test_future_stamp_with_a_content_change_is_stamped_with_the_run_date(self) -> None:
+        # AC-2 case 3: the modification date is not later than the stamp.
+        doc = self._commit("docs/a.md", self._text(_day(30)))
+        doc.write_bytes(self._text(_day(30), "Body, edited."))
+        self._set_mtime(doc, 0)
+        paths, updated = self._run("--date", _day(0))
+        self.assertEqual(updated, ["docs/a.md"])
+        self.assertEqual(doc.read_bytes(), self._text(_day(0), "Body, edited."))
+
+    def test_future_stamp_is_compared_with_the_run_date_not_the_local_today(self) -> None:
+        # AC-2 case 3 with a past --date: a stamp of today is later than the
+        # run's date, so the changed document is stamped with that date. Were
+        # the clause compared with the local today, the stamp (today) would not
+        # be in the future and the modification date (today) not later, so the
+        # document would be left alone.
+        doc = self._commit("docs/a.md", self._text(_day(0)))
+        doc.write_bytes(self._text(_day(0), "Body, edited."))
+        self._set_mtime(doc, 0)
+        paths, updated = self._run("--date", _day(-2))
+        self.assertEqual(updated, ["docs/a.md"])
+        self.assertEqual(paths, ["docs/a.md"])
+        self.assertEqual(doc.read_bytes(), self._text(_day(-2), "Body, edited."))
+
+    def test_document_with_no_head_version_is_stamped(self) -> None:
+        # AC-2 case 4: added to the index, so it is in the default target set.
+        doc = self.root / "docs" / "new.md"
+        doc.write_bytes(self._text(_day(-10)))
+        self._git("add", "docs/new.md")
+        self._set_mtime(doc, 0)
+        paths, updated = self._run("--date", _day(0))
+        self.assertEqual(updated, ["docs/new.md"])
+        self.assertEqual(doc.read_bytes(), self._text(_day(0)))
+
+    @contextmanager
+    def _batch_spy(self, rewrite=None):
+        """Record every ``cat-file`` call through the resolver, with its input
+        bytes; ``rewrite`` may replace the real result or raise."""
+        real = dg._run_tree_kill
+        calls: list[bytes] = []
+
+        def run(cmd, **kwargs):
+            if "cat-file" not in cmd:
+                return real(cmd, **kwargs)
+            calls.append(kwargs.get("input"))
+            if rewrite is None:
+                return real(cmd, **kwargs)
+            return rewrite(real(cmd, **kwargs))
+
+        with patch.object(dg, "_run_tree_kill", side_effect=run):
+            yield calls
+
+    def _date_only_docs(self, *rels: str) -> list[Path]:
+        # Each committed document has a distinct body and later differs from
+        # its HEAD version only in its date line, so only a fallback stamps it.
+        return [self._commit(rel, self._text(_day(-10), f"Body of {rel}.")) for rel in rels]
+
+    def _reset_date_only(self, docs: list[Path]) -> None:
+        for doc in docs:
+            doc.write_bytes(self._text(_day(-5), f"Body of {doc.relative_to(self.root).as_posix()}."))
+            self._set_mtime(doc, 0)
+
+    def test_one_batched_head_read_for_all_candidates(self) -> None:
+        # AC-1: three candidates, one cat-file process, all three names sent.
+        a = self._commit("docs/a.md", self._text(_day(-10), "Alpha."))
+        b = self._commit("docs/b.md", self._text(_day(-10), "Beta."))
+        (c,) = self._date_only_docs("docs/c.md")
+        a.write_bytes(self._text(_day(-10), "Alpha, edited."))
+        b.write_bytes(self._text(_day(-10), "Beta, edited."))
+        for doc in (a, b):
+            self._set_mtime(doc, 0)
+        self._reset_date_only([c])
+        with self._batch_spy() as calls:
+            paths, updated = self._run("--date", _day(0))
+        self.assertEqual(updated, ["docs/a.md", "docs/b.md"])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0], b"HEAD:./docs/a.md\nHEAD:./docs/b.md\nHEAD:./docs/c.md\n")
+
+    def test_no_candidate_starts_no_batched_head_read(self) -> None:
+        # AC-1: Git-changed, but modified before its stamp: not a candidate.
+        doc = self._commit("docs/a.md", self._text(_day(-3)))
+        doc.write_bytes(self._text(_day(-3), "Body, edited."))
+        self._set_mtime(doc, -5)
+        with self._batch_spy() as calls:
+            paths, updated = self._run("--date", _day(0))
+        self.assertEqual((paths, updated), ([], []))
+        self.assertEqual(calls, [])
+
+    def test_mixed_batch_stamps_exactly_the_differing_documents(self) -> None:
+        # AC-2: one batch holding a document that differs, one that differs
+        # only in its date line, one with no HEAD version sorted into the
+        # middle, and date-only documents with non-ASCII and CRLF content.
+        # A swapped or shifted blob would make a date-only document differ.
+        differs = self._commit("docs/a-differs.md", self._text(_day(-10), "Alpha."))
+        date_only = self._commit("docs/b-date-only.md", self._text(_day(-10), "Beta."))
+        unicode_doc = self._commit("docs/d-unicode.md",
+                                   self._text(_day(-10), "Grüße, naïve ✓."))
+        crlf_doc = self._commit("docs/e-crlf.md", self._text(_day(-10), "Epsilon.", newline="\r\n"))
+        new = self.root / "docs" / "c-new.md"
+        new.write_bytes(self._text(_day(-10), "Gamma."))
+        self._git("add", "docs/c-new.md")
+        differs.write_bytes(self._text(_day(-10), "Alpha, edited."))
+        date_only.write_bytes(self._text(_day(-5), "Beta."))
+        unicode_doc.write_bytes(self._text(_day(-5), "Grüße, naïve ✓."))
+        crlf_doc.write_bytes(self._text(_day(-5), "Epsilon.", newline="\r\n"))
+        for doc in (differs, date_only, unicode_doc, crlf_doc, new):
+            self._set_mtime(doc, 0)
+        before = {doc: doc.read_bytes() for doc in (date_only, unicode_doc, crlf_doc)}
+        with self._batch_spy() as calls:
+            paths, updated = self._run("--date", _day(0))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0].count(b"\n"), 5)
+        self.assertEqual(updated, ["docs/a-differs.md", "docs/c-new.md"])
+        for doc, data in before.items():
+            self.assertEqual(doc.read_bytes(), data, doc)
+
+    def test_head_read_failure_counts_every_unread_candidate_as_differing(self) -> None:
+        # AC-3: both documents differ from HEAD only in their date line, so a
+        # stamp here can come only from the failure fallback.
+        docs = self._date_only_docs("docs/a.md", "docs/b.md")
+        both = ["docs/a.md", "docs/b.md"]
+
+        def raising(exc):
+            def rewrite(result):
+                raise exc
+            return rewrite
+
+        def with_stdout(transform, returncode=0):
+            def rewrite(result):
+                self.assertEqual(result.returncode, 0)
+                return subprocess.CompletedProcess(result.args, returncode,
+                                                   transform(result.stdout), result.stderr)
+            return rewrite
+
+        def first_header(data: bytes) -> bytes:
+            return data[:data.index(b"\n")]
+
+        def bad_size(data: bytes) -> bytes:
+            header = first_header(data)
+            return header.rsplit(b" ", 1)[0] + b" 12x" + data[len(header):]
+
+        def first_entry(data: bytes) -> bytes:
+            size = int(first_header(data).rsplit(b" ", 1)[1])
+            return data[:len(first_header(data)) + 1 + size + 1]
+
+        def oversized_last(data: bytes, size: bytes = b"999999") -> bytes:
+            # The second (last) reply claims more bytes than follow it.
+            head, rest = first_entry(data), data[len(first_entry(data)):]
+            header = first_header(rest)
+            return head + header.rsplit(b" ", 1)[0] + b" " + size + rest[len(header):]
+
+        def extra_entry(data: bytes) -> bytes:
+            return first_entry(data) + data
+
+        def missing_for_another_name(data: bytes) -> bytes:
+            # The first reply says the second document is missing; the second
+            # reply is intact. The reply does not name the document sent first.
+            return b"HEAD:./docs/b.md missing\n" + data[len(first_entry(data)):]
+
+        cases = {
+            "timeout": (raising(subprocess.TimeoutExpired(cmd="git", timeout=45)), both),
+            "not_found": (raising(FileNotFoundError("git")), both),
+            "exit_128_after_full_output": (with_stdout(lambda d: d, returncode=128), both),
+            "cut_mid_second_blob": (with_stdout(lambda d: d[:-10]), ["docs/b.md"]),
+            "non_integer_size": (with_stdout(bad_size), both),
+            "size_beyond_data": (with_stdout(oversized_last), ["docs/b.md"]),
+            "oversized_decimal_header": (with_stdout(lambda d: oversized_last(d, b"9" * 5000)), ["docs/b.md"]),
+            "injected_extra_entry": (with_stdout(extra_entry), both),
+            # Exit 0 with no header after the first complete reply, and exit 0
+            # with no output at all: every unread document is stamped.
+            "cut_after_first_entry": (with_stdout(first_entry), ["docs/b.md"]),
+            "empty_output": (with_stdout(lambda d: b""), both),
+            # A missing reply naming another document does not answer for the
+            # one sent: framing stops there, so both are stamped.
+            "missing_reply_names_another_document": (with_stdout(missing_for_another_name), both),
+        }
+        for label, (rewrite, expected) in cases.items():
+            with self.subTest(case=label):
+                self._reset_date_only(docs)
+                with self._batch_spy(rewrite) as calls:
+                    paths, updated = self._run("--date", _day(0))
+                self.assertEqual(len(calls), 1)  # the injection fired
+                self.assertEqual(updated, expected)
+        # The control: the same documents with an intact batch stay unstamped.
+        self._reset_date_only(docs)
+        with self._batch_spy() as calls:
+            paths, updated = self._run("--date", _day(0))
+        self.assertEqual((len(calls), updated), (1, []))
+
+    def test_names_that_cannot_be_sent_are_not_sent_and_count_as_differing(self) -> None:
+        # AC-4: names with a line feed, a carriage return or a NUL never reach
+        # Git; the date-only document after them is still read correctly.
+        (date_only,) = self._date_only_docs("docs/z-date-only.md")
+        self._reset_date_only([date_only])
+        unsafe = [self.root / "docs" / name for name in ("bad\nname.md", "bad\rname.md", "bad\0name.md")]
+        with self._batch_spy() as calls:
+            heads = dg._read_head_versions(self.root, [*unsafe, date_only])
+        self.assertEqual(calls, [b"HEAD:./docs/z-date-only.md\n"])
+        for path in unsafe:
+            self.assertNotIn(path, heads)
+            self.assertTrue(dg._differs_from_head_outside_date_line(path, heads.get(path)))
+        self.assertFalse(dg._differs_from_head_outside_date_line(date_only, heads.get(date_only)))
+
+    def test_names_with_spaces_and_non_ascii_characters_are_read(self) -> None:
+        # AC-4: such names are sent as their file-system bytes and the
+        # committed bytes come back exactly.
+        committed = {
+            "docs/with space.md": self._text(_day(-10), "Spaced."),
+            "docs/naïve ✓.md": self._text(_day(-10), "Accented."),
+        }
+        paths = [self._commit(rel, data) for rel, data in committed.items()]
+        heads = dg._read_head_versions(self.root, paths)
+        self.assertEqual({p.relative_to(self.root).as_posix(): heads[p] for p in paths}, committed)
+
+    def test_explicit_modes_stamp_without_either_check(self) -> None:
+        # AC-3: modification date not later than the stamp, only the date line
+        # differs from HEAD, stamp earlier than the run's date.
+        for rel, argv in (("docs/a.md", ("--paths", "docs/a.md")), ("docs/b.md", ("--all-docs",))):
+            with self.subTest(argv=argv):
+                doc = self._commit(rel, self._text(_day(-10)))
+                doc.write_bytes(self._text(_day(-5)))
+                self._set_mtime(doc, -6)
+                paths, updated = self._run(*argv, "--date", _day(0))
+                self.assertIn(rel, updated)
+                self.assertEqual(doc.read_bytes(), self._text(_day(0)))
+
+    def test_unreadable_modification_time_stamps_a_changed_document(self) -> None:
+        # AC-4: modification date no later than the stamp, run date different
+        # from the stamp and not before it, so only the fallback can stamp.
+        doc = self._commit("docs/a.md", self._text(_day(-3)))
+        doc.write_bytes(self._text(_day(-3), "Body, edited."))
+        self._set_mtime(doc, -5)
+        real = dg._modification_time
+
+        def mtime(path):
+            if Path(path) == doc:
+                raise OSError("unreadable")
+            return real(path)
+
+        with patch.object(dg, "_modification_time", side_effect=mtime):
+            paths, updated = self._run("--date", _day(0))
+        self.assertEqual(updated, ["docs/a.md"])
+        self.assertEqual(doc.read_bytes(), self._text(_day(0), "Body, edited."))
+
+    def test_updated_lines_and_run_garden_list_exactly_the_written_documents(self) -> None:
+        # AC-5: a stamped document, a Git-changed document the rule skips
+        # (stamp earlier than the run's date, so the old code stamped it) and
+        # the committed manifest and handoff, through the real run_garden parser.
+        from server_tools_support import load_server
+
+        stamped = self._commit("docs/stamped.md", self._text(_day(-10)))
+        skipped = self._commit("docs/skipped.md", self._text(_day(-10)))
+        stamped.write_bytes(self._text(_day(-10), "Body, edited."))
+        self._set_mtime(stamped, 0)
+        skipped.write_bytes(self._text(_day(-10), "Body, edited."))
+        self._set_mtime(skipped, -10)
+        skipped_before = skipped.read_bytes()
+        srv = load_server()
+        summary = srv.run_garden(self.root)
+        self.assertTrue(summary["passed"], summary)
+        self.assertEqual(summary["updated"], ["docs/stamped.md"])
+        self.assertEqual(summary["files_updated"], 1)
+        lines = [line for line in summary["output"].splitlines()
+                 if line.startswith("docs-gardener: updated ")]
+        self.assertEqual(lines, ["docs-gardener: updated docs/stamped.md"])
+        self.assertIn("docs-gardener: stamped 1 doc(s)", summary["output"])
+        self.assertEqual(stamped.read_bytes(), self._text(_day(0), "Body, edited."))
+        self.assertEqual(skipped.read_bytes(), skipped_before)

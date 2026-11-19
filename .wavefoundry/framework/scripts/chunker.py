@@ -1304,7 +1304,7 @@ def split_large_chunks(chunks: list[Chunk], max_chars: Optional[int] = None) -> 
        separator + data rows), decompose per-row with the header preserved
        on each emitted chunk via `_decompose_oversized_table_chunk`. This
        preserves column context which is the load-bearing retrieval-quality
-       property for Decision Log / AC Priority / Risks tables in change docs.
+       property for Decision Log / AC Priority / Risks tables in specs.
        Complete row groups may exceed the cap; they are never line-wrapped.
     2. Otherwise, line-window split with character-window fallback for
        single-line oversized content. Each derived chunk's `section` field
@@ -1321,8 +1321,8 @@ def split_large_chunks(chunks: list[Chunk], max_chars: Optional[int] = None) -> 
 
         # Wave 1p3b9 (1p397): table-aware decomposition before line-wrap.
         # Preserves column context — load-bearing for Decision Log / AC
-        # Priority / Risks tables in change docs (real-world tables reach
-        # 41K chars in committed change docs).
+        # Priority / Risks tables in specs (real-world tables reach
+        # 41K chars in committed specs).
         table_chunks = _decompose_oversized_table_chunk(chunk, cap)
         if table_chunks is not None:
             # A complete row and its headers are indivisible, even over cap.
@@ -6890,7 +6890,7 @@ def chunk_css_treesitter(source: str, path: str) -> Optional[list[Chunk]]:
 # this module through WAVEFOUNDRY_SPEC_CHUNKING by the indexer).
 # ---------------------------------------------------------------------------
 
-# Measured default decision (1wfr8 AC-4): recorded in the change doc.
+# Measured default decision (1wfr8 AC-4): recorded in the spec.
 SPEC_CHUNKING_DEFAULT_ON = True
 
 _SPEC_HTTP_METHODS = ("get", "put", "post", "delete", "options", "head", "patch", "trace")
@@ -7276,7 +7276,7 @@ def chunk_spec_json(source: str, path: str) -> Optional[list[Chunk]]:
 # Each extends the 1wfr8 pattern (content/extension detection, breadcrumbed
 # prose-bearing kind="code" units, residue coverage, byte-identical
 # non-matching files) behind the same _spec_chunking_enabled() gate, with a
-# per-format recorded measurement and default decision in the change doc.
+# per-format recorded measurement and default decision in the spec.
 # ---------------------------------------------------------------------------
 
 # Column-0 root key — YAML nesting is indented, so this is root-only.

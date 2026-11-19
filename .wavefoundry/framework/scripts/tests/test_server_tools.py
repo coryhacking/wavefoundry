@@ -1572,7 +1572,7 @@ class AutoLintAtMcpGatesTests(unittest.TestCase):
             "dry_run response must NOT include `lint`")
 
     def test_change_create_apply_includes_lint(self):
-        """AC-2 parallel: change-doc creation via `wf_new_*` includes lint."""
+        """AC-2 parallel: spec creation via `wf_new_*` includes lint."""
         result = self.srv._change_create_response(
             self.root, "enh", "lint-included", mode="create",
         )
@@ -3452,7 +3452,7 @@ class ServerToolRegistrationTests(unittest.TestCase):
 class RunnerIdentityTests(unittest.TestCase):
     """Wave 1u2b0 (1u2ay): capture-at-launch runner identity plus tri-state staleness.
 
-    AC-1 test shape (named per the change doc's allowance): injection of the captured
+    AC-1 test shape (named per the spec's allowance): injection of the captured
     identity. The launch state the thin runner would record is injected via
     set_server_runner_version over temp COPIES of the real runner files, then the
     on-disk copies are mutated to simulate an upgrade or a development edit; no
@@ -5277,7 +5277,7 @@ class WaveAddChangeSectionPlacementTests(unittest.TestCase):
         legacy_block = f"\n{_V.MEMBER_ID_LABEL}: `{legacy_change_id}`\n{_V.MEMBER_STATUS_LABEL}: `planned`\n\n"
         text = text.replace("## Dependencies", legacy_block + "## Dependencies", 1)
         wave_md.write_text(text, encoding="utf-8")
-        # Also create a change doc the admit path can find (so the admit doesn't fail).
+        # Also create a spec the admit path can find (so the admit doesn't fail).
         new_change = self._create_change("feat", "freshly-admitted")
         result = self.srv.wf_add_change_response(self.root, wave_id, new_change, mode="create")
         self.assertEqual(result["status"], "ok", msg=f"admission failed: {result}")
@@ -5339,7 +5339,7 @@ class WaveAddChangeBrokenLinksTests(unittest.TestCase):
     def test_broken_links_detected_when_doc_has_waves_relative_link(self):
         wave_id = self._create_wave("my-wave")
         change_id = self._create_change("feat", "linked-change")
-        # Inject a ../waves/ link into the change doc (simulates a doc written from docs/plans/)
+        # Inject a ../waves/ link into the spec (simulates a doc written from docs/plans/)
         change_path = self.root / "docs" / "plans" / f"{change_id}.md"
         existing = change_path.read_text(encoding="utf-8")
         change_path.write_text(
@@ -6801,7 +6801,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         # NOTE the name: allow_rules(include_write=True) returns read UNION write, so this
         # count moves on a READ-tier add too (1vqqi: wf_techdocs_audit took it 89 -> 90).
         # Wave 1zlu1 added the write-tier wf_close_change (90 -> 91).
-        self.assertEqual(len(added), 92, "roster size changed; re-measure this test")  # 2347r: read-tier wf_stats
+        self.assertEqual(len(added), 93, "roster size changed; re-measure this test")  # 2347r: read-tier wf_stats; 23q0s: wf_cleanup_work
 
         # Non-vacuity control: the retired dict shape is still over the per-value cap, so this
         # test would fail against the pre-repair producer/consumer pair.

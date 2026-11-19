@@ -247,7 +247,7 @@ def _missing_in_venv(venv_python: Path, required_imports: dict[str, str] | None 
     specifier — so a pinned version bump reaches existing installs on ``wf setup`` / ``wf_upgrade``,
     not just fresh installs. The returned spec IS the ``REQUIRED_IMPORTS`` key, so ``_install_deps``
     resolves the venv to exactly the pinned version (an ``==`` pin downgrades a newer build; a range
-    pin leaves any satisfying version untouched — see the change doc's Decision Log). Version checking
+    pin leaves any satisfying version untouched — see the spec's Decision Log). Version checking
     uses ``packaging`` in the venv; if ``packaging`` is unavailable or a spec/version cannot be parsed,
     that dependency falls back to presence-only behavior (never raises, never spuriously reinstalls)."""
     required_imports = required_imports or _planned_required_imports()
@@ -409,52 +409,49 @@ def _run_install_step(cmd, **kwargs):
 # The exact uv a bootstrap installs when neither the tool venv nor PATH has one (wave 1zicq). An
 # existing uv of any version is used as-is. Review and bump at release (package-wavefoundry checklist)
 # to a release public for at least the package-age window.
-# Wave 22u26 (22u27): 0.13.5 is an operator-approved security exception to that window. Every uv
-# before 0.13.4 trusts a compromised root CA in its vendored bundle (GHSA-hq85-5cpj-mr62); 0.13.5
-# also rejects chains through the compromised intermediates. Later bumps return to the window.
-UV_BOOTSTRAP_REQUIREMENT = "uv==0.13.5"
+UV_BOOTSTRAP_REQUIREMENT = "uv==0.13.6"
 
 # Every wheel PyPI publishes for UV_BOOTSTRAP_REQUIREMENT, as (filename, sha256) from
 # https://pypi.org/pypi/uv/<version>/json (wave 1zimd). pip installs only a wheel matching one of
 # these hashes; the filenames are for review. A version bump replaces the whole table in the same
 # commit (package-wavefoundry checklist step 3); the suite fails on a filename for another version.
 UV_BOOTSTRAP_WHEEL_SHA256 = (
-    ("uv-0.13.5-py3-none-linux_armv6l.whl",
-     "8d092d07d2389909027c2ed4965ade1bd46bbcecceb26686ff40927684f8c457"),
-    ("uv-0.13.5-py3-none-macosx_10_12_x86_64.whl",
-     "337a14829bb499e114989df4f908f134ff37f1fb6c33497541cfb05b28080e39"),
-    ("uv-0.13.5-py3-none-macosx_11_0_arm64.whl",
-     "a42c85fa8156e1e5e2cecdbc77bb818ea1dcf5f78b8e2a8f84c7fe4f16f0702e"),
-    ("uv-0.13.5-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.musllinux_1_1_aarch64.whl",
-     "2386c2dc9b59fc1d39b1c500e4319d71d3268232eb3b38e29cd6775d6269e8d4"),
-    ("uv-0.13.5-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.musllinux_1_1_armv7l.whl",
-     "4f62680fe58c5a83fd539e38f1956c2b577b1f5939c9020aa4c7f0addda2f4ad"),
-    ("uv-0.13.5-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.whl",
-     "0e03f5717bdaaf5ab4e2df361d2395e36b515946f56ef4bed88801aeb9959fb0"),
-    ("uv-0.13.5-py3-none-manylinux_2_17_i686.manylinux2014_i686.whl",
-     "f867c5ec24c563afaae730a13e46cdf74a1a0b64c134286ff99762a96e2abf40"),
-    ("uv-0.13.5-py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl",
-     "d3fd5db55c20feb672ea457361aba29ab68b9ae69a14d98ad6c138b5f86dcca4"),
-    ("uv-0.13.5-py3-none-manylinux_2_17_s390x.manylinux2014_s390x.whl",
-     "e01481ae5212e45ee7c85fad5fc67f06b0ee0329a7c3c289dc529da884b03881"),
-    ("uv-0.13.5-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
-     "fa8d26e08e34c29c0c4e820cf3181757086d547240b4f4d31ff1d8bd810ca946"),
-    ("uv-0.13.5-py3-none-manylinux_2_28_aarch64.whl",
-     "91e58e304b63b6c91bac5561459ab0c3ea24f17bc01ea9359d69fed72142978f"),
-    ("uv-0.13.5-py3-none-manylinux_2_31_riscv64.musllinux_1_1_riscv64.whl",
-     "309a74d3c488bfaa3ba7bff759da73193d8781729c0a01274f4940fd32bb5712"),
-    ("uv-0.13.5-py3-none-manylinux_2_31_riscv64.whl",
-     "469cca66de1b17c75b9b9de806a64cffb57cba5e42b1e30d0bba6fa72a146f58"),
-    ("uv-0.13.5-py3-none-musllinux_1_1_i686.whl",
-     "2386e8dbfe110ff2f8ec8bd344dd18bf39eb9eb54e1edeeb87c3b85c34229cd3"),
-    ("uv-0.13.5-py3-none-musllinux_1_1_x86_64.whl",
-     "d162669e3a7811c584b03690eaa11e796ad1d309aa8229d5dfe3cbcd68a90400"),
-    ("uv-0.13.5-py3-none-win32.whl",
-     "f4e55a6e2a1089fe74ed50fbdf2df0f6f336ee148ad232b05932db5deee8007e"),
-    ("uv-0.13.5-py3-none-win_amd64.whl",
-     "1fb29fc46ba12033e2ef95a95ac79d649e71bbb1358419bbbcbd19d86026ef2f"),
-    ("uv-0.13.5-py3-none-win_arm64.whl",
-     "0548460d46c8667488b1f089e936f29f0edfb1cc753f9152ffbd8bc84a46aa20"),
+    ("uv-0.13.6-py3-none-linux_armv6l.whl",
+     "4d20de8a3ed6c3d39b4e2f8f7d0411cd13a3959f5191b2b5d0209344034ed056"),
+    ("uv-0.13.6-py3-none-macosx_10_12_x86_64.whl",
+     "95f042b95e67ef8c3d3569bb6e9d895e592002c5e871cf3f1afe407c9d77a294"),
+    ("uv-0.13.6-py3-none-macosx_11_0_arm64.whl",
+     "51361029b7cf91185d0092c4b356d110b4ad629e9cb11593f1e006ac72a72ca9"),
+    ("uv-0.13.6-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.musllinux_1_1_aarch64.whl",
+     "7ec5486476d67a4214c460b5492393ee2300d84e1de17b293100a019b413568b"),
+    ("uv-0.13.6-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.musllinux_1_1_armv7l.whl",
+     "710c68ea4853aaf70ab2d0ccf2e147dee59449f035a1f8fe7759f087a31cdbf5"),
+    ("uv-0.13.6-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.whl",
+     "d4d7026c7327dd11fc2c0d4bae4735ff6944293d370644f35d2e6e917cdcae04"),
+    ("uv-0.13.6-py3-none-manylinux_2_17_i686.manylinux2014_i686.whl",
+     "46c2ef1f744f20007be0cdd66db3022bb1ddcac477c754efda875e401a48d810"),
+    ("uv-0.13.6-py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl",
+     "b2d25a49d135a441f688a6869d6d8062fb6f0a2e3e32e18b72c9de1d0eb9521e"),
+    ("uv-0.13.6-py3-none-manylinux_2_17_s390x.manylinux2014_s390x.whl",
+     "b9f57153fc98b7aa41dd6720e3de7578747f60b7bff22f50b76dcc47205bdde3"),
+    ("uv-0.13.6-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+     "22759b8895e1103578de6fb4cd27e94b4399d021023378d29f01333717751fba"),
+    ("uv-0.13.6-py3-none-manylinux_2_28_aarch64.whl",
+     "2e9a99100abe4f99605366974c4f9fe27f236615e05de8e78c0f357e38f09f97"),
+    ("uv-0.13.6-py3-none-manylinux_2_31_riscv64.musllinux_1_1_riscv64.whl",
+     "1cd4b0a35fa599b83da5437748150319ae0917c522da60898327645382942faa"),
+    ("uv-0.13.6-py3-none-manylinux_2_31_riscv64.whl",
+     "8542dcf118ce8a7cf2e4ba1fea7f5cc1638bc02b5b30dab1ead7e9034dc62fd3"),
+    ("uv-0.13.6-py3-none-musllinux_1_1_i686.whl",
+     "feb0f1d555798f68f28719cab437ab1dfb5d918db86ab4554215cbf9d940f63b"),
+    ("uv-0.13.6-py3-none-musllinux_1_1_x86_64.whl",
+     "d1efed1d15102ffdbf5e0fd49a440643dda2d921a2ad856792ae42ccd43c253f"),
+    ("uv-0.13.6-py3-none-win32.whl",
+     "29135609166960c74539abdaf4264f9819a0381be18b224125418356d67dd208"),
+    ("uv-0.13.6-py3-none-win_amd64.whl",
+     "7c9bc35ccb65932d8dc10a0669f9c805eaa3c9827ce18ecbecb1bd67944b2cdf"),
+    ("uv-0.13.6-py3-none-win_arm64.whl",
+     "722c7f96803f115e53918b8ee8858d1680ea6077c614b6db750747d709ab8d9a"),
 )
 
 
@@ -1568,7 +1565,7 @@ def ensure_ca_bundle_applied() -> None:
     every download attempt). Unlike ``_warm_model``, this does NOT restore the mutated env on exit:
     the launcher processes that call it (short-lived indexer subprocesses, or the long-lived MCP
     server) never themselves shell out to ``uv``/``pip`` in the same process, so the env-leak risk
-    that motivates ``_warm_model``'s try/finally restore does not apply here (change doc 1p92t
+    that motivates ``_warm_model``'s try/finally restore does not apply here (spec 1p92t
     Decision Log)."""
     global _ca_bundle_apply_attempted
     with _ca_bundle_apply_lock:
@@ -1609,7 +1606,7 @@ def retry_with_ca_bundle_ladder(attempt, model_name: str):
     reactive ladder, so a corporate-proxy environment whose only working trust rung is an OS-bundle
     file remained broken for non-setup launchers even though ``wf setup`` succeeds there). Mirrors
     ``_warm_model``'s reactive loop minus its interactive ``print()`` progress messages and its
-    restore-on-exit (already separately justified as unnecessary at these call sites, change doc
+    restore-on-exit (already separately justified as unnecessary at these call sites, spec
     1p92t Decision Log). Re-raises a non-cert-verify error unchanged. When every candidate also fails
     a cert-verify check, raises via ``raise_with_ca_bundle_diagnostic``. Returns ``attempt()``'s
     result on success."""

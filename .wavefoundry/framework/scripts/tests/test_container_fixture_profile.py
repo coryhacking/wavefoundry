@@ -222,7 +222,11 @@ class ActiveDeclarationRoutingTests(unittest.TestCase):
 
 
 class ConvertedFixtureCallGuardTests(unittest.TestCase):
-    SCOPES = ((WAVE_WORK, None, 17), (LIFECYCLE, SNAPSHOT_CLASS, 1), (LIFECYCLE, PREVIEW_CLASS, 3))
+    # Change 23phc added nine helper call sites to the work lifecycle tests;
+    # change 23q0s added one (retained_closed_wave); change 23p9t added
+    # twenty-one (the record-folder extras tests). Change 23rzt added six
+    # close calls that check when the loose-file advisory is reported.
+    SCOPES = ((WAVE_WORK, None, 54), (LIFECYCLE, SNAPSHOT_CLASS, 1), (LIFECYCLE, PREVIEW_CLASS, 3))
 
     def test_converted_scopes_make_no_direct_container_call(self):
         for path, class_name, _expected in self.SCOPES:

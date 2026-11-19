@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-07
+Last verified: 2026-11-18
 
 ## Vision and Roadmap
 
@@ -47,7 +47,7 @@ The goal is not to eliminate human judgment. It is to *direct* human judgment to
 
 ## The Wave Framework
 
-The core organizing concept in Wavefoundry is the *wave*: a bounded delivery unit that contains one or more admitted change documents, a lifecycle state, review evidence, and a closure record.
+The core organizing concept in Wavefoundry is the *wave*: a bounded delivery unit that contains one or more admitted specs, a lifecycle state, review evidence, and a closure record.
 
 ### Why waves instead of issues or PRs?
 
@@ -56,7 +56,7 @@ Issues and pull requests are excellent for tracking *what changed*. They are wea
 Waves address this by making the lifecycle explicit:
 
 ```
-Plan change       → Author a change document with rationale, requirements, ACs, and scope
+Plan spec       → Author a spec with rationale, requirements, ACs, and scope
 Create wave        → Create a delivery record and admit the change
 Prepare wave       → Run a readiness check; the gate must pass before any code is touched
 Implement wave     → Open a readied wave and execute its admitted changes
@@ -66,16 +66,16 @@ Close wave         → Seal with operator signoff; validate memory candidates; p
 
 Readiness, activation and closure have mechanical gates; workflow guidance directs the surrounding authoring and review work. `wf_close_wave` will not succeed without operator signoff. If the project declares `security-review` as a required lane, `wf_close_wave` will not succeed without a recorded `security-review` signoff. The agent cannot talk its way past these checks.
 
-### The change document
+### The spec
 
-The change document is the unit of planning. Before any code is touched, a change document must exist that answers:
+The spec is the unit of planning. Before any code is touched, a spec must exist that answers:
 
 - **Why** does this work exist? (Rationale)
 - **What** exactly is being delivered? (Requirements and scope)
 - **How will we know it's done?** (Acceptance criteria with explicit priority: required vs. important vs. nice-to-have)
 - **What could go wrong?** (Risks and serialization points)
 
-This is not bureaucracy for its own sake. When an agent returns to a wave after a context loss, or when a second agent takes over a first agent's work, the change document is the ground truth that prevents drift and scope creep. It is also the record that a future agent can consult to understand *why* a decision was made without reconstructing it from git history.
+This is not bureaucracy for its own sake. When an agent returns to a wave after a context loss, or when a second agent takes over a first agent's work, the spec is the ground truth that prevents drift and scope creep. It is also the record that a future agent can consult to understand *why* a decision was made without reconstructing it from git history.
 
 ---
 
@@ -131,7 +131,7 @@ A lane that can only judge one phase is declared under `phase_gates` (wave 1zlu1
 
 Finding the right context is a prerequisite for correct agent behavior. Wavefoundry ships a local search index with three layers: semantic embeddings over docs and code (independent selectors currently share Snowflake Arctic Embed S at FP16 GPU / INT8 CPU batch 32, with MiniLM L6 reranking at batch 40; see `docs/references/model-selection.md`), a BM25 full-text layer for exact identifiers, error strings, and rare tokens, and a structural code graph for call, impact, and dependency queries. The semantic layers cover:
 
-- Project docs (waves, plans, architecture, contributing guides, specs)
+- Project docs (waves, plans, architecture, contributing guides, behavior contracts)
 - Framework seeds (the numbered prompt documents)
 - Code (Python AST-aware chunking; tree-sitter for JS/TS/Go/Rust/Java/C/C++/C#/Kotlin/Bash)
 
@@ -145,7 +145,7 @@ The index runs entirely offline. It builds incrementally using file hashes — o
 
 Everything above is accessible through a local MCP server. The server runs as a stdio subprocess in the agent's host process (Claude Code, Cursor, Copilot, Junie, and others). It exposes the framework's full tool surface (see `AGENTS.md` for the current list) organized around four concerns:
 
-**Wave lifecycle** — create and manage change documents and waves; prepare, review, and close; run sensors; check gates
+**Wave lifecycle** — create and manage specs and waves; prepare, review, and close; run sensors; check gates
 
 **Docs and code search** — semantic search over docs and code; code navigation (definition, references, dependencies); code-aware question answering
 

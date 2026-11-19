@@ -238,7 +238,7 @@ def resolve_commit_to_waves(root: Path, sha: str) -> dict[str, Any]:
     }
 
 
-# --- reasoning surfacing (Decision Log + change-doc pointers) ---
+# --- reasoning surfacing (Decision Log + spec pointers) ---
 
 _MAX_DECISION_ROWS = 12  # bound the surfaced reasoning per source
 
@@ -259,7 +259,7 @@ def _wave_dir_for_id(root: Path, wave_id: str) -> Optional[Path]:
 
 
 def _decision_log_rows(md_text: str) -> list[str]:
-    """Extract the data rows of a change doc's ``## Decision Log`` table.
+    """Extract the data rows of a spec's ``## Decision Log`` table.
 
     Returns compact "col1 | col2 | ..." strings (header/separator dropped),
     bounded by ``_MAX_DECISION_ROWS``. Empty when the doc has no Decision Log.
@@ -330,7 +330,7 @@ def _provenance_rows_for_wave(
 ) -> list[dict[str, Any]]:
     """Build the surfaced-reasoning rows for one resolved wave.
 
-    One row per change doc (and the wave record), each carrying the file path
+    One row per spec (and the wave record), each carrying the file path
     and an ``excerpt`` of its Decision Log rows — the recorded reasoning the
     caller would otherwise have re-derived by reading the whole doc.
     """

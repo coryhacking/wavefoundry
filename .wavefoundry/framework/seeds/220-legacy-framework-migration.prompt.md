@@ -33,7 +33,7 @@ Migration tasks:
    - generated index and session-handoff artifacts when missing
    - canonical wave-context prompt docs when missing
 6. Migrate or normalize lifecycle workspace expectations:
-   - use `docs/plans/<change-id>.md` as the single consolidated change document for each in-flight change; do not create or continue to use `docs/specs/changes/` as an in-flight workspace
+   - use `docs/plans/<change-id>.md` as the single consolidated spec for each in-flight change; do not create or continue to use `docs/specs/changes/` as an in-flight workspace
    - if any active `docs/specs/changes/<id>/` or `docs/product-specs/changes/<id>/` packages still exist, fold their `proposal.md` rationale, `spec.md` requirements, and `tasks.md` tasks into the corresponding plan file as `## Rationale`, `## Requirements`, and `## Tasks` sections, then remove the now-redundant spec folder
    - after migrating all packages, **remove the legacy workspace directories** if they are now empty: `docs/exec-plans/`, `docs/product-specs/`, `docs/gaps/`, `docs/performance/`, `docs/specs/changes/`; do not leave empty shell directories
    - if a `docs/tasks.md` pre-wave scratch backlog exists, review it for items worth promoting to `docs/references/tech-debt-tracker.md`, then remove it — a flat uncategorized task list has no place in the wave model

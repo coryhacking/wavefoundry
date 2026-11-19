@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-05-01
+Last verified: 2026-11-18
 
 ## Current Quality Posture
 
@@ -40,4 +40,4 @@ Last verified: 2026-05-01
 1. Add CI/CD (GitHub Actions) after first delivery wave
 2. Add `pyproject.toml` with test infrastructure declaration
 3. Populate `code_patterns` once MCP implementation sources exist
-4. Spec MCP tool surface in `docs/specs/mcp-tool-surface.md`
+4. Document the MCP tool surface as a behavior contract in `docs/specs/mcp-tool-surface.md`

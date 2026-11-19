@@ -126,6 +126,7 @@ TOOL_TIERS: dict[str, str] = {
     # ── Mutating lifecycle / gates / evidence ────────────────────────────
     "wf_add_change": TIER_WRITE,
     "wf_close_change": TIER_WRITE,
+    "wf_cleanup_work": TIER_WRITE,
     "wf_close_gate": TIER_WRITE,
     "wf_close_wave": TIER_WRITE,
     "wf_create_wave": TIER_WRITE,
@@ -140,7 +141,7 @@ TOOL_TIERS: dict[str, str] = {
     "wf_mark_task": TIER_WRITE,
     "wf_review_wave": TIER_WRITE,
     "wf_set_handoff": TIER_WRITE,
-    # ── Change-doc creation ──────────────────────────────────────────────
+    # ── Spec creation ──────────────────────────────────────────────
     "wf_new_bug": TIER_WRITE,
     "wf_new_change": TIER_WRITE,
     "wf_new_documentation": TIER_WRITE,

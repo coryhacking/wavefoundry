@@ -295,6 +295,7 @@ class IntentVocabularyTests(unittest.TestCase):
         with patch.multiple(vocabulary_profile, ITEM_NAME="Ticket", ITEM_NAME_PLURAL="Tickets",
                             CONTAINER_NAME="Batch", CONTAINER_NAME_PLURAL="Batches"):
             instructions = lifecycle_gate_support._prepare_council_instructions(None, typed=True)
+            # Change 23myn Requirement 10: the planning-document noun follows the item noun.
             self.assertIn("admitted ticket docs and batch record", instructions)
             self.assertIn("admitted ticket and the batch Objective", instructions)
             self.assertNotIn("admitted change", instructions)

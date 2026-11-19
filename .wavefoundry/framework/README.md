@@ -162,21 +162,21 @@ Use these public phrases in a target project's repository:
 - `Upgrade Wavefoundry` (legacy: `Upgrade wave framework` / `Upgrade wave context`)
 - `Plan initiative` (optional outcome and continuation brief across waves, using existing records; no new tracker or lifecycle authority)
 - `Envision project` (ambitious product vision and an adaptable roadmap through useful technical and nontechnical advances; advisory architecture, red-team and Archetype Council reviews, no implementation authority)
-- `Plan change`
+- `Plan spec` (alias: `Plan change`)
 - `Create wave`
-- `Add change to wave`
-- `Remove change from wave`
+- `Add spec to wave` (alias: `Add change to wave`)
+- `Remove spec from wave` (alias: `Remove change from wave`)
 - `Prepare wave`
 - `Implement wave`
-- `Implement change`
+- `Implement spec` (alias: `Implement change`)
 - `Pause wave`
 - `Review wave`
 - `Review memories` (alias: `Memory review`)
 - `Close wave`
-- `Close change` (one change inside the open wave; Close wave remains the only wave close)
+- `Close spec` (alias: `Close change`; one change inside the open wave; Close wave remains the only wave close)
 - `Review plan` (natural-language aliases: `Interrogate this plan` / `Stress-test this plan`; optional and no-signoff, before implementation)
 
-In hosts that support skills (Claude Code, Codex, Antigravity), the core lifecycle commands are also rendered as project-local `SKILL.md` files under a `wf-` prefix (`/wf-plan-change`, `/wf-prepare-wave`, `/wf-implement-wave`, `/wf-review-wave`, `/wf-close-wave`, `/wf-close-change`, `/wf-review-plan`, `/wf-pause-wave`, `/wf-council`, `/wf-evaluate-decision`, `/wf-memory-review`, `/wf-guru`, `/wf-upgrade`), so typing `/wf` filters the host's command menu to the family. Each skill is a thin pointer to the same `docs/prompts/*.prompt.md` workflow as its phrase; the two never drift. `wf-review-plan` is the only plan-review skill; the old wording remains phrase-level compatibility only. It is distinct from `wf-review-wave`, which runs required delivery-review lanes and records typed evidence. The registry lives in `scripts/render_agent_surfaces.py` (`SKILL_REGISTRY`, `render_skills`) and renders on `wf setup` and every upgrade; a skill with a `requires_doc` gate renders only where its backing prompt exists.
+In hosts that support skills (Claude Code, Codex, Antigravity), the core lifecycle commands are also rendered as project-local `SKILL.md` files under a `wf-` prefix (`/wf-plan-spec`, `/wf-prepare-wave`, `/wf-implement-wave`, `/wf-review-wave`, `/wf-close-wave`, `/wf-close-spec`, `/wf-review-plan`, `/wf-pause-wave`, `/wf-council`, `/wf-evaluate-decision`, `/wf-memory-review`, `/wf-guru`, `/wf-upgrade`), so typing `/wf` filters the host's command menu to the family. Each skill is a thin pointer to the same `docs/prompts/*.prompt.md` workflow as its phrase; the two never drift. `wf-review-plan` is the only plan-review skill; the old wording remains phrase-level compatibility only. It is distinct from `wf-review-wave`, which runs required delivery-review lanes and records typed evidence. The registry lives in `scripts/render_agent_surfaces.py` (`SKILL_REGISTRY`, `render_skills`) and renders on `wf setup` and every upgrade; a skill with a `requires_doc` gate renders only where its backing prompt exists.
 
 `wf-envision` is available after seed 100 authors the local Envision core and four internal phase companions, then surfaces are rendered again. Seed 179 owns the strategic core; `seeds/envision/{research,revision,review,delivery}.prompt.md` owns phase detail installed at matching `docs/prompts/agents/envision/` paths. The core requires each applicable local companion at its point of use. Seed 160 reconciles this complete set, including companion-only changes, while preserving compatible customization and surfacing conflicts. Helpers are not public commands or skills. The thin skill and phrase author one coherent vision by default, with detailed review accounting in the response; explicit evidence-location policy is honored. Installation creates no vision, and authoring grants no implementation authority.
 
@@ -189,6 +189,8 @@ Packaging (maintainer / cross-repo distribution) uses **`Package Wavefoundry`** 
 - prefer **`Init Wavefoundry`** / **`Upgrade Wavefoundry`** in durable prompt surfaces, docs, and handoffs (legacy **`Init wave framework`** / **`Upgrade wave framework`** and **context** phrases remain valid)
 
 ## Framework Identity
+
+Wavefoundry is a spec-driven development framework: a spec plans one change, and a wave bundles changes, reviews them and closes them. Spec-driven development is the method; waves, typed review evidence and lifecycle gates are what Wavefoundry adds to it. The vocabulary (spec, change, wave, behavior contract) is defined once in `seeds/001-framework-lifecycle-overview.md` **Core Concepts**.
 
 The Wave Framework replaces the older project-context framework model with a wave-native operating model:
 
@@ -252,16 +254,16 @@ This leaves room to insert prompts later without renumbering the whole pack.
 - `140-reindex-ongoing.prompt.md` — ongoing drift detection across docs, prompts, personas, and memory
 - `150-refresh-wavefoundry.prompt.md` — internal targeted/full refresh helper
 - `160-upgrade-wavefoundry.prompt.md` — public upgrade and legacy-to-Wavefoundry migration entrypoint
-- `170-plan-change.prompt.md` — wave-aware change planning
+- `170-plan-spec.prompt.md` — wave-aware change planning
 - `175-review-plan.prompt.md` — optional plan review and unresolved-branch stress-test helper
 - `171-plan-initiative.prompt.md` — Plan arc: optional outcome records and continuation across linked waves (stable seed filename)
 - `179-envision-project.prompt.md` — grounded product vision, technical and nontechnical roadmap, and proportionate independent advisory reviews
-- `180-implement-change.prompt.md` — wave execution and coordination
-- `190-close-wave.prompt.md` — wave closure, promotion, and archival, plus Close change
+- `180-implement-spec.prompt.md` — wave execution and coordination
+- `190-close-wave.prompt.md` — wave closure, promotion, and archival, plus Close spec
 - `200-wave-reconciliation.prompt.md` — internal helper for starting, updating, and completing waves
 - `210-migrate-journals.prompt.md` — one-time retirement of remaining journal files into typed memory records (upgrade-only)
 - `220-legacy-framework-migration.prompt.md` — internal helper for migrating from legacy non-wave context footprints
-- `230-author-spec.prompt.md` — spec authoring and behavior-contract refresh helper
+- `230-author-spec.prompt.md` — behavior contract authoring and refresh helper
 - `250-migrate-existing-wave-project.prompt.md` — explicit migration from legacy vendored framework layout to Wavefoundry layout
 
 ## Cross-Prompt Citations (`seed-NNN` short-name convention)
@@ -373,7 +375,7 @@ Suggested `factor_review_policy` anchors:
 Suggested `persona_review_policy` anchors:
 
 - whether persona review is required when selected by readiness evaluation or is advisory only
-- which change types should invoke persona agents (spec changes, UX-affecting changes, acceptance criteria)
+- which change types should invoke persona agents (behavior contract changes, UX-affecting changes, acceptance criteria)
 - persona root path
 - whether persona findings are gating or advisory
 
@@ -446,7 +448,7 @@ These goals define the contract for wave artifacts and reconciliation helpers. S
 - a wave can contain multiple workstreams when their assumptions are compatible
 - only one wave should normally be active per `change-id` at a time
 - the wave coordinator owns execution order, agent allocation, review checkpoints, and wave completion
-- small waves and large waves should use the same scalable artifact model: the `## Changes` section can stay compact for a one-line fix or the change docs can expand into nested workstreams for a large feature bundle
+- small waves and large waves should use the same scalable artifact model: the `## Changes` section can stay compact for a one-line fix or the specs can expand into nested workstreams for a large feature bundle
 - waves should make partial failure, retries, deferred changes, and moved changes explicit so downstream agents can tell what actually completed
 
 ### Wave Orchestration Contract
@@ -477,7 +479,7 @@ The coordinator's execution loop during the implement phase follows a ReAct-deri
 - **Thought before action:** the coordinator records a `Thought:` entry in the Progress Log before each lane invocation, stating why this action now.
 - **Wave plan:** before the first edit, the coordinator produces an ordered lane sequence with scoped inputs per serialization unit; deviations are named events, not silent reorderings.
 - **Parallel lane merge:** implementation and computational-verification lanes with no shared dependencies run concurrently; routine inferential reviewer lanes run later in the distinct `Review wave` phase.
-- **Finding classification (CRITIC):** after an exceptional named checkpoint or the delivery review, findings are evaluated against the change doc's acceptance criteria before a loop level is chosen — "reviewer clean" alone is not the exit condition.
+- **Finding classification (CRITIC):** after an exceptional named checkpoint or the delivery review, findings are evaluated against the spec's acceptance criteria before a loop level is chosen — "reviewer clean" alone is not the exit condition.
 - **Root cause capture (Reflexion):** after a blocking finding, the coordinator records a `Reflect:` entry identifying the pattern and updating remaining tasks proactively.
 - **Three loop levels:** Level 1 (micro — internal to implementer, no log entry), Level 2 (exceptional focused independent checkpoint — re-check the affected boundary, no re-Prepare), Level 3 (wave lifecycle — scope or plan invalidation, stop and re-Prepare or re-plan). Finding type — not severity — determines the level.
 
@@ -510,7 +512,7 @@ For machine usability, each wave should make these relationships explicit when t
 - which review checkpoints gate progress or closure
 - which incomplete changes or tasks were deferred, moved, retried, blocked, or superseded
 
-Changes should support variable depth while preserving stable anchors. A change may be atomic or composite, and optional tasks/subtasks may be tracked inside the change document when finer execution state is useful. A normal wave record should expose:
+Changes should support variable depth while preserving stable anchors. A change may be atomic or composite, and optional tasks/subtasks may be tracked inside the spec when finer execution state is useful. A normal wave record should expose:
 
 - `Change ID`
 - `Change Status`
@@ -555,14 +557,14 @@ Split a change into a new change only when:
 
 ## Persona Model
 
-Persona agents represent the **users, operators, administrators, and deployers** of the software system being built — not the agents who build it. They are invoked to give the user perspective during spec authoring, design review, and acceptance.
+Persona agents represent the **users, operators, administrators, and deployers** of the software system being built — not the agents who build it. They are invoked to give the user perspective during behavior contract authoring, design review, and acceptance.
 
 - personas are distinct from agent roles: roles build the software; personas speak as the people who use or operate it
 - persona creation should be evidence-driven; do not invent personas for style or symmetry
 - ground each persona in usage patterns, behavior contracts, and user-facing failure modes found in the project (from evidence in the repository)
 - when evidence is sparse, ask the user who operates or uses the system before generating persona docs
 - persona count should stay justified by evidence; start small and expand only when a meaningfully distinct usage pattern requires it
-- personas participate in spec authoring, design review, edge-case analysis, and acceptance — not in implementation or coordination
+- personas participate in behavior contract authoring, design review, edge-case analysis, and acceptance — not in implementation or coordination
 
 Factor-review agents are a separate concern from user personas. See the `## Factor Review Model` section below.
 

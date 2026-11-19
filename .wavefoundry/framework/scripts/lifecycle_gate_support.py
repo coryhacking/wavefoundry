@@ -401,14 +401,14 @@ def _change_id_invalid_diagnostics(
     ]
 
 
-# Wave 1zxo0 (1zxns): the member-doc read rule. A member change doc is read
+# Wave 1zxo0 (1zxns): the member-doc read rule. A member spec is read
 # only as a regular file (never a link) directly in its expected folder, inside
 # that folder and inside the repository once resolved, through a capped read.
 MEMBER_DOC_MAX_BYTES = 8 * 1024 * 1024
 
 
 class MemberDocRefused(OSError):
-    """A member change doc failed the read rule; an ``OSError`` so existing
+    """A member spec failed the read rule; an ``OSError`` so existing
     ``except OSError`` branches report it as unreadable. The message is a
     cause class only, never a path."""
 
@@ -444,7 +444,7 @@ def _runtime_lock_identity_match(resolved_root: Path, entry: os.stat_result) -> 
 
 
 def _read_member_doc_bytes(folder: Path, path: Path, *, root: Path) -> bytes:
-    """Read a member change doc under the member-doc read rule (wave 1zxo0).
+    """Read a member spec under the member-doc read rule (wave 1zxo0).
 
     Reads only when ``path.parent`` is ``folder``; ``lstat`` shows a regular
     file (not a link); the resolved path lies in the resolved ``folder`` and in
@@ -534,8 +534,8 @@ def _close_gate_change_ids(wave_text: str) -> list[str]:
 
     Read through docs-lint's record parser, which strips each line, so an
     indented member id block cannot escape the gate; only ``change``
-    records are kept (the parser's legacy ``item`` fallback ids are not change
-    documents).  Column-0 ids the lint parser does not accept (a non-lint id
+    records are kept (the parser's legacy ``item`` fallback ids are not
+    specs).  Column-0 ids the lint parser does not accept (a non-lint id
     shape) are kept too, so no id the gate read before is dropped.  Wave 1zxo0
     (1zxns): every id passes the allow-list; a rejected column-0 line is
     reported by ``_collect_silent_unchecked_items_for_close`` as a ``change id``
@@ -586,7 +586,7 @@ def _close_gate_parse_ac_priority(priority_section: str) -> dict[str, str]:
 def _collect_silent_unchecked_items_for_close(
     wave_md: Path, wave_text: str, root: Optional[Path] = None,
 ) -> list[dict[str, str]]:
-    """Walk admitted change docs; return silent open items that block close.
+    """Walk admitted specs; return silent open items that block close.
 
     Wave 1p31b (1p32k): the close-time hard gate. Every AC and task must be ``[x]`` or
     ``[~]`` at close. AC items at ``not-this-scope`` priority are exempt. Returns a list of
@@ -939,6 +939,70 @@ def _extract_required_review_lanes(wave_text: str) -> list[str]:
     return out
 
 
+def admitted_change_texts(
+    root: Path, wave_md: Path, change_ids: Sequence[str]
+) -> dict[str, str]:
+    """Each admitted change document's text under the member-doc read rule.
+
+    An unreadable document is left out (change 23q1h): its criteria are then
+    no information, which can lapse no approval.
+    """
+
+    texts: dict[str, str] = {}
+    for change_id in change_ids:
+        path = _wave_change_doc_path(root, wave_md, change_id)
+        try:
+            texts[change_id] = _read_member_doc_bytes(path.parent, path, root=root).decode("utf-8")
+        except (OSError, UnicodeError):
+            continue
+    return texts
+
+
+def delivery_deferral_findings(
+    root: Path,
+    wave_md: Path,
+    wave_text: str,
+    records: Iterable[Mapping[str, Any]],
+    *,
+    change_text_overrides: Mapping[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """Current delivery approvals recorded before a criterion was narrowed (change 23q1h).
+
+    For the latest current ``council-delivery`` and ``operator-signoff``
+    approval whose ``limitations`` ends with the recorded criterion status,
+    the criteria of the listed changes that were deferred, noted or had their
+    note changed since. A closed record, an approval without a parseable line
+    and a change the line does not list report nothing.
+    """
+
+    if review_evidence.wave_record_closed(wave_text):
+        return []
+    records = tuple(records)
+    approvals = review_evidence._approval_rows(records, approval_phase="delivery")
+    recorded: dict[str, dict[str, Any]] = {}
+    for key in review_evidence.CRITERION_STATUS_SIGNOFF_KEYS:
+        entry = approvals.get(f"approval:{key}")
+        if entry is None:
+            continue
+        rows = review_evidence.review_status_rows(records, (key,), approval_phase="delivery")
+        if not rows or rows[0]["state"] != "approved":
+            continue
+        parsed = review_evidence.parse_criterion_status_line(entry[1].get("limitations"))
+        if parsed is not None:
+            recorded[key] = parsed
+    if not recorded:
+        return []
+    texts = admitted_change_texts(root, wave_md, _extract_change_ids_from_wave_text(wave_text))
+    texts.update(change_text_overrides or {})
+    current = review_evidence.criterion_status_map(texts)
+    findings = []
+    for key, parsed in recorded.items():
+        changes = review_evidence.criterion_status_changes(parsed, current)
+        if changes:
+            findings.append({"signoff_key": key, "changes": changes})
+    return findings
+
+
 def receipt_supersession_attribution(
     state: Mapping[str, Any],
     change_ids: Sequence[str],
@@ -979,7 +1043,7 @@ def receipt_supersession_attribution(
             change_id for change_id in old_changes.keys() | new_changes.keys()
             if old_changes.get(change_id) != new_changes.get(change_id)
         )
-        parts.append(f"changed {_vocab.tier_noun('item')} docs: " + (", ".join(changed) or "none"))
+        parts.append(f"changed {_vocab.planning_noun('docs')}: " + (", ".join(changed) or "none"))
         if old_inputs["project_policy_sha256"] != new_inputs["project_policy_sha256"]:
             parts.append("project policy inputs changed")
         comparison = review_policy.compare_receipt_sections(current, pending)
@@ -1185,11 +1249,28 @@ def _prepare_policy_state(
     }, ()
 
 
+_RECORD_STATUS_LINE_RE = re.compile(r"(?mi)^Status:\s*(\S+)")
+
+
 def _review_policy_receipt_diagnostics(
     root: Path, wave_md: Path, wave_text: str, *, advisory: bool = False
 ) -> list[dict[str, Any]]:
-    """Recompute receipt inputs; downstream lifecycle gates never reselect."""
+    """Recompute receipt inputs; downstream lifecycle gates never reselect.
 
+    A closed record reports nothing (change 23q1h): nothing recomputes a
+    closed wave's digest, so a later normalizer change cannot ask it for
+    re-Prepare. Reopening rewrites the status, so a reopened wave is checked.
+    The record's first ``Status:`` line must say closed as well, so a later
+    ``Status: closed`` line in an open record's prose skips nothing.
+    """
+
+    first_status = _RECORD_STATUS_LINE_RE.search(wave_text or "")
+    if (
+        review_evidence.wave_record_closed(wave_text)
+        and first_status is not None
+        and first_status.group(1).lower() == "closed"
+    ):
+        return []
     if not _wave_uses_external_review_evidence(root, wave_md):
         return []
     existing_records, existing_errors = read_review_event_ledger(wave_md)
@@ -1313,7 +1394,7 @@ def _prepare_council_instructions(rotating_seat: str | None, *, typed: bool = Fa
     """
 
     grounding = (
-        f"Run each council seat in isolation against the admitted {_vocab.tier_noun('item')} docs and {_vocab.tier_noun('container')} record. "
+        f"Run each council seat in isolation against the admitted {_vocab.planning_noun('docs')} and {_vocab.tier_noun('container')} record. "
         "Verification must be code-grounded: verify each plan's load-bearing claims against the "
         "actual tree, not against the plan's own prose — cited file:line sites and symbols must "
         "resolve, 'X already does Y' claims must hold in the code, and 'no other caller/site' "

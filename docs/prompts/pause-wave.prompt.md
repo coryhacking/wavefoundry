@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-07
+Last verified: 2026-11-18
 
 Shortcut: **`Pause wave`**
 
 ## Host-neutral orchestration
 
-Follow `.wavefoundry/framework/seeds/180-implement-change.prompt.md` **Host-neutral orchestration** across the lifecycle. Record scope and ACs, revision or tree fingerprint, changed paths, commands/results, unresolved findings and next action in the existing handoff and wave records. The receiving context checks the current tree before resuming. Use only available host capabilities; sequential implementation does not satisfy required independent review.
+Follow `.wavefoundry/framework/seeds/180-implement-spec.prompt.md` **Host-neutral orchestration** across the lifecycle. Record scope and ACs, revision or tree fingerprint, changed paths, commands/results, unresolved findings and next action in the existing handoff and wave records. The receiving context checks the current tree before resuming. Use only available host capabilities; sequential implementation does not satisfy required independent review.
 
 ## Purpose
 
@@ -25,7 +25,7 @@ Park current session state and transition the wave to `paused` when work must be
    - **Next** — ordered next actions
    - **Files touched** — key files modified
    - **Test state** — passing/failing/untested at pause time
-   - **Open questions / Deferred decisions** — unresolved intent that doesn't belong in a change doc but must survive the context reset
+   - **Open questions / Deferred decisions** — unresolved intent that doesn't belong in a spec but must survive the context reset
    - Blockers (if any)
 3. Update wave record progress log with current state.
 4. Commit the handoff artifact (operator-owned commit).
@@ -63,3 +63,5 @@ Alongside parking working state in the handoff, consider proposing agent memory 
 ## Disposable work
 
 Use the lifecycle-reported `.wavefoundry/work/<wave-id>/`, keyed by the resolved unique prefix, for shared temporary work; include the path and availability notices in coordinator briefs. Follow seed 180’s **Disposable work** and seed 209’s **Review Artifact Discipline**. Reads and dry-runs create nothing; unavailable work is advisory and existing host permissions apply. Pause retains this work; record its path in the handoff. Reopening uses a fresh owned generation after closure.
+
+Write every file you create for a wave, including coordinator briefs, logs, captured test output and build output, inside that wave's own work folder, in a child folder when that helps; never write a file directly in `.wavefoundry/work/`. Before the wave exists, keep the content in task context until a lifecycle call reports the work area. `wf_audit` and close report files and links left directly in the work root as the advisory `work_root_loose_files`. If you wrote such a file for a wave, move it into that wave's folder while the wave is open, or delete it. Leave any other loose file in place, including one you are not sure you wrote (a name that starts with a wave id does not prove who wrote it), and report it to the operator, who decides. Never move a file you did not write into a wave's folder: close removes that folder with everything in it.

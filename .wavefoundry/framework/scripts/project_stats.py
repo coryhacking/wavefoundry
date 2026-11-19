@@ -602,8 +602,8 @@ def format_report(payload: dict) -> str:
         "unadmitted_checkboxes": f"{unassigned} — acceptance criteria and implementation tasks",
         "criteria": "Acceptance criteria", "tasks": "Implementation tasks",
         "wave_id": f"{vp.CONTAINER_NAME} ID",
-        "missing_admitted_documents": f"Missing {vp.ITEM_NAME.lower()} documents assigned to {vp.CONTAINER_NAME_PLURAL.lower()}",
-        "unreadable_change_documents": f"Unreadable {vp.ITEM_NAME.lower()} documents",
+        "missing_admitted_documents": f"Missing {vp.planning_noun('documents')} assigned to {vp.CONTAINER_NAME_PLURAL.lower()}",
+        "unreadable_change_documents": f"Unreadable {vp.planning_noun('documents')}",
     }
     lines = ["# Project statistics"]
     def render(value: Any, depth: int = 0) -> None:

@@ -454,7 +454,7 @@ class LifecycleCompatibilityTests(unittest.TestCase):
         root = _make_repo(self.base / name)
         _write_config(root, self.CONFIG)
         wave_md, wave_id = _build_one(self.srv, root, name, status=status)
-        # The change document carries its status header from the start, so a
+        # The spec carries its status header from the start, so a
         # later status change moves no receipt input (as in test_phase_gates).
         label = vocabulary_profile.MEMBER_STATUS_LABEL
         doc = next(path for path in wave_md.parent.glob("*.md") if path != wave_md)

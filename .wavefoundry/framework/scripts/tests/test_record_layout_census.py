@@ -80,7 +80,7 @@ SITES: list[tuple[str, str, str]] = [
     # Wave 1z8ty removed the import-time EXCLUDED_DIRS default; excluded_dirs_for(root) remains.
     ("reconcile_scan.py", "EXCLUDED_DIRS: \"docs/waves\"", "prefix_check"),
     ("render_agent_surfaces.py", "docstring: docs/waves/<wave>/events.jsonl authority", "comment"),  # historical site removed by 1ypxw
-    ("render_agent_surfaces.py", "review-plan prompt lines: Load the target change doc (...)", "message"),
+    ("render_agent_surfaces.py", "review-plan prompt lines: Load the target spec (...)", "message"),
     ("render_agent_surfaces.py", "SCAFFOLD_BASELINES: \"docs/plans/plan-template.md\"", "construction"),
     ("render_platform_surfaces.py", "claude_stop_source hook body _find_repo_root: cand / \"docs\" / \"waves\"", "construction"),
     ("render_platform_surfaces.py", "claude_stop_source hook body _active_wave: root / \"docs\" / \"waves\"", "construction"),
@@ -129,6 +129,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("install_log_lib.py", "`docs/waves/00000 wave-zero-plans-and-specs/wave.md`"): "comment",
     # Shared stock-profile wording moved from the renderer; never resolved as a path.
     ("review_plan_prompt_check.py", "- Load the target change doc (`docs/waves/<wave-id>/<change-id>.md`"): "message",
+    ("review_plan_prompt_check.py", "- Load the target spec (`docs/waves/<wave-id>/<change-id>.md`"): "message",
     ("review_evidence.py", "``docs/waves/<one wave directory>/events.jsonl`` occupies"): "docstring",
     ("review_evidence.py", "direct child directory of ``docs/waves/`` holding the fixed sibling"): "docstring",
     ("review_policy.py", "the leading fragment (`docs/waves/1uo1x`)"): "docstring",
@@ -142,7 +143,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("wf_server/server_impl.py", "_DEMOTION_WAVES = 0.75  # docs/waves/"): "comment",
     ("wf_server/server_impl.py", "_DEMOTION_PLANS = 0.60  # docs/plans/"): "comment",
     ("wf_server/server_impl.py", "usage=\"wf_map(address='doc:docs/plans/1234-feat x.md')\""): "message",
-    ("wf_server/server_impl.py", "When a change doc is relocated from ``docs/plans/`` to a wave folder"): "docstring",
+    ("wf_server/server_impl.py", "When a spec is relocated from ``docs/plans/`` to a wave folder"): "docstring",
     ("wf_server/server_impl.py", "valid from ``docs/plans/`` but become invalid"): "docstring",
     ("wf_server/server_impl.py", "already *inside* ``docs/waves/``)"): "docstring",
     ("wf_server/server_impl.py", "# relocate the file out of `docs/plans/`"): "comment",
@@ -152,7 +153,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("wf_server/server_impl.py", "every ``docs/waves/`` record"): "docstring",
     ("wf_server/context_efficiency_handlers.py", "\"\"\"Plan docs under docs/plans/ are pending work"): "docstring",
     ("wf_server/server_impl.py", "while historical docs/waves records receive an"): "docstring",
-    ("wf_server/server_impl.py", "\"\"\"List pending plan/change docs in docs/plans that have not yet"): "docstring",
+    ("wf_server/server_impl.py", "\"\"\"List pending specs in docs/plans that have not yet"): "docstring",
     # -- lint-routing lane (Requirement 5): non-construction sites only --
     ("wave_lint_lib/constants.py", "at check time, so `docs/waves/README.md` stays"): "comment",
     ("wave_lint_lib/constants.py", "# CHANGE_ID_PATTERN validates change plan document headers (docs/plans/**/*.md"): "comment",

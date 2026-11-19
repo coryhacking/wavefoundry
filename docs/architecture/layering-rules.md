@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-05
+Last verified: 2026-11-18
 
 ## Allowed Dependencies
 
@@ -134,7 +134,7 @@ unchanged, while `wf_new_<kind>`, `change_doc_response` and the CLI refuse them 
 `retired_kind_message`. A distribution cannot re-enable a retired kind, because
 `EXTRA_CHANGE_KINDS` refuses every core kind; this is intentional.
 Each extra kind must match `^[a-z][a-z0-9]{1,15}$` (lowercase ASCII, so a
-change doc file name never differs only by case), may not repeat or equal a core
+spec file name never differs only by case), may not repeat or equal a core
 kind, and may not be one of the reserved tokens `wave`, `mem`, `sec`, `adr` or
 `jrnl`, which name other lifecycle ids or record files; a non-tuple or non-string value is refused too.
 Kinds apply to live and archived records alike (`ARCHIVE_PROFILE` stays the
@@ -168,6 +168,12 @@ valid. The renderer migrates already-rendered prompts: it records the names it
 applied under `prompt_names` in the prompt-surface manifest, moves prompts
 byte-for-byte in dependency order before skills and baselines render, and
 docs-lint reports a pending migration while that record differs from the profile.
+The profile keys for the five spec-named prompts (`plan-change`, `add-change-to-wave`,
+`remove-change-from-wave`, `implement-change` and `close-change`) are stable
+identifiers, not the default slugs: the default slugs are `plan-spec`,
+`add-spec-to-wave`, `remove-spec-from-wave`, `implement-spec` and `close-spec`, and the
+earlier phrases remain as aliases. A repository rendered under the earlier default
+names is migrated on render when its manifest still registers the earlier doc.
 
 Optional arc planning uses separate `ARC_NAME` and `ARC_KIND` vocabulary and `record_paths.ARCS_ROOT`; it is not a third admitted lifecycle tier. The `plan-arc` prompt joins the existing mapped prompt names. `lifecycle_id` accepts the configured arc kind without adding it to `CHANGE_KINDS`, and collision discovery includes its record root. A validated path helper resolves the ID-and-slug folder and lifecycle-named document without writing it. Normal document authoring owns the content.
 
@@ -258,7 +264,7 @@ enumerator, including `_collect_wave_state`, `check_closed_wave_requirements`,
 lifecycle-id minting, commit provenance, and the review-policy upgrade planner all
 enumerate through it, and no module discovers wave records by enumerating the
 waves root itself with `iterdir`, `rglob`, or a `*/wave.md` glob of its own;
-change-doc lookup (`_resolve_change_doc_matches`) and the docs-lint and gardener
+spec lookup (`_resolve_change_doc_matches`) and the docs-lint and gardener
 corpus walks stay recursive over the roots by design, because they look for
 documents, not for wave folders. A wave id at two paths is
 `ambiguous_wave_id` from docs-lint and from every lifecycle tool that resolves a

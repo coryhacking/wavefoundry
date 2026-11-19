@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: proposed | accepted | deprecated | superseded
-Last verified: 2026-05-08
+Last verified: 2026-11-18
 Superseded by: [<id>-adr] (when applicable)
 
 ## Context
@@ -32,4 +32,4 @@ What was decided? State it as a declarative sentence.
 
 ## References
 
-- [Related seed, doc, or spec file]
+- [Related seed, doc, or behavior contract file]
