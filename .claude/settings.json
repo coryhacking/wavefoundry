@@ -105,7 +105,6 @@
       "mcp__wavefoundry__wf_audit_install",
       "mcp__wavefoundry__wf_current_wave",
       "mcp__wavefoundry__wf_gate_status",
-      "mcp__wavefoundry__wf_get_change",
       "mcp__wavefoundry__wf_get_handoff",
       "mcp__wavefoundry__wf_get_prompt",
       "mcp__wavefoundry__wf_gpu_doctor",
@@ -117,7 +116,9 @@
       "mcp__wavefoundry__wf_server_info",
       "mcp__wavefoundry__wf_techdocs_audit",
       "mcp__wavefoundry__wf_upgrade_status",
-      "mcp__wavefoundry__wf_validate_docs"
+      "mcp__wavefoundry__wf_validate_docs",
+      "mcp__wavefoundry__wf_stats",
+      "mcp__wavefoundry__wf_get_change"
     ]
   },
   "wavefoundryManagedAllow": [
@@ -161,6 +162,7 @@
     "mcp__wavefoundry__wf_list_waves",
     "mcp__wavefoundry__wf_map",
     "mcp__wavefoundry__wf_server_info",
+    "mcp__wavefoundry__wf_stats",
     "mcp__wavefoundry__wf_techdocs_audit",
     "mcp__wavefoundry__wf_upgrade_status",
     "mcp__wavefoundry__wf_validate_docs"

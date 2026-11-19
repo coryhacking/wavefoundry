@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-09-08
+Last verified: 2026-11-18
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -87,16 +87,16 @@ Wave `1uugh advisory-diagnostic-severity` (Advisory Diagnostic Severity) deliver
 
 <!-- wave:context-efficiency begin -->
 
-Estimated token savings use phase-unique returned source versions and mapped workflow prompts, minus recorded request and response tokens. Saved model output or avoided tool loops count only through quality-equivalent paired evidence.
+Estimated context avoided uses whole eligible text-file, workflow-prompt and derived-artifact credits, minus recorded request and response tokens. This baseline does not prove what an agent otherwise would have read or spent. Any quality-equivalent paired-evaluation residual is recorded separately in the checkpoint state and included in the total.
 
-| Stage | Tool calls | Estimated token savings |
+| Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
-| plan | 33 | 854,992 |
+| plan | 35 | 852,714 |
 | implement | 25 | 1,501,983 |
 | review | 70 | 1,447,003 |
-| **Total** | **128** | **3,803,978** |
+| **Total** | **130** | **3,801,700** |
 
-<!-- wave:context-efficiency-state {"generation":123,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":25,"content_source_credit":1626605,"derived_artifact_credit":0,"direct_net":1501983,"estimated_tokens_saved":1501983,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":520,"response_debit":126015,"source_credit_count":11,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1913},"plan":{"calls":33,"content_source_credit":937419,"derived_artifact_credit":1037,"direct_net":854992,"estimated_tokens_saved":854992,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":2060,"response_debit":87100,"source_credit_count":50,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":5696},"review":{"calls":70,"content_source_credit":1695332,"derived_artifact_credit":2147,"direct_net":1447003,"estimated_tokens_saved":1447003,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":4702,"response_debit":247120,"source_credit_count":34,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1346}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":128,"content_source_credit":4259356,"derived_artifact_credit":3184,"direct_net":3803978,"estimated_tokens_saved":3803978,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":7282,"response_debit":460235,"source_credit_count":95,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":8955},"wave_id":"1uugh advisory-diagnostic-severity"} -->
+<!-- wave:context-efficiency-state {"generation":125,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":25,"content_source_credit":1626605,"derived_artifact_credit":0,"direct_net":1501983,"estimated_tokens_saved":1501983,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":520,"response_debit":126015,"source_credit_count":11,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1913},"plan":{"calls":35,"content_source_credit":937419,"derived_artifact_credit":1037,"direct_net":852714,"estimated_tokens_saved":852714,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":2082,"response_debit":92863,"source_credit_count":50,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":9203},"review":{"calls":70,"content_source_credit":1695332,"derived_artifact_credit":2147,"direct_net":1447003,"estimated_tokens_saved":1447003,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":4702,"response_debit":247120,"source_credit_count":34,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":1346}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":130,"content_source_credit":4259356,"derived_artifact_credit":3184,"direct_net":3801700,"estimated_tokens_saved":3801700,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":7304,"response_debit":465998,"source_credit_count":95,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":12462},"wave_id":"1uugh advisory-diagnostic-severity"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided
