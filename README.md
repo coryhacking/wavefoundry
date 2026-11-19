@@ -38,6 +38,9 @@ If you already work spec-first, the documents map across like this. The Spec Kit
 | The unit that is reviewed and delivered together | A **wave**: one or more changes, readied, reviewed and closed as a bundle | No core equivalent found | No equivalent found |
 | What happens when the work is done | The spec stays in its closed wave folder as the record | Left to the team's retention policy | The change folder is archived and its deltas merge into the main specs |
 
+
+If you use Spec Kit to specify, clarify, plan, and break work into tasks, you can make those requests in Wavefoundry too. **Plan spec** keeps the decisions in one document. Product can stop after defining behavior, and engineering can resume with the approach and tasks. Follow [Your first wave](#your-first-wave) to see that handoff.
+
 ---
 
 ## What you get
@@ -224,72 +227,43 @@ If a required model cannot download, first retry `wf setup` when network access 
 
 ## Your first wave
 
-Three turns of conversation, end to end. Step 3 includes a structural refusal you can't talk past — that's the point of the framework.
+A product owner and an engineer can work on the same spec at different times. Here they deliver one change, a health endpoint, in one wave. The conversation and results below are illustrative.
 
-Every `>` line below is a shortcut phrase; in Claude Code, Codex, and Antigravity you can equally type the matching skill (`/wf-plan-spec`, `/wf-prepare-wave`, `/wf-implement-wave`, `/wf-close-wave` — see [Skills](#skills-the-lifecycle-as-slash-commands)). Same workflow, either way.
+### 1. Define the behavior
 
-### 1. Plan a change
+> Specify a health endpoint so our on-call engineer can tell whether the API process is answering. Leave the design and tasks for engineering.
 
-```
-> Plan spec: add /healthz endpoint to the API server
+**Plan spec** records the intended behavior in a draft. If a dependency times out, should the endpoint report that the API is unhealthy? The product owner clarifies that the probe measures whether the process can answer. A dependency outage belongs in a separate readiness check. The draft now has an acceptance criterion: a responsive process returns HTTP 200 even when that dependency is unavailable. Product can hand off here.
 
-[agent reads docs/architecture/, drafts the spec]
+### 2. Plan the implementation
 
-Agent: I've drafted docs/plans/12abc-feat add-healthz-endpoint.md
-with Rationale, Requirements, Acceptance Criteria, Tasks, and Risks.
-Want me to admit it into a new wave?
+> Resume the health-endpoint spec. Plan the approach and break it into tasks.
 
-> yes, create a wave for it
-```
+Engineering uses the same `docs/plans/12abc-enh add-healthz-endpoint.md` draft to plan the route and its tests. **Review plan** is available to challenge the proposed approach before building.
 
-The agent created a *spec* (the planning artifact for one unit of work) and is ready to roll it into a *wave* (the delivery unit that admits one or more changes).
+### 3. Prepare the wave
 
-### 2. Create wave, admit, prepare
+A *wave* groups the specs you intend to deliver together. Start with this one spec.
 
-```
-> Create wave: api-healthz
+> Create wave: api-healthz. Add the health-endpoint spec to it.
+>
+> Prepare wave.
 
-Agent: Created docs/waves/12abd api-healthz/wave.md. Admitting 12abc...
-       Wave status: planned, 1 admitted change.
+Admission moves the spec into the wave folder. Prepare checks the spec, acceptance priorities and required readiness approvals. Once it passes, the wave is ready for implementation.
 
-> Prepare wave
+### 4. Implement, review, and close
 
-Agent: Running readiness checks…
-       - Specs complete: ✓
-       - AC priority recorded: ✓
-       - Required review lanes selected: code-review, qa-review: ✓
-       - Wave Council readiness review: PASS
-       Wave status: planned and readied. Implement wave next.
-```
+> Implement wave.
 
-`Prepare wave` is a real gate. Docs-lint must pass. Every admitted spec must be complete. AC priority must be recorded. When configured, a structured council review must record `council-readiness`. Only then is the wave **readied** — it stays `planned`; a separate, single-OPEN-gated step (`Implement wave`) opens it to `active`/`implementing`. Any number of waves can be planned and readied in parallel; only one may be OPEN at a time.
+The engineer's agent adds the route and tests. The operator then asks for delivery review.
 
-### 3. Implement, review, close
+> Review wave.
 
-```
-> Implement wave
+Reviewers check the delivered behavior against the acceptance criteria. For example, with the dependency unavailable and the API process running, the test client receives HTTP 200 from `/healthz`. The review records that observation and any outstanding findings.
 
-[agent edits api/server.py, adds tests, runs them]
+> Close wave.
 
-Agent: Implementation complete. Tests pass. Review lanes:
-       code-review: approved
-       qa-review: approved
-       Ready to close?
-
-> Close wave
-
-Agent: wf_close_wave returned an error.
-       Diagnostic: operator_signoff_missing
-       Recovery: closure needs your explicit approval; once you give it,
-       I record the operator-signoff event in the wave's review ledger.
-
-> approved, go ahead and close
-
-Agent: Recorded operator-signoff in the review ledger. Running wf_close_wave again…
-       Wave closed. 1 change implemented. Session handoff updated.
-```
-
-That first-attempt refusal is the point. `wf_close_wave` blocks structurally — the agent could not have talked its way past it. The gate is the framework, not the prompt.
+The operator requests closure after reviewing the evidence. Close checks the required approvals, operator signoff, and completion records before recording the wave as closed.
 
 > *Want to see this visually? Run `Start dashboard` to open a local web UI showing wave state, AC and task progress, and review evidence at a glance.*
 

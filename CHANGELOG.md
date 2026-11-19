@@ -6,6 +6,13 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.44.1] - 2026-11-19
+
+### Changed
+
+- Plan spec identifies the first useful outcome, connects each outcome to acceptance criteria, and records when to observe benefits that can only be measured after delivery. Wave 23tct / 23rgx.
+- Agents use the requested action and its context to distinguish drafting a requirement, explaining current behavior, checking readiness, and reviewing delivery. The first-feature walkthrough shows product handing a draft to engineering and reviewers verifying the result. Wave 23tct / 23s4d.
+
 ## [1.44.0] - 2026-11-19
 
 **Upgrade actions**

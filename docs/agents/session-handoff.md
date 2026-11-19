@@ -6,6 +6,14 @@ Last verified: 2026-11-19
 
 ## Current state
 
+Idle after closing wave **23tct first-feature-workflow**. Plan spec now identifies the first useful outcome. The command catalog and README show how product can hand a draft to engineering and how reviewers verify delivery.
+
+## Open questions / Deferred decisions for 23tct
+
+Observe a first-time user's next feature handoff to assess onboarding in practice. The wave's agent trials covered the documented scenarios.
+
+## Earlier handoff for 23n00
+
 Wave **23n00 honest-readiness-integrity** is OPEN and implemented, with all five specialist delivery approvals and council-delivery recorded. Change **23mzz** permits only specialist readiness `known_bad_detected: null` with the inspected-scope rationale in the existing method field. Other four checks, false rejection, council/delivery requirements and existing operator exceptions remain intact. No code edits remain; framework and seed gates are closed.
 
 All five ACs and all tasks pass. Canonical green receipt: 12,847 tests across 250 files, 12 skips, 603.650 seconds. Focused default/second/declared profiles pass, 16 guard mutants are assertion-killed, and independent delivery reviewers report no findings. All 12,847 workers passed across 250 files (12 skips), but review recording overlapped that run and its receipt was refused. The final unchanged host-permission run passed; a sandboxed attempt had refused local loopback test servers. Full docs validation passes. No close, commit, push or release is authorized by the implementation request.

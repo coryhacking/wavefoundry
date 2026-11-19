@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-19
 
 The public catalog of shortcut phrases you can say to your agent. Each phrase routes to the documented prompt body for that command. See `AGENTS.md` for the agent-side routing table.
 
@@ -19,6 +19,16 @@ The behavioral rules below apply to every command in this catalog. They are summ
 - **Surface assumptions; prefer the smallest correct change.** Ask one clarifying question rather than make a wrong assumption. Verify a change actually solved the stated problem.
 - **Preflight every task.** Six points: evidence first, own the boundary, what breaks, order matters, state uncertainty, verify before declaring done.
 - **Full lifecycle before code.** Spec → wave admission → Prepare wave → first edit. See `AGENTS.md` **Stage Gate (repository code)** for the gate definition.
+
+## Interpret everyday requests
+
+Route ordinary requests by what the user wants to do, the artifact they mean, and where they want to stop. Use the workflow names in the project catalog. Honor an explicitly chosen workflow.
+
+- **Define or refine a feature.** Use Plan spec. If the user asks only to specify behavior, leave a draft with the agreed outcome, requirements, and open questions. Pause there before the technical approach and task checklist. When engineering asks for those, resume the same draft and complete Plan spec before admission.
+- **Clarify.** “What should happen on timeout?” while drafting a spec calls for a requirement decision. Ask about the consequential choice and record the agreed answer. “What happens on timeout today?” calls for an explanation grounded in the current implementation.
+- **Review.** Use Review plan to challenge a proposed approach, Prepare wave to check readiness to build, and Review wave to verify delivered behavior. If “review this” could refer to either a plan or its implementation and the context leaves both plausible, ask which the user means.
+
+Stop at the requested step. Defining behavior or breaking it into tasks authorizes planning only.
 
 ## Public Commands
 
