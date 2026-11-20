@@ -6,6 +6,17 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.46.0] - 2026-11-20
+
+### Added
+
+- Use `/wf-explain` for a walkthrough of a delivered wave or one spec, including closed work. It traces the implementation, explains recorded design choices and compromises, and shows what the team verified and what the operator inherits. Review offers the walkthrough once. An optional teach-back asks one question at a time. Wave 23ve6 / 23ve5.
+
+### Changed
+
+- Upgrading a project with a customized Review prompt preserves its local steps. During upgrade reconciliation, merge the walkthrough invitation into the delivery handoff and route it to the project's Explain prompt. Wave 23ve6 / 23ve5.
+- The quick start walks a team through its first bug fix or enhancement. The vision describes how a single engineer or small team directs spec-driven work, and the writing guide favors active voice and present tense for current behavior. The supported macOS host list now specifies Apple silicon. Commit `2c564a1e`.
+
 ## [1.45.0] - 2026-11-19
 
 ### Changed
