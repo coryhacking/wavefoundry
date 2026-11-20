@@ -231,11 +231,12 @@ class SharedPrefixSkillTests(unittest.TestCase):
                         policy.parent.mkdir()
                         policy.write_text("# Existing operator policy must survive\n")
                         preserved[policy] = policy.read_bytes()
-                    registry = ras.SKILL_REGISTRY
+                    registry_patch = contextlib.nullcontext()
                     if name == "wf-synthetic-upgrade":
-                        registry = (*registry, replace(gated, name=name))
+                        registry = (*ras.SKILL_REGISTRY, replace(gated, name=name))
+                        registry_patch = patch.object(ras, "_skill_registry", return_value=registry)
                     declaration = {name: _spec(prompt_doc_template="missing-template.prompt.md"), "wf-independent": VALID_SPEC}
-                    with patch.object(ras, "SKILL_REGISTRY", registry), base_declaration(EXTENSION_SKILLS=declaration):
+                    with registry_patch, base_declaration(EXTENSION_SKILLS=declaration):
                         result = entrypoint(root)
                         self.assertTrue(result.partial)
                         self.assertTrue(any(name in note and "rename" in note for note in result.diagnostics))

@@ -300,11 +300,13 @@ class DocsLintFixtureTests(_DocsLintFixture, unittest.TestCase):
             entries = json.loads(manifest.read_text(encoding="utf-8"))["public_prompt_surface"]
             self.assertIn({"doc": "docs/prompts/plan-change.prompt.md", "shortcut": "Plan change"}, entries)
 
-            # Under a profile that renames prompts the next render moves them to
-            # the profile's names; the operator then points the link at the
-            # name that exists (a no-op move under the default profile).
+            # A custom planning vocabulary retains the registered plan-change
+            # path unless its profile explicitly sets a different slug.
             ras.migrate_profile_prompt_names(root)
-            plan_name = Path(vocabulary_profile.prompt_doc("plan-change")).name
+            registered_slug = "plan-change" if vocabulary_profile.custom_planning_vocabulary() else shipped_plan["slug"]
+            override = vocabulary_profile.PROMPT_NAME_OVERRIDES.get("plan-change", {})
+            plan_name = f"{override.get('slug', registered_slug)}.prompt.md"
+            self.assertEqual((prompts / plan_name).read_bytes(), plan_bytes)
             index.write_text(
                 index.read_text(encoding="utf-8").replace(
                     "[planning](plan-feature.prompt.md)", f"[planning]({plan_name})"

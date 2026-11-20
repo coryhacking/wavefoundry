@@ -12,6 +12,7 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 import render_agent_surfaces as ras
 import vocabulary_profile as vp
+from prompt_vocabulary_support import checkout_prompt_names
 from upstream_fixture_support import source_repository_fixture
 
 import test_rust_practices_baseline as baseline_tests
@@ -262,6 +263,7 @@ class LanguageGuidanceTests(unittest.TestCase):
         self.assertTrue(baseline_tests.imperative_hits("Then add the lint to the manifest file."))
         self.assertTrue(baseline_tests.identifier_hits("As decided in 2abcd."))
 
+    @checkout_prompt_names()
     def test_local_carriers_keep_project_guidance_and_receive_additions(self):
         def local(path):
             return source_repository_fixture(ROOT / path).read_text(encoding="utf-8")

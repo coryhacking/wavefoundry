@@ -25,6 +25,7 @@ BUILD_PACK_PATH = SCRIPTS_ROOT / "build_pack.py"
 for _p in (str(SCRIPTS_ROOT), str(SCRIPTS_ROOT / "tests")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
+from prompt_vocabulary_support import checkout_prompt_names
 from record_layout_support import waves_rel  # noqa: E402
 import vocabulary_profile  # noqa: E402
 SEED_160 = REPO_ROOT / ".wavefoundry" / "framework" / "seeds" / "160-upgrade-wavefoundry.prompt.md"
@@ -796,6 +797,7 @@ class RetiredFeaturePromptNameTests(unittest.TestCase):
             [(".claude/agents/guru.md", 3, "Plan feature", vocabulary_profile.shortcut("plan-change"))],
         )
 
+    @checkout_prompt_names()
     def test_this_repository_guru_description_says_plan_change(self):
         guru = (REPO_ROOT / ".claude/agents/guru.md").read_text(encoding="utf-8")
         description = next(line for line in guru.splitlines() if line.startswith("description:"))

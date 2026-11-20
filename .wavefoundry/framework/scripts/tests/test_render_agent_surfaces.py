@@ -32,6 +32,7 @@ from upstream_fixture_support import upstream_fixture, source_carriers  # noqa: 
 import record_paths  # noqa: E402
 from prompt_vocabulary_support import (  # noqa: E402
     assert_clause,
+    checkout_prompt_names,
     has_clause,
     prime_profile_render,
     profile_paths,
@@ -118,26 +119,29 @@ class BriefingLoopCarrierTests(unittest.TestCase):
 
     # Rendered lifecycle prompts sit at the profile's paths (change 2134q);
     # template asset filenames keep the shipped names.
-    CARRIERS = {
-        "brief": (
-            ".wavefoundry/framework/seeds/170-plan-spec.prompt.md",
-            vp.prompt_doc("plan-change"),
-        ),
-        "readback": (
-            ".wavefoundry/framework/seeds/180-implement-spec.prompt.md",
-            ".wavefoundry/framework/install/lifecycle-prompts/implement-wave.prompt.md",
-            vp.prompt_doc("implement-change"),
-            vp.prompt_doc("implement-wave"),
-        ),
-        "gap": (
-            ".wavefoundry/framework/seeds/175-review-plan.prompt.md",
-            "docs/prompts/review-plan.prompt.md",
-        ),
-        "upgrade": (
-            ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
-            "docs/prompts/upgrade-wavefoundry.prompt.md",
-        ),
-    }
+    @staticmethod
+    def carriers():
+        return {
+            "brief": (
+                ".wavefoundry/framework/seeds/170-plan-spec.prompt.md",
+                vp.prompt_doc("plan-change"),
+            ),
+            "readback": (
+                ".wavefoundry/framework/seeds/180-implement-spec.prompt.md",
+                ".wavefoundry/framework/install/lifecycle-prompts/implement-wave.prompt.md",
+                vp.prompt_doc("implement-change"),
+                vp.prompt_doc("implement-wave"),
+            ),
+            "gap": (
+                ".wavefoundry/framework/seeds/175-review-plan.prompt.md",
+                "docs/prompts/review-plan.prompt.md",
+            ),
+            "upgrade": (
+                ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
+                "docs/prompts/upgrade-wavefoundry.prompt.md",
+            ),
+        }
+
     HEADINGS = {
         "brief": "**Brief before drafting:**",
         "readback": "**Readback before editing:**",
@@ -240,8 +244,9 @@ class BriefingLoopCarrierTests(unittest.TestCase):
             self.assertNotIn("Do not review sections outside Requirements", text)
         return body
 
+    @checkout_prompt_names()
     def test_each_carrier_independently_satisfies_contract_and_matches(self) -> None:
-        for kind, paths in self.CARRIERS.items():
+        for kind, paths in self.carriers().items():
             bodies = []
             for path in paths:
                 with self.subTest(kind=kind, path=path):
@@ -254,8 +259,9 @@ class BriefingLoopCarrierTests(unittest.TestCase):
             if shipped_prompt_vocabulary():
                 self.assertTrue(all(body == bodies[0] for body in bodies))
 
+    @checkout_prompt_names()
     def test_deleted_empty_and_reversed_clauses_are_detected_in_every_carrier(self) -> None:
-        for kind, paths in self.CARRIERS.items():
+        for kind, paths in self.carriers().items():
             for path in paths:
                 seed = self._is_seed(path)
                 original = (PROJECT_ROOT.parent / path).read_text()
@@ -394,6 +400,7 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
                        "sequential implementation does not satisfy required independent review"):
             self.assertIn(clause, paragraphs[0])
 
+    @checkout_prompt_names()
     def test_canonical_contract_and_each_propagation_carrier(self) -> None:
         policy = (self.ROOT / ".wavefoundry/framework/seeds" / self.OWNER).read_text()
         self._assert_block(policy, self.POLICY_HEADING, self.POLICY_CLAUSES)
@@ -416,6 +423,7 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
             self.assertIn(self.OWNER, text)
             self.assertIn("Check actual worker capabilities rather than assuming inherited tools", text)
 
+    @checkout_prompt_names()
     def test_deleted_and_reversed_semantic_obligations_are_detected(self) -> None:
         for relative, heading, clauses, reversals in (
             (".wavefoundry/framework/seeds/" + self.OWNER, self.POLICY_HEADING, self.POLICY_CLAUSES, (
@@ -706,6 +714,7 @@ class EfficacyCheckCarrierTests(unittest.TestCase):
                     found.add(path.relative_to(root).as_posix())
         return found
 
+    @checkout_prompt_names()
     def test_plan_change_prompt_carries_the_seed_block_verbatim(self) -> None:
         seed = self._block(self._read(self.SEED_170))
         for relative in source_carriers(self, (vp.prompt_doc("plan-change"),), root=self.ROOT):
@@ -713,6 +722,7 @@ class EfficacyCheckCarrierTests(unittest.TestCase):
         for clause in self.EFFICACY_CLAUSES:
             self.assertIn(clause, seed)
 
+    @checkout_prompt_names()
     def test_efficacy_questions_are_asked_before_selection(self) -> None:
         for relative in source_carriers(self, (self.SEED_170, vp.prompt_doc("plan-change")), root=self.ROOT):
             with self.subTest(carrier=relative):
@@ -2604,6 +2614,7 @@ class ChangePromptSkillAndContractTests(unittest.TestCase):
             "rendered": (repo / vp.prompt_doc("close-change")).read_text(encoding="utf-8"),
         }
 
+    @checkout_prompt_names()
     def test_close_change_states_the_implemented_wf_close_change_contract(self) -> None:
         # Seed text is literal; the template and rendered prompt carry each
         # clause in the profile's nouns and names (change 2134q).
@@ -3192,7 +3203,7 @@ class SkillRegistryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             self._repo(root)
-            with patch.object(ras, "SKILL_REGISTRY", (bad,)):
+            with patch.object(ras, "_skill_registry", return_value=(bad,)):
                 with self.assertRaises(RuntimeError):
                     ras.render_skills(root)
 
@@ -3378,12 +3389,13 @@ class SkillRegistryTests(unittest.TestCase):
                     ).exists()
                 )
 
+    @checkout_prompt_names()
     def test_thin_pointer_targets_exist_in_self_hosted_repo(self) -> None:
         # Wave 1p6lw AC-2/AC-6: every prompt doc a skill body points at must
         # resolve in the self-hosted tree (the thin-pointer contract's target).
         repo_root = TESTS_ROOT.parents[2].parent
         pattern = re.compile(r"docs/prompts/[a-z0-9-]+\.prompt\.md")
-        for skill in ras.SKILL_REGISTRY:
+        for skill in ras._skill_registry():
             targets = set(pattern.findall(skill.body))
             if skill.name not in ("wf-guru", "wf-stats"):
                 self.assertTrue(targets, f"{skill.name} body names no prompt doc")
@@ -3615,10 +3627,11 @@ class RoutingGuidanceTextTests(unittest.TestCase):
                 self.assertTrue("direct lookup" in lowered or "directly" in lowered,
                                 f"{label} must say direct lookups need no Guru")
 
+    @checkout_prompt_names()
     def test_rendered_subagent_description_matches_the_renderer(self) -> None:
         # The renderer replaces a previously shipped description on render
         # (GuruDescriptionRefreshTests), so this repository's copy matches.
-        constant =next(line for line in ras.CLAUDE_GURU_AGENT.splitlines() if line.startswith("description:"))
+        constant = "description: " + ras._guru_shortcuts(ras._CLAUDE_GURU_TEMPLATE_DESCRIPTION)
         rendered = next(line for line in self._read(".claude/agents/guru.md").splitlines()
                         if line.startswith("description:"))
         self.assertEqual(rendered, constant)

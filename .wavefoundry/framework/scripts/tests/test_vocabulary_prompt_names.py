@@ -517,7 +517,9 @@ class ValidationTests(unittest.TestCase):
         cases = {
             "unknown key": ({"plan-feature": good}, "plan-feature"),
             "not a dict": ({"plan-change": "plan-task"}, "plan-change"),
-            "missing shortcut": ({"plan-change": {"slug": "plan-task"}}, "plan-change"),
+            # Partial overrides are valid for the five planning prompts in
+            # custom vocabularies. Prepare always requires both fields.
+            "missing shortcut": ({"prepare-wave": {"slug": "prepare-task"}}, "prepare-wave"),
             "unknown field": ({"plan-change": {**good, "title": "x"}}, "plan-change"),
             "slug pattern": ({"plan-change": {"slug": "Plan_Task", "shortcut": "Plan task"}}, "plan-change"),
             "slug length": ({"plan-change": {"slug": "p" + "-x" * 40, "shortcut": "Plan task"}}, "plan-change"),
@@ -551,6 +553,16 @@ class ValidationTests(unittest.TestCase):
                     self.assertIn("rename cycle", message)
                 if name == "fixed shortcut, case-insensitive":
                     self.assertIn("fixed framework shortcut", message)
+
+    def test_partial_planning_override_requires_a_custom_vocabulary(self) -> None:
+        partial = {"plan-change": {"slug": "plan-task"}}
+        with mock.patch.multiple(vocabulary_profile, ITEM_NAME=vocabulary_profile.SHIPPED_ITEM_NAME,
+                                 CONTAINER_NAME="Wave"):
+            self.assertIn("missing 'shortcut'", self._refused(partial, "plan-change"))
+        with mock.patch.multiple(vocabulary_profile, ITEM_NAME="Ticket", CONTAINER_NAME="Batch"):
+            self.assertEqual(vocabulary_profile.prompt_name_errors(partial), [])
+            row = vocabulary_profile.derive_prompt_names(partial)["plan-change"]
+            self.assertEqual((row["slug"], row["shortcut"]), ("plan-task", "Plan ticket doc"))
 
     def test_a_chain_validates(self) -> None:
         self.assertEqual(vocabulary_profile.prompt_name_errors(OVERRIDES), [])

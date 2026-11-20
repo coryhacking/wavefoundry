@@ -4885,36 +4885,26 @@ def materialize_baseline_template(template_name: str, content: str, generated_at
     return vocabulary_profile.localize_template(content)
 
 
-def _applied_prompt_docs(repo_root: Path) -> "dict[str, str]":
-    """Each mapped lifecycle prompt's profile path mapped to its applied path
-    (``vocabulary_profile.applied_prompt_slugs`` over the manifest); empty when
-    the manifest or its record cannot be read, or the manifest path is refused
-    (a link leaving the repository), so callers use the profile paths."""
-
+def lifecycle_baseline_drift(repo_root: Path, incoming: dict[str, str]) -> list[dict]:
+    """Compare project-owned copies at their registered paths, using contained reads."""
     try:
-        _path, _original, data = _read_prompt_manifest(repo_root)
+        _, _, manifest = _read_prompt_manifest(repo_root)
         slugs = vocabulary_profile.applied_prompt_slugs(
-            data.get("prompt_names"), vocabulary_profile.registered_prompt_docs(data)
+            manifest.get("prompt_names"), vocabulary_profile.registered_prompt_docs(manifest)
         )
     except (ValueError, RuntimeError):
-        return {}
-    return {
-        vocabulary_profile.prompt_doc(key): f"docs/prompts/{slug}.prompt.md"
-        for key, slug in slugs.items()
-    }
+        # This read-only report can compare the profile paths without a manifest.
+        manifest, slugs = {}, {}
+    with using_repository_prompt_names(repo_root, manifest):
+        applied = {
+            vocabulary_profile.prompt_doc(key): f"docs/prompts/{slug}.prompt.md"
+            for key, slug in slugs.items()
+        }
+        return _compare_lifecycle_baselines(repo_root, incoming, applied)
 
 
-@_repository_prompt_scope
-def lifecycle_baseline_drift(repo_root: Path, incoming: dict[str, str]) -> list[dict]:
-    """Compare project-owned copies without inferring their installation origin.
-
-    ``incoming`` maps install-relative template names to the incoming bytes
-    decoded as UTF-8. Previous templates are always read from the target.
-    """
+def _compare_lifecycle_baselines(repo_root: Path, incoming: dict[str, str], applied: dict[str, str]) -> list[dict]:
     findings = []
-    # A lifecycle baseline is compared where it is: at its applied name, which
-    # before a pending prompt-name migration is not the profile's name.
-    applied = _applied_prompt_docs(repo_root)
     pairs = [(applied.get(destination, destination), "lifecycle-prompts/" + template)
              for destination, template in _lifecycle_prompt_baselines()]
     pairs.extend(scaffold_baselines(repo_root))

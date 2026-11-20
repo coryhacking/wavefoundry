@@ -3028,6 +3028,15 @@ def tool_spec_index_rows(parsed: dict) -> tuple[list[dict], list[str]]:
     return rows, problems
 
 
+def localized_tool_summary(name: str, summary: str) -> str:
+    """Translate the source index's planning nouns where registration localizes them."""
+    if name not in {"wf_get_change", "wf_list_plans"} and not name.startswith("wf_new_"):
+        return summary
+    terms = {"a spec": _V.planning_noun("article"), "specs": _V.planning_noun("docs"),
+             "spec": _V.planning_noun(), "a wave": _V.tier_noun("container", article=True)}
+    return re.sub(r"\b(a spec|specs|spec|a wave(?= in bulk\.|\.))\b", lambda m: terms[m.group()], summary)
+
+
 def tool_spec_problems(text: str, registry: dict) -> list[str]:
     """Every way the spec's tool documentation disagrees with ``registry``.
 
@@ -3059,7 +3068,7 @@ def tool_spec_problems(text: str, registry: dict) -> list[str]:
         entry = registry[name]
         if row["tier"] != entry["tier"]:
             problems.append(f"tier: {name} row says {row['tier']!r}, registration says {entry['tier']!r}")
-        if row["summary"] != entry["summary"]:
+        if localized_tool_summary(name, row["summary"]) != entry["summary"]:
             problems.append(f"summary: {name} row differs from the registered first sentence {entry['summary']!r}")
         matches = [k for k, h in enumerate(headings) if h[1] == row["detail"]]
         if len(matches) != 1:
@@ -3288,6 +3297,7 @@ class ServerToolRegistrationTests(unittest.TestCase):
             return spec.replace(old, new)
 
         status_row = row_of("wf_gate_status")
+        get_change_row = row_of("wf_get_change")
         controls = {
             "missing row": (mutate(status_row + "\n", ""),
                             "index: registered tool wf_gate_status has no row"),
@@ -3297,6 +3307,8 @@ class ServerToolRegistrationTests(unittest.TestCase):
                            "tier: wf_gate_status row says 'write'"),
             "summary differs": (mutate(status_row, status_row.replace("Return the current", "Change the current")),
                                 "summary: wf_gate_status row differs"),
+            "planning summary differs": (mutate(get_change_row, get_change_row.replace(" by ID", " by title")),
+                                        "summary: wf_get_change row differs"),
             "missing heading": (mutate(status_row, status_row.replace("Framework Operations", "Gate Operations")),
                                 "heading: wf_gate_status names 'Gate Operations', found 0 times"),
             "duplicated heading": (mutate("### Audit\n", "### Audit\n\n### Framework Operations\n"),

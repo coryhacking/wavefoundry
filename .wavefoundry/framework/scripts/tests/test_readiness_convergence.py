@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from server_tools_support import _make_repo, integrity_checks, load_server, load_thin_runner
 import test_server_tools_lifecycle as fixtures
+from prompt_vocabulary_support import checkout_prompt_names
 import record_paths
 import review_evidence
 import vocabulary_profile
@@ -399,7 +400,6 @@ class ReadinessProtocolPins(unittest.TestCase):
         '.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md',
         'docs/contributing/review-and-evals.md',
         '.wavefoundry/framework/seeds/100-project-prompt-surface-bootstrap.prompt.md',
-        vocabulary_profile.prompt_doc('prepare-wave'),  # the profile's path (change 2134q)
         '.wavefoundry/framework/seeds/007-review-system-overview.md',
     )
     RULES = (
@@ -423,8 +423,9 @@ class ReadinessProtocolPins(unittest.TestCase):
     def _missing(text, rules):
         return {rule for rule in rules if rule not in text}
 
+    @checkout_prompt_names()
     def test_essential_protocol_rules_and_deleted_rule_controls(self):
-        groups = [(self.SURFACES, self.RULES), ((
+        groups = [((*self.SURFACES, vocabulary_profile.prompt_doc('prepare-wave')), self.RULES), ((
             '.wavefoundry/framework/seeds/170-plan-spec.prompt.md',
             vocabulary_profile.prompt_doc('plan-change')), self.SHAPE_RULES), ((
             '.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md',

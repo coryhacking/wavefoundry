@@ -136,7 +136,20 @@ class BaselineDriftTests(unittest.TestCase):
                 os.symlink(target, link)
             except OSError as exc:  # no link privilege on this host
                 self.skipTest(f"cannot create a symbolic link: {type(exc).__name__}")
-            self.assertEqual(renderer.lifecycle_baseline_drift(self.root, {}), [])
+            read_bytes = renderer._read_repo_bytes
+
+            def checked_read(root, path):
+                self.assertNotEqual(path.resolve(), target.resolve(), "external manifest read attempted")
+                return read_bytes(root, path)
+
+            with patch.object(renderer, "_read_repo_bytes", side_effect=checked_read):
+                self.assertEqual(renderer.lifecycle_baseline_drift(self.root, {}), [])
+                template = "lifecycle-prompts/close-change.prompt.md"
+                destination = renderer.vocabulary_profile.prompt_doc("close-change")
+                self.put(destination, "installed")
+                self.put(".wavefoundry/framework/install/" + template, "installed")
+                findings = renderer.lifecycle_baseline_drift(self.root, {template: "updated"})
+                self.assertEqual(self.states(findings), {destination: "upstream_changed_local_matches_previous"})
 
     def test_current_empty_dynamic_plans_root_and_real_materialization(self):
         with patch.object(renderer.record_paths, "PLANS_ROOT", "work/proposals"):

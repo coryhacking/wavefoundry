@@ -95,9 +95,11 @@ class PartialPromptInstallIntegrationTests(unittest.TestCase):
         data = json.loads(manifest_bytes)
         import vocabulary_profile
 
-        # The catalog lists the prompt at the profile's path; seed 100 names it
-        # at the shipped one (change 2134q).
-        prompt_rel = vocabulary_profile.prompt_doc("plan-change")
+        # The fixture registers the shipped plan. An explicit slug override
+        # moves it; changing just the vocabulary preserves that registration.
+        shipped = vocabulary_profile.DEFAULT_PROMPT_NAMES["plan-change"]["slug"]
+        override = vocabulary_profile.PROMPT_NAME_OVERRIDES.get("plan-change", {})
+        prompt_rel = f"docs/prompts/{override.get('slug', shipped)}.prompt.md"
         self.assertIn(prompt_rel, {entry["doc"] for entry in data["public_prompt_surface"]})
         # This is a mandatory seed-100 catalog member, not an arbitrary fixture file.
         seed = (FRAMEWORK / "seeds/100-project-prompt-surface-bootstrap.prompt.md").read_text(

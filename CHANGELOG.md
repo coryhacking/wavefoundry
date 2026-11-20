@@ -16,6 +16,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The dashboard displays numbered requirements individually, summarizes progress in four compact rows and uses the registered planning shortcut in the lifecycle diagram.
 - Builder and QA guidance asks which production behavior must run to expose the bug. Rust guidance covers independent wire fixtures for generated decoders and workload measurements before changing async runtimes.
 
+### Fixed
+
+- The upgrade drift report continues checking local templates when it refuses a prompt manifest linked outside the repository. Release qualification now exercises both retained and fresh prompt names under renamed distributions.
+
 ## [1.44.1] - 2026-11-19
 
 ### Changed

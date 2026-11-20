@@ -16,6 +16,7 @@ the profile and check named contract clauses, not our whole wording:
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import sys
 import unittest
 from pathlib import Path
@@ -27,6 +28,17 @@ if str(SCRIPTS_DIR) not in sys.path:
 import vocabulary_profile as vp  # noqa: E402
 
 SHIPPED_NOUNS = {"wave": "wave", "waves": "waves", "change": "change", "changes": "changes"}
+
+
+@contextmanager
+def checkout_prompt_names():
+    """Use this checkout's registered names when inspecting its existing carriers."""
+    import render_agent_surfaces as renderer
+
+    root = SCRIPTS_DIR.parents[2]
+    _, _, manifest = renderer._read_prompt_manifest(root)
+    with renderer.using_repository_prompt_names(root, manifest):
+        yield
 
 
 def profile_nouns() -> "dict[str, str]":

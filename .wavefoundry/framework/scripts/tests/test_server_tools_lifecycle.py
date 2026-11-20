@@ -47,11 +47,12 @@ from upstream_fixture_support import upstream_fixture
 from record_layout_support import apply_layout, default_profile_only
 
 
-def _planning_docs() -> str:
-    """Independent oracle for the plural planning-document noun (change 23myn
+def _planning_doc(*, plural: bool = False) -> str:
+    """Independent oracle for the planning-document noun (change 23myn
     Requirement 10): "specs" under the shipped item name, else "<item> docs"."""
     item = vocabulary_profile.ITEM_NAME
-    return "specs" if item == "Change" else f"{item.lower()} docs"
+    noun = "spec" if item == vocabulary_profile.SHIPPED_ITEM_NAME else f"{item.lower()} doc"
+    return noun + "s" if plural else noun
 
 
 # Profile-aware record helpers (change 1zim6). Fixtures are written in the
@@ -540,13 +541,16 @@ class ProfileShortcutLookupTests(unittest.TestCase):
             unused_shortcut=self.UNUSED_SHORTCUT,
         )
 
+    @contextlib.contextmanager
     def _swap_profile(self):
         names = self._names()
         overrides = {
             "close-change": {"slug": names.slug, "shortcut": names.shortcut, "aliases": [names.alias]},
             "close-wave": {"slug": names.unused_slug, "shortcut": names.unused_shortcut},
         }
-        return patch.object(self.vocab, "PROMPT_NAMES", self.vocab.derive_prompt_names(overrides))
+        with patch.object(self.vocab, "PROMPT_NAME_OVERRIDES", overrides):
+            with patch.object(self.vocab, "PROMPT_NAMES", self.vocab.derive_prompt_names(overrides)):
+                yield
 
     def test_renamed_profile_resolves_its_own_phrases(self):
         names = self._names()
@@ -7590,7 +7594,7 @@ class WaveStatusDriftDetectionTests(unittest.TestCase):
         resp = self.srv.wf_current_wave_response(self.root)
         drift = [d for d in resp.get("diagnostics") or [] if d.get("code") == "change_status_drift"]
         self.assertEqual(len(drift), 1, resp.get("diagnostics"))
-        self.assertIn("wave record `active` vs spec no header status", drift[0]["message"])
+        self.assertIn(f"{vocabulary_profile.CONTAINER_NAME.lower()} record `active` vs {_planning_doc()} no header status", drift[0]["message"])
         self.assertNotIn("None", drift[0]["message"])
 
     def test_prefix_id_is_found_only_at_its_exact_path(self):
@@ -7612,8 +7616,8 @@ class WaveStatusDriftDetectionTests(unittest.TestCase):
         drift = [d for d in resp.get("diagnostics") or [] if d.get("code") == "change_status_drift"]
         self.assertEqual(len(drift), 1, resp.get("diagnostics"))
         self.assertIn("1abcd-bug x: ", drift[0]["message"])
-        self.assertIn("spec `planned`", drift[0]["message"])
-        self.assertIn("Reconcile the wave record and the spec", drift[0]["message"])
+        self.assertIn(f"{_planning_doc()} `planned`", drift[0]["message"])
+        self.assertIn(f"Reconcile the {vocabulary_profile.CONTAINER_NAME.lower()} record and the {_planning_doc()}", drift[0]["message"])
         self.assertNotIn("x-two", drift[0]["message"])
         self.assertEqual(resp["status"], "ok")
 
@@ -7954,7 +7958,7 @@ class CloseWaveStatusDriftTests(unittest.TestCase):
                 drift = self._drift(response)
                 self.assertEqual(len(drift), 1, response["diagnostics"])
                 self.assertIn(f"`{self.CHANGE}` is `complete`", drift[0]["message"])
-                self.assertIn("`active` in its spec", drift[0]["message"])
+                self.assertIn(f"`active` in its {_planning_doc()}", drift[0]["message"])
                 self.assertEqual(drift[0]["recovery_tools"], ["wf_get_change", "wf_current_wave"])
                 self.assertFalse(drift[0].get("advisory", False))
                 self.assertEqual((wave_md.read_bytes(), change_doc.read_bytes()), before)
@@ -10806,7 +10810,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             result = self._run_prepare(wave_id=wave_id, mode=mode)
             diagnostic = next(d for d in result["diagnostics"] if d["code"] == "review_policy_receipt_superseded")
             self.assertTrue(diagnostic["advisory"])
-            self.assertIn(f"changed {_planning_docs()}: 1abcz-bug sample", diagnostic["message"])
+            self.assertIn(f"changed {_planning_doc(plural=True)}: 1abcz-bug sample", diagnostic["message"])
             self.assertIn("changed sections: 1abcz-bug sample: changed Requirements", diagnostic["message"])
             self.assertNotIn("policy_inputs", result["data"]["review_policy"]["receipt"])
             self.assertIn("missing_wave_council_signoff", [d["code"] for d in result["diagnostics"]])
@@ -10842,7 +10846,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
             if mode == "ready":
                 self.assertIn("Which specific document changed is not attributable from persisted data", message)
             else:
-                self.assertIn(f"changed {_planning_docs()}: 1abcz-bug sample", message)
+                self.assertIn(f"changed {_planning_doc(plural=True)}: 1abcz-bug sample", message)
 
     def test_repeated_receipt_advice_tracks_latest_approval_per_lane(self):
         self._write_config()
@@ -10863,7 +10867,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         initial = advice()
         self.assertEqual(len(initial), 1)
         self.assertTrue(initial[0]["advisory"])
-        self.assertIn(f"changed {_planning_docs()}: 1abcz-bug sample", initial[0]["message"])
+        self.assertIn(f"changed {_planning_doc(plural=True)}: 1abcz-bug sample", initial[0]["message"])
         # Delivery inspection never repeats readiness advice.
         self.assertFalse(advice("implementation"))
         self.assertEqual(self._record_readiness_approval(wave_id, "council-readiness", "repeat-council")["status"], "ok")
@@ -18394,7 +18398,7 @@ class LifecycleHintGapTests(unittest.TestCase):
                 typed_template = support._prepare_council_verdict_template(seat, typed=True)
                 for text in (rendered_instructions, typed_instructions):
                     self.assertTrue(text.startswith(
-                        f"Run each council seat in isolation against the admitted {_planning_docs()} and {container} record. "))
+                        f"Run each council seat in isolation against the admitted {_planning_doc(plural=True)} and {container} record. "))
                     self.assertIn(f"a sibling {container} edits", text)
                 self.assertIn(f"This {container}'s review authority is the typed ledger", typed_instructions)
                 self.assertIn(f"across every admitted {item} and the {container} Objective", typed_instructions)

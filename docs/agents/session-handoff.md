@@ -6,7 +6,15 @@ Last verified: 2026-11-19
 
 ## Current state
 
-Idle after closing wave **23td0 downstream-lifecycle-compatibility**. Its four specs delivered comment-aware lifecycle parsing, distribution-specific planning names, upgrade approval coverage and dashboard readability fixes. The full suite ran 13,079 tests with 12 skips and zero failures. Close removed the owned work folder.
+Idle after closing wave **23ve4 repair-renamed-profile-qualification**. The drift report retains in-repository findings when it refuses an external manifest. All three release profiles passed, and close removed the owned work folder.
+
+## Open questions / Deferred decisions for 23ve4
+
+Downstream field verification remains open. The renamed-profile qualification exercises existing and fresh prompt registrations in local checkouts.
+
+## Previous wave
+
+Wave **23td0 downstream-lifecycle-compatibility** closed. Its four specs delivered comment-aware lifecycle parsing, distribution-specific planning names, upgrade approval coverage and dashboard readability fixes. The full suite ran 13,079 tests with 12 skips and zero failures. Close removed the owned work folder.
 
 ## Open questions / Deferred decisions for 23td0
 
