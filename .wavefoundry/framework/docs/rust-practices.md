@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-19
 
 This baseline is a menu, not a policy. A project's own record of its Rust decisions, `docs/contributing/rust-best-practices.md`, governs that project; where the record is silent, the project's existing configuration and dominant patterns govern, and this baseline only informs proposals. An agent may propose an entry to the operator, but an agent never enables a lint, adds a tool, or creates or edits a configuration file for a practice without the operator's direction through an admitted change. Lints stay opt-in, guidance that holds in every language stays in the all-stacks builder and reviewer text, and nothing here adds a sensor, gate, approval or review lane.
 
 Read the index, then only the entry you need. Each entry gives the practice, where it applies, a default stance, the exact setting as text, a check that fails when the practice is not followed, its cost and its sources. The stance is `adopt` when a named public source recommends the practice, no named source disagrees and it holds wherever the entry applies; `situational` when sources disagree or it holds only in some contexts; otherwise `propose`. A stance is a starting point for the project's decision, not a decision.
 
-Sources were consulted on 2026-11-18, and the sources table says for each whether its text was read or it is only linked; every lint was checked against Rust 1.100.0 and Clippy 0.1.100. A later change in a source is a reason for a scoped decision in a project, not an automatic change to this baseline or to any project's record. The links are for people; nothing here requires fetching a source at work time. An agent drafting a project's record re-checks each lint it names on that project's pinned toolchain.
+The sources table records consultation dates and which texts were read. Every lint was checked against Rust 1.100.0 and Clippy 0.1.100. A later change in a source is a reason for a scoped decision in a project, not an automatic change to this baseline or to any project's record. The links are for people; nothing here requires fetching a source at work time. An agent drafting a project's record re-checks each lint it names on that project's pinned toolchain.
 
 ## Index
 
@@ -59,6 +59,7 @@ Sources were consulted on 2026-11-18, and the sources table says for each whethe
 | [Dependency and source policy](#dependency-and-source-policy) | propose |
 | [Unused dependencies are detected](#unused-dependencies-are-detected) | adopt |
 | [One task-runner entry point is the whole gate](#one-task-runner-entry-point-is-the-whole-gate) | propose |
+| [Test generated decoders against wire fixtures](#test-generated-decoders-against-wire-fixtures) | situational |
 | [Generated artifacts are checked for drift](#generated-artifacts-are-checked-for-drift) | propose |
 | [Crate layering is checked](#crate-layering-is-checked) | propose |
 | [Files embedded at compile time have fixed line endings](#files-embedded-at-compile-time-have-fixed-line-endings) | propose |
@@ -1183,6 +1184,28 @@ cargo xtask check
 
 **Sources:** Microsoft Pragmatic Rust Guidelines, M-STATIC-VERIFICATION (tools as part of check-in gates); Rust standard library documentation, std::process.
 
+### Test generated decoders against wire fixtures
+
+**Practice:** When evaluating a generator for a separately versioned JSON contract, ask “Does the generated decoder accept a real response from every supported version and reject a minimally corrupted copy for the expected reason?” Typify is one option for generating Rust types from JSON Schema.
+
+**Applies when:** library, application
+
+**Stance:** situational
+
+**Setting:**
+
+```text
+For each supported version, keep an independently produced valid wire response.
+Pair it with a copy that changes one contract constraint.
+```
+
+**Check:** Decode the valid originals first. If both originals fail, rejection of copies with swapped version tags proves nothing about version enforcement. For a list with a two-item minimum, replace its contents with an empty list and check the error at the layer responsible for validation. Record whether the decoder, a separate validator or the application enforces each required constraint.
+
+**Cost and caveats:** Maintain fixtures when supported versions change. Round trips using only generated values can pass while the deployed service sends valid responses that the decoder rejects. Limit the adoption decision to the generator version and contract features exercised.
+  Touches: none
+
+**Sources:** Typify.
+
 ### Generated artifacts are checked for drift
 
 **Practice:** Each checked-in generated file is regenerated in the gate and compared with the committed copy.
@@ -1485,10 +1508,11 @@ A project that already has this document keeps it unchanged: nothing in the fram
 
 ## Sources and attribution
 
-All sources were consulted on 2026-11-18. This baseline paraphrases them; it copies no text beyond short identifiers, titles and lint names. The last column says what was read: "linked only" means the source's text was not read for this baseline.
+This baseline paraphrases them; it copies no text beyond short identifiers, titles and lint names. The last column says what was read: "linked only" means the source's text was not read for this baseline.
 
 | Source | Link | Licence | Date | Text read |
 | --- | --- | --- | --- | --- |
+| Typify | https://github.com/oxidecomputer/typify | Not checked | 2026-11-19 | Read: project description and generator input |
 | Google Rust Style Guide | https://google.github.io/styleguide/rustguide.html | CC BY 3.0 | 2026-11-18 | Read: the rules cited by title; three rules named in entries were seen by title only, as those entries say |
 | Microsoft Pragmatic Rust Guidelines | https://microsoft.github.io/rust-guidelines/ | MIT | 2026-11-18 | Read: the guidelines cited by identifier |
 | Rust API Guidelines | https://rust-lang.github.io/api-guidelines/ | Apache-2.0 or MIT | 2026-11-18 | Licence read; C-FAILURE seen only as cited by Microsoft's guidelines, its text not read |

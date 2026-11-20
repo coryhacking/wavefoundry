@@ -254,7 +254,21 @@ def check_required_files(root: Path) -> list[str]:
         )
     )
     waves_root_docs = tuple(f"{roots.waves_rel}/{name}" for name in WAVES_ROOT_REQUIRED_DOCS)
-    for relative in (*PROMPT_SURFACE_FILES, *ADDITIONAL_REQUIRED_DOCS, *waves_root_docs):
+    prompt_files = PROMPT_SURFACE_FILES
+    if _vocab.custom_planning_vocabulary():
+        manifest, error = load_json(root / "docs/prompts/prompt-surface-manifest.json")
+        if not error and isinstance(manifest, dict):
+            try:
+                names = _vocab.repository_prompt_names(manifest)
+            except ValueError as exc:
+                failures.append(f"docs/prompts/prompt-surface-manifest.json: {exc}")
+            else:
+                configured = {
+                    f"docs/prompts/{row['slug']}.prompt.md": f"docs/prompts/{names[key]['slug']}.prompt.md"
+                    for key, row in _vocab.PROMPT_NAMES.items()
+                }
+                prompt_files = tuple(configured.get(path, path) for path in prompt_files)
+    for relative in (*prompt_files, *ADDITIONAL_REQUIRED_DOCS, *waves_root_docs):
         path = root / relative
         if not path.exists():
             failures.append(f"{relative}: missing required Wavefoundry file")
@@ -645,16 +659,18 @@ def check_prompt_name_migration(root: Path) -> list[str]:
     if error or not isinstance(data, dict):
         return []
     try:
-        pending = _vocab.pending_prompt_name_keys(
-            data.get("prompt_names"), _vocab.registered_prompt_docs(data)
-        )
+        names = _vocab.repository_prompt_names(data)
+        with _vocab.using_prompt_names(names):
+            pending = _vocab.pending_prompt_name_keys(
+                data.get("prompt_names"), _vocab.registered_prompt_docs(data)
+            )
     except ValueError as exc:
         return [f"docs/prompts/prompt-surface-manifest.json: invalid `prompt_names` ({exc})"]
     if not pending:
         return []
     return [
         "docs/prompts/prompt-surface-manifest.json: lifecycle prompt-name migration pending for "
-        + ", ".join(f"`{key}` (to `{_vocab.prompt_doc(key)}`)" for key in pending)
+        + ", ".join(f"`{key}` (to `docs/prompts/{names[key]['slug']}.prompt.md`)" for key in pending)
         + "; the applied names differ from the vocabulary profile's. Run `wf render-surfaces` "
         "to move the prompts and record `prompt_names`."
     ]

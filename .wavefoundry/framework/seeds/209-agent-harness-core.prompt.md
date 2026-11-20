@@ -189,6 +189,12 @@ Use `wf_review_event` instead of hand-serializing JSONL when MCP is available. T
 
 The fixed sibling `events.jsonl` remains the canonical append-only authority because evidence includes nested lists, verification contexts, optional census objects, and conditional waiver/reassessment fields that do not have a stable Markdown-table encoding. The tool generates a concise Markdown table/summary of current finding heads in `wave.md`; that projection is presentation only, and the next locked typed write or reconciler refreshes it from the ledger. A one-candidate run may reuse its finding evidence as the sealed-universe proof. An empty `lightweight` readiness/initial-delivery run emits one Review Run row with reviewer `verification_context` and no separate dedup evidence row.
 
+### Choose a test boundary
+
+What bug would this test catch, and which parts of the real system must run to expose it? Use ordinary inputs when they expose a decision error. If the bug depends on I/O, timing or resource lifetime, exercise the production components involved. Inject the difficult condition where it occurs and keep unrelated dependencies out of the test.
+
+For listener recovery, inject a failure just after accept. Then send a fresh request to the same running server and require the expected response. A retry counter can reach five even if the server drops every later connection. Shutdown during repeated failures needs its own observation.
+
 ### Public-path and phase rules
 
 - Exercise the public or registered behavior path when one exists. Helper-only evidence is insufficient when a consumer can miswire, reorder, transform, or bypass the helper.

@@ -1987,31 +1987,7 @@ class DashboardHttpTests(_HandlerHarnessMixin, unittest.TestCase):
         self.assertIn('function FrameworkProcessDialog({ process, onClose })', js)
         self.assertIn('function FrameworkFlow({ onSelectProcess })', js)
         self.assertIn('${tierLabel("wave", false, true)} lifecycle', js)
-        self.assertIn('Click a stage to see how a ${tierLabel("change")} moves through a ${tierLabel("wave")}, from planning through review and close.', js)
         self.assertIn('process-step-number process-step-number--${process.id}', js)
-        self.assertIn('title: `Plan ${tierLabel("change", false, true)}`', js)
-        self.assertIn('title: `Prepare ${tierLabel("wave", false, true)}`', js)
-        self.assertIn('title: `Implement ${tierLabel("wave", false, true)}`', js)
-        self.assertIn('title: `Review ${tierLabel("wave", false, true)}`', js)
-        self.assertIn('title: "Close & Maintain"', js)
-        self.assertIn('flow: ["Signoff", "Archive"],', js)
-        self.assertIn('This is where an idea becomes a real change.', js)
-        self.assertIn('Set the shape of the ${tierLabel("change")} before any edits begin.', js)
-        self.assertIn('This phase matters because it catches avoidable mistakes before code or docs start moving.', js)
-        self.assertIn('flow: ["Review", "Open questions", `Prepare ${tierLabel("wave", false, true)}`],', js)
-        self.assertIn('This is the readiness gate. The council reviews the change, works through the open questions, and decides whether the wave is actually safe to start.', js)
-        self.assertIn('This is the coding pass.', js)
-        self.assertIn('Once Prepare says the wave is ready, the coding agent takes over and uses the wave record plus each admitted change plan as the working guide.', js)
-        self.assertIn('The first job is to read the wave and the specs carefully enough to understand what belongs in scope.', js)
-        self.assertIn('Then the work happens one change at a time: make the edits that match the plan, check the tasks and acceptance criteria, and keep the write set inside the admitted boundaries.', js)
-        self.assertIn('Implementation is not just about moving text around.', js)
-        self.assertIn('The agent also writes or updates tests, runs them, and confirms that the result matches the agreed intent instead of drifting into a new shape of work.', js)
-        self.assertIn('When the code, tests, and documented intent line up, the wave is ready for review.', js)
-        self.assertIn('This is the evidence check.', js)
-        self.assertIn('flow: ["Review", "Evidence", "Findings"],', js)
-        self.assertIn('Review matters because it is where the team decides whether the change is genuinely ready or whether more work is needed.', js)
-        self.assertIn('This is the handoff and memory stage.', js)
-        self.assertIn('If the handoff or summary does not match the completed wave, the process loops one more time to refresh the record before closure.', js)
         self.assertIn('onClick: () => onSelectProcess(process)', js)
         self.assertIn('framework-flow-card framework-flow-card--${process.id}', js)
 
@@ -4694,6 +4670,12 @@ const prose = WFDS.renderMarkdownish(
   "- second item\n" +
   "<!-- wave:context-efficiency end -->"
 );
+const assert = require("node:assert/strict");
+const sections = WFDS.renderMarkdownish("3. Keep `code`\n   on this line\n<!--\n5. hidden\n-->\n4. Next\n- Bullet\n\nProse\n```\n5. Literal\n```");
+assert.deepEqual(Array.from(sections, n => n.type), ["ol", "ul", "p", "pre"]);
+assert.equal(sections[0].props.start, 3);
+assert.deepEqual(Array.from(sections[0].children, text), ["Keep code on this line", "Next"]);
+assert.ok(sections[0].children[0].children.some(n => n.type === "code"));
 const fenced = WFDS.renderMarkdownish("```\n<!-- literal -->\n```");
 process.stdout.write(JSON.stringify({
   types: prose.map(n => n.type),

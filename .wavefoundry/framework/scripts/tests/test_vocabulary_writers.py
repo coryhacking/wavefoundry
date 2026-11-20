@@ -53,6 +53,10 @@ from pathlib import Path
 from unittest.mock import patch
 scripts, root = Path(sys.argv[1]), Path(sys.argv[2])
 sys.path.insert(0, str(scripts))
+# The input tree uses shipped prompt filenames. Apply this distribution's
+# actual upgrade before testing its record readers and writers.
+from render_agent_surfaces import migrate_profile_prompt_names
+migrate_profile_prompt_names(root)
 spec = importlib.util.spec_from_file_location("server", scripts / "server.py")
 module = importlib.util.module_from_spec(spec)
 sys.modules["server"] = module

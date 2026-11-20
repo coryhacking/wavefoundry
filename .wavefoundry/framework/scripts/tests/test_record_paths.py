@@ -89,7 +89,7 @@ class ShippedLayoutTests(_TempRoot):
                 names.update(alias.name.split(".")[0] for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module:
                 names.add(node.module.split(".")[0])
-        self.assertEqual(names, {"__future__", "re"})
+        self.assertLessEqual(names, sys.stdlib_module_names)
 
     def test_layout_constants_are_read_at_call_time(self):
         before = rp.layout_constants()

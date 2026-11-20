@@ -58,18 +58,19 @@ def headings_without_blank_line(text: str, *, include_blockquoted: bool = False)
     docs-lint check names them and the repair does not.
     """
     lines, _endings = _split_lines(text)
-    fenced = change_doc_checklist.fenced_line_flags(lines)
+    visible = change_doc_checklist.comment_visible_lines(lines)
+    fenced = change_doc_checklist.fenced_line_flags(visible)
     found: list[int] = []
     for index in range(1, len(lines)):
         if fenced[index]:
             continue
-        depth, rest = change_doc_checklist.split_blockquote(lines[index])
+        depth, rest = change_doc_checklist.split_blockquote(visible[index])
         if depth:
             if not include_blockquoted or not _HEADING_RE.match(rest):
                 continue
             _prev_depth, previous = change_doc_checklist.split_blockquote(lines[index - 1])
         else:
-            if not _HEADING_RE.match(lines[index]):
+            if not _HEADING_RE.match(visible[index]):
                 continue
             previous = lines[index - 1]
         if _is_blank(previous):

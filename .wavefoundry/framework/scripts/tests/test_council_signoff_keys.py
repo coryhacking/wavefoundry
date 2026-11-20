@@ -187,7 +187,8 @@ class DigestInputTests(unittest.TestCase):
         self.assertEqual(new["phases"]["prepare"]["signoff_key"], NEW_READINESS)
         self.assertEqual(new["phases"]["review"]["signoff_key"], NEW_DELIVERY)
         self.assertEqual(self.digest(new), self.digest(self.OLD))
-        self.assertEqual(self.digest(self.NO_PHASES), self.PINNED["no_phases"])
+        with patch.object(review_policy, "REVIEW_POLICY_EVALUATOR_VERSION", 7):
+            self.assertEqual(self.digest(self.NO_PHASES), self.PINNED["no_phases"])
 
     def historical_payload(self, config) -> dict:
         # Frozen pre-alias encoder for this tiny fixture; no current production
@@ -207,6 +208,7 @@ class DigestInputTests(unittest.TestCase):
         return hashlib.sha256(json.dumps(self.historical_payload(config),
             sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
 
+    @patch.object(review_policy, "REVIEW_POLICY_EVALUATOR_VERSION", 7)
     def test_the_pre_change_digest_is_unchanged(self) -> None:
         expected = self.historical_digest(self.PINNED_OLD_INPUT)
         self.assertEqual(self.digest(self.PINNED_OLD_INPUT), expected)

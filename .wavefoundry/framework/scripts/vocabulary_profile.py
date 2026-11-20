@@ -39,6 +39,8 @@ Stdlib-only and import-cheap; validated at import, failing closed.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 import re
 
 # ---------------------------------------------------------------------------
@@ -310,16 +312,68 @@ def _prompt_spec(default: "dict[str, object]", spec: object) -> "dict[str, objec
     }
 
 
-def derive_prompt_names(overrides: object = None) -> "dict[str, dict[str, object]]":
-    """``DEFAULT_PROMPT_NAMES`` overlaid with ``overrides`` (default: the live
-    ``PROMPT_NAME_OVERRIDES``); unknown keys are ignored here and reported by
-    ``prompt_name_errors``."""
+def custom_planning_vocabulary() -> bool:
+    return ITEM_NAME != SHIPPED_ITEM_NAME or CONTAINER_NAME != "Wave"
+
+
+def _custom_planning_defaults(manifest: dict) -> dict:
+    """Names for the five renamed prompts in one distribution checkout."""
+    applied = applied_prompt_slugs(manifest.get("prompt_names"), registered_prompt_docs(manifest))
+    entries = manifest.get("public_prompt_surface")
+    if not isinstance(entries, list):
+        entries = []
+    registered = {
+        entry["doc"]: entry for entry in entries
+        if isinstance(entry, dict) and isinstance(entry.get("doc"), str)
+    }
+    recorded = manifest.get("prompt_names") or {}
+    defaults = {}
+    for key, earlier in EARLIER_DEFAULT_PROMPT_SLUGS.items():
+        slug = applied[key]
+        entry = registered.get(f"docs/prompts/{slug}.prompt.md")
+        if entry is not None or key in recorded:
+            # Only a manifest registration or recorded slug establishes ownership.
+            shipped = DEFAULT_PROMPT_NAMES[key]
+            shortcut = shipped["shortcut"] if slug == shipped["slug"] else slug.replace("-", " ").capitalize()
+            aliases = shipped["aliases"] if slug == shipped["slug"] else ()
+            row = dict(slug=slug, shortcut=shortcut, aliases=aliases)
+            if entry is not None:
+                for field in ("shortcut", "aliases"):
+                    if field in entry:
+                        row[field] = entry[field]
+                if "aliases" not in entry and isinstance(row["shortcut"], str):
+                    row["aliases"] = tuple(alias for alias in aliases if alias.casefold() != row["shortcut"].casefold())
+        else:
+            words = [planning_noun() if word == "change" else tier_noun("container")
+                     if word == "wave" else word for word in earlier.split("-")]
+            phrase = " ".join(words)
+            row = dict(slug="-".join(phrase.split()), shortcut=phrase[:1].upper() + phrase[1:], aliases=())
+        defaults[key] = row
+    return defaults
+
+
+def _planning_overrides(overrides: dict, manifest: dict) -> dict:
+    """Compose partial explicit overrides with the known names for this checkout."""
+    effective = _custom_planning_defaults(manifest)
+    for key, value in overrides.items():
+        if key in effective and isinstance(value, dict):
+            effective[key] = {**effective[key], **value}
+            if "slug" in value and "aliases" not in value:
+                effective[key]["aliases"] = ()
+        else:
+            effective[key] = value
+    return effective
+
+
+def derive_prompt_names(overrides: object = None, *, manifest: dict | None = None) -> dict:
     overrides = PROMPT_NAME_OVERRIDES if overrides is None else overrides
     names = {key: dict(default) for key, default in DEFAULT_PROMPT_NAMES.items()}
     if isinstance(overrides, dict):
+        if custom_planning_vocabulary():
+            overrides = _planning_overrides(overrides, manifest or {})
         for key, spec in overrides.items():
             if key in names:
-                names[key] = _prompt_spec(DEFAULT_PROMPT_NAMES[key], spec)
+                names[key] = _prompt_spec(names[key], spec)
     return names
 
 
@@ -335,13 +389,15 @@ def _shortcut_problem(value: object) -> "str | None":
     return None
 
 
-def prompt_name_errors(overrides: object = None) -> list[str]:
+def prompt_name_errors(overrides: object = None, *, manifest: dict | None = None) -> list[str]:
     """Every problem with ``PROMPT_NAME_OVERRIDES`` (default: the live
     constant); empty when valid. Each message names the constant and the key."""
     overrides = PROMPT_NAME_OVERRIDES if overrides is None else overrides
     label = "PROMPT_NAME_OVERRIDES"
     if not isinstance(overrides, dict):
         return [f"{label} must be a dict of prompt key to name, not {type(overrides).__name__}"]
+    if custom_planning_vocabulary():
+        overrides = _planning_overrides(overrides, manifest or {})
     errors: list[str] = []
     for key, spec in overrides.items():
         if key not in DEFAULT_PROMPT_NAMES:
@@ -423,12 +479,26 @@ def prompt_name_errors(overrides: object = None) -> list[str]:
     return errors
 
 
-PROMPT_NAMES: "dict[str, dict[str, object]]" = derive_prompt_names()
+# Initialized after the applied-name reader below.
+_repository_names = ContextVar("repository_prompt_names", default=None)
+
+
+@contextmanager
+def using_prompt_names(names):
+    token = _repository_names.set(names)
+    try:
+        yield
+    finally:
+        _repository_names.reset(token)
+
+
+def current_prompt_names() -> dict:
+    return _repository_names.get() or PROMPT_NAMES
 
 
 def prompt_slug(key: str) -> str:
     """The slug of a mapped lifecycle prompt in this profile."""
-    return PROMPT_NAMES[key]["slug"]
+    return current_prompt_names()[key]["slug"]
 
 
 def prompt_doc(key: str) -> str:
@@ -448,12 +518,12 @@ def skill_name(key: str) -> str:
 
 def shortcut(key: str) -> str:
     """The shortcut phrase, for example ``Prepare wave``."""
-    return PROMPT_NAMES[key]["shortcut"]
+    return current_prompt_names()[key]["shortcut"]
 
 
 def shortcut_aliases(key: str) -> "tuple[str, ...]":
     """The alias phrases, for example ``("Ready wave",)``."""
-    return tuple(PROMPT_NAMES[key]["aliases"])
+    return tuple(current_prompt_names()[key]["aliases"])
 
 
 def title_case(phrase: str) -> str:
@@ -545,6 +615,18 @@ def applied_prompt_slugs(record: object, registered_docs: "Iterable[str]" = ()) 
             continue
         applied[key] = earlier
     return applied
+
+
+def repository_prompt_names(manifest: dict) -> dict:
+    if not custom_planning_vocabulary():
+        return PROMPT_NAMES
+    problems = prompt_name_errors(manifest=manifest)
+    if problems:
+        raise ValueError("; ".join(problems))
+    return derive_prompt_names(manifest=manifest)
+
+
+PROMPT_NAMES = derive_prompt_names()
 
 
 def pending_prompt_name_keys(record: object, registered_docs: "Iterable[str]" = ()) -> "list[str]":

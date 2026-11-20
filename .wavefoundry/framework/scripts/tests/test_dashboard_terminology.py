@@ -33,31 +33,6 @@ CAPITALIZED = re.compile(r"(?<![\w-])(?:Wave|Change|Task)s?(?![\w-])")
 P_NOUN = re.compile(r'''\bp\([^;\n]*?,\s*["'](?:wave|change|task)s?["']\s*,\s*["'](?:wave|change|task)s?["']\s*\)''')
 
 ALLOWLIST = {
-    """`This is where an idea becomes a real change. You clarify what is in scope, what is out of scope, and why the change matters before anyone starts editing files.
-
-That early clarity matters because every later stage depends on it. If the scope is fuzzy, the wave gets harder to review, harder to implement, and easier to drift. When the plan is still unclear, the right move is to stay here and resolve the unknowns before the wave moves forward.`""": 'Framework lifecycle explanatory body intentionally stays canonical.',
-    """`This is the readiness gate. The council reviews the change, works through the open questions, and decides whether the wave is actually safe to start.
-
-This phase matters because it catches avoidable mistakes before code or docs start moving. It is not just a paperwork step; it is where the wave earns the right to begin. If the evidence is thin, the dependencies are unclear, or the change still feels too broad, the wave goes back to planning instead of pretending it is ready.
-
-When Prepare is done well, the team has a shared picture of what will happen next, what is still uncertain, and what the operator needs to watch closely during implementation.`""": 'Framework lifecycle explanatory body intentionally stays canonical.',
-    """`This is the coding pass. Once Prepare says the wave is ready, the coding agent takes over and uses the wave record plus each admitted change plan as the working guide.
-
-The first job is to read the wave and the specs carefully enough to understand what belongs in scope. Then the work happens one change at a time: make the edits that match the plan, check the tasks and acceptance criteria, and keep the write set inside the admitted boundaries.
-
-Implementation is not just about moving text around. The agent also writes or updates tests, runs them, and confirms that the result matches the agreed intent instead of drifting into a new shape of work. If the change no longer matches what Prepare approved, the right move is to stop and send it back for another pass instead of widening the scope on the fly.
-
-When the code, tests, and documented intent line up, the wave is ready for review. The implementation phase is successful when it leaves behind a small, understandable set of edits that another reviewer can inspect without guessing how the change was made.`""": 'Framework lifecycle explanatory body intentionally stays canonical.',
-    """`This is the evidence check. Reviewers compare what actually changed against what the wave promised, looking for missing behavior, drift, or anything that still needs correction.
-
-Review matters because it is where the team decides whether the change is genuinely ready or whether more work is needed. This is the phase that keeps optimism from outrunning proof. Findings do not mean failure; they mean the wave should iterate back to Implement or even Prepare until the gaps are closed and the evidence lines up.
-
-When the review is strong, it gives the operator confidence that the change is not just present, but actually matches the wave's intent and acceptance criteria.`""": 'Framework lifecycle explanatory body intentionally stays canonical.',
-    """`This is the handoff and memory stage. Once the wave is signed off, the team archives what shipped, records the important lessons, and makes sure a future session can understand what happened without reconstructing it from scratch.
-
-This phase matters because the work is not done when the code stops changing. The framework still needs a durable record of what shipped, what decisions mattered, and what a future operator should know before they try to extend it. If the handoff or summary does not match the completed wave, the process loops one more time to refresh the record before closure.
-
-That is what keeps the system useful over time: closure is not just an ending, it is the point where the wave becomes usable memory.`""": 'Framework lifecycle explanatory body intentionally stays canonical.',
     '"Recent changes"': 'Git activity heading, not the change tier.',
 }
 
@@ -77,6 +52,39 @@ def census(source: str) -> list[str]:
 
 
 class DashboardTerminologyTests(unittest.TestCase):
+    def test_snapshot_uses_the_selected_checkouts_planning_shortcut(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            folder = root / "docs/prompts"
+            folder.mkdir(parents=True)
+            manifest = {"prompt_names": {"plan-change": "design-ticket"},
+                        "public_prompt_surface": [{"doc": "docs/prompts/design-ticket.prompt.md",
+                                                   "shortcut": "Draft a ticket"}]}
+            (folder / "prompt-surface-manifest.json").write_text(json.dumps(manifest))
+            with mock.patch.multiple(dashboard_lib._vocab, ITEM_NAME="Ticket", CONTAINER_NAME="Batch"):
+                config = dashboard_lib.collect_dashboard_snapshot(root, skip_git=True)["config"]
+            self.assertEqual(config["planning"],
+                             {"shortcut": "Draft a ticket", "doc": "ticket doc", "docs": "ticket docs"})
+
+    def test_custom_shortcut_stays_within_selected_checkout(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp)
+            root = parent / "selected"
+            folder = root / "docs/prompts"
+            folder.mkdir(parents=True)
+            other = parent / "other-manifest.json"
+            other.write_text('{"public_prompt_surface": []}')
+            try:
+                (folder / "prompt-surface-manifest.json").symlink_to(other)
+            except OSError as exc:
+                self.skipTest(f"Symlinks unavailable: {exc}")
+            with mock.patch.multiple(dashboard_lib._vocab, ITEM_NAME="Ticket", CONTAINER_NAME="Batch"):
+                config = dashboard_lib.collect_dashboard_snapshot(root, skip_git=True)["config"]
+            self.assertEqual(config["planning"]["shortcut"], "Planning shortcut unavailable")
+            self.assertEqual(dashboard_lib.read_prompt_manifest(root), {})
+
     def test_real_reader_normalizes_without_changing_other_fields(self):
         cases = [
             ({}, DEFAULTS, []),
@@ -201,7 +209,7 @@ class DashboardDoneStatusTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         source = DASHBOARD_JS.read_text()
         app = source[source.index("function App() {"):]
-        self.assertIn("updateTerminology(snapshot?.config?.terminology);\n  updateDoneStatuses(snapshot?.config?.done_change_statuses);", app)
+        self.assertIn("updateTerminology(snapshot?.config?.terminology, snapshot?.config?.planning);\n  updateDoneStatuses(snapshot?.config?.done_change_statuses);", app)
 
 
 DONE_SCRIPT = r'''
@@ -251,8 +259,8 @@ const collect = () => {
     ...classes(waves, 'empty-state'), ...nodes(waves).filter(n => n.tag === 'p').map(text),
     ...nodes(tasks).filter(n => n.tag === 'label').map(text)];
 };
-const defaults = ['Wave lifecycle', 'Plan Change', 'Prepare Wave', 'Implement Wave', 'Review Wave', 'Close & Maintain',
-  'Idea', 'Scope', 'Admitted change', 'Review', 'Open questions', 'Prepare Wave', 'Wave + change plans', 'Implement each change', 'Check tasks + ACs', 'Write tests', 'Prepare for review', 'Review', 'Evidence', 'Findings', 'Signoff', 'Archive',
+const defaults = ['Wave lifecycle', 'Plan spec', 'Prepare Wave', 'Implement Wave', 'Review Wave', 'Close & Maintain',
+  'Idea', 'Scope', 'Draft spec', 'Review', 'Open questions', 'Prepare Wave', 'Wave + specs', 'Implement', 'Check tasks + ACs', 'Run tests', 'Prepare for review', 'Review', 'Evidence', 'Findings', 'Signoff', 'Archive',
   'Waves', 'Changes', 'Acceptance criteria', 'Implementation tasks', 'Waves', 'No active waves.', '1 closed wave.', 'Tasks'];
 assert.deepEqual(collect(), defaults);
 context.updateTerminology({wave: 'Sprint', change: 'Story', task: 'Step'});
@@ -261,6 +269,18 @@ assert.equal(context.tierLabel('change', true), 'storys');
 const flow = context.FrameworkFlow({onSelectProcess: () => {}});
 assert.ok(nodes(flow).some(n => n.props['aria-label'] === 'Sprint Framework process flow'));
 assert.ok(nodes(flow).some(n => n.props['aria-label'] === 'Open Prepare Sprint'));
+context.updateTerminology({wave: 'Batch', change: 'Ticket'}, {shortcut: 'Draft a ticket', doc: 'ticket doc', docs: 'ticket docs'});
+let selected;
+const customFlow = context.FrameworkFlow({onSelectProcess: process => { selected = process; }});
+nodes(customFlow).find(n => n.props['aria-label'] === 'Open Draft a ticket').props.onClick();
+assert.equal(selected.id, 'plan');
+context.renderMarkdownish = content => h('p', {}, content);
+context.DialogFrame = ({children}) => h('section', {}, ...children);
+assert.match(text(context.FrameworkProcessDialog({process: selected})), /Use this stage to write the ticket doc/);
+for (const stage of context.FRAMEWORK_FLOW()) {
+  const detail = text(context.FrameworkProcessDialog({process: stage}));
+  assert.doesNotMatch(detail, /\b(?:waves?|specs?)\b/i);
+}
 context.updateTerminology(undefined);
 assert.deepEqual(collect(), defaults, 'register reset must affect flow after first render');
 const pill = context.TerminologyAdvisoryPill({ignored: ['set', 'feature']});

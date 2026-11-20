@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-19
 
 ## Allowed Dependencies
 
@@ -172,8 +172,17 @@ The profile keys for the five spec-named prompts (`plan-change`, `add-change-to-
 `remove-change-from-wave`, `implement-change` and `close-change`) are stable
 identifiers, not the default slugs: the default slugs are `plan-spec`,
 `add-spec-to-wave`, `remove-spec-from-wave`, `implement-spec` and `close-spec`, and the
-earlier phrases remain as aliases. A repository rendered under the earlier default
-names is migrated on render when its manifest still registers the earlier doc.
+earlier phrases remain as aliases. Under the shipped vocabulary, a render moves earlier
+default names when their manifest still registers them.
+
+A distribution that renames the item or container keeps the five planning names already
+registered in each repository. A render lists the names it kept. On a fresh installation
+the planning-document and container nouns determine the default names. For example, a
+distribution with item Wave and container Set gets `add-wave-doc-to-set`. To change a
+registered name deliberately, set that key in `PROMPT_NAME_OVERRIDES`. A custom profile
+can set a shortcut or aliases while keeping its registered slug. Explicit slugs retain
+the usual conflict checks and interruption recovery. The tool and argument identifiers
+stay stable across profiles.
 
 Optional arc planning uses separate `ARC_NAME` and `ARC_KIND` vocabulary and `record_paths.ARCS_ROOT`; it is not a third admitted lifecycle tier. The `plan-arc` prompt joins the existing mapped prompt names. `lifecycle_id` accepts the configured arc kind without adding it to `CHANGE_KINDS`, and collision discovery includes its record root. A validated path helper resolves the ID-and-slug folder and lifecycle-named document without writing it. Normal document authoring owns the content.
 

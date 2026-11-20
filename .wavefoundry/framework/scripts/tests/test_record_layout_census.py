@@ -153,7 +153,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("wf_server/server_impl.py", "every ``docs/waves/`` record"): "docstring",
     ("wf_server/context_efficiency_handlers.py", "\"\"\"Plan docs under docs/plans/ are pending work"): "docstring",
     ("wf_server/server_impl.py", "while historical docs/waves records receive an"): "docstring",
-    ("wf_server/server_impl.py", "\"\"\"List pending specs in docs/plans that have not yet"): "docstring",
+    ("wf_server/server_impl.py", "\"\"\"List pending {planning_docs} in docs/plans that have not yet"): "docstring",
     # -- lint-routing lane (Requirement 5): non-construction sites only --
     ("wave_lint_lib/constants.py", "at check time, so `docs/waves/README.md` stays"): "comment",
     ("wave_lint_lib/constants.py", "# CHANGE_ID_PATTERN validates change plan document headers (docs/plans/**/*.md"): "comment",

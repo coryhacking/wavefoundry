@@ -6,7 +6,17 @@ Last verified: 2026-11-19
 
 ## Current state
 
-Idle after closing wave **23tct first-feature-workflow**. Plan spec now identifies the first useful outcome. The command catalog and README show how product can hand a draft to engineering and how reviewers verify delivery.
+Idle after closing wave **23td0 downstream-lifecycle-compatibility**. Its four specs delivered comment-aware lifecycle parsing, distribution-specific planning names, upgrade approval coverage and dashboard readability fixes. The full suite ran 13,079 tests with 12 skips and zero failures. Close removed the owned work folder.
+
+## Open questions / Deferred decisions for 23td0
+
+All acceptance criteria were met. Waveforge field verification remains unobserved.
+
+The previous wave, **23tcw test-boundaries-and-technology-evidence**, closed with builder and QA guidance for listener recovery, generated decoder compatibility and runtime migration evidence.
+
+## Open questions / Deferred decisions for 23tcw
+
+Observe how a project uses the guidance in its next schema or runtime evaluation. The worked exercises established how reviewers applied it to the supplied cases.
 
 ## Open questions / Deferred decisions for 23tct
 

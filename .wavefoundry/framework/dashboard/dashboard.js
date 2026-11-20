@@ -94,7 +94,12 @@ const p = (n, singular, plural) => n === 1 ? singular : plural;
 
 // Dashboard display labels only; protocol identifiers remain canonical.
 let terminology = {};
-function updateTerminology(labels) { terminology = labels || {}; }
+const defaultPlanning = { shortcut: "Plan spec", doc: "spec", docs: "specs" };
+let planning = defaultPlanning;
+function updateTerminology(labels, planningNames) {
+  terminology = labels || {};
+  planning = planningNames || defaultPlanning;
+}
 function tierLabel(tier, plural = false, capitalized = false) {
   const singular = (terminology[tier] || tier).toLowerCase();
   const label = singular + (plural ? "s" : "");
@@ -229,67 +234,49 @@ function summarizeAc(counts = {}, completed = {}) {
 
 // Rebuild on render so fetched labels also reach lifecycle titles and steps.
 function FRAMEWORK_FLOW() {
+  const container = tierLabel("wave");
+  const title = tierLabel("wave", false, true);
   return [
-  {
-    id: "plan",
-    step: "01",
-    title: `Plan ${tierLabel("change", false, true)}`,
-    summary: `Set the shape of the ${tierLabel("change")} before any edits begin.`,
-    flow: ["Idea", "Scope", `Admitted ${tierLabel("change")}`],
-    body: `This is where an idea becomes a real change. You clarify what is in scope, what is out of scope, and why the change matters before anyone starts editing files.
-
-That early clarity matters because every later stage depends on it. If the scope is fuzzy, the wave gets harder to review, harder to implement, and easier to drift. When the plan is still unclear, the right move is to stay here and resolve the unknowns before the wave moves forward.`,
-  },
-  {
-    id: "prepare",
-    step: "02",
-    title: `Prepare ${tierLabel("wave", false, true)}`,
-    summary: `Check readiness before the ${tierLabel("wave")} starts.`,
-    flow: ["Review", "Open questions", `Prepare ${tierLabel("wave", false, true)}`],
-    body: `This is the readiness gate. The council reviews the change, works through the open questions, and decides whether the wave is actually safe to start.
-
-This phase matters because it catches avoidable mistakes before code or docs start moving. It is not just a paperwork step; it is where the wave earns the right to begin. If the evidence is thin, the dependencies are unclear, or the change still feels too broad, the wave goes back to planning instead of pretending it is ready.
-
-When Prepare is done well, the team has a shared picture of what will happen next, what is still uncertain, and what the operator needs to watch closely during implementation.`,
-  },
-  {
-    id: "implement",
-    step: "03",
-    title: `Implement ${tierLabel("wave", false, true)}`,
-    summary: `Carry out the admitted ${tierLabel("change", true)} and verify them.`,
-    flow: [`${tierLabel("wave", false, true)} + ${tierLabel("change")} plans`, `Implement each ${tierLabel("change")}`, `Check ${tierLabel("task", true)} + ACs`, "Write tests", "Prepare for review"],
-    body: `This is the coding pass. Once Prepare says the wave is ready, the coding agent takes over and uses the wave record plus each admitted change plan as the working guide.
-
-The first job is to read the wave and the specs carefully enough to understand what belongs in scope. Then the work happens one change at a time: make the edits that match the plan, check the tasks and acceptance criteria, and keep the write set inside the admitted boundaries.
-
-Implementation is not just about moving text around. The agent also writes or updates tests, runs them, and confirms that the result matches the agreed intent instead of drifting into a new shape of work. If the change no longer matches what Prepare approved, the right move is to stop and send it back for another pass instead of widening the scope on the fly.
-
-When the code, tests, and documented intent line up, the wave is ready for review. The implementation phase is successful when it leaves behind a small, understandable set of edits that another reviewer can inspect without guessing how the change was made.`,
-  },
-  {
-    id: "review",
-    step: "04",
-    title: `Review ${tierLabel("wave", false, true)}`,
-    summary: "Compare the result against evidence and acceptance criteria.",
-    flow: ["Review", "Evidence", "Findings"],
-    body: `This is the evidence check. Reviewers compare what actually changed against what the wave promised, looking for missing behavior, drift, or anything that still needs correction.
-
-Review matters because it is where the team decides whether the change is genuinely ready or whether more work is needed. This is the phase that keeps optimism from outrunning proof. Findings do not mean failure; they mean the wave should iterate back to Implement or even Prepare until the gaps are closed and the evidence lines up.
-
-When the review is strong, it gives the operator confidence that the change is not just present, but actually matches the wave's intent and acceptance criteria.`,
-  },
-  {
-    id: "close",
-    step: "05",
-    title: "Close & Maintain",
-    summary: "Capture what shipped and hand it off.",
-    flow: ["Signoff", "Archive"],
-    body: `This is the handoff and memory stage. Once the wave is signed off, the team archives what shipped, records the important lessons, and makes sure a future session can understand what happened without reconstructing it from scratch.
-
-This phase matters because the work is not done when the code stops changing. The framework still needs a durable record of what shipped, what decisions mattered, and what a future operator should know before they try to extend it. If the handoff or summary does not match the completed wave, the process loops one more time to refresh the record before closure.
-
-That is what keeps the system useful over time: closure is not just an ending, it is the point where the wave becomes usable memory.`,
-  },
+    {
+      id: "plan",
+      step: "01",
+      title: planning.shortcut,
+      summary: `Define the outcome and its acceptance criteria in the ${planning.doc}.`,
+      flow: ["Idea", "Scope", `Draft ${planning.doc}`],
+      body: `Use this stage to write the ${planning.doc}. Name who benefits, what they should be able to do, and how to demonstrate it. Admit the finished ${planning.doc} to a ${container} when the team is ready to schedule the work.`,
+    },
+    {
+      id: "prepare",
+      step: "02",
+      title: `Prepare ${title}`,
+      summary: `Check readiness before the ${container} starts.`,
+      flow: ["Review", "Open questions", `Prepare ${title}`],
+      body: `Review the admitted ${planning.docs}, their dependencies and how the team will check the outcome. Resolve material gaps before opening the ${container} for implementation.`,
+    },
+    {
+      id: "implement",
+      step: "03",
+      title: `Implement ${title}`,
+      summary: `Deliver the outcomes in the admitted ${planning.docs}.`,
+      flow: [`${title} + ${planning.docs}`, "Implement", `Check ${tierLabel("task", true)} + ACs`, "Run tests", "Prepare for review"],
+      body: `Read the ${container} record and each admitted ${planning.doc}. Make the edits, run the relevant tests, and record evidence for completed acceptance criteria. Return to planning if the team needs a different outcome.`,
+    },
+    {
+      id: "review",
+      step: "04",
+      title: `Review ${title}`,
+      summary: "Compare the result against evidence and acceptance criteria.",
+      flow: ["Review", "Evidence", "Findings"],
+      body: `Compare the delivered work with what the ${planning.docs} promised. Record findings, verify repairs and identify any evidence still needed before closing the ${container}.`,
+    },
+    {
+      id: "close",
+      step: "05",
+      title: "Close & Maintain",
+      summary: "Capture what shipped and hand it off.",
+      flow: ["Signoff", "Archive"],
+      body: `With operator direction, close the ${container}. Record what shipped, preserve evidence needed later, and leave a handoff that explains any remaining work.`,
+    },
   ];
 }
 
@@ -344,7 +331,7 @@ function FrameworkFlow({ onSelectProcess }) {
     h("div", { className: "framework-flow-header" },
       h("h2", { className: "framework-flow-heading" }, `${tierLabel("wave", false, true)} lifecycle`),
       h("p", { className: "framework-flow-note muted" },
-        `Click a stage to see how a ${tierLabel("change")} moves through a ${tierLabel("wave")}, from planning through review and close.`
+        `Select a stage to see how the team uses ${planning.docs} throughout the ${tierLabel("wave")}.`
       ),
     ),
     h("div", { className: "framework-flow-diagram" },
@@ -417,8 +404,8 @@ function GitPills({ git }) {
 // ProgressRow is the dashboard's name for the shared WFDS.ProgressBar primitive.
 // The implementation lives in /ds/wfds.js; this thin delegator keeps the existing
 // call sites (h(ProgressRow, …)) working with no inlined copy of the markup.
-function ProgressRow({ label, done, total, variant }) {
-  return h(WFDS.ProgressBar, { label, done, total, variant });
+function ProgressRow({ label, done, total, variant, detail }) {
+  return h(WFDS.ProgressBar, { label, done, total, variant, detail });
 }
 
 function ProgressCard({ snapshot }) {
@@ -429,28 +416,31 @@ function ProgressCard({ snapshot }) {
     if (!counts || fields.some(field => !Number.isFinite(counts[field]))) {
       return h("p", { className: "muted" }, `${label}: unavailable`);
     }
-    return h("div", null,
-      h(ProgressRow, { label, done: counts.done, total: counts.total, variant }),
-      h("p", { className: "muted" }, checklist
-        ? `Done ${counts.done} · Deferred ${counts.deferred} · Open ${counts.open} · Total ${counts.total}`
-        : `Lifecycle status: ${counts.done} of ${counts.total} complete`),
-    );
+    let detail = checklist
+      ? `Done ${counts.done} · Deferred ${counts.deferred} · Open ${counts.open} · Total ${counts.total}`
+      : `Lifecycle status: ${counts.done} of ${counts.total} complete`;
+    if (checklist) {
+      detail += `. Counts cover readable documents assigned to ${tierLabel("wave", true)}.`;
+    }
+    if (variant === "acs") {
+      detail += Number.isFinite(counts.not_this_scope)
+        ? ` Not-this-scope criteria: ${counts.not_this_scope} (excluded from total)`
+        : " Not-this-scope criteria: unavailable";
+    }
+    return h(ProgressRow, { label, done: counts.done, total: counts.total, variant, detail });
   };
 
   return h("article", { className: "progress-card" },
     h("div", { className: "progress-header" },
       h("h2", null, "Progress"),
     ),
-    h("p", { className: "muted" }, `${tierLabel("change", true, true)} assigned to ${tierLabel("wave", true)}: acceptance criteria and implementation ${tierLabel("task", true)}. Plans not assigned to a ${tierLabel("wave")} are separate.`),
+
     h("div", { className: "progress-rows" },
       row(tierLabel("wave", true, true), progress.waves, "waves"),
       row(tierLabel("change", true, true), progress.changes, "changes"),
       row("Acceptance criteria", progress.criteria, "acs", true),
       row(`Implementation ${tierLabel("task", true)}`, progress.tasks, "tasks", true),
     ),
-    h("p", { className: "muted" }, Number.isFinite(progress.criteria?.not_this_scope)
-      ? `Not-this-scope criteria: ${progress.criteria.not_this_scope} (excluded from total)`
-      : "Not-this-scope criteria: unavailable"),
     coverage?.complete === false ? h("p", { role: "status" },
       coverage.warning || "Checklist coverage incomplete.",
       ` Missing admitted documents: ${coverage.missing_admitted_documents}; unreadable: ${coverage.unreadable_change_documents}.`,
@@ -4472,7 +4462,7 @@ function ErrorView({ message, projectName }) {
 function App() {
   const [dark, onToggleDark] = useDarkMode();
   const [snapshot, setSnapshot]         = useState(null);
-  updateTerminology(snapshot?.config?.terminology);
+  updateTerminology(snapshot?.config?.terminology, snapshot?.config?.planning);
   updateDoneStatuses(snapshot?.config?.done_change_statuses);
   const [error, setError]               = useState(null);
   const [sseConnected, setSseConnected] = useState(false);

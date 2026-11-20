@@ -9547,6 +9547,7 @@ _DELEGATE_CHILD_MODULES = (
     # Wave 20kfr: the scanner projects mandatory carriers from shipped registries.
     "review_policy.py",
     "gardener_metadata.py",
+    "change_doc_checklist.py",  # shared visible Markdown used by the evaluator
     "render_agent_surfaces.py",
     "marker_namespaces.py",
     "mcp_tool_extensions.py",
@@ -15616,6 +15617,19 @@ class ScaffoldRepairIsClassATests(unittest.TestCase):
         self.assertEqual(result, [])
         self.assertIn("could not be repaired", out)
         self.assertIn("fencer exploded", out, "the cause must reach the operator")
+
+    def test_hidden_heading_does_not_truncate_the_scaffold_repair(self):
+        sample = "## Serialization Points\n\n<!--\n## Hidden\n- `ignored/file.rs`\n-->\n"
+        target = "- `src/api/routes.py`\n"
+        following = "\n## Next\n"
+        self.template.write_text(sample + target + following, encoding="utf-8")
+        self.assertEqual(self._declared(), ("src/api/routes.py",))
+        # The running upgrader can already have imported the previous parser.
+        import change_doc_checklist
+        with patch.object(change_doc_checklist, "comment_visible_lines"):
+            del change_doc_checklist.comment_visible_lines
+            self.assertEqual(self.ext.repair_declaring_scaffold(self.root), ["docs/plans/plan-template.md"])
+        self.assertEqual(self.template.read_text(encoding="utf-8"), sample + "```\n" + target + "```\n" + following)
 
     def test_an_already_fenced_example_is_never_re_fenced(self):
         """The realistic contamination: shipped template plus one stray bullet.

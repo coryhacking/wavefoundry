@@ -62,9 +62,10 @@ console.log(JSON.stringify({text: text(tree), bars: nodes(tree).filter(n => n.pr
             "Lifecycle status: 2 of 6 complete", "Lifecycle status: 4 of 8 complete",
             "Done 3 · Deferred 3 · Open 5 · Total 11", "Done 4 · Deferred 2 · Open 6 · Total 12",
             "Not-this-scope criteria: 1 (excluded from total)",
-            "Changes assigned to waves: acceptance criteria and implementation tasks. Plans not assigned to a wave are separate.",
+            "Counts cover readable documents assigned to waves.",
         ):
-            self.assertIn(phrase, rendered["text"])
+            self.assertIn(phrase, " ".join(bar["aria-valuetext"] for bar in rendered["bars"]))
+            self.assertNotIn(phrase, rendered["text"])
         self.assertEqual(rendered["statuses"], ["Checklist coverage incomplete.  Missing admitted documents: 1; unreadable: 1."])
         self.assertEqual([bar["aria-valuenow"] for bar in rendered["bars"]], [33, 50, 27, 33])
 
@@ -92,7 +93,7 @@ console.log(JSON.stringify({text: text(tree), bars: nodes(tree).filter(n => n.pr
         progress["coverage"] = {"complete": True, "missing_admitted_documents": 0, "unreadable_change_documents": 0}
         rendered = self.render(progress)
         self.assertEqual(rendered["fractions"], ["0/0"] * 4)
-        self.assertEqual(rendered["text"].count("Done 0 · Deferred 0 · Open 0 · Total 0"), 2)
+        self.assertEqual(sum("Done 0 · Deferred 0 · Open 0 · Total 0" in bar["aria-valuetext"] for bar in rendered["bars"]), 2)
         self.assertEqual(rendered["statuses"], [])
 
     def test_wrong_state_label_is_detected(self):

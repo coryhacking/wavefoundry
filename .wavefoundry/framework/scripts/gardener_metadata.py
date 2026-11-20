@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from change_doc_checklist import comment_visible_lines
+
 # Wave 1z8mm: the member labels, id key and back-reference are vocabulary.
 import vocabulary_profile as _vocab
 
@@ -215,10 +217,11 @@ def normalize_progress_log(text: str, *, replacement: str | None) -> str:
     """
 
     lines = text.split("\n")
-    fenced = _fenced_line_flags(lines)
+    visible = comment_visible_lines(lines, tracking_fences=True)
+    fenced = _fenced_line_flags(visible)
     matches = [
         index
-        for index, line in enumerate(lines)
+        for index, line in enumerate(visible)
         if not fenced[index] and _PROGRESS_LOG_HEADING_RE.fullmatch(line)
     ]
     if len(matches) != 1:
@@ -226,7 +229,7 @@ def normalize_progress_log(text: str, *, replacement: str | None) -> str:
     start = matches[0] + 1
     end = len(lines)
     for index in range(start, len(lines)):
-        if not fenced[index] and lines[index].startswith(_SECTION_HEADING_PREFIX):
+        if not fenced[index] and visible[index].startswith(_SECTION_HEADING_PREFIX):
             end = index
             break
     body = [] if replacement is None else [replacement]
@@ -277,7 +280,7 @@ def _first_line_notes(line: str, match: re.Match[str]) -> tuple[re.Match[str], .
 
 
 def _criterion_blocks(
-    lines: list[str], fenced: list[bool]
+    lines: list[str], fenced: list[bool], raw_lines: list[str]
 ) -> list[tuple[int, re.Match[str], tuple[re.Match[str], ...], tuple[int, ...], int]]:
     """Every Acceptance Criteria item: ``(index, match, first-line notes,
     continuation note line indexes, block end)``.
@@ -317,12 +320,17 @@ def _criterion_blocks(
                 break
             if rest.lstrip().startswith("#") or _CHECKLIST_ITEM_START_RE.match(rest):
                 break
-            if _STATUS_NOTE_RE.fullmatch(rest.strip()):
+            if lines[probe] == raw_lines[probe] and _STATUS_NOTE_RE.fullmatch(rest.strip()):
                 notes.append(probe)
             elif not rest.startswith((" ", "\t")):
                 break
             end = probe + 1
-        blocks.append((index, match, _first_line_notes(line, match), tuple(notes), end))
+        firsts = _first_line_notes(line, match)
+        # Keep inline comments in the digest and in source on a note rewrite.
+        # Only a literal trailing note can be discarded from the original line.
+        if firsts and raw_lines[index][firsts[0].start():] != line[firsts[0].start():]:
+            firsts = ()
+        blocks.append((index, match, firsts, tuple(notes), end))
     return blocks
 
 
@@ -336,11 +344,12 @@ def criterion_note_positions(lines: list[str]) -> dict[int, tuple[int | None, tu
     writer replacing a note finds exactly the notes the digest removes.
     """
 
-    stripped = [line.rstrip() for line in lines]
+    raw_lines = [line.rstrip() for line in lines]
+    stripped = comment_visible_lines(raw_lines, tracking_fences=True)
     fenced = _fenced_line_flags(stripped)
     return {
         index: (firsts[0].start() if firsts else None, note_lines)
-        for index, _match, firsts, note_lines, _end in _criterion_blocks(stripped, fenced)
+        for index, _match, firsts, note_lines, _end in _criterion_blocks(stripped, fenced, raw_lines)
     }
 
 
@@ -354,10 +363,11 @@ def criterion_statuses(text: str) -> tuple[dict[str, object], ...]:
     order (stripped), and ``quote`` the item as written, one line.
     """
 
-    lines = normalize_carriers(text).split("\n")
+    raw_lines = normalize_carriers(text).split("\n")
+    lines = comment_visible_lines(raw_lines, tracking_fences=True)
     fenced = _fenced_line_flags(lines)
     statuses = []
-    for index, match, firsts, note_lines, end in _criterion_blocks(lines, fenced):
+    for index, match, firsts, note_lines, end in _criterion_blocks(lines, fenced, raw_lines):
         reasons = [first.group("reason").strip() for first in firsts]
         for note_index in note_lines:
             note = _STATUS_NOTE_RE.fullmatch(_split_quote(lines[note_index])[1].strip())
@@ -390,16 +400,17 @@ def normalize_checkbox_tracking(text: str) -> str:
     """
 
     lines = text.split("\n")
-    fenced = _fenced_line_flags(lines)
+    visible = comment_visible_lines(lines, tracking_fences=True)
+    fenced = _fenced_line_flags(visible)
     dropped: set[int] = set()
-    for index, match, firsts, note_lines, _end in _criterion_blocks(lines, fenced):
+    for index, match, firsts, note_lines, _end in _criterion_blocks(visible, fenced, lines):
         line = lines[index]
         if firsts:
             line = line[: firsts[0].start()].rstrip()
-        lines[index] = f"{match.group('prefix')} {line[match.end('mark'):]}"
+        lines[index] = line[:match.start("mark")] + " " + line[match.end("mark"):]
         dropped.update(note_lines)
     section = ""
-    for index, line in enumerate(lines):
+    for index, line in enumerate(visible):
         if fenced[index]:
             continue
         heading = _SECTION_HEADING_RE.fullmatch(line)
@@ -411,7 +422,7 @@ def normalize_checkbox_tracking(text: str) -> str:
         match = _CHECKBOX_LINE_RE.match(line)
         if match is None:
             continue
-        lines[index] = f"{match.group('prefix')} {match.group('suffix')}"
+        lines[index] = lines[index][:match.start("mark")] + " " + lines[index][match.end("mark"):]
     return "\n".join(line for index, line in enumerate(lines) if index not in dropped)
 
 
@@ -450,7 +461,8 @@ def normalize_carriers(text: str) -> str:
     text = text.lstrip("﻿")
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     lines = text.split("\n")
-    fenced = _fenced_line_flags(lines)
+    visible = comment_visible_lines(lines, tracking_fences=True)
+    fenced = _fenced_line_flags(visible)
     lines = [
         line if fenced[index] else line.rstrip()
         for index, line in enumerate(lines)
@@ -478,10 +490,11 @@ def normalize_session_handoff(text: str, *, replacement: str | None) -> str:
     """
 
     lines = text.split("\n")
-    fenced = _fenced_line_flags(lines)
+    visible = comment_visible_lines(lines, tracking_fences=True)
+    fenced = _fenced_line_flags(visible)
     matches = [
         index
-        for index, line in enumerate(lines)
+        for index, line in enumerate(visible)
         if not fenced[index] and _SESSION_HANDOFF_HEADING_RE.fullmatch(line)
     ]
     if len(matches) != 1:
@@ -489,7 +502,7 @@ def normalize_session_handoff(text: str, *, replacement: str | None) -> str:
     start = matches[0] + 1
     end = len(lines)
     for index in range(start, len(lines)):
-        if not fenced[index] and lines[index].startswith(_SECTION_HEADING_PREFIX):
+        if not fenced[index] and visible[index].startswith(_SECTION_HEADING_PREFIX):
             end = index
             break
     if "\n".join(lines[start:end]).strip() != SESSION_HANDOFF_TEMPLATE_BODY:
@@ -515,7 +528,8 @@ def ambiguous_excluded_headings(text: str) -> tuple[str, ...]:
     """
 
     lines = text.split("\n")
-    fenced = _fenced_line_flags(lines)
+    visible = comment_visible_lines(lines, tracking_fences=True)
+    fenced = _fenced_line_flags(visible)
     ambiguous: list[str] = []
     for label, pattern, name in (
         ("## Progress Log", _PROGRESS_LOG_HEADING_RE, "progress log"),
@@ -523,7 +537,7 @@ def ambiguous_excluded_headings(text: str) -> tuple[str, ...]:
     ):
         exact = [
             index
-            for index, line in enumerate(lines)
+            for index, line in enumerate(visible)
             if not fenced[index] and pattern.fullmatch(line)
         ]
         if len(exact) > 1:
@@ -543,7 +557,7 @@ def ambiguous_excluded_headings(text: str) -> tuple[str, ...]:
         # started superseding the receipt. Reported only when no exact heading
         # exists, so a document that legitimately has none stays silent -- 89
         # of 825 carry no Session Handoff at all.
-        for index, line in enumerate(lines):
+        for index, line in enumerate(visible):
             if fenced[index]:
                 continue
             stripped = line.strip()

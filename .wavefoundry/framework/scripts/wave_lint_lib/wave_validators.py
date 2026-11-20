@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Iterable
 
 from review_evidence import (
+    wave_record_closed,
     REVIEW_STATUS_MARKER_BEGIN,
     canonicalize_finding_synthesis_markers,
     closed_legacy_inline_record,
@@ -213,6 +214,7 @@ def _extract_backtick_value(raw_line: str) -> str:
 
 
 def _extract_sections(text: str) -> dict[str, str]:
+    text = "\n".join(change_doc_checklist.comment_visible_lines(text.split("\n")))
     headings = list(MARKDOWN_HEADING_PATTERN.finditer(text))
     sections: dict[str, str] = {}
     for index, match in enumerate(headings):
@@ -1152,6 +1154,7 @@ class WaveRecord:
 
 def _parse_change_records(text: str, rel: str) -> list[WorkRecord]:
     records: list[WorkRecord] = []
+    text = change_doc_checklist.comment_visible_text(text)
     lines = text.splitlines()
     current: WorkRecord | None = None
     # Wave 1zoju (1zogm): a `Depends On:` line inside a closed fenced block is
@@ -1303,7 +1306,7 @@ def change_doc_header_status(raw: str) -> str | None:
     1zodx): CRLF normalised, the text before the first ``## `` heading, the
     first member-status match; ``None`` when absent. This is the reading
     ``wf_close_change`` uses."""
-    text = raw.replace("\r\n", "\n")
+    text = change_doc_checklist.comment_visible_text(raw.replace("\r\n", "\n"))
     heading = re.search(r"(?m)^## ", text)
     header = text if heading is None else text[: heading.start()]
     match = CHANGE_STATUS_PATTERN.search(header)
@@ -1947,7 +1950,7 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
                 review_evidence = validate_external_review_evidence(
                     path,
                     wave_text=text,
-                    closed=re.search(r"(?mi)^Status:\s*closed\s*$", text) is not None,
+                    closed=wave_record_closed(text),
                 )
                 failures.extend(
                     f"{rel}: review evidence: {error}" for error in review_evidence.errors
@@ -1957,7 +1960,7 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
                         expected_projection = render_review_evidence_projection(
                             text, review_evidence.records
                         )
-                        if not re.search(r"(?mi)^Status:\s*closed\s*$", text):
+                        if not wave_record_closed(text):
                             expected_projection = render_review_status_projection(
                                 expected_projection,
                                 review_evidence.records,
@@ -2178,10 +2181,10 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
                                            _check_ac_asserts_repository_state(change_text, change_rel),
                                            failures, warnings)
                     if not _H1_TITLE_RE.search(change_text):
-                        failures.append(f"{change_rel}: spec must have an H1 title (`# Title text`) — used by the dashboard")
+                        failures.append(f"{change_rel}: {_vocab.planning_noun()} must have an H1 title (`# Title text`) — used by the dashboard")
                     for section in _CHANGE_DOC_REQUIRED_SECTIONS:
                         if section not in change_text:
-                            failures.append(f"{change_rel}: spec is missing required section `{section}` — used by the dashboard")
+                            failures.append(f"{change_rel}: {_vocab.planning_noun()} is missing required section `{section}` — used by the dashboard")
                 staging = roots.plans / f"{change_id}.md"
                 if staging.is_file():
                     failures.append(
@@ -2550,7 +2553,7 @@ def check_persona_docs(root: Path, only: set[Path] | None = None, skip: set[Path
             if section not in text:
                 failures.append(f"{rel}: missing required section `{section}`")
         if "## Scope" in text:
-            failures.append(f"{rel}: persona docs must not contain `## Scope` (plan/spec concept — use `## Who` and `## Goals` for evidence)")
+            failures.append(f"{rel}: persona docs must not contain `## Scope` (plan/{_vocab.planning_noun()} concept — use `## Who` and `## Goals` for evidence)")
         for section in (
             "## Who",
             "## Goals",

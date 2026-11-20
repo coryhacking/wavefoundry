@@ -69,9 +69,10 @@ class ZippedFrameworkImportTests(unittest.TestCase):
         self.assertTrue(from_zip["review_policy"].startswith(prefix), from_zip)
         self.assertTrue(from_zip["lifecycle_gate_support"].startswith(prefix), from_zip)
         self.assertEqual(from_zip["signature"], from_tree["signature"])
-        # The signature is the hash of the normalizer module's own source bytes.
+        # The signature is the hash of the normalizer and its shared visibility reader.
         self.assertEqual(from_tree["signature"],
-                         hashlib.sha256((SCRIPTS / "gardener_metadata.py").read_bytes()).hexdigest())
+                         hashlib.sha256((SCRIPTS / "gardener_metadata.py").read_bytes()
+                                        + (SCRIPTS / "change_doc_checklist.py").read_bytes()).hexdigest())
         # Known-bad control: the previous filesystem read cannot work from the zip.
         self.assertEqual(from_zip["old_form"], "NotADirectoryError")
         self.assertEqual(from_tree["old_form"], "ok")

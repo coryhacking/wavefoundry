@@ -2472,8 +2472,13 @@ class DeferredTransferTests(TempRootTest):
             def __getattr__(self,name):return getattr(self.conn,name)
             def close(self):self.conn.close();raise PermissionError(13,'closed')
         def unlock(handle,**kwargs):
-            released.append(handle);original_unlock(handle,**kwargs)
-            if len(released)==1:raise PermissionError(13,'release cleanup')
+            original_unlock(handle, **kwargs)
+            if kwargs.get("raise_errors"):
+                # The transfer explicitly releases its orphan leases. Other
+                # telemetry objects can finalize during this patch's lifetime.
+                released.append(handle)
+                if len(released) == 1:
+                    raise PermissionError(13, "release cleanup")
         with patch.object(ce,'_open_write_store_once',side_effect=lambda root:Connection(original_open(root))), patch.object(ce,'_unlock_lease',side_effect=unlock), contextlib.redirect_stderr(io.StringIO()) as log:
             result=main.flush(self.root,transfer_general_to='1wave')
         self.assertTrue(result.success);self.assertEqual(len(released),2)

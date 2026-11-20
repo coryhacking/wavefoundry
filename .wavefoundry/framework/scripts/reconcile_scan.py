@@ -47,7 +47,7 @@ import stat
 import subprocess
 import time
 from bisect import bisect_right
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import contained_files
 from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
@@ -266,80 +266,82 @@ _RETIRED_FINALIZE_PROMPTS: tuple[str, ...] = (
 )
 # Wave 1zyb4 (1zxnw): the replacement side (suggestions) follows the
 # vocabulary profile; the retired names matched below stay literal.
-_RETIRED_FINALIZE_PROMPT_SUGGESTION = (
-    f"merge unique guidance into {vocabulary_profile.prompt_doc('close-wave')} or "
-    f"{vocabulary_profile.prompt_doc('close-change')}, then remove the retired prompt"
-)
-_CLOSE_CHANGE_OR_WAVE_SUGGESTION = (
-    f"{vocabulary_profile.shortcut('close-change')} (one change) or "
-    f"{vocabulary_profile.shortcut('close-wave')} (the wave)"
-)
-
-
 def _shortcut_phrase_pattern(phrase: str) -> re.Pattern[str]:
     escaped = re.escape(phrase)
     return re.compile(rf"\*\*{escaped}\*\*|`{escaped}`")
 
 
-_RETIRED_CHANGE_PROMPT_PATTERNS: tuple[
-    tuple[re.Pattern[str], str, str], ...
-] = (
-    (
-        re.compile(r"(?<![\w-])wf\-plan\-feature(?![\w-])"),
-        "wf-plan-feature",
-        vocabulary_profile.skill_name("plan-change"),
-    ),
-    *(
+def _retired_change_prompt_tables():
+    finalize = (
+        f"merge unique guidance into {vocabulary_profile.prompt_doc('close-wave')} or "
+        f"{vocabulary_profile.prompt_doc('close-change')}, then remove the retired prompt"
+    )
+    close = (
+        f"{vocabulary_profile.shortcut('close-change')} (one change) or "
+        f"{vocabulary_profile.shortcut('close-wave')} (the wave)"
+    )
+    patterns = (
+        (
+            re.compile(r"(?<![\w-])wf\-plan\-feature(?![\w-])"),
+            "wf-plan-feature",
+            vocabulary_profile.skill_name("plan-change"),
+        ),
+        *(
+            (
+                re.compile(
+                    rf"(?<![\w.-])docs/prompts/{agents}{verb}\-feature\.prompt\.md(?![\w.-])"
+                ),
+                f"docs/prompts/{agents}{verb}-feature.prompt.md",
+                f"docs/prompts/{agents}{slug}.prompt.md",
+            )
+            for agents in ("", "agents/")
+            # Literal keys (200ew): a distribution's literal-key census sees both.
+            for verb, slug in (
+                ("plan", vocabulary_profile.prompt_slug("plan-change")),
+                ("implement", vocabulary_profile.prompt_slug("implement-change")),
+            )
+        ),
         (
             re.compile(
-                rf"(?<![\w.-])docs/prompts/{agents}{verb}\-feature\.prompt\.md(?![\w.-])"
+                r"(?<![\w.-])(?:\.wavefoundry/framework/seeds/)?"
+                r"170\-plan\-feature\.prompt\.md(?![\w.-])"
             ),
-            f"docs/prompts/{agents}{verb}-feature.prompt.md",
-            f"docs/prompts/{agents}{slug}.prompt.md",
-        )
-        for agents in ("", "agents/")
-        # Literal keys (200ew): a distribution's literal-key census sees both.
-        for verb, slug in (
-            ("plan", vocabulary_profile.prompt_slug("plan-change")),
-            ("implement", vocabulary_profile.prompt_slug("implement-change")),
-        )
-    ),
-    (
-        re.compile(
-            r"(?<![\w.-])(?:\.wavefoundry/framework/seeds/)?"
-            r"170\-plan\-feature\.prompt\.md(?![\w.-])"
+            "170-plan-feature.prompt.md",
+            ".wavefoundry/framework/seeds/170-plan-spec.prompt.md",
         ),
-        "170-plan-feature.prompt.md",
-        ".wavefoundry/framework/seeds/170-plan-spec.prompt.md",
-    ),
-    (
-        re.compile(
-            r"(?<![\w.-])(?:\.wavefoundry/framework/seeds/)?"
-            r"180\-implement\-feature\.prompt\.md(?![\w.-])"
+        (
+            re.compile(
+                r"(?<![\w.-])(?:\.wavefoundry/framework/seeds/)?"
+                r"180\-implement\-feature\.prompt\.md(?![\w.-])"
+            ),
+            "180-implement-feature.prompt.md",
+            ".wavefoundry/framework/seeds/180-implement-spec.prompt.md",
         ),
-        "180-implement-feature.prompt.md",
-        ".wavefoundry/framework/seeds/180-implement-spec.prompt.md",
-    ),
-    (
-        re.compile(
-            r"(?<![\w.-])(?:\.wavefoundry/framework/seeds/)?"
-            r"190\-finalize\-feature\.prompt\.md(?![\w.-])"
+        (
+            re.compile(
+                r"(?<![\w.-])(?:\.wavefoundry/framework/seeds/)?"
+                r"190\-finalize\-feature\.prompt\.md(?![\w.-])"
+            ),
+            "190-finalize-feature.prompt.md",
+            ".wavefoundry/framework/seeds/190-close-wave.prompt.md",
         ),
-        "190-finalize-feature.prompt.md",
-        ".wavefoundry/framework/seeds/190-close-wave.prompt.md",
-    ),
-    (_shortcut_phrase_pattern("Plan feature"), "Plan feature", vocabulary_profile.shortcut("plan-change")),
-    (
-        _shortcut_phrase_pattern("Implement feature"),
-        "Implement feature",
-        vocabulary_profile.shortcut("implement-change"),
-    ),
-    (
-        _shortcut_phrase_pattern("Finalize feature"),
-        "Finalize feature",
-        _CLOSE_CHANGE_OR_WAVE_SUGGESTION,
-    ),
-)
+        (_shortcut_phrase_pattern("Plan feature"), "Plan feature", vocabulary_profile.shortcut("plan-change")),
+        (
+            _shortcut_phrase_pattern("Implement feature"),
+            "Implement feature",
+            vocabulary_profile.shortcut("implement-change"),
+        ),
+        (
+            _shortcut_phrase_pattern("Finalize feature"),
+            "Finalize feature",
+            close,
+        ),
+    )
+    return finalize, close, patterns
+
+
+(_RETIRED_FINALIZE_PROMPT_SUGGESTION, _CLOSE_CHANGE_OR_WAVE_SUGGESTION,
+ _RETIRED_CHANGE_PROMPT_PATTERNS) = _retired_change_prompt_tables()
 
 # The renderer refreshes the BODY of the Claude guru agent and keeps its
 # frontmatter, replacing only a ``description:`` line that equals a previously
@@ -374,7 +376,7 @@ def _guru_description_hits(rel: str, text: str) -> Iterator[tuple[int, str]]:
 # equals any current derived token (a chain reuses it) is never reported.
 # Under the default profile the table is empty.
 def _profile_prompt_name_tables() -> "tuple[tuple[tuple[re.Pattern[str], str, str], ...], tuple[tuple[re.Pattern[str], str, str], ...]]":
-    names = vocabulary_profile.PROMPT_NAMES
+    names = vocabulary_profile.current_prompt_names()
     defaults = vocabulary_profile.DEFAULT_PROMPT_NAMES
     current = set()
     for key in names:
@@ -1133,6 +1135,10 @@ class _ScanWork:
         self.result = ScanResult()
         self.started = time.monotonic()
         self.progress = progress
+        self.profile_patterns = _PROFILE_PROMPT_NAME_PATTERNS
+        self.guru_phrases = _PROFILE_GURU_DESCRIPTION_PHRASES
+        self.change_patterns = _RETIRED_CHANGE_PROMPT_PATTERNS
+        self.finalize_suggestion = _RETIRED_FINALIZE_PROMPT_SUGGESTION
 
     def omit(self, reason, *, error=False):
         if reason not in self.result.reasons:
@@ -1305,7 +1311,7 @@ _GIT_BATCH_SIZE = 256
 def _mandatory_paths(work):
     """Project registries without renderer discovery, eligibility or target reads."""
     from review_policy import REVIEW_POLICY_CARRIER_REGISTRY
-    from render_agent_surfaces import LIFECYCLE_PROMPT_BASELINES, SKILL_HOSTS, _all_skills
+    from render_agent_surfaces import _lifecycle_prompt_baselines, SKILL_HOSTS, _all_skills
     from mcp_tool_extensions import EXTENSION_SKILLS
 
     for rel in (*_MANDATORY_FILES, *sorted(HOST_PERMISSION_FILES)):
@@ -1320,7 +1326,7 @@ def _mandatory_paths(work):
                 and not is_history_path(path) and not {"memory", "personas"}.intersection(path.parts)):
             yield f".claude/agents/{path.stem}.md"
             yield f".codex/skills/agent-role-{path.stem}/SKILL.md"
-    for rel, _template in LIFECYCLE_PROMPT_BASELINES:
+    for rel, _template in _lifecycle_prompt_baselines():
         work.entry()
         yield rel
     # Refuse an oversized declaration before the pure renderer adapter
@@ -1573,7 +1579,7 @@ def _scan_file(root, path, rel, text, work, findings):
                 line=1,
                 retired_surface=rel,
                 matched=rel,
-                suggested=_RETIRED_FINALIZE_PROMPT_SUGGESTION,
+                suggested=work.finalize_suggestion,
                 host_permission=host_perm,
             )
         )
@@ -1670,7 +1676,7 @@ def _scan_file(root, path, rel, text, work, findings):
     # Retired feature-named lifecycle prompts (1zyc5): renamed prompt and
     # seed paths, the retired skill, shortcut-shaped phrases, and the
     # preserved guru agent description line.
-    for pat, retired, suggestion in _RETIRED_CHANGE_PROMPT_PATTERNS:
+    for pat, retired, suggestion in work.change_patterns:
         for m in work.matches(pat, text):
             if _archived(m):
                 continue
@@ -1696,7 +1702,7 @@ def _scan_file(root, path, rel, text, work, findings):
             )
         )
     # Profile-renamed lifecycle prompts (1zxnw): empty under the defaults.
-    for pat, retired, suggestion in _PROFILE_PROMPT_NAME_PATTERNS:
+    for pat, retired, suggestion in work.profile_patterns:
         for m in work.matches(pat, text):
             if _archived(m):
                 continue
@@ -1710,9 +1716,9 @@ def _scan_file(root, path, rel, text, work, findings):
                     host_permission=host_perm,
                 )
             )
-    if _PROFILE_GURU_DESCRIPTION_PHRASES:
+    if work.guru_phrases:
         for offset, line in _guru_description_lines(rel, text):
-            for pat, retired, suggestion in _PROFILE_GURU_DESCRIPTION_PHRASES:
+            for pat, retired, suggestion in work.guru_phrases:
                 for m in work.matches(pat, line):
                     findings.append(
                         StaleReference(
@@ -1783,7 +1789,22 @@ def scan_repo_result(root: Path | str, *, limits: ScanLimits | None = None, prog
     """Bounded report-only scan; omissions never masquerade as clean absence."""
     root = Path(root)
     work = _ScanWork(limits or ScanLimits(), progress)
+    scope = ExitStack()
     try:
+        if vocabulary_profile.custom_planning_vocabulary():
+            from render_agent_surfaces import PROMPT_SURFACE_MANIFEST, using_repository_prompt_names
+            try:
+                text = work.read(root, root / PROMPT_SURFACE_MANIFEST, PROMPT_SURFACE_MANIFEST)
+            except FileNotFoundError:
+                text = "{}"
+            if text is None:
+                raise _ScanStop()
+            manifest = json.loads(text)
+            if not isinstance(manifest, dict):
+                raise ValueError("Expected a prompt-surface manifest object")
+            scope.enter_context(using_repository_prompt_names(root, manifest))
+            work.profile_patterns, work.guru_phrases = _profile_prompt_name_tables()
+            work.finalize_suggestion, _, work.change_patterns = _retired_change_prompt_tables()
         for path, rel in _iter_scannable_files(root, work):
             file_findings = _FileFindings(work)
             text = None
@@ -1806,6 +1827,8 @@ def scan_repo_result(root: Path | str, *, limits: ScanLimits | None = None, prog
         pass
     except Exception as exc:
         work.omit("scan_" + type(exc).__name__, error=True)
+    finally:
+        scope.close()
     work.result.findings.sort(key=lambda ref: (ref.file, ref.line, ref.retired_surface))
     # Also partition retained partial findings; failure to load dispositions
     # keeps them visible instead of suppressing evidence.

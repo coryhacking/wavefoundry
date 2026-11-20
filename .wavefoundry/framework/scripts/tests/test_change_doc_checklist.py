@@ -136,6 +136,32 @@ class BlockquoteAndMarkTests(unittest.TestCase):
                          [("-", "-", "step"), ("-", "x", "done")])
 
 
+class CommentVisibilityTests(unittest.TestCase):
+    def test_unmatched_backtick_cannot_cross_into_html_block_or_next_list_item(self):
+        from review_policy import serialization_point_paths
+
+        for opener in ("<!--", "- <!--"):
+            with self.subTest(opener=opener):
+                text = ("## Serialization Points\n\n- Prose with an unmatched `\n"
+                        + opener + "\nExample with `code`.\n## Hidden\n-->\n- `a/b.py`\n")
+                self.assertEqual(serialization_point_paths(text), ("a/b.py",))
+
+    def test_soft_wrap_preserves_literal_comment_in_code_span(self):
+        lines = ["A span begins `here", "and <!-- finishes here`.", "## Visible", "-->"]
+        self.assertEqual(cdc.comment_visible_lines(lines), lines)
+
+    def test_code_spans_fences_and_unmatched_comments_do_not_hide_obligations(self):
+        from change_doc_checklist import comment_visible_lines
+        lines = ["``literal ` <!-- ignored``", "## Tasks", "```text", "<!--",
+                 "```", "- [ ] first", "<!-- real", "## Hidden", "```", "-->",
+                 "- [ ] second", "left<!-- comment -->right", "<!-- unfinished", "- [ ] third"]
+        masked = comment_visible_lines(lines)
+        self.assertEqual(masked[:6], lines[:6])
+        self.assertTrue(all(not line.strip() for line in masked[6:10]))
+        self.assertEqual(masked[10], lines[10])
+        self.assertEqual(masked[11], "left" + " " * len("<!-- comment -->") + "right")
+        self.assertEqual(masked[12:], lines[12:])
+
 class FenceTests(unittest.TestCase):
     """Wave 1zls7 (1zltr) Requirement 3."""
 

@@ -49,6 +49,10 @@ import importlib.util, json, os, subprocess, sys
 from pathlib import Path
 scripts, root = Path(sys.argv[1]), Path(sys.argv[2])
 sys.path.insert(0, str(scripts))
+# The input tree uses shipped prompt filenames. Apply this distribution's
+# actual upgrade before testing its record readers and writers.
+from render_agent_surfaces import migrate_profile_prompt_names
+migrate_profile_prompt_names(root)
 import dashboard_lib, gardener_metadata, memory_backfill, record_paths
 out = {}
 out["discovered"] = [d.name for d in record_paths.discover_wave_dirs(root)]
@@ -128,9 +132,8 @@ class SecondProfileReaderTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls._tmp = tempfile.TemporaryDirectory()
         base = Path(cls._tmp.name)
-        records = _second_profile_records(base / "records")
-        cls.second = _run(_copy_tree(base / "second", SECOND), records)
-        cls.control = _run(_layout_only(base / "default"), records)
+        cls.second = _run(_copy_tree(base / "second", SECOND), _second_profile_records(base / "records"))
+        cls.control = _run(_layout_only(base / "default"), _second_profile_records(base / "control-records"))
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -229,6 +232,10 @@ import importlib.util, json, os, subprocess, sys
 from pathlib import Path
 scripts, root, wave_rel = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
 sys.path.insert(0, str(scripts))
+# The input tree uses shipped prompt filenames. Apply this distribution's
+# actual upgrade before testing its record readers and writers.
+from render_agent_surfaces import migrate_profile_prompt_names
+migrate_profile_prompt_names(root)
 import dashboard_lib, record_paths
 out = {}
 env = dict(os.environ, PROJECT_ROOT=str(root), PYTHONPATH=str(scripts))

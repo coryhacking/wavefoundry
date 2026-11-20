@@ -116,6 +116,8 @@ UPGRADE_SUMMARY_TERMINAL_KEYS = {
     "setup_command",
     "dependency_provisioning_failed",
     "partial_skill_delivery",
+    "delivery_coverage_state",
+    "delivery_coverage_action",
     *RETIRED_MODEL_CLEANUP_KEYS,
 }
 
@@ -511,6 +513,7 @@ def _bounded_upgrade_summary(summary: Mapping[str, Any]) -> dict[str, Any]:
     from wf_server import server_impl
     summary = {
         "partial_skill_delivery": None,
+        "delivery_coverage_state": "not_assessed",
         **dict(summary),
         **_project_retired_model_cleanup_fields(summary),
     }
@@ -646,6 +649,13 @@ def _bounded_upgrade_summary(summary: Mapping[str, Any]) -> dict[str, Any]:
         any_truncated = any_truncated or truncated
         bounded.update(candidate)
 
+    for key in ("delivery_coverage_affected", "delivery_coverage_limitations"):
+        if key in collection_keys and key not in bounded:
+            # Earlier collections used the shared budget. Keep the exact row count.
+            total = len(summary[key])
+            bounded.update({key: [], f"{key}_total": total, f"{key}_returned": 0,
+                            f"{key}_remaining": total, f"{key}_truncated": bool(total)})
+
     bounded["summary_total_chars"] = original_chars
     bounded["summary_collection_cap_chars"] = UPGRADE_SUMMARY_CAP_CHARS
     bounded["summary_scalar_cap_chars"] = UPGRADE_SUMMARY_CAP_CHARS
@@ -700,10 +710,30 @@ def _upgrade_error_tail(output: str) -> str:
     return "\n".join(lines[-20:])[-4000:]
 
 
+def _compact_delivery_coverage(summary: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep exact coverage counts when the response can carry no detail rows."""
+    compact = {"delivery_coverage_state": summary.get("delivery_coverage_state", "not_assessed")}
+    for key in ("delivery_coverage_affected", "delivery_coverage_limitations"):
+        total = summary.get(f"{key}_total")
+        if isinstance(total, int):
+            compact.update({
+                key: [], f"{key}_total": total, f"{key}_returned": 0,
+                f"{key}_remaining": total, f"{key}_truncated": bool(total),
+            })
+    return compact
+
+
 def _bounded_upgrade_response_envelope(response: dict[str, Any]) -> dict[str, Any]:
     """Keep the complete public upgrade envelope within its named host cap."""
 
     summary = (response.get("data") or {}).get("summary")
+    if isinstance(summary, dict) and (
+        summary.get("delivery_coverage_affected_remaining") or summary.get("delivery_coverage_limitations_remaining")
+    ):
+        response.setdefault("diagnostics", []).append(_diagnostic(
+            "delivery_coverage_truncated",
+            "See data.log_path for the complete delivery approval coverage list.",
+        ))
     if isinstance(summary, dict) and summary.get("partial_skill_delivery") is True:
         names = [entry.get("name") for entry in summary.get("skill_collisions", [])
                  if isinstance(entry, dict) and isinstance(entry.get("name"), str)]
@@ -864,6 +894,7 @@ def _bounded_upgrade_response_envelope(response: dict[str, Any]) -> dict[str, An
                         key: summary.get(key)
                         for key in RETIRED_MODEL_CLEANUP_KEYS
                     },
+                    **_compact_delivery_coverage(summary),
                     "other_fields_omitted_from_response": True,
                     "reason": "upgrade response envelope cap",
                 }
@@ -961,6 +992,8 @@ def _bounded_upgrade_response_envelope(response: dict[str, Any]) -> dict[str, An
             "response_hard_compacted": True,
         }
         if isinstance(data, dict):
+            if isinstance(data.get("summary"), Mapping):
+                terminal_data["summary"] = _compact_delivery_coverage(data["summary"])
             for key in ("output", "output_truncated", "output_total_chars", "error_tail", "exit_code"):
                 if key in data:
                     terminal_data[key] = data[key]

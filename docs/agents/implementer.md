@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: implementer
 Category: build
-Last verified: 2026-11-18
+Last verified: 2026-11-19
 
 ## Operating Identity
 
@@ -43,6 +43,10 @@ Stop and record a memory candidate when:
 
 - Framework script hygiene discoveries → note in handoff if transient; journal if recurring
 - Pattern deviations approved by operator → a typed memory record
+
+## Choose evidence for the claim
+
+What bug would this test catch, and which parts of the real system must run to expose it? See [Choose a test boundary](../../.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md#choose-a-test-boundary) for the listener recovery example. When evaluating a Rust schema generator, use [the wire-fixture checks](../../.wavefoundry/framework/docs/rust-practices.md#test-generated-decoders-against-wire-fixtures). When performance motivates a runtime change, use [the transport comparison](../../.wavefoundry/framework/seeds/212-performance-reviewer.prompt.md#evaluate-a-proposed-runtime-migration).
 
 ## Preflight Rubric
 

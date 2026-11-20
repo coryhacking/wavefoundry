@@ -362,7 +362,7 @@ def _partition_member_ids(text: str, profile=None) -> tuple[list[str], list[dict
     ``_extract_change_ids_from_wave_text``)."""
     valid: list[str] = []
     rejected: list[dict[str, Any]] = []
-    for match in _member_id_pattern(profile).finditer(text):
+    for match in _member_id_pattern(profile).finditer(change_doc_checklist.comment_visible_text(text)):
         value = match.group(1)
         if is_change_id(value):
             valid.append(value)
@@ -814,11 +814,12 @@ def _missing_required_change_sections(change_text: str) -> list[str]:
     # Wave 1zime (1zimq): the two sections the close gate reads are checked by
     # exact heading line, so a heading close would refuse is refused here
     # first; the other four keep their substring check.
+    visible = "\n".join(change_doc_checklist.comment_visible_lines(change_text.split("\n")))
     exact = {"## Acceptance Criteria": "Acceptance Criteria", "## Tasks": "Tasks"}
     return [
         hdr for hdr in required_headers
         if (not change_doc_checklist.has_section(change_text, exact[hdr]) if hdr in exact
-            else hdr not in change_text)
+            else hdr not in visible)
     ]
 
 
@@ -958,6 +959,78 @@ def admitted_change_texts(
     return texts
 
 
+def _current_criterion_approvals(records: Iterable[Mapping[str, Any]]):
+    """Yield the latest still-approved delivery signoffs that track criterion status."""
+    records = tuple(records)
+    approvals = review_evidence._approval_rows(records, approval_phase="delivery")
+    for key in review_evidence.CRITERION_STATUS_SIGNOFF_KEYS:
+        entry = approvals.get(f"approval:{key}")
+        if entry is None:
+            continue
+        rows = review_evidence.review_status_rows(records, (key,), approval_phase="delivery")
+        if not rows or rows[0]["state"] != "approved":
+            continue
+        yield key, entry[1].get("limitations")
+
+
+def open_delivery_coverage(root: Path) -> dict[str, Any]:
+    """Inspect live record headers and validate authority only for open containers."""
+    from wave_lint_lib.constants import CONTAINER_STATUSES, OPEN_CONTAINER_STATUSES
+
+    affected = []
+    limitations = []
+    try:
+        directories = record_paths.discover_wave_dirs(root)
+    except record_paths.RecordLayoutInvalid as exc:
+        directories = []
+        limitations.append({"path": getattr(exc, "rel", ""), "reason": getattr(exc, "code", "invalid_record_layout")})
+    for directory in directories:
+        path = directory / _vocab.RECORD_FILENAME
+        relative = directory.relative_to(root).as_posix()
+        try:
+            text = contained_files.read_contained_bytes(
+                root, path, max_bytes=MEMBER_DOC_MAX_BYTES, follow_links=False
+            ).decode("utf-8")
+        except (OSError, UnicodeError):
+            limitations.append({"path": relative, "reason": "record_unreadable"})
+            continue
+        match = review_evidence.wave_status_match(text)
+        status = match.group(1).strip("`").lower() if match else ""
+        if status not in CONTAINER_STATUSES:
+            limitations.append({"path": relative, "reason": "record_status_unknown"})
+            continue
+        if status not in OPEN_CONTAINER_STATUSES:
+            continue
+        try:
+            authority = resolve_review_authority(root, path, wave_text=text)
+        except (OSError, ValueError, RecursionError):
+            limitations.append({"path": relative, "reason": "review_authority_unreadable"})
+            continue
+        if authority.ledger_errors:
+            limitations.append({"path": relative, "reason": "review_authority_invalid"})
+            continue
+        missing = []
+        for key, recorded in _current_criterion_approvals(authority.records):
+            if review_evidence.parse_criterion_status_line(recorded) is not None:
+                continue
+            if any(line.startswith(review_evidence.CRITERION_STATUS_LINE_PREFIX.rstrip())
+                   for line in (recorded or "").splitlines()):
+                limitations.append({"path": relative, "signoff_key": key, "reason": "malformed_criterion_status"})
+            else:
+                missing.append(key)
+        if missing:
+            affected.append({"path": relative, "signoff_keys": missing})
+    return {
+        "delivery_coverage_state": "incomplete" if limitations else "complete",
+        "delivery_coverage_affected": affected,
+        "delivery_coverage_limitations": limitations,
+        "delivery_coverage_action": (
+            "If you later defer a criterion or change its reason, renew the affected delivery approval."
+            if affected or limitations else ""
+        ),
+    }
+
+
 def delivery_deferral_findings(
     root: Path,
     wave_md: Path,
@@ -977,17 +1050,9 @@ def delivery_deferral_findings(
 
     if review_evidence.wave_record_closed(wave_text):
         return []
-    records = tuple(records)
-    approvals = review_evidence._approval_rows(records, approval_phase="delivery")
     recorded: dict[str, dict[str, Any]] = {}
-    for key in review_evidence.CRITERION_STATUS_SIGNOFF_KEYS:
-        entry = approvals.get(f"approval:{key}")
-        if entry is None:
-            continue
-        rows = review_evidence.review_status_rows(records, (key,), approval_phase="delivery")
-        if not rows or rows[0]["state"] != "approved":
-            continue
-        parsed = review_evidence.parse_criterion_status_line(entry[1].get("limitations"))
+    for key, limitations in _current_criterion_approvals(records):
+        parsed = review_evidence.parse_criterion_status_line(limitations)
         if parsed is not None:
             recorded[key] = parsed
     if not recorded:
@@ -1249,8 +1314,6 @@ def _prepare_policy_state(
     }, ()
 
 
-_RECORD_STATUS_LINE_RE = re.compile(r"(?mi)^Status:\s*(\S+)")
-
 
 def _review_policy_receipt_diagnostics(
     root: Path, wave_md: Path, wave_text: str, *, advisory: bool = False
@@ -1260,16 +1323,10 @@ def _review_policy_receipt_diagnostics(
     A closed record reports nothing (change 23q1h): nothing recomputes a
     closed wave's digest, so a later normalizer change cannot ask it for
     re-Prepare. Reopening rewrites the status, so a reopened wave is checked.
-    The record's first ``Status:`` line must say closed as well, so a later
-    ``Status: closed`` line in an open record's prose skips nothing.
+    Only the record's visible, unambiguous metadata header can establish closure.
     """
 
-    first_status = _RECORD_STATUS_LINE_RE.search(wave_text or "")
-    if (
-        review_evidence.wave_record_closed(wave_text)
-        and first_status is not None
-        and first_status.group(1).lower() == "closed"
-    ):
+    if review_evidence.wave_record_closed(wave_text):
         return []
     if not _wave_uses_external_review_evidence(root, wave_md):
         return []

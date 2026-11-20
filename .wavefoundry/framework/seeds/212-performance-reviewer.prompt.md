@@ -38,6 +38,10 @@ Apply a language section only when the code under review uses that language. The
 
 Check `clone`, `to_vec` and `collect` in hot paths, field check-out/return patterns, shared runtime-checked cells, and async executor or task spawning. Tie any finding to the scoped workload and a supported cost; these constructs alone are not defects.
 
+## Evaluate a proposed runtime migration
+
+Which production measurement attributes material CPU use or tail latency to transport, and what comparison would show the candidate runtime improves it? If a profile only compares application workers, retain the current runtime and identify the transport measurement needed. If a representative profile implicates transport, compare end-to-end tail latency and CPU on the affected OS. Keep the handler, application work, payload, concurrency and connection reuse fixed. Replay deadlines, cancellation and graceful shutdown, including buffer lifetime where ownership changes.
+
 ## Project Harness Extensions
 
 <!-- Fill with the target project's evidenced hot paths and resource constraints; preserve project additions on upgrade. -->

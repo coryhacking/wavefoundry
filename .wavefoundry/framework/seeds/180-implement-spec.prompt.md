@@ -164,6 +164,10 @@ The wave plan produced in task 9 must be grounded in MCP evidence for each inten
 
 When fallback to shell tools was necessary, record a `Gapfill:` entry in Progress Log with what was missing and why — this surfaces repeated tool friction for maintainers without blocking implementation.
 
+## Choose evidence for the claim
+
+What bug would this test catch, and which parts of the real system must run to expose it? See “Choose a test boundary” in `.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md` for the listener recovery example. For a Rust schema generator, use “Test generated decoders against wire fixtures” in `.wavefoundry/framework/docs/rust-practices.md`. For a performance-driven runtime migration, use “Evaluate a proposed runtime migration” in `.wavefoundry/framework/seeds/212-performance-reviewer.prompt.md`.
+
 ## Host-neutral orchestration
 
 Use the best available model and reasoning effort for each specific task throughout Prepare, plan review, implementation, verification, delivery review and Close. The operator may choose a different agent host for each wave or hand review to another host. Coordinator, worker and reviewer are responsibilities, not fixed model tiers; no provider, model, reasoning level or native team UI is mandatory.

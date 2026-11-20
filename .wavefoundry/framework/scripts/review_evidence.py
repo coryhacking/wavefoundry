@@ -33,6 +33,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+import change_doc_checklist
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 import review_policy  # the pure lane helper is called through the module (wave 1zlu1)
 from test_worker_guard import refuse_publication
@@ -197,7 +198,7 @@ _SOURCE_LINE_RE = re.compile(
 )
 _LIFECYCLE_PREFIX_RE = re.compile(r"^(?P<prefix>[0-9a-z]{5,6})(?:[-\s])")
 _SECTION_RE = re.compile(
-    r"(?ms)^## Finding Synthesis\s*$\n(?P<body>.*?)(?=^##\s|\Z)"
+    r"(?ms)^## Finding Synthesis[ \t\r]*$\n(?P<body>.*?)(?=^##\s|\Z)"
 )
 _JSONL_FENCE_RE = re.compile(
     r"(?ms)^```jsonl\s*$\n(?P<body>.*?)^```\s*$"
@@ -1315,8 +1316,8 @@ def closed_legacy_inline_record(text: str, wave_md: Path) -> bool:
 
     Change 20wqa: such a record is history and is left alone, so docs-lint
     and the wave resource do not ask it to migrate. The marker check matches
-    docs-lint and the gate classifier; the status is the first ``Status:``
-    line read with the server's own pattern, case-sensitive, on
+    docs-lint and the gate classifier; the status must be unambiguous in
+    the visible header and retain the historical spelling and spacing, on
     CRLF-normalised text (raw CRLF would hide a source header). A record with
     a source header, or with any sibling ledger entry (a retired inline record
     has none), is never matched, so a declared record whose header was swapped
@@ -1336,8 +1337,9 @@ def closed_legacy_inline_record(text: str, wave_md: Path) -> bool:
     source, source_errors = parse_review_evidence_source(text)
     if source is not None or source_errors:
         return False
-    status = _CLOSED_RECORD_STATUS_RE.search(text)
-    return status is not None and status.group(1) in {"closed", "completed"}
+    status = wave_status_match(text)
+    return (status is not None and status.group(1) in {"closed", "completed"}
+            and _CLOSED_RECORD_STATUS_RE.fullmatch(status.group(0).rstrip()) is not None)
 
 
 def parse_review_evidence_source(text: str) -> tuple[str | None, tuple[str, ...]]:
@@ -1972,7 +1974,6 @@ def criterion_status_map(
     criterion.
     """
 
-    import change_doc_checklist
     import gardener_metadata
 
     result: dict[str, dict[str, dict[str, Any]]] = {}
@@ -2441,17 +2442,37 @@ def _guided_repair_cycle(records: Iterable[Mapping[str, Any]]) -> int:
     return highest + 1 if highest in completed else highest
 
 
-_WAVE_RECORD_CLOSED_RE = re.compile(r"(?mi)^Status:\s*closed\s*$")
+_RECORD_SECTION_START = re.compile(r"(?m)^ {0,3}#{2,6}(?=[ \t\r]|$)")
+_STATUS_HEADER = re.compile(r"(?im)^status:[ \t]*(.*?)[ \t\r]*$")
+_STATUS_VALUE = re.compile(r"[a-zA-Z0-9-]+")
+
+
+def wave_status_match(text: str | None) -> re.Match[str] | None:
+    """Find the sole visible status in the leading metadata, retaining source offsets."""
+    if not text:
+        return None
+    section = _RECORD_SECTION_START.search(text)
+    header = text[:section.start()] if section else text
+    # Ordinary records need only their short header. An apparent heading
+    # inside an example can hide the actual end until the example closes.
+    if any(marker in header for marker in ("<!--", "```", "~~~")):
+        lines = change_doc_checklist.comment_visible_lines(text.split("\n"))
+        fenced = change_doc_checklist.fenced_line_flags(lines)
+        header = "\n".join(" " * len(line) if hidden else line for line, hidden in zip(lines, fenced))
+        section = _RECORD_SECTION_START.search(header)
+        if section:
+            header = header[:section.start()]
+    rows = list(_STATUS_HEADER.finditer(header))
+    if len(rows) != 1:
+        return None
+    row = rows[0]
+    return row if _STATUS_VALUE.fullmatch(row.group(1)) else None
 
 
 def wave_record_closed(wave_text: str | None) -> bool:
-    """Whether a wave record's status is closed, by the predicate lint uses.
-
-    Change 23q1g: a closed wave's review status is never re-derived under the
-    delivery membership rule, so every render that has the record's text
-    reads the status with this one predicate.
-    """
-    return bool(wave_text) and _WAVE_RECORD_CLOSED_RE.search(str(wave_text)) is not None
+    """Only an unambiguous closed header exempts a record from current review."""
+    status = wave_status_match(wave_text)
+    return status is not None and status.group(1).lower() == "closed"
 
 
 def receipt_change_ids(receipt: Mapping[str, Any] | None) -> frozenset[str] | None:
@@ -3774,10 +3795,10 @@ _GENERATED_SIGNOFF_LINE_RE = re.compile(
 def _status_block_row_keys(text: str) -> tuple[str, ...]:
     """Signoff cells of the existing bounded status block, as written."""
 
-    matches = list(_REVIEW_EVIDENCE_SECTION_RE.finditer(text))
+    matches = list(_REVIEW_EVIDENCE_SECTION_RE.finditer(change_doc_checklist.comment_visible_text(text)))
     if len(matches) != 1:
         return ()
-    body = matches[0].group("body")
+    body = text[matches[0].start("body"):matches[0].end("body")]
     begin = body.find(REVIEW_STATUS_MARKER_BEGIN)
     if begin < 0:
         return ()
@@ -3842,10 +3863,10 @@ def render_review_status_projection(
     keys = tuple(dict.fromkeys(
         review_status_display_keys(text, required_signoff_keys)
     ))
-    matches = list(_REVIEW_EVIDENCE_SECTION_RE.finditer(text))
+    matches = list(_REVIEW_EVIDENCE_SECTION_RE.finditer(change_doc_checklist.comment_visible_text(text)))
     if len(matches) != 1:
         raise ValueError(f"external {_vocab.tier_noun('container')} must contain exactly one Review Evidence section")
-    body = matches[0].group("body")
+    body = text[matches[0].start("body"):matches[0].end("body")]
     begin_count = body.count(REVIEW_STATUS_MARKER_BEGIN)
     end_count = body.count(REVIEW_STATUS_MARKER_END)
     if begin_count != end_count or begin_count > 1:
@@ -3913,10 +3934,10 @@ def render_review_evidence_projection(
 
     text = _canonicalize_finding_synthesis_markers(text)
     rows = tuple(dict(record) for record in records)
-    section_matches = list(_SECTION_RE.finditer(text))
+    section_matches = list(_SECTION_RE.finditer(change_doc_checklist.comment_visible_text(text)))
     if len(section_matches) != 1:
         raise ValueError(f"external {_vocab.tier_noun('container')} must contain exactly one Finding Synthesis section")
-    body = section_matches[0].group("body")
+    body = text[section_matches[0].start("body"):section_matches[0].end("body")]
     marker_begin = body.find(FINDING_SYNTHESIS_MARKER_BEGIN)
     marker_end = body.find(FINDING_SYNTHESIS_MARKER_END)
     if marker_begin < 0 or marker_end < marker_begin:
@@ -6350,13 +6371,13 @@ def validate_external_review_evidence(
         projection_errors.append(
             f"external review evidence {_vocab.tier_noun('container')} must not retain review-evidence-protocol"
         )
-    section_matches = list(_SECTION_RE.finditer(text))
+    section_matches = list(_SECTION_RE.finditer(change_doc_checklist.comment_visible_text(text)))
     if len(section_matches) != 1:
         projection_errors.append(
             f"external {_vocab.tier_noun('container')} must contain exactly one `## Finding Synthesis` projection"
         )
     else:
-        body = section_matches[0].group("body")
+        body = text[section_matches[0].start("body"):section_matches[0].end("body")]
         if body.count(FINDING_SYNTHESIS_MARKER_BEGIN) != 1 or body.count(
             FINDING_SYNTHESIS_MARKER_END
         ) != 1:
@@ -6457,4 +6478,5 @@ __all__ = [
     "delivery_section_change_advisories",
     "receipt_change_ids",
     "wave_record_closed",
+    "wave_status_match",
 ]

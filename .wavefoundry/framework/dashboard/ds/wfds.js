@@ -147,19 +147,21 @@
     }
 
     // ── ProgressBar (from ProgressRow) ──────────────────────────────────────────
-    function ProgressBar({ label, done, total, variant }) {
+    function ProgressBar({ label, done, total, variant, detail }) {
       const safeTotal = Number(total) || 0;
       const safeDone = Number(done) || 0;
       const pct = safeTotal > 0 ? Math.round((safeDone / safeTotal) * 100) : 0;
       const complete = safeTotal > 0 && safeDone >= safeTotal;
       const cls = ["progress-row", variant && `progress-row--${variant}`, complete && "progress-row--complete"]
         .filter(Boolean).join(" ");
-      return h("div", { className: cls },
+      return h("div", { className: cls, "data-detail": detail },
         h("div", { className: "progress-row-label" }, label),
         h("div", { className: "progress-row-bar-wrap" },
           h("div", {
             className: "progress-bar-track",
             role: "progressbar",
+            tabIndex: detail ? 0 : undefined,
+            "aria-valuetext": detail,
             "aria-valuenow": pct,
             "aria-valuemin": 0,
             "aria-valuemax": 100,
@@ -361,6 +363,8 @@
       const lines = text.split("\n");
       const result = [];
       let listItems = [];
+      let listKind = "ul";
+      let listStart = 1;
       let currentListItem = null;
       let paragraphLines = [];
       let tableLines = [];
@@ -386,7 +390,9 @@
       const flushList = () => {
         flushCurrentListItem();
         if (listItems.length) {
-          result.push(h("ul", { key: key++ }, listItems));
+          const props = { key: key++ };
+          if (listKind === "ol" && listStart !== 1) props.start = listStart;
+          result.push(h(listKind, props, listItems));
           listItems = [];
         }
       };
@@ -475,6 +481,7 @@
         );
         if (commentOnly) continue;
 
+        const ordered = /^(\d{1,9})[.)]\s+(.*)$/.exec(line);
         if (line.startsWith("```")) {
           flushParagraph();
           flushList();
@@ -507,11 +514,15 @@
           flushList();
           flushTable();
           result.push(h("h1", { key: key++ }, renderInline(line.slice(2))));
-        } else if (line.startsWith("- ")) {
+        } else if (ordered || line.startsWith("- ")) {
           flushParagraph();
           flushTable();
-          flushCurrentListItem();
-          currentListItem = [line.slice(2)];
+          const kind = ordered ? "ol" : "ul";
+          if (kind !== listKind) flushList();
+          else flushCurrentListItem();
+          listKind = kind;
+          if (!listItems.length && ordered) listStart = Number(ordered[1]);
+          currentListItem = [ordered ? ordered[2] : line.slice(2)];
         } else if (currentListItem !== null && /^\s{2,}\S/.test(visible)) {
           currentListItem.push(line);
         } else if (/^(-{3,}|\*{3,}|_{3,})$/.test(line)) {

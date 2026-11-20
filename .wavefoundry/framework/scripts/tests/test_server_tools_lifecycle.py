@@ -6767,6 +6767,18 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
             wave_id=self.wave_id, change_id="1200c-enh mark-sample", **arguments,
         )
 
+    def test_registered_marks_preserve_html_comments_and_crlf(self):
+        hidden = "<!--\r\n## Hidden\r\n- [ ] Same task\r\n- [ ] AC-1: hidden\r\n-->\r\n"
+        original = ("## Acceptance Criteria\r\n" + hidden + "- [ ] AC-1: visible <!-- note -->\r\n"
+                    + "## Tasks\r\n" + hidden + "- [ ] Same <!-- optional -->task")
+        path = self.wave_dir / "1200c-enh mark-sample.md"
+        path.write_bytes(original.encode())
+        for tool, args in (("wf_mark_task", {"task": "Same task"}), ("wf_mark_ac", {"ac_id": "AC-1"})):
+            marked = self._registered_mark(tool, state="x", mode="create", **args)
+            self.assertEqual(marked["status"], "ok", marked)
+        self.assertEqual(path.read_bytes(), original.replace("- [ ] AC-1: visible", "- [x] AC-1: visible")
+                         .replace("- [ ] Same <!--", "- [x] Same <!--").encode())
+
     def test_registered_mark_previews_report_no_write_and_exact_applying_call(self):
         for tool, label_key, label, section in (
             ("wf_mark_ac", "ac_id", "AC-1", "Acceptance Criteria"),
@@ -14657,6 +14669,60 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
                 "a current evaluator-v2 receipt must make repeated Prepare idempotent",
             )
 
+    def _check_comment_evaluator_upgrade(self, separator, expected_before):
+        import change_doc_checklist
+        import review_policy
+
+        path = self.wave_md.parent / "1200a-feat sample.md"
+        first = "- .wavefoundry/framework/scripts/server_impl.py\n"
+        body = path.read_text().replace(first, first + separator + "- docs/prompts/route.prompt.md\n")
+        path.write_text(body)
+        def prepare():
+            self._run(self.srv.wf_prepare_wave_response, self.root, self.wave_id, mode="ready")
+            return [r for r in self._records() if r["record_type"] == "review_policy_receipt"]
+        with patch.object(change_doc_checklist, "comment_visible_lines", side_effect=lambda lines, **kw: lines), \
+                patch.object(review_policy, "REVIEW_POLICY_EVALUATOR_VERSION", 7), \
+                patch.object(self.srv.lifecycle_gate_support, "REVIEW_POLICY_EVALUATOR_VERSION", 7):
+            old = prepare()
+        self.assertEqual(old[-1]["evaluator_version"], 7)
+        self.assertEqual("docs-contract-reviewer" in old[-1]["required_lanes"], expected_before)
+        current = prepare()
+        self.assertEqual(len(current), len(old) + 1)
+        self.assertEqual(current[-1]["evaluator_version"], 8)
+        self.assertIn("docs-contract-reviewer", current[-1]["required_lanes"])
+        self.assertEqual(prepare(), current)
+        self.assertEqual(current[:len(old)], old)
+
+    def test_prepare_restores_the_lane_after_a_hidden_heading_at_upgrade(self):
+        self._check_comment_evaluator_upgrade("\n<!--\n## Hidden\n-->\n\n", False)
+
+    def test_prepare_retains_target_after_heading_with_unmatched_tick(self):
+        self._check_comment_evaluator_upgrade(
+            "### Subheading `\nordinary <!--\nexample `text`\n## Hidden\n-->\n", False
+        )
+
+    def test_prepare_retains_closed_ledger_from_previous_evaluator(self):
+        import review_policy
+
+        with patch.object(review_policy, "REVIEW_POLICY_EVALUATOR_VERSION", 7), patch.object(
+            self.srv.lifecycle_gate_support, "REVIEW_POLICY_EVALUATOR_VERSION", 7
+        ):
+            self._run(self.srv.wf_prepare_wave_response, self.root, self.wave_id, mode="ready")
+        receipts = [r for r in self._records() if r["record_type"] == "review_policy_receipt"]
+        self.assertEqual(receipts[-1]["evaluator_version"], 7)
+        record = self.wave_md.read_text()
+        closed, count = re.subn(r"(?m)^Status: .+$", "Status: closed", record, count=1)
+        self.assertEqual(count, 1)
+        self.wave_md.write_text(closed)
+        ledger = self.review.review_event_path(self.wave_md)
+        original = ledger.read_bytes()
+        self._run(self.srv.wf_prepare_wave_response, self.root, self.wave_id, mode="ready")
+        self.assertEqual(ledger.read_bytes(), original)
+        self.assertEqual(self.review.validate_policy_receipt(receipts[-1]), ())
+
+    def test_prepare_versions_even_an_unchanged_visible_lane_set_once(self):
+        self._check_comment_evaluator_upgrade("\n", True)
+
     def test_public_prepare_converges_once_from_evaluator_v5_to_v6(self):
         """Wave 1uo1x: the live boundary, proven to converge exactly once.
 
@@ -17823,6 +17889,17 @@ class CloseGateChecklistBypassTests(unittest.TestCase):
         self.assertEqual(resp["status"], "error")
 
     # AC-1 and AC-5
+    def test_hidden_headings_and_examples_leave_visible_close_blockers(self):
+        hidden = "<!--\n## Hidden\n- [ ] phantom\n-->\n"
+        doc = self._doc(acs=hidden + "- [ ] AC-1: visible criterion <!-- note -->\n",
+                        tasks=hidden + "- [ ] visible task <!-- note -->\n")
+        response = self._close(doc, crlf=True)
+        for label in ("visible criterion", "visible task"):
+            self._assert_blocks(response, label)
+        self.assertNotIn("phantom", self._diag(response, "silent_unchecked_items_at_close")[0]["message"])
+        done = doc.replace("- [ ] visible", "- [x] visible").replace("- [ ] AC-1:", "- [x] AC-1:")
+        self.assertFalse(self._diag(self._close(done, crlf=True), "silent_unchecked_items_at_close"))
+
     def test_non_dash_open_task_blocks_close(self):
         for marker in ("*", "+", "1.", "1)"):
             for crlf in (False, True):
@@ -20093,8 +20170,10 @@ class CriterionDeferralCurrencyTests(_RegisteredApprovalWaveFixture):
             self._set_status("implementing")
             self.wave_md.write_text(self.wave_md.read_text(encoding="utf-8") + "\nStatus: closed\n", encoding="utf-8")
             text = self.wave_md.read_text(encoding="utf-8")
-            self.assertTrue(self.srv.wave_record_closed(text), "the lint predicate alone would skip it")
-            self.assertTrue(stale(self._review()), "the first Status line decides")
+            self.assertFalse(self.srv.wave_record_closed(text), "later prose cannot close the record")
+            for response in (self._review(), self._close_dry_run()):
+                self.assertTrue(stale(response), "the header decides")
+                self.assertTrue(self._predates(response), "prose cannot waive renewal")
 
     # -- AC-3 ------------------------------------------------------------
     def test_the_recorded_line_and_the_forged_prefix_refusal(self):

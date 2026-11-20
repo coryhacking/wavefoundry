@@ -155,7 +155,8 @@ class SkillProseTests(unittest.TestCase):
 
     def test_renamed_profile_names_its_own_tiers(self) -> None:
         for name, spans in SET_WAVE_SPANS.items():
-            text = "\n".join(self.set_wave[name])
+            text = "\n".join(self.set_wave[{"wf-plan-spec": "wf-plan-wave-doc",
+                                              "wf-close-spec": "wf-close-wave-doc"}.get(name, name)])
             for span in spans:
                 with self.subTest(skill=name, span=span):
                     self.assertIn(span, text)
@@ -288,7 +289,8 @@ class PlanningNounTests(unittest.TestCase):
 
     def test_message_strings_under_the_shipped_profile(self) -> None:
         import lifecycle_gate_support as lgs
-        with mock.patch.multiple(vocabulary_profile, **_SHIPPED_NOUNS):
+        live_profile = sys.modules["vocabulary_profile"]
+        with mock.patch.object(lgs, "_vocab", live_profile), mock.patch.multiple(live_profile, **_SHIPPED_NOUNS):
             self.assertIn("changed specs: 1abcz-bug s", self._attribution())
             stats = self._stats()
             self.assertIn("- Missing specs assigned to waves: 1", stats)
@@ -297,11 +299,39 @@ class PlanningNounTests(unittest.TestCase):
                           lgs._prepare_council_instructions(None, typed=True))
 
     def test_message_strings_under_a_ticket_and_batch_profile(self) -> None:
-        with mock.patch.multiple(vocabulary_profile, **_TICKET_NOUNS):
+        import lifecycle_gate_support as lgs
+        live_profile = sys.modules["vocabulary_profile"]
+        with mock.patch.object(lgs, "_vocab", live_profile), mock.patch.multiple(live_profile, **_TICKET_NOUNS):
             self.assertIn("changed ticket docs: 1abcz-bug s", self._attribution())
             stats = self._stats()
             self.assertIn("- Missing ticket documents assigned to batches: 1", stats)
             self.assertIn("- Unreadable ticket documents: 2", stats)
+
+    def test_planning_vocabulary_at_served_and_lint_boundaries(self) -> None:
+        from types import SimpleNamespace
+        from declaration_support import RecordingFastMCP, base_declaration, served_functions
+        from server_tools_support import _make_repo, load_server
+        server = load_server()
+        from wave_lint_lib.wave_validators import check_persona_docs
+        with tempfile.TemporaryDirectory() as tmp, base_declaration():
+            root = _make_repo(Path(tmp), {"docs/agents/personas/example.md": "## Scope\n"})
+            handler = SimpleNamespace(root=root, cache=None)
+            for profile, noun, container in (
+                (_SHIPPED_NOUNS, "spec", "wave"), (_TICKET_NOUNS, "ticket doc", "batch"),
+            ):
+                with self.subTest(noun=noun), mock.patch.multiple(server._vocab, **profile):
+                    server._cached_help_catalog_json.cache_clear()
+                    self.addCleanup(server._cached_help_catalog_json.cache_clear)
+                    mcp = RecordingFastMCP()
+                    server.register_mcp_surface(mcp, lambda: handler)
+                    tools = served_functions(mcp)
+                    missing = tools["wf_get_change"](change_id="nonexistent")
+                    diagnostic = next(d for d in missing["diagnostics"] if d["code"] == "change_not_found")
+                    self.assertIn(f"No {noun} found", diagnostic["message"])
+                    self.assertIn(f"Create the {noun} with", tools["wf_help"](goal="plan_change")["data"]["next_step"])
+                    self.assertIn(f"Return a {noun} by ID, or all {noun}s for a {container}",
+                                  mcp._tool_manager._tools["wf_get_change"].description)
+                    self.assertTrue(any(f"plan/{noun} concept" in msg for msg in check_persona_docs(root)))
 
     def test_article_form_reaches_the_rendered_skills(self) -> None:
         # ITEM_NAME_ARTICLE is not a fork-editable constant, so patch it in
@@ -309,7 +339,7 @@ class PlanningNounTests(unittest.TestCase):
         import importlib
         import render_agent_surfaces
         try:
-            with mock.patch.multiple(vocabulary_profile, ITEM_NAME="Item", ITEM_NAME_PLURAL="Items",
+            with mock.patch.multiple(sys.modules["vocabulary_profile"], ITEM_NAME="Item", ITEM_NAME_PLURAL="Items",
                                      ITEM_NAME_ARTICLE="an"):
                 renderer = importlib.reload(render_agent_surfaces)
                 descriptions = [skill.description for skill in renderer.SKILL_REGISTRY]

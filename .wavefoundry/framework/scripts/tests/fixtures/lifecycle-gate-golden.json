@@ -215,7 +215,7 @@
               "code-reviewer"
             ],
             "delivery_only_lanes": [],
-            "policy_input_digest": "4e6fa245b788287404a9788b643aa76da7f4315bc4faccd7d4829bd46fa86dee",
+            "policy_input_digest": "e398df263f4b120b58fdb7f8a25f223ad2fa2146aad61c419169d9d64ff7838e",
             "reasons": {
               "code-reviewer": [
                 "required by project policy"
@@ -227,10 +227,10 @@
               ],
               "delivery_council_required": false,
               "delivery_mode": "targeted",
-              "evaluator_version": 7,
-              "policy_input_digest": "4e6fa245b788287404a9788b643aa76da7f4315bc4faccd7d4829bd46fa86dee",
+              "evaluator_version": 8,
+              "policy_input_digest": "e398df263f4b120b58fdb7f8a25f223ad2fa2146aad61c419169d9d64ff7838e",
               "primer_depth": "standard",
-              "receipt_id": "review-policy-3a0828fbe1c412e53ddf",
+              "receipt_id": "review-policy-0d51895e4e70ee5349ed",
               "record_type": "review_policy_receipt",
               "requested_lanes": [],
               "required_lanes": [
@@ -302,7 +302,7 @@
               "code-reviewer"
             ],
             "delivery_only_lanes": [],
-            "policy_input_digest": "4e6fa245b788287404a9788b643aa76da7f4315bc4faccd7d4829bd46fa86dee",
+            "policy_input_digest": "e398df263f4b120b58fdb7f8a25f223ad2fa2146aad61c419169d9d64ff7838e",
             "reasons": {
               "code-reviewer": [
                 "required by project policy"
@@ -314,10 +314,10 @@
               ],
               "delivery_council_required": false,
               "delivery_mode": "targeted",
-              "evaluator_version": 7,
-              "policy_input_digest": "4e6fa245b788287404a9788b643aa76da7f4315bc4faccd7d4829bd46fa86dee",
+              "evaluator_version": 8,
+              "policy_input_digest": "e398df263f4b120b58fdb7f8a25f223ad2fa2146aad61c419169d9d64ff7838e",
               "primer_depth": "standard",
-              "receipt_id": "review-policy-3a0828fbe1c412e53ddf",
+              "receipt_id": "review-policy-0d51895e4e70ee5349ed",
               "record_type": "review_policy_receipt",
               "requested_lanes": [],
               "required_lanes": [
@@ -392,7 +392,7 @@
               "code-reviewer"
             ],
             "delivery_only_lanes": [],
-            "policy_input_digest": "4e6fa245b788287404a9788b643aa76da7f4315bc4faccd7d4829bd46fa86dee",
+            "policy_input_digest": "e398df263f4b120b58fdb7f8a25f223ad2fa2146aad61c419169d9d64ff7838e",
             "reasons": {
               "code-reviewer": [
                 "required by project policy"
@@ -404,10 +404,10 @@
               ],
               "delivery_council_required": false,
               "delivery_mode": "targeted",
-              "evaluator_version": 7,
-              "policy_input_digest": "4e6fa245b788287404a9788b643aa76da7f4315bc4faccd7d4829bd46fa86dee",
+              "evaluator_version": 8,
+              "policy_input_digest": "e398df263f4b120b58fdb7f8a25f223ad2fa2146aad61c419169d9d64ff7838e",
               "primer_depth": "standard",
-              "receipt_id": "review-policy-3a0828fbe1c412e53ddf",
+              "receipt_id": "review-policy-0d51895e4e70ee5349ed",
               "record_type": "review_policy_receipt",
               "requested_lanes": [],
               "required_lanes": [
@@ -1066,7 +1066,7 @@
               "code-reviewer"
             ],
             "delivery_only_lanes": [],
-            "policy_input_digest": "b7410b7ce4df011d07acd14c3ba81c532857079bbd36b19bde4c60cab4e95d13",
+            "policy_input_digest": "e9b97e4a07d25ca618e5acb72331b1d021f3cdd4892b7e1a02fbbf4928dbc036",
             "reasons": {
               "code-reviewer": [
                 "required by project policy"
@@ -1078,10 +1078,10 @@
               ],
               "delivery_council_required": false,
               "delivery_mode": "targeted",
-              "evaluator_version": 7,
-              "policy_input_digest": "b7410b7ce4df011d07acd14c3ba81c532857079bbd36b19bde4c60cab4e95d13",
+              "evaluator_version": 8,
+              "policy_input_digest": "e9b97e4a07d25ca618e5acb72331b1d021f3cdd4892b7e1a02fbbf4928dbc036",
               "primer_depth": "standard",
-              "receipt_id": "review-policy-83757b1fa856fcaebc0d",
+              "receipt_id": "review-policy-b5238fb5be76773c7291",
               "record_type": "review_policy_receipt",
               "requested_lanes": [],
               "required_lanes": [
@@ -1192,7 +1192,7 @@
               "code-reviewer"
             ],
             "delivery_only_lanes": [],
-            "policy_input_digest": "b7410b7ce4df011d07acd14c3ba81c532857079bbd36b19bde4c60cab4e95d13",
+            "policy_input_digest": "e9b97e4a07d25ca618e5acb72331b1d021f3cdd4892b7e1a02fbbf4928dbc036",
             "reasons": {
               "code-reviewer": [
                 "required by project policy"
@@ -1204,10 +1204,10 @@
               ],
               "delivery_council_required": false,
               "delivery_mode": "targeted",
-              "evaluator_version": 7,
-              "policy_input_digest": "b7410b7ce4df011d07acd14c3ba81c532857079bbd36b19bde4c60cab4e95d13",
+              "evaluator_version": 8,
+              "policy_input_digest": "e9b97e4a07d25ca618e5acb72331b1d021f3cdd4892b7e1a02fbbf4928dbc036",
               "primer_depth": "standard",
-              "receipt_id": "review-policy-83757b1fa856fcaebc0d",
+              "receipt_id": "review-policy-b5238fb5be76773c7291",
               "record_type": "review_policy_receipt",
               "requested_lanes": [],
               "required_lanes": [
@@ -1318,7 +1318,7 @@
               "code-reviewer"
             ],
             "delivery_only_lanes": [],
-            "policy_input_digest": "b7410b7ce4df011d07acd14c3ba81c532857079bbd36b19bde4c60cab4e95d13",
+            "policy_input_digest": "e9b97e4a07d25ca618e5acb72331b1d021f3cdd4892b7e1a02fbbf4928dbc036",
             "reasons": {
               "code-reviewer": [
                 "required by project policy"
@@ -1330,10 +1330,10 @@
               ],
               "delivery_council_required": false,
               "delivery_mode": "targeted",
-              "evaluator_version": 7,
-              "policy_input_digest": "b7410b7ce4df011d07acd14c3ba81c532857079bbd36b19bde4c60cab4e95d13",
+              "evaluator_version": 8,
+              "policy_input_digest": "e9b97e4a07d25ca618e5acb72331b1d021f3cdd4892b7e1a02fbbf4928dbc036",
               "primer_depth": "standard",
-              "receipt_id": "review-policy-83757b1fa856fcaebc0d",
+              "receipt_id": "review-policy-b5238fb5be76773c7291",
               "record_type": "review_policy_receipt",
               "requested_lanes": [],
               "required_lanes": [
@@ -2023,7 +2023,7 @@
               "code-reviewer"
             ],
             "delivery_only_lanes": [],
-            "policy_input_digest": "a962f6a8943f52b414facb38b3839a610f471b983f27d328792cba38f3142277",
+            "policy_input_digest": "4f70f03844254abfb0bf5eca438685d2535a4ea2ca59c5fb21460582bd6c9141",
             "reasons": {
               "code-reviewer": [
                 "required by project policy"
@@ -2035,10 +2035,10 @@
               ],
               "delivery_council_required": false,
               "delivery_mode": "targeted",
-              "evaluator_version": 7,
-              "policy_input_digest": "a962f6a8943f52b414facb38b3839a610f471b983f27d328792cba38f3142277",
+              "evaluator_version": 8,
+              "policy_input_digest": "4f70f03844254abfb0bf5eca438685d2535a4ea2ca59c5fb21460582bd6c9141",
               "primer_depth": "standard",
-              "receipt_id": "review-policy-2c2e498c173514a56168",
+              "receipt_id": "review-policy-b87d474b30319b4ef060",
               "record_type": "review_policy_receipt",
               "requested_lanes": [],
               "required_lanes": [
@@ -2142,7 +2142,7 @@
               "code-reviewer"
             ],
             "delivery_only_lanes": [],
-            "policy_input_digest": "a962f6a8943f52b414facb38b3839a610f471b983f27d328792cba38f3142277",
+            "policy_input_digest": "4f70f03844254abfb0bf5eca438685d2535a4ea2ca59c5fb21460582bd6c9141",
             "reasons": {
               "code-reviewer": [
                 "required by project policy"
@@ -2154,10 +2154,10 @@
               ],
               "delivery_council_required": false,
               "delivery_mode": "targeted",
-              "evaluator_version": 7,
-              "policy_input_digest": "a962f6a8943f52b414facb38b3839a610f471b983f27d328792cba38f3142277",
+              "evaluator_version": 8,
+              "policy_input_digest": "4f70f03844254abfb0bf5eca438685d2535a4ea2ca59c5fb21460582bd6c9141",
               "primer_depth": "standard",
-              "receipt_id": "review-policy-2c2e498c173514a56168",
+              "receipt_id": "review-policy-b87d474b30319b4ef060",
               "record_type": "review_policy_receipt",
               "requested_lanes": [],
               "required_lanes": [
@@ -2264,7 +2264,7 @@
               "code-reviewer"
             ],
             "delivery_only_lanes": [],
-            "policy_input_digest": "a962f6a8943f52b414facb38b3839a610f471b983f27d328792cba38f3142277",
+            "policy_input_digest": "4f70f03844254abfb0bf5eca438685d2535a4ea2ca59c5fb21460582bd6c9141",
             "reasons": {
               "code-reviewer": [
                 "required by project policy"
@@ -2276,10 +2276,10 @@
               ],
               "delivery_council_required": false,
               "delivery_mode": "targeted",
-              "evaluator_version": 7,
-              "policy_input_digest": "a962f6a8943f52b414facb38b3839a610f471b983f27d328792cba38f3142277",
+              "evaluator_version": 8,
+              "policy_input_digest": "4f70f03844254abfb0bf5eca438685d2535a4ea2ca59c5fb21460582bd6c9141",
               "primer_depth": "standard",
-              "receipt_id": "review-policy-2c2e498c173514a56168",
+              "receipt_id": "review-policy-b87d474b30319b4ef060",
               "record_type": "review_policy_receipt",
               "requested_lanes": [],
               "required_lanes": [

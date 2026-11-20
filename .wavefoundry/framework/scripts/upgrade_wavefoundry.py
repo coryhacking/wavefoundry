@@ -4227,7 +4227,8 @@ def _report_fields(report):
     # Change 23phc: the leftover work fields ride with the reporting fields so
     # every summary emit site carries them.
     return {**{key: value for key, value in report.items() if key.startswith("reconciliation_")},
-            **_work_root_fields(report)}
+            **_work_root_fields(report),
+            **report.get("delivery_coverage", {"delivery_coverage_state": "not_assessed"})}
 
 
 def _produce_reconciliation_report(root: Path) -> int:
@@ -4259,6 +4260,7 @@ def _produce_reconciliation_report(root: Path) -> int:
             report[key] = values
         report["renderer_warnings"] = _run_renderer_warning_scan(root)
         report["work_root"] = _run_work_root_inventory(root)
+        report["delivery_coverage"] = _run_delivery_coverage(root)
         print(json.dumps(report, ensure_ascii=False), flush=True)
         return 0
     result = (reconcile_scan.ScanResult(state="incomplete", reasons=["upgrade_failed"])
@@ -4273,6 +4275,8 @@ def _produce_reconciliation_report(root: Path) -> int:
     # Change 23phc: entry-bounded and metadata-only, so it runs before the
     # time-budgeted diagnostics below.
     report["work_root"] = _run_work_root_inventory(root)
+    if time.monotonic() - started < budget:
+        report["delivery_coverage"] = _run_delivery_coverage(root)
     if time.monotonic() - started < budget:
         report["disposition_diagnostics"] = reconcile_scan.disposition_diagnostics(root, findings=result.findings)
     if time.monotonic() - started < budget:
@@ -4440,6 +4444,36 @@ def _run_agent_surface_integrity_scan(root: Path | None) -> dict:
         return agent_surface_integrity.audit_agent_surfaces(root)
     except Exception:  # noqa: BLE001
         return {"available": False, "finding_count": 0}
+
+
+def _run_delivery_coverage(root: Path) -> dict:
+    if os.environ.get("WAVEFOUNDRY_REPORTING_SKIP_SCAN") == "1":
+        return {"delivery_coverage_state": "not_assessed"}
+    try:
+        import lifecycle_gate_support
+        return lifecycle_gate_support.open_delivery_coverage(root)
+    except Exception as exc:  # Reporting must not change the upgrade outcome.
+        return {"delivery_coverage_state": "incomplete", "delivery_coverage_limitations": [
+            {"reason": "inspection_" + type(exc).__name__}
+        ]}
+
+
+def _delivery_coverage_lines(summary: dict) -> list[str]:
+    state = summary.get("delivery_coverage_state", "not_assessed")
+    if state == "not_assessed":
+        return ["Delivery approval coverage was not assessed."]
+    import vocabulary_profile
+
+    affected = summary.get("delivery_coverage_affected", [])
+    noun = vocabulary_profile.tier_noun("container", plural=len(affected) != 1)
+    lines = [f"Delivery approval coverage ({state}): {len(affected)} open {noun} identified with missing criterion status."]
+    for row in affected:
+        lines.append(f"  {row['path']!r}: " + ", ".join(row["signoff_keys"]))
+    for row in summary.get("delivery_coverage_limitations", []):
+        lines.append(f"  Coverage unknown: {row.get('path', '')!r} {row.get('signoff_key', '')} ({row['reason']})")
+    if summary.get("delivery_coverage_action"):
+        lines.append("  " + summary["delivery_coverage_action"])
+    return lines
 
 
 def _not_reported_work_root(reason: str) -> dict:
@@ -5346,6 +5380,8 @@ def _print_operator_summary(
         for warning in renderer_warnings:
             _log(f"    {warning.get('detail') or warning}")
     # Change 23phc: leftover work folders, report only, on every run.
+    for line in _delivery_coverage_lines(summary):
+        _log(line)
     for line in _work_root_summary_lines(summary):
         _log(line)
     if summary["lifecycle_baseline_drift"]:

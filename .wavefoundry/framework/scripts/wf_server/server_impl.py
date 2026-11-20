@@ -657,6 +657,7 @@ from review_evidence import (
     validate_review_evidence_records,
     delivery_section_change_advisories,
     wave_record_closed,
+    wave_status_match,
 )
 
 
@@ -4035,7 +4036,7 @@ def _read_wave_record(root: Path, wave_md: Path) -> dict:
             "read_error": read_error,
         }
     wave_id_m = _WAVE_ID_PATTERN.search(text)
-    status_m = _STATUS_PATTERN.search(text)
+    status_m = wave_status_match(text)
     return {
         "wave_id": wave_id_m.group(1) if wave_id_m else wave_md.parent.name,
         "status": status_m.group(1) if status_m else "unknown",
@@ -4505,11 +4506,7 @@ def _profile_prompt_path(root: Path, shortcut: str) -> Optional[Path]:
     that disagrees with the files misroutes exactly as the renderer would.
     """
     wanted = shortcut.strip().casefold()
-    key = next((name for name in _vocab.PROMPT_NAMES
-                if wanted in (phrase.casefold() for phrase in
-                              (_vocab.shortcut(name), *_vocab.shortcut_aliases(name)))), None)
-    if key is None:
-        return None
+    manifest = {}
     record = None
     registered: "frozenset[str]" = frozenset()
     try:
@@ -4520,6 +4517,15 @@ def _profile_prompt_path(root: Path, shortcut: str) -> Optional[Path]:
             registered = _vocab.registered_prompt_docs(manifest)
     except Exception:  # missing, refused or unreadable manifest: no record
         record = None
+    try:
+        names = _vocab.repository_prompt_names(manifest if isinstance(manifest, dict) else {})
+    except ValueError:
+        names = _vocab.PROMPT_NAMES
+    key = next((key for key, row in names.items()
+                if wanted in (phrase.casefold() for phrase in
+                              (row["shortcut"], *row["aliases"]))), None)
+    if key is None:
+        return None
     try:
         slug = _vocab.applied_prompt_slugs(record, registered)[key]
     except ValueError:
@@ -5018,12 +5024,12 @@ def _help_catalog() -> dict[str, Any]:
             "plan_change": {
                 "recommended_chain": ["wf_new_enhancement", "wf_get_change", "wf_validate_docs"],
                 "rationale": (
-                    "Create the spec with the kind-specific tool, inspect it, then validate docs state. "
+                    f"Create the {_vocab.planning_noun()} with the kind-specific tool, inspect it, then validate docs state. "
                     "The feat kind is retired for new changes (wave 1zli8): plan a large feature as several "
                     "changes, possibly across waves."
                 ),
                 "fallback_tools": ["wf_new_bug", "wf_new_maintenance", "wf_new_change"],
-                "next_step": "Create the spec with wf_new_enhancement or another fitting wf_new_<kind> tool first.",
+                "next_step": f"Create the {_vocab.planning_noun()} with wf_new_enhancement or another fitting wf_new_<kind> tool first.",
                 "usage": "wf_new_enhancement(slug='my-change')",
             },
             "inspect_wave": {
@@ -5039,9 +5045,9 @@ def _help_catalog() -> dict[str, Any]:
             "start_wave": {
                 "recommended_chain": ["wf_create_wave", "wf_add_change", "wf_prepare_wave"],
                 "rationale": (
-                    "Create the wave, admit planned changes, then run transactional prepare checks. "
-                    "Capture in-flight observations in the spec's Progress Log and durable "
-                    "lessons as memory candidates (memory_add) — waves no longer use journals."
+                    f"Create the {_vocab.tier_noun('container')}, admit planned changes, then run transactional prepare checks. "
+                    f"Capture in-flight observations in the {_vocab.planning_noun()}'s Progress Log and durable "
+                    f"lessons as memory candidates (memory_add) — {_vocab.tier_noun('container', plural=True)} no longer use journals."
                 ),
                 "fallback_tools": ["wf_help"],
                 "next_step": "Create the wave in dry_run first.",
@@ -6804,17 +6810,17 @@ def wf_current_wave_response(root: Path, cache: Optional[McpRepoCache] = None) -
             if drifts:
                 # Wave 1zoju (1zodx repair): neutral wording, no `None`.
                 drift_summary = "; ".join(
-                    f"{d['change_id']}: wave record "
+                    f"{d['change_id']}: {_vocab.tier_noun('container')} record "
                     f"{('`' + d['wave_md_status'] + '`') if d['wave_md_status'] else 'no readable status'}"
-                    f" vs spec "
+                    f" vs {_vocab.planning_noun()} "
                     f"{('`' + d['file_status'] + '`') if d['file_status'] else 'no header status'}"
                     for d in drifts
                 )
                 diagnostics.append(
                     _diagnostic(
                         "change_status_drift",
-                        f"Change status drift: the wave record and specs disagree for: {drift_summary}. "
-                        "Reconcile the wave record and the spec.",
+                        f"Change status drift: the {_vocab.tier_noun('container')} record and {_vocab.planning_noun('docs')} disagree for: {drift_summary}. "
+                        f"Reconcile the {_vocab.tier_noun('container')} record and the {_vocab.planning_noun()}.",
                         recovery_tools=["wf_get_change", "wf_validate_docs"],
                         recovery_usage=f"wf_get_change(change_id={drifts[0]['change_id']!r})",
                     )
@@ -7128,7 +7134,7 @@ def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -
             diagnostics=[
                 _diagnostic(
                     "change_not_found",
-                    f"No spec found matching '{change_id_s}'.",
+                    f"No {_vocab.planning_noun()} found matching '{change_id_s}'.",
                     recovery_tools=["wf_list_plans", "wf_current_wave"],
                     recovery_usage="wf_list_plans()",
                 )
@@ -7144,7 +7150,7 @@ def wf_get_change_response(root: Path, change_id: str = "", wave_id: str = "") -
             diagnostics=[
                 _diagnostic(
                     "ambiguous_change_id",
-                    f"Multiple specs match '{change_id_s}': {candidates}. Use a more specific change ID.",
+                    f"Multiple {_vocab.planning_noun('docs')} match '{change_id_s}': {candidates}. Use a more specific change ID.",
                     recovery_tools=["wf_list_plans", "wf_current_wave"],
                     recovery_usage="wf_list_plans()",
                 )
@@ -8007,21 +8013,26 @@ def _mark_change_item_response(
     # and a fenced example item or a fenced `## ` line is not read.  Marking
     # rewrites only the mark character.
     lines = raw.split("\n")
+    visible = change_doc_checklist.comment_visible_lines(lines)
     candidates: list[tuple[int, re.Match[str], int]] = []
     all_labels: list[str] = []
     requested = item_label.strip().lower()
     for index in change_doc_checklist.section_line_indexes(
         raw, target_section, include_near_miss=True
     ):
-        match = change_doc_checklist.CHECKLIST_ITEM_RE.match(lines[index])
+        match = change_doc_checklist.CHECKLIST_ITEM_RE.match(visible[index])
         if match is None:
             continue
-        item_end = change_doc_checklist.item_block_end(lines, index)
+        item_end = change_doc_checklist.item_block_end(visible, index)
         label_parts = [match.group("text").strip()] + [
             change_doc_checklist.split_blockquote(continuation)[1].strip()
-            for continuation in lines[index + 1:item_end]
+            for continuation in visible[index + 1:item_end]
         ]
         full_label = " ".join(label_parts)
+        if lines[index:item_end] != visible[index:item_end]:
+            # Masking preserves source offsets. A reader types visible words
+            # separated by spaces regardless of the width of the HTML comment.
+            full_label = " ".join(full_label.split())
         all_labels.append(full_label)
         label = full_label.lower()
         if label == requested or label.startswith(requested + ":"):
@@ -8033,7 +8044,7 @@ def _mark_change_item_response(
             message = (
                 f"Expected exactly one {target_section} item matching `{item_label}`; found {len(candidates)}. "
                 "Do not choose arbitrarily. Read the admitted change and retry with the exact full label; "
-                "if the labels are identical, make them distinct in the spec before retrying."
+                f"if the labels are identical, make them distinct in the {_vocab.planning_noun()} before retrying."
             )
         else:
             message = (
@@ -8053,7 +8064,7 @@ def _mark_change_item_response(
     index, match, block_end = candidates[0]
     line = lines[index]
     mark_start, mark_end = match.span("mark")
-    text_end = match.end("text")
+    text_end = len(line.rstrip(" \t\r"))
     # 23042: a criterion whose continuation holds a fenced block keeps the
     # first-line form, because readers that blank fenced lines (the inline-note
     # lint) would end the item at the fence and miss a trailing status line.
@@ -8093,7 +8104,7 @@ def _mark_change_item_response(
             lines[index] = line
             match = change_doc_checklist.CHECKLIST_ITEM_RE.match(line)
             mark_start, mark_end = match.span("mark")
-            text_end = match.end("text")
+            text_end = len(line.rstrip(" \t\r"))
     block_fenced = block_end > index + 1 and any(
         change_doc_checklist.fenced_line_flags([raw_line.rstrip("\r") for raw_line in lines])[index + 1:block_end]
     )
@@ -9044,7 +9055,7 @@ def _insert_change_block_into_changes_section(text: str, change_id: str) -> str:
     block = f"{_vocab.MEMBER_ID_LABEL}: `{change_id}`\n{_vocab.MEMBER_STATUS_LABEL}: `planned`\n"
     # Wave 1zoju (1zogm repair F1): headings inside a closed fenced block are
     # examples, so neither the member heading nor the section end is read there.
-    lines = text.split("\n")
+    lines = change_doc_checklist.comment_visible_lines(text.split("\n"))
     fenced = change_doc_checklist.fenced_line_flags([line.rstrip("\r") for line in lines])
     offsets = [0]
     for line in lines[:-1]:
@@ -9110,7 +9121,7 @@ def wf_add_change_response(
         return _response("error", {"wave_id": wave_id, "change_id": change_id, "mode": mode_s}, diagnostics=[_refuse_if_archived(root, wave_id, "wave") or _diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
     change_matches = _resolve_change_doc_matches(root, change_id)
     if not change_matches:
-        return _response("error", {"wave_id": wave_id, "change_id": change_id, "mode": mode_s}, diagnostics=[_refuse_if_archived(root, change_id, "change") or _diagnostic("change_not_found", f"No spec found matching '{change_id}'.", recovery_tools=["wf_list_plans"], recovery_usage="wf_list_plans()")], next_tools=["wf_list_plans"], usage="wf_list_plans()")
+        return _response("error", {"wave_id": wave_id, "change_id": change_id, "mode": mode_s}, diagnostics=[_refuse_if_archived(root, change_id, "change") or _diagnostic("change_not_found", f"No {_vocab.planning_noun()} found matching '{change_id}'.", recovery_tools=["wf_list_plans"], recovery_usage="wf_list_plans()")], next_tools=["wf_list_plans"], usage="wf_list_plans()")
     if len(change_matches) > 1:
         return _response(
             "error",
@@ -9118,7 +9129,7 @@ def wf_add_change_response(
             diagnostics=[
                 _diagnostic(
                     "ambiguous_change_id",
-                    f"Multiple specs match '{change_id}'. Use a more specific ID.",
+                    f"Multiple {_vocab.planning_noun('docs')} match '{change_id}'. Use a more specific ID.",
                     recovery_tools=["wf_list_plans"],
                     recovery_usage="wf_list_plans()",
                 )
@@ -9226,7 +9237,7 @@ def wf_add_change_response(
                 diagnostics=[
                     _diagnostic(
                         "change_doc_unreadable",
-                        f"Could not read spec {_repo_rel(root, _readability_probe)}: "
+                        f"Could not read {_vocab.planning_noun()} {_repo_rel(root, _readability_probe)}: "
                         f"{_read_error_detail(exc)}. Nothing was moved or admitted.",
                         recovery_tools=["wf_get_change"],
                         recovery_usage=f"wf_get_change(change_id={canonical_change_id!r})",
@@ -9261,7 +9272,7 @@ def wf_add_change_response(
                     diagnostics=[
                         _diagnostic(
                             "change_relocation_failed",
-                            f"Failed to relocate spec to {_repo_rel(root, target_path)}: {exc}",
+                            f"Failed to relocate {_vocab.planning_noun()} to {_repo_rel(root, target_path)}: {exc}",
                             recovery_tools=["wf_get_change"],
                             recovery_usage=f"wf_get_change(change_id={canonical_change_id!r})",
                         )
@@ -9392,7 +9403,7 @@ def wf_remove_change_response(
                     diagnostics=[
                         _diagnostic(
                             "change_relocation_failed",
-                            f"Failed to move spec back to {_repo_rel(root, location['staged_path'])}: {exc}",
+                            f"Failed to move {_vocab.planning_noun()} back to {_repo_rel(root, location['staged_path'])}: {exc}",
                             recovery_tools=["wf_get_change"],
                             recovery_usage=f"wf_get_change(change_id={change_id!r})",
                         )
@@ -9579,7 +9590,7 @@ def _change_create_response(
         diagnostics.append(
             _diagnostic(
                 "already_exists",
-                f"Spec already exists at {result['path']}.",
+                f"{_vocab.planning_noun().capitalize()} already exists at {result['path']}.",
                 recovery_tools=["wf_get_change", "wf_validate_docs"],
                 recovery_usage=f"wf_get_change(change_id={result['id']!r})",
             )
@@ -11261,7 +11272,7 @@ def _validate_review_evidence_as_recorded(wave_md: Path, text: str | None = None
         text, read_error = _read_wave_record_text(Path(wave_md))
         if read_error is not None or text is None:
             text = ""
-    closed = re.search(r"(?mi)^Status:\s*closed\s*$", text) is not None
+    closed = wave_record_closed(text)
     if closed and "closed" in inspect.signature(validate_external_review_evidence).parameters:
         return validate_external_review_evidence(wave_md, closed=True)
     return validate_external_review_evidence(wave_md)
@@ -11831,6 +11842,21 @@ def _canonical_council_signoff_input(fn):
     return wrapped
 
 
+def _planning_description(fn):
+    """Resolve explicit planning nouns before the MCP tool captures its description."""
+    if fn.__doc__:
+        terms = {
+            "{planning_doc}": _vocab.planning_noun(),
+            "{planning_docs}": _vocab.planning_noun("docs"),
+            "{planning_article}": _vocab.planning_noun("article"),
+            "{container}": _vocab.tier_noun("container"),
+            "{container_article}": _vocab.tier_noun("container", article=True),
+        }
+        for marker, value in terms.items():
+            fn.__doc__ = fn.__doc__.replace(marker, value)
+    return fn
+
+
 def _council_named_description(fn):
     """Name the council protocol in a tool description by the vocabulary
     profile's ``COUNCIL_DISPLAY_NAME`` (wave 200ey, change 200ew). Applied
@@ -11955,7 +11981,7 @@ def wf_review_event_response(
         )
     # Change 230k6: a repair start, which is also how a terminal security finding is
     # reconsidered, never opens on a closed record; its ledger stays as written.
-    _status_match = _STATUS_PATTERN.search(wave_text_for_phase)
+    _status_match = wave_status_match(wave_text_for_phase)
     if (
         event == "finding"
         and run_kind == "repair_start"
@@ -12868,6 +12894,10 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
             _wave_record_unreadable_diagnostic(root, wave_md, wave_read_error)
         )
         return _prepare_envelope("error", {"wave_id": wave_id, "mode": mode_s}, next_tools=["wf_list_waves", "wf_validate_docs"], usage="wf_list_waves()")
+    from wave_lint_lib.wave_validators import status_drift_exempt
+    if _mutating and status_drift_exempt(text):
+        diagnostics.append(_diagnostic("wave_closed", "Prepare preserves this closed record and its review history."))
+        return _prepare_envelope("error", {"wave_id": wave_id, "mode": mode_s})
     change_ids, rejected_ids = _partition_member_ids(text)
     # Wave 1zxo0 (1zxns): a member line whose id fails the allow-list blocks
     # readiness (the "unstable" lint rule fails `lint_gate` too); no path is
@@ -12955,9 +12985,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         # admitted document is inserted here, before lint and before the review-policy
         # receipt is computed, so the receipt is taken from the fixed text.
         # A closed or completed record is history: prepare never rewrites it.
-        from wave_lint_lib.wave_validators import status_drift_exempt
-        if not status_drift_exempt(text):
-            headings_fixed.extend(_prepare_fix_heading_spacing(root, wave_md, change_ids))
+        headings_fixed.extend(_prepare_fix_heading_spacing(root, wave_md, change_ids))
         # Gardening may update verification metadata in the inspected packet.
         text, wave_read_error = _read_wave_record_text(wave_md)
         if text is None:
@@ -13109,7 +13137,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
                 _diagnostic(
                     "prepare_council_verdict_missing",
                     f"Technical checks passed. Ready to run prepare-phase {_vocab.COUNCIL_DISPLAY_NAME} review. "
-                    "Run each council seat in isolation against the admitted specs, "
+                    f"Run each council seat in isolation against the admitted {_vocab.planning_noun('docs')}, "
                     "record the verdict in ## Review Checkpoints with a structured 'prepare-council' line, "
                     f"then call wf_prepare_wave(mode={mode_s!r}) again to complete this step.",
                     recovery_tools=["wf_prepare_wave"],
@@ -13196,7 +13224,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         return _prepare_envelope("error", error_data, next_tools=next_tools_list, usage=usage_hint)
     transitioned_to_active = False
     if mode_s == "create":
-        status_match = _STATUS_PATTERN.search(text)
+        status_match = wave_status_match(text)
         if status_match and status_match.group(1) != "active":
             text = text[:status_match.start(1)] + "active" + text[status_match.end(1):]
             updated = True
@@ -13278,7 +13306,7 @@ def wf_pause_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
             root, wave_md, wave_read_error,
             data={"wave_id": wave_id, "mode": mode_s},
         )
-    status_match = _STATUS_PATTERN.search(wave_text)
+    status_match = wave_status_match(wave_text)
     current_status = status_match.group(1) if status_match else ""
     if current_status in OPEN_CONTAINER_STATUSES:
         status_transition = {"from": current_status, "to": "paused"}
@@ -13942,7 +13970,7 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
             root, wave_md, wave_read_error,
             data={"wave_id": wave_id, "mode": mode_s},
         )
-    status_match = _STATUS_PATTERN.search(wave_text)
+    status_match = wave_status_match(wave_text)
     current_status = (status_match.group(1) if status_match else "").lower()
 
     if current_status == "implementing":
@@ -15056,13 +15084,13 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
                 return f"`{value}`" if value else "no readable status"
 
             drift_list = "; ".join(
-                f"`{change_id}` is {_drift_value(wave_status)} in the wave record "
-                f"but {_drift_value(doc_status)} in its spec"
+                f"`{change_id}` is {_drift_value(wave_status)} in the {_vocab.tier_noun('container')} record "
+                f"but {_drift_value(doc_status)} in its {_vocab.planning_noun()}"
                 for change_id, wave_status, doc_status in drifted
             )
             diagnostics.append(_diagnostic(
                 "change_status_drift",
-                f"The wave record and specs disagree for: {drift_list}. "
+                f"The {_vocab.tier_noun('container')} record and {_vocab.planning_noun('docs')} disagree for: {drift_list}. "
                 "Update whichever side is wrong, then close again.",
                 recovery_tools=["wf_get_change", "wf_current_wave"],
                 recovery_usage=f"wf_get_change(change_id={drifted[0][0]!r})",
@@ -15187,7 +15215,7 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     close_optimize: Optional[dict[str, Any]] = None
     memory_summary: dict[str, Any] = {}
     if mode_s == "create":
-        status_match = _STATUS_PATTERN.search(text)
+        status_match = wave_status_match(text)
         _already_closed = bool(status_match and status_match.group(1) == "closed")
         if status_match and status_match.group(1) != "closed":
             import time
@@ -15335,6 +15363,7 @@ def _close_change_block(lines: list[str], change_id: str) -> Optional[tuple[int,
     list: from its id line to the next id line or heading."""
     from wave_lint_lib import constants as lint_constants
 
+    lines = change_doc_checklist.comment_visible_lines(lines)
     start, end = _close_change_member_section(lines)
     block_start: Optional[int] = None
     for index in range(start, end):
@@ -15363,9 +15392,10 @@ def _close_change_rewrite_block(text: str, change_id: str, new_status: str, prev
     if block is None:
         return None
     start, end = block
+    visible = change_doc_checklist.comment_visible_lines(lines)
     status_indexes = [
         index for index in range(start + 1, end)
-        if lint_constants.CHANGE_STATUS_LABEL_LINE_PATTERN.match(lines[index].strip())
+        if lint_constants.CHANGE_STATUS_LABEL_LINE_PATTERN.match(visible[index].strip())
     ]
     if len(status_indexes) != 1:
         return None
@@ -15381,7 +15411,7 @@ def _close_change_rewrite_block(text: str, change_id: str, new_status: str, prev
     previous_line = indent + _vocab.PREVIOUS_STATUS_LABEL + f": `{previous}`" + ending
     rewritten: list[str] = []
     for index in range(len(lines)):
-        if start < index < end and re.match(rf"^{_vocab.PREVIOUS_STATUS_LABEL_RE}:", lines[index].strip()):
+        if start < index < end and re.match(rf"^{_vocab.PREVIOUS_STATUS_LABEL_RE}:", visible[index].strip()):
             continue  # replaced by the line written before the status line
         if index == status_index:
             rewritten.append(previous_line)
@@ -15608,7 +15638,7 @@ def wf_close_change_response(
         )
 
     # Gate: the wave is open.
-    status_m = _STATUS_PATTERN.search(text)
+    status_m = wave_status_match(text)
     wave_status = status_m.group(1).strip().lower() if status_m else ""
     if wave_status not in OPEN_CONTAINER_STATUSES:
         diagnostics.append(_diagnostic(
@@ -15641,7 +15671,7 @@ def wf_close_change_response(
     if doc_path is not None and not os.path.lexists(doc_path):
         diagnostics.append(_diagnostic(
             "change_doc_missing",
-            f"No spec at {_repo_rel(root, doc_path)}.",
+            f"No {_vocab.planning_noun()} at {_repo_rel(root, doc_path)}.",
             recovery_tools=["wf_get_change", "wf_current_wave"],
             recovery_usage=f"wf_get_change(change_id={change_id!r})",
         ))
@@ -15840,7 +15870,7 @@ def wf_close_change_response(
             })
             advisories.append(_diagnostic(
                 "dependencies_not_in_wave_record",
-                f"`{other.record_id}` declares a dependency on `{change_id}` only in its spec; "
+                f"`{other.record_id}` declares a dependency on `{change_id}` only in its {_vocab.planning_noun()}; "
                 f"dependencies are read from the {_vocab.RECORD_FILENAME} `Depends On:` line, so it was not activated.",
                 recovery_tools=["wf_current_wave"], recovery_usage="wf_current_wave()", advisory=True,
             ))
@@ -15959,7 +15989,7 @@ def wf_reopen_wave_response(root: Path, wave_id: str) -> dict[str, Any]:
         return _wave_record_unreadable_response(
             root, wave_md, wave_read_error, data={"wave_id": wave_id}
         )
-    status_match = _STATUS_PATTERN.search(text)
+    status_match = wave_status_match(text)
     current_status = status_match.group(1).lower() if status_match else ""
     if current_status not in ("closed", "paused"):
         return _response("error", {"wave_id": wave_id, "current_status": current_status}, diagnostics=[_diagnostic("wave_not_closed", f"Wave '{wave_id}' has status '{current_status}' — only closed or paused waves can be reopened.", recovery_tools=["wf_current_wave"], recovery_usage="wf_current_wave()")], next_tools=["wf_current_wave"], usage="wf_current_wave()")
@@ -24833,8 +24863,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return wf_list_waves_response(get_handler().root, limit=limit, cache=get_handler().cache)
 
     @mcp.tool(annotations=_READONLY_TOOL)
+    @_planning_description
     def wf_list_plans(limit: int = 50, **kwargs: Any) -> dict[str, Any]:
-        """List pending specs in docs/plans that have not yet been admitted to a wave.
+        """List pending {planning_docs} in docs/plans that have not yet been admitted to {container_article}.
 
         Use this to answer "what changes are planned but not in a wave?" before reaching for ls or grep.
 
@@ -24847,13 +24878,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return wf_list_plans_response(get_handler().root, limit=limit, cache=get_handler().cache)
 
     @mcp.tool(annotations=_READONLY_TOOL)
+    @_planning_description
     def wf_get_change(change_id: str = "", wave_id: str = "", **kwargs: Any) -> dict[str, Any]:
-        """Return a spec by ID, or all specs for a wave in bulk.
+        """Return {planning_article} by ID, or all {planning_docs} for {container_article} in bulk.
 
-        **Single lookup (default):** provide ``change_id`` to return one spec.
+        **Single lookup (default):** provide ``change_id`` to return one {planning_doc}.
 
         **Bulk mode:** provide ``wave_id`` without ``change_id`` to return all admitted
-        specs for that wave in ``data.changes``, each with ``id``, ``status``,
+        {planning_docs} for that {container} in ``data.changes``, each with ``id``, ``status``,
         ``path``, and ``content``. Content is capped at 300 lines per doc.
 
         Args:
@@ -24872,7 +24904,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         """Return the full rendered prompt for a Wave Framework shortcut phrase.
 
         Args:
-            shortcut: Shortcut phrase, e.g. "Prepare wave" or "Plan spec".
+            shortcut: An exact shortcut or alias from the repository prompt catalog.
         """
         bad = _ensure_no_extra_args("wf_get_prompt", kwargs)
         if bad is not None:
@@ -25821,6 +25853,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_DESTRUCTIVE_TOOL)
     @_core_upgrade_preview
+    @_planning_description
     def wf_close_wave(wave_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
         """Dry-run or close a wave after validation passes.
 
@@ -25848,7 +25881,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         Record folder extras: every response for a found record, blocked or
         not, carries an advisory ``record_extras_present`` when the record's
         folder holds entries other than the record, its ledger and its admitted
-        specs, listing sizes and citation state (exact forward-slash path
+        {planning_docs}, listing sizes and citation state (exact forward-slash path
         match). It never blocks, deletes or changes the close result.
 
         Repair-independence audit: while the target wave's status
@@ -25900,14 +25933,15 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             )
 
     @mcp.tool(annotations=_DESTRUCTIVE_TOOL)
+    @_planning_description
     def wf_close_change(wave_id: str, change_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
         """Close ONE admitted change inside an OPEN wave and activate its dependents.
 
         Gate (every failing gate is reported, in dry_run and create): the wave
         is OPEN (active or implementing); the change is admitted to it; its
-        spec exists and is readable; its status is closable (read
+        {planning_doc} exists and is readable; its status is closable (read
         from the docs-lint constants: ready, active, review or implemented)
-        and agrees between the wave record and the spec; it has no
+        and agrees between the {container} record and the {planning_doc}; it has no
         silent `[ ]` AC or task (the close-wave checkbox gate, this change
         only); every dependency on its wave-record `Depends On:` line is done
         (terminal or implemented); the review authority Review and Close read
@@ -25915,7 +25949,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         refuses with `review_ledger_unreadable`; a legacy prose record has
         none) and names no unsettled security candidate.
 
-        Writes (create): `complete` into the spec's status lines
+        Writes (create): `complete` into the {planning_doc}'s status lines
         and the wave-record block, with the previous status recorded in the
         wave record only. Each other change whose wave-record `Depends On:`
         names the closed change, is `planned` or `blocked`, and whose
@@ -25998,8 +26032,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return _change_create_response(get_handler().root, kind, slug, mode="create", cache=get_handler().cache)
 
     @mcp.tool(annotations=_MUTATING_TOOL)
+    @_planning_description
     def wf_new_feature(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Retired: the feat kind is no longer minted for new specs.
+        """Retired: the feat kind is no longer minted for new {planning_docs}.
 
         Always returns a change_kind_retired error and writes nothing; existing feat ids
         stay valid. Use wf_new_enhancement instead, and plan a large feature as several
@@ -26014,8 +26049,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return _new_change_response("feat", slug)
 
     @mcp.tool(annotations=_MUTATING_TOOL)
+    @_planning_description
     def wf_new_bug(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded bug spec (kind=bug). Returns the ID and path.
+        """Create a scaffolded bug {planning_doc} (kind=bug). Returns the ID and path.
 
         Use for: fixing a defect in existing behavior (something that worked and is now broken, or never worked as intended).
 
@@ -26028,8 +26064,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return _new_change_response("bug", slug)
 
     @mcp.tool(annotations=_MUTATING_TOOL)
+    @_planning_description
     def wf_new_enhancement(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded enhancement spec (kind=enh). Returns the ID and path.
+        """Create a scaffolded enhancement {planning_doc} (kind=enh). Returns the ID and path.
 
         Use for: improving or extending existing functionality (making something that works better or more capable).
 
@@ -26042,8 +26079,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return _new_change_response("enh", slug)
 
     @mcp.tool(annotations=_MUTATING_TOOL)
+    @_planning_description
     def wf_new_refactor(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded refactor spec (kind=ref). Returns the ID and path.
+        """Create a scaffolded refactor {planning_doc} (kind=ref). Returns the ID and path.
 
         Use for: code structure changes with no user-visible behavior change (rename, extract, reorganize).
 
@@ -26056,8 +26094,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return _new_change_response("ref", slug)
 
     @mcp.tool(annotations=_MUTATING_TOOL)
+    @_planning_description
     def wf_new_change(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded general spec (kind=change). Returns the ID and path.
+        """Create a scaffolded general {planning_doc} (kind=change). Returns the ID and path.
 
         Use for: changes that don't fit a more specific kind. Prefer enh, bug, ref, doc, debt, task, maint, or ops first.
 
@@ -26070,8 +26109,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return _new_change_response("change", slug)
 
     @mcp.tool(annotations=_MUTATING_TOOL)
+    @_planning_description
     def wf_new_documentation(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded documentation spec (kind=doc). Returns the ID and path.
+        """Create a scaffolded documentation {planning_doc} (kind=doc). Returns the ID and path.
 
         Use for: docs-only changes — new or updated docs, behavior contracts, seeds, or prompts with no code changes.
 
@@ -26084,8 +26124,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return _new_change_response("doc", slug)
 
     @mcp.tool(annotations=_MUTATING_TOOL)
+    @_planning_description
     def wf_new_tech_debt(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded technical debt spec (kind=debt). Returns the ID and path.
+        """Create a scaffolded technical debt {planning_doc} (kind=debt). Returns the ID and path.
 
         Use for: cleanup of known technical debt — removing workarounds, paying down accumulated shortcuts.
 
@@ -26098,8 +26139,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return _new_change_response("debt", slug)
 
     @mcp.tool(annotations=_MUTATING_TOOL)
+    @_planning_description
     def wf_new_task(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded task spec (kind=task). Returns the ID and path.
+        """Create a scaffolded task {planning_doc} (kind=task). Returns the ID and path.
 
         Use for: one-off tasks with no ongoing code artifact (e.g. fixture refresh, data migration, one-time audit).
 
@@ -26112,8 +26154,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return _new_change_response("task", slug)
 
     @mcp.tool(annotations=_MUTATING_TOOL)
+    @_planning_description
     def wf_new_maintenance(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded maintenance spec (kind=maint). Returns the ID and path.
+        """Create a scaffolded maintenance {planning_doc} (kind=maint). Returns the ID and path.
 
         Use for: routine upkeep with no new behavior — rotating generated surfaces, version bumps, dependency updates.
 
@@ -26126,8 +26169,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return _new_change_response("maint", slug)
 
     @mcp.tool(annotations=_MUTATING_TOOL)
+    @_planning_description
     def wf_new_operations(slug: str, **kwargs: Any) -> dict[str, Any]:
-        """Create a scaffolded operations spec (kind=ops). Returns the ID and path.
+        """Create a scaffolded operations {planning_doc} (kind=ops). Returns the ID and path.
 
         Use for: operational or process changes — release checklists, runbooks, deployment procedures.
 
@@ -26796,6 +26840,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         )
 
     @mcp.tool(annotations=_MUTATING_TOOL)
+    @_planning_description
     def memory_propose(wave_id: str = "", mode: str = "dry_run",
                             limit: int = MEMORY_PROPOSE_CAP,
                             source_events: Optional[list[str]] = None, **kwargs: Any) -> dict[str, Any]:
@@ -26803,7 +26848,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
         Fills the memory corpus from work a wave already did instead of waiting
         for hand-authored records. Two local, read-only sources: each admitted
-        spec's ## Decision Log (-> `decision` candidates) and the canonical
+        {planning_doc}'s ## Decision Log (-> `decision` candidates) and the canonical
         events.jsonl repaired real-defect findings (-> `failed_attempt`, or
         `fragile_file` for a file repaired more than once in the wave). No raw
         transcripts. CONSERVATIVE: only durable-shaped signals with a concrete
@@ -28014,7 +28059,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     @mcp.resource(
         "wavefoundry://change/{change_id}",
         name="change_doc",
-        description="Read a spec by ID or prefix. Returns the raw markdown content.",
+        description=f"Read {_vocab.planning_noun('article')} by ID or prefix. Returns the raw markdown content.",
         mime_type="text/markdown",
     )
     @_resource_unavailable_on_unreadable
@@ -28023,12 +28068,12 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         root = get_handler().root
         matches = _resolve_change_doc_matches(root, change_id)
         if not matches:
-            return f"# Not Found\n\nNo spec found matching `{change_id}`. Use `wf_get_change(change_id=...)` for structured lookup.\n"
+            return f"# Not Found\n\nNo {_vocab.planning_noun()} found matching `{change_id}`. Use `wf_get_change(change_id=...)` for structured lookup.\n"
         if len(matches) > 1:
             lines = [
                 "# Ambiguous Change",
                 "",
-                f"Multiple specs match `{change_id}`. Use `wf_get_change(change_id=...)` for structured lookup.",
+                f"Multiple {_vocab.planning_noun('docs')} match `{change_id}`. Use `wf_get_change(change_id=...)` for structured lookup.",
                 "",
             ]
             for match in matches:

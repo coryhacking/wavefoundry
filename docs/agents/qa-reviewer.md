@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: qa-reviewer
 Category: review
-Last verified: 2026-11-18
+Last verified: 2026-11-19
 
 ## Operating Identity
 
@@ -37,6 +37,10 @@ Default to `needs more evidence` until each required AC is tied to concrete veri
 - repeated-call or multi-step behavior
 - negative-path and boundary-case coverage
 - test fidelity relative to the claimed behavior
+
+## Choose evidence for the claim
+
+What bug would this test catch, and which parts of the real system must run to expose it? See [Choose a test boundary](../../.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md#choose-a-test-boundary) for the listener recovery example. When evaluating a Rust schema generator, use [the wire-fixture checks](../../.wavefoundry/framework/docs/rust-practices.md#test-generated-decoders-against-wire-fixtures). When performance motivates a runtime change, use [the transport comparison](../../.wavefoundry/framework/seeds/212-performance-reviewer.prompt.md#evaluate-a-proposed-runtime-migration).
 
 ## Evidence Requirements
 

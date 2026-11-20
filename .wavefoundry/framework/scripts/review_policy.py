@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+import change_doc_checklist
 from gardener_metadata import _fenced_line_flags, canonical_review_policy_body
 import gardener_metadata
 import record_paths  # record roots (wave 1y0gz)
@@ -25,6 +26,7 @@ import vocabulary_profile  # lifecycle prompt names (wave 1zyb4)
 # zipimport ``__file__`` lies inside the archive and has no filesystem bytes.
 _NORMALIZER_SIGNATURE = hashlib.sha256(
     gardener_metadata.__loader__.get_data(gardener_metadata.__file__)
+    + change_doc_checklist.__loader__.get_data(change_doc_checklist.__file__)
 ).hexdigest()
 _REVIEW_CONTEXT_MAX_DOCUMENTS = 128
 _REVIEW_CONTEXT_MAX_SECTIONS = 512
@@ -45,12 +47,13 @@ def build_review_context(changes: Mapping[str, bytes | str]) -> dict[str, Any]:
     for change_id, body in sorted(changes.items()):
         raw = body.encode("utf-8") if isinstance(body, str) else body
         lines = normalized_review_text(raw).splitlines(keepends=True)
-        flags = _fenced_line_flags(lines)
+        visible = change_doc_checklist.comment_visible_lines(lines, tracking_fences=True)
+        flags = _fenced_line_flags(visible)
         starts = [(0, "Preamble", "preamble")]
         seen = set()
         ambiguous = False
         fence = None
-        for index, line in enumerate(lines):
+        for index, line in enumerate(visible):
             fence_match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line.rstrip("\r\n"))
             if fence_match:
                 marker = fence_match[1]
@@ -169,7 +172,8 @@ REVIEW_POLICY_SCHEMA_VERSION = 1
 # is whether the ledger can EXPLAIN why. One re-Prepare per readied-or-open wave;
 # closed waves are untouched, because receipt-chain validation re-derives ids from
 # the fields stored on each record.
-REVIEW_POLICY_EVALUATOR_VERSION = 7
+# 7 -> 8: comment-aware heading boundaries change review scope.
+REVIEW_POLICY_EVALUATOR_VERSION = 8
 REVIEW_POLICY_RECEIPT_RECORD_TYPE = "review_policy_receipt"
 REVIEW_POLICY_REPREPARE_MARKER = "review-policy-reprepare-required"
 GENESIS_RECEIPT_PARENT = "genesis"
@@ -729,7 +733,7 @@ def targeted_default_adoption_allowed(
 def extract_requested_review_lanes(wave_text: str) -> tuple[str, ...]:
     match = re.search(
         r"(?mi)^-\s*Requested review lanes\s*:\s*(?P<value>[^\n]*)$",
-        wave_text,
+        change_doc_checklist.comment_visible_text(wave_text),
     )
     if match is None:
         return ()
@@ -812,6 +816,10 @@ _WHITESPACE_RE = re.compile(r"\s")
 _SECTION_HEADING_RE = re.compile(r"^##[ \t]+")
 
 
+def _serialization_lines(text: str) -> list[str]:
+    return change_doc_checklist.comment_visible_lines(text.split("\n"), tracking_fences=True)
+
+
 def _serialization_points_body(change_text: str) -> str | None:
     """Return the one real `## Serialization Points` body, ignoring fences.
 
@@ -827,7 +835,7 @@ def _serialization_points_body(change_text: str) -> str | None:
     illustrate-the-form case is the common one rather than the exotic one.
     """
 
-    lines = change_text.split("\n")
+    lines = _serialization_lines(change_text)
     fenced = _fenced_line_flags(lines)
     start = None
     for index, line in enumerate(lines):
@@ -1142,11 +1150,9 @@ def select_required_review_lanes(
             # Policy selection and receipt hashing must consume the same
             # canonical carrier.  Otherwise a Progress Log update can change
             # the fallback roster while leaving the receipt digest unchanged.
-            undeclared.append(
-                canonical_review_policy_body(text_s.encode("utf-8")).decode(
-                    "utf-8", errors="replace"
-                ).lower()
-            )
+            normalized = normalized_review_text(text_s)
+            visible = change_doc_checklist.comment_visible_lines(normalized.split("\n"), tracking_fences=True)
+            undeclared.append("\n".join(visible).lower())
     # Adoption is a property of each DOCUMENT, never of the wave. Suppressing
     # prose scoring wave-wide as soon as any sibling declared targets was the
     # reported defect at wave scope: measured on a mixed wave it turned
@@ -1343,7 +1349,7 @@ def delivery_council_required(
 def extract_full_council_triggers(texts: Iterable[str]) -> tuple[str, ...]:
     """Map admitted/delivered prose to the canonical full-Council fields."""
 
-    corpus = "\n".join(str(text).lower() for text in texts)
+    corpus = "\n".join(change_doc_checklist.comment_visible_text(str(text)).lower() for text in texts)
     selected: list[str] = []
     for field, tokens in FULL_COUNCIL_TRIGGER_TOKENS:
         explicit = bool(

@@ -161,6 +161,11 @@ for job in jobs:
     action = job["action"]
     if action == "render":
         out.append(render(root))
+    elif action == "route":
+        import server_impl
+        path = server_impl._profile_prompt_path(root, job["shortcut"])
+        out.append({"path": str(path.relative_to(root)) if path else None,
+                    "body": server_impl.get_prompt(root, job["shortcut"])})
     elif action == "migrate":
         try:
             result = ras.migrate_profile_prompt_names(root)
@@ -1251,7 +1256,7 @@ class RetiredNameScanAliasTests(unittest.TestCase):
                  for key, spec in vocabulary_profile.DEFAULT_PROMPT_NAMES.items()}
         names["prepare-wave"] = {"slug": "prepare-batch", "shortcut": "Prepare batch",
                                  "aliases": ["Prepare wave", "Ready wave"]}
-        with mock.patch.object(vocabulary_profile, "PROMPT_NAMES", names):
+        with reconcile_scan.vocabulary_profile.using_prompt_names(names):
             patterns, guru = reconcile_scan._profile_prompt_name_tables()
         tokens = {token for _pattern, token, _suggestion in patterns}
         self.assertNotIn("Prepare wave", tokens)
@@ -1269,7 +1274,7 @@ class RetiredNameScanAliasTests(unittest.TestCase):
         names = {key: dict(spec, aliases=list(spec["aliases"]))
                  for key, spec in vocabulary_profile.DEFAULT_PROMPT_NAMES.items()}
         names["prepare-wave"] = {"slug": "prepare-batch", "shortcut": "Prepare batch", "aliases": ["Gather items"]}
-        with mock.patch.object(vocabulary_profile, "PROMPT_NAMES", names):
+        with reconcile_scan.vocabulary_profile.using_prompt_names(names):
             patterns, guru = reconcile_scan._profile_prompt_name_tables()
         self.assertIn(("Ready wave", "Prepare batch"), {(token, suggestion) for _p, token, suggestion in patterns})
         self.assertIn(("Ready wave", "Prepare batch"), {(token, suggestion) for _p, token, suggestion in guru})
@@ -1622,6 +1627,123 @@ class DefaultSpecRenameMigrationTests(unittest.TestCase):
         apply_profile(scripts, {"description": "Reuses an earlier default slug.",
                                 "modules": {"vocabulary_profile": {"PROMPT_NAME_OVERRIDES": overrides}}})
         return scripts
+
+    def _fork_scripts(self, name, **values):
+        return _scripts_tree(self.work / name, {
+            "description": "Repository-scoped planning vocabulary",
+            "modules": {"vocabulary_profile": values},
+        })
+
+    def test_custom_vocabulary_preserves_distinct_registered_roots_in_one_process(self):
+        scripts = self._fork_scripts("noun-scripts", ITEM_NAME="Ticket", CONTAINER_NAME="Batch")
+        first, second = self._copy("keep-a"), self._copy("keep-b")
+        before = _earlier_files(first)
+        # A registered custom slug and shortcut, without any distribution override.
+        manifest = _read_manifest(second)
+        manifest["prompt_names"] = {"plan-change": "design-ticket"}
+        for entry in manifest["public_prompt_surface"]:
+            if entry.get("doc") == _prompt_pair("plan-change")[0]:
+                entry.update(doc=_prompt_pair("design-ticket")[0], shortcut="Design this ticket")
+        for old, new in zip(_prompt_pair("plan-change"), _prompt_pair("design-ticket")):
+            (second / old).rename(second / new)
+        _write_manifest(second, manifest)
+        jobs = []
+        for root, shortcut in [(first, "Plan change"), (second, "Design this ticket"), (first, "Plan change")]:
+            jobs.extend([dict(action="render", root=str(root)), dict(action="route", root=str(root), shortcut=shortcut)])
+        results, stderr = _drive(scripts, jobs)
+        for i, (root, slug) in enumerate([(first, "plan-change"), (second, "design-ticket"), (first, "plan-change")]):
+            self.assertNotIn("error", results[2*i], results[2*i])
+            route = results[2*i+1]
+            self.assertEqual(route["path"], _prompt_pair(slug)[0])
+            self.assertEqual(route["body"], (root / route["path"]).read_text())
+            for folder in SKILL_FOLDERS:
+                self.assertIn(route["path"], (root / folder / f"wf-{slug}/SKILL.md").read_text())
+        self.assertEqual(results[4]["written"], [])
+        self.assertEqual(before, _earlier_files(first))
+        self.assertIn("Kept registered planning prompt names", stderr)
+        self.assertIn("PROMPT_NAME_OVERRIDES", stderr)
+
+    def test_reconciliation_preserves_the_registered_shortcut(self):
+        scripts = self._fork_scripts("scan-custom", ITEM_NAME="Ticket")
+        root = self._copy("scan-registered")
+        doc = root / "docs/references/names.md"
+        doc.parent.mkdir(parents=True, exist_ok=True)
+        doc.write_text(_authored("Names") + "\nRun **Plan change**. Retire **Plan spec**.\n")
+        (findings,), _ = _drive(scripts, [dict(action="scan", root=str(root))])
+        matches = [(row[3], row[4]) for row in findings if row[0] == "docs/references/names.md"]
+        self.assertEqual(matches, [("**Plan spec**", "Plan change")])
+
+    def test_container_only_keeps_migrated_names_and_partial_override(self):
+        scripts = self._fork_scripts("container-only", CONTAINER_NAME="Batch",
+                                     PROMPT_NAME_OVERRIDES={"plan-change": {"shortcut": "Draft work",
+                                                                           "aliases": ["Outline work"]}})
+        root = self._copy("keep-migrated")
+        _drive(self.default, [dict(action="render", root=str(root))])
+        before = (root / _prompt_pair("plan-spec")[0]).read_bytes()
+        result, _ = _drive(scripts, [dict(action="render", root=str(root)),
+                                     dict(action="route", root=str(root), shortcut="Outline work")])
+        self.assertNotIn("error", result[0], result[0])
+        self.assertEqual(result[1]["path"], _prompt_pair("plan-spec")[0])
+        self.assertEqual(before, (root / _prompt_pair("plan-spec")[0]).read_bytes())
+        self.assertIn({"doc": _prompt_pair("plan-spec")[0], "shortcut": "Draft work"},
+                      [{k: e[k] for k in ("doc", "shortcut")} for e in _read_manifest(root)["public_prompt_surface"]])
+
+    def test_custom_unregistered_names_derive_from_nouns_and_explicit_override(self):
+        scripts = self._fork_scripts("fresh-nouns", ITEM_NAME="Ticket", CONTAINER_NAME="Batch",
+                                     PROMPT_NAME_OVERRIDES={"plan-change": {"slug":"draft-work", "shortcut":"Draft work"}})
+        root = self._copy("fresh-nouns-target")
+        # Five unregistered copied prompt templates and a new, empty manifest.
+        manifest = _read_manifest(root)
+        manifest["public_prompt_surface"] = []
+        for key in vocabulary_profile.EARLIER_DEFAULT_PROMPT_SLUGS:
+            for old, new in zip(_prompt_pair(key), _prompt_pair(_shipped_slug(key))):
+                if (root / old).exists():
+                    (root / old).rename(root / new)
+        _write_manifest(root, manifest)
+        names = {"plan-change": "draft-work", "implement-change": "implement-ticket-doc",
+                 "close-change": "close-ticket-doc", "add-change-to-wave": "add-ticket-doc-to-batch",
+                 "remove-change-from-wave": "remove-ticket-doc-from-batch"}
+        jobs = [dict(action="render", root=str(root))] + [
+            dict(action="route", root=str(root), shortcut=slug.replace("-", " ")) for slug in names.values()]
+        results, _ = _drive(scripts, jobs)
+        self.assertNotIn("error", results[0], results[0])
+        self.assertEqual(_read_manifest(root)["prompt_names"], names)
+        for result, slug in zip(results[1:], names.values()):
+            self.assertEqual(result["path"], _prompt_pair(slug)[0])
+            self.assertTrue(result["body"])
+
+    def test_custom_explicit_slug_moves_only_that_registration_and_refuses_a_conflict(self):
+        scripts = self._fork_scripts("explicit-registered", ITEM_NAME="Ticket",
+                                     PROMPT_NAME_OVERRIDES={"plan-change": {"slug": "draft-ticket"}})
+        root = self._copy("explicit-registered-target")
+        old, dest = _prompt_pair("plan-change"), _prompt_pair("draft-ticket")
+        before = _earlier_files(root)
+        (root / dest[0]).write_text("Operator-authored document", encoding="utf-8")
+        blocked, _ = _drive(scripts, [dict(action="render", root=str(root))])
+        self.assertIn("prompt name migration blocked", blocked[0]["error"])
+        self.assertEqual(_earlier_files(root), before)
+        self.assertEqual((root / dest[0]).read_text(), "Operator-authored document")
+        (root / dest[0]).unlink()
+        results, _ = _drive(scripts, [dict(action="render", root=str(root)),
+                                     dict(action="route", root=str(root), shortcut="Plan change"),
+                                     dict(action="render", root=str(root))])
+        self.assertNotIn("error", results[0], results[0])
+        self.assertEqual(results[1]["path"], dest[0])
+        for source, target in zip(old, dest):
+            self.assertFalse((root / source).exists())
+            self.assertEqual((root / target).read_bytes(), before[source])
+        for rel, content in before.items():
+            if rel not in old:
+                self.assertEqual((root / rel).read_bytes(), content)
+        self.assertEqual(results[2], {"written": []})
+
+    def test_invalid_fresh_derived_names_refuse_before_render(self):
+        root = build_fresh_target(self.work / "invalid-fresh-target")
+        before = _tree_digest(root)
+        # Distribution profile validation runs before the renderer receives a root.
+        with self.assertRaisesRegex(ValueError, r"PROMPT_NAME_OVERRIDES\['plan-change'\] slug"):
+            self._fork_scripts("invalid-fresh-names", ITEM_NAME="Issue/Request")
+        self.assertEqual(_tree_digest(root), before)
 
     def test_a_profile_keeps_its_names(self) -> None:
         """Under the prompt-names profile a render of an applied tree moves or

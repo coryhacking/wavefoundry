@@ -518,6 +518,18 @@ class LifecycleGoldenTests(unittest.TestCase):
                     if isinstance(policy, dict):
                         self.assertEqual(policy.pop('delivery_lanes'), policy['required_lanes'])
                         self.assertEqual(policy.pop('delivery_only_lanes'), [])
+                        # The section parser changed in 23tcx. Only evaluator version
+                        # and derived identity differ for these comment-free plans.
+                        previous = old_response["data"]["review_policy"]
+                        receipt = policy["receipt"]
+                        self.assertEqual(previous["receipt"]["evaluator_version"], 7)
+                        self.assertEqual(receipt["evaluator_version"], 8)
+                        self.assertEqual(policy["policy_input_digest"], receipt["policy_input_digest"])
+                        for field in ("policy_input_digest", "receipt_id"):
+                            self.assertNotEqual(receipt[field], previous["receipt"][field])
+                            receipt[field] = previous["receipt"][field]
+                        receipt["evaluator_version"] = previous["receipt"]["evaluator_version"]
+                        policy["policy_input_digest"] = previous["policy_input_digest"]
                     response['diagnostics'] = [
                         diagnostic for diagnostic in response['diagnostics']
                         if diagnostic.get('code') != 'wave_objective_unpopulated'

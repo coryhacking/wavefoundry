@@ -6,6 +6,16 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.45.0] - 2026-11-19
+
+### Changed
+
+- Prepare and other section readers ignore headings and targets hidden in HTML comments. Readied and open declared waves with an older policy receipt need one re-Prepare when upgrading to evaluator 8.
+- Lifecycle messages use the configured planning noun. Custom distributions keep their registered prompt names on render. New registrations use profile defaults or explicit overrides.
+- Upgrade summaries identify open records whose delivery approvals lack criterion comparison evidence. If you later defer a criterion or change its rationale, refresh the affected signoff.
+- The dashboard displays numbered requirements individually, summarizes progress in four compact rows and uses the registered planning shortcut in the lifecycle diagram.
+- Builder and QA guidance asks which production behavior must run to expose the bug. Rust guidance covers independent wire fixtures for generated decoders and workload measurements before changing async runtimes.
+
 ## [1.44.1] - 2026-11-19
 
 ### Changed

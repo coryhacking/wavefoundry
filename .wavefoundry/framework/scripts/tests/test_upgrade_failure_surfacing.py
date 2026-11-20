@@ -524,6 +524,180 @@ class UpgradeOutputTests(unittest.TestCase):
         self.assertIn("wf_upgrade(phase='resume_after_gate')", response['next_step'])
 
 
+class DeliveryCoverageTests(unittest.TestCase):
+    def setUp(self):
+        # Use real records written by the registered review tools.
+        from test_server_tools_lifecycle import _RegisteredApprovalWaveFixture
+
+        self.fx = _RegisteredApprovalWaveFixture()
+        self.fx.srv = load_server()
+        self.fx.setUp()
+        self.addCleanup(self.fx.doCleanups)
+        self.root = self.fx.root
+
+    def create_record(self, slug, member, *, legacy=False):
+        self.fx._wave(slug, [member], prepare=not legacy)
+        self.fx._set_status("implementing")
+        self.fx._delivery(["council-delivery", "operator-signoff"])
+        return self.fx.wave_md
+
+    def test_document_examples_cannot_hide_an_open_record(self):
+        import lifecycle_gate_support
+
+        record = self.create_record("commented-status", self.fx.SAMPLE, legacy=True)
+        original = record.read_text()
+        for example in ("<!--\nStatus: closed\n-->", "```\nStatus: closed\n```"):
+            with self.subTest(example=example):
+                record.write_text(example + "\n" + original)
+                summary = lifecycle_gate_support.open_delivery_coverage(self.root)
+                self.assertEqual(summary["delivery_coverage_state"], "complete")
+                self.assertEqual(summary["delivery_coverage_affected"], [{
+                    "path": record.parent.relative_to(self.root).as_posix(),
+                    "signoff_keys": ["council-delivery", "operator-signoff"],
+                }])
+                self.assertFalse(self.fx.srv.wave_record_closed(record.read_text()))
+                for tool in ("wf_list_waves", "wf_current_wave"):
+                    waves = self.fx.call(tool)["data"]["waves"]
+                    self.assertEqual([(w["wave_id"], w["status"]) for w in waves],
+                                     [(record.parent.name, "implementing")])
+
+        for header in ("Status: closed\nStatus: implementing", "", "Status: undecided"):
+            with self.subTest(header=header):
+                record.write_text(original.replace("Status: implementing", header, 1)
+                                  + "\n## Session notes\nStatus: closed\n")
+                summary = lifecycle_gate_support.open_delivery_coverage(self.root)
+                self.assertEqual(summary["delivery_coverage_state"], "incomplete")
+                self.assertEqual(summary["delivery_coverage_limitations"], [{
+                    "path": record.parent.relative_to(self.root).as_posix(), "reason": "record_status_unknown",
+                }])
+                self.assertFalse(self.fx.srv.wave_record_closed(record.read_text()))
+
+    def test_cleanup_under_parent_scopes_reports_only_missing_coverage(self):
+        import memory_backfill
+        import record_paths
+        import shutil
+
+        old = self.create_record("legacy", self.fx.SAMPLE, legacy=True)
+        new = self.create_record("comparable", self.fx.OTHER)
+        # The process that produced the old approval did not record criterion status.
+        before = {p.parent.name: (p.parent / "events.jsonl").read_bytes() for p in (old, new)}
+        gates_before = self.fx.call("wf_review_wave", wave_id=old.parent.name)
+        live = record_paths.load_record_roots(self.root).waves
+        parents = [live / name for name in ("first-team", "second-team")]
+        for parent, path in zip(parents, (old, new)):
+            parent.mkdir()
+            path.parent.rename(parent / path.parent.name)
+        expected = (parents[0] / old.parent.name).relative_to(self.root).as_posix()
+
+        # Render a target distribution's actual configuration for the CLI and its
+        # fresh worker. The persistent MCP host cannot supply its own globals.
+        installed = self.root / ".wavefoundry/framework/scripts"
+        shutil.copytree(SCRIPTS, installed, dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns("tests", "__pycache__"))
+        profile = installed / "record_paths.py"
+        import re
+        source = profile.read_text(encoding="utf-8")
+        for name, value in (("NESTED", "True"), ("OPEN_CONTAINER_SCOPE", '"parent"'), ("MAX_DEPTH", "4")):
+            source, count = re.subn(rf"(?m)^{name} = .*", f"{name} = {value}", source, count=1)
+            self.assertEqual(count, 1)
+        profile.write_text(source, encoding="utf-8")
+        with patch.multiple(record_paths, NESTED=True, OPEN_CONTAINER_SCOPE="parent", MAX_DEPTH=4):
+            run = memory_backfill.ensure_run(self.root, "upgrade")
+            memory_backfill.sync_inventory(self.root, run)
+            memory_backfill.mark_indexed(self.root, run)
+            upgrade_lib.write_upgrade_lock(self.root, "1.44.1", "1.45.0")
+            upgrade_lib.update_upgrade_lock(self.root, memory_backfill_run_id=run,
+                                           memory_backfill_state="indexed")
+            with patch.object(self.fx.srv, "SCRIPTS_DIR", installed), \
+                 patch("wf_server.upgrade_handlers._reload_live_runner"):
+                response = self.fx.call("wf_upgrade", phase="cleanup")
+            gates_after = self.fx.call("wf_review_wave", wave_id=old.parent.name)
+        self.assertEqual(response["status"], "ok", response)
+        summary = response["data"]["summary"]
+        self.assertEqual(summary["delivery_coverage_state"], "complete", summary)
+        expected_rows = [{"path": expected, "signoff_keys": ["council-delivery", "operator-signoff"]}]
+        self.assertEqual(summary["delivery_coverage_affected"], expected_rows)
+        self.assertEqual(summary["delivery_coverage_affected_total"], 1)
+        self.assertIn("If you later defer", summary["delivery_coverage_action"])
+        log = Path(response["data"]["log_path"]).read_text(encoding="utf-8")
+        self.assertIn(f"{expected!r}: council-delivery, operator-signoff", log)
+        self.assertEqual(gates_before["status"], gates_after["status"])
+        self.assertEqual([d["code"] for d in gates_before.get("diagnostics", [])],
+                         [d["code"] for d in gates_after.get("diagnostics", [])])
+        for parent, path in zip(parents, (old, new)):
+            self.assertEqual((parent / path.parent.name / "events.jsonl").read_bytes(), before[path.parent.name])
+
+    def test_unknown_coverage_preserves_verified_peers(self):
+        import lifecycle_gate_support
+        import record_paths
+        import review_evidence
+
+        old = self.create_record("legacy", self.fx.SAMPLE, legacy=True)
+        new = self.create_record("comparable", self.fx.OTHER)
+        before = lifecycle_gate_support.open_delivery_coverage(self.root)
+        self.assertEqual(before["delivery_coverage_state"], "complete")
+        corrupted = self.create_record("invalid", self.fx.LATE, legacy=True)
+        (corrupted.parent / "events.jsonl").write_bytes(b"truncated")
+        mixed = lifecycle_gate_support.open_delivery_coverage(self.root)
+        self.assertEqual(mixed["delivery_coverage_state"], "incomplete")
+        self.assertEqual(mixed["delivery_coverage_affected"], before["delivery_coverage_affected"])
+        self.assertEqual(mixed["delivery_coverage_limitations"], [
+            {"path": corrupted.parent.relative_to(self.root).as_posix(), "reason": "review_authority_invalid"}])
+        records, _ = review_evidence.read_review_event_ledger(new)
+        for row in records:
+            if row.get("claim_id") == "approval:council-delivery":
+                row["limitations"] = "Criterion status when recorded: {broken"
+        (new.parent / "events.jsonl").write_bytes(review_evidence.canonical_review_events_bytes(records))
+        malformed = lifecycle_gate_support.open_delivery_coverage(self.root)
+        self.assertIn({"path": new.parent.relative_to(self.root).as_posix(),
+                       "signoff_key": "council-delivery", "reason": "malformed_criterion_status"},
+                      malformed["delivery_coverage_limitations"])
+        # After refreshing only one of the two legacy approvals, only the other is affected.
+        self.fx.wave_md, self.fx.wave_id = old, old.parent.name
+        self.fx._prepare()
+        refreshed = self.fx._event(**self.fx._approval_request("operator-signoff", "delivery", "fresh-status"))
+        self.assertEqual(refreshed["status"], "ok", refreshed)
+        observed = lifecycle_gate_support.open_delivery_coverage(self.root)
+        self.assertEqual(observed["delivery_coverage_affected"], [
+            {"path": old.parent.relative_to(self.root).as_posix(), "signoff_keys": ["council-delivery"]}])
+        for path in (new, old, corrupted):
+            path.write_text(path.read_text(encoding="utf-8").replace("Status: implementing", "Status: closed", 1),
+                            encoding="utf-8")
+        with patch.object(lifecycle_gate_support, "resolve_review_authority",
+                          side_effect=AssertionError("closed ledger read")):
+            clean = lifecycle_gate_support.open_delivery_coverage(self.root)
+        self.assertEqual(clean["delivery_coverage_state"], "complete")
+        self.assertEqual(clean["delivery_coverage_affected"], [])
+        self.fx._wave("no-approval", [], prepare=False)
+        self.fx._set_status("implementing")
+        self.assertEqual(lifecycle_gate_support.open_delivery_coverage(self.root), clean)
+        with patch.object(record_paths, "discover_wave_dirs", side_effect=record_paths.RecordLayoutInvalid(["invalid"])):
+            self.assertEqual(lifecycle_gate_support.open_delivery_coverage(self.root)["delivery_coverage_state"],
+                             "incomplete")
+
+    def test_paged_and_old_summaries_through_registered_upgrade(self):
+        rows = [{"path": f"docs/groups/group-{i}/record", "signoff_keys": ["council-delivery", "operator-signoff"]}
+                for i in range(110)]
+        for payload in ({}, {"delivery_coverage_state": "complete", "delivery_coverage_affected": rows}):
+            output = upgrade.WAVE_UPGRADE_SUMMARY_SENTINEL + json.dumps(payload)
+            with patch.object(self.fx.srv, "_mcp_subprocess_run",
+                              return_value=subprocess.CompletedProcess([], 0, output, "")), \
+                 patch("wf_server.upgrade_handlers._reload_live_runner"):
+                response = self.fx.call("wf_upgrade", phase="cleanup")
+            self.assertEqual(response["status"], "ok", response)
+            summary = response["data"]["summary"]
+            if not payload:
+                self.assertEqual(summary["delivery_coverage_state"], "not_assessed")
+                self.assertNotIn("delivery_coverage_affected_total", summary)
+                continue
+            counts = [summary["delivery_coverage_affected_" + n] for n in ("total", "returned", "remaining")]
+            self.assertEqual(counts[0], len(rows))
+            self.assertEqual(counts[1] + counts[2], counts[0])
+            self.assertGreater(counts[2], 0)
+            self.assertIn("delivery_coverage_truncated", [d["code"] for d in response["diagnostics"]])
+            self.assertTrue(response["data"]["log_path"])
+
+
 class UpgradeHelperReloadTests(unittest.TestCase):
     def test_reload_refreshes_helpers_and_consumers_preserving_candidate_scope(self):
         with tempfile.TemporaryDirectory() as temporary:

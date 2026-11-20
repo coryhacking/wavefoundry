@@ -58,6 +58,13 @@ class ExemptionTests(unittest.TestCase):
     def test_a_heading_on_the_first_line(self) -> None:
         self.assert_unchanged("## First\ntext\n")
 
+    def test_closed_comments_are_literal_and_visible_heading_still_repaired(self):
+        from markdown_layout import ensure_blank_line_before_headings
+        original = ("lead\r\n<!--\r\n## skip\r\n```\r\n-->\r\n"
+                    "body\r\n## Visible\r\n<!-- wave:abc begin -->\r\n## Managed")
+        expected = original.replace("body\r\n", "body\r\n\r\n")
+        self.assertEqual(ensure_blank_line_before_headings(original), expected)
+
     def test_a_heading_inside_a_closed_fence(self) -> None:
         self.assert_unchanged("text\n\n```\ncode\n## not a heading\n```\n")
         self.assert_unchanged("text\n\n~~~md\nline\n# also not\n~~~\n")

@@ -194,9 +194,22 @@ def read_repo_profile(root: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def read_prompt_manifest(root: Path) -> dict[str, Any]:
-    data = _read_json(root / "docs" / "prompts" / "prompt-surface-manifest.json", {})
-    return data if isinstance(data, dict) else {}
+def read_prompt_manifest(root: Path, *, strict: bool = False) -> dict[str, Any]:
+    import contained_files
+
+    path = root / "docs" / "prompts" / "prompt-surface-manifest.json"
+    try:
+        raw = contained_files.read_contained_bytes(root, path, max_bytes=contained_files.DEFAULT_MAX_BYTES)
+        data = json.loads(raw.decode("utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError("Invalid prompt manifest")
+        return data
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError, RecursionError):
+        if strict:
+            raise ValueError("Planning shortcut unavailable") from None
+        return {}
 
 
 def read_dashboard_config(root: Path) -> dict[str, Any]:
@@ -217,7 +230,17 @@ def read_dashboard_config(root: Path) -> dict[str, Any]:
     preferred = cfg.get("preferred_port")
     start = cfg.get("port_range_start", preferred if isinstance(preferred, int) else 43127)
     end = cfg.get("port_range_end", start + 20 if isinstance(start, int) else 43147)
+    try:
+        manifest = read_prompt_manifest(root, strict=True) if _vocab.custom_planning_vocabulary() else {}
+        plan_shortcut = _vocab.repository_prompt_names(manifest)["plan-change"]["shortcut"]
+    except ValueError:
+        plan_shortcut = "Planning shortcut unavailable"
     return {
+        "planning": {
+            "shortcut": plan_shortcut,
+            "doc": _vocab.planning_noun(),
+            "docs": _vocab.planning_noun("docs"),
+        },
         "enabled": bool(cfg.get("enabled", True)),
         "entrypoint": str(cfg.get("entrypoint", "dashboard.html")).strip() or "dashboard.html",
         "preferred_port": preferred if isinstance(preferred, int) else 43127,
@@ -1014,7 +1037,7 @@ def _review_evidence_dashboard_state(
         # Wave 22upa (change 22ubf): a closed wave's dispositions are not re-derived.
         diagnostics.extend(validate_review_evidence_records(
             records,
-            closed=re.search(r"(?mi)^Status:\s*closed\s*$", text) is not None,
+            closed=wave_record_closed(text),
         ))
 
     if diagnostics:
@@ -1042,7 +1065,7 @@ def _review_evidence_dashboard_state(
     )
     try:
         expected_wave = render_review_evidence_projection(text, records)
-        if not re.search(r"(?mi)^Status:\s*closed\s*$", text):
+        if not closed:
             expected_wave = render_review_status_projection(
                 expected_wave,
                 records,
@@ -2021,6 +2044,7 @@ def collect_dashboard_snapshot(root: Path, skip_git: bool = False) -> dict[str, 
             "poll_interval_ms": config["poll_interval_ms"],
             "entrypoint": config["entrypoint"],
             "terminology": config["terminology"],
+            "planning": config["planning"],
             "terminology_ignored": config["terminology_ignored"],
             # Wave 1zoju (1zody): the page's isDone reads this, not a list of its own.
             "done_change_statuses": sorted(_lint_constants().DONE_CHANGE_STATUSES),

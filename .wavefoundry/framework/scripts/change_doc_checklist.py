@@ -135,6 +135,29 @@ def _closes_fence(rest: str, char: str, length: int) -> bool:
     return fence[0] == char and len(fence) >= length
 
 
+def _closed_fence_end(
+    split: list[tuple[int, str]], index: int, failed_until: dict[tuple[int, str, int], int]
+) -> int | None:
+    depth, rest = split[index]
+    opener = _fence_opener(rest)
+    if opener is None:
+        return None
+    char, length = opener
+    key = (depth, char, length)
+    if index < failed_until.get(key, -1):
+        return None
+    stop = len(split)
+    for probe in range(index + 1, len(split)):
+        probe_depth, probe_rest = split[probe]
+        if probe_depth < depth:
+            stop = probe
+            break
+        if probe_depth == depth and _closes_fence(probe_rest, char, length):
+            return probe
+    failed_until[key] = stop
+    return None
+
+
 def fenced_line_flags(lines: list[str]) -> list[bool]:
     """Flag each line that opens, closes or sits inside a CLOSED fenced block.
 
@@ -169,28 +192,8 @@ def fenced_line_flags(lines: list[str]) -> list[bool]:
     failed_until: dict[tuple[int, str, int], int] = {}
     index = 0
     while index < len(lines):
-        depth, rest = split[index]
-        opener = _fence_opener(rest)
-        if opener is None:
-            index += 1
-            continue
-        char, length = opener
-        key = (depth, char, length)
-        if index < failed_until.get(key, -1):
-            index += 1
-            continue
-        close: Optional[int] = None
-        stop = len(lines)
-        for probe in range(index + 1, len(lines)):
-            probe_depth, probe_rest = split[probe]
-            if probe_depth < depth:
-                stop = probe
-                break
-            if probe_depth == depth and _closes_fence(probe_rest, char, length):
-                close = probe
-                break
+        close = _closed_fence_end(split, index, failed_until)
         if close is None:
-            failed_until[key] = stop
             index += 1
             continue
         for flagged in range(index, close + 1):
@@ -199,9 +202,120 @@ def fenced_line_flags(lines: list[str]) -> list[bool]:
     return flags
 
 
+_COMMENT_OR_TICKS = re.compile(r"<!--|`+")
+_INLINE_BLOCK_START = re.compile(r"^ {0,3}(?:<!--|#{1,6}(?:[ \t]|$)|(?:[-*+]|[0-9]{1,9}[.)])[ \t])")
+
+
+def comment_visible_lines(lines: list[str], *, tracking_fences: bool = False) -> list[str]:
+    """Mask closed HTML comments with spaces, retaining line and character offsets.
+
+    Consume literal code before looking for comment delimiters. Conversely, a
+    fence inside a comment is just comment text. The tracking readers retain
+    their historical three-character fence toggles; checklist readers require
+    a closed fence. An unterminated comment cannot discard later obligations.
+    """
+    if not any("<!--" in line for line in lines):
+        return lines
+    last_close = next((i for i in range(len(lines) - 1, -1, -1) if "-->" in lines[i]), -1)
+    if last_close < 0:
+        return lines
+    visible = lines.copy()
+    split = [split_blockquote(line) for line in lines]
+    # A matching backtick run delimits a code span. Precompute the next run
+    # of each width within its paragraph, so unmatched runs cost one lookup.
+    next_run = {}
+    following = {}
+    for i in range(len(lines) - 1, -1, -1):
+        line = lines[i]
+        rest = split[i][1]
+        if not rest.strip() or _fence_opener(rest):
+            following.clear()
+            continue
+        # An ATX heading has no continuation lines. Pair its ticks only
+        # within the heading; ordinary paragraphs may span soft line breaks.
+        if re.match(r"^ {0,3}#{1,6}(?:[ \t]|$)", rest):
+            following.clear()
+        for ticks in reversed(list(re.finditer(r"`+", line))):
+            width = ticks.end() - ticks.start()
+            next_run[i, ticks.start()] = following.get(width)
+            following[width] = (i, ticks.end())
+        # The next paragraph, HTML block, heading or list item cannot
+        # supply a closing backtick for a previous block.
+        if _INLINE_BLOCK_START.match(rest):
+            following.clear()
+    in_comment = False
+    code_end = None
+    fence_end = -1
+    tracking_marker = ""
+    failed_until = {}
+    for i, line in enumerate(lines):
+        if i > last_close:
+            break
+        if i <= fence_end:
+            continue
+        if not in_comment:
+            if tracking_fences:
+                start = line.lstrip()[:3]
+                if start in ("```", "~~~"):
+                    tracking_marker = "" if tracking_marker == start else tracking_marker or start
+                    code_end = None
+                    continue
+                if tracking_marker:
+                    continue
+            else:
+                end = _closed_fence_end(split, i, failed_until)
+                if end is not None:
+                    fence_end = end
+                    code_end = None
+                    continue
+        pos = 0
+        pieces: list[str] = []
+        copied = 0
+        if code_end is not None:
+            if i < code_end[0]:
+                continue
+            pos = code_end[1]
+            code_end = None
+        while pos < len(line):
+            if not in_comment:
+                token = _COMMENT_OR_TICKS.search(line, pos)
+                if token is None:
+                    break
+                pos = token.end()
+                if token[0] != "<!--":
+                    end = next_run.get((i, token.start()))
+                    if end is not None:
+                        if end[0] > i:
+                            code_end = end
+                            break
+                        pos = end[1]
+                    continue
+                start = token.start()
+            else:
+                start = pos
+            close = line.find("-->", pos)
+            if close < 0 and i == last_close:
+                break
+            in_comment = close < 0
+            pos = len(line) if in_comment else close + 3
+            pieces.extend((line[copied:start], " " * (pos - start)))
+            copied = pos
+        if pieces:
+            pieces.append(line[copied:])
+            visible[i] = "".join(pieces)
+    return visible
+
+
+def comment_visible_text(text: str) -> str:
+    """Return a position-preserving view for whole-document section searches."""
+    if "<!--" not in text or "-->" not in text:
+        return text
+    return "\n".join(comment_visible_lines(text.split("\n")))
+
+
 def unfenced_text(text: str) -> str:
     """``text`` with every fenced line (fence markers included) blanked."""
-    lines = text.split("\n")
+    lines = comment_visible_lines(text.split("\n"))
     flags = fenced_line_flags(lines)
     return "\n".join("" if fenced else line for line, fenced in zip(lines, flags))
 
@@ -231,7 +345,7 @@ def _is_near_miss_heading(line: str, heading: str) -> bool:
 def near_miss_headings(text: str, heading: str) -> list[str]:
     """H2 heading lines outside fenced code whose normalised title starts with
     ``<heading>`` but which are not exactly ``## <heading>``."""
-    lines = text.split("\n")
+    lines = comment_visible_lines(text.split("\n"))
     flags = fenced_line_flags(lines)
     return [
         line.rstrip()
@@ -244,7 +358,7 @@ def section_line_indexes(text: str, heading: str, *, include_near_miss: bool = F
     """Indexes into ``text.split("\\n")`` of every body line, outside fenced
     code, of every ``## <heading>`` section (and near-miss section with
     ``include_near_miss``), in document order."""
-    lines = text.split("\n")
+    lines = comment_visible_lines(text.split("\n"))
     flags = fenced_line_flags(lines)
     indexes: list[int] = []
     inside = False
@@ -268,7 +382,7 @@ def section_bodies(text: str, heading: str, *, include_near_miss: bool = False) 
     (``near_miss_headings``) are included too, in document order.  A ``## ``
     line inside closed fenced code neither ends nor starts a section.
     """
-    lines = text.split("\n")
+    lines = comment_visible_lines(text.split("\n"))
     flags = fenced_line_flags(lines)
     bodies: list[str] = []
     current: Optional[list[str]] = None
@@ -292,7 +406,7 @@ def section_bodies(text: str, heading: str, *, include_near_miss: bool = False) 
 def has_section(text: str, heading: str) -> bool:
     """True when ``text`` has at least one H2 heading line exactly ``## <heading>``
     outside fenced code."""
-    lines = text.split("\n")
+    lines = comment_visible_lines(text.split("\n"))
     flags = fenced_line_flags(lines)
     return any(
         not fenced and _is_exact_heading(line, heading) for line, fenced in zip(lines, flags)
@@ -302,7 +416,7 @@ def has_section(text: str, heading: str) -> bool:
 def checklist_items(body: str) -> Iterator[re.Match]:
     """Checklist item matches in ``body`` outside fenced code, in order (each
     match is taken on its own line)."""
-    lines = body.split("\n")
+    lines = comment_visible_lines(body.split("\n"))
     for line, fenced in zip(lines, fenced_line_flags(lines)):
         if fenced:
             continue

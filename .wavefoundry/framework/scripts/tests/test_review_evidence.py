@@ -2437,6 +2437,17 @@ class ExternalReviewEventLedgerTests(unittest.TestCase):
             self.assertIn("migrate manually", joined)
             self.assertIn("`events.jsonl` ledger", joined)
 
+    def test_commented_projection_headings_preserve_the_visible_owned_region(self):
+        hidden = "<!--\n## Finding Synthesis\n## Review Evidence\n-->\n"
+        base = hidden + subject.empty_external_finding_synthesis_section().replace(
+            subject.FINDING_SYNTHESIS_MARKER_BEGIN, hidden + subject.FINDING_SYNTHESIS_MARKER_BEGIN)
+        projected = subject.render_review_evidence_projection(base, [synthesis()])
+        self.assertEqual(projected.count(hidden), 2)
+        self.assertIn("Machine review state — 1 findings", projected)
+        status = subject.render_review_status_projection(projected + "\n## Review Evidence\n", [], [])
+        self.assertEqual(status.count(hidden), 2)
+        self.assertIn(subject.REVIEW_STATUS_MARKER_BEGIN, status)
+
     def test_external_projection_contains_no_inline_jsonl_authority(self) -> None:
         base = (
             # component-fixture: test_external_projection_contains_no_inline_jsonl_authority exercises this input representation directly
@@ -6029,13 +6040,18 @@ class FocusedRereviewTests(unittest.TestCase):
 class DeliveryMembershipHelperTests(unittest.TestCase):
     """Change 23q1g: the pure helpers behind the delivery membership rule."""
 
-    def test_closed_uses_the_lint_predicate(self):
+    def test_closed_requires_one_visible_header_value(self):
         for text, closed in (
             ("# Wave\nStatus: closed\n", True),
             ("# Wave\nstatus:   CLOSED  \n", True),
             ("# Wave\nStatus: completed\n", False),
             ("# Wave\nStatus: implementing\n", False),
             ("# Wave\nStatus: closed later\n", False),
+            ("# Wave\n## Notes\nStatus: closed\n", False),
+            ("# Wave\nStatus: closed\nStatus: active\n", False),
+            ("# Wave\nStatus: active\n## Notes\nStatus: closed\n", False),
+            ("# Wave\n<!--\n## Hidden\nStatus: active\n-->\nStatus: closed\n", True),
+            ("# Wave\n```\n## Hidden\nStatus: active\n```\nStatus: closed\n", True),
             ("", False),
             (None, False),
         ):

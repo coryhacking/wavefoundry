@@ -2815,6 +2815,10 @@ def _repair_declaring_scaffold_on_path(root: Path) -> list[str]:
         # module would be the old parser, which is the version that did not
         # know the marker block at all.
         _refresh_record_layout_modules()
+        for name in ("change_doc_checklist", "gardener_metadata"):
+            dependency = sys.modules.get(name)
+            if dependency is not None and not hasattr(dependency, "comment_visible_lines"):
+                _reload_in_place(dependency)
         cached = sys.modules.get("review_policy")
         if cached is not None:
             importlib.reload(cached)
@@ -2929,7 +2933,8 @@ def _fence_serialization_examples(text, declares, parser=None):
     if parser is None:
         import review_policy as parser  # noqa: PLC0415
 
-    lines = text.split("\n")
+    raw_lines = text.split("\n")
+    lines = parser._serialization_lines(text) if hasattr(parser, "_serialization_lines") else raw_lines
 
     # EVERY predicate below comes from the parser, never from a local
     # restatement. Requirement 2 forbids re-implementing extraction because a
@@ -3007,8 +3012,8 @@ def _fence_serialization_examples(text, declares, parser=None):
     # with mixed endings.
     fence = "```\r" if "\r\n" in text else "```"
     for start, end in reversed(runs):
-        lines[start:end] = [fence] + lines[start:end] + [fence]
-    repaired = "\n".join(lines)
+        raw_lines[start:end] = [fence] + raw_lines[start:end] + [fence]
+    repaired = "\n".join(raw_lines)
     # A run reaching EOF puts the closing fence on the last line, dropping the
     # file's trailing newline. Restore it so the repair is insertion-only.
     if text.endswith("\n") and not repaired.endswith("\n"):

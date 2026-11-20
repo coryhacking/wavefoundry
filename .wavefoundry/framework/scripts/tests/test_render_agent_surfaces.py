@@ -4471,9 +4471,9 @@ class GuruWrapperModelPolicyTests(unittest.TestCase):
         self._assert_neutral_fresh_render()
         self._assert_preserved_render()
         token = "name: guru\n"
-        self.assertEqual(ras.CLAUDE_GURU_AGENT.count(token), 1)
-        mutant = ras.CLAUDE_GURU_AGENT.replace(token, token + "model: sonnet\n")
-        with patch.object(ras, "CLAUDE_GURU_AGENT", mutant):
+        self.assertEqual(ras._CLAUDE_GURU_TEMPLATE.count(token), 1)
+        mutant = ras._CLAUDE_GURU_TEMPLATE.replace(token, token + "model: sonnet\n")
+        with patch.object(ras, "_CLAUDE_GURU_TEMPLATE", mutant):
             with self.assertRaises(AssertionError):
                 self._assert_neutral_fresh_render()
         # Restore the old unconditional template write at the real write

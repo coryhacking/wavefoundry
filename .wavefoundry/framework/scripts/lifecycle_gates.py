@@ -142,9 +142,7 @@ def _review_evidence_diagnostics(
                         REVIEW_STATUS_MARKER_BEGIN in canonical_projection
                         or REVIEW_STATUS_MARKER_END in canonical_projection
                     )
-                    closed_archive = bool(
-                        re.search(r"(?mi)^Status:\s*closed\s*$", raw_projection)
-                    )
+                    closed_archive = review_evidence.wave_record_closed(raw_projection)
                     if marker_present and not closed_archive and render_review_status_projection(
                         canonical_projection,
                         result.records,
@@ -186,7 +184,7 @@ def _review_evidence_diagnostics(
     if (
         closure
         and result is not None
-        and not re.search(r"(?mi)^Status:\s*closed\s*$", text)
+        and not review_evidence.wave_record_closed(text)
     ):
         for violation in repair_independence_violations(result.records):
             diagnostics.append(

@@ -589,7 +589,7 @@ class EmptyWaveReviewPolicyMigrationTests(unittest.TestCase):
 
 
 class ReviewPolicyUpgradeTests(unittest.TestCase):
-    def test_evaluator_version_seven_is_the_shipped_transition_boundary(self):
+    def test_evaluator_version_eight_is_the_shipped_transition_boundary(self):
         """Deliberate tripwire: update it consciously on every evaluator bump.
 
         v4 to v5 (wave 1umst): legacy extension triggers are path-shaped rather
@@ -615,7 +615,7 @@ class ReviewPolicyUpgradeTests(unittest.TestCase):
         so the bump only decides whether the history can explain it.
         """
 
-        self.assertEqual(review_policy.REVIEW_POLICY_EVALUATOR_VERSION, 7)
+        self.assertEqual(review_policy.REVIEW_POLICY_EVALUATOR_VERSION, 8)
 
     def test_upgrade_policy_guidance_matches_legacy_migration(self):
         self.assertIn("delivery_mode=targeted", review_policy.UPGRADE_POLICY_BLOCK)
@@ -1712,6 +1712,20 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
             review_policy.serialization_point_paths(non_target), (),
             "one non-target span makes the whole block bullet prose",
         )
+
+    def test_hidden_headings_cannot_create_or_terminate_an_excluded_region(self):
+        from gardener_metadata import canonical_review_policy_body as canonical
+        scope = b"## Requirements\n<!--\n## Progress Log\n-->\nRequire A\n"
+        self.assertNotEqual(canonical(scope), canonical(scope.replace(b"Require A", b"Require B")))
+        log = b"## Progress Log\n<!--\n## Requirements\n-->\nEntry A\n## Scope\nOne\n"
+        self.assertEqual(canonical(log), canonical(log.replace(b"Entry A", b"Entry B")))
+
+    def test_only_visible_target_declarations_and_boundaries_select_lanes(self):
+        hidden = "<!--\n## Serialization Points\n- hidden/decoy.py\n-->\n"
+        text = (hidden + "## Serialization Points\n- `a/b.py` <!-- context -->\n"
+                "<!--\n## Hidden\n- hidden/declaration.md\n-->\n- `c/d.py`\n"
+                "## Next\n- hidden/other.py\n")
+        self.assertEqual(review_policy.serialization_point_paths(text), ("a/b.py", "c/d.py"))
 
     def test_a_fenced_example_of_the_section_never_substitutes_for_the_real_one(self):
         """Delivery finding: the section finder itself was fence-blind.

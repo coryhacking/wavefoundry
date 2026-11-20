@@ -16,6 +16,9 @@ import re
 import stat
 import sys
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
+from functools import wraps
 from collections.abc import Mapping
 from dataclasses import dataclass, replace as _dataclass_replace
 from pathlib import Path
@@ -338,6 +341,13 @@ LIFECYCLE_PROMPT_BASELINES: tuple[tuple[str, str], ...] = (
     (_vp_doc("close-change"), "close-change.prompt.md"),
 )
 
+def _lifecycle_prompt_baselines():
+    return tuple(
+        (_vp_doc("close-change") if template == "close-change.prompt.md" else path, template)
+        for path, template in LIFECYCLE_PROMPT_BASELINES
+    )
+
+
 from review_plan_prompt_check import (
     REVIEW_PLAN_OLD_PROMPT, REVIEW_PLAN_NEW_PROMPT, REVIEW_PLAN_LEGACY_CONTRACT_LINES,
     REVIEW_PLAN_EARLY_CANONICAL_CONTRACT_LINES, REVIEW_PLAN_LEGACY_CONTRACT_PROFILES,
@@ -444,7 +454,14 @@ AUTO_GURU_BULLET = (
     "when attached; do not answer from memory alone."
 )
 
-CURSOR_AUTO_GURU_MDC = dedent(
+def _guru_shortcuts(template: str) -> str:
+    for token, key in (("@PLAN@", "plan-change"), ("@IMPLEMENT@", "implement-wave"),
+                       ("@CLOSE@", "close-wave"), ("@PREPARE@", "prepare-wave")):
+        template = template.replace(token, _vp_shortcut(key))
+    return template
+
+
+_CURSOR_GURU_TEMPLATE = dedent(
     """\
     ---
     description: Use the Guru workflow for questions about how code and documentation work (code_ask, docs_search, validated reads); direct code_* lookups are always allowed
@@ -475,9 +492,8 @@ CURSOR_AUTO_GURU_MDC = dedent(
     - For large investigations, use a **read-only subagent** (Task) with `docs/agents/guru.md` as the prompt and return cited findings to the parent thread.
     - Operators do **not** need to say **Guru**; the explicit shortcut remains in `docs/prompts/index.md`.
     """
-).replace("@PLAN@", _vp_shortcut("plan-change")).replace("@IMPLEMENT@", _vp_shortcut("implement-wave")).replace(
-    "@CLOSE@", _vp_shortcut("close-wave")
 )
+CURSOR_AUTO_GURU_MDC = _guru_shortcuts(_CURSOR_GURU_TEMPLATE)
 
 CLAUDE_AUTO_GURU_SECTION = dedent(
     """\
@@ -497,7 +513,7 @@ CURSOR_PROJECT_CONTEXT_BLOCK = dedent(
     """
 )
 
-CLAUDE_GURU_AGENT = dedent(
+_CLAUDE_GURU_TEMPLATE = dedent(
     """\
     ---
     name: guru
@@ -524,16 +540,16 @@ CLAUDE_GURU_AGENT = dedent(
     - Architecture doc drafts and memory-record writes belong in the main session per `docs/agents/guru.md` write permissions.
     - Wave lifecycle execution stays with the main agent / wave-coordinator prompts.
     """
-).replace("@PLAN@", _vp_shortcut("plan-change")).replace("@IMPLEMENT@", _vp_shortcut("implement-wave")).replace(
-    "@CLOSE@", _vp_shortcut("close-wave")
-).replace("@PREPARE@", _vp_shortcut("prepare-wave"))
+)
+CLAUDE_GURU_AGENT = _guru_shortcuts(_CLAUDE_GURU_TEMPLATE)
 
 
-CLAUDE_GURU_DESCRIPTION = next(
+_CLAUDE_GURU_TEMPLATE_DESCRIPTION = next(
     line[len("description:"):].strip()
-    for line in CLAUDE_GURU_AGENT.splitlines()
+    for line in _CLAUDE_GURU_TEMPLATE.splitlines()
     if line.startswith("description:")
 )
+CLAUDE_GURU_DESCRIPTION = _guru_shortcuts(_CLAUDE_GURU_TEMPLATE_DESCRIPTION)
 
 
 def previous_guru_descriptions(shortcut=None) -> tuple[str, ...]:
@@ -811,289 +827,299 @@ WF_COUNCIL_SKILL_BODY = dedent(
 ).replace("@REVIEW_SKILL@", _vp_skill("review-wave")).replace("@REVIEW@", _vp_shortcut("review-wave")).replace(
     "@CONTAINER@", _vp_wave()).replace("@PLANNING_ARTICLE@", _vp_planning("article"))
 
-SKILL_REGISTRY: "tuple[Skill, ...]" = (
-    Skill(
-        name=_vp_skill("plan-change"),
-        description=f"Plan {_vp_change(article=True)} of any kind (feature, bug fix, enhancement, refactor, documentation, tech debt, task, maintenance, operations) and produce a consolidated {_vp_planning()} ready for {_vp_wave()} admission. The {_vp_shortcut('plan-change')} workflow.",
-        body=_thin_pointer_body(
-            f"Plan {_vp_change(article=True)}",
-            _vp_doc("plan-change"),
-            (
-                f"The workflow selects the scaffold among the `wf_new_<kind>` MCP creation tools (bug, enhancement, refactor, documentation, tech debt, task, maintenance, operations, change) by {_vp_change()} kind, then admits the doc with `wf_add_change`.",
-                f"Gate reminder: planning writes docs only; no repository code edits until the stage gate ({_vp_planning()}, {_vp_wave()} admission, recorded readiness) is satisfied.",
+def _build_skill_registry() -> tuple[Skill, ...]:
+    return (
+        Skill(
+            name=_vp_skill("plan-change"),
+            description=f"Plan {_vp_change(article=True)} of any kind (feature, bug fix, enhancement, refactor, documentation, tech debt, task, maintenance, operations) and produce a consolidated {_vp_planning()} ready for {_vp_wave()} admission. The {_vp_shortcut('plan-change')} workflow.",
+            body=_thin_pointer_body(
+                f"Plan {_vp_change(article=True)}",
+                _vp_doc("plan-change"),
+                (
+                    f"The workflow selects the scaffold among the `wf_new_<kind>` MCP creation tools (bug, enhancement, refactor, documentation, tech debt, task, maintenance, operations, change) by {_vp_change()} kind, then admits the doc with `wf_add_change`.",
+                    f"Gate reminder: planning writes docs only; no repository code edits until the stage gate ({_vp_planning()}, {_vp_wave()} admission, recorded readiness) is satisfied.",
+                ),
             ),
         ),
-    ),
-    Skill(
-        name=_vp_skill("prepare-wave"),
-        description=f"Confirm {_vp_wave(article=True)}'s readiness before implementation (docs validation, gardening, lint, and the prepare-phase council gate). "
-        f"The {' / '.join((_vp_shortcut('prepare-wave'), *vocabulary_profile.shortcut_aliases('prepare-wave')))} workflow.",
-        body=_thin_pointer_body(
-            f"Prepare {_vp_wave(article=True)}",
-            _vp_doc("prepare-wave"),
-            (
-                "Prefer the `wf_prepare_wave` MCP tool: `dry_run` to validate, `ready` to record readiness without opening, `create` to prepare and open.",
-                f"The prepare-phase council review runs as the last prepare step; `council-readiness` must be recorded before the {_vp_wave()} readies.",
-                f"Gate reminder: only one {_vp_wave()} may be OPEN at a time; readiness alone never takes that slot.",
+        Skill(
+            name=_vp_skill("prepare-wave"),
+            description=f"Confirm {_vp_wave(article=True)}'s readiness before implementation (docs validation, gardening, lint, and the prepare-phase council gate). "
+            f"The {' / '.join((_vp_shortcut('prepare-wave'), *vocabulary_profile.shortcut_aliases('prepare-wave')))} workflow.",
+            body=_thin_pointer_body(
+                f"Prepare {_vp_wave(article=True)}",
+                _vp_doc("prepare-wave"),
+                (
+                    "Prefer the `wf_prepare_wave` MCP tool: `dry_run` to validate, `ready` to record readiness without opening, `create` to prepare and open.",
+                    f"The prepare-phase council review runs as the last prepare step; `council-readiness` must be recorded before the {_vp_wave()} readies.",
+                    f"Gate reminder: only one {_vp_wave()} may be OPEN at a time; readiness alone never takes that slot.",
+                ),
             ),
         ),
-    ),
-    Skill(
-        name=_vp_skill("implement-wave"),
-        description=f"Open a readied {_vp_wave()} and coordinate multi-{_vp_change()} implementation with real-time AC and task tracking. The {_vp_shortcut('implement-wave')} workflow.",
-        body=_thin_pointer_body(
-            f"Implement {_vp_wave(article=True)}",
-            _vp_doc("implement-wave"),
-            (
-                f"Prefer the `wf_implement_wave` MCP tool to open the readied {_vp_wave()} and receive the ordered {_vp_change()} list and watchpoints.",
-                f"Gate reminder: the stage gate applies before any code edit ({_vp_planning()}, {_vp_wave()} admission, recorded readiness); mark ACs and tasks as work completes, not at {_vp_wave()} end.",
-                f"Single-{_vp_change()} variant: {_vp_shortcut('implement-change')} (`{_vp_doc('implement-change')}`).",
+        Skill(
+            name=_vp_skill("implement-wave"),
+            description=f"Open a readied {_vp_wave()} and coordinate multi-{_vp_change()} implementation with real-time AC and task tracking. The {_vp_shortcut('implement-wave')} workflow.",
+            body=_thin_pointer_body(
+                f"Implement {_vp_wave(article=True)}",
+                _vp_doc("implement-wave"),
+                (
+                    f"Prefer the `wf_implement_wave` MCP tool to open the readied {_vp_wave()} and receive the ordered {_vp_change()} list and watchpoints.",
+                    f"Gate reminder: the stage gate applies before any code edit ({_vp_planning()}, {_vp_wave()} admission, recorded readiness); mark ACs and tasks as work completes, not at {_vp_wave()} end.",
+                    f"Single-{_vp_change()} variant: {_vp_shortcut('implement-change')} (`{_vp_doc('implement-change')}`).",
+                ),
             ),
         ),
-    ),
-    Skill(
-        name=_vp_skill("review-wave"),
-        description=f"Run the open {_vp_wave()}'s required review lanes and record typed review evidence ahead of closure. The {_vp_shortcut('review-wave')} workflow.",
-        body=_thin_pointer_body(
-            f"Review {_vp_wave(article=True)}",
-            _vp_doc("review-wave"),
-            (
-                "Start from the `wf_review_wave` MCP tool for guided actions; record evidence with `wf_review_event` (dry-run first, then create).",
-                "Reminder: review evidence is typed and executable; approvals bind to the current receipt and lapse when the reviewed surface changes.",
+        Skill(
+            name=_vp_skill("review-wave"),
+            description=f"Run the open {_vp_wave()}'s required review lanes and record typed review evidence ahead of closure. The {_vp_shortcut('review-wave')} workflow.",
+            body=_thin_pointer_body(
+                f"Review {_vp_wave(article=True)}",
+                _vp_doc("review-wave"),
+                (
+                    "Start from the `wf_review_wave` MCP tool for guided actions; record evidence with `wf_review_event` (dry-run first, then create).",
+                    "Reminder: review evidence is typed and executable; approvals bind to the current receipt and lapse when the reviewed surface changes.",
+                ),
             ),
         ),
-    ),
-    Skill(
-        name=_vp_skill("close-wave"),
-        description=f"Close and archive {_vp_wave(article=True)} after delivery review, reconciling every AC and task checkbox. Closure is operator-owned. The {_vp_shortcut('close-wave')} workflow.",
-        body=_thin_pointer_body(
-            f"Close {_vp_wave(article=True)}",
-            _vp_doc("close-wave"),
-            (
-                "Prefer the `wf_close_wave` MCP tool; run `dry_run` freely to validate close readiness.",
-                'Gate reminder: closure is operator-owned. Call `mode="create"` only when the operator explicitly instructs closure in the current request; closure is never inferred from adjacent actions such as "run the review" or "fix the tests".',
-                f"Single {_vp_change()}: {_vp_shortcut('close-change')} (`{_vp_doc('close-change')}`) marks one {_vp_change()} `complete` inside the open {_vp_wave()}; {_vp_shortcut('close-wave')} is still the only {_vp_wave()} close.",
+        Skill(
+            name=_vp_skill("close-wave"),
+            description=f"Close and archive {_vp_wave(article=True)} after delivery review, reconciling every AC and task checkbox. Closure is operator-owned. The {_vp_shortcut('close-wave')} workflow.",
+            body=_thin_pointer_body(
+                f"Close {_vp_wave(article=True)}",
+                _vp_doc("close-wave"),
+                (
+                    "Prefer the `wf_close_wave` MCP tool; run `dry_run` freely to validate close readiness.",
+                    'Gate reminder: closure is operator-owned. Call `mode="create"` only when the operator explicitly instructs closure in the current request; closure is never inferred from adjacent actions such as "run the review" or "fix the tests".',
+                    f"Single {_vp_change()}: {_vp_shortcut('close-change')} (`{_vp_doc('close-change')}`) marks one {_vp_change()} `complete` inside the open {_vp_wave()}; {_vp_shortcut('close-wave')} is still the only {_vp_wave()} close.",
+                ),
+            ),
+            operator_only=True,
+        ),
+        Skill(
+            name=_vp_skill("close-change"),
+            description=f"Close one admitted {_vp_change()} inside the open {_vp_wave()} with wf_close_change, marking it complete and activating its dependents; never closes the {_vp_wave()} ({_vp_shortcut('close-wave')} is the only {_vp_wave()} close). The {_vp_shortcut('close-change')} workflow.",
+            body=_thin_pointer_body(
+                f"Close {_vp_change(article=True)}",
+                _vp_doc("close-change"),
+                (
+                    "Prefer the `wf_close_change` MCP tool; run `dry_run` (the default) freely to validate close readiness.",
+                    f'Gate reminder: closure is operator-owned. Call `mode="create"` only when the operator explicitly instructs closing that {_vp_change()} in the current request; closure is never inferred from adjacent actions such as "run the review" or "fix the tests".',
+                    "The tool permits closure from `ready` and does not verify review evidence; required review must still be completed before closure.",
+                    f"Run it after {_vp_shortcut('review-wave')} has cleared the {_vp_change()}: a completed {_vp_change()} cannot be reopened, and the tool records no review evidence.",
+                    f"{_vp_shortcut('close-wave')} (`{_vp_skill('close-wave')}`) remains the only {_vp_wave()} close, whatever the {_vp_change()} count.",
+                ),
+            ),
+            operator_only=True,
+        ),
+        Skill(
+            name="wf-review-plan",
+            description=f"Review {_vp_planning('article')}, or the current {_vp_wave()} record when no {_vp_change()} is specified, before implementation by walking every unresolved decision branch one question at a time. "
+            f"The Review plan workflow; distinct from {_vp_shortcut('review-wave')}.",
+            body=_thin_pointer_body(
+                "Review a plan",
+                "docs/prompts/review-plan.prompt.md",
+                (
+                    f"Review the named {_vp_planning()}, or fall back to the current {_vp_wave()} record when no {_vp_change()} is specified; this may run before or after admission, but only before implementation.",
+                    "Self-answer from project resources first; surface only the questions that genuinely need operator judgment.",
+                    f"This optional review records no typed signoff and satisfies no lifecycle gate; use `{_vp_skill('review-wave')}` for the open {_vp_wave()}'s required delivery-review lanes.",
+                ),
             ),
         ),
-        operator_only=True,
-    ),
-    Skill(
-        name=_vp_skill("close-change"),
-        description=f"Close one admitted {_vp_change()} inside the open {_vp_wave()} with wf_close_change, marking it complete and activating its dependents; never closes the {_vp_wave()} ({_vp_shortcut('close-wave')} is the only {_vp_wave()} close). The {_vp_shortcut('close-change')} workflow.",
-        body=_thin_pointer_body(
-            f"Close {_vp_change(article=True)}",
-            _vp_doc("close-change"),
-            (
-                "Prefer the `wf_close_change` MCP tool; run `dry_run` (the default) freely to validate close readiness.",
-                f'Gate reminder: closure is operator-owned. Call `mode="create"` only when the operator explicitly instructs closing that {_vp_change()} in the current request; closure is never inferred from adjacent actions such as "run the review" or "fix the tests".',
-                "The tool permits closure from `ready` and does not verify review evidence; required review must still be completed before closure.",
-                f"Run it after {_vp_shortcut('review-wave')} has cleared the {_vp_change()}: a completed {_vp_change()} cannot be reopened, and the tool records no review evidence.",
-                f"{_vp_shortcut('close-wave')} (`{_vp_skill('close-wave')}`) remains the only {_vp_wave()} close, whatever the {_vp_change()} count.",
+        Skill(
+            name="wf-evaluate-decision",
+            description="Structured evaluation of an ADR-shaped decision between two named options, running a red-team pass, council review, and operator interview, ending in an Architecture Decision Record. Not for ordinary in-flight decisions. The Evaluate decision workflow.",
+            body=_thin_pointer_body(
+                "Evaluate a decision",
+                "docs/prompts/evaluate-decision.prompt.md",
+                (
+                    "The workflow is prompt-driven (no dedicated MCP tool) and ends in an Architecture Decision Record.",
+                    "Frame two specific options before running; a poorly framed question produces a confident but useless evaluation.",
+                ),
             ),
         ),
-        operator_only=True,
-    ),
-    Skill(
-        name="wf-review-plan",
-        description=f"Review {_vp_planning('article')}, or the current {_vp_wave()} record when no {_vp_change()} is specified, before implementation by walking every unresolved decision branch one question at a time. "
-        f"The Review plan workflow; distinct from {_vp_shortcut('review-wave')}.",
-        body=_thin_pointer_body(
-            "Review a plan",
-            "docs/prompts/review-plan.prompt.md",
-            (
-                f"Review the named {_vp_planning()}, or fall back to the current {_vp_wave()} record when no {_vp_change()} is specified; this may run before or after admission, but only before implementation.",
-                "Self-answer from project resources first; surface only the questions that genuinely need operator judgment.",
-                f"This optional review records no typed signoff and satisfies no lifecycle gate; use `{_vp_skill('review-wave')}` for the open {_vp_wave()}'s required delivery-review lanes.",
+        Skill(
+            name="wf-memory-review",
+            description="Review and apply eligible agent-memory consolidation, archival, and purge per the memory lifecycle gates. The Memory review workflow.",
+            body=_thin_pointer_body(
+                "Review memories",
+                "docs/prompts/memory-review.prompt.md",
+                (
+                    "Prefer the `memory_reconcile`, `memory_consolidate`, and `memory_purge` MCP tools.",
+                    "Gate reminder: consolidation, archival, and purge apply only per the prompt's eligibility gates; nothing is purged on judgment alone.",
+                ),
             ),
         ),
-    ),
-    Skill(
-        name="wf-evaluate-decision",
-        description="Structured evaluation of an ADR-shaped decision between two named options, running a red-team pass, council review, and operator interview, ending in an Architecture Decision Record. Not for ordinary in-flight decisions. The Evaluate decision workflow.",
-        body=_thin_pointer_body(
-            "Evaluate a decision",
-            "docs/prompts/evaluate-decision.prompt.md",
-            (
-                "The workflow is prompt-driven (no dedicated MCP tool) and ends in an Architecture Decision Record.",
-                "Frame two specific options before running; a poorly framed question produces a confident but useless evaluation.",
+        Skill(
+            name=_vp_skill("pause-wave"),
+            description=f"Park the current session's {_vp_wave()} state in the durable handoff artifact when stopping work or handing off. The {_vp_shortcut('pause-wave')} workflow.",
+            body=_thin_pointer_body(
+                f"Pause {_vp_wave(article=True)}",
+                _vp_doc("pause-wave"),
+                (
+                    "Prefer the `wf_pause_wave` MCP tool; it also closes any open edit gates.",
+                    "Write the durable handoff artifact; do not improvise a summary in its place.",
+                ),
             ),
         ),
-    ),
-    Skill(
-        name="wf-memory-review",
-        description="Review and apply eligible agent-memory consolidation, archival, and purge per the memory lifecycle gates. The Memory review workflow.",
-        body=_thin_pointer_body(
-            "Review memories",
-            "docs/prompts/memory-review.prompt.md",
-            (
-                "Prefer the `memory_reconcile`, `memory_consolidate`, and `memory_purge` MCP tools.",
-                "Gate reminder: consolidation, archival, and purge apply only per the prompt's eligibility gates; nothing is purged on judgment alone.",
-            ),
+        Skill(
+            name="wf-council",
+            # Wave 200ey (change 200ew): the protocol's display name is a profile constant.
+            description=f"Convene an on-demand review on one artifact, choosing among the role-based {vocabulary_profile.COUNCIL_DISPLAY_NAME}, the stance-based Archetype Council, and standalone Red-team review. "
+            f"Not the open {_vp_wave()}'s required lanes ({_vp_shortcut('review-wave')}) and not Review plan, the optional {_vp_planning('hyphen')} or current-{_vp_wave()} stress test whose aliases are Interrogate this plan and Stress-test this plan.",
+            body=WF_COUNCIL_SKILL_BODY,
         ),
-    ),
-    Skill(
-        name=_vp_skill("pause-wave"),
-        description=f"Park the current session's {_vp_wave()} state in the durable handoff artifact when stopping work or handing off. The {_vp_shortcut('pause-wave')} workflow.",
-        body=_thin_pointer_body(
-            f"Pause {_vp_wave(article=True)}",
-            _vp_doc("pause-wave"),
-            (
-                "Prefer the `wf_pause_wave` MCP tool; it also closes any open edit gates.",
-                "Write the durable handoff artifact; do not improvise a summary in its place.",
-            ),
+        Skill(
+            name="wf-guru",
+            description="PROACTIVELY use when the user asks how repository source code or project documentation works and answering needs an investigation — explaining behavior, pipelines, architecture, behavior contracts, framework scripts, indexing, chunking, retrieval, or MCP tools. A direct lookup, such as finding a definition or reading one value, needs no skill; call the code_* tools directly. "
+            f"Not for wave lifecycle commands ({_vp_shortcut('plan-change')}, {_vp_shortcut('implement-wave')}, {_vp_shortcut('close-wave')}, etc.).",
+            body=WF_GURU_SKILL_BODY,
+            requires_doc=GURU_ROLE_REL,
         ),
-    ),
-    Skill(
-        name="wf-council",
-        # Wave 200ey (change 200ew): the protocol's display name is a profile constant.
-        description=f"Convene an on-demand review on one artifact, choosing among the role-based {vocabulary_profile.COUNCIL_DISPLAY_NAME}, the stance-based Archetype Council, and standalone Red-team review. "
-        f"Not the open {_vp_wave()}'s required lanes ({_vp_shortcut('review-wave')}) and not Review plan, the optional {_vp_planning('hyphen')} or current-{_vp_wave()} stress test whose aliases are Interrogate this plan and Stress-test this plan.",
-        body=WF_COUNCIL_SKILL_BODY,
-    ),
-    Skill(
-        name="wf-guru",
-        description="PROACTIVELY use when the user asks how repository source code or project documentation works and answering needs an investigation — explaining behavior, pipelines, architecture, behavior contracts, framework scripts, indexing, chunking, retrieval, or MCP tools. A direct lookup, such as finding a definition or reading one value, needs no skill; call the code_* tools directly. "
-        f"Not for wave lifecycle commands ({_vp_shortcut('plan-change')}, {_vp_shortcut('implement-wave')}, {_vp_shortcut('close-wave')}, etc.).",
-        body=WF_GURU_SKILL_BODY,
-        requires_doc=GURU_ROLE_REL,
-    ),
-    Skill(
-        name="wf-upgrade",
-        description="Operator checklist for intentionally editing the Wave Framework or repo-local wave surfaces (Upgrade Wavefoundry). Framework maintenance only, never product code changes.",
-        body=WF_UPGRADE_SKILL_BODY,
-        operator_only=True,
-    ),
-    Skill(
-        name="wf-package",
-        description="Build the Wavefoundry framework distribution pack with build_pack.py (Package Wavefoundry). Available only where the packaging prompt doc exists, normally the framework source repository.",
-        body=_thin_pointer_body(
-            "Package Wavefoundry",
-            "docs/prompts/package-wavefoundry.prompt.md",
-            (
-                "Prefer `--release` for a published release; a bare `--version` build only packages. `build_pack.py` hard-fails without a matching `## [version]` CHANGELOG section, so write the changelog first.",
-                "Gate reminder: building the pack, pushing tags and publishing are operator-owned; perform each only on explicit operator instruction in the current request.",
-                "The ordered verification commands live in `docs/contributing/build-and-verification.md`.",
-            ),
+        Skill(
+            name="wf-upgrade",
+            description="Operator checklist for intentionally editing the Wave Framework or repo-local wave surfaces (Upgrade Wavefoundry). Framework maintenance only, never product code changes.",
+            body=WF_UPGRADE_SKILL_BODY,
+            operator_only=True,
         ),
-        requires_doc="docs/prompts/package-wavefoundry.prompt.md",
-        operator_only=True,
-    ),
-    Skill(
-        name="wf-code-cleanup",
-        description="Recommend-only maintainability sweep of the whole codebase for dead code, duplication, complexity, abandoned files, and technical debt, producing keep/simplify/remove recommendations (Codebase cleanup review / Dead code review). It changes nothing itself; not a review of one artifact (wf-council) "
-        f"and not the open {_vp_wave()}'s required lanes ({_vp_skill('review-wave')}).",
-        body=_thin_pointer_body(
-            "Codebase cleanup review",
-            "docs/prompts/codebase-cleanup-review.prompt.md",
-            (
-                "The sweep is graph-based and recommend-only; it proposes, the operator disposes.",
-                "Acting on a recommendation is ordinary lifecycle work (plan, admit, implement); never an inline mass deletion.",
+        Skill(
+            name="wf-package",
+            description="Build the Wavefoundry framework distribution pack with build_pack.py (Package Wavefoundry). Available only where the packaging prompt doc exists, normally the framework source repository.",
+            body=_thin_pointer_body(
+                "Package Wavefoundry",
+                "docs/prompts/package-wavefoundry.prompt.md",
+                (
+                    "Prefer `--release` for a published release; a bare `--version` build only packages. `build_pack.py` hard-fails without a matching `## [version]` CHANGELOG section, so write the changelog first.",
+                    "Gate reminder: building the pack, pushing tags and publishing are operator-owned; perform each only on explicit operator instruction in the current request.",
+                    "The ordered verification commands live in `docs/contributing/build-and-verification.md`.",
+                ),
             ),
+            requires_doc="docs/prompts/package-wavefoundry.prompt.md",
+            operator_only=True,
         ),
-        requires_doc="docs/prompts/codebase-cleanup-review.prompt.md",
-    ),
-    Skill(
-        name="wf-envision",
-        description="Define an ambitious product vision and an adaptable long-horizon roadmap, with beneficiary value and useful technical and nontechnical advances. The Envision project workflow distinguishes the destination, unresolved breakthroughs and useful stages, grounds current claims in evidence, authors VISION.md and uses proportionate advisory reviews by role; it grants no implementation authority.",
-        body=_thin_pointer_body(
-            "Envision project",
-            "docs/prompts/envision-project.prompt.md",
-            (
-                "Lead with the product destination and beneficiary value; distinguish bold ambition, unresolved breakthroughs and useful stages, grounded in the brief and current capabilities. Author the existing canonical vision or VISION.md.",
-                "Build an adaptable roadmap with useful technical and nontechnical advances, dependencies and value at each horizon; select advisory review scope by stakes, maturity and uncertainty, and disclose missing coverage.",
-                "Follow the backing prompt for authoring and review artifacts. Envisioning grants no implementation or lifecycle approval; an explicit read-only request writes nothing.",
+        Skill(
+            name="wf-code-cleanup",
+            description="Recommend-only maintainability sweep of the whole codebase for dead code, duplication, complexity, abandoned files, and technical debt, producing keep/simplify/remove recommendations (Codebase cleanup review / Dead code review). It changes nothing itself; not a review of one artifact (wf-council) "
+            f"and not the open {_vp_wave()}'s required lanes ({_vp_skill('review-wave')}).",
+            body=_thin_pointer_body(
+                "Codebase cleanup review",
+                "docs/prompts/codebase-cleanup-review.prompt.md",
+                (
+                    "The sweep is graph-based and recommend-only; it proposes, the operator disposes.",
+                    "Acting on a recommendation is ordinary lifecycle work (plan, admit, implement); never an inline mass deletion.",
+                ),
             ),
+            requires_doc="docs/prompts/codebase-cleanup-review.prompt.md",
         ),
-        requires_doc="docs/prompts/envision-project.prompt.md",
-    ),
-    Skill(
-        name="wf-techdocs",
-        description="Generate the missing-only Backstage catalog and TechDocs baseline with the wf_techdocs_baseline MCP tool (CLI fallback wf techdocs-baseline), then have the technical-writer specialist author the published pages with Guru, architecture, security, qa, and docs-contract collaboration (Refresh TechDocs / Author TechDocs). An explicit read-only request selects the review-only branch, which runs the wf_techdocs_audit publication audit (CLI fallback wf techdocs-audit) and returns findings and proposed edits without writing. Renders once docs/prompts/refresh-techdocs.prompt.md exists (every target after seed-100 reconciliation).",
-        body=_thin_pointer_body(
-            "Refresh TechDocs",
-            "docs/prompts/refresh-techdocs.prompt.md",
-            (
-                "Step 1 runs the baseline, `wf_techdocs_baseline(mode='dry_run')` then `mode='run'` over MCP or the `wf techdocs-baseline` CLI without MCP (missing-only; existing files are preserved byte-for-byte; a mixed trio yields one warning). Steps 2 and 3 author and validate the published pages, and Step 3 runs the `wf_techdocs_audit` publication audit. On an explicit read-only request, use the prompt's read-only procedure instead: it runs the audit only, never the baseline, and writes nothing.",
-                "The workflow writes only inside the `mkdocs.yml` publication boundary; the one exception is removing the generated-by line from the trio's root members when the writer takes ownership of the trio.",
-                "Registration with a Backstage instance and publication of the site stay operator/Backstage-owned; the prompt's follow-up checklist lists what remains.",
+        Skill(
+            name="wf-envision",
+            description="Define an ambitious product vision and an adaptable long-horizon roadmap, with beneficiary value and useful technical and nontechnical advances. The Envision project workflow distinguishes the destination, unresolved breakthroughs and useful stages, grounds current claims in evidence, authors VISION.md and uses proportionate advisory reviews by role; it grants no implementation authority.",
+            body=_thin_pointer_body(
+                "Envision project",
+                "docs/prompts/envision-project.prompt.md",
+                (
+                    "Lead with the product destination and beneficiary value; distinguish bold ambition, unresolved breakthroughs and useful stages, grounded in the brief and current capabilities. Author the existing canonical vision or VISION.md.",
+                    "Build an adaptable roadmap with useful technical and nontechnical advances, dependencies and value at each horizon; select advisory review scope by stakes, maturity and uncertainty, and disclose missing coverage.",
+                    "Follow the backing prompt for authoring and review artifacts. Envisioning grants no implementation or lifecycle approval; an explicit read-only request writes nothing.",
+                ),
             ),
+            requires_doc="docs/prompts/envision-project.prompt.md",
         ),
-        requires_doc="docs/prompts/refresh-techdocs.prompt.md",
-    ),
-    Skill(
-        name=_vp_skill("plan-arc"),
-        description=f"Plan or resume a bounded outcome across {_vp_wave(plural=True)} in a concise {vocabulary_profile.ARC_NAME.lower()} record, explaining evidence, remaining obligations and the next useful advance. The optional {_vp_shortcut('plan-arc')} workflow grants no implementation authority.",
-        body=_thin_pointer_body(
-            _vp_shortcut("plan-arc"),
-            _vp_doc("plan-arc"),
-            (
-                # Change 230k7: the container noun follows the vocabulary profile.
-                f"Recover the outcome, evidence, remaining obligations and next useful {_vp_wave()} from relevant records; preserve operator edits and link to authoritative {_vp_wave()} evidence.",
-                "Follow the backing prompt to create or revise one concise record, or honor a read-only request. This optional planning step adds no lifecycle gate or implementation authority.",
+        Skill(
+            name="wf-techdocs",
+            description="Generate the missing-only Backstage catalog and TechDocs baseline with the wf_techdocs_baseline MCP tool (CLI fallback wf techdocs-baseline), then have the technical-writer specialist author the published pages with Guru, architecture, security, qa, and docs-contract collaboration (Refresh TechDocs / Author TechDocs). An explicit read-only request selects the review-only branch, which runs the wf_techdocs_audit publication audit (CLI fallback wf techdocs-audit) and returns findings and proposed edits without writing. Renders once docs/prompts/refresh-techdocs.prompt.md exists (every target after seed-100 reconciliation).",
+            body=_thin_pointer_body(
+                "Refresh TechDocs",
+                "docs/prompts/refresh-techdocs.prompt.md",
+                (
+                    "Step 1 runs the baseline, `wf_techdocs_baseline(mode='dry_run')` then `mode='run'` over MCP or the `wf techdocs-baseline` CLI without MCP (missing-only; existing files are preserved byte-for-byte; a mixed trio yields one warning). Steps 2 and 3 author and validate the published pages, and Step 3 runs the `wf_techdocs_audit` publication audit. On an explicit read-only request, use the prompt's read-only procedure instead: it runs the audit only, never the baseline, and writes nothing.",
+                    "The workflow writes only inside the `mkdocs.yml` publication boundary; the one exception is removing the generated-by line from the trio's root members when the writer takes ownership of the trio.",
+                    "Registration with a Backstage instance and publication of the site stay operator/Backstage-owned; the prompt's follow-up checklist lists what remains.",
+                ),
             ),
+            requires_doc="docs/prompts/refresh-techdocs.prompt.md",
         ),
-        requires_doc=_vp_doc("plan-arc"),
-    ),
-    Skill(
-        name="wf-stats",
-        description="Report project size, progress, index figures and recorded estimates using the shared statistics tool.",
-        body=dedent("""\
-            # Project statistics
+        Skill(
+            name=_vp_skill("plan-arc"),
+            description=f"Plan or resume a bounded outcome across {_vp_wave(plural=True)} in a concise {vocabulary_profile.ARC_NAME.lower()} record, explaining evidence, remaining obligations and the next useful advance. The optional {_vp_shortcut('plan-arc')} workflow grants no implementation authority.",
+            body=_thin_pointer_body(
+                _vp_shortcut("plan-arc"),
+                _vp_doc("plan-arc"),
+                (
+                    # Change 230k7: the container noun follows the vocabulary profile.
+                    f"Recover the outcome, evidence, remaining obligations and next useful {_vp_wave()} from relevant records; preserve operator edits and link to authoritative {_vp_wave()} evidence.",
+                    "Follow the backing prompt to create or revise one concise record, or honor a read-only request. This optional planning step adds no lifecycle gate or implementation authority.",
+                ),
+            ),
+            requires_doc=_vp_doc("plan-arc"),
+        ),
+        Skill(
+            name="wf-stats",
+            description="Report project size, progress, index figures and recorded estimates using the shared statistics tool.",
+            body=dedent("""\
+                # Project statistics
 
-            Call `wf_stats`; request relevant sections for focused questions and omit
-            `sections` for a full report. Leave `include_wave_details` false unless the
-            question asks for per-wave accounting; then request it explicitly. Request
-            `group_by="directory"` only for directory composition. Without MCP, use the repository launcher with
-            `stats --json`. Present a concise summary, section headings and Markdown
-            tables, not box-drawing tables. A full report covers all eight sections:
+                Call `wf_stats`; request relevant sections for focused questions and omit
+                `sections` for a full report. Leave `include_wave_details` false unless the
+                question asks for per-wave accounting; then request it explicitly. Request
+                `group_by="directory"` only for directory composition. Without MCP, use the repository launcher with
+                `stats --json`. Present a concise summary, section headings and Markdown
+                tables, not box-drawing tables. A full report covers all eight sections:
 
-            - Code: separate code, documentation and data totals with files, total lines
-              and code lines. Prefer returned effective non-test/test line counts and
-              test-share ratio, with inline-analysis precision beside them. Legacy
-              production/test fields are path-only compatibility counts, not shipping
-              evidence. Show configured or inferred roles separately from language and
-              format; a declared shipped file can contain test code. Use "non-test" for
-              the unconfigured bucket. Test share is not test coverage. Mixed-file counts
-              overlap; do not sum them as distinct files. Directory rows use the same
-              included-file totals. Never combine unrelated categories. Unsupported Rust
-              syntax or unavailable parsing keeps a labelled path-only fallback; Swift
-              target roots are explicit declarations, not discovered by running builds.
-            - Source-code TODO markers: marker counts and returned top files; TODO,
-              FIXME, HACK and XXX are literal code occurrences, including tests,
-              not implementation checklist tasks.
-            - Lifecycle: label groups "Changes assigned to waves" and "Plans not assigned
-              to a wave", adapting lifecycle nouns to project vocabulary. Show
-              "Acceptance criteria" and "Implementation tasks" as done, deferred, open and total;
-              total = done + deferred + open. Keep not-this-scope separate. Lifecycle
-              status rows are distinct from checkbox completion; flag incomplete coverage.
-              Explain the returned completion rule. Show open work in active and paused
-              containers from returned checklist rows, with an omitted-row count if shortened.
-            - Documents and roles: returned document, public-prompt and role counts.
-            - Memories: every returned status, including candidates awaiting validation,
-              rejected and archived records, plus active kinds. Candidate records are
-              not unwritten proposals or an upgrade's backfill worklist.
-            - Index: embedding, lexical and graph figures with returned source dates;
-              indexed files differ from counted source files.
-            - Token savings estimates: published estimates with stage and record coverage,
-              credits, recorded request/response debits, exclusions and pending markers.
-              Put "No paired evaluations recorded" beside the estimate when the returned
-              paired count is zero. Debits are recorded accounting estimates, not total
-              model consumption or billing; never call the net estimate measured savings.
-            - Secret findings: recorded status/rule counts and confirmation summaries;
-              findings-file modification time is not scan time or proof of a clean scan.
-              Separately show machine-local latest/last-full scan observations and current
-              outstanding incomplete coverage. Missing history is unknown; dated history
-              does not prove the current tree clean. Allowlist entries are not matched files.
+                - Code: separate code, documentation and data totals with files, total lines
+                  and code lines. Prefer returned effective non-test/test line counts and
+                  test-share ratio, with inline-analysis precision beside them. Legacy
+                  production/test fields are path-only compatibility counts, not shipping
+                  evidence. Show configured or inferred roles separately from language and
+                  format; a declared shipped file can contain test code. Use "non-test" for
+                  the unconfigured bucket. Test share is not test coverage. Mixed-file counts
+                  overlap; do not sum them as distinct files. Directory rows use the same
+                  included-file totals. Never combine unrelated categories. Unsupported Rust
+                  syntax or unavailable parsing keeps a labelled path-only fallback; Swift
+                  target roots are explicit declarations, not discovered by running builds.
+                - Source-code TODO markers: marker counts and returned top files; TODO,
+                  FIXME, HACK and XXX are literal code occurrences, including tests,
+                  not implementation checklist tasks.
+                - Lifecycle: label groups "Changes assigned to waves" and "Plans not assigned
+                  to a wave", adapting lifecycle nouns to project vocabulary. Show
+                  "Acceptance criteria" and "Implementation tasks" as done, deferred, open and total;
+                  total = done + deferred + open. Keep not-this-scope separate. Lifecycle
+                  status rows are distinct from checkbox completion; flag incomplete coverage.
+                  Explain the returned completion rule. Show open work in active and paused
+                  containers from returned checklist rows, with an omitted-row count if shortened.
+                - Documents and roles: returned document, public-prompt and role counts.
+                - Memories: every returned status, including candidates awaiting validation,
+                  rejected and archived records, plus active kinds. Candidate records are
+                  not unwritten proposals or an upgrade's backfill worklist.
+                - Index: embedding, lexical and graph figures with returned source dates;
+                  indexed files differ from counted source files.
+                - Token savings estimates: published estimates with stage and record coverage,
+                  credits, recorded request/response debits, exclusions and pending markers.
+                  Put "No paired evaluations recorded" beside the estimate when the returned
+                  paired count is zero. Debits are recorded accounting estimates, not total
+                  model consumption or billing; never call the net estimate measured savings.
+                - Secret findings: recorded status/rule counts and confirmation summaries;
+                  findings-file modification time is not scan time or proof of a clean scan.
+                  Separately show machine-local latest/last-full scan observations and current
+                  outstanding incomplete coverage. Missing history is unknown; dated history
+                  does not prove the current tree clean. Allowlist entries are not matched files.
 
-            Preserve counting rules, estimate labels, source dates and unavailable or
-            incomplete reasons. Describe skipped-file reasons and bounded examples, including omitted counts;
-            observed excluded directories do not count their unvisited descendants.
-            Use only returned rows and figures. Do not recount, infer missing numbers
-            or create new aggregates. Keep large breakdowns concise
-            and expand on request. Never expose secret-finding content. No change authority.
-            """),
-    ),
-)
+                Preserve counting rules, estimate labels, source dates and unavailable or
+                incomplete reasons. Describe skipped-file reasons and bounded examples, including omitted counts;
+                observed excluded directories do not count their unvisited descendants.
+                Use only returned rows and figures. Do not recount, infer missing numbers
+                or create new aggregates. Keep large breakdowns concise
+                and expand on request. Never expose secret-finding content. No change authority.
+                """),
+        ),
+    )
+
+
+SKILL_REGISTRY = _build_skill_registry()
+_scoped_render = ContextVar("repository_render_profile", default=None)
+
+
+def _skill_registry():
+    scope = _scoped_render.get()
+    return scope[1] if scope else SKILL_REGISTRY
 
 
 # Wave 1zyb3 (change 1zxnu): the first body line of every SKILL.md rendered
@@ -1156,7 +1182,7 @@ def skill_name_collisions(skills: object = None) -> dict[str, str]:
     collisions: dict[str, str] = {}
     if not isinstance(skills, Mapping):
         return collisions
-    core_names = {skill.name.casefold() for skill in SKILL_REGISTRY}
+    core_names = {skill.name.casefold() for skill in _skill_registry()}
     for name in skills:
         if not isinstance(name, str):
             continue
@@ -1281,12 +1307,12 @@ def _skill_is_eligible(repo_root: Path, skill: Skill, creations: "Mapping[str, P
 def _all_skills() -> "tuple[Skill, ...]":
     """The framework registry followed by the declared skills."""
 
-    names = [skill.name.casefold() for skill in SKILL_REGISTRY]
-    if len(names) != len(set(names)) or any(not _SKILL_NAME_PATTERN.fullmatch(skill.name) for skill in SKILL_REGISTRY):
+    names = [skill.name.casefold() for skill in _skill_registry()]
+    if len(names) != len(set(names)) or any(not _SKILL_NAME_PATTERN.fullmatch(skill.name) for skill in _skill_registry()):
         raise RuntimeError("invalid core skill registry; nothing was rendered")
     declared = declared_skills()  # Validate before filtering any core output.
     blocked = {name.casefold() for name in skill_name_collisions()}
-    return (*(skill for skill in SKILL_REGISTRY if skill.name.casefold() not in blocked), *declared)
+    return (*(skill for skill in _skill_registry() if skill.name.casefold() not in blocked), *declared)
 
 
 def _operator_skill_policy_path(skill: Skill, skills_dir: str) -> "str | None":
@@ -1685,6 +1711,41 @@ def _remove_retired_skill_policies(root: Path, policies: "list[_RetiredSkillPoli
     return written
 
 
+@contextmanager
+def using_repository_prompt_names(root: Path, manifest: dict):
+    """Scope the prompt registry and the skills that point to it to one checkout."""
+    try:
+        names = vocabulary_profile.repository_prompt_names(manifest)
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+    with vocabulary_profile.using_prompt_names(names):
+        token = _scoped_render.set((root, _build_skill_registry()))
+        try:
+            yield
+        finally:
+            _scoped_render.reset(token)
+
+
+def _repository_prompt_scope(function):
+    """Select this repository's names before deriving paths and skills."""
+    @wraps(function)
+    def scoped(repo_root, *args, **kwargs):
+        if not vocabulary_profile.custom_planning_vocabulary():
+            return function(repo_root, *args, **kwargs)
+        root = Path(repo_root).resolve()
+        active = _scoped_render.get()
+        if active and active[0] == root:
+            return function(repo_root, *args, **kwargs)
+        try:
+            _, _, manifest = _read_prompt_manifest(root)
+        except ValueError:
+            manifest = {}  # Existing migration handles absent or unreadable records.
+        with using_repository_prompt_names(root, manifest):
+            return function(repo_root, *args, **kwargs)
+    return scoped
+
+
+@_repository_prompt_scope
 def render_skills(repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()) -> list[str]:
     """Render every registry skill, then every declared skill, to each active skill host.
 
@@ -1696,7 +1757,7 @@ def render_skills(repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()
     (see :func:`unrecorded_profile_prompt_paths`) is not created this render.
     """
 
-    for skill in SKILL_REGISTRY:
+    for skill in _skill_registry():
         if not _SKILL_NAME_PATTERN.fullmatch(skill.name):
             raise RuntimeError(
                 f"skill name violates the wf- kebab-case policy: {skill.name!r}"
@@ -4407,15 +4468,14 @@ def _record_applied_prompt_name(repo_root: Path, key: str, applied_slug: str) ->
     target_doc = _prompt_pair_paths(target_slug)[0]
     entries = data.get("public_prompt_surface")
     if isinstance(entries, list):
-        data["public_prompt_surface"] = [
-            {
-                name: (target_doc if name == "doc" else vocabulary_profile.shortcut(key) if name == "shortcut" else value)
-                for name, value in entry.items()
-            }
-            if isinstance(entry, dict) and entry.get("doc") == applied_doc
-            else entry
-            for entry in entries
-        ]
+        for entry in entries:
+            if isinstance(entry, dict) and entry.get("doc") == applied_doc:
+                entry["doc"] = target_doc
+                entry["shortcut"] = vocabulary_profile.shortcut(key)
+                if vocabulary_profile.custom_planning_vocabulary() and (
+                    "aliases" in entry or "aliases" in vocabulary_profile.PROMPT_NAME_OVERRIDES.get(key, {})
+                ):
+                    entry["aliases"] = list(vocabulary_profile.shortcut_aliases(key))
     record = data.get("prompt_names")
     record = dict(record) if isinstance(record, dict) else {}
     if target_slug == vocabulary_profile.DEFAULT_PROMPT_NAMES[key]["slug"]:
@@ -4429,6 +4489,37 @@ def _record_applied_prompt_name(repo_root: Path, key: str, applied_slug: str) ->
     return _write_prompt_manifest(path, original, data, root=repo_root)
 
 
+def _applied_migration_names(data: dict) -> dict:
+    applied = vocabulary_profile.applied_prompt_slugs(
+        data.get("prompt_names"), vocabulary_profile.registered_prompt_docs(data)
+    )
+    # Plan initiative was a fixed public prompt before the optional Arc
+    # record. Its manifest registration supplies rename authority; a file
+    # with that name alone is left to the preservation-aware agent merge.
+    names = data.get("prompt_names") or {}
+    entries = data.get("public_prompt_surface")
+    if "plan-arc" not in names and isinstance(entries, list) and any(
+        isinstance(entry, dict) and entry.get("doc") == "docs/prompts/plan-initiative.prompt.md"
+        for entry in entries
+    ):
+        applied["plan-arc"] = "plan-initiative"
+    return applied
+
+
+def _validated_prompt_plan(repo_root, applied):
+    order, pairs, conflicts = _profile_prompt_plan(repo_root, applied)
+    if conflicts:
+        raise RuntimeError(
+            "prompt name migration blocked: "
+            + "; ".join(conflicts)
+            + ". All files were preserved and nothing was written. Merge any project-authored "
+            "prose into the prompt at the profile's name, remove the other copy, and rerun "
+            "`wf render-surfaces`."
+        )
+    return order, pairs
+
+
+@_repository_prompt_scope
 def migrate_profile_prompt_names(repo_root: Path) -> ProfilePromptMigration:
     """Move rendered lifecycle prompts from their applied names (the manifest's
     ``prompt_names``, absent meaning the defaults) to the profile's names.
@@ -4457,19 +4548,7 @@ def migrate_profile_prompt_names(repo_root: Path) -> ProfilePromptMigration:
     try:
         _path, _original, data = _read_prompt_manifest(repo_root)
         record_invalid = True
-        applied = vocabulary_profile.applied_prompt_slugs(
-            data.get("prompt_names"), vocabulary_profile.registered_prompt_docs(data)
-        )
-        # Plan initiative was a fixed public prompt before the optional Arc
-        # record. Its manifest registration supplies rename authority; a file
-        # with that name alone is left to the preservation-aware agent merge.
-        names = data.get("prompt_names") or {}
-        entries = data.get("public_prompt_surface")
-        if "plan-arc" not in names and isinstance(entries, list) and any(
-            isinstance(entry, dict) and entry.get("doc") == "docs/prompts/plan-initiative.prompt.md"
-            for entry in entries
-        ):
-            applied["plan-arc"] = "plan-initiative"
+        applied = _applied_migration_names(data)
     except ValueError as exc:
         # Silent under the default profile with an absent or unreadable
         # manifest (docs-lint requires and checks it); reported otherwise.
@@ -4491,15 +4570,7 @@ def migrate_profile_prompt_names(repo_root: Path) -> ProfilePromptMigration:
             written=(), link_report=(), diagnostics=diagnostics, record_readable=False,
             stranded_keys=stranded,
         )
-    order, pairs, conflicts = _profile_prompt_plan(repo_root, applied)
-    if conflicts:
-        raise RuntimeError(
-            "prompt name migration blocked: "
-            + "; ".join(conflicts)
-            + ". All files were preserved and nothing was written. Merge any project-authored "
-            "prose into the prompt at the profile's name, remove the other copy, and rerun "
-            "`wf render-surfaces`."
-        )
+    order, pairs = _validated_prompt_plan(repo_root, applied)
     written: list[str] = []
     moved: list[str] = []
     for key in order:
@@ -4511,8 +4582,33 @@ def migrate_profile_prompt_names(repo_root: Path) -> ProfilePromptMigration:
         if _record_applied_prompt_name(repo_root, key, applied[key]):
             written.append(PROMPT_SURFACE_MANIFEST)
     link_report = _moved_prompt_link_report(repo_root, tuple(moved)) if moved else ()
+    diagnostics = ()
+    if vocabulary_profile.custom_planning_vocabulary():
+        registered = vocabulary_profile.registered_prompt_docs(data)
+        overrides = vocabulary_profile.PROMPT_NAME_OVERRIDES
+        entries = data.get("public_prompt_surface")
+        by_doc = {entry["doc"]: entry for entry in (entries if isinstance(entries, list) else [])
+                  if isinstance(entry, dict) and isinstance(entry.get("doc"), str)}
+        for key in vocabulary_profile.EARLIER_DEFAULT_PROMPT_SLUGS:
+            if key in order or key not in overrides:
+                continue
+            entry = by_doc.get(_prompt_pair_paths(applied[key])[0])
+            if entry is not None and (
+                entry.get("shortcut") != vocabulary_profile.shortcut(key)
+                or ("aliases" in overrides[key] and
+                    entry.get("aliases") != list(vocabulary_profile.shortcut_aliases(key)))
+            ):
+                if _record_applied_prompt_name(repo_root, key, applied[key]):
+                    written.append(PROMPT_SURFACE_MANIFEST)
+        kept = [applied[key] for key in vocabulary_profile.EARLIER_DEFAULT_PROMPT_SLUGS
+                if key not in order and "slug" not in overrides.get(key, {})
+                and (key in (data.get("prompt_names") or {})
+                     or _prompt_pair_paths(applied[key])[0] in registered)]
+        if kept:
+            diagnostics = ("Kept registered planning prompt names: " + ", ".join(kept)
+                           + ". Set PROMPT_NAME_OVERRIDES to rename them.",)
     return ProfilePromptMigration(
-        written=tuple(dict.fromkeys(written)), link_report=link_report, diagnostics=()
+        written=tuple(dict.fromkeys(written)), link_report=link_report, diagnostics=diagnostics
     )
 
 
@@ -4536,7 +4632,7 @@ def stale_skill_paths(declared: object = None) -> "tuple[str, ...]":
     ``EXTENSION_SKILLS``; read raw, never through ``declared_skills``, which
     calls back here)."""
 
-    current = {skill.name for skill in SKILL_REGISTRY}
+    current = {skill.name for skill in _skill_registry()}
     if declared is None:
         declared = getattr(mcp_tool_extensions, "EXTENSION_SKILLS", {})
     declared_names = (
@@ -4560,7 +4656,7 @@ def stale_skill_paths(declared: object = None) -> "tuple[str, ...]":
 def _stale_operator_skill_policy_paths(repo_root: Path) -> list[str]:
     """Only default operator paths already retired by the existing migration."""
     stale = set(stale_skill_paths())
-    operators = {skill.name for skill in SKILL_REGISTRY if skill.operator_only}
+    operators = {skill.name for skill in _skill_registry() if skill.operator_only}
     paths: list[str] = []
     for key in SKILL_PROMPT_KEYS:
         if _vp_skill(key) not in operators:
@@ -4601,6 +4697,7 @@ def _agent_surface_output_destinations(repo_root: Path) -> list[str]:
     return destinations
 
 
+@_repository_prompt_scope
 def preflight_agent_surface_paths(repo_root: Path) -> None:
     """Refuse every registered/native agent escape before the first write."""
 
@@ -4620,7 +4717,7 @@ def preflight_agent_surface_paths(repo_root: Path) -> None:
             )
     destinations = [
         *(carrier.destination for carrier in review_protocol_carriers(repo_root)),
-        *(destination for destination, _template in LIFECYCLE_PROMPT_BASELINES),
+        *(destination for destination, _template in _lifecycle_prompt_baselines()),
         *(destination for destination, _template in scaffold_baselines(repo_root)),
         UPGRADE_POLICY_DESTINATION,
         *_agent_surface_output_destinations(repo_root),
@@ -4807,6 +4904,7 @@ def _applied_prompt_docs(repo_root: Path) -> "dict[str, str]":
     }
 
 
+@_repository_prompt_scope
 def lifecycle_baseline_drift(repo_root: Path, incoming: dict[str, str]) -> list[dict]:
     """Compare project-owned copies without inferring their installation origin.
 
@@ -4818,7 +4916,7 @@ def lifecycle_baseline_drift(repo_root: Path, incoming: dict[str, str]) -> list[
     # before a pending prompt-name migration is not the profile's name.
     applied = _applied_prompt_docs(repo_root)
     pairs = [(applied.get(destination, destination), "lifecycle-prompts/" + template)
-             for destination, template in LIFECYCLE_PROMPT_BASELINES]
+             for destination, template in _lifecycle_prompt_baselines()]
     pairs.extend(scaffold_baselines(repo_root))
 
     def comparable(content):
@@ -4875,6 +4973,7 @@ def lifecycle_baseline_drift(repo_root: Path, incoming: dict[str, str]) -> list[
     return findings
 
 
+@_repository_prompt_scope
 def reconcile_lifecycle_prompt_baselines(
     repo_root: Path, *, skip_paths: "frozenset[str]" = frozenset()
 ) -> list[str]:
@@ -4904,7 +5003,7 @@ def reconcile_lifecycle_prompt_baselines(
         )
         template_label = "the packaged fallback install/lifecycle-prompts"
     today = time.strftime("%Y-%m-%d")
-    for destination, template_name in LIFECYCLE_PROMPT_BASELINES:
+    for destination, template_name in _lifecycle_prompt_baselines():
         if destination in skip_paths:
             continue
         path = _contained_review_carrier_path(repo_root, destination)
@@ -5396,11 +5495,19 @@ def reconcile_context_efficiency_surface(
     return [CONTEXT_EFFICIENCY_DESTINATION]
 
 
+@_repository_prompt_scope
 def render_agent_surfaces(repo_root: Path) -> list[str]:
     """Render auto-Guru tier 2–3 surfaces. Returns paths written or updated."""
     # Wave 1skt1: this must run before the historical Guru-availability early
     # return so setup/upgrade/render can repair review carriers in repositories
     # that intentionally do not expose Guru.
+    if vocabulary_profile.custom_planning_vocabulary():
+        try:
+            _, _, manifest = _read_prompt_manifest(repo_root)
+        except ValueError:
+            pass  # Existing migration reports an unreadable record.
+        else:
+            _validated_prompt_plan(repo_root, _applied_migration_names(manifest))
     preflight_agent_surface_paths(repo_root)
     # Wave 1w047: this fresh-code migration is the first mutating step. It must
     # resolve the project-owned old/new prompt state before a renamed skill can
@@ -5507,11 +5614,11 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     # Tier 3 — optional native surfaces
     if (repo_root / ".cursor").exists():
         cursor_rule = repo_root / ".cursor" / "rules" / "auto-guru.mdc"
-        _tier3_write(cursor_rule, CURSOR_AUTO_GURU_MDC)
+        _tier3_write(cursor_rule, _guru_shortcuts(_CURSOR_GURU_TEMPLATE))
 
     if (repo_root / ".claude").exists():
         claude_agent = repo_root / ".claude" / "agents" / "guru.md"
-        claude_content = CLAUDE_GURU_AGENT
+        claude_content = _guru_shortcuts(_CLAUDE_GURU_TEMPLATE)
         if claude_agent.is_file():
             claude_content = _merge_claude_agent(
                 _read_repo_text(repo_root, claude_agent, translate_newlines=False),
@@ -5520,7 +5627,7 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
             )
             if claude_content is not None:
                 claude_content = _refresh_guru_description(
-                    claude_content, CLAUDE_GURU_DESCRIPTION, Path(".claude/agents/guru.md")
+                    claude_content, _guru_shortcuts(_CLAUDE_GURU_TEMPLATE_DESCRIPTION), Path(".claude/agents/guru.md")
                 )
         if claude_content is not None:
             _tier3_write(claude_agent, claude_content)

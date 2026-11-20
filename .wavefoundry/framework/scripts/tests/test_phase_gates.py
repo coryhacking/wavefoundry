@@ -92,7 +92,10 @@ class PhaseGateTests(unittest.TestCase):
             changes=[('abcde-ref fixture', 'ref', b'# Fixture\n\n## Requirements\nKeep policy stable.\n')],
             requested_lanes=[])
         expected = 'edd395ae2a8fcd8cc1d983e1b73334e381721f1ad1bb0b2f306eb8476e7325fd'
-        for optional in ({}, {'phase_gates': None}, {'phase_gates': {}}):
+        with patch.object(review_policy, 'REVIEW_POLICY_EVALUATOR_VERSION', 7):
+            self.assertEqual(review_policy.policy_input_digest(**kwargs), expected)
+        expected = review_policy.policy_input_digest(**kwargs)
+        for optional in ({'phase_gates': None}, {'phase_gates': {}}):
             self.assertEqual(review_policy.policy_input_digest(**kwargs, **optional), expected)
 
     def test_schema_errors_lint_and_prepare_without_lint_subprocess(self):
@@ -757,7 +760,7 @@ class PhaseLaneTests(unittest.TestCase):
     def test_digest_unchanged_without_phase_gates(self):
         self.configure()
         import review_policy
-        self.assertEqual(review_policy.REVIEW_POLICY_EVALUATOR_VERSION, 7)
+        self.assertEqual(review_policy.REVIEW_POLICY_EVALUATOR_VERSION, 8)
         text = self.wave_md.read_text()
         change_ids = self.srv._extract_change_ids_from_wave_text(text)
         brief = self.srv._build_prepare_council_brief(self.wave, text, change_ids, typed=True)
