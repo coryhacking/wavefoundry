@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-19
 
 ## Vision and Roadmap
 
-Wavefoundry's purpose is to give one engineer or a small team greater capacity to create and care for significant software: building a new product, inheriting an unfamiliar system, improving or modernizing what runs today, or replacing what no longer serves its users. The long-term destination is an autonomous engineering laboratory that turns human intent into independently tested outcomes and preserves responsibility across changing contributors and tools. People retain control of purpose, consequential tradeoffs and authority.
+Wavefoundry enables a single engineer or small team to take on the work of an exceptional engineering department. Its vision is an autonomous engineering laboratory where agents investigate, build and coordinate the work. People set the goals, make the tradeoffs and decide what ships.
 
-Today's product supplies the local foundation: code intelligence, planning, a reviewed delivery lifecycle, typed memory and cross-agent handoffs. Envision turns a product destination into useful horizons, and optional arcs connect a bounded outcome to several waves. Broader autonomous coordination and stewardship are future capabilities to demonstrate, not current product claims. The repository's [Vision and Roadmap](https://github.com/coryhacking/wavefoundry/blob/main/VISION.md) sets that direction.
+Teams using Wavefoundry have demonstrated the first three horizons in practice. They deliver tested changes, trace behavior through unfamiliar code and resume work from earlier findings. The next focus is Horizon 4. Teams compare two credible designs under the same conditions and use independent checks to decide which one to integrate. The [Vision and Roadmap](https://github.com/coryhacking/wavefoundry/blob/main/VISION.md) gives the evidence and the criteria for that comparison.
 
 The planning relationship is **vision → horizon → arc → waves containing changes**. A horizon can contain several arcs; an arc can span several waves. Use an arc when the outcome benefits from continuity across waves. A small or unrelated change needs only its normal change plan and wave.
 

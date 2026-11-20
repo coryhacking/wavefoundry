@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-19
 
 Help the intended reader understand, decide or act accurately. Before drafting, identify that reader, what they already know, and what they need from this artifact. Let that task and the consequences of misunderstanding determine the detail. Brevity is useful when it removes effort without removing meaning.
 
@@ -28,9 +28,13 @@ When developing an argument, identify its governing thought: the answer, intende
 
 ## Understandable: make meaning explicit
 
-Use familiar words and direct verbs. Name the actor when responsibility matters. Keep a term consistent for the same concept, and distinguish concepts that have different effects. Retain necessary technical vocabulary; explain it for the audience instead of replacing it with an inaccurate everyday word. Make pronoun references clear.
+Use familiar words and direct verbs. Keep a term consistent for the same concept, and distinguish concepts that have different effects. Retain necessary technical vocabulary; explain it for the audience instead of replacing it with an inaccurate everyday word. Make pronoun references clear.
 
-For an instruction or requirement, preserve who acts, the triggering conditions, the action and required outcome. Give each step one coherent instruction; separate independent actions when order or verification matters. Keep exceptions, prohibitions, permissions, numerical constraints and units explicit. Do not weaken **must** into **should**, turn a recommendation into a requirement, or convert an example into a universal promise. Active voice often clarifies ownership; passive voice remains useful when the actor is unknown or immaterial.
+**Prefer active voice throughout project writing.** Name who acts, decides or verifies. For example, “The operator approves the release” tells a contributor whose decision to wait for. Use passive voice when the actor is unknown or immaterial and the reader needs the result.
+
+**Prefer present tense throughout project writing.** Describe what people and systems do. In a vision, describe the intended experience directly. “AI agents investigate the problem. Reviewers check the results.” When describing a step, write “the team verifies the fix.” Use “can verify” when the ability itself matters. Use the roadmap to distinguish what works today from what the team still needs to demonstrate. Use past tense for completed work and future or conditional wording when timing, a commitment or a dependency matters. Preserve the force of requirements such as **must**.
+
+For an instruction or requirement, preserve who acts, the triggering conditions, the action and required outcome. Give each step one coherent instruction; separate independent actions when order or verification matters. Keep exceptions, prohibitions, permissions, numerical constraints and units explicit. Do not weaken **must** into **should**, turn a recommendation into a requirement, or convert an example into a universal promise.
 
 In a requirement, acceptance criterion or status claim, name the setting, file, function, command, term, error text or limit the claim depends on, and define a term the reader cannot look up. If it is not yet known, say so and say what will identify it; do not guess a name. For example, “The importer reads its size limit from a setting that is not yet identified; the implementer will identify it by reading the importer's configuration loader before changing code.” A limit that a requirement imposes carries its number and unit, or states that the value is undecided and who will decide it. An adjective is a limit when a requirement acts on it and it stands for a quantity, as in “reject oversized records”. An adjective that names a category, as in “reject corrupt records”, is a term to define. An adjective of quality that a requirement acts on, as in “return a helpful error”, needs a definition or the observable result it requires. Any other adjective is a description. A requirement must not contain a hedge that leaves the obligation open, such as “if feasible”, “as needed” or “where possible”. When removing a hedge from an obligation, keep **must**; if the obligation is conditional, state the condition. Use **should** or “we recommend” only for text that was a recommendation, not a requirement. When the obligation depends on a condition, state the condition; a stated condition is not a hedge. A plan that fixes a defect shows the observed failure (the input or action, the actual result and the expected result) or says that the failure has not been reproduced.
 
@@ -58,6 +62,8 @@ Match the artifact to its purpose while preserving its existing contract:
 | Prompt | The task and intended outcome, necessary inputs, ordered instructions, boundaries and expected result. |
 
 ## Check the reader's task
+
+On a full draft or substantial revision, read each paragraph in order. What single point should the reader take away? Who does what? Replace vague phrases with the action or result they describe. If a newcomer needs an example, use one from the project's work. Keep qualifications that change the meaning, and cut sentences that only repeat the point.
 
 Before delivery, read the artifact as its intended reader. Can you find and explain the main point, how its supporting points justify it, the relevant obligation or choice, consequential limits and next action without reconstructing the author's work history? Check the explanation against its source: a fluent summary that changes meaning is a defect. Repair that defect before polishing style.
 

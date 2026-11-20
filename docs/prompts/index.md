@@ -6,7 +6,7 @@ Last verified: 2026-11-19
 
 The public catalog of shortcut phrases you can say to your agent. Each phrase routes to the documented prompt body for that command. See `AGENTS.md` for the agent-side routing table.
 
-If you're new to Wavefoundry, the repository `README.md` walks the install path and a first wave end-to-end; this index is the reference for everything else.
+For your first change, follow [Fix a bug or add an enhancement](https://github.com/coryhacking/wavefoundry/blob/main/README.md#fix-a-bug-or-add-an-enhancement). It shows what to ask your agent and how to check the result.
 
 ## Operating principles
 

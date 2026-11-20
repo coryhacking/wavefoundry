@@ -2,15 +2,23 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-19
 
-**Wavefoundry helps a small team create, take over, improve, modernize, replace and sustain significant software systems with AI agents.** It connects human intent to project knowledge, bounded deliveries, review evidence and continuing work across contributors and tools.
+**Wavefoundry enables a single engineer or small team to take on the work of an exceptional engineering department.** Use your coding agent to plan a change, test the result and leave the next contributor a record of what the team decided.
 
-The long-term destination is an autonomous engineering laboratory that expands a small team's capacity while people retain control of purpose, consequential decisions and authority. The current product is the local foundation: a Wave Framework seed pack, lifecycle tooling, an MCP server, code intelligence, typed memory and durable handoffs. Optional vision and arc workflows connect a longer-term destination to useful waves; autonomous program execution remains a roadmap goal. Read the [product overview](references/wavefoundry-overview.md) and the repository's [Vision and Roadmap](https://github.com/coryhacking/wavefoundry/blob/main/VISION.md).
+<a id="deliver-a-wave"></a>
 
-Wavefoundry is a spec-driven development framework. A spec plans one change, and a wave bundles the changes its specs describe, reviews them and closes them. Durable descriptions of implemented behavior are kept separately as behavior contracts under `docs/specs/`; the four terms are defined in the [Project overview](references/project-overview.md#vocabulary).
+## Fix a bug or add an enhancement
 
-You can use that foundation to build something new, improve a running service, replace an obsolete component or inherit a system with fragmented knowledge. Start with the planning depth the work needs. Project records remain visible in the repository and usable across supported agent hosts.
+Start with the behavior you want to change. For a bug, tell your coding agent what you did, what happened and what you expected. For an enhancement, describe who needs the new behavior and how they could tell it works.
+
+Your agent records the request and its acceptance criteria in a *spec*. When you are ready to build, group that spec with any changes you want to implement and review together. Wavefoundry calls that group a *wave*. A single fix can be its own wave.
+
+- **Setting up a repository?** Start with the [installation walkthrough](https://github.com/coryhacking/wavefoundry/blob/main/README.md#prerequisites).
+- **Ready to make a change?** Follow a [health-check fix or enhancement](https://github.com/coryhacking/wavefoundry/blob/main/README.md#fix-a-bug-or-add-an-enhancement) from the first request through testing and review.
+- **Looking for a command?** Find the phrase for planning, implementation, review or closure in [Workflow and agent commands](prompts/index.md).
+
+For work spanning several deliveries, see the [product overview](references/wavefoundry-overview.md) and [Vision and Roadmap](https://github.com/coryhacking/wavefoundry/blob/main/VISION.md). The [project overview](references/project-overview.md#vocabulary) defines the terms used in the workflow.
 
 ## Who this site is for
 
@@ -18,7 +26,7 @@ This site is for people: developers evaluating or adopting Wavefoundry in their 
 
 ## Install and upgrade
 
-- **Prerequisite.** Python 3.11 or newer on PATH as `python3`; the tooling uses a shared user-level venv at `~/.wavefoundry/venv` ([Architecture: current state](architecture/current-state.md), Python environment contract). Native Windows, WSL2, macOS, and Linux are first-class ([Project overview](references/project-overview.md), Supported Platforms; [Native Windows support](references/native-windows-support.md)).
+- **Prerequisite.** Python 3.11 or newer on PATH as `python3`; the tooling uses a shared user-level venv at `~/.wavefoundry/venv` ([Architecture: current state](architecture/current-state.md), Python environment contract). Native Windows, WSL2, macOS on Apple silicon, and Linux are first-class ([Project overview](references/project-overview.md), Supported Platforms; [Native Windows support](references/native-windows-support.md)).
 - **Install** is two-phase and gated by a markdown install log ([Install log format](references/install-log-format.md), lines 7-14). `wf setup` (`setup_wavefoundry.py`; `wf_cli.py` line 54, writer-verified) completes Phase 1 in a fixed order: absent-only workflow config, host surface rendering, dependencies into the tool venv, an MCP server dry-run, then the semantic and graph index (`setup_wavefoundry.main` steps 0-4; `server.main --dry-run`, `server.py` lines 586-615). After the agent host restarts, Phase 2 proceeds under `wf_audit_install()`, which reads the live install log and reports one of `missing_log`, `unparseable_log`, `lint_errors`, `checked_but_missing`, `next_step`, `phase_complete`, or `complete` (`server_impl.wf_audit_install_response`).
 - **Upgrade** (`wf upgrade`, `wf_cli.py` line 53, writer-verified; `wf_upgrade` over MCP) is phased: pre-flight, surface rendering, prune, docs gate, then index update and cleanup, with exit codes 0-3 plus 4 from the memory-backfill action-required path (`wf_upgrade`, `wf_server/server_impl.py`; `upgrade_wavefoundry.py` lines 25-30; `memory_backfill.ACTION_REQUIRED_EXIT`). It speaks upgrade protocol 2 (`upgrade_protocol.UPGRADE_PROTOCOL_VERSION`) and extracts only zip members under `.wavefoundry/` plus one transient root bootstrap file, so a release archive cannot scatter files across the target project (`upgrade_wavefoundry._EXTRACT_MEMBER_PREFIX`, line 910; `_extract_feature_members`, lines 914-928).
 - **Packaging** (maintainers). `build_pack.py` stamps `.wavefoundry/framework/VERSION` as `MAJOR.MINOR.PATCH+<build>` and writes a source-only zip under `~/.wavefoundry/dist/` by default; tests, the test runner, and `build_pack.py` itself stay out of the pack (`build_pack.write_pack_version`, `build_pack.build_zip`, `build_pack._DEFAULT_DIST_DIR`, and `build_pack.EXCLUDED_REL_PATHS`). Model assets are an optional, separately versioned zip; the active bundle is model set 3 (`model_bundle.MODEL_SET_VERSION`, line 21): the same Arctic Embed S plus MiniLM L6 reranker weights as set 2 with one reference file corrected and the embedding fingerprint unchanged ([Model selection](references/model-selection.md); [Architecture: current state](architecture/current-state.md), `build_pack.py` block and Model set contract). Release mechanics: [Release flow](references/release-flow.md).
@@ -26,19 +34,6 @@ This site is for people: developers evaluating or adopting Wavefoundry in their 
 **Upgrading to 1.22.0 from an older protocol-2 runner.** Keep the standard `wf_upgrade()` flow when MCP is attached, or the installed CLI fallback when it is unavailable. No separate runner staging is required. The first hop still runs the older upgrader: an interrupted attempt may lose the original manifest needed to remove retired files on retry. Subsequent upgrades launched with the fixed installed runner gain the new snapshot protection. Preserve any `.wavefoundry/upgrade-manifest-old.json` recovery artifact and retry its same target pack. The full operator procedure is in the repository's `docs/prompts/upgrade-wavefoundry.prompt.md`, “Standard upgrade path and first-hop retry protection”; recovery authority is implemented by `upgrade_wavefoundry._save_old_manifest_snapshot` and `phase_pruning`. The protocol-1 bridge procedure is unchanged.
 
 Setup may install Python packages and download embedding models on a cold cache, then verifies the model cache in offline mode so later queries do not need the network (`setup_index.prewarm_models`; `accel_embedder._hf_download_cached_first`; `setup_index._offline_env`).
-
-## Deliver a wave
-
-For work spanning several deliveries, the optional path is **vision → horizon → arc → waves containing changes**. Envision defines the direction and useful horizons; Plan arc records a bounded outcome, its dependencies and the next advance. Existing waves stay in their normal folders and link to the arc. Ordinary changes use the lifecycle directly, with no arc prerequisite.
-
-Every code change moves through the same lifecycle. The bold phrases are shortcut commands agents understand; in Claude Code, Codex, and Antigravity each is also a `/wf-` skill that points at the same prompt ([Project overview](references/project-overview.md), Workflow Overview; full catalog: [Workflow and agent commands](prompts/index.md)).
-
-1. **Plan spec**: author a consolidated spec under `docs/plans/`.
-2. **Create wave / Add spec to wave**: admit the change into a wave under `docs/waves/<wave-id>/`.
-3. **Prepare wave**: confirm readiness. Readying does not open the wave; any number of waves can be readied in parallel.
-4. **Implement wave**: open a readied wave and execute the admitted changes. Only one wave may be OPEN at a time, and that guard fires here, at activation, not at readiness (`wf_prepare_wave` docstring and `wf_implement_wave`, `wf_server/server_impl.py`).
-5. **Review wave**: run the required review lanes. Review evidence lives in `docs/waves/<id>/events.jsonl`, the sole machine authority; `wave.md` is a generated projection ([Data and control flow](architecture/data-and-control-flow.md), State Ownership; [Domain map](architecture/domain-map.md), Dependency Direction Rules).
-6. **Close wave**: record closure and archive the wave.
 
 ## Search and navigation
 

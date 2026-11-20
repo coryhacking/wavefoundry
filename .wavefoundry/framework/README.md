@@ -141,7 +141,8 @@ A project keeps ONE local index database, `.wavefoundry/index/index.sqlite`, hol
 
 | Target | Pinned sqlite-vec binary availability |
 | --- | --- |
-| macOS Apple Silicon / Intel | Available |
+| macOS Apple silicon | Available |
+| Intel Mac (outside Wavefoundry’s supported hosts) | Available |
 | Linux glibc x86_64 / aarch64, including corresponding WSL2 environments | Available; APSW requires glibc 2.28 or newer |
 | Native Windows x64 | Available |
 | Linux musl, native Windows ARM64 or Windows 32-bit | Unavailable; this sqlite-vec release has neither matching wheels nor a source distribution |
@@ -152,7 +153,7 @@ Prepared updates stay in memory within a 64 MiB retained-operation budget. Large
 
 Protected runtimes preserve index state when an older producer encounters newer graph, semantic, chunker/walker or lexical contracts, or when compatibility cannot be proved. Restart the affected host and retry the ordinary command; deleting the index or forcing a rebuild through the stale host is not recovery. Equal revisions remain incremental, and a current runtime can rebuild older supported state or apply a supported model change. The first upgrade from an unprotected runtime pauses before publication even at the same storage schema: stop repository-associated hosts and run the returned fresh CLI command with `--confirm-hosts-stopped` and the retained `--pack`. Keep the checkpoint and original package; host discovery is best effort and package identity is checked on resume. This handoff needs no intermediate release or artificial storage conversion.
 
-Binary inventory: [sqlite-vec 0.1.9](https://pypi.org/project/sqlite-vec/0.1.9/) and [APSW 3.53.4.0](https://pypi.org/project/apsw/3.53.4.0/). Conversion execution qualified locally on macOS Apple Silicon; native Windows, Linux and Intel macOS package execution remains pending release qualification.
+Binary inventory: [sqlite-vec 0.1.9](https://pypi.org/project/sqlite-vec/0.1.9/) and [APSW 3.53.4.0](https://pypi.org/project/apsw/3.53.4.0/). Conversion execution qualified locally on macOS Apple Silicon; native Windows and Linux package execution remain pending release qualification.
 
 ## Public Commands
 

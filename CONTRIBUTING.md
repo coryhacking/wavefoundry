@@ -4,15 +4,14 @@ Thanks for your interest in Wavefoundry. This document describes how to file
 issues, propose changes, and submit pull requests.
 
 If you only have a few minutes, skim the **TL;DR**, the **License of
-contributions**, and the **Wave workflow** section.
+contributions**, and [how to deliver a change](#deliver-a-change).
 
 ---
 
 ## TL;DR
 
 - Open an issue first for anything non-trivial — it saves rework.
-- Wavefoundry is self-hosted: the project develops itself using the Wave
-  Framework it ships. Significant changes go through a **wave**.
+- For a bug, describe how to reproduce it and what you expected. For an enhancement, describe who benefits and how they could verify it.
 - All contributions are licensed under Apache-2.0 — same as the project. No CLA.
 - Be respectful. See [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
 - Report security issues privately. See [`SECURITY.md`](SECURITY.md).
@@ -88,18 +87,19 @@ exit clean before the change is mergeable.
 
 ---
 
-## Wave workflow
+<a id="wave-workflow"></a>
 
-Wavefoundry develops itself using the Wave Framework. The expectation is:
+## Deliver a change
+
+We use Wavefoundry to develop this repository. For a worked example, follow [Fix a bug or add an enhancement](README.md#fix-a-bug-or-add-an-enhancement).
 
 1. **Plan spec** — for any non-trivial change, an agent (or you, by hand)
    authors a spec under `docs/plans/<id>.md`.
-2. **Create wave** and **Add change** — the change is admitted to a wave.
+2. **Create wave** and **Add spec to wave** group the changes you will deliver together. A wave can contain a single fix.
 3. **Prepare wave** — readiness check runs before any code edit. The stage
    gate is enforced; do not edit repository code before this step passes.
-4. **Implement** — make the change.
-5. **Review wave** — required reviewer lanes (security, performance,
-   architecture, operator) run via `wf_review_wave`.
+4. **Implement wave** — make the change.
+5. **Review wave** — reviewers check the delivered work against its acceptance criteria and record their findings.
 6. **Close wave** — operator signoff plus all declared lanes recorded.
    Produces a permanent record in `docs/waves/`.
 

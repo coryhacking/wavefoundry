@@ -6,75 +6,11 @@
 [![Python](https://img.shields.io/badge/python-%E2%89%A53.11-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-**Wavefoundry helps one engineer or a small team build, take over, improve, modernize, replace and sustain significant software systems with AI agents.** It connects intent, project knowledge, delivery and continuing care in records your team owns and can carry between sessions and agent hosts.
+**Wavefoundry enables a single engineer or small team to take on the work of an exceptional engineering department.**
 
-Our vision is an **autonomous engineering laboratory** that gives a small team the capacity of an exceptional engineering organization: independently tested outcomes, continuity across contributors and tools, and the knowledge needed to care for the result. People retain control of purpose, consequential tradeoffs and authority. This is the destination; today's product supplies the local harness, planning workflows, code intelligence, review evidence and handoffs that support it. See the [Vision and Roadmap](VISION.md).
+Wavefoundry is a spec-driven development framework for AI coding agents. Teams define what needs to change and how to verify it. Agents use local tools to find the relevant code, trace dependencies and carry the work across sessions.
 
-**Wavefoundry is a spec-driven development framework.** A *spec* plans one change: why it is needed, what it must do, what is in scope and how success is tested. A *wave* bundles the changes its specs describe, reviews them against recorded evidence and closes them together. Durable descriptions of implemented, tested behavior live separately as *behavior contracts* under `docs/specs/`. Waves, review evidence and enforced gates are what Wavefoundry adds to the method.
-
-Wavefoundry runs locally. There is no required hosted service, account or telemetry.
-
-An installed, qualified local Tensorwell service can optionally share the pinned embedding
-and reranking models. MCP startup can start its existing configuration in the background;
-`WAVEFOUNDRY_DISABLE_TENSORWELL=1` opts out. See the
-[optional inference contract](.wavefoundry/framework/README.md#optional-tensorwell-inference).
-
-## Who this is for
-
-- Solo engineers and small teams building a new product or operating software that will live for years.
-- Teams inheriting unfamiliar systems, reducing technical debt, modernizing components or replacing an existing product.
-- Engineers coordinating work across sessions, contributors and AI hosts while preserving decisions and review evidence.
-
-Start with code intelligence or a bounded change. Add longer-horizon planning when the work needs it; a small fix does not need a new hierarchy.
-
-### Coming from Spec Kit or OpenSpec
-
-If you already work spec-first, the documents map across like this. The Spec Kit and OpenSpec cells were checked against each project's official documentation on 2026-11-16; both tools change, so treat them as a starting point.
-
-| What it is | Wavefoundry | Spec Kit | OpenSpec |
-| --- | --- | --- | --- |
-| The document that plans one piece of work | A **spec**: one file, `docs/plans/<id>.md`, moved into its wave folder on admission | A feature directory `specs/<feature>/` holding `spec.md`, `plan.md` and `tasks.md` | A change proposal folder `openspec/changes/<name>/` holding `proposal.md`, delta specs, `design.md` and `tasks.md` |
-| The durable description of current behavior | A **behavior contract** under `docs/specs/` | None mandated; the team chooses what happens to the feature documents after delivery, and the constitution persists | Main specs under `openspec/specs/` |
-| The unit that is reviewed and delivered together | A **wave**: one or more changes, readied, reviewed and closed as a bundle | No core equivalent found | No equivalent found |
-| What happens when the work is done | The spec stays in its closed wave folder as the record | Left to the team's retention policy | The change folder is archived and its deltas merge into the main specs |
-
-
-If you use Spec Kit to specify, clarify, plan, and break work into tasks, you can make those requests in Wavefoundry too. **Plan spec** keeps the decisions in one document. Product can stop after defining behavior, and engineering can resume with the approach and tasks. Follow [Your first wave](#your-first-wave) to see that handoff.
-
----
-
-## What you get
-
-**A path from vision to delivery.** `Envision project` establishes the product destination and an adaptable roadmap. Optional `Plan arc` records a bounded outcome that can span multiple waves. `Plan spec` defines the individual changes, and waves carry those changes through implementation and review. Horizons describe progress toward the vision; arcs connect useful outcomes to the waves that advance them. These records support planning today; autonomous coordination of a program remains part of the roadmap.
-
-**A structured delivery lifecycle** — plan spec(s) → prepare wave → implement → review → close. Two phases are enforced gates. `Prepare wave` refuses to advance an incomplete spec. `Close wave` refuses without operator signoff.
-
-**A local MCP server with working knowledge of your codebase.** The same server that runs the lifecycle indexes your code and docs locally and exposes them as agent tools:
-
-- **Semantic search over code and docs** — the agent searches by intent rather than grep pattern, with reranked results across your code and your `docs/` tree.
-- **Exact lexical search** — a BM25 full-text layer over the same corpus for the queries intent search is weakest at: compound identifiers, error strings, rare tokens.
-- **Code-graph queries** — call hierarchies, impact analysis, references, dependency walks, community clustering.
-
-All exposed as MCP tools — `docs_search`, `code_search`, `code_ask`, `code_lexical`, `code_callhierarchy`, `code_impact`, `code_references`, `code_graph_community`, `wf_graph_report`, and others. They work before any wave runs. The agent can answer "where do we handle X?" using retrieved source and citations, with coverage limits made explicit. Why three index layers instead of one is covered in [How the code intelligence fits together](#how-the-code-intelligence-fits-together).
-
-**An append-only review ledger.** Every review event on a wave — lane approvals, council verdicts, findings, repairs, operator signoff — is a typed record in that wave's `events.jsonl`. The ledger is the sole review authority: the wave record renders a projection of it, and approvals are bound to a digest of the plan text they approved, so editing the contract after approval lapses the approval instead of silently keeping it.
-
-**Typed agent memory.** The agent records decisions, pitfalls, and field feedback as typed, reviewable memory records and recalls them in later sessions (`memory_search`, `memory_brief`), with proposals distilled from wave decision logs rather than free-form notes.
-
-**A codebase map.** A generated, graceful-scaling orientation map of your code (`docs/references/codebase-map.md`) routes the agent to the right area — and its per-area `AGENTS.md` conventions — before it starts exploring.
-
-**Built-in secrets detection.** Wavefoundry's local Python scanner checks project files with configurable offline rules and records findings in `docs/scan-findings.json`. Unclassified findings block closure; classified real secrets remain visible and need remediation before distribution. Failed scans of eligible files are reported separately from intentional exclusions. Call `wf_scan_secrets` for an on-demand scan; rule changes force a full rescan while retaining matching dispositions. Detection is a guardrail, not proof that a repository contains no secrets. [Rule and asset provenance](.wavefoundry/framework/scan/NOTICE.md).
-
----
-
-## Design principles
-
-- **Local-first.** Operational state lives on disk in your repo and your home directory. No service, no account, no telemetry.
-- **Structural enforcement over policy.** Gates fire in the framework, not in seed-prompt language. An agent cannot talk its way past `wf_close_wave`.
-- **Framework package choices.** Wavefoundry ships a lean extractable `wavefoundry-*.zip` for fresh installs and protocol-2 upgrades; that same zip is directly executable when a protocol-1 installation must cross to protocol 2. An optional, independently versioned `wavefoundry-models-<set>.zip` supplies verified offline embedding and reranker sources for controlled environments. The framework evolves in Wavefoundry's own wave process, gets packaged, and propagates to downstream projects.
-- **Honest about scope.** What's required is required; what's optional is clearly labeled.
-
----
+New to Wavefoundry? [Check the prerequisites and install it](#prerequisites). If your project already uses it, [fix a bug or add an enhancement](#fix-a-bug-or-add-an-enhancement). The walkthrough starts with a request you can give your coding agent.
 
 ## Prerequisites
 
@@ -89,7 +25,7 @@ Three hard prerequisites. Do not run any install command until all three resolve
 
    *Do not proceed past this block until `python3 --version` reports 3.11 or higher.* Install via your package manager (`brew install python@3.11`, `apt install python3.11`) or [`pyenv`](https://github.com/pyenv/pyenv).
 
-2. **A supported host OS** — **macOS** (Apple Silicon or Intel), **Linux** (x86_64/arm64), **Windows via WSL2**, or **native Windows** (Terminal / PowerShell / cmd). WSL2 is Linux and runs the identical POSIX code path with no separate install. On native Windows, from the repository root run `powershell -NoProfile -File ".\.wavefoundry\framework\scripts\diagnose_python.ps1"` before setup or MCP, including on an already-seeded checkout newly opened on this machine. It diagnoses a missing or unusable `python3` without Python or MCP. A working `python.exe` is useful evidence but does not satisfy the required `python3` 3.11+ launch. Use an approved existing `python3` entry or permitted user PATH repair; see [Native Windows support](docs/references/native-windows-support.md) for manual probes, policy-blocked IT handoff, fresh-host verification and the pending native qualification boundary.
+2. **A supported host OS** — **macOS** (Apple silicon), **Linux** (x86_64/arm64), **Windows via WSL2**, or **native Windows** (Terminal / PowerShell / cmd). WSL2 is Linux and runs the identical POSIX code path with no separate install. On native Windows, from the repository root run `powershell -NoProfile -File ".\.wavefoundry\framework\scripts\diagnose_python.ps1"` before setup or MCP, including on an already-seeded checkout newly opened on this machine. It diagnoses a missing or unusable `python3` without Python or MCP. A working `python.exe` is useful evidence but does not satisfy the required `python3` 3.11+ launch. Use an approved existing `python3` entry or permitted user PATH repair; see [Native Windows support](docs/references/native-windows-support.md) for manual probes, policy-blocked IT handoff, fresh-host verification and the pending native qualification boundary.
 
 3. **An MCP-aware agent host.** **Claude Code** or **Codex CLI** is recommended for first install — both auto-load MCP from on-disk config (`.mcp.json` / `.codex/config.toml`), so the install flow runs with no manual UI step. **Cursor**, **Junie**, and **Antigravity** also auto-load MCP from a rendered config; **GitHub Copilot**, **Windsurf**, **Air**, and **Warp** attach by pasting the stdio entry into the host's own MCP settings — see [Host support](#host-support).
 
@@ -172,6 +108,118 @@ With the MCP server reachable, the agent walks through `.wavefoundry/install-log
 
 ---
 
+<a id="your-first-wave"></a>
+
+## Fix a bug or add an enhancement
+
+Suppose you maintain an API. The on-call engineer needs to know whether the process can still answer requests during a database outage. Once Wavefoundry is installed, start with whichever request fits your project. Type it in your coding agent’s chat.
+
+| If you want to… | Try this request |
+| --- | --- |
+| Add a missing health check | “Plan an endpoint at `/healthz` so the on-call engineer can tell whether the API process is answering. It should return HTTP 200 even when the database is down.” |
+| Fix an existing health check | “Our `/healthz` endpoint returns HTTP 503 when the database is down, even though the API process can answer requests. Plan a fix so it returns HTTP 200 in that case.” |
+
+### Agree on what should happen
+
+Your agent writes a *spec*, a short plan for one change. Read its acceptance criteria to see what the team will test. In this example, both requests lead to the same check. Stop the database, leave the API running, and request `/healthz`. Expect HTTP 200. A separate readiness check can tell callers whether the API can serve requests that need the database.
+
+### Plan the work
+
+> Resume the health-check spec. Plan the approach and break it into tasks.
+
+For the enhancement, the plan calls for a route and a test. For the bug fix, first reproduce the HTTP 503 with a regression test, then correct the existing route. If product and engineering split the work, the engineer resumes the same file under `docs/plans/`. You can also do both steps yourself.
+
+### Check the plan before coding
+
+Wavefoundry calls the changes you implement and review together a *wave*. A wave can contain a single fix or enhancement.
+
+> Create a wave for this spec and prepare it.
+
+The agent adds the spec to the wave and checks that the plan has clear acceptance criteria and the required readiness approvals.
+
+### Implement and verify the change
+
+> Implement wave.
+
+When the agent finishes the code and tests, ask it to check the result.
+
+> Review wave.
+
+Look for the result the on-call engineer needs. Did a request to the running API return HTTP 200 while the database was unavailable? For the bug fix, the review should show that the same test caught the original failure and passed after the fix.
+
+### Close the work
+
+When you have reviewed the evidence and are ready to close, tell your agent:
+
+> Close wave.
+
+Wavefoundry checks the required approvals and completion records, then keeps the spec and review evidence in the repository.
+
+---
+
+## Who this is for
+
+Teams use Wavefoundry to build new products, take over unfamiliar systems and replace critical software while keeping services running. People choose the goals and decide what ships. The [Vision and Roadmap](VISION.md) describes the autonomous engineering laboratory and the next step in its development.
+
+Wavefoundry runs locally. There is no required hosted service, account or telemetry.
+
+Projects can optionally share embedding and reranking models through a compatible local inference service. See the [framework setup guide](.wavefoundry/framework/README.md) for configuration and opt-out instructions.
+
+- Solo engineers and small teams building a new product or operating software that will live for years.
+- Teams inheriting unfamiliar systems, reducing technical debt, modernizing components or replacing an existing product.
+- Engineers coordinating work across sessions, contributors and AI hosts while preserving decisions and review evidence.
+
+Start with code intelligence or a bounded change. Add longer-horizon planning when the work needs it; a small fix does not need a new hierarchy.
+
+### Coming from Spec Kit or OpenSpec
+
+If you already work spec-first, the documents map across like this. The Spec Kit and OpenSpec cells were checked against each project's official documentation on 2026-11-16; both tools change, so treat them as a starting point.
+
+| What it is | Wavefoundry | Spec Kit | OpenSpec |
+| --- | --- | --- | --- |
+| The document that plans one piece of work | A **spec**: one file, `docs/plans/<id>.md`, moved into its wave folder on admission | A feature directory `specs/<feature>/` holding `spec.md`, `plan.md` and `tasks.md` | A change proposal folder `openspec/changes/<name>/` holding `proposal.md`, delta specs, `design.md` and `tasks.md` |
+| The durable description of current behavior | A **behavior contract** under `docs/specs/` | None mandated; the team chooses what happens to the feature documents after delivery, and the constitution persists | Main specs under `openspec/specs/` |
+| The unit that is reviewed and delivered together | A **wave**: one or more changes, readied, reviewed and closed as a bundle | No core equivalent found | No equivalent found |
+| What happens when the work is done | The spec stays in its closed wave folder as the record | Left to the team's retention policy | The change folder is archived and its deltas merge into the main specs |
+
+
+If you use Spec Kit to specify, clarify, plan, and break work into tasks, you can make those requests in Wavefoundry too. **Plan spec** keeps the decisions in one document. Product can stop after defining behavior, and engineering can resume with the approach and tasks. Follow [the health-check example](#fix-a-bug-or-add-an-enhancement) to see that handoff.
+
+---
+
+## What you get
+
+**A path from vision to delivery.** `Envision project` establishes the product destination and an adaptable roadmap. Optional `Plan arc` records a bounded outcome that can span multiple waves. `Plan spec` defines the individual changes, and waves carry those changes through implementation and review. Horizons describe progress toward the vision; arcs connect useful outcomes to the waves that advance them. These records support planning today; autonomous coordination of a program remains part of the roadmap.
+
+**A structured delivery lifecycle** — plan spec(s) → prepare wave → implement → review → close. Two phases are enforced gates. `Prepare wave` refuses to advance an incomplete spec. `Close wave` refuses without operator signoff.
+
+**A local MCP server with working knowledge of your codebase.** The same server that runs the lifecycle indexes your code and docs locally and exposes them as agent tools:
+
+- **Semantic search over code and docs** — the agent searches by intent rather than grep pattern, with reranked results across your code and your `docs/` tree.
+- **Exact lexical search** — a BM25 full-text layer over the same corpus for the queries intent search is weakest at: compound identifiers, error strings, rare tokens.
+- **Code-graph queries** — call hierarchies, impact analysis, references, dependency walks, community clustering.
+
+All exposed as MCP tools — `docs_search`, `code_search`, `code_ask`, `code_lexical`, `code_callhierarchy`, `code_impact`, `code_references`, `code_graph_community`, `wf_graph_report`, and others. They work before any wave runs. The agent can answer "where do we handle X?" using retrieved source and citations, with coverage limits made explicit. Why three index layers instead of one is covered in [How the code intelligence fits together](#how-the-code-intelligence-fits-together).
+
+**An append-only review ledger.** Every review event on a wave — lane approvals, council verdicts, findings, repairs, operator signoff — is a typed record in that wave's `events.jsonl`. The ledger is the sole review authority: the wave record renders a projection of it, and approvals are bound to a digest of the plan text they approved, so editing the contract after approval lapses the approval instead of silently keeping it.
+
+**Typed agent memory.** The agent records decisions, pitfalls, and field feedback as typed, reviewable memory records and recalls them in later sessions (`memory_search`, `memory_brief`), with proposals distilled from wave decision logs rather than free-form notes.
+
+**A codebase map.** A generated, graceful-scaling orientation map of your code (`docs/references/codebase-map.md`) routes the agent to the right area — and its per-area `AGENTS.md` conventions — before it starts exploring.
+
+**Built-in secrets detection.** Wavefoundry's local Python scanner checks project files with configurable offline rules and records findings in `docs/scan-findings.json`. Unclassified findings block closure; classified real secrets remain visible and need remediation before distribution. Failed scans of eligible files are reported separately from intentional exclusions. Call `wf_scan_secrets` for an on-demand scan; rule changes force a full rescan while retaining matching dispositions. Detection is a guardrail, not proof that a repository contains no secrets. [Rule and asset provenance](.wavefoundry/framework/scan/NOTICE.md).
+
+---
+
+## Design principles
+
+- **Local-first.** Operational state lives on disk in your repo and your home directory. No service, no account, no telemetry.
+- **Structural enforcement over policy.** Gates fire in the framework, not in seed-prompt language. An agent cannot talk its way past `wf_close_wave`.
+- **Framework package choices.** Wavefoundry ships a lean extractable `wavefoundry-*.zip` for fresh installs and protocol-2 upgrades; that same zip is directly executable when a protocol-1 installation must cross to protocol 2. An optional, independently versioned `wavefoundry-models-<set>.zip` supplies verified offline embedding and reranker sources for controlled environments. The framework evolves in Wavefoundry's own wave process, gets packaged, and propagates to downstream projects.
+- **Honest about scope.** What's required is required; what's optional is clearly labeled.
+
+---
+
 ## What is installed
 
 After `Install Wavefoundry` finishes, your repository has the following shape. It's durable — across upgrades, the same paths appear in the same places.
@@ -225,51 +273,9 @@ If a required model cannot download, first retry `wf setup` when network access 
 
 ---
 
-## Your first wave
-
-A product owner and an engineer can work on the same spec at different times. Here they deliver one change, a health endpoint, in one wave. The conversation and results below are illustrative.
-
-### 1. Define the behavior
-
-> Specify a health endpoint so our on-call engineer can tell whether the API process is answering. Leave the design and tasks for engineering.
-
-**Plan spec** records the intended behavior in a draft. If a dependency times out, should the endpoint report that the API is unhealthy? The product owner clarifies that the probe measures whether the process can answer. A dependency outage belongs in a separate readiness check. The draft now has an acceptance criterion: a responsive process returns HTTP 200 even when that dependency is unavailable. Product can hand off here.
-
-### 2. Plan the implementation
-
-> Resume the health-endpoint spec. Plan the approach and break it into tasks.
-
-Engineering uses the same `docs/plans/12abc-enh add-healthz-endpoint.md` draft to plan the route and its tests. **Review plan** is available to challenge the proposed approach before building.
-
-### 3. Prepare the wave
-
-A *wave* groups the specs you intend to deliver together. Start with this one spec.
-
-> Create wave: api-healthz. Add the health-endpoint spec to it.
->
-> Prepare wave.
-
-Admission moves the spec into the wave folder. Prepare checks the spec, acceptance priorities and required readiness approvals. Once it passes, the wave is ready for implementation.
-
-### 4. Implement, review, and close
-
-> Implement wave.
-
-The engineer's agent adds the route and tests. The operator then asks for delivery review.
-
-> Review wave.
-
-Reviewers check the delivered behavior against the acceptance criteria. For example, with the dependency unavailable and the API process running, the test client receives HTTP 200 from `/healthz`. The review records that observation and any outstanding findings.
-
-> Close wave.
-
-The operator requests closure after reviewing the evidence. Close checks the required approvals, operator signoff, and completion records before recording the wave as closed.
-
-> *Want to see this visually? Run `Start dashboard` to open a local web UI showing wave state, AC and task progress, and review evidence at a glance.*
-
----
-
 ## Core concepts
+
+A *spec* explains why the team needs a change, what it covers and how the team will test it. A *wave* groups changes that the team reviews and closes together. The team keeps durable descriptions of implemented, tested behavior in *behavior contracts* under `docs/specs/`.
 
 ### Lifecycle
 
@@ -278,7 +284,7 @@ A spec enters the pipeline by being admitted into a wave. The wave moves through
 - **`Prepare wave`** blocks until docs lint passes. AC priority must be recorded on every admitted change. When configured, a structured council readiness review must be recorded.
 - **`Close wave`** blocks until every required reviewer lane has recorded a signoff and the operator has confirmed closure.
 
-The agent cannot route around either gate. The transcript above shows what the refusal looks like when one of the prerequisites is missing.
+The agent cannot route around either gate.
 
 ### Waves
 
