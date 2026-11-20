@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-20
 
 Shortcut: **`Review wave`**
 
@@ -114,6 +114,10 @@ Guidance and existing review enforce this discipline; they do not automatically
 discover semantic amendments hidden only in narration. Use the canonical heading;
 unsupported or ambiguous Progress Log headings may remain digested.
 <!-- wavefoundry:review-policy:end -->
+
+## Offer a walkthrough
+
+After reporting the delivery review result, ask once: “Would you like a walkthrough of the changes?” End the turn and wait. If the operator accepts, follow [Explain](explain.prompt.md) for the reviewed scope. A decline or silence ends the offer. The walkthrough and its optional teach-back grant no approval or closure authority.
 
 ## Focused readiness re-review
 

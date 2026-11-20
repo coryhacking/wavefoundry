@@ -6028,6 +6028,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
                 vocabulary_profile.prompt_doc("review-wave"),
                 vocabulary_profile.prompt_doc("close-wave"),
                 "docs/prompts/memory-review.prompt.md",
+                "docs/prompts/explain.prompt.md",
             ):
                 self.assertTrue((root / rel).is_file())
                 self.assertGreater(

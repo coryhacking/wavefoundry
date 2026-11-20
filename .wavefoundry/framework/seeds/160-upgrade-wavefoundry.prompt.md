@@ -958,6 +958,10 @@ Guardrails:
 - Step 0 is never a terminal success condition by itself; unpacking without the subsequent reconciliation and verification steps is an incomplete upgrade.
 - Upgrade is incomplete if required repo-local outputs are still missing after the run.
 
+## Delivery walkthrough reconciliation
+
+Render the missing Explain baseline and skill. Compare the existing public delivery review prompt with the shipped walkthrough handoff. Merge the question once at the end of the review result and point acceptance to Explain. Have internal review instructions delegate to that same handoff. Preserve project edits and vocabulary, including custom review prompt names. Verify the Explain shortcut in the catalog, manifest and agent routing table and the skill on each active host. Repeat upgrades should leave current prompts intact.
+
 ## Reader-centered writing reconciliation
 
 The pack carries `.wavefoundry/framework/docs/writing-guide.md`; ordinary feature extraction delivers it even when no seed changed. During this upgrade, read the installed guide and inspect the actual destinations below. Setup and surface rendering do not merge this authored prose.

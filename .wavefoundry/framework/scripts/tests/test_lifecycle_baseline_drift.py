@@ -88,12 +88,12 @@ class BaselineDriftTests(unittest.TestCase):
         self.assertEqual(findings[-1]["detail"], "baseline_unknown: previous template unavailable; local copy matches incoming template")
         self.assertEqual({p: p.read_bytes() for p in before}, before)
 
-    def test_all_eight_registry_baselines_report_and_all_current_are_omitted(self):
+    def test_all_registry_baselines_report_and_all_current_are_omitted(self):
         incoming = {}
         expected = {renderer.vocabulary_profile.prompt_doc(key) for key in (
             "create-wave", "implement-wave", "prepare-wave", "review-wave", "close-wave", "close-change")}
-        expected.update({"docs/prompts/memory-review.prompt.md", "docs/prompts/review-plan.prompt.md"})
-        self.assertEqual(len(expected), 8)
+        expected.update({"docs/prompts/memory-review.prompt.md", "docs/prompts/review-plan.prompt.md",
+                         "docs/prompts/explain.prompt.md"})
         for destination, template in renderer.LIFECYCLE_PROMPT_BASELINES:
             self.put(destination, "A\n")
             self.put(".wavefoundry/framework/install/lifecycle-prompts/" + template, "A\n")

@@ -1996,6 +1996,7 @@ class InstallTemplateInjectionTests(unittest.TestCase):
                 "close-wave.prompt.md",
                 "memory-review.prompt.md",
                 "review-plan.prompt.md",
+                "explain.prompt.md",
             )
         }
         self.assertTrue(expected.issubset(names), expected - names)

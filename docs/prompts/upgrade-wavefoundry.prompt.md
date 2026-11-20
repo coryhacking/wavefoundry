@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-20
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -16,6 +16,8 @@ application data; SQLite may create or update normal WAL/SHM coordination files.
 It is a bounded readiness check, not a complete integrity, freshness or search-quality audit.
 
 On native Windows, first diagnose local `python3` with `powershell -NoProfile -File ".\.wavefoundry\framework\scripts\diagnose_python.ps1"` from the repository root, including when this is an already-seeded checkout on a new machine. It needs no working Python, MCP or unfinished install row. If it fails or policy blocks the script, follow `docs/references/native-windows-support.md` for observed-stage probes, permitted user repair or IT handoff. Keep the canonical `python3` host command and existing config/index data; a working `python.exe` does not establish readiness. Verify `python3 --version`, `python3 .wavefoundry/framework/scripts/server.py --dry-run` and fresh-host MCP startup after repair. On first installation, a successful supported `python3` check permits setup to provision the tool environment before the server dry-run; do not require MCP bootstrap before its dependencies exist. Existing provisioned checkouts need no forced setup or rebuild merely for command repair.
+
+Compare the project review handoff, Explain shortcut and host skills with seed 160’s **Delivery walkthrough reconciliation** during upgrade.
 
 ## Setup after a clone or pull
 

@@ -131,6 +131,10 @@ Review wave ends when every required lane and any receipt-required council
 approval is current in `wf_review_wave`. It does not close the wave, mark
 completion or commit changes.
 
+## Offer a walkthrough
+
+After reporting the delivery review result, ask once: “Would you like a walkthrough of the changes?” End the turn and wait. If the operator accepts, follow [Explain](explain.prompt.md) for the reviewed scope. A decline or silence ends the offer. The walkthrough and its optional teach-back grant no approval or closure authority.
+
 ## Focused readiness re-review
 
 For stale readiness, use the guided review actions and seed 209’s **Focused readiness re-review**. Compare cumulatively from each lane’s last approved receipt, with its prior approval/evidence, changed sections and a verified normalized before/after delta when available; provide the full amended plans and affected dependency context, and ask whether the change alters the verdict. Newly required lanes perform normal initial review. Exact raw receipt snapshots under `.wavefoundry/work/<wave-id>/receipts/` are optional aids, never approval authority. Missing legacy metadata, missing/corrupt/cleaned snapshots, stale inputs, incompatible normalization or truncated output must be explicit; obtain full text or fall back to normal full review. Reads create no snapshots. Receipt identity, required lanes, approval invalidation and deferral rules are unchanged; no approval transfers or measured effort savings are implied.

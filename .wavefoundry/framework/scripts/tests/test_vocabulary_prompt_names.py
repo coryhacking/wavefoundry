@@ -406,6 +406,7 @@ class DefaultNamePinTests(unittest.TestCase):
             ("docs/prompts/close-wave.prompt.md", "close-wave.prompt.md"),
             ("docs/prompts/review-plan.prompt.md", "review-plan.prompt.md"),
             ("docs/prompts/close-spec.prompt.md", "close-change.prompt.md"),
+            ("docs/prompts/explain.prompt.md", "explain.prompt.md"),
         ))
         self.assertEqual((ras.CLOSE_CHANGE_PROMPT, ras.CLOSE_CHANGE_SHORTCUT),
                          ("docs/prompts/close-spec.prompt.md", "Close spec"))
@@ -413,7 +414,7 @@ class DefaultNamePinTests(unittest.TestCase):
             "wf-plan-spec", "wf-prepare-wave", "wf-implement-wave", "wf-review-wave", "wf-close-wave",
             "wf-close-spec", "wf-review-plan", "wf-evaluate-decision", "wf-memory-review", "wf-pause-wave",
             "wf-council", "wf-guru", "wf-upgrade", "wf-package", "wf-code-cleanup", "wf-envision", "wf-techdocs",
-            "wf-plan-arc", "wf-stats",
+            "wf-plan-arc", "wf-explain", "wf-stats",
         ])
         # The two skills named for an earlier default are retired on render.
         self.assertEqual(ras.stale_skill_paths(), ras.STALE_SKILL_PATHS + tuple(

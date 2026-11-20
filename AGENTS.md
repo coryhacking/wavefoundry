@@ -124,6 +124,7 @@ Public Wave Framework commands for Wavefoundry's self-hosted surface. Full detai
 | **Implement spec** / **Implement change** | Single-change docs-first implementation | `docs/prompts/implement-spec.prompt.md` |
 | **Pause wave** | Park session state in handoff artifact | `docs/prompts/pause-wave.prompt.md` |
 | **Review wave** | Run required review lanes | `docs/prompts/review-wave.prompt.md` |
+| **Explain** | Walk through a delivery or one spec with `wf-explain` | `docs/prompts/explain.prompt.md` |
 | **Review memories** / **Memory review** | Review and apply eligible memory consolidation, archival, and purge | `docs/prompts/memory-review.prompt.md` |
 | **Refresh TechDocs** / **Author TechDocs** | Generate the missing-only Backstage catalog and TechDocs baseline (MCP: `wf_techdocs_baseline(mode='run')`; CLI: `wf techdocs-baseline`), then author the published pages with the technical-writer-coordinated collaboration; an explicit read-only request selects the review-only branch, which runs `wf_techdocs_audit` (CLI: `wf techdocs-audit`) and returns findings and proposed edits without writing | `docs/prompts/refresh-techdocs.prompt.md` |
 | **Close wave** | Close and archive the wave | `docs/prompts/close-wave.prompt.md` |

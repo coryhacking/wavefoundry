@@ -339,6 +339,7 @@ LIFECYCLE_PROMPT_BASELINES: tuple[tuple[str, str], ...] = (
     ),
     ("docs/prompts/review-plan.prompt.md", "review-plan.prompt.md"),
     (_vp_doc("close-change"), "close-change.prompt.md"),
+    ("docs/prompts/explain.prompt.md", "explain.prompt.md"),
 )
 
 def _lifecycle_prompt_baselines():
@@ -877,6 +878,7 @@ def _build_skill_registry() -> tuple[Skill, ...]:
                 (
                     "Start from the `wf_review_wave` MCP tool for guided actions; record evidence with `wf_review_event` (dry-run first, then create).",
                     "Reminder: review evidence is typed and executable; approvals bind to the current receipt and lapse when the reviewed surface changes.",
+                    "Follow the review prompt's closing instructions for the optional walkthrough with `wf-explain`.",
                 ),
             ),
         ),
@@ -1050,6 +1052,21 @@ def _build_skill_registry() -> tuple[Skill, ...]:
                 ),
             ),
             requires_doc=_vp_doc("plan-arc"),
+        ),
+        Skill(
+            name="wf-explain",
+            description=(
+                f"Walk a maintainer through a delivered {_vp_wave()} or a named {_vp_planning()}, including closed records. "
+                "Trace what changed to its implementation and verification, with optional teach-back."
+            ),
+            body=_thin_pointer_body(
+                "Explain delivered work",
+                "docs/prompts/explain.prompt.md",
+                (
+                    f"Use the reviewed {_vp_wave()} by default. For a named {_vp_planning()}, explain that {_vp_change()} and the dependencies needed to understand it.",
+                    "Keep the walkthrough read-only. Follow the prompt for source evidence and optional teach-back.",
+                ),
+            ),
         ),
         Skill(
             name="wf-stats",

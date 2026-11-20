@@ -9,3 +9,4 @@ This skill is a thin pointer: the workflow lives in `docs/prompts/review-wave.pr
 
 - Start from the `wf_review_wave` MCP tool for guided actions; record evidence with `wf_review_event` (dry-run first, then create).
 - Reminder: review evidence is typed and executable; approvals bind to the current receipt and lapse when the reviewed surface changes.
+- Follow the review prompt's closing instructions for the optional walkthrough with `wf-explain`.

@@ -2,7 +2,9 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-20
+
+After reporting the review result, use the single walkthrough offer in the [public review handoff](../review-wave.prompt.md#offer-a-walkthrough).
 
 ## Context
 

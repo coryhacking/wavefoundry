@@ -2091,17 +2091,9 @@ class ReviewPlanPromptMigrationTests(unittest.TestCase):
                 else:
                     self.assertEqual(new.read_bytes(), new_bytes)
 
-    def test_seventh_baseline_is_metadata_stamped_and_missing_only(self) -> None:
-        # Wave 1zyc5 appended the eighth baseline (Close change) after review-plan.
-        self.assertEqual(len(ras.LIFECYCLE_PROMPT_BASELINES), 8)
-        self.assertEqual(
-            ras.LIFECYCLE_PROMPT_BASELINES[-2],
-            (ras.REVIEW_PLAN_NEW_PROMPT, "review-plan.prompt.md"),
-        )
-        self.assertEqual(
-            ras.LIFECYCLE_PROMPT_BASELINES[-1],
-            (ras.CLOSE_CHANGE_PROMPT, "close-change.prompt.md"),
-        )
+    def test_review_plan_baseline_is_metadata_stamped_and_missing_only(self) -> None:
+        self.assertIn((ras.REVIEW_PLAN_NEW_PROMPT, "review-plan.prompt.md"), ras.LIFECYCLE_PROMPT_BASELINES)
+        self.assertIn((ras.CLOSE_CHANGE_PROMPT, "close-change.prompt.md"), ras.LIFECYCLE_PROMPT_BASELINES)
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             written = ras.reconcile_lifecycle_prompt_baselines(root)
@@ -2971,6 +2963,43 @@ class SkillRegistryTests(unittest.TestCase):
         "wf-envision": "docs/prompts/envision-project.prompt.md",
         "wf-plan-arc": "docs/prompts/plan-arc.prompt.md",
     }
+
+    def test_explain_and_review_share_the_installed_prompt_on_active_hosts(self) -> None:
+        prompt_path = "docs/prompts/explain.prompt.md"
+        for hosts in ((".codex", ".claude", ".agents"), (".codex",)):
+            with self.subTest(hosts=hosts), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                self._repo(root, guru=False, gate_docs=False, hosts=hosts)
+                prime_profile_render(root)
+                written = ras.render_agent_surfaces(root)
+                self.assertIn(prompt_path, written)
+                prompt = root / prompt_path
+                self.assertNotIn("{{generated_at}}", prompt.read_text(encoding="utf-8"))
+                review = (root / vp.prompt_doc("review-wave")).read_text(encoding="utf-8")
+                self.assertEqual(review.count("Would you like a walkthrough of the changes?"), 1)
+                self.assertIn("explain.prompt.md", review)
+                for host in hosts:
+                    rel = f"{host}/skills/wf-explain/SKILL.md"
+                    self.assertIn(rel, written)
+                    skill = (root / rel).read_text(encoding="utf-8")
+                    self.assertIn("name: wf-explain\n", skill)
+                    self.assertIn(prompt_path, skill)
+                    self.assertIn(f"reviewed {vp.tier_noun('container')} by default", skill)
+                    self.assertIn(f"For a named {vp.planning_noun()}", skill)
+                    self.assertIn("including closed records", skill)
+                for host in {".codex", ".claude", ".agents"} - set(hosts):
+                    self.assertFalse((root / host).exists())
+                custom = b"# Team walkthrough\r\nKeep our local guidance.\r\n"
+                prompt.write_bytes(custom)
+                self.assertEqual(ras.render_agent_surfaces(root), [])
+                self.assertEqual(prompt.read_bytes(), custom)
+
+    def test_explain_uses_the_projects_record_names(self) -> None:
+        with patch.multiple(vp, CONTAINER_NAME="Batch", ITEM_NAME="Task"):
+            skill = next(s for s in ras._build_skill_registry() if s.name == "wf-explain")
+        self.assertIn("a delivered batch or a named task doc", skill.description)
+        self.assertIn("reviewed batch by default", skill.body)
+        self.assertIn("For a named task doc, explain that task", skill.body)
 
     def test_plan_initiative_is_doc_gated_and_preserves_project_content(self) -> None:
         for hosts in ((".codex", ".claude", ".agents"), (".codex",)):

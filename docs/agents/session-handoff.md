@@ -2,11 +2,19 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-19
+Last verified: 2026-11-20
 
 ## Current state
 
-Idle after closing wave **23ve4 repair-renamed-profile-qualification**. The drift report retains in-repository findings when it refuses an external manifest. All three release profiles passed, and close removed the owned work folder.
+Idle after closing wave **23ve6 developer-delivery-walkthrough** with operator signoff. Explain walks an operator through a reviewed wave or a named spec. All specialist delivery reviewers approved. The final suite passed (13,082 tests, 12 skips), and close removed the owned work folder.
+
+## Open questions for 23ve6
+
+The operator tried the walkthrough and helped refine it. Whether it helps a human maintain the changed code later remains unmeasured.
+
+## Previous repair
+
+Wave **23ve4 repair-renamed-profile-qualification** closed. The drift report retains in-repository findings when it refuses an external manifest. All three release profiles passed, and close removed the owned work folder.
 
 ## Open questions / Deferred decisions for 23ve4
 

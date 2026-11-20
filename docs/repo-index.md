@@ -35,7 +35,7 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 23541 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 23543 |
 | wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1611 |
 | upgrade | `.wavefoundry/framework/scripts` | code | 470 |
 | render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 427 |
