@@ -6783,6 +6783,104 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), original.replace("- [ ] AC-1: visible", "- [x] AC-1: visible")
                          .replace("- [ ] Same <!--", "- [x] Same <!--").encode())
 
+    def test_contended_registered_marks_retry_and_preserve_both_updates(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Event
+
+        original = "## Acceptance Criteria\n- [ ] AC-1: Check dates.\n## Tasks\n- [ ] Check spelling.\n"
+        self._write_change(original)
+        path = self.wave_dir / "1200c-enh mark-sample.md"
+        entered, release = Event(), Event()
+        mark_item = self.srv._mark_change_item_response
+
+        def hold_ac_before_read(*args, **kwargs):
+            if kwargs["target_section"] == "Acceptance Criteria":
+                entered.set()
+                self.assertTrue(release.wait(10))
+            return mark_item(*args, **kwargs)
+
+        task = dict(task="Check spelling.", state="x", mode="create")
+        with patch.object(self.srv, "_mark_change_item_response", side_effect=hold_ac_before_read):
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                first = executor.submit(self._registered_mark, "wf_mark_ac", ac_id="AC-1", state="x", mode="create")
+                try:
+                    self.assertTrue(entered.wait(10))
+                    busy = self._registered_mark("wf_mark_task", **task)
+                    self.assertEqual(busy["status"], "error", busy)
+                    self.assertEqual(self._diagnostic(busy)["code"], "lifecycle_mutation_locked", busy)
+                    self.assertTrue(busy["data"]["busy"])
+                    self.assertEqual(path.read_bytes(), original.encode())
+                finally:
+                    release.set()
+                self.assertTrue(first.result(timeout=10)["data"]["applied"])
+        retry = self._registered_mark("wf_mark_task", **task)
+        self.assertTrue(retry["data"]["applied"], retry)
+        self.assertEqual(path.read_bytes(), original.replace("[ ]", "[x]").encode())
+
+    def test_only_visible_wave_and_selected_member_status_protect_marks(self):
+        wave = self.wave_dir / vocabulary_profile.RECORD_FILENAME
+        path = self.wave_dir / "1200c-enh mark-sample.md"
+        body = "## Acceptance Criteria\n- [ ] AC-1: visible\n## Tasks\n- [ ] Step\n"
+        for wave_status, member_status, doc_status, plain_status, protected in (
+            ("closed", "active", "active", "active", True),
+            ("completed", "active", "active", "active", True),
+            ("implementing", "complete", "active", "active", True),
+            ("implementing", "active", "complete", "active", True),
+            ("implementing", "active", "active", "complete", True),
+            ("implementing", "implemented", "implemented", "implemented", False),
+        ):
+            with self.subTest(statuses=(wave_status, member_status, doc_status, plain_status)):
+                wave.write_text(_loc(
+                    f"# Wave\n```md\nStatus: closed\n```\nStatus: {wave_status}\n\n## Changes\n"
+                    f"Change ID: `1200c-enh mark-sample`\nChange Status: `{member_status}`\n"
+                    "```md\nChange Status: `complete`\n```\n"
+                ))
+                self._write_change(_loc(
+                    f"# Sample\n```md\nChange Status: `complete`\nStatus: complete\n```\n"
+                    f"Change Status: `{doc_status}`\nStatus: {plain_status}\n\n" + body
+                ))
+                for tool, args in (("wf_mark_ac", {"ac_id": "AC-1"}), ("wf_mark_task", {"task": "Step"})):
+                    for mode in ("dry_run", "create"):
+                        before = path.read_bytes()
+                        result = self._registered_mark(tool, state="x", mode=mode, **args)
+                        if protected:
+                            self.assertEqual(self._diagnostic(result)["code"], "mark_target_closed", result)
+                            self.assertEqual(path.read_bytes(), before)
+                        else:
+                            self.assertEqual(result["status"], "ok", result)
+
+    def test_required_deferral_uses_explicit_note_and_leaves_neighbors_visible(self):
+        import gardener_metadata
+
+        body = ("## Acceptance Criteria\n- [ ] AC-1: This required criterion has a long description "
+                "of the expected behavior and includes *ordinary emphasis* in its own words.\n"
+                "- [x] AC-2: Optional follow-up.\n\n## Tasks\n- [ ] Step\n\n"
+                "## AC Priority\n| AC | Priority |\n| --- | --- |\n"
+                "| AC-2 | important |\n| AC-1 | required |\n")
+        self._write_change(body)
+        path = self.wave_dir / "1200c-enh mark-sample.md"
+        original = path.read_bytes()
+        for reason in ("", "   ", "<!--", "-->", "two\nlines", "two\rlines", "an *asterisk*"):
+            for mode in ("dry_run", "create"):
+                with self.subTest(reason=reason, mode=mode):
+                    result = self._registered_mark("wf_mark_ac", ac_id="AC-1", state="~", reason=reason, mode=mode)
+                    self.assertEqual(self._diagnostic(result)["code"], "tilde_rationale_required", result)
+                    self.assertEqual(path.read_bytes(), original)
+        reason = "The maintainer moved this check to the next release."
+        result = self._registered_mark("wf_mark_ac", ac_id="AC-1", state="~", reason=reason, mode="create")
+        self.assertTrue(result["data"]["applied"], result)
+        written = path.read_text()
+        statuses = gardener_metadata.criterion_statuses(written)
+        self.assertEqual([(row["mark"], row["notes"]) for row in statuses], [("~", (reason,)), ("x", ())])
+        self.assertEqual(gardener_metadata.canonical_review_policy_body(path.read_bytes()),
+                         gardener_metadata.canonical_review_policy_body(original))
+        repeated = self._registered_mark("wf_mark_ac", ac_id="AC-1", state="~", mode="create")
+        self.assertFalse(repeated["data"]["changed"], repeated)
+        self.assertEqual(path.read_text(), written)
+        for tool, args in (("wf_mark_ac", {"ac_id": "AC-2"}), ("wf_mark_task", {"task": "Step"})):
+            result = self._registered_mark(tool, state="~", mode="create", **args)
+            self.assertTrue(result["data"]["applied"], result)
+
     def test_registered_mark_previews_report_no_write_and_exact_applying_call(self):
         for tool, label_key, label, section in (
             ("wf_mark_ac", "ac_id", "AC-1", "Acceptance Criteria"),
@@ -6900,6 +6998,65 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
         )
         self.assertEqual(response["status"], "ok", response)
         self.assertIn("[x] Implement the parser", (self.wave_dir / "1200c-enh mark-sample.md").read_text(encoding="utf-8"))
+
+    def test_registered_task_unique_prefix_previews_and_writes_the_full_item(self):
+        path = self.wave_dir / "1200c-enh mark-sample.md"
+        for task, prefix in (("Add tests for the parser.", "Add tests"),
+                             ("Add tests for the parser.", "add TESTS"),
+                             ("Add tests for\n  the parser.", "Add tests for the par")):
+            with self.subTest(task=task, prefix=prefix):
+                original = f"## Tasks\n- [ ] {task}\n- [ ] Add the CHANGELOG bullet.\n"
+                self._write_change(original)
+                preview = self._registered_mark("wf_mark_task", task=prefix, state="x")
+                self.assertEqual(preview["status"], "ok", preview)
+                self.assertFalse(preview["data"]["applied"])
+                self.assertEqual(preview["data"]["item_label"], prefix)
+                self.assertEqual(preview["data"]["matched_text"], f"- [x] {task}\n")
+                self.assertEqual(path.read_bytes(), original.encode())
+                applied = self._registered_mark("wf_mark_task", task=prefix, state="x", mode="create")
+                self.assertTrue(applied["data"]["applied"], applied)
+                self.assertEqual(path.read_bytes(), original.replace("[ ]", "[x]", 1).encode())
+
+    def test_ambiguous_task_prefix_returns_only_matching_full_labels_in_order(self):
+        self._write_change("## Tasks\n- [ ] Add tests for\n  the parser.\n- [ ] Add the CHANGELOG bullet.\n- [ ] Update the spec.\n")
+        path = self.wave_dir / "1200c-enh mark-sample.md"
+        before = path.read_bytes()
+        result = self._registered_mark("wf_mark_task", task="Add t", state="x", mode="create")
+        diagnostic = self._diagnostic(result)
+        self.assertEqual(diagnostic["code"], "ambiguous_mark_target")
+        self.assertIn("Do not choose arbitrarily", diagnostic["message"])
+        self.assertIn("longer prefix", diagnostic["message"])
+        self.assertEqual(result["data"]["candidate_labels"], ["Add tests for the parser.", "Add the CHANGELOG bullet."])
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_exact_task_and_colon_rule_take_precedence_over_prefix(self):
+        path = self.wave_dir / "1200c-enh mark-sample.md"
+        for label in ("Add", "Add: first"):
+            original = f"## Tasks\n- [ ] {label}\n- [ ] Add tests for the parser.\n"
+            self._write_change(original)
+            result = self._registered_mark("wf_mark_task", task="Add", state="x", mode="create")
+            self.assertTrue(result["data"]["applied"], result)
+            self.assertEqual(path.read_bytes(), original.replace("[ ]", "[x]", 1).encode())
+
+    def test_task_prefix_must_start_the_label_and_ac_still_uses_its_id(self):
+        original = ("## Tasks\n- [ ] Add tests for the parser.\n"
+                    "## Acceptance Criteria\n- [ ] AC-10: First.\n- [ ] AC-11: Second.\n")
+        self._write_change(original)
+        path = self.wave_dir / "1200c-enh mark-sample.md"
+        for tool, args, labels in (
+            ("wf_mark_task", {"task": "Missing"}, ["Add tests for the parser."]),
+            ("wf_mark_task", {"task": "tests"}, ["Add tests for the parser."]),
+            ("wf_mark_task", {"task": "  "}, ["Add tests for the parser."]),
+            ("wf_mark_ac", {"ac_id": "AC-1"}, ["AC-10: First.", "AC-11: Second."]),
+        ):
+            with self.subTest(args=args):
+                result = self._registered_mark(tool, state="x", mode="create", **args)
+                self.assertEqual(self._diagnostic(result)["code"], "mark_target_not_found")
+                self.assertEqual(result["data"]["candidate_labels"], labels)
+                self.assertEqual(path.read_bytes(), original.encode())
+        result = self._registered_mark("wf_mark_ac", ac_id="AC-10", state="x", mode="create")
+        self.assertTrue(result["data"]["applied"], result)
+        self.assertEqual(path.read_bytes(), original.replace("[ ] AC-10", "[x] AC-10").encode())
 
     def test_missing_wrapped_task_returns_every_logical_label(self):
         self._write_change(
@@ -19357,6 +19514,85 @@ class _RegisteredApprovalWaveFixture(unittest.TestCase):
         added = self.call("wf_add_change", wave_id=self.wave_id, change_id=change_id, mode="create")
         self.assertEqual(added["status"], "ok", added)
 
+
+
+class PausedDeliveryPresentationTests(_RegisteredApprovalWaveFixture):
+    def test_registered_pause_and_discovery_track_current_delivery_evidence(self):
+        import dashboard_lib
+
+        self._wave("paused-delivery", [self.SAMPLE])
+        self._readiness()
+        self._set_status("implementing")
+        member = self._change_path(self.SAMPLE)
+
+        def finish(path):
+            text = path.read_text(encoding="utf-8")
+            text = re.sub(rf"(?m)^{vocabulary_profile.MEMBER_STATUS_LABEL_RE}: `[^\n`]+`$",
+                          vocabulary_profile.MEMBER_STATUS_LABEL + ": `implemented`", text)
+            path.write_text(text.replace("- [ ]", "- [x]"), encoding="utf-8")
+
+        finish(member)
+        finish(self.wave_md)
+        keys = [key for key in self._delivery_keys() if key != "operator-signoff"]
+        self._delivery(keys)
+        self.stubs["run_validate"] = MagicMock(side_effect=AssertionError("hint ran full docs lint"))
+        pause = self.call("wf_pause_wave", wave_id=self.wave_id, mode="create")
+        self.assertEqual(pause["status"], "ok", pause)
+        self.assertEqual(pause["data"]["next_action"], "close_wave")
+        self.assertEqual(pause["data"]["status_transition"]["to"], "paused")
+
+        def check(action):
+            expected = "Awaiting closure" if action == "close_wave" else "Paused"
+            for tool in ("wf_current_wave", "wf_list_waves"):
+                response = self.call(tool)
+                row = next(w for w in response["data"]["waves"] if w["wave_id"] == self.wave_id)
+                self.assertEqual((row["status"], row["display_status"], row["next_action"]),
+                                 ("paused", expected, action), tool)
+            row = next(w for w in dashboard_lib.collect_waves(self.root) if w["wave_id"] == self.wave_id)
+            self.assertEqual((row["status"], row["display_status"], row["next_action"]),
+                             ("paused", expected, action), "dashboard")
+
+        check("close_wave")
+        ledger = self.wave_md.parent / "events.jsonl"
+        rows = self._records()
+        missing_approval = [row for row in rows if row.get("claim_id") != "approval:council-delivery"
+                            or row.get("approval_phase") != "delivery"]
+        self.assertLess(len(missing_approval), len(rows))
+        original = member.read_bytes()
+        text = original.decode("utf-8")
+        wave = self.wave_md.read_bytes()
+        wave_text = wave.decode("utf-8")
+        for reason, path, modified in (
+            ("reopened task", member, original.replace(b"- [x] do it.", b"- [ ] do it.")),
+            ("unreadable member", member, b"\xff"),
+            ("different member", member, text.replace(self.SAMPLE, self.OTHER).encode()),
+            ("stale receipt", member, text.replace("1. x", "1. revised requirement").encode()),
+            ("status drift", member, original.replace(b"`implemented`", b"`planned`")),
+            ("empty admission", self.wave_md, re.sub(
+                rf"(?m)^{vocabulary_profile.MEMBER_ID_LABEL_RE}:.*$", "", wave_text).encode()),
+            ("duplicate status", self.wave_md, wave_text.replace(
+                _loc("Change Status: `implemented`"), _loc("Change Status: `implemented`\nChange Status: `planned`")).encode()),
+            ("missing delivery approval", ledger, b"".join(
+                (json.dumps(row) + "\n").encode() for row in missing_approval)),
+        ):
+            with self.subTest(reason=reason):
+                before = path.read_bytes()
+                self.assertNotEqual(modified, before)
+                try:
+                    path.write_bytes(modified)
+                    check("resume_wave")
+                finally:
+                    path.write_bytes(before)
+        check("close_wave")
+
+        # Reopen a required finding through the public writer.
+        judgment, evidence = ReviewEvidenceListEventTests._finding_payloads(self)
+        finding = self._event(event="finding", actor="qa-reviewer", context_id="finding-after-pause",
+                              mode="create", finding_id="open-delivery-finding", run_kind="initial_delivery",
+                              cycle=0, judgment=judgment, evidence=evidence, source_lanes=["qa-reviewer"],
+                              blocking_required_lanes=["qa-reviewer"], integrity_checks=integrity_checks())
+        self.assertEqual(finding["status"], "ok", finding)
+        check("resume_wave")
 
 
 class DeliveryApprovalMembershipTests(_RegisteredApprovalWaveFixture):

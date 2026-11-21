@@ -216,6 +216,18 @@ class DocsGardenerTests(unittest.TestCase):
         self.assertIn("Last verified: 2020-06-01", tracked.read_text(encoding="utf-8"))
         self.assertIn("Last verified: 2000-01-01", other.read_text(encoding="utf-8"))
 
+    def test_preserve_handoff_excludes_its_stamp_and_scaffold_only(self):
+        handoff = self._write_doc("docs/agents/session-handoff.md")
+        other = self._write_doc("docs/other.md")
+        before = handoff.read_bytes()
+        args = dg.parse_args(["--all-docs", "--date", "2020-06-01", "--preserve-handoff"])
+        dg.gardener_run(self.root, args)
+        self.assertEqual(handoff.read_bytes(), before)
+        self.assertIn("Last verified: 2020-06-01", other.read_text())
+        handoff.unlink()
+        dg.gardener_run(self.root, args)
+        self.assertFalse(handoff.exists())
+
     def test_verification_stamp_is_untouched_by_gardener_runs(self) -> None:
         # 1ro43 AC-11: the gardener's only edit is the `Last verified:` date
         # substitution — a `Verified against:` stamp line must survive a

@@ -23,16 +23,19 @@ def _subprocess_timeout_summary(op: str, timeout_s: float) -> str:
     )
 
 
-def run_garden(root: Path) -> dict:
+def run_garden(root: Path, *, preserve_handoff: bool = False) -> dict:
     """Run docs_gardener and return structured summary (bounded; wave 1seax)."""
     from wf_server import server_impl
     import subprocess as _subprocess
 
     script = server_impl.SCRIPTS_DIR / "docs_gardener.py"
     timeout_s = subprocess_ops_timeout_seconds(root, "gardener")
+    command = [server_impl._preferred_python(), str(script)]
+    if preserve_handoff:
+        command.append("--preserve-handoff")
     try:
         result = server_impl._mcp_subprocess_run(
-            [server_impl._preferred_python(), str(script)],
+            command,
             cwd=str(root),
             env={**os.environ, "PROJECT_ROOT": str(root)},
             timeout=timeout_s,

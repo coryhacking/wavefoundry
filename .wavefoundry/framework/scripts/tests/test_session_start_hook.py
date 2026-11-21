@@ -206,6 +206,30 @@ class SessionStartExecutionTests(unittest.TestCase):
         self.assertIn('Stop the Wavefoundry hosts and run it from an external terminal.', result.stdout)
         self.assertNotIn('Setup ends by asking', result.stdout)
 
+    def test_failed_setup_hook_distinguishes_retry_from_source_recovery(self):
+        identity = {'device': self.root.stat().st_dev, 'inode': self.root.stat().st_ino}
+        owner = {'entry_path': 'setup', 'root_identity': identity, 'installed_framework_sha256': 'a' * 64}
+        mid = 'b' * 32
+        index = self.root / '.wavefoundry/index'
+        (index / 'sqlite-migration.json').write_text(json.dumps(dict(
+            owner, receipt_version=2, kind='index_sqlite_schema8', state='quiesced',
+            index_dir=str(index), migration_id=mid)))
+        lock = self.root / '.wavefoundry/upgrade-in-progress.json'
+        for cause in ('ordinary interruption', 'storage_legacy_source_unreadable: docs'):
+            lock.write_text(json.dumps(dict(owner, storage_migration_id=mid,
+                                             failed_phase='setup_storage', setup_failure=cause)))
+            result = self.run_hook()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('recovery_pending:', result.stdout)
+            if cause.startswith('ordinary'):
+                self.assertIn('setup_storage', result.stdout)
+                self.assertIn('Recommended: ', result.stdout)
+                self.assertIn('external terminal', result.stdout)
+            else:
+                self.assertIn('recover a duplicate', result.stdout)
+                self.assertIn('Remain paused', result.stdout)
+                self.assertNotIn('Recommended:', result.stdout)
+
     def test_indeterminate_preserves_the_complete_absolute_manual_check(self):
         (self.root / '.wavefoundry/upgrade-in-progress.json').write_text('{not json')
         result = self.run_hook()

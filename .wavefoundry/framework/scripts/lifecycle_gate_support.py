@@ -159,6 +159,7 @@ def _required_wave_council_signoffs(
     lifecycle_phase: str,
     wave_text: Optional[str] = None,
     wave_md: Optional[Path] = None,
+    *, records: Sequence[Mapping[str, Any]] | None = None,
 ) -> list[str]:
     """Council signoff keys required at ``lifecycle_phase``.
 
@@ -192,16 +193,15 @@ def _required_wave_council_signoffs(
         if signoff_key and signoff_key not in required:
             required.append(signoff_key)
     if policy.get("delivery_mode") == "targeted" and lifecycle_phase in {"review", "close"}:
-        records: tuple[Mapping[str, Any], ...] = ()
-        if wave_md is not None:
+        if records is None and wave_md is not None:
             records, _errors = read_review_event_ledger(wave_md)
-        receipt = current_policy_receipt(records)
+        receipt = current_policy_receipt(records or ())
         if receipt is not None:
             council_required = receipt.get("delivery_council_required") is True
         else:
             # Compatibility-only fallback for legacy prose waves that have no
             # typed receipt authority.
-            heads = current_synthesis_heads(records).values()
+            heads = current_synthesis_heads(records or ()).values()
             council_required = delivery_council_required(
                 "targeted",
                 delivered_boundary_triggers=extract_full_council_triggers(
@@ -216,7 +216,7 @@ def _required_wave_council_signoffs(
         return required
 
     transition_policy = str(policy.get("transition_policy", "")).strip().lower()
-    if transition_policy != "applies-from-next-prepare" or lifecycle_phase == "prepare" or not (wave_text or wave_md):
+    if transition_policy != "applies-from-next-prepare" or lifecycle_phase in {"prepare", "review"} or not (wave_text or wave_md):
         return required
 
     prepare_key = _phase_key("prepare")
@@ -235,8 +235,6 @@ def _required_wave_council_signoffs(
         )
     )
 
-    if lifecycle_phase == "review":
-        return required
     if lifecycle_phase == "close":
         # A present-but-stale readiness approval remains required and therefore
         # blocks through the normal currency diagnostic.
@@ -651,60 +649,67 @@ def _collect_silent_unchecked_items_for_close(
                 })
             continue
 
-        # Wave 1zime (1zimq): both sections are required by exact heading (a
-        # misspelled, suffixed or demoted heading counts as missing; the
-        # section may be empty), and EVERY section with the heading is read.
-        missing_sections = [
-            f"## {heading}"
-            for heading in ("Acceptance Criteria", "Tasks")
-            if not change_doc_checklist.has_section(change_text, heading)
-        ]
-        if missing_sections:
+        findings.extend(_member_checklist_findings(change_id, change_text))
+    return findings
+
+
+def _member_checklist_findings(change_id: str, change_text: str) -> list[dict[str, str]]:
+    """Unsettled checklist items or missing checklist sections in one admitted document."""
+    findings: list[dict[str, str]] = []
+    # Wave 1zime (1zimq): both sections are required by exact heading (a
+    # misspelled, suffixed or demoted heading counts as missing; the
+    # section may be empty), and EVERY section with the heading is read.
+    missing_sections = [
+        f"## {heading}"
+        for heading in ("Acceptance Criteria", "Tasks")
+        if not change_doc_checklist.has_section(change_text, heading)
+    ]
+    if missing_sections:
+        findings.append({
+            "change_id": change_id,
+            "item_type": "change document",
+            "item_id": "missing_sections",
+            "item_text": ", ".join(missing_sections),
+        })
+    priority_section = _extract_close_gate_section(change_text, "AC Priority")
+    priorities = _close_gate_parse_ac_priority(priority_section)
+
+    # Walk AC items — silent `[ ]` at non-exempt priority blocks close.  The
+    # id comes only from the start of the item: an id cited later in the
+    # text never exempts it.
+    # A near-miss section (`## Tasks (remaining)`) is counted too: an open
+    # item under it is never invisible to the gate.
+    for ac_section in change_doc_checklist.section_bodies(
+        change_text, "Acceptance Criteria", include_near_miss=True
+    ):
+        for match in change_doc_checklist.checklist_items(ac_section):
+            if not change_doc_checklist.is_open_mark(match.group("mark")):
+                continue
+            text_part = match.group("text").strip()
+            ac_id = change_doc_checklist.leading_ac_id(text_part) or "<unidentified>"
+            priority = priorities.get(ac_id, "unknown")
+            if priority == "not-this-scope":
+                continue
             findings.append({
                 "change_id": change_id,
-                "item_type": "change document",
-                "item_id": "missing_sections",
-                "item_text": ", ".join(missing_sections),
+                "item_type": "AC",
+                "item_id": ac_id,
+                "item_text": _close_gate_item_text(match),
             })
-        priority_section = _extract_close_gate_section(change_text, "AC Priority")
-        priorities = _close_gate_parse_ac_priority(priority_section)
 
-        # Walk AC items — silent `[ ]` at non-exempt priority blocks close.  The
-        # id comes only from the start of the item: an id cited later in the
-        # text never exempts it.
-        # A near-miss section (`## Tasks (remaining)`) is counted too: an open
-        # item under it is never invisible to the gate.
-        for ac_section in change_doc_checklist.section_bodies(
-            change_text, "Acceptance Criteria", include_near_miss=True
-        ):
-            for match in change_doc_checklist.checklist_items(ac_section):
-                if not change_doc_checklist.is_open_mark(match.group("mark")):
-                    continue
-                text_part = match.group("text").strip()
-                ac_id = change_doc_checklist.leading_ac_id(text_part) or "<unidentified>"
-                priority = priorities.get(ac_id, "unknown")
-                if priority == "not-this-scope":
-                    continue
-                findings.append({
-                    "change_id": change_id,
-                    "item_type": "AC",
-                    "item_id": ac_id,
-                    "item_text": _close_gate_item_text(match),
-                })
-
-        # Walk task items: every open item blocks close (no priority exemption for tasks).
-        for task_section in change_doc_checklist.section_bodies(
-            change_text, "Tasks", include_near_miss=True
-        ):
-            for match in change_doc_checklist.checklist_items(task_section):
-                if not change_doc_checklist.is_open_mark(match.group("mark")):
-                    continue
-                findings.append({
-                    "change_id": change_id,
-                    "item_type": "task",
-                    "item_id": "",
-                    "item_text": _close_gate_item_text(match),
-                })
+    # Walk task items: every open item blocks close (no priority exemption for tasks).
+    for task_section in change_doc_checklist.section_bodies(
+        change_text, "Tasks", include_near_miss=True
+    ):
+        for match in change_doc_checklist.checklist_items(task_section):
+            if not change_doc_checklist.is_open_mark(match.group("mark")):
+                continue
+            findings.append({
+                "change_id": change_id,
+                "item_type": "task",
+                "item_id": "",
+                "item_text": _close_gate_item_text(match),
+            })
     return findings
 
 
@@ -1181,6 +1186,7 @@ def _prepare_policy_state(
     council_brief: Mapping[str, Any],
     *,
     change_text_overrides: Mapping[str, str] | None = None,
+    validated_records: Sequence[Mapping[str, Any]] | None = None,
 ) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
     config = _read_workflow_config(root)
     policy, policy_errors = normalize_wave_review_policy(config.get("wave_review"))
@@ -1254,12 +1260,15 @@ def _prepare_policy_state(
         phase_gates=config.get("phase_gates"),
         sensors=config.get("sensors", []),
     )
-    records, ledger_errors = read_review_event_ledger(wave_md)
-    if ledger_errors:
-        return None, tuple(PolicyInputError("ledger", e) for e in ledger_errors)
-    record_errors = validate_review_evidence_records(records)
-    if record_errors:
-        return None, tuple(PolicyInputError("record", e) for e in record_errors)
+    if validated_records is None:
+        records, ledger_errors = read_review_event_ledger(wave_md)
+        if ledger_errors:
+            return None, tuple(PolicyInputError("ledger", e) for e in ledger_errors)
+        record_errors = validate_review_evidence_records(records)
+        if record_errors:
+            return None, tuple(PolicyInputError("record", e) for e in record_errors)
+    else:
+        records = validated_records
     heads = current_synthesis_heads(records).values()
     mode = str(policy["delivery_mode"])
     # One canonical representation feeds every receipt-semantic reader. Lane
@@ -1324,7 +1333,9 @@ def _prepare_policy_state(
 
 
 def _review_policy_receipt_diagnostics(
-    root: Path, wave_md: Path, wave_text: str, *, advisory: bool = False
+    root: Path, wave_md: Path, wave_text: str, *, advisory: bool = False,
+    validated_records: Sequence[Mapping[str, Any]] | None = None,
+    change_texts: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Recompute receipt inputs; downstream lifecycle gates never reselect.
 
@@ -1336,9 +1347,12 @@ def _review_policy_receipt_diagnostics(
 
     if review_evidence.wave_record_closed(wave_text):
         return []
-    if not _wave_uses_external_review_evidence(root, wave_md):
-        return []
-    existing_records, existing_errors = read_review_event_ledger(wave_md)
+    if validated_records is None:
+        if not _wave_uses_external_review_evidence(root, wave_md):
+            return []
+        existing_records, existing_errors = read_review_event_ledger(wave_md)
+    else:
+        existing_records, existing_errors = validated_records, ()
     if not existing_errors and current_policy_receipt(existing_records) is None and not has_reprepare_marker(wave_text):
         # Pre-policy in-flight waves remain on their historical authority
         # until Upgrade marks them for deterministic re-Prepare.
@@ -1350,7 +1364,8 @@ def _review_policy_receipt_diagnostics(
         wave_md.parent.name, wave_text, change_ids, typed=True
     )
     state, errors = _prepare_policy_state(
-        root, wave_md, wave_text, change_ids, brief
+        root, wave_md, wave_text, change_ids, brief,
+        change_text_overrides=change_texts, validated_records=validated_records,
     )
     diagnostics = [
         _diagnostic(

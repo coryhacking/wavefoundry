@@ -47,7 +47,7 @@ Required closure tasks:
    - `docs/architecture/testing-architecture.md` — when test tiers, target ownership, CI gates, or doubles policy changed
    - `docs/architecture/decisions/` — new or superseded records when durable choices were made
    - `docs/QUALITY_SCORE.md` — quality posture changes or tech debt resolved by this change
-13. Promote repeated durable lessons to their correct destinations (persona docs, canonical behavior contracts, workflow docs).
+13. Promote repeated durable lessons to their correct destinations (persona docs, canonical behavior contracts, workflow docs). When a repeated finding can be checked mechanically, name a check as a destination too: a sensor registered under `sensors` in `docs/workflow-config.json` (run by `wf_run_sensors`), a docs-lint rule or a test, and plan it as a change unless this wave already delivers it.
 14. Archive or freeze change-local wave memory and close or clear transient handoff artifacts.
 15. Confirm the wave-owned specs are already in place. For each item in the closed wave(s), verify `docs/waves/<wave-id>/<change-id>.md` exists and repair any stale references that still point at `docs/plans/` staging paths before closure. The wave folder is the permanent archive and active working home; normal wave flow should not route admitted docs through `docs/plans/completed/`.
 16. Consolidate routine review outcomes in wave.md. Retain and archive only justified unique long-run reports owned by this wave into its folder. Use references and contents to establish ownership; dates within `Activated at`–`Completed at` are discovery hints only. Leave unrelated reports in place. Summarize archived findings in the existing `## Reports` section of `wave.md`, then follow **Wave-folder cleanup** below before final validation. Preserve ledger-cited report paths rather than moving them for tidiness. Duplicate reports may be removed only under the cleanup checks below.
@@ -68,6 +68,10 @@ Finish material documentation, source and surface-rendering edits before the can
 Consumer upgrades retain render → docs gate → incremental index ordering. They gain no source/profile suite, routine evidence generation or broad memory-maintenance pass.
 
 Before closure, explicitly author one concise `Intent outcome:` paragraph in the existing exact `## Review Checkpoints` section: state achieved, partial or not established, cite evidence, and retain material limitations. When the plan states a measure of success, cite it and say whether it can be read yet. It may cover changes sharing an outcome. The close-summary composer carries the last such paragraph or list item (optionally dated `YYYY-MM-DD: `) into Wave Summary, preserving its text and qualification; do not infer achievement from titles or checked ACs. Legacy records without this assessment remain closable under existing gates and retain their existing summary behavior; this adds no schema or blocking gate. When the current `council-delivery` approval records `intent_fit: does_not`, Review and Close report the `delivery_intent_not_established` advisory; it does not block, and the operator's sign-off accepts that outcome.
+
+## Close a paused delivery
+
+When the operator authorizes closure, pass the ID of the paused delivery directly to Close. Keep the currently open wave’s handoff, focus and edit gates intact, including when Close refuses or retries. The reviewed delivery still goes through the ordinary close checks, including any required current test receipt.
 
 ## Wave-folder cleanup
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-19
+Last verified: 2026-11-21
 
 **For readers of the TechDocs site.** This page is Wavefoundry's orientation document: what the project is, where the code and the docs live, how development moves through the wave lifecycle, and which files configure it. It is written first for the AI agents that read it at session start (it is an agent startup-order surface and the `wavefoundry://overview` MCP resource; [Data and control flow](../architecture/data-and-control-flow.md), Path 6b step 2), so the sections below keep their agent-orientation content in place, and the short reader summaries at the top of some sections translate them for people. Backticked paths such as `AGENTS.md`, `docs/agents/`, and `docs/contributing/` name repository files that sit outside the published site. Start from the [site home](../index.md) for the landing narrative, or read the fuller conceptual overview in [wavefoundry-overview.md](wavefoundry-overview.md).
 
@@ -101,7 +101,7 @@ Wavefoundry uses the Wave Framework lifecycle for its own development:
 3. **Prepare wave** — confirm readiness (docs, AC priority, council verdict) and repair any admitted-doc placement drift. This **readies** the wave (it stays `planned`); `wf_prepare_wave(mode='ready')` readies without opening, so any number of waves can be readied in parallel.
 4. **Implement wave / Implement spec** — **open** a readied wave (the single-OPEN activation step) and execute the admitted changes. Only one wave may be OPEN (`active`/`implementing`) at a time; the guard fires here, not at readiness.
 5. **Review wave** — code review, QA, architecture review, and Wave Council delivery synthesis as required by policy and change type.
-6. **Close spec** (per change, optional) then **Close wave** (the only wave close): record closure, validate and promote memory candidates, clear handoff.
+6. **Close spec** optionally closes one member. **Close wave** records the delivery and reconciles memory candidates. To continue another delivery first, pause the reviewed wave and open the next prepared wave. A paused delivery with current evidence shows **Awaiting closure**. The operator can close it by ID while the active wave keeps its handoff.
 
 **History paths (wave 1zyb2).** Beside the record roots, one stdlib-only module names record history: a file under a directory named in `HISTORY_PATH_COMPONENTS = ('journals', 'snapshots')` in `.wavefoundry/framework/scripts/history_paths.py` is history, and the docs-lint agent validators, the agent-surface integrity scan, the renderer's review-role slug, the upgrade role backfill, the reconcile scanner and the retrieval demotion all skip or demote it through `is_history_path`. This is a stable contract: the members are exactly those two names, and adding a member is a behavior change that needs a changelog line; the match is on a whole path component of the path relative to the scan root, never a substring and never an ancestor directory of the checkout; Hugging Face model-cache `snapshots` directories are unrelated and not covered. Sites with other exclusions (`memory`, `personas`, the ranking-only `reports`) keep them locally.
 

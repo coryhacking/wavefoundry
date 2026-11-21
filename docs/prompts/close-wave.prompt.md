@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-21
 
 Shortcut: **`Close wave`**
 
@@ -14,6 +14,10 @@ Follow `.wavefoundry/framework/seeds/180-implement-spec.prompt.md` **Host-neutra
 
 Close and archive the wave. Closure requires full reconciliation, not just a status flip. **Close wave** is the only wave close, whatever the change count.
 
+## Close a paused delivery
+
+When the operator authorizes closure, pass the ID of the paused delivery directly to Close. Keep the currently open wave’s handoff, focus and edit gates intact, including when Close refuses or retries. The reviewed delivery still goes through the ordinary close checks, including any required current test receipt.
+
 ## Closure Requirements (all must be met)
 
 All closure-time code and docs investigation follows the run contract's Retrieval Rules (`.wavefoundry/framework/seeds/020-run-contract.prompt.md`): MCP retrieval tools first, for every lane and briefed subagent.
@@ -24,7 +28,7 @@ All closure-time code and docs investigation follows the run contract's Retrieva
 4. **Docs-contract review:** recorded as performed with findings, or `Docs-contract review: not applicable` with rationale — required whenever any `docs/specs/*.md` changed during the wave
 5. Chronology reconciled: `Status: completed`, `Completed at:` date, all change statuses settled
 6. Memory capture: important implementation/review lessons recorded as typed memory candidates and validated at the close checkpoint (absence of new candidates is acceptable if nothing warranted one)
-7. Durable memory promoted to `docs/references/project-context-memory.md` (and other canonical docs when applicable)
+7. Durable memory promoted to `docs/references/project-context-memory.md` (and other canonical docs when applicable). When a repeated finding can be checked mechanically, name a check as a destination too: a sensor registered under `sensors` in `docs/workflow-config.json` (run by `wf_run_sensors`), a docs-lint rule or a test, and plan it as a change unless this wave already delivers it.
 8. **Retrospective step completed:** ask "what was non-obvious in this wave that a future session should know?" — surface memory candidates for architectural decisions (why an approach was chosen), validated approaches that should carry forward (positive confirmations, not only corrections), and workflow discoveries; promote findings to auto-memory or `docs/references/project-context-memory.md`
 9. `docs/agents/session-handoff.md` updated to idle format: last-closed wave ID and one-line summary of what shipped, plus an **Open questions / Deferred decisions** section for any intent not captured in a spec
 10. **Hard checkbox gate** (wave 1p31b / 1p32k): every AC and every task across the wave's admitted changes is marked either `[x]` (completed) or `[~]` (intentionally deferred). Silent `[ ]` items block close — `wf_close_wave` returns a `silent_unchecked_items_at_close` diagnostic listing each one. ACs at `not-this-scope` priority are exempt (the priority encodes the exclusion). See `170-plan-spec.prompt.md` "AC and task checkbox states — the `[~]` marker" for the canonical convention.

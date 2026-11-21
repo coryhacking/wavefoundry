@@ -66,7 +66,7 @@ class WaveWorkLifecycleTests(unittest.TestCase):
         self.assertIsInstance(area["available"], bool)
         return area
 
-    def wave(self, slug="workspace", *, ready=True):
+    def wave(self, slug="workspace", *, ready=True, parent=None):
         made = self.ok(self.srv._change_create_response(self.root, "enh", slug + "-child", mode="create"))
         cid = made["change_id"]
         # A small, explicit change avoids unrelated template placeholders.
@@ -81,7 +81,7 @@ class WaveWorkLifecycleTests(unittest.TestCase):
             encoding="utf-8",
         )
         wid, wave_md = make_declared_wave(
-            self.srv, self.root, slug, change_ids=(cid,), ready=ready,
+            self.srv, self.root, slug, change_ids=(cid,), ready=ready, parent=parent,
             readiness_run=ready,
             approvals=("council-readiness", "code-reviewer") if ready else (), doc_gate_stubs=self.stubs,
         )
@@ -223,6 +223,82 @@ class WaveWorkLifecycleTests(unittest.TestCase):
         self.assertEqual(durable.read_text(), "unique durable proof")
         self.assertEqual(external.read_text(), "outside owned area")
         self.assertEqual(ledger.read_bytes(), ledger_before)
+
+    def _close_while_another_wave_is_open(self, *, parent_scopes=False):
+        import context_efficiency
+        from record_layout_support import patch_layout
+
+        self.handler.telemetry = context_efficiency.ProcessTelemetry(self.root)
+        self.addCleanup(self.handler.telemetry.close)
+        if parent_scopes:
+            self.stack.enter_context(patch_layout(nested=True, max_depth=4, modules=(self.srv.record_paths,)))
+            self.stack.enter_context(patch.object(self.srv.record_paths, "OPEN_CONTAINER_SCOPE", "parent"))
+            for group in ("alpha", "beta", "gamma"):
+                (self.srv.record_paths.load_record_roots(self.root).waves / group).mkdir(parents=True)
+        delivered, target, member = self.wave("delivery", parent="alpha" if parent_scopes else None)
+        current, active, _ = self.wave("current", parent="beta" if parent_scopes else None)
+        if parent_scopes:
+            self.assertNotEqual(self.srv.record_paths.open_container_scope(self.root, active),
+                                self.srv.record_paths.open_container_scope(self.root, target))
+
+        self.finish(delivered, member)
+        self.ok(self.call("wf_pause_wave", wave_id=delivered, mode="create"))
+        if parent_scopes:
+            # Both parents can legitimately have OPEN records: workspace
+            # authority remains ambiguous even with an explicit close target.
+            third, _, _ = self.wave("parallel", parent="gamma")
+            self.ok(self.call("wf_implement_wave", wave_id=third, mode="create"))
+        self.ok(self.call("wf_implement_wave", wave_id=current, mode="create"))
+        handoff = self.root / "docs/agents/session-handoff.md"
+        self.ok(self.call("wf_set_handoff", content=self.srv._update_handoff_wave_ref(handoff.read_text(), current)))
+        self.ok(self.call("wf_open_gate", gate="framework_edit_allowed"))
+        gates = self.root / ".wavefoundry/guard-overrides.json"
+        handoff_before, gates_before = handoff.read_bytes(), gates.read_bytes()
+        focus_before = self.handler.telemetry.focus
+        self.assertEqual((focus_before.wave_id, focus_before.stage), (current, "implement"))
+        work = self.scratch(delivered)
+        other_work = self.scratch(current)
+
+        def close(mode):
+            from wf_server.docs_handlers import run_garden
+            with patch.object(self.srv, "run_garden", wraps=run_garden) as garden:
+                result = close_container(self.call, self.root, delivered.split()[0], mode=mode)
+                if mode != "dry_run":
+                    garden.assert_called_once_with(self.root, preserve_handoff=True)
+            self.assertEqual(handoff.read_bytes(), handoff_before)
+            self.assertEqual(gates.read_bytes(), gates_before)
+            self.assertEqual(self.handler.telemetry.focus, focus_before)
+            self.assertTrue(other_work.exists())
+            self.assertTrue(result["data"]["shared_workspace_preserved"], result)
+            return result
+
+        spec = target.parent / f"{member}.md"
+        original = spec.read_text()
+        spec.write_text(original.replace("- [x] AC-1:", "- [ ] AC-1:"))
+        refused = close("create")
+        self.assertEqual(refused["status"], "error", refused)
+        self.assertIn("Status: paused", target.read_text())
+        self.assertTrue(work.exists())
+        spec.write_text(original)
+        self.assertEqual(close("dry_run")["status"], "dry_run")
+        closed = self.ok(close("apply"))
+        self.assertTrue(closed["transitioned_to_closed"])
+        self.assertTrue(closed["context_efficiency_persistence"]["sealed"])
+        self.assertIn("Status: closed", target.read_text())
+        self.assertFalse(work.exists())
+        self.assertFalse(self.ok(close("create"))["transitioned_to_closed"])
+
+        # A sibling whose status cannot be established can still own the
+        # workspace, even when no other readable record is OPEN.
+        if not parent_scopes:
+            active.write_bytes(b"\xff")
+            self.assertFalse(self.ok(close("create"))["transitioned_to_closed"])
+
+    def test_registered_close_preserves_the_other_open_workspace(self):
+        self._close_while_another_wave_is_open()
+
+    def test_registered_close_preserves_workspace_across_parent_scopes(self):
+        self._close_while_another_wave_is_open(parent_scopes=True)
 
     def test_registered_device_drift_reports_available_and_closes_owned_area(self):
         wid, wave_md, cid = self.wave()

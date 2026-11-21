@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-21
 
 ## Review Lane Summary
 
@@ -27,6 +27,8 @@ The council-chair records this as `intent_fit` in both phases (seed 215). At rea
 ## Review Protocol Ownership
 
 Seed `209-agent-harness-core.prompt.md` is the only full executable-review-evidence protocol and checklist. Other sources own routing and lane-specific additions; they do not fork the shared protocol.
+
+Use the seed when [selecting fast contract checks](../../.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md#continuation-and-qualification-discipline), [combining findings from multiple reviewers](../../.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md#harness-behaviors) or [choosing what to measure in a before-and-after comparison](../../.wavefoundry/framework/seeds/209-agent-harness-core.prompt.md#choose-a-test-boundary).
 
 | Canonical owner | Carrier / rendered target | Init owner | Upgrade / refresh owner | Verification fixture |
 |-----------------|---------------------------|------------|-------------------------|----------------------|

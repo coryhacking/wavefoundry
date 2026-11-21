@@ -226,7 +226,8 @@ class ConvertedFixtureCallGuardTests(unittest.TestCase):
     # change 23q0s added one (retained_closed_wave); change 23p9t added
     # twenty-one (the record-folder extras tests). Change 23rzt added six
     # close calls that check when the loose-file advisory is reported.
-    SCOPES = ((WAVE_WORK, None, 54), (LIFECYCLE, SNAPSHOT_CLASS, 1), (LIFECYCLE, PREVIEW_CLASS, 3))
+    # Change 23xo6 adds one close site for the shared-workspace ownership tests.
+    SCOPES = ((WAVE_WORK, None, 55), (LIFECYCLE, SNAPSHOT_CLASS, 1), (LIFECYCLE, PREVIEW_CLASS, 3))
 
     def test_converted_scopes_make_no_direct_container_call(self):
         for path, class_name, _expected in self.SCOPES:

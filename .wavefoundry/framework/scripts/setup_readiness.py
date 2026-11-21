@@ -79,6 +79,10 @@ class ObservationError(ValueError):
     pass
 
 
+class NoRecordedSetupFailure(ObservationError):
+    """A validated setup owner may still be running."""
+
+
 def _digest(value) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
@@ -337,7 +341,50 @@ def _storage_probe(path: Path, timeout_seconds: float) -> dict:
     return observation
 
 
-def _owner(root: Path, diagnostics: dict | None = None) -> tuple[bool, list[str] | None]:
+class RecoveryGuidance:
+    """The bounded ownership assessment shared by setup and upgrade diagnostics."""
+
+    def __init__(self):
+        self.pending = False
+        self.argv = None
+        self.phase = ''
+        self.cause = ''
+        self.recover_duplicate = False
+
+    def record_failure(self, checkpoint, pending, root):
+        phase = checkpoint.get('failed_phase')
+        if not isinstance(phase, str) or not re.fullmatch(r'[A-Za-z0-9_]{1,64}', phase):
+            return
+        from lifecycle_lock import path_free_text
+
+        self.phase = phase
+        cause = checkpoint.get('setup_failure')
+        if not isinstance(cause, str):
+            return
+        self.recover_duplicate = bool(pending and re.match(
+            r'^(?:MigrationRequired: )?storage_(?:legacy_source_unreadable|vector_invalid):', cause))
+        if cause and cause != 'setup did not complete' and path_free_text(cause, root):
+            self.cause = ''.join(c if c.isprintable() else ' ' for c in cause)[:120]
+
+    def description(self):
+        if self.recover_duplicate:
+            return ('Stop hosts and recover a duplicate with a verified compatible older framework/runtime. '
+                    'Remain paused if compatible inputs are unavailable. Preserve original storage, auxiliary state and receipts. '
+                    f'Recorded setup phase: {self.phase}. Follow the legacy-source recovery instructions before retrying.')
+        if self.phase:
+            detail = self.cause or 'See the original setup output for the failed step.'
+            return f'Setup did not finish (recorded phase: {self.phase}). {detail}'
+        return 'Setup has not finished and records no failure; it may still be running.'
+
+
+def setup_recovery_guidance(root: Path, diagnostics: dict | None = None) -> RecoveryGuidance:
+    guidance = RecoveryGuidance()
+    guidance.pending, guidance.argv = _owner(root, diagnostics, guidance)
+    return guidance
+
+
+def _owner(root: Path, diagnostics: dict | None = None,
+           guidance: RecoveryGuidance | None = None) -> tuple[bool, list[str] | None]:
     checkpoint_path, receipt_path = (_safe(root, name) for name in OWNERSHIP_FILES)
     checkpoint = _json(checkpoint_path) if checkpoint_path.exists() else None
     receipt = _json(receipt_path) if receipt_path.exists() else None
@@ -358,17 +405,34 @@ def _owner(root: Path, diagnostics: dict | None = None) -> tuple[bool, list[str]
     if checkpoint is None and (receipt is None or receipt.get('state') == 'complete'):
         return False, None
     pending = receipt if receipt and receipt.get('state') != 'complete' else None
-    action = (checkpoint or {}).get('action_required') or (pending or {}).get('restart_action')
+    entry = (pending or checkpoint or {}).get('entry_path', 'upgrade')
+    if checkpoint is not None and (entry == 'setup' or 'root_identity' in checkpoint) and not matches(checkpoint.get('root_identity'), 'checkpoint'):
+        raise ObservationError('checkpoint repository identity mismatch')
+    if pending and checkpoint and checkpoint.get('storage_migration_id') != pending.get('migration_id'):
+        raise ObservationError('pending continuation binding mismatch; preserve recovery records')
+    if entry == 'setup':
+        if checkpoint and checkpoint.get('entry_path') != 'setup':
+            raise ObservationError('pending continuation owner mismatch')
+        if any(record and (record.get('pack_path') or record.get('zip_path')) for record in (checkpoint, pending)):
+            raise ObservationError('setup continuation cannot replace archive ownership')
+        if not re.fullmatch('[0-9a-f]{64}', str((pending or checkpoint).get('installed_framework_sha256', ''))):
+            raise ObservationError('setup source binding missing')
+        if guidance is None:
+            guidance = RecoveryGuidance()
+        guidance.record_failure(checkpoint or {}, pending, root)
+    action = (checkpoint or {}).get('action_required')
+    if action is None:
+        action = (pending or {}).get('restart_action')
+    if action is None and entry == 'setup' and guidance.phase:
+        return True, None if guidance.recover_duplicate else repository_launcher_argv(root, 'setup', '--root', str(root))
+    if action is None and entry == 'setup' and not (checkpoint or {}).get('failed_phase'):
+        raise NoRecordedSetupFailure('pending recovery has no validated continuation; inspect its owning checkpoint')
     if not isinstance(action, dict):
         raise ObservationError('pending recovery has no validated continuation; inspect its owning checkpoint')
     if (not storage_identity.same_path(action.get('root'), root) or not matches(action.get('root_identity'), 'action')
             or (pending and action.get('migration_id') != pending.get('migration_id'))
-            or (checkpoint and action.get('checkpoint_started_at') != checkpoint.get('started_at'))
-            or (pending and checkpoint and checkpoint.get('storage_migration_id') != pending.get('migration_id'))):
+            or (checkpoint and action.get('checkpoint_started_at') != checkpoint.get('started_at'))):
         raise ObservationError('pending continuation binding mismatch; preserve recovery records')
-    entry = (pending or checkpoint or {}).get('entry_path', 'upgrade')
-    if checkpoint is not None and (entry == 'setup' or 'root_identity' in checkpoint) and not matches(checkpoint.get('root_identity'), 'checkpoint'):
-        raise ObservationError('checkpoint repository identity mismatch')
     if entry not in {'setup', 'upgrade'} or action.get('entry_path', 'upgrade') != entry:
         raise ObservationError('pending continuation owner mismatch')
     argv = action.get('command_argv')
@@ -386,10 +450,8 @@ def _owner(root: Path, diagnostics: dict | None = None) -> tuple[bool, list[str]
             or '--confirm-hosts-stopped' not in argv):
         raise ObservationError('pending continuation command is not canonical')
     if entry == 'setup':
-        if (pending or checkpoint).get('pack_path') or (checkpoint or {}).get('zip_path') or '--pack' in argv:
+        if '--pack' in argv:
             raise ObservationError('setup continuation cannot replace archive ownership')
-        if not re.fullmatch('[0-9a-f]{64}', str((pending or checkpoint).get('installed_framework_sha256', ''))):
-            raise ObservationError('setup source binding missing')
     else:
         pack = (pending or {}).get('pack_path') or (checkpoint or {}).get('zip_path')
         if (not isinstance(pack, str) or argv.count('--pack') != 1
@@ -427,7 +489,7 @@ def _owner(root: Path, diagnostics: dict | None = None) -> tuple[bool, list[str]
         expected.append('--rebuild-storage')
     if argv != expected:
         raise ObservationError('continuation differs from its owning canonical arguments')
-    return True, argv
+    return True, None if guidance and guidance.recover_duplicate else argv
 
 
 def repository_launcher_argv(root: Path | str, *arguments: str,
@@ -481,11 +543,16 @@ def assess_setup(root: Path, *, loaded_identity: dict | None = None,
             unknown = True
         try:
             result['storage_identity'] = {}
-            pending, continuation = _owner(root, result['storage_identity'])
+            recovery = setup_recovery_guidance(root, result['storage_identity'])
+            pending = recovery.pending
             if pending:
-                reason('recovery_pending', 'Resume the recorded owning continuation after stopping the required hosts; its guards revalidate source/archive bytes.')
-                result['actions'].append({'kind': 'resume', 'argv': continuation})
-                result['limitations'].append('Recovery command ownership/root bindings were checked; complete archive/source hashes are revalidated by its owner, not this bounded check.')
+                message = 'Resume the recorded owning continuation after stopping the required hosts; its guards revalidate source/archive bytes.'
+                if recovery.phase:
+                    message = recovery.description()
+                reason('recovery_pending', message)
+                if recovery.argv:
+                    result['actions'].append({'kind': 'resume', 'argv': recovery.argv})
+                    result['limitations'].append('Recovery command ownership/root bindings were checked; complete archive/source hashes are revalidated by its owner, not this bounded check.')
         except (OSError, ValueError, IndexError) as exc:
             pending, unknown = True, True
             reason('recovery_unproven', str(exc))
@@ -630,7 +697,7 @@ def assess_setup(root: Path, *, loaded_identity: dict | None = None,
         unknown = True; reason('assessment_unproven', str(exc))
     if needs_setup and not pending and not preserve and not any(r['code'] == 'loaded_code_stale' for r in result['reasons']):
         result['actions'].append({'kind': 'setup', 'argv': repository_launcher_argv(root, 'setup', '--root', str(root))})
-    result['status'] = 'indeterminate' if unknown else 'action_required' if result['actions'] else 'ready'
+    result['status'] = 'indeterminate' if unknown else 'action_required' if result['actions'] or pending else 'ready'
     result['timings_ms']['total'] = round((time.monotonic() - started) * 1000, 3)
     return result
 

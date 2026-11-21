@@ -60,6 +60,8 @@ def project_root() -> Path:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Wave Framework docs gardener")
     parser.add_argument("--date", required=False, help="YYYY-MM-DD date override (defaults to today)")
+    parser.add_argument("--preserve-handoff", action="store_true",
+                        help="Leave the shared session handoff untouched when closing another wave")
     parser.add_argument(
         "--paths",
         nargs="+",
@@ -486,6 +488,10 @@ def gardener_run(root: Path, args: argparse.Namespace) -> tuple[int, list[str]]:
     stamped_paths: list[str] = []
 
     targets = resolve_metadata_targets(root, args, date_value)
+    preserve_handoff = getattr(args, "preserve_handoff", False)
+    if preserve_handoff:
+        handoff = root / "docs/agents/session-handoff.md"
+        targets = [path for path in targets if path != handoff]
     for path in targets:
         if refresh_last_verified(path, date_value):
             rel = path.relative_to(root).as_posix()  # Wave 1p6dx: forward-slash rels in output
@@ -496,9 +502,10 @@ def gardener_run(root: Path, args: argparse.Namespace) -> tuple[int, list[str]]:
     if manifest_wrote:
         updated_paths.append(manifest_p.relative_to(root).as_posix())  # Wave 1p6dx: forward-slash
 
-    sh_path, sh_created = ensure_session_handoff(root, date_value)
-    if sh_created:
-        updated_paths.append(sh_path.relative_to(root).as_posix())  # Wave 1p6dx: forward-slash
+    if not preserve_handoff:
+        sh_path, sh_created = ensure_session_handoff(root, date_value)
+        if sh_created:
+            updated_paths.append(sh_path.relative_to(root).as_posix())
 
     if not stamped_paths:
         print("docs-gardener: ok (nothing to report)")

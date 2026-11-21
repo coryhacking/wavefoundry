@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-21
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
@@ -165,7 +165,7 @@ After prompt and role sources exist, `wf_sync_surfaces(mode='run')` over MCP or 
 
 | Host | Rendered surface | Render path | Ownership model |
 |------|------------------|-------------|-----------------|
-| Claude Code | `.claude/settings.json` `permissions.allow` allowlist (read-only tier by default; write tier behind the operator-authored `wavefoundryAllowWriteTools` key) | Upgrade/install orchestration (renderer's explicit include-permissions switch); the agent-invocable `wf_sync_surfaces` render never touches `permissions` content | Provenance set-merge: emitted entries recorded under `wavefoundryManagedAllow`; operator entries (including wavefoundry-named ones) survive every render; ownership is never inferred from the `mcp__wavefoundry__` name prefix |
+| Claude Code | `.claude/settings.json` `permissions.allow` allowlist (read tools by default, bounded writes with `wavefoundryAllowLowRiskWriteTools`, all writes with `wavefoundryAllowWriteTools`) | Upgrade/install orchestration (renderer's explicit include-permissions switch); the agent-invocable `wf_sync_surfaces` render never touches `permissions` content | Provenance set-merge: emitted entries recorded under `wavefoundryManagedAllow`; operator entries (including wavefoundry-named ones) survive every render; ownership is never inferred from the `mcp__wavefoundry__` name prefix |
 | Cursor / Codex / Copilot / Windsurf / Junie / Air / Warp / Antigravity | None rendered in this release | n/a | Out of scope for rendering; the design does not preclude equivalent surfaces later |
 
 The allowlist derives from the canonical stdlib tool roster
@@ -179,8 +179,8 @@ Render-boundary honesty: the `wf_sync_surfaces` negative is a tested invariant,
 but the boundary as a whole is **operator approval plus host enforcement, not
 structural agent-unreachability**. `wf_upgrade` is an ordinary agent-callable
 MCP tool whose first phase renders, so an agent can trigger a render; the
-impact is bounded to the read tier, because the write tier needs the operator
-knob and `wf_upgrade` is itself write-tier and so cannot allowlist itself.
+render applies the operator’s selection. The low-risk group cannot render permissions.
+Only the full-write key includes the upgrade tool.
 Passing the include-permissions switch to the renderer through the `wf`
 dispatcher is an accepted residual outside the threat model (an agent with
 unrestricted shell access can write `.claude/settings.json` directly). The

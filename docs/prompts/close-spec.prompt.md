@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-21
+Last verified: 2026-11-21
 
 Shortcut: **`Close spec`** | Alias: **`Close change`**
 
@@ -51,7 +51,12 @@ Move fenced examples out of the record lines and retry.
    `complete` into the spec and the wave record, and moves each
    `planned` or `blocked` dependent whose dependencies are now all done to
    `ready`.
-4. Close the wave later with **Close wave**, which stays operator-owned.
+4. After a successful close, count all admitted specs. If the selected spec
+   is the sole member, you may offer **Close wave**. Wait for the operator's
+   explicit approval before running it. With multiple admitted specs, leave
+   the wave open even if the selected spec was its last unfinished member.
+   **Close wave** handles all eligible members under its usual review and
+   closure rules.
 
 ## Guardrails
 

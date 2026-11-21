@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, NotRequired, Optional, TypedDict
 
+import change_doc_checklist
 import lifecycle_gate_support
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 import review_evidence
@@ -439,6 +440,101 @@ def _criterion_scope_advisories(
                     advisory=True,
                 ))
     return advisories
+
+
+def _reviewed_delivery(root: Path, wave_md: Path, wave_text: str) -> bool:
+    """Inspect current delivery evidence without running a lifecycle transition."""
+    from wave_lint_lib.constants import WAVE_ID_PATTERN
+    from wave_lint_lib.wave_validators import _parse_change_records
+
+    support = lifecycle_gate_support
+    status = change_doc_checklist.wave_status_match(wave_text)
+    wave_header = re.split(r"(?m)^## ", change_doc_checklist.unfenced_text(wave_text), maxsplit=1)[0]
+    wave_ids = WAVE_ID_PATTERN.findall(wave_header)
+    if not status or status[1] != "paused" or len(wave_ids) != 1 or has_reprepare_marker(wave_text):
+        return False
+
+    wave_aliases = {wave_ids[0], wave_ids[0].split()[0]}
+    # A second ID or status line, including a malformed line the parser
+    # skipped, makes ownership or completion ambiguous.
+    def members(text):
+        visible = change_doc_checklist.unfenced_text(text)
+        records = _parse_change_records(visible, "")
+        ids = [record.record_id for record in records]
+        id_lines = sum(line.lstrip(" \t").startswith(f"{_vocab.MEMBER_ID_LABEL}:") for line in visible.splitlines())
+        status_lines = sum(line.lstrip(" \t").startswith(f"{_vocab.MEMBER_STATUS_LABEL}:") for line in visible.splitlines())
+        if id_lines != len(ids) or status_lines != len(ids):
+            return []
+        return records if len(set(ids)) == len(ids) else []
+
+    sections = change_doc_checklist.section_bodies(wave_text, _vocab.MEMBER_HEADING.removeprefix("## "))
+    if len(sections) != 1:
+        return False
+    admitted = members(sections[0])
+    ids = [record.record_id for record in admitted]
+    if not ids or ids != [row.record_id for row in members(wave_text)]:
+        return False
+    if any(
+        record.status_values != [record.status]
+        or record.status not in {"implemented", "complete", "completed", "done"}
+        for record in admitted
+    ):
+        return False
+    texts = support.admitted_change_texts(root, wave_md, ids)
+    for record in admitted:
+        text = texts.get(record.record_id)
+        if text is None:
+            return False
+        header = re.split(r"(?m)^## ", change_doc_checklist.unfenced_text(text), maxsplit=1)[0]
+        declared = members(header)
+        backrefs = re.findall(rf"(?m)^{_vocab.BACKREF_LABEL_RE}:[ \t]*(.*?)\s*$", header)
+        if backrefs and (len(backrefs) != 1 or backrefs[0].strip("`") not in wave_aliases):
+            return False
+        if (len(declared) != 1 or declared[0].record_id != record.record_id
+                or declared[0].status_values != [record.status]
+                or support._member_checklist_findings(record.record_id, text)):
+            return False
+
+    # The ledger validator's closure option checks unresolved required
+    # findings. It reads the ledger, without checking signoff or a suite receipt.
+    evidence = validate_external_review_evidence(wave_md, wave_text=wave_text, closure=True)
+    records = evidence.records
+    if evidence.errors or support.current_policy_receipt(records) is None:
+        return False
+    if support._review_policy_receipt_diagnostics(
+        root, wave_md, wave_text, validated_records=records, change_texts=texts
+    ):
+        return False
+    council = support._required_wave_council_signoffs(root, "review", wave_text, wave_md, records=records)
+    required = [
+        *support._extract_required_delivery_lanes(wave_text),
+        *support._project_lanes_for_phase(root, "close"),
+        *council,
+    ]
+    projection = review_evidence.review_authority_projection(
+        records, required, approval_phase="delivery", required_run_kind="initial_delivery"
+    )
+    if not projection["required_run_present"] or not all(
+        fact["approval_current"] for fact in projection["approval_facts"]
+    ):
+        return False
+    if review_evidence.security_candidate_state(records)["unsettled"]:
+        return False
+    return not any(
+        finding["signoff_key"] in council
+        for finding in support.delivery_deferral_findings(root, wave_md, wave_text, records)
+    )
+
+
+def paused_wave_presentation(root: Path, wave_md: Path, wave_text: str | None) -> dict[str, str]:
+    """A paused delivery's next action, derived afresh from its local records."""
+    try:
+        if wave_text and _reviewed_delivery(root, wave_md, wave_text):
+            return {"display_status": "Awaiting closure", "next_action": "close_wave"}
+    except (OSError, ValueError, TypeError, AttributeError, RecursionError):
+        # Unreadable or invalid evidence keeps this candidate on the resume path.
+        pass
+    return {"display_status": "Paused", "next_action": "resume_wave"}
 
 
 def _evaluate_shared_delivery_state(

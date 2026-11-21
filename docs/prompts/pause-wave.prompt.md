@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-21
 
 Shortcut: **`Pause wave`**
 
@@ -12,7 +12,7 @@ Follow `.wavefoundry/framework/seeds/180-implement-spec.prompt.md` **Host-neutra
 
 ## Purpose
 
-Park current session state and transition the wave to `paused` when work must be interrupted. Enables safe resumption in a new session and frees the OPEN slot so another wave can be **opened** (wave 1p45l). Planning, admitting, and fully **readying** other waves needs no pause — only opening (activating) one does.
+Pause a wave to hand off unfinished work or to queue a reviewed delivery for operator closure. Both uses free the OPEN slot so the team can implement the next prepared wave. Teams can plan, admit and prepare other waves while one is open.
 
 ## Steps
 
@@ -46,9 +46,11 @@ Park current session state and transition the wave to `paused` when work must be
 
 At next session start, read `docs/agents/session-handoff.md` and the wave record at `docs/waves/<wave-id>/wave.md` before taking any action. To transition the paused wave back to `active`, run `wf_prepare_wave(wave_id=..., mode='create')` on it (resume is an activation). The single-OPEN guard will block this if any other wave is currently OPEN (`active`/`implementing`); pause that one first.
 
-## Paused Waves in `wf_current_wave`
+## Work on the next wave
 
-`wf_current_wave` returns paused waves in its `data.waves[]` response alongside active and planned waves. Paused entries carry `next_action: "resume_wave"` — a hint that maps to calling `wf_prepare_wave` on that wave.
+After implementation and delivery review, pause the wave by ID. Record what the reviewers verified and what the operator still needs to decide. Discovery and the dashboard show **Awaiting closure** when the delivery evidence is current and the admitted work is settled. The stored status stays `paused`. Other paused waves offer **Resume**. If later edits invalidate the delivery evidence, resume the affected work and review it again.
+
+For example, after reviewing wave A, request “Pause wave A and implement prepared wave B.” When the operator is ready, “Close wave A” runs the ordinary closure checks while B keeps its handoff, focus and edit gates. Only the operator authorizes Close.
 
 ## What Belongs in Handoff vs Memory Records
 

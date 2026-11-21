@@ -15,6 +15,7 @@ import time
 from types import SimpleNamespace
 import uuid
 
+import lifecycle_lock
 import sqlite_storage_migration as migration
 import upgrade_lib
 import storage_identity
@@ -338,8 +339,14 @@ class session:
             if self.requires_index and not self._completed:
                 checkpoint = upgrade_lib.read_upgrade_lock(self.root) or {}
                 if checkpoint.get("entry_path") == "setup" and checkpoint.get("current_phase") != "storage_restart_required":
+                    cause = "setup did not complete"
+                    if exc is not None:
+                        try:
+                            cause = lifecycle_lock.path_free_exception_text(exc, self.root)
+                        except Exception:
+                            pass  # Retain the phase even if cause rendering fails.
                     self._update(failed_phase=checkpoint.get("current_phase", "setup_storage"),
-                                 failed_at=time.time(), setup_failure=str(exc or "setup did not complete"))
+                                 failed_at=time.time(), setup_failure=cause)
         finally:
             if self._transaction is not None:
                 self._transaction.__exit__(exc_type, exc, tb)

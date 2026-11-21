@@ -578,7 +578,7 @@ from wf_server.context_efficiency_handlers import (
 )
 import lifecycle_lock as _lifecycle_lock_authority
 import publication_control
-from wave_lint_lib.constants import OPEN_CONTAINER_STATUSES
+from wave_lint_lib.constants import CONTAINER_STATUSES, OPEN_CONTAINER_STATUSES
 from gardener_metadata import ambiguous_excluded_headings, canonical_review_policy_body
 from review_policy import (
     FULL_COUNCIL_TRIGGER_FIELDS,
@@ -6745,6 +6745,14 @@ def _wf_current_wave_sort_key(wave: dict) -> tuple[int, str]:
     return (priority.get(wave["status"], 3), wave.get("wave_id", ""))
 
 
+def _paused_listing_presentation(root: Path, wave: Mapping[str, Any]) -> dict[str, str]:
+    if wave["status"] != "paused":
+        return {}
+    path = root / wave["path"]
+    text, _error = _read_wave_record_text(path)
+    return lifecycle_gates.paused_wave_presentation(root, path, text)
+
+
 def _wave_work_area(root: Path, wave_md: Path, *, create: bool = False, reopen: bool = False) -> dict[str, Any]:
     """Disposable work is advisory; it never grants lifecycle authority."""
     import wave_work
@@ -6766,7 +6774,8 @@ def wf_current_wave_response(root: Path, cache: Optional[McpRepoCache] = None) -
     open_waves.sort(key=_wf_current_wave_sort_key)
     entries = [
         {**w, "next_action": _WAVE_CURRENT_NEXT_ACTION.get(w["status"], "prepare_wave"),
-         "work_area": _wave_work_area(root, root / w["path"])}
+         "work_area": _wave_work_area(root, root / w["path"]),
+         **_paused_listing_presentation(root, w)}
         for w in open_waves
     ]
     if not entries:
@@ -6880,7 +6889,8 @@ def wf_list_waves_response(root: Path, limit: int = 50, cache: Optional[McpRepoC
     # Wave 1zlu1 (1zlu3): each entry carries its derived `parent`, the wave
     # folder's parent below the waves root (null for a direct child), read
     # from the discovered folder rather than stored in the record.
-    waves = [{**wave, "parent": _wave_listing_parent(root, wave)} for wave in all_waves[:n]]
+    waves = [{**wave, "parent": _wave_listing_parent(root, wave),
+              **_paused_listing_presentation(root, wave)} for wave in all_waves[:n]]
     metrics: dict[str, dict[str, Any]] = {}
     try:
         exploration = _load_script("exploration_avoided")
@@ -7476,7 +7486,8 @@ def _wave_match_payload(root: Path, wave_md: Path) -> dict[str, Any]:
 
 
 def _resolve_wave_md_matches(
-    root: Path, wave_id_or_prefix: str, wave_dirs: Optional[list[Path]] = None
+    root: Path, wave_id_or_prefix: str, wave_dirs: Optional[list[Path]] = None,
+    *, possible_workspace_owners: set[Path | None] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Resolve wave records by id/dirname prefix: ``(matches, unreadable)``.
 
@@ -7487,6 +7498,9 @@ def _resolve_wave_md_matches(
     be read: their inner ``wave-id`` may differ from the dirname, so callers
     must surface them (and treat zero-match-with-skipped as a read failure,
     not a missing wave).
+
+    Close collects OPEN paths during this repository-wide walk. None denotes
+    indeterminate ownership. Gates, handoff and focus span all activation scopes.
     """
     token = (wave_id_or_prefix or "").strip().lower()
     if not token:
@@ -7499,10 +7513,18 @@ def _resolve_wave_md_matches(
         try:
             wave_md, _ = _contained_wave_review_paths(root, wave_md)
         except ValueError as exc:
+            if possible_workspace_owners is not None:
+                possible_workspace_owners.add(None)
             if _token_matches_id(wave_md.parent.name, token):
                 raise ValueError(f"Wave record path is not contained: {exc}") from exc
             continue
         text, read_error = _read_wave_record_text(wave_md)
+        if possible_workspace_owners is not None:
+            status = wave_status_match(text)
+            if not status or status[1] not in CONTAINER_STATUSES:
+                possible_workspace_owners.add(None)
+            elif status[1] in OPEN_CONTAINER_STATUSES:
+                possible_workspace_owners.add(wave_md)
         if text is None:
             if _token_matches_id(wave_md.parent.name, token):
                 matches.append(_wave_match_payload(root, wave_md))
@@ -7524,7 +7546,8 @@ def _resolve_wave_md_matches(
 
 
 def _find_wave_md_detailed(
-    root: Path, wave_id_or_prefix: str, wave_dirs: Optional[list[Path]] = None
+    root: Path, wave_id_or_prefix: str, wave_dirs: Optional[list[Path]] = None,
+    *, possible_workspace_owners: set[Path | None] | None = None,
 ) -> tuple[Optional[Path], Optional[str], list[dict[str, Any]]]:
     """``(wave_md, requested_read_error, unreadable_siblings)`` for one token.
 
@@ -7532,7 +7555,9 @@ def _find_wave_md_detailed(
     read; ``unreadable_siblings`` are skipped non-matching unreadable records
     the caller must surface as diagnostics (wave 1v0lw).
     """
-    matches, unreadable = _resolve_wave_md_matches(root, wave_id_or_prefix, wave_dirs)
+    matches, unreadable = _resolve_wave_md_matches(
+        root, wave_id_or_prefix, wave_dirs, possible_workspace_owners=possible_workspace_owners,
+    )
     if not matches:
         return None, None, unreadable
     if len(matches) > 1:
@@ -7905,12 +7930,42 @@ def _refuse_if_archived(root: Path, token: str, kind: str) -> Optional[dict[str,
 # (imported above) beside the change-id allow-list.
 
 
+def _mark_history_status(wave_text: str, change_id: str, change_text: str) -> str | None:
+    """Return the closed wave or terminal member status that protects the checklist."""
+    from wave_lint_lib.constants import TERMINAL_CHANGE_STATUSES
+    from wave_lint_lib.wave_validators import _parse_change_records
+
+    wave_status = wave_status_match(wave_text)
+    if wave_status and wave_status.group(1).lower() in {"closed", "completed"}:
+        return wave_status.group(1)
+    visible_wave = change_doc_checklist.unfenced_text(wave_text)
+    sections = change_doc_checklist.section_bodies(visible_wave, _vocab.MEMBER_HEADING.removeprefix("## "))
+    records = _parse_change_records("\n".join(sections) if sections else visible_wave, "")
+    for record in records:
+        if record.record_id == change_id:
+            for status in record.status_values:
+                if status in TERMINAL_CHANGE_STATUSES:
+                    return status
+    visible_doc = change_doc_checklist.unfenced_text(change_text)
+    status = _close_change_doc_status(visible_doc)
+    if status in TERMINAL_CHANGE_STATUSES:
+        return status
+    header_status = wave_status_match(visible_doc)
+    if header_status and header_status.group(1).lower() in TERMINAL_CHANGE_STATUSES:
+        return header_status.group(1)
+    return None
+
+
+def _mark_reason_is_plain_line(reason: str) -> bool:
+    return reason.splitlines() == [reason] and not any(token in reason for token in ("*", "<!--", "-->"))
+
+
 @_fail_closed_on_record_layout("wf_mark_item")
 def _mark_change_item_response(
     root: Path, wave_id: str, change_id: str, item_label: str, state: str,
     *, target_section: str, reason: str = "", mode: str = "dry_run",
 ) -> dict[str, Any]:
-    """Mark one exact AC or task without providing a generic document editor."""
+    """Mark one AC or task by its label, accepting a unique task prefix as a fallback."""
 
     mode_s = mode.strip().lower() if isinstance(mode, str) else ""
     if mode_s not in {"dry_run", "create", "apply"}:
@@ -8003,6 +8058,17 @@ def _mark_change_item_response(
             usage="wf_validate_docs()",
         )
     text = raw.replace("\r\n", "\n").replace("\r", "\n")
+    history_status = _mark_history_status(admitted_text, change_id, text)
+    if history_status:
+        return _response(
+            "error", {"wave_id": wave_md.parent.name, "change_id": change_id},
+            diagnostics=[_diagnostic(
+                "mark_target_closed",
+                f"The wave or selected change has status '{history_status}'. Its checklist is historical. "
+                "Read the change or choose an unfinished change in a nonterminal wave.",
+                recovery_tools=["wf_get_change"], recovery_usage=f"wf_get_change(change_id={change_id!r})",
+            )],
+        )
     if "\r" in raw.replace("\r\n", ""):
         # A lone carriage return is a line break to every other reader; keep
         # the old rewrite for such a document rather than misread its lines.
@@ -8015,11 +8081,14 @@ def _mark_change_item_response(
     lines = raw.split("\n")
     visible = change_doc_checklist.comment_visible_lines(lines)
     candidates: list[tuple[int, re.Match[str], int]] = []
+    prefix_candidates: list[tuple[int, re.Match[str], int]] = []
+    prefix_labels: list[str] = []
     all_labels: list[str] = []
     requested = item_label.strip().lower()
-    for index in change_doc_checklist.section_line_indexes(
+    section_indexes = change_doc_checklist.section_line_indexes(
         raw, target_section, include_near_miss=True
-    ):
+    )
+    for index in section_indexes:
         match = change_doc_checklist.CHECKLIST_ITEM_RE.match(visible[index])
         if match is None:
             continue
@@ -8037,16 +8106,29 @@ def _mark_change_item_response(
         label = full_label.lower()
         if label == requested or label.startswith(requested + ":"):
             candidates.append((index, match, item_end))
+        elif target_section == "Tasks" and requested and label.startswith(requested):
+            prefix_candidates.append((index, match, item_end))
+            prefix_labels.append(full_label)
+    prefix_lookup = not candidates and bool(prefix_candidates)
+    if prefix_lookup:
+        candidates = prefix_candidates
     if len(candidates) != 1:
         code = "ambiguous_mark_target" if candidates else "mark_target_not_found"
-        candidate_labels = [candidate.group("text").strip() for _, candidate, _ in candidates] if candidates else all_labels
-        if candidates:
+        if candidates and prefix_lookup:
+            candidate_labels = prefix_labels
+            message = (
+                f"`{item_label}` is a prefix of several tasks. Do not choose arbitrarily. "
+                "Retry with a longer prefix or the full task label."
+            )
+        elif candidates:
+            candidate_labels = [match.group("text").strip() for _, match, _ in candidates]
             message = (
                 f"Expected exactly one {target_section} item matching `{item_label}`; found {len(candidates)}. "
                 "Do not choose arbitrarily. Read the admitted change and retry with the exact full label; "
                 f"if the labels are identical, make them distinct in the {_vocab.planning_noun()} before retrying."
             )
         else:
+            candidate_labels = all_labels
             message = (
                 f"Expected exactly one {target_section} item matching `{item_label}`; found 0. "
                 "Read the admitted change and retry with its current exact label."
@@ -8070,7 +8152,7 @@ def _mark_change_item_response(
     # lint) would end the item at the fence and miss a trailing status line.
     if (
         state == "~" and target_section == "Acceptance Criteria"
-        and reason.strip() and ("*" in reason or "\n" in reason or "\r" in reason)
+        and reason and not _mark_reason_is_plain_line(reason)
     ):
         # Change 23q1h: a note whose reason holds `*` or a line break is not
         # the canonical form, so the digest would move with no receipt
@@ -8080,11 +8162,31 @@ def _mark_change_item_response(
             {},
             diagnostics=[_diagnostic(
                 "tilde_rationale_required",
-                "The deferral reason may not contain `*` or a line break, because the "
-                "criterion's `*Status: ...*` note would not be recognised. Retry wf_mark_ac "
-                "with a one-line `reason` without `*`.",
+                "Retry wf_mark_ac with a one-line reason without asterisks or HTML comment delimiters.",
             )],
         )
+    if state == "~" and target_section == "Acceptance Criteria" and not reason.strip():
+        import gardener_metadata
+        from wave_lint_lib.wave_validators import _parse_ac_items_for_lint
+
+        priority_section = change_doc_checklist.section_text(text, "AC Priority")
+        priorities = lifecycle_gate_support._close_gate_parse_ac_priority(priority_section)
+        ac_id = change_doc_checklist.leading_ac_id(match.group("text"))
+        priority = priorities.get(ac_id)
+        if priority is None:
+            # Older tables may identify criteria by position, as docs-lint does.
+            through_target = "\n".join(visible[i] for i in section_indexes if i <= index)
+            ordered, _ = _parse_ac_items_for_lint(through_target, priority_section)
+            priority = ordered[-1]
+        if priority == "required":
+            item = "\n".join(["## Acceptance Criteria", *lines[index:block_end]])
+            statuses = gardener_metadata.criterion_statuses(item)
+            valid_note = statuses and any(_mark_reason_is_plain_line(note) for note in statuses[0]["notes"])
+            if match.group("mark") != "~" or not valid_note:
+                return _response("error", {}, diagnostics=[_diagnostic(
+                    "tilde_rationale_required",
+                    "Retry wf_mark_ac with a nonblank reason explaining why this required criterion is deferred.",
+                )])
     if state == "~" and target_section == "Acceptance Criteria" and reason.strip():
         # DELIV-Q1H-REDEFER: a criterion already carrying canonical notes (kept
         # as history after a re-tick, or written by hand) has them replaced by
@@ -13315,6 +13417,11 @@ def wf_pause_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
         status_transition = {"from": "paused", "to": "paused"}
     else:
         status_transition = {"from": current_status, "to": current_status}
+    paused_text = wave_text
+    if status_transition["from"] in OPEN_CONTAINER_STATUSES:
+        paused_text = wave_text[:status_match.start(1)] + "paused" + wave_text[status_match.end(1):]
+    presentation = (lifecycle_gates.paused_wave_presentation(root, wave_md, paused_text)
+                    if status_transition["to"] == "paused" else {})
     diagnostics: list[dict[str, Any]] = []
     if current_status not in ("active", "implementing", "paused"):
         diagnostics.append(
@@ -13330,8 +13437,7 @@ def wf_pause_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     if mode_s == "create":
         # Transition wave status first, then write the handoff entry.
         if status_transition["from"] in OPEN_CONTAINER_STATUSES and status_transition["to"] == "paused":
-            new_text = wave_text[:status_match.start(1)] + "paused" + wave_text[status_match.end(1):]
-            wave_md.write_text(new_text, encoding="utf-8")
+            wave_md.write_text(paused_text, encoding="utf-8")
         # Wave 1zxnz (1zx02): a handoff that resolves to a runtime lock is
         # never opened; the write is skipped and the transition above stands.
         try:
@@ -13356,10 +13462,13 @@ def wf_pause_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
             "path": rel,
             "written": handoff_written,
             "status_transition": status_transition,
+            **presentation,
         },
         diagnostics=diagnostics if diagnostics else None,
-        next_tools=["wf_current_wave"],
-        usage="wf_current_wave()",
+        next_tools=(["wf_close_wave", "wf_current_wave"] if presentation.get("next_action") == "close_wave"
+                    else ["wf_current_wave"]),
+        usage=(f"wf_close_wave(wave_id={wave_id!r}, mode='dry_run')" if presentation.get("next_action") == "close_wave"
+               else "wf_current_wave()"),
     )
     return _attach_lint_to_response(envelope, root, mode_s)
 
@@ -15010,15 +15119,21 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     from scanner_skips import incomplete_guidance, scanner_skip_notice, scanner_completion
 
     configured_gates: list[dict[str, Any]] = []
+    preserve_workspace = False
 
     def _close_envelope(status, data, **kwargs):
+        if preserve_workspace:
+            data["shared_workspace_preserved"] = True
         return _response(status, {**data, "configured_gates": configured_gates}, **kwargs)
 
     mode_s = "create" if (mode or "").strip().lower() == "apply" else (mode or "").strip().lower()
     _WAVE_CLOSE_VALID_MODES = ["dry_run", "create"]
     if mode_s not in {"dry_run", "create"}:
         return _close_envelope("error", {"wave_id": wave_id, "mode": mode, "valid_modes": _WAVE_CLOSE_VALID_MODES}, diagnostics=[_diagnostic("invalid_arguments", f"Unsupported mode '{mode}'. Valid modes: {_WAVE_CLOSE_VALID_MODES}.")], next_tools=["wf_help"], usage="wf_help()")
-    wave_md, wave_read_error, unreadable_waves = _find_wave_md_detailed(root, wave_id)
+    possible_owners: set[Path | None] = set()
+    wave_md, wave_read_error, unreadable_waves = _find_wave_md_detailed(
+        root, wave_id, possible_workspace_owners=possible_owners,
+    )
     if wave_md is None:
         if unreadable_waves:
             return _wave_resolution_unreadable_response(
@@ -15027,12 +15142,13 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
         return _close_envelope("error", {"wave_id": wave_id}, diagnostics=[_refuse_if_archived(root, wave_id, "wave") or _diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
     # Capture the owned generation before the close, under the registered
     # lifecycle/publication lock. Never rediscover authority at deletion time.
+    preserve_workspace = bool(possible_owners - {wave_md.resolve()})
     work_before_close = _wave_work_area(root, wave_md)
     work_cleanup = None
     # Garden only runs on create — dry-run must stay read-only.
     garden_passed = True
     if mode_s == "create":
-        garden_result = run_garden(root)
+        garden_result = run_garden(root, preserve_handoff=True) if preserve_workspace else run_garden(root)
         garden_passed = garden_result["passed"]
     lint_result = run_validate(root, read_only=True) if _UPGRADE_READ_ONLY_PREVIEW.get() else run_validate(root)
     # Wave 1v0lw: the read keeps its post-garden position (gardening may
@@ -15179,9 +15295,8 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     hard_gate_data.update(sensor_gate_result.data)
     configured_gates.extend(sensor_gate_result.data.get("configured_gates", []))
     framework_test_receipt = hard_gate_data["framework_test_receipt"]
-    # Gate close runs unconditionally so open gates are always reported (and closed in
-    # create mode) even when other diagnostics cause an early return.
-    gate_diagnostics = _force_gates_closed(root, mode_s)
+    # A close with workspace authority still closes its gates on refusal.
+    gate_diagnostics = [] if preserve_workspace else _force_gates_closed(root, mode_s)
     # Wave 1wuju (1wujs AC-1): an advisory diagnostic (`docs_lint_warning`) is
     # rendered on every close envelope but never gates the close; only a
     # blocking entry takes the early return. The predicate was list
@@ -15266,26 +15381,25 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
         except (OSError, ValueError) as exc:
             work_cleanup = {"outcome": "preserved", "available": False,
                             "notice": "work_cleanup_failed", "cause": type(exc).__name__}
-        # Wave 1seax (1seat AC-2): the handoff is the last-written referencing
-        # record, converged on EVERY create-mode close of a closed wave — a
-        # retry after an interruption between the wave.md write and this point
-        # completes the operation instead of skipping it.
-        handoff = root / "docs" / "agents" / "session-handoff.md"
-        # Wave 1zxnz (1zx02): a handoff that resolves to a runtime lock is
-        # never opened; the write is skipped and the close above stands.
-        try:
-            _refuse_runtime_lock_target(root, handoff)
-            # Wave 200ey (1zyv2): contained read and write, as in pause.
-            prior = _read_handoff_prior(root, handoff)
-            converged = _update_handoff_wave_ref(prior, None)
-            if converged != prior:
-                _write_handoff_text(root, handoff, converged)
-        except RuntimeLockTargetRefused as exc:
-            gate_diagnostics = [*gate_diagnostics, _runtime_lock_target_refused_diagnostic(exc.rel_path)]
-        except contained_files.ContainedFileRefused as exc:
-            gate_diagnostics = [*gate_diagnostics, _contained_refused_diagnostic(exc)]
-        handoff_rel = str(handoff.relative_to(root)).replace("\\", "/")
-        _trigger_background_index_refresh_for_paths(root, [wave_md, handoff])
+        refresh_paths = [wave_md]
+        if not preserve_workspace:
+            # The handoff is the last-written referencing
+            # record. Retrying after the status write converges it when this
+            # close still has workspace authority.
+            handoff = root / "docs" / "agents" / "session-handoff.md"
+            try:
+                _refuse_runtime_lock_target(root, handoff)
+                prior = _read_handoff_prior(root, handoff)
+                converged = _update_handoff_wave_ref(prior, None)
+                if converged != prior:
+                    _write_handoff_text(root, handoff, converged)
+            except RuntimeLockTargetRefused as exc:
+                gate_diagnostics = [*gate_diagnostics, _runtime_lock_target_refused_diagnostic(exc.rel_path)]
+            except contained_files.ContainedFileRefused as exc:
+                gate_diagnostics = [*gate_diagnostics, _contained_refused_diagnostic(exc)]
+            handoff_rel = str(handoff.relative_to(root)).replace("\\", "/")
+            refresh_paths.append(handoff)
+        _trigger_background_index_refresh_for_paths(root, refresh_paths)
     # Wave 1p601: only create-mode close refreshes the codebase map; dry-run does
     # not (fail-safe — never affects the result).
     if mode_s == "create":
@@ -20446,8 +20560,11 @@ def _lifecycle_context_result(
         credit = flush
     # 2. Engagement classification (fail-closed for unknown statuses).
     outcome = _classify_lifecycle_outcome(tool_name, response)
+    preserve_workspace = (
+        tool_name == "wf_close_wave" and _context_data(response).get("shared_workspace_preserved") is True
+    )
     # 3-4. Effective attribution + focus attempt + best-effort reporting.
-    if focus_stage is not None:
+    if focus_stage is not None and (not preserve_workspace or outcome != "engaged"):
         try:
             _apply_lifecycle_focus_reporting(
                 handler,
@@ -20488,7 +20605,8 @@ def _lifecycle_context_result(
         # (unchanged); a review that RAN and a mutating close also adopt, so
         # exited helper agents' buckets land on THIS wave instead of the next
         # wave's prepare.
-        transfer_general=transfer_general and (bool(credit) or reached_review),
+        transfer_general=transfer_general and not preserve_workspace and (bool(credit) or reached_review),
+        preserve_focus=preserve_workspace,
     )
     data = _context_data(response)
     data["context_efficiency_persistence"] = projection
@@ -21246,11 +21364,14 @@ _LIFECYCLE_MUTATION_LOCK_SENTINEL = _lifecycle_lock_authority.LIFECYCLE_MUTATION
 # The covered set comes from the writer CENSUS in the 1seat spec: every
 # mutating MCP tool is dispositioned there as lifecycle-lock / protected-by-
 # another-lock / independent-with-rationale. This frozenset is the
-# lifecycle-lock column of that census.
+# lifecycle-lock column, including writers added since that census.
 _LIFECYCLE_MUTATION_LOCK_TOOLS: frozenset[str] = frozenset({
     "wf_create_wave",
     "wf_add_change",
     "wf_remove_change",
+    # Both mark tools read and replace the spec that the close tools own.
+    "wf_mark_ac",
+    "wf_mark_task",
     "wf_prepare_wave",
     "wf_pause_wave",
     "wf_close_wave",
@@ -22005,7 +22126,10 @@ def _setup_needs_agent_notice(result: Any) -> bool:
     return (
         isinstance(result, Mapping)
         and result.get("status") != "ready"
-        and bool(result.get("actions"))
+        and (bool(result.get("actions")) or any(
+            isinstance(reason, Mapping) and reason.get("code") == "recovery_pending"
+            for reason in (result.get("reasons") or [])
+        ))
     )
 
 
@@ -22024,8 +22148,8 @@ def setup_not_ready_diagnostic(result: Mapping[str, Any]) -> dict[str, Any]:
     # Only the reasons are cut: the command and the ask-first instruction are
     # the parts the agent must always see.
     tail = (
-        f"). Recommended: {commands}. "
-        "Report this to the operator and ask before running any command."
+        (f"). Recommended: {commands}. " if commands else "). ")
+        + "Report this to the operator and ask before running any command."
     )
     head = "Wavefoundry setup needs attention ("
     room = max(_SETUP_NOTICE_MAX_CHARS - len(head) - len(tail), 0)
@@ -24846,6 +24970,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
         Prefer when: you need current working context (what wave am I on, what changes are admitted).
         Use wf_list_waves instead when discovering or browsing across all waves.
+        A paused row awaiting closure offers Close by ID. Closing requires operator
+        authorization and the ordinary close checks.
         """
         bad = _ensure_no_extra_args("wf_current_wave", kwargs)
         if bad is not None:
@@ -24866,6 +24992,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     @mcp.tool(annotations=_READONLY_TOOL)
     def wf_list_waves(limit: int = 50, **kwargs: Any) -> dict[str, Any]:
         """List all waves with their ID, status, and change count.
+
+        Paused rows report their current next action. Awaiting closure means the
+        delivery evidence is settled. Close still checks operator signoff and the suite receipt.
 
         Args:
             limit: Maximum waves to return (1–200, default 50). Check ``has_more`` for truncation.
@@ -24960,7 +25089,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         silent double-opens (which indicate a bug or forgotten close).
 
         Every open must be paired with a matching wf_close_gate call.
-        wf_pause_wave and wf_close_wave automatically close all open gates.
+        wf_pause_wave closes all open gates. wf_close_wave closes them when no
+        other wave owns or might own the shared workspace.
 
         Args:
             gate: Gate to open. One of: ``seed_edit_allowed``, ``framework_edit_allowed``,
@@ -25128,9 +25258,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
         Default ``mode='dry_run'`` previews without writing. Use ``mode='create'``
         (or its ``apply`` alias) to write; successful results report ``mode`` and ``applied``.
-        Required-priority deferrals need a reason under the same rule as docs-lint.
-        The reason is written as a ``*Status: <reason>*`` note and may not hold
-        ``*`` or a line break. A mark writes only the document: a deferral and
+        Closed waves and terminal changes reject previews and writes. A required
+        deferral needs an explicit reason. Repeating it can keep its existing
+        nonblank canonical note. A reason must fit one line without asterisks or
+        HTML comment delimiters. It is written as ``*Status: <reason>*``.
+        A mark writes only the document: a deferral and
         its note leave the review-policy digest unchanged, so no receipt is
         published and no readiness approval lapses. A current council-delivery
         or operator-signoff approval recorded before the deferral is named in
@@ -25149,7 +25281,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wf_mark_task(wave_id: str, change_id: str, task: str, state: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
-        """Mark one exact task complete (``x``) or deferred (``~``).
+        """Mark one task complete (``x``) or deferred (``~``) by its full label or a unique prefix.
 
         Default ``mode='dry_run'`` previews without writing. Use ``mode='create'``
         (or its ``apply`` alias) to write; successful results report ``mode`` and ``applied``.
@@ -25241,8 +25373,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def wf_pause_wave(wave_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
         """Write or preview a session handoff entry for an active wave.
 
-        Call at session end when work is incomplete and must resume in a later session.
-        Captures current state so the next session can pick up without re-discovering context.
+        Pause unfinished work to resume later, or a reviewed delivery to free the open slot.
+        A delivery awaiting closure offers a Close preview by ID. Writing the close requires
+        operator authorization and the ordinary close checks.
 
         Focus clear: a mutating pause's desired end state is NO
         focus, so a successful ``create`` runs ``clear_focus`` through the

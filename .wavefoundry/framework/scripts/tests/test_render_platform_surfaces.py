@@ -3748,6 +3748,73 @@ class ClaudePermissionsRenderTests(unittest.TestCase):
     def _read(self, root: Path) -> dict:
         return json.loads(self._settings_path(root).read_text(encoding="utf-8"))
 
+    def test_low_risk_tools_and_published_lists_match_reviewed_membership(self):
+        from upstream_fixture_support import source_repository_fixture
+
+        expected = {
+            "wf_mark_ac", "wf_mark_task", "wf_garden_docs", "index_build", "index_optimize",
+            "wf_new_bug", "wf_new_change", "wf_new_documentation", "wf_new_enhancement",
+            "wf_new_feature", "wf_new_maintenance", "wf_new_operations", "wf_new_refactor",
+            "wf_new_task", "wf_new_tech_debt", "wf_memory_eval",
+        }
+        excluded = {
+            "wf_upgrade", "wf_sync_surfaces", "wf_reload_mcp", "wf_open_gate", "wf_close_gate",
+            "wf_close_wave", "wf_close_change", "wf_cleanup_work", "wf_run_sensors", "wf_review_event",
+        }
+        self.assertEqual(self.roster.LOW_RISK_WRITE_TOOLS, expected)
+        self.assertTrue(excluded.isdisjoint(expected))
+        self.assertEqual(set(self.roster.TOOL_TIERS.values()), {"read", "write"})
+        for name in expected:
+            self.assertEqual(self.roster.TOOL_TIERS[name], "write", name)
+        framework = SCRIPT_PATH.parent.parent
+        for path in (framework / "seeds/050-agent-entry-surface-bootstrap.prompt.md",
+                     source_repository_fixture(SCRIPT_PATH.parents[3] / "docs/specs/mcp-tool-surface.md")):
+            with self.subTest(document=path.name):
+                line, = [line for line in path.read_text(encoding="utf-8").splitlines()
+                         if line.lstrip("- ").startswith("Low-risk tools:")]
+                self.assertEqual(set(re.findall(r"`([a-z_]+)`", line)), expected)
+
+    def test_low_risk_settings_select_only_literal_true_and_preserve_manual_rules(self):
+        from declaration_support import base_declaration
+
+        low_key = "wavefoundryAllowLowRiskWriteTools"
+        full_key = "wavefoundryAllowWriteTools"
+        owned = self.mod.PERMISSIONS_PROVENANCE_KEY
+        with base_declaration(), tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            path = self._settings_path(root)
+            path.parent.mkdir()
+            reads = set(self.roster.allow_rules())
+            low_rules = {self.roster.MCP_RULE_PREFIX + n for n in self.roster.LOW_RISK_WRITE_TOOLS}
+            for value in (None, False, "true", 1, True):
+                with self.subTest(value=repr(value)):
+                    settings = {} if value is None else {low_key: value}
+                    path.write_text(json.dumps(settings), encoding="utf-8")
+                    self.mod.render_claude_permissions(root)
+                    result = self._read(root)
+                    expected = reads | low_rules if value is True else reads
+                    self.assertEqual(set(result["permissions"]["allow"]), expected)
+                    self.assertEqual(set(result[owned]), expected)
+            manual = self.roster.MCP_RULE_PREFIX + "wf_mark_task"
+            path.write_text(json.dumps({low_key: True, "permissions": {"allow": [manual]}}), encoding="utf-8")
+            self.mod.render_claude_permissions(root)
+            result = self._read(root)
+            self.assertNotIn(manual, result[owned])
+            result[full_key] = True
+            path.write_text(json.dumps(result), encoding="utf-8")
+            self.mod.render_claude_permissions(root)
+            result = self._read(root)
+            self.assertEqual(set(result["permissions"]["allow"]), set(self.roster.allow_rules(True)))
+            for key in (full_key, low_key):
+                result.pop(key)
+                path.write_text(json.dumps(result), encoding="utf-8")
+                self.mod.render_claude_permissions(root)
+                result = self._read(root)
+                self.assertIn(manual, result["permissions"]["allow"])
+                self.assertNotIn(manual, result[owned])
+                expected = reads | low_rules if low_key in result else reads | {manual}
+                self.assertEqual(set(result["permissions"]["allow"]), expected)
+
     # AC-1: read-tier allowlist matches the roster; byte-stable re-render.
     def test_render_emits_read_tier_allowlist_and_is_byte_stable(self):
         with tempfile.TemporaryDirectory() as td:
@@ -3759,6 +3826,7 @@ class ClaudePermissionsRenderTests(unittest.TestCase):
                 0,
             )
             data = self._read(root)
+            self.assertNotIn("wavefoundryAllowLowRiskWriteTools", data)
             expected = list(self.roster.allow_rules(include_write=False))
             allow = data["permissions"]["allow"]
             self.assertEqual(sorted(r for r in allow if isinstance(r, str)), expected)

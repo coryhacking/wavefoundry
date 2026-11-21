@@ -16,6 +16,10 @@ Close a delivered wave after implementation, review, documentation, and
 handoff state are fully reconciled. Close wave is the only wave close, whatever
 the change count.
 
+## Close a paused delivery
+
+When the operator authorizes closure, pass the ID of the paused delivery directly to Close. Keep the currently open wave’s handoff, focus and edit gates intact, including when Close refuses or retries. The reviewed delivery still goes through the ordinary close checks, including any required current test receipt.
+
 ## Closure checks
 
 All closure-time code and docs investigation follows the run contract's

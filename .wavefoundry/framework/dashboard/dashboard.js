@@ -577,6 +577,17 @@ function OpenWaveCard({ wave, allChanges, handoffWaveId, onWaveClick, onChangeCl
   );
 }
 
+function PausedWaveNextAction({ wave }) {
+  if (wave.next_action === "close_wave") {
+    return h("small", { className: "muted", title: "Closure requires operator authorization and the usual close checks." },
+      `Close ${tierLabel("wave")} ${wave.wave_id}`);
+  }
+  if (wave.next_action === "resume_wave") {
+    return h("small", { className: "muted" }, `Resume ${tierLabel("wave")} ${wave.wave_id}`);
+  }
+  return null;
+}
+
 function PendingWaveRow({ wave, onWaveClick }) {
   return h("div", { className: "pending-wave-row" },
     h("div", { className: "pending-wave-left" },
@@ -586,9 +597,10 @@ function PendingWaveRow({ wave, onWaveClick }) {
         title: `View ${tierLabel("wave")} document`,
       }, wave.wave_id),
       wave.title ? h("span", { className: "pending-wave-title" }, wave.title) : null,
+      h(PausedWaveNextAction, { wave }),
     ),
     h("div", { className: "open-wave-meta" },
-      h("span", { className: badgeClass(wave.status) }, wave.status),
+      h("span", { className: badgeClass(wave.status) }, wave.display_status || wave.status),
       h("span", { className: "muted open-wave-count" }, `${wave.change_count} ${p(wave.change_count, tierLabel("change"), tierLabel("change", true))}`),
     ),
   );
@@ -758,9 +770,10 @@ function WavesDialog({ snapshot, onClose }) {
       h("div", { key: wave.wave_id, className: "metric-dialog-card" },
         h("div", { className: "metric-dialog-card-header" },
           h("span", { className: "open-wave-id" }, wave.wave_id),
-          h("span", { className: badgeClass(wave.status) }, wave.status),
+          h("span", { className: badgeClass(wave.status) }, wave.display_status || wave.status),
         ),
         h("div", { className: "metric-dialog-card-title" }, wave.title),
+        h(PausedWaveNextAction, { wave }),
         wave.objective ? h("div", { className: "metric-dialog-card-desc" }, wave.objective) : null,
       )
     ) : h("div", { className: "empty-state" }, `No pending ${tierLabel("wave", true)}.`),

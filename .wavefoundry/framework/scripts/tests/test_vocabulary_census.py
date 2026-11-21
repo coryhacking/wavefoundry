@@ -120,7 +120,6 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ('wf_server/server_impl.py', '_LEGACY_BACKREF_PLACEHOLDERS = r"\\[wave-id or TBD\\]|`?<wave-id>`?|TBD"'): 'retired_name',
     ('wf_server/server_impl.py', '# wave-id prefix like "12ecs"'): 'comment',
     ('wf_server/server_impl.py', '# Merge lanes from wave.md Participants table and project-declared required_review_lanes'): 'comment',
-    ('wf_server/server_impl.py', '# retry after an interruption between the wave.md write and this point'): 'comment',
     ('wf_server/server_impl.py', 'change_id: Change ID or prefix for single lookup, e.g. "12926" or "12926-feat".'): 'docstring',
     ('wf_server/server_impl.py', 'change_id: Change ID or unique prefix.'): 'docstring',
     ('wf_server/server_impl.py', 'change_id: Change ID or unique prefix to remove.'): 'docstring',

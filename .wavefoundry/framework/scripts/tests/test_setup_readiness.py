@@ -638,6 +638,63 @@ class SetupReadinessTests(unittest.TestCase):
         self.assertEqual(refused['status'], 'indeterminate')
         self.assertEqual(refused['actions'], [])
 
+    def test_failed_setup_pairs_ordinary_resume_with_legacy_recovery(self):
+        import sqlite_storage_migration as migration
+
+        identity = {'device': self.root.stat().st_dev, 'inode': self.root.stat().st_ino}
+        owner = {'entry_path': 'setup', 'root_identity': identity,
+                 'installed_framework_sha256': 'b' * 64}
+        mid = 'a' * 32
+        checkpoint = dict(owner, storage_migration_id=mid, failed_phase='setup_storage',
+                          started_at='then', setup_args=['--unexpected-option'])
+        lock_path = self.root / '.wavefoundry/upgrade-in-progress.json'
+        receipt = dict(owner, receipt_version=2, kind='index_sqlite_schema8',
+                       migration_id=mid, state='quiesced', index_dir=str(self.index))
+        archive = self.index / 'sqlite-migration.json'
+        launcher = readiness.repository_launcher_argv(self.root, 'setup', '--root', str(self.root))
+        for pending in (False, True):
+            if pending:
+                archive.write_text(json.dumps(receipt))
+            lock_path.write_text(json.dumps(dict(checkpoint, setup_failure='ordinary failure')))
+            result = self.assess()
+            self.assertEqual(result['status'], 'action_required', result)
+            self.assertEqual(readiness.exit_code(result), 1)
+            self.assertEqual(result['actions'], [{'kind': 'resume', 'argv': launcher}])
+            reason = next(r for r in result['reasons'] if r['code'] == 'recovery_pending')
+            self.assertIn('setup_storage', reason['message'])
+            self.assertIn('ordinary failure', reason['message'])
+        for stored in ('storage_legacy_source_unreadable: docs. ' + migration.LEGACY_RECOVERY_GUIDANCE,
+                       'MigrationRequired: storage_legacy_source_unreadable: docs',
+                       'MigrationRequired: storage_vector_invalid: source vector'):
+            with self.subTest(stored=stored):
+                lock_path.write_text(json.dumps(dict(checkpoint, setup_failure=stored)))
+                result = self.assess()
+                self.assertEqual(result['status'], 'action_required')
+                self.assertEqual(result['actions'], [])
+                self.assertIn('recover a duplicate', result['reasons'][0]['message'])
+                self.assertIn('Remain paused', result['reasons'][0]['message'][:220])
+                self.assertIn('receipts', result['reasons'][0]['message'])
+        continuation = [sys.executable, str(self.root / '.wavefoundry/framework/scripts/setup_wavefoundry.py'),
+                        '--root', str(self.root), '--confirm-hosts-stopped']
+        action = dict(owner, root=str(self.root), migration_id=mid, checkpoint_started_at='then',
+                      command_argv=continuation)
+        lock_path.write_text(json.dumps(dict(checkpoint, setup_args=[], setup_failure=stored, action_required=action)))
+        held = self.assess()
+        self.assertEqual(held['actions'], [])
+        self.assertIn('recover a duplicate', held['reasons'][0]['message'])
+        for overrides in ({'root_identity': {}}, {'storage_migration_id': 'c' * 32},
+                          {'zip_path': 'unexpected.zip'}, {'action_required': {}},
+                          {'failed_phase': 'bad phase'}, {'failed_phase': None}):
+            lock_path.write_text(json.dumps(dict(checkpoint, **overrides)))
+            result = self.assess()
+            self.assertEqual(result['status'], 'indeterminate', overrides)
+            self.assertEqual(result['actions'], [], overrides)
+            self.assertIn('recovery_unproven', [r['code'] for r in result['reasons']])
+        archive.unlink()
+        del checkpoint['installed_framework_sha256']
+        lock_path.write_text(json.dumps(checkpoint))
+        self.assertEqual(self.assess()['actions'], [])
+
     def test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice(self):
         import render_platform_surfaces as renderer
         producers = (

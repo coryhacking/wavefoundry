@@ -114,9 +114,12 @@ class PackagedPreflightTests(unittest.TestCase):
                              env={**os.environ, "PROJECT_ROOT": str(self.root), "PYTHONDONTWRITEBYTECODE": "1",
                                   "TMPDIR": str(self.temp), "TMP": str(self.temp), "TEMP": str(self.temp),
                                   "WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"})
-        # Dry-run inventory also prints the entire hook source verbatim. Only
-        # inspect emitted diagnostics and summaries, outside that inventory.
-        output = run.stdout.split("── End extension module ──")[-1] + run.stderr
+        # Only a frozen older runner prints hook source. Exclude its source
+        # from assertions against emitted diagnostics.
+        output = run.stdout
+        if version and action == "dry":
+            output = output.split("── End extension module ──")[-1]
+        output += run.stderr
         return run.returncode, output
 
     def snapshot(self):
@@ -135,6 +138,7 @@ class PackagedPreflightTests(unittest.TestCase):
         self.assertIn("docs_preflight_failed", output[-3600:])
         self.assertIn(source, output[-3600:])
         self.assertIn("wf_upgrade(phase='preflight_to_docs_gate')", output)
+        self.assertFalse((self.root / ".wavefoundry/logs/upgrade-extension-module.preview.log").exists())
         after = self.snapshot()
         self.assertEqual(after.keys(), before.keys())
         self.assertEqual([key for key, data in after.items() if data != before[key]], [])
@@ -381,6 +385,7 @@ class PackagedPreflightTests(unittest.TestCase):
                 self.assertEqual(code, 77, output[-1600:])
                 self.assertIn(expected, output)
                 self.assertIn("EXTRACTION COMPLETE", output)
+                self.assertFalse((self.root / ".wavefoundry/logs/upgrade-extension-module.preview.log").exists())
                 self.assertNotIn("docs_preflight_failed:", output)
 
     def test_pathless_status_and_missing_layout_are_indeterminate(self):

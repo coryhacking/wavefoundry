@@ -416,6 +416,18 @@ class SetupNoticeWrapperTests(unittest.TestCase):
         self.handler = types.SimpleNamespace(_setup_assessment_result=self._needs(code="index_missing"))
         self.assertEqual(self._codes(tools["code_read"].fn()), ["setup_not_ready"])
 
+    def test_required_manual_recovery_notifies_without_an_empty_retry_command(self):
+        tools = self._wrap(code_read=lambda: {"status": "ok", "diagnostics": []})
+        failure = self._needs(actions=[], code="recovery_pending")
+        failure["reasons"][0]["message"] = "Recover a duplicate first. Remain paused without compatible inputs."
+        self.handler._setup_assessment_result = failure
+        notice = tools["code_read"].fn()["diagnostics"][0]
+        self.assertEqual(notice["code"], "setup_not_ready")
+        self.assertIn("Recover a duplicate first", notice["message"])
+        self.assertNotIn("Recommended:", notice["message"])
+        self.assertFalse(self.impl._setup_needs_agent_notice(self._needs(
+            "indeterminate", actions=[], code="recovery_unproven")))
+
     def test_many_long_reasons_keep_the_command_and_the_ask_first_text(self):
         many = {**self._needs(), "reasons": [
             {"code": f"reason_{index}", "message": "x" * 150} for index in range(7)]}

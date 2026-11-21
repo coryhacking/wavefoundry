@@ -1509,7 +1509,10 @@ def _run(cmd: list[str], root: Path, check: bool = True) -> subprocess.Completed
 
 # ── Dry-run (--dry-run / -n) ──────────────────────────────────────────────────
 
-def _read_extension_source(zip_path: Path | None) -> tuple[str, str] | None:
+_EXTENSION_PREVIEW_LOG = ".wavefoundry/logs/upgrade-extension-module.preview.log"
+
+
+def _read_extension_source(zip_path: Path | None) -> tuple[str, bytes] | None:
     """Return ``(zip_entry_path, source_code)`` from the zip without executing.
 
     Returns ``None`` when the zip is absent, unreadable, or contains no
@@ -1527,10 +1530,24 @@ def _read_extension_source(zip_path: Path | None) -> tuple[str, str] | None:
             names = set(zf.namelist())
             for candidate in candidates:
                 if candidate in names:
-                    return candidate, zf.read(candidate).decode("utf-8")
+                    return candidate, zf.read(candidate)
     except (OSError, zipfile.BadZipFile):
         pass
     return None
+
+
+def _write_upgrade_review_log(root: Path, rel: str, data: bytes) -> None:
+    """Write complete bytes through the same contained, identity-checked path for each log."""
+    import contained_files
+
+    target = root / rel
+    try:
+        info = target.lstat()
+        identity = (info.st_dev, info.st_ino)
+    except FileNotFoundError:
+        identity = None
+    contained_files.write_contained_bytes(root, target, data, no_links=True,
+                                          expected_identity=identity)
 
 
 def _ensure_scripts_on_path() -> None:
@@ -1583,8 +1600,9 @@ def phase_dry_run(root: Path, *, explicit_pack: Path | None = None,
     """Report retained state, or preview the selected pack without applying it.
 
     Intended for agent-side safety review before committing to the real upgrade:
-    the agent can inspect seed diffs, the extension module source, and every
-    convention hook script, then decide whether to proceed.
+    the agent can inspect full seed diffs and exact extension bytes in named logs.
+    The inventory prints the extension entry name, line count and SHA-256, plus
+    project convention hook scripts.
 
     Wave 200ey (200ev): the incoming pack's migration preview may write
     ``*.preview.log`` files under ``.wavefoundry/logs/``; the final
@@ -1649,7 +1667,7 @@ def phase_dry_run(root: Path, *, explicit_pack: Path | None = None,
     # ── Hook inventory ────────────────────────────────────────────────────────
     _log("── Hook Inventory ──────────────────────────────────────────────────────")
 
-    # Extension module source
+    extension_log = None
     ext_entry = _read_extension_source(zip_path)
     if zip_path is None:
         _log("\nExtension module:   n/a (no zip)")
@@ -1657,9 +1675,15 @@ def phase_dry_run(root: Path, *, explicit_pack: Path | None = None,
         _log("\nExtension module:   none (upgrade_extensions.py not in zip)")
     else:
         candidate, source = ext_entry
-        _log(f"\n── Extension module: {candidate} ──")
-        _log(source.rstrip())
-        _log("── End extension module ──")
+        digest = hashlib.sha256(source).hexdigest()
+        _log(f"\nExtension module:   {candidate} (lines: {len(source.splitlines())}, SHA-256 {digest})")
+        try:
+            _write_upgrade_review_log(root, _EXTENSION_PREVIEW_LOG, source)
+        except (OSError, ValueError) as exc:
+            _log(f"  Warning: preview log unavailable ({type(exc).__name__}); inspect {candidate} in the pack.")
+        else:
+            extension_log = _EXTENSION_PREVIEW_LOG
+            _log(f"  Full extension module: {extension_log}")
 
     # Convention hooks
     hooks_dir = root / ".wavefoundry" / "hooks"
@@ -1721,7 +1745,7 @@ def phase_dry_run(root: Path, *, explicit_pack: Path | None = None,
             docs_preflight = getattr(preview_ctx, "docs_preflight", None)
             preview_logs = [
                 rel for rel in _preview_logs_written(identities_before, _preview_log_identities(root))
-                if rel != seed_preview_log
+                if rel not in (seed_preview_log, _EXTENSION_PREVIEW_LOG)
             ]
             for rel in preview_logs:
                 _log(f"  preview log: {rel}")
@@ -1736,6 +1760,8 @@ def phase_dry_run(root: Path, *, explicit_pack: Path | None = None,
     _log("\n── End Dry Run ──────────────────────────────────────────────────────────")
     if seed_preview_log:
         preview_logs.append(seed_preview_log)
+    if extension_log:
+        preview_logs.append(extension_log)
     if preview_logs:
         outcome = f"No upgrade changes were made; wrote preview log(s) {', '.join(preview_logs)}."
     else:
@@ -2036,8 +2062,6 @@ def _print_change_plan(
 
     diff_log = None
     if seed_diffs:
-        import contained_files
-
         for filename, status, diff_text in seed_diffs:
             changes = diff_text.split("\n")[2:]  # Exclude the old and new file headers.
             added = sum(line.startswith("+") for line in changes)
@@ -2047,14 +2071,7 @@ def _print_change_plan(
         rel = f".wavefoundry/logs/{name}"
         try:
             data = "".join(diff for _, _, diff in seed_diffs).encode("utf-8")
-            target = root / rel
-            try:
-                info = target.lstat()
-                identity = (info.st_dev, info.st_ino)
-            except FileNotFoundError:
-                identity = None
-            contained_files.write_contained_bytes(root, target, data, no_links=True,
-                                                  expected_identity=identity)
+            _write_upgrade_review_log(root, rel, data)
         except (OSError, ValueError) as exc:
             _log(f"  Warning: could not write {rel} ({type(exc).__name__}).")
         else:
@@ -2124,7 +2141,6 @@ def _permissions_unmanaged_present(root: Path) -> int | None:
     Fail-safe: returns None when the count cannot be established.
     """
     try:
-        import mcp_tool_roster
         import render_platform_surfaces as renderer
 
         loaded = json.loads(
@@ -2145,8 +2161,7 @@ def _permissions_unmanaged_present(root: Path) -> int | None:
             if isinstance(prior, list)
             else set()
         )
-        include_write = loaded.get(renderer.PERMISSIONS_WRITE_TIER_KEY) is True
-        desired = set(mcp_tool_roster.allow_rules(include_write=include_write))
+        desired = set(renderer.selected_permission_rules(loaded))
         return len(desired & (present - claimed))
     except Exception:
         return None
@@ -4746,7 +4761,8 @@ def _lifecycle_baseline_findings(root: Path | None) -> list[dict]:
         return findings
     if state:
         return [{"channel": "lifecycle_baseline_drift", "file": "",
-                 "detail": "baseline_unknown: no pre-extraction comparison captured; previous-template evidence unavailable"}]
+                 "detail": "baseline_unknown: no pre-extraction comparison captured; previous-template evidence unavailable",
+                 "action": "preserve: Compare the files by hand before replacing anything."}]
     return []
 
 
@@ -5784,7 +5800,7 @@ def _pending_upgrade(root: Path, *, explicit_pack: Path | None = None,
 
     lock = upgrade_lib.read_upgrade_lock(root)
     if isinstance(lock, dict) and lock.get("entry_path") == "setup":
-        raise ValueError("storage_setup_resume_required: resume the recorded wf setup continuation; preserve its checkpoint")
+        raise ValueError(migration.setup_resume_refusal(root, "preserve its checkpoint"))
     if lock is None:
         # The canonical reader also returns JSON null as None. Only an absent
         # path may authorize a fresh run.
@@ -5813,7 +5829,7 @@ def _pending_upgrade(root: Path, *, explicit_pack: Path | None = None,
     # checkpoint to that same migration before considering its original pack.
     if pending_receipt:
         if receipt.get("entry_path") == "setup":
-            raise ValueError("storage_setup_resume_required: resume the recorded wf setup continuation; preserve its receipt")
+            raise ValueError(migration.setup_resume_refusal(root, "preserve its receipt"))
         if lock is not None and (lock.get("storage_migration_id") != receipt["migration_id"]
                                  or lock.get("to_version") != receipt.get("target_version")):
             raise ValueError("storage_checkpoint_identity_mismatch: preserve checkpoint, receipt and original package; inspect wf_upgrade_status")
@@ -6041,9 +6057,8 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         dest="dry_run",
         help=(
-            "Print the upgrade plan and hook inventory without modifying anything on disk. "
-            "Surfaces seed diffs, extension module source, and convention hook scripts "
-            "for agent review before the real upgrade runs."
+            "Preview the upgrade plan and convention hooks. Print the extension name, line count "
+            "and SHA-256; save its exact bytes and full seed diffs in named review logs."
         ),
     )
     parser.add_argument(
@@ -6127,7 +6142,7 @@ def main(argv: list[str] | None = None) -> int:
             return 3
         if (checkpoint.get("entry_path") == "setup"
                 or (receipt and receipt.get("entry_path") == "setup" and receipt["state"] != "complete")):
-            _err("storage_setup_resume_required: resume the recorded wf setup continuation; upgrade has changed nothing")
+            _err(sqlite_storage_migration.setup_resume_refusal(root, "upgrade has changed nothing"))
             return 3
 
     # ── Agent-facing zip-discovery helpers ────────────────────────────────

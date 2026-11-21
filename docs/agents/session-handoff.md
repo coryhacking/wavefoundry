@@ -6,15 +6,37 @@ Last verified: 2026-11-21
 
 ## Current state
 
-**Wave 23z45 is paused after delivery review.** All four specs are implemented. Five specialists and the council approved the repairs. The current close preview requires operator signoff. The changes cover Windows file writes, custom planning names, security review advisories and actionable telemetry and TechDocs errors. The wave's own full suite ran 13,123 tests across 251 files with 12 skips.
+All waves are closed. The last wave, `23zmr`, added guidance for early contract checks, combining review findings and testing claims of improvement. It joins `23zbf`, `23zbg` and `23xo7` in v1.47.0. Their wave records contain the delivery reviews and operator signoffs.
 
-**Wave 23z46 has finished implementation.** Install hooks explain when permission is due. Fresh upgrades identify live document errors before replacing files, flag control characters with their locations and save the full seed diff. The Review Evidence table shows whether each approval covers readiness or delivery. Five specialists and the council approved delivery after all three release profiles passed. All eleven delivery findings have independent reverification. The wave remains open for operator signoff.
+## Open questions
 
-**Upgrade boundaries.** The new preflight ignores closed history. The existing final integrity gate can still reject a historical Finding Synthesis that disagrees with its ledger. The v1.31 planner can also refuse a completed record with a missing declared ledger. On a live document, an installed linter's false positive blocks the fresh upgrade. Release notes describe the repair and retry path.
+Downstream adoption and time savings still need field evidence. The Windows checks for this release used simulated Windows behavior.
 
-**Release preparation.** The combined default suite passed 13,160 tests across 253 files with 12 skips. The renamed profile passed 13,138 tests across the same 253 files with 38 skips. Its skip comparison identified exactly 26 approved default-only skips. The distribution-tool profile passed 13,160 tests across the same 253 files with the same 12 skip IDs and reasons as the default run. All three qualification reports match the current framework source. The release notes are under Unreleased in CHANGELOG.md. The operator chose to stay on the 1.x release line. The proposed next version is 1.47.0. Projects with a prohibited control character in a live document must repair it to complete the upgrade. Both waves await operator signoff and closure.
+## Before closing the four waves
 
-**Field coverage.** The runs used macOS. Windows capability simulations covered the file-write repair. Native Windows execution and downstream operator use remain unverified.
+**23xo7 — Awaiting closure.** All four required delivery lanes approved. All five review findings reached verified repair. The final default suite ran 13,193 tests across 253 files with 12 skips. The live Pause and Current tools show this wave, 23zbf and 23zbg as `paused` with the next action `close_wave`. The operator can close each by ID. All edit gates are closed.
+
+**v1.47.0 release preparation.** The packager accepted the default, renamed and distribution-tool reports for the same framework hash with no exceptions. They ran 13,193, 13,171 and 13,193 tests respectively. The changelog is ready. The three dashboard dependencies, all 18 pinned uv wheels and the offline model set were verified. Each wave’s close preview names only operator signoff. The release build requires a clean committed main checkout. The operator owns closure, commit and publication.
+
+**23zbf — Upgrade, setup and permissions.** Awaiting closure. All five specs are implemented. The six required specialist lanes and the delivery council approved. All ten recorded review findings reached verified repair.
+
+- **Done.** The upgrade preview identifies the incoming hook and saves its exact bytes. Operators get an action for template drift and a safe setup recovery step. The optional Claude Code permission group covers 16 tools. Checklist marks protect completed records, accept unique task prefixes and preserve both edits after contention and retry.
+- **Files touched.** Upgrade and setup scripts, the permission roster and renderer, lifecycle checklist writers, their tests, framework seeds, project instructions and release notes.
+- **Test state.** The final default suite ran 13,187 tests across 253 files with 12 skips and no failures. Declared-profile upgrade, permissions and checklist tests passed. Scratch install tests verified the exact documented overwrite command. The council's five seats agreed that the delivery establishes the Objective.
+- **Next.** The operator owns signoff and closure. Temporary outputs remain in `.wavefoundry/work/23zbf/`.
+- **Open questions.** Native Windows execution, live client prompts and downstream adoption remain unverified. Review reported a retrieval telemetry advisory because it counted zero implementation-stage retrieval calls.
+
+**23zbg — Review and planning guidance.** Awaiting closure. The four required specialist reviewers approved.
+
+- **Done.** All 10 acceptance criteria and 12 tasks are complete. The changes cover decision attribution, sibling-spec scope, plan contradictions and copied definitions, recorded security rulings and mechanical checks for recurring findings.
+- **Files touched.** Five framework seeds, four local prompts or roles, the briefing contract tests and release notes. The shipped install-log format now carries the canonical reference date.
+- **Test state.** The final default suite passed 13,160 tests across 253 files with 12 skips. Two coordinators confirmed the receipt. Four focused test files passed on all three profiles. The read-only replay produced the expected dispositions in all six cases with both versions.
+- **Next.** The operator owns signoff and closure. Temporary review outputs remain in `.wavefoundry/work/23zbg/`.
+- **Open questions.** Field adoption and any reduction in repeated classification questions remain unmeasured.
+
+## Previous delivery: 23z45 and 23z46
+
+Both waves are closed with operator signoff. The four field-feedback fixes and four install and upgrade improvements passed delivery review. Qualification at that boundary passed 13,160 tests across 253 files on the default profile, 13,138 on the renamed profile and 13,160 on the distribution-tool profile. The operator chose the 1.x release line. These results predate 23zbf and 23zbg. Native Windows execution and downstream field use remain unverified.
 
 ## Previous state for 23ve6
 

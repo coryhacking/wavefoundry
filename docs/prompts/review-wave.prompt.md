@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-20
+Last verified: 2026-11-21
 
 Shortcut: **`Review wave`**
 
@@ -117,7 +117,7 @@ unsupported or ambiguous Progress Log headings may remain digested.
 
 ## Offer a walkthrough
 
-After reporting the delivery review result, ask once: “Would you like a walkthrough of the changes?” End the turn and wait. If the operator accepts, follow [Explain](explain.prompt.md) for the reviewed scope. A decline or silence ends the offer. The walkthrough and its optional teach-back grant no approval or closure authority.
+If the operator requested multiple deliveries, finish this review, pause the reviewed wave by ID and continue with the next prepared wave. Offer the walkthrough at the agreed handoff. For a single delivery, offer it when reporting the review result. Ask once: “Would you like a walkthrough of the changes?” End the turn and wait. If the operator accepts, follow [Explain](explain.prompt.md) for the reviewed scope. A decline or silence ends the offer. The walkthrough and its optional teach-back grant no approval or closure authority.
 
 ## Focused readiness re-review
 

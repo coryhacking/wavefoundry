@@ -5,6 +5,8 @@ import contextlib
 import io
 import json
 import os
+import runpy
+import shutil
 import sys
 import subprocess
 import tempfile
@@ -84,7 +86,21 @@ class BaselineDriftTests(unittest.TestCase):
             "docs/prompts/memory-review.prompt.md": "upstream_unchanged_local_differs",
             "docs/prompts/review-plan.prompt.md": "already_current",
             "docs/plans/plan-template.md": "baseline_unknown"})
-        self.assertIn("earlier template update that was never applied", findings[1]["detail"])
+        self.assertEqual({item["file"]: item["action"] for item in findings}, {
+            CREATE: "overwrite: Replace the unedited local copy with the incoming template.",
+            IMPLEMENT: "merge: Keep the local copy and merge the incoming changes by hand.",
+            "docs/prompts/memory-review.prompt.md": "preserve: Compare the local copy with the current template and use the overwrite procedure only if an earlier template update was missed and no project edits need to be kept.",
+            "docs/prompts/review-plan.prompt.md": "preserve: Keep the current local copy.",
+            "docs/plans/plan-template.md": "preserve: Compare the files by hand before replacing anything.",
+        })
+        earlier_update = "; difference may be a local edit or an earlier template update that was never applied"
+        self.assertEqual({item["file"]: item["detail"] for item in findings}, {
+            CREATE: "upstream_changed_local_matches_previous: local copy matches previous template",
+            IMPLEMENT: "upstream_changed_local_differs_from_previous: local copy differs from previous template" + earlier_update,
+            "docs/prompts/memory-review.prompt.md": "upstream_unchanged_local_differs: local copy differs from previous template" + earlier_update,
+            "docs/prompts/review-plan.prompt.md": "already_current: local copy matches incoming template" + earlier_update,
+            "docs/plans/plan-template.md": "baseline_unknown: previous template unavailable; local copy matches incoming template",
+        })
         self.assertEqual(findings[-1]["detail"], "baseline_unknown: previous template unavailable; local copy matches incoming template")
         self.assertEqual({p: p.read_bytes() for p in before}, before)
 
@@ -104,6 +120,54 @@ class BaselineDriftTests(unittest.TestCase):
         for destination, template in renderer.LIFECYCLE_PROMPT_BASELINES:
             self.put(destination, "B\n")
             self.put(".wavefoundry/framework/install/lifecycle-prompts/" + template, "B\n")
+        self.assertEqual(renderer.lifecycle_baseline_drift(self.root, incoming), [])
+
+    def test_real_render_preserves_owned_regions_and_distinguishes_project_edits(self):
+        for part in ("install", "seeds"):
+            shutil.copytree(SCRIPTS.parent / part, self.install.parent / part)
+        renderer.render_agent_surfaces(self.root)
+        incoming = {p.relative_to(self.install).as_posix(): p.read_text(encoding="utf-8")
+                    for p in self.install.rglob("*.md")}
+        self.assertEqual(renderer.lifecycle_baseline_drift(self.root, incoming), [])
+        local = self.root / CREATE
+        original = local.read_text(encoding="utf-8")
+        begin = "<!-- wave:context-efficiency-carrier begin -->"
+        end = "<!-- wave:context-efficiency-carrier end -->"
+        self.assertIn(begin, original)
+        self.assertIn(renderer.REVIEW_PROTOCOL_MARKER_BEGIN, original)
+
+        def findings_for(text):
+            local.write_bytes(text.replace("\n", "\r\n").encode())
+            return renderer.lifecycle_baseline_drift(self.root, incoming)
+
+        self.assertEqual(findings_for(original.replace(begin, begin + "\nGenerated text.")), [])
+        legacy = original.replace("wave:context-efficiency-carrier", "wavefoundry:context-efficiency-carrier")
+        legacy = legacy.replace("wave:executable-review-evidence", "waveframework:executable-review-evidence")
+        self.assertEqual(findings_for(legacy), [])
+        for changed in (original + "Project text.\n", original.replace(end, "") + "Visible suffix.\n",
+                        original.replace(end, end + "\nProject suffix.\n"), " " + original):
+            with self.subTest(edit=changed[-50:]):
+                self.assertEqual(self.states(findings_for(changed))[CREATE], "upstream_unchanged_local_differs")
+
+        # The registered policy region belongs in other prompts, not Create.
+        key = "lifecycle-prompts/create-wave.prompt.md"
+        incoming[key] += "\nNew upstream paragraph.\n"
+        for paired in ("<!-- wave:notes begin -->\nProject.\n<!-- wave:notes end -->",
+                       renderer.REVIEW_POLICY_SURFACE_MARKER_BEGIN + "\nProject.\n" + renderer.REVIEW_POLICY_SURFACE_MARKER_END):
+            with self.subTest(marker=paired[:50]):
+                finding = findings_for(original + "\n" + paired + "\n")[0]
+                self.assertEqual(finding["file"], CREATE)
+                self.assertTrue(finding["action"].startswith("merge:"), finding)
+        overwrite = findings_for(original)[0]
+        self.assertTrue(overwrite["action"].startswith("overwrite:"), overwrite)
+        (self.install / key).write_text(incoming[key], encoding="utf-8")
+        stale = findings_for(original)[0]
+        self.assertTrue(stale["action"].startswith("preserve:"), stale)
+        self.assertIn("earlier template update", stale["action"])
+        local.unlink()
+        renderer.render_agent_surfaces(self.root)
+        self.assertIn(begin, local.read_text(encoding="utf-8"))
+        self.assertIn("New upstream paragraph.", local.read_text(encoding="utf-8"))
         self.assertEqual(renderer.lifecycle_baseline_drift(self.root, incoming), [])
 
     def test_a_baseline_at_an_earlier_default_name_is_still_reported(self):
@@ -165,21 +229,26 @@ class BaselineDriftTests(unittest.TestCase):
         local.parent.mkdir(parents=True)
         local.symlink_to(outside)
         findings = renderer.lifecycle_baseline_drift(self.root, {"plan-template.md": "B\n"})
-        self.assertEqual(findings, [{"channel": "lifecycle_baseline_drift", "file": "docs/plans/plan-template.md", "detail": "baseline_unknown: local copy unavailable through contained read; comparison unavailable"}])
+        self.assertEqual(findings, [{"channel": "lifecycle_baseline_drift", "file": "docs/plans/plan-template.md", "detail": "baseline_unknown: local copy unavailable through contained read; comparison unavailable", "action": "preserve: Compare the files by hand before replacing anything."}])
         self.assertEqual(outside.read_text(), "B\n")
 
     def test_incoming_old_context_preview_apply_and_resume_replay(self):
         incoming = self.fixture()
         self.make_pack(incoming)
-        extension = upgrade._load_extension_module(self.pack)
+        fixture = SCRIPTS / "tests/fixtures/upgrade_old_runner/upgrade_runner_v1_22_0.py.txt"
+        with patch.object(sys, "path", sys.path.copy()), patch("cli_stdio.configure_utf8_stdio"):
+            runner = runpy.run_path(str(fixture))
+        extension = runner["_load_extension_module"](self.pack)
+        args = (self.root, "1.22.0", "1.34.0", self.pack, True)
         before = {p: p.read_bytes() for p in self.root.rglob("*.md")}
         out = io.StringIO()
         # Public incoming post_extract dry-run dispatch used by older parents.
         with contextlib.redirect_stdout(out), patch.object(extension, "_preview_council_role_links"), patch.object(extension, "_post_extract"):
-            upgrade._run_hook("post_extract", self.ctx(True), extension)
+            runner["_run_hook"]("post_extract", runner["UpgradeContext"](*args, dry_run=True), extension)
         self.assertIn('"detail": "upstream_changed_local_matches_previous:', out.getvalue())
+        self.assertIn('"action": "overwrite:', out.getvalue())
         self.assertFalse(upgrade_lib.upgrade_lock_path(self.root).exists())
-        upgrade_lib.write_upgrade_lock(self.root, from_version="1.33.0", to_version="1.34.0", zip_path=self.pack)
+        upgrade_lib.write_upgrade_lock(self.root, from_version="1.22.0", to_version="1.34.0", zip_path=self.pack)
         with contextlib.redirect_stdout(io.StringIO()), \
              patch.object(extension, "_preview_council_role_links"), \
              patch.object(extension, "_capture_index_guard_handoff"), \
@@ -187,9 +256,10 @@ class BaselineDriftTests(unittest.TestCase):
              patch.object(extension, "_preserve_original_manifest"), \
              patch.object(extension, "_snapshot_graph_builder_doc_claim"), \
              patch.object(extension, "_cut_over_runtime_locks"):
-            upgrade._run_hook("pre_extract", self.ctx(), extension)
+            runner["_run_hook"]("pre_extract", runner["UpgradeContext"](*args), extension)
         captured = upgrade_lib.read_upgrade_lock(self.root)["lifecycle_baseline_drift"]
         self.assertEqual(self.states(captured)[CREATE], "upstream_changed_local_matches_previous")
+        self.assertTrue(next(f for f in captured if f["file"] == CREATE)["action"].startswith("overwrite:"))
         # Simulate the actual destructive framework-only extraction boundary.
         with zipfile.ZipFile(self.pack) as archive:
             for name in archive.namelist():
@@ -204,7 +274,7 @@ class BaselineDriftTests(unittest.TestCase):
         self.assertEqual({p: p.read_bytes() for p in before if "/install/" not in str(p)}, {p: data for p, data in before.items() if "/install/" not in str(p)})
         # A full standard retry rewrites its checkpoint but preserves the
         # producer's original facts for the identical incoming artifact.
-        upgrade_lib.write_upgrade_lock(self.root, from_version="1.33.0", to_version="1.34.0", zip_path=self.pack)
+        upgrade_lib.write_upgrade_lock(self.root, from_version="1.22.0", to_version="1.34.0", zip_path=self.pack)
         self.assertEqual(upgrade_lib.read_upgrade_lock(self.root)["lifecycle_baseline_drift"], captured)
         # Standalone summary producer consumes the lock, independently of hooks.
         report = upgrade._empty_reporting("complete", "")
@@ -213,7 +283,7 @@ class BaselineDriftTests(unittest.TestCase):
             self.assertEqual(upgrade._emit_delegated_summary(self.root), 0)
         summary = json.loads(summary_out.getvalue().split(upgrade.WAVE_UPGRADE_SUMMARY_SENTINEL)[1])
         self.assertEqual(summary["lifecycle_baseline_drift"], captured)
-        self.assertTrue(all(set(item) == {"channel", "file", "detail"} for item in captured))
+        self.assertTrue(all(set(item) == {"channel", "file", "detail", "action"} for item in captured))
         # Exercise the actual public MCP response parser/bounder with the
         # canonical producer's sentinel, rather than a hand-authored summary.
         from server_tools_support import load_server
@@ -337,7 +407,7 @@ class BaselineDriftTests(unittest.TestCase):
 
     def test_retained_lock_missing_capture_is_unknown_while_empty_is_known(self):
         upgrade_lib.write_upgrade_lock(self.root, from_version="1.33.0", to_version="1.34.0")
-        self.assertEqual(upgrade._lifecycle_baseline_findings(self.root), [{"channel": "lifecycle_baseline_drift", "file": "", "detail": "baseline_unknown: no pre-extraction comparison captured; previous-template evidence unavailable"}])
+        self.assertEqual(upgrade._lifecycle_baseline_findings(self.root), [{"channel": "lifecycle_baseline_drift", "file": "", "detail": "baseline_unknown: no pre-extraction comparison captured; previous-template evidence unavailable", "action": "preserve: Compare the files by hand before replacing anything."}])
         upgrade_lib.update_upgrade_lock(self.root, lifecycle_baseline_drift=[])
         self.assertEqual(upgrade._lifecycle_baseline_findings(self.root), [])
 
@@ -351,6 +421,8 @@ class BaselineDriftTests(unittest.TestCase):
             with patch.object(extensions, "_incoming_renderer_query", side_effect=AssertionError("recomputed")), contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(extensions.lifecycle_baseline_report(self.ctx(), persist=True), captured)
             self.assertEqual(bool(captured), response != "[]")
+            if captured:
+                self.assertEqual(captured[0]["action"], "preserve: Compare the files by hand before replacing anything.")
 
 
 if __name__ == "__main__":

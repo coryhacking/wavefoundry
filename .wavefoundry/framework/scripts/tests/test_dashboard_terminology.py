@@ -276,6 +276,21 @@ nodes(customFlow).find(n => n.props['aria-label'] === 'Open Draft a ticket').pro
 assert.equal(selected.id, 'plan');
 context.renderMarkdownish = content => h('p', {}, content);
 context.DialogFrame = ({children}) => h('section', {}, ...children);
+context.badgeClass = status => 'badge-' + status;
+vm.runInContext(slice('function WavesDialog(', 'function ChangesDialog('), context);
+const paused = [
+  {wave_id: '12345 review', status: 'paused', display_status: 'Awaiting closure', next_action: 'close_wave', change_count: 3},
+  {wave_id: '12346 work', status: 'paused', display_status: 'Paused', next_action: 'resume_wave', change_count: 1},
+];
+const queue = context.WavesCard({waves: paused, allChanges: []});
+assert.deepEqual(classes(queue, 'waves-section-label'), ['2 pending']);
+for (const tree of [queue, context.WavesDialog({snapshot: {waves: paused}})]) {
+  assert.deepEqual(classes(tree, 'badge-paused'), ['Paused', 'Awaiting closure']);
+  const steps = nodes(tree).filter(n => n.tag === 'small');
+  assert.deepEqual(steps.map(text), ['Resume batch 12346 work', 'Close batch 12345 review']);
+  assert.match(steps[1].props.title, /operator authorization and the usual close checks/);
+  assert.ok(nodes(tree).filter(n => n.tag === 'button').every(n => n.props.title === 'View batch document'));
+}
 assert.match(text(context.FrameworkProcessDialog({process: selected})), /Use this stage to write the ticket doc/);
 for (const stage of context.FRAMEWORK_FLOW()) {
   const detail = text(context.FrameworkProcessDialog({process: stage}));

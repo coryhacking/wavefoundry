@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-11
+Last verified: 2026-11-21
 
 ## Domains
 
@@ -43,7 +43,9 @@ The composition root, the tool registry and the ten handler modules live in the 
 `setup_readiness.py` owns the bootstrap-safe assessment contract shared by setup,
 MCP startup, monitoring and health. `setup_requirements.py` owns canonical runtime
 dependency declarations and setup CLI grammar; the assessor validates recorded
-setup continuations with that same bootstrap-safe parser. The assessor reads a fixed, bounded census and at most
+setup continuations with that same bootstrap-safe parser. For failed setup, it resolves
+the recorded phase, safe cause and next action for the readiness check and upgrade
+refusals. The storage migration module reads this guidance only at refusal time. The assessor reads a fixed, bounded census and at most
 one isolated SQLite metadata snapshot; it owns no index or recovery mutations.
 Its advisory stamp has three writers, each a separate call outside the assessor:
 successful ordinary setup (after reconciliation completes), successful upgrade

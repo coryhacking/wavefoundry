@@ -33,7 +33,9 @@ Setup and upgrade synchronize one advisory inventory pass and report distinct cl
 **Check first when unsure:** `wf setup --check` (optionally `--root PATH --json`)
 reports `ready` (exit 0), `action_required` (exit 1), or `indeterminate` (exit 2).
 Follow the reported action: plain setup for local preparation, a host restart for
-stale loaded code, or the retained owning command for pending recovery. Do not
+stale loaded code, or the retained owning command for pending recovery. After a
+failed setup the check reports the recorded phase and the validated next step.
+An unreadable legacy source requires recovery of a compatible duplicate first. Do not
 substitute setup for a pending upgrade continuation. The check installs nothing,
 downloads no models and does not repair or rebuild indexes. It is read-only for
 application data; SQLite may create or update normal WAL/SHM coordination files.

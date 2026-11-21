@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-12
+Last verified: 2026-11-21
 
 ## Purpose
 
@@ -75,6 +75,8 @@ Treat missing legacy metadata, missing/corrupt/cleaned snapshots, stale current 
 ## Continuation And Qualification Discipline
 
 After a successful typed write, consume its returned continuation actions and current receipt identity. Do not follow an accepted write with an extra list or whole-review call merely to rediscover that state. If the response is incomplete, the tree moved, or authority is unresolved, inspect the affected state through the canonical tool.
+
+Before handing work to delivery reviewers or starting the full suite, run the fast contract checks that cover the changes. For example, when changing which lifecycle prompts the renderer installs, run the fixture that compares its registered prompts with the install list. Fix failures and rerun the affected checks before the handoff.
 
 Finish source, test, configuration and edit-gate edits, and substantive edits to the wave under test, before the final canonical suite. Validated routine bookkeeping may continue: append typed review events through the canonical writer, let it refresh their generated views, and record progress/status/ordinary completion in the existing recognized wave/change carriers. Those changes alone do not require another suite or reviewer cycle. Use the canonical `## Progress Log` for continuation during a run. Other documentation under `docs/` may change during a run, including new plans, a newly created planned wave and the standalone session handoff: the runner tolerates and lists those paths. It still refuses the run for the framework tree, the edit-gate file, the folder of a wave that was open when the run started (pausing, closing or admitting a spec to it included), the project policy files under `docs/` and any path outside `docs/`. Keep scope, requirements, AC meaning and authority changes in their owning substantive sections.
 
@@ -192,6 +194,8 @@ The fixed sibling `events.jsonl` remains the canonical append-only authority bec
 ### Choose a test boundary
 
 What bug would this test catch, and which parts of the real system must run to expose it? Use ordinary inputs when they expose a decision error. If the bug depends on I/O, timing or resource lifetime, exercise the production components involved. Inject the difficult condition where it occurs and keep unrelated dependencies out of the test.
+
+When comparing an old and a new version, name the case that motivated the change and the observable result that would demonstrate the claimed improvement before running either version. Give both the same input and compare that result. If both produce the same result, report which behavior they preserved and identify a case or field observation that could distinguish them.
 
 For listener recovery, inject a failure just after accept. Then send a fresh request to the same running server and require the expected response. A retry counter can reach five even if the server drops every later connection. Shutdown during repeated failures needs its own observation.
 
@@ -357,7 +361,7 @@ Use exactly these labels (no others):
 
 **Split questions:** Defect questions (is this code correct?) and reachability questions (can an attacker reach this?) are separate. Do not conflate correctness and reachability in a single finding.
 
-**Parallel tasks with merge and deduplicate:** When multiple lanes run concurrently and produce overlapping findings, the coordinator deduplicates by `finding_id` before recording the merged Observe. Two findings with different IDs that describe the same defect must be merged by the coordinator before the next Thought.
+**Parallel tasks with merge and deduplicate:** When multiple lanes run concurrently and produce overlapping findings, the coordinator deduplicates by `finding_id` before recording the merged Observe. Before assigning a finding ID, compare the cause, required fix and expected outcome. When all three match and the lanes agree on disposition, record one finding with every originating lane and its evidence. Keep different causes, fixes or expected outcomes separate, even in the same file. Preserve existing finding IDs and link related records. If another reviewer later confirms a recorded finding, cite its ID and append the new evidence. Each blocking lane still verifies the repair.
 
 **Gapfill pointer:** After all lanes complete, if any evidence referenced in the briefing packet was absent or incomplete, the coordinator records a `Gapfill:` entry in Progress Log noting what was missing and where it should be added before the next wave.
 

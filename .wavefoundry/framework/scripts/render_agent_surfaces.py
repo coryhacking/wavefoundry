@@ -4916,18 +4916,58 @@ def lifecycle_baseline_drift(repo_root: Path, incoming: dict[str, str]) -> list[
         return _compare_lifecycle_baselines(repo_root, incoming, applied)
 
 
+_BASELINE_ACTIONS = {
+    "upstream_changed_local_matches_previous": "overwrite: Replace the unedited local copy with the incoming template.",
+    "upstream_changed_local_differs_from_previous": "merge: Keep the local copy and merge the incoming changes by hand.",
+    "already_current": "preserve: Keep the current local copy.",
+    "upstream_unchanged_local_differs": "preserve: Compare the local copy with the current template and use the overwrite procedure only if an earlier template update was missed and no project edits need to be kept.",
+    "baseline_unknown": "preserve: Compare the files by hand before replacing anything.",
+}
+
+
+def _baseline_marker_pairs(destination: str):
+    """Only the regions the renderer actually owns in this registered destination."""
+    if destination in REVIEW_PROTOCOL_CARRIER_MANIFEST:
+        yield REVIEW_PROTOCOL_MARKER_BEGIN, REVIEW_PROTOCOL_MARKER_END, _LEGACY_OWNED_MARKERS
+    if any(c.destination == destination and c.owner == "renderer"
+           for c in REVIEW_POLICY_CARRIER_REGISTRY) and destination in REVIEW_POLICY_SURFACE_BLOCKS:
+        yield REVIEW_POLICY_SURFACE_MARKER_BEGIN, REVIEW_POLICY_SURFACE_MARKER_END, {}
+    if destination == CONTEXT_EFFICIENCY_DESTINATION and CONTEXT_EFFICIENCY_CARRIER_MARKER_BEGIN:
+        from context_efficiency import _LEGACY_CONTEXT_EFFICIENCY_MARKERS
+        yield (CONTEXT_EFFICIENCY_CARRIER_MARKER_BEGIN, CONTEXT_EFFICIENCY_CARRIER_MARKER_END,
+               _LEGACY_CONTEXT_EFFICIENCY_MARKERS)
+
+
+def _comparable_baseline(content: str, marker_pairs: tuple) -> str:
+    content = _universal_newlines(content)
+    for begin, end, aliases in marker_pairs:
+        # Keep malformed, inline and duplicate markers visible. The renderers
+        # own one complete block and add one blank line before appending it.
+        matches = []
+        for marker in (begin, end):
+            spellings = [marker, *(old for old, new in aliases.items() if new == marker)]
+            pattern = r"^(?:" + "|".join(map(re.escape, spellings)) + r")[ \t]*(?:\n|\Z)"
+            matches.append(list(re.finditer(pattern, content, re.MULTILINE)))
+        starts, ends = matches
+        if len(starts) == len(ends) == 1 and starts[0].end() <= ends[0].start():
+            start = starts[0].start()
+            if start and content[start - 1:start] == "\n" and (start == 1 or content[start - 2] == "\n"):
+                start -= 1
+            content = content[:start] + content[ends[0].end():]
+    return re.sub(r"(?m)^(Last verified: )[0-9]{4}-[0-9]{2}-[0-9]{2}(?=\s*$)",
+                  r"\1{{generated_at}}", content)
+
+
 def _compare_lifecycle_baselines(repo_root: Path, incoming: dict[str, str], applied: dict[str, str]) -> list[dict]:
     findings = []
-    pairs = [(applied.get(destination, destination), "lifecycle-prompts/" + template)
+    pairs = [(destination, "lifecycle-prompts/" + template)
              for destination, template in _lifecycle_prompt_baselines()]
     pairs.extend(scaffold_baselines(repo_root))
 
-    def comparable(content):
-        content = _universal_newlines(content)
-        return re.sub(r"(?m)^(Last verified: )[0-9]{4}-[0-9]{2}-[0-9]{2}(?=\s*$)",
-                      r"\1{{generated_at}}", content)
+    for registered, template in pairs:
+        destination = applied.get(registered, registered)
+        marker_pairs = tuple(_baseline_marker_pairs(registered))
 
-    for destination, template in pairs:
         local_path = repo_root / destination
         try:
             local_path.lstat()
@@ -4935,21 +4975,24 @@ def _compare_lifecycle_baselines(repo_root: Path, incoming: dict[str, str], appl
             continue
         except OSError:
             findings.append({"channel": "lifecycle_baseline_drift", "file": destination,
-                             "detail": "baseline_unknown: local copy unavailable through contained read; comparison unavailable"})
+                             "detail": "baseline_unknown: local copy unavailable through contained read; comparison unavailable",
+                             "action": _BASELINE_ACTIONS["baseline_unknown"]})
             continue
         try:
-            local = comparable(_read_repo_text(repo_root, local_path))
+            local = _comparable_baseline(_read_repo_text(repo_root, local_path), marker_pairs)
         except (OSError, UnicodeError, RuntimeError):
             findings.append({"channel": "lifecycle_baseline_drift", "file": destination,
-                             "detail": "baseline_unknown: local copy unavailable through contained read; comparison unavailable"})
+                             "detail": "baseline_unknown: local copy unavailable through contained read; comparison unavailable",
+                             "action": _BASELINE_ACTIONS["baseline_unknown"]})
             continue
         source = incoming.get(template)
         if source is None:
             findings.append({"channel": "lifecycle_baseline_drift", "file": destination,
-                             "detail": "baseline_unknown: incoming template unavailable; comparison unavailable"})
+                             "detail": "baseline_unknown: incoming template unavailable; comparison unavailable",
+                             "action": _BASELINE_ACTIONS["baseline_unknown"]})
             continue
         name = template.rsplit("/", 1)[-1]
-        current = comparable(materialize_baseline_template(name, source, "{{generated_at}}"))
+        current = _comparable_baseline(materialize_baseline_template(name, source, "{{generated_at}}"), marker_pairs)
         incoming_matches = local == current
         try:
             previous_source = _read_repo_text(repo_root, repo_root / ".wavefoundry/framework/install" / template)
@@ -4957,8 +5000,8 @@ def _compare_lifecycle_baselines(repo_root: Path, incoming: dict[str, str], appl
             state = "baseline_unknown"
             explanation = "previous template unavailable; local copy " + ("matches" if incoming_matches else "differs from") + " incoming template"
         else:
-            previous = comparable(materialize_baseline_template(name, previous_source, "{{generated_at}}"))
-            upstream_changed = comparable(previous_source) != comparable(source)
+            previous = _comparable_baseline(materialize_baseline_template(name, previous_source, "{{generated_at}}"), marker_pairs)
+            upstream_changed = _comparable_baseline(previous_source, marker_pairs) != _comparable_baseline(source, marker_pairs)
             if incoming_matches:
                 if not upstream_changed:
                     continue
@@ -4972,7 +5015,7 @@ def _compare_lifecycle_baselines(repo_root: Path, incoming: dict[str, str], appl
             if local != previous:
                 explanation += "; difference may be a local edit or an earlier template update that was never applied"
         findings.append({"channel": "lifecycle_baseline_drift", "file": destination,
-                         "detail": state + ": " + explanation})
+                         "detail": state + ": " + explanation, "action": _BASELINE_ACTIONS[state]})
     return findings
 
 

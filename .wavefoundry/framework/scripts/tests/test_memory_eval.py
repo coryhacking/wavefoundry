@@ -288,6 +288,21 @@ class MemoryEvalTests(unittest.TestCase):
             "explicit frozen histories must reach adaptive cadence derivation",
         )
 
+    def test_available_memory_eval_preserves_repository_files(self):
+        from wf_server import server_impl as srv
+
+        evalh.run(self.root)  # Populate historical records before measuring the read.
+        def snapshot():
+            return {p.relative_to(self.root): p.read_bytes()
+                    for p in self.root.rglob("*") if p.is_file()}
+
+        before = snapshot()
+        with patch.object(srv, "WaveIndex", return_value=evalh._StubIndex([])):
+            result = srv.wf_memory_eval_response(self.root)
+        self.assertEqual(result["status"], "ok", result)
+        self.assertTrue(result["data"]["available"], result["data"])
+        self.assertEqual(snapshot(), before)
+
     def test_memory_eval_tool_reports_aggregate_only(self):
         """The MCP envelope carries metrics/counts/fingerprint, never records."""
         import server_impl as srv

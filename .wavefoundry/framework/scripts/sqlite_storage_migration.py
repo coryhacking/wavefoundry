@@ -1194,6 +1194,31 @@ def retire_prestaging_noop(root: Path, installed_framework_sha256: str,
     return receipt
 
 
+def setup_resume_refusal(root: Path, preservation: str) -> str:
+    """Keep the ownership refusal available even in a mixed-version host."""
+    from setup_commands import format_command, repository_launcher_argv
+
+    prefix = 'storage_setup_resume_required:'
+    reference = 'See “Setup after a clone or pull” in the upgrade prompt.'
+    try:
+        from setup_readiness import NoRecordedSetupFailure, ObservationError, setup_recovery_guidance
+        try:
+            guidance = setup_recovery_guidance(root)
+        except NoRecordedSetupFailure:
+            return (f'{prefix} Setup records no failure and may still be running; {preservation}. {reference} '
+                    + format_command(repository_launcher_argv(root, 'setup', '--root', str(root))))
+        except ObservationError:
+            return (f'{prefix} No validated setup continuation; {preservation}. {reference} '
+                    + format_command(repository_launcher_argv(root, 'setup', '--root', str(root))))
+        message = f'{prefix} {guidance.description()} {preservation}. {reference}'
+        if guidance.recover_duplicate:
+            return message
+        command = guidance.argv or repository_launcher_argv(root, 'setup', '--root', str(root))
+        return message + ' ' + format_command(command)
+    except Exception:
+        return f'{prefix} {preservation}. Inspect the original setup output. {reference}'
+
+
 def prepare_upgrade(ctx) -> dict | None:
     root = Path(ctx.root).resolve()
     index_dir = root / ".wavefoundry" / "index"
@@ -1201,7 +1226,7 @@ def prepare_upgrade(ctx) -> dict | None:
     receipt = state["receipt"]
     if receipt and receipt["state"] != "complete" and receipt.get("entry_path") == "setup":
         if getattr(ctx, "entry_path", None) != "setup":
-            raise MigrationRequired("storage_setup_resume_required: resume the recorded wf setup continuation")
+            raise MigrationRequired(setup_resume_refusal(root, "preserve its receipt"))
         from setup_reconciliation import validate_source_binding
         validate_source_binding(root, receipt)
     if state["authority_diagnostic"]:

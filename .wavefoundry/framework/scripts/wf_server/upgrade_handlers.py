@@ -1226,7 +1226,7 @@ def wf_upgrade_response(
 
     mode values:
       "dry_run" — print the full upgrade plan + hook inventory (seed change counts, a path to the full diffs,
-          extension module source, convention hook scripts) without modifying
+          extension entry, digest, line count and source log path, convention hook scripts) without modifying
           upgrade state. Incoming migration previews may write named preview
           logs. Use this before the real upgrade to review what
           will change and inspect any hook code. The phase parameter is

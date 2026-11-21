@@ -73,6 +73,7 @@ class PartialPromptInstallIntegrationTests(unittest.TestCase):
         self.assertEqual(rendered.count(end), 1)
         self.assertEqual(json.loads(settings.read_text())["permissions"], original_permissions)
         self.assertNotIn("wavefoundryAllowWriteTools", settings.read_text())
+        self.assertNotIn("wavefoundryAllowLowRiskWriteTools", settings.read_text())
 
         snapshot = path.read_bytes()
         second = self._sync()

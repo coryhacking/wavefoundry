@@ -16701,7 +16701,7 @@ class CloseTimeOptimizeTests(unittest.TestCase):
         opt = src.index("_maybe_optimize_index_on_close(root)")
         # 1seax (1seat): the refresh moved into the close's forward-recoverable
         # handoff-convergence block; the optimize-before-refresh ordering holds.
-        refresh = src.index("_trigger_background_index_refresh_for_paths(root, [wave_md, handoff])")
+        refresh = src.index("_trigger_background_index_refresh_for_paths(")
         self.assertGreater(refresh, opt,
                            "close-time optimize must run BEFORE the background refresh (lock still free)")
 

@@ -15,7 +15,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from server_tools_support import load_server
 from record_layout_support import RecordTreeBuilder
@@ -137,6 +137,35 @@ class _CloseChangeCase(unittest.TestCase):
 
 class CloseChangeWriteTests(_CloseChangeCase):
     """AC-1: the core write, in both files, with lint passing."""
+
+    def test_served_close_protects_its_member_and_keeps_the_wave_open(self):
+        from declaration_support import RecordingFastMCP
+
+        telemetry = MagicMock()
+        telemetry.focus = SimpleNamespace(wave_id="", stage="general")
+        telemetry.record_workflow.return_value = {}
+        handler = SimpleNamespace(root=self.root, cache=None, telemetry=telemetry)
+        surface = RecordingFastMCP()
+        srv.register_mcp_surface(surface, lambda: handler)
+
+        def call(tool, change, **kwargs):
+            return surface._tool_manager._tools[tool].fn(wave_id=WAVE_ID, change_id=change, **kwargs)
+
+        for members in ([(A, "implemented"), (B, "active")], [(A, "implemented")]):
+            with self.subTest(members=members):
+                docs = {B: _doc_text(B, "active", ac=" ", task=" ")}
+                self.wave(members, docs=docs)
+                self.assertEqual(call("wf_close_change", A, mode="create")["status"], "ok")
+                self.assertEqual(srv.wave_status_match(self.wave_md.read_text()).group(1), "active")
+                before = self.doc(A).read_bytes()
+                for tool, label in (("wf_mark_ac", {"ac_id": "AC-1"}), ("wf_mark_task", {"task": "Do the fixture task."})):
+                    for mode in ("dry_run", "create"):
+                        result = call(tool, A, state="x", mode=mode, **label)
+                        self.assertEqual(self.codes(result), ["mark_target_closed"])
+                        self.assertEqual(before, self.doc(A).read_bytes())
+                    if len(members) == 2:
+                        marked = call(tool, B, state="x", mode="create", **label)
+                        self.assertTrue(marked["data"]["applied"], marked)
 
     def test_closes_ready_active_and_review_changes(self) -> None:
         for status in ("ready", "active", "review"):

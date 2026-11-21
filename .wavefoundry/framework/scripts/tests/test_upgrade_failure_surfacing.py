@@ -72,8 +72,95 @@ class PendingUpgradeTests(unittest.TestCase):
                 summary = json.loads(summary_line[len(upgrade.WAVE_UPGRADE_SUMMARY_SENTINEL):])
                 self.assertEqual(summary["docs_preflight"]["verdict"], "indeterminate")
             results.append((code, output))
+        self.route_results = results
         self.assertEqual(results[0][0], results[1][0], results)
         return results[1]
+
+    def test_setup_refusals_share_checked_phase_next_step_and_fallback(self):
+        import setup_readiness as readiness
+        from types import SimpleNamespace
+        index = self.root / '.wavefoundry/index'
+        index.mkdir(exist_ok=True)
+        identity = {'device': self.root.stat().st_dev, 'inode': self.root.stat().st_ino}
+        owner = dict(entry_path='setup', root_identity=identity, installed_framework_sha256='b' * 64)
+        lock = dict(owner, failed_phase='setup_storage', setup_failure='ordinary failure',
+                    storage_migration_id='a' * 32)
+        receipt = dict(owner, migration_id='a' * 32, receipt_version=2, kind='index_sqlite_schema8',
+                       state='quiesced', index_dir=str(index))
+        launcher = readiness.repository_launcher_argv(self.root, 'setup', '--root', str(self.root))
+        command = readiness.format_command(launcher)
+        self.checkpoint.write_text(json.dumps(lock))
+        for pending in (False, True):
+            if pending:
+                (index / 'sqlite-migration.json').write_text(json.dumps(receipt))
+            for args in ((), ('--pack', str(self.pack))):
+                code, output = self.invoke(*args)
+                self.assertEqual(code, 3)
+                for _, route_output in self.route_results:
+                    self.assertIn('recorded phase: setup_storage', route_output)
+                    self.assertIn('ordinary failure', route_output)
+                    self.assertTrue(route_output.rstrip().endswith(command), route_output)
+        for cause, present, absent in (
+                ('x' * 140, 'x' * 120, 'x' * 121),
+                (str(self.root / 'private.txt'), 'original setup output', 'private.txt'),
+                ('setup did not complete', 'original setup output', 'setup did not complete'),
+                ('storage_legacy_source_unreadable: docs', 'Remain paused', command)):
+            self.checkpoint.write_text(json.dumps(dict(lock, setup_failure=cause)))
+            code, output = self.invoke()
+            self.assertEqual(code, 3)
+            self.assertIn(present, output)
+            self.assertNotIn(absent, output)
+            with patch.object(migration, 'detect', return_value={'receipt': receipt}), \
+                    self.assertRaises(migration.MigrationRequired) as refusal:
+                migration.prepare_upgrade(SimpleNamespace(root=self.root))
+            self.assertIn(present, str(refusal.exception))
+            self.assertNotIn(absent, str(refusal.exception))
+        self.checkpoint.write_text(json.dumps(dict(lock, failed_phase=None, setup_failure=None)))
+        _, waiting = self.invoke()
+        self.assertIn('no failure', waiting)
+        self.assertTrue(waiting.rstrip().endswith(command))
+        for missing in (True, False):
+            with patch.object(readiness, 'setup_recovery_guidance', side_effect=RuntimeError('unavailable')):
+                if missing:
+                    del readiness.setup_recovery_guidance
+                code, message = self.invoke()
+            self.assertEqual(code, 3)
+            self.assertIn('storage_setup_resume_required', message)
+            self.assertIn('original setup output', message)
+            self.assertNotIn(command, message)
+
+    def test_setup_refusal_uses_same_command_dialect_as_readiness(self):
+        import setup_commands
+        import setup_readiness as readiness
+        import shlex
+
+        root = self.root / "space and engineer's checkout"
+        root.mkdir()
+        lock = upgrade_lib.upgrade_lock_path(root)
+        lock.parent.mkdir()
+        lock.write_text(json.dumps(dict(entry_path='setup', failed_phase='setup_storage',
+                                        root_identity={'device': root.stat().st_dev, 'inode': root.stat().st_ino},
+                                        installed_framework_sha256='a' * 64)))
+        real_format = setup_commands.format_command
+        real_launcher = setup_commands.repository_launcher_argv
+        for windows in (False, True):
+            with self.subTest(windows=windows), \
+                    patch.object(setup_commands, 'format_command',
+                                 side_effect=lambda argv, **kw: real_format(argv, windows=windows)), \
+                    patch.object(setup_commands, 'repository_launcher_argv',
+                                 side_effect=lambda path, *args, **kw: real_launcher(path, *args, windows=windows)):
+                action = readiness.setup_recovery_guidance(root).argv
+                result = {'status': 'action_required', 'reasons': [], 'actions': [{'kind': 'resume', 'argv': action}]}
+                rendered = readiness.format_text(result)
+                command = real_format(action, windows=windows)
+                self.assertIn(command, rendered.splitlines())
+                self.assertTrue(migration.setup_resume_refusal(root, 'preserve its checkpoint').endswith(command))
+                if windows:
+                    self.assertTrue(command.startswith("& '"))
+                    self.assertIn("engineer''s", command)
+                    self.assertTrue(action[0].endswith('wf.cmd'))
+                else:
+                    self.assertEqual(shlex.split(command), action)
 
     def test_live_owner_and_legacy_stale_have_no_new_disposal_authority(self):
         upgrade_lib.update_upgrade_lock(self.root, pid=os.getpid())

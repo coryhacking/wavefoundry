@@ -1529,6 +1529,22 @@ class AutoLintAtMcpGatesTests(unittest.TestCase):
         lint = result["data"]["lint"]
         self.assertEqual(lint["error_count"], 0, lint["first_errors"])
 
+    def test_spec_scaffold_collision_preserves_each_mintable_kind(self):
+        for kind in ("bug", "enh", "ref", "change", "doc", "debt", "task", "maint", "ops"):
+            with self.subTest(kind=kind):
+                slug = "kept-plan"
+                original = self.srv._change_create_response(self.root, kind, slug, mode="create")
+                self.assertTrue(original["data"]["created"], original)
+                path = self.root / original["data"]["path"]
+                preserved = b"Existing plan contents\n"
+                path.write_bytes(preserved)
+                with patch.object(self.srv._lifecycle_module(), "build_id", return_value=path.stem):
+                    result = self.srv._change_create_response(self.root, kind, slug, mode="create")
+                self.assertEqual(result["status"], "ok", result)
+                self.assertFalse(result["data"]["created"])
+                self.assertIn("already_exists", [d["code"] for d in result["diagnostics"]])
+                self.assertEqual(path.read_bytes(), preserved)
+
     def test_fresh_wave_stays_lint_clean_after_first_admission(self):
         """Wave 1t3gt (1t3gu) AC-2: the scaffold stays lint-clean once a planned change
         is admitted (the non-terminal state every new wave passes through — this is

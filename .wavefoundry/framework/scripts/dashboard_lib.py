@@ -20,6 +20,7 @@ import server
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 import record_paths  # record roots (wave 1y0gz)
 import lifecycle_gate_support  # change-id allow-list and member-doc read rule (wave 1zxo0)
+import lifecycle_gates
 from runtime_lock import (
     RuntimeFileLock,
     RuntimeLockBusy,
@@ -1397,7 +1398,9 @@ def _degraded_wave_row(
 
 def collect_waves(root: Path) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
-    for wave in server.list_waves(root):
+    waves = server.list_waves(root)
+    ambiguous_ids = record_paths.ambiguous_wave_ids([Path(wave["path"]).parent for wave in waves])
+    for wave in waves:
         wave_md = _root_anchored(root, str(wave["path"]))
         # Trust the seam (wave 1v1df): a degraded enumeration entry already
         # carries the operator-safe `read_error`; re-reading it here would
@@ -1413,8 +1416,14 @@ def collect_waves(root: Path) -> list[dict[str, Any]]:
                 # hid a permission-broken one -- on the diagnostic surface an
                 # operator opens to investigate exactly that input.
                 read_error = server._read_error_detail(exc)
+        presentation = {}
+        if wave["status"] == "paused":
+            ambiguous = record_paths.wave_id_of(wave_md.parent) in ambiguous_ids
+            presentation = lifecycle_gates.paused_wave_presentation(
+                root, wave_md, None if ambiguous else text
+            )
         if text is None:
-            result.append(_degraded_wave_row(root, wave, wave_md, read_error))
+            result.append({**_degraded_wave_row(root, wave, wave_md, read_error), **presentation})
             continue
         title_match = re.search(r"^Title:\s+(.+)$", text, re.MULTILINE)
         objective = _extract_section(text, "Objective")
@@ -1425,6 +1434,7 @@ def collect_waves(root: Path) -> list[dict[str, Any]]:
             {
                 "wave_id": wave["wave_id"],
                 "status": wave["status"],
+                **presentation,
                 "title": title_match.group(1).strip() if title_match else wave["wave_id"],
                 "objective": objective.splitlines()[0].strip() if objective else "",
                 "path": _repo_rel_or_name(root, wave_md),

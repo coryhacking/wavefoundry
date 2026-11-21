@@ -44,6 +44,127 @@ class SetupReceiptTests(unittest.TestCase):
         self.assertEqual(stopped.exception.code, 3)
         return migration.read_receipt(self.index)
 
+    def test_return_code_failure_reports_original_output_and_host_stop_continuation(self):
+        import setup_readiness as readiness
+        import setup_wavefoundry
+
+        self.legacy()
+        with patch.object(setup_wavefoundry, "_run_render_platform_surfaces", return_value=1), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(setup_wavefoundry.main(["--root", str(self.root)]), 1)
+        before = upgrade_lib.read_upgrade_lock(self.root)
+        self.assertEqual(before["failed_phase"], "setup_storage")
+        self.assertEqual(before["setup_failure"], "setup did not complete")
+        ordinary = readiness.setup_recovery_guidance(self.root)
+        self.assertIn("original setup output", ordinary.description())
+        self.assertIn("original setup output", migration.setup_resume_refusal(self.root, "preserve its checkpoint"))
+        self.assertEqual(ordinary.argv[1:], ["setup", "--root", str(self.root)])
+        with patch.object(setup_wavefoundry, "_run_render_platform_surfaces", return_value=0), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as pause:
+                setup_wavefoundry.main(ordinary.argv[2:])
+            self.assertEqual(pause.exception.code, 3)
+        following = readiness.setup_recovery_guidance(self.root)
+        self.assertIn("--confirm-hosts-stopped", following.argv)
+        self.assertEqual(following.argv, upgrade_lib.read_upgrade_lock(self.root)["action_required"]["command_argv"])
+
+    def test_pending_ordinary_failure_resumes_and_honors_recorded_continuation(self):
+        import setup_readiness as readiness
+        import setup_wavefoundry
+
+        self.legacy()
+        self.pause()
+        # The confirmed retry begins conversion. Inject an ordinary transient
+        # failure after the pending receipt exists, before a new action is set.
+        with self.assertRaisesRegex(RuntimeError, 'transient failure'):
+            with setup.session(self.root, ['--confirm-hosts-stopped']) as run:
+                run._update(action_required=None, current_phase='setup_storage')
+                raise RuntimeError('transient failure')
+        receipt = migration.read_receipt(self.index)
+        receipt.pop('restart_action', None)
+        (self.index / 'sqlite-migration.json').write_text(json.dumps(receipt))
+        ordinary = readiness.setup_recovery_guidance(self.root)
+        self.assertEqual(ordinary.argv, readiness.repository_launcher_argv(self.root, 'setup', '--root', str(self.root)))
+        with patch.object(setup_wavefoundry, '_run_render_platform_surfaces', return_value=0), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()), \
+                self.assertRaises(SystemExit) as pause:
+            setup_wavefoundry.main(ordinary.argv[2:])
+        self.assertEqual(pause.exception.code, 3)
+        with self.assertRaisesRegex(RuntimeError, 'recorded continuation failure'):
+            with setup.session(self.root, ['--confirm-hosts-stopped']) as run:
+                run._update(current_phase='setup_storage')
+                raise RuntimeError('recorded continuation failure')
+        next_step = readiness.setup_recovery_guidance(self.root)
+        self.assertIn('--confirm-hosts-stopped', next_step.argv)
+        self.assertIn('setup_storage', next_step.description())
+        refusal = migration.setup_resume_refusal(self.root, 'preserve its checkpoint')
+        self.assertTrue(refusal.endswith(readiness.format_command(next_step.argv)), refusal)
+
+    def test_failed_session_preserves_safe_cause_even_when_rendering_fails(self):
+        import errno
+        import setup_readiness as readiness
+
+        self.legacy()
+        for broken in (False, True):
+            fn = setup.lifecycle_lock.path_free_exception_text
+            with patch.object(setup.lifecycle_lock, 'path_free_exception_text',
+                              side_effect=RuntimeError("render failed") if broken else fn), \
+                    self.assertRaises(OSError):
+                with setup.session(self.root, []):
+                    raise OSError(errno.ENOENT, 'opaque message', str(self.root / 'private.txt'))
+            lock = upgrade_lib.read_upgrade_lock(self.root)
+            self.assertEqual(lock['failed_phase'], 'setup_storage')
+            self.assertTrue(lock['failed_at'])
+            self.assertNotIn(str(self.root), lock['setup_failure'])
+            if broken:
+                self.assertIn("original setup output", readiness.setup_recovery_guidance(self.root).description())
+            else:
+                self.assertIn('private.txt', lock['setup_failure'])
+                self.assertIn('FileNotFoundError', lock['setup_failure'])
+
+    def test_fixing_release_handoff_preserves_pending_conversion_owner(self):
+        import upgrade_wavefoundry as upgrade
+
+        self.legacy()
+        with self.assertRaises(RuntimeError):
+            with setup.session(self.root, []):
+                raise RuntimeError('ordinary failure')
+        self.framework.joinpath('behavior.py').write_text('VALUE = 2')
+        with self.assertRaisesRegex(migration.MigrationRequired, 'storage_setup_source_changed'):
+            with setup.session(self.root, []):
+                pass
+        with self.assertRaisesRegex(ValueError, 'storage_setup_resume_required'):
+            upgrade._pending_upgrade(self.root)
+        checkpoint = upgrade_lib.upgrade_lock_path(self.root)
+        checkpoint.rename(self.root / 'saved-checkpoint.json')
+        self.assertIsNone(upgrade._pending_upgrade(self.root))
+        self.pause()  # The fixing framework enters and records the conversion.
+        self.framework.joinpath('behavior.py').write_text('VALUE = 3')
+        checkpoint.rename(self.root / 'saved-pending-checkpoint.json')
+        with self.assertRaisesRegex(ValueError, 'storage_setup_resume_required'):
+            upgrade._pending_upgrade(self.root)
+        with self.assertRaisesRegex(migration.MigrationRequired, 'storage_setup_source_changed'):
+            with setup.session(self.root, []):
+                pass
+
+    def test_upgrade_prompt_describes_both_recovery_boundaries(self):
+        from upstream_fixture_support import source_carriers
+
+        root = SCRIPTS.parents[2]
+        carriers = ['.wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md',
+                    'docs/prompts/upgrade-wavefoundry.prompt.md']
+        for relative in source_carriers(self, carriers, root=root):
+            doc = root / relative
+            with self.subTest(doc=doc):
+                section = doc.read_text().split('## Setup after a clone or pull', 1)[1].split('\n## ', 1)[0]
+                words = ' '.join(section.split())
+                for instruction in ('no setup or upgrade is running', 'Stop every Wavefoundry host',
+                                    'entry_path: setup', 'failed_phase', 'state: complete',
+                                    'move the checkpoint outside the repository', 'after setup completes',
+                                    'Leave setup paused', 'compatible older framework/runtime',
+                                    'leave both files in place', 'original index', 'receipt'):
+                    self.assertIn(instruction, words)
+
     def test_fresh_setup_has_no_receipt_and_no_archive_discovery(self):
         (self.root / "unrelated.zip").write_bytes(b"not an archive")
         import upgrade_wavefoundry

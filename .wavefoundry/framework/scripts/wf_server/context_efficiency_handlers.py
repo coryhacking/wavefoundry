@@ -336,6 +336,7 @@ def _flush_context_efficiency(
     wave_id: str,
     *,
     transfer_general: bool = False,
+    preserve_focus: bool = False,
 ) -> tuple[dict[str, Any], context_efficiency.FlushResult | None]:
     """Persist one process buffer and project its durable wave checkpoint."""
     from wf_server import server_impl
@@ -437,7 +438,7 @@ def _flush_context_efficiency(
                 )
         step = ("project_checkpoint", None)
         projection = _project_context_efficiency_wave(
-            root, canonical_wave, handler=handler, automatic=False
+            root, canonical_wave, handler=None if preserve_focus else handler, automatic=False
         )
         return (
             {

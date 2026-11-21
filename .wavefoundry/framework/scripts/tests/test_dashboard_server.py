@@ -406,6 +406,34 @@ class DashboardSnapshotTests(unittest.TestCase):
         self.assertEqual(snapshot["activity"]["recent_progress"][0]["change_id"], "12x1a-enh sample-dashboard")
         self.assertEqual(snapshot["metrics"]["scope"], "active_wave")
 
+    def test_pausing_unfinished_wave_keeps_it_pending_and_offers_resume(self):
+        paused = self.lib.server.wf_pause_wave_response(self.root, "12x test-wave", mode="create")
+        self.assertEqual(paused["status"], "ok", paused)
+
+        snapshot = self.lib.collect_dashboard_snapshot(self.root, skip_git=True)
+        wave, = snapshot["waves"]
+        self.assertEqual((wave["status"], wave["display_status"], wave["next_action"]),
+                         ("paused", "Paused", "resume_wave"))
+        self.assertEqual(snapshot["project"]["wave_status_counts"], {"paused": 1})
+        self.assertEqual(snapshot["metrics"]["waves"], {"active": 0, "pending": 1, "total": 1})
+        self.assertEqual(snapshot["progress"]["waves"], {"done": 0, "total": 1})
+
+    def test_duplicate_paused_id_withholds_close_for_both_folders(self):
+        wave_dir = _waves_dir(self.root) / "12x test-wave"
+        other = wave_dir.with_name("12x other")
+        paused = (wave_dir / _RECORD).read_text().replace("Status: active", "Status: paused", 1)
+        _write(wave_dir / _RECORD, paused)
+        with patch.object(self.lib.lifecycle_gates, "_reviewed_delivery", return_value=True) as assess:
+            only_wave, = self.lib.collect_waves(self.root)
+            self.assertEqual(only_wave["next_action"], "close_wave")
+            assess.assert_called_once()
+            assess.reset_mock()
+            _write(other / _RECORD, paused.replace(wave_dir.name, other.name))
+            waves = self.lib.collect_waves(self.root)
+        self.assertEqual({wave["wave_id"] for wave in waves}, {wave_dir.name, other.name})
+        self.assertTrue(all(wave["next_action"] == "resume_wave" for wave in waves))
+        assess.assert_not_called()
+
     def test_review_evidence_projection_is_derived_from_external_ledger(self):
         wave = self.lib.collect_waves(self.root)[0]
 

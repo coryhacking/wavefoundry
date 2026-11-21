@@ -221,7 +221,7 @@ def declared_wave_doc_gates(srv, stubs):
 
 
 def make_declared_wave(srv, root, slug, *, status="planned", change_ids=(),
-                       ready=False, readiness_run=False, approvals=(), doc_gate_stubs):
+                       ready=False, readiness_run=False, approvals=(), doc_gate_stubs, parent=None):
     """Build lifecycle prerequisites through real producers, never guessed JSONL.
 
     Specs already exist (use the canonical change creator); callers
@@ -244,7 +244,7 @@ def make_declared_wave(srv, root, slug, *, status="planned", change_ids=(),
         return response["data"]
 
     with declared_wave_doc_gates(srv, doc_gate_stubs):
-        made = successful("create wave", srv.wf_create_wave_response(root, slug, mode="create"))
+        made = successful("create wave", srv.wf_create_wave_response(root, slug, mode="create", parent=parent))
         wave_id, wave_md = made["wave_id"], root / made["path"]
         for change_id in change_ids:
             successful("admit change", srv.wf_add_change_response(root, wave_id, change_id, mode="create"))

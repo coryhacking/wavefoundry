@@ -190,6 +190,8 @@ class BriefingLoopCarrierTests(unittest.TestCase):
             "operator's request, and relevant established context",
             "When no change is specified, use the corresponding current-wave planning content",
             "strong, vague, missing, removable, or less useful to the consumer",
+            "which statements in the plan contradict each other",
+            "which definitions the plan copies from another document instead of referencing it",
             "report only meaningful observations",
             "feed unresolved discrepancies into the existing decision-branch walk",
             "Read Rationale as reference for the brief, without reopening the whole section or resolved Decision Log entries",

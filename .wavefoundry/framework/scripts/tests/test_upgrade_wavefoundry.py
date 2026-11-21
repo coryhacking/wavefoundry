@@ -749,14 +749,14 @@ class ReadExtensionSourceTests(unittest.TestCase):
         self.assertIsNotNone(result)
         candidate, source = result
         self.assertIn("upgrade_extensions.py", candidate)
-        self.assertIn("MY_MARKER", source)
+        self.assertIn(b"MY_MARKER", source)
 
     def test_returns_source_from_alt_prefix(self):
         zip_path = self._zip_with("MY_MARKER = 'alt'\n", prefix="framework/scripts/")
         result = self.mod._read_extension_source(zip_path)
         self.assertIsNotNone(result)
         _, source = result
-        self.assertIn("MY_MARKER", source)
+        self.assertIn(b"MY_MARKER", source)
 
     def test_returns_none_when_not_in_zip(self):
         import io as _io
@@ -946,7 +946,7 @@ class DryRunTests(unittest.TestCase):
         orig_log = self.mod._log
         self.mod._log = lambda msg: lines.append(msg)
         try:
-            self.mod.phase_dry_run(self.root)
+            self.assertEqual(self.mod.phase_dry_run(self.root), 0)
         finally:
             self.mod._log = orig_log
         return "\n".join(lines)
@@ -990,19 +990,57 @@ class DryRunTests(unittest.TestCase):
         output = self._run_dry()
         self.assertIn("n/a (no zip)", output)
 
-    def test_extension_module_source_surfaced(self):
-        """When zip has upgrade_extensions.py, its source appears in dry-run output."""
-        import io as _io
-        buf = _io.BytesIO()
-        with zipfile.ZipFile(buf, "w") as zf:
-            zf.writestr(
-                ".wavefoundry/framework/scripts/upgrade_extensions.py",
-                "# MARKER_IN_SOURCE\n",
-            )
-        zip_path = self.root / "wavefoundry-1.0.0.2abc.zip"
-        zip_path.write_bytes(buf.getvalue())
-        output = self._run_dry()
-        self.assertIn("MARKER_IN_SOURCE", output)
+    EXTENSION_LOG = ".wavefoundry/logs/upgrade-extension-module.preview.log"
+    EXTENSION_ENTRY = ".wavefoundry/framework/scripts/upgrade_extensions.py"
+
+    def test_extension_bytes_are_logged_and_summarized_without_echoing(self):
+        pack = self.root / "wavefoundry-1.0.0.2abc.zip"
+        with zipfile.ZipFile(pack, "w") as archive:
+            archive.writestr(self.EXTENSION_ENTRY, "# SOURCE_SENTINEL café\r\npass\r\n".encode())
+        with zipfile.ZipFile(pack) as archive:
+            expected = archive.read(self.EXTENSION_ENTRY)
+        lines, summary = self._dry_lines()
+        output = "\n".join(lines)
+        self.assertIn(self.EXTENSION_ENTRY, output)
+        self.assertIn("lines: 2", output)
+        self.assertIn(hashlib.sha256(expected).hexdigest(), output)
+        self.assertNotIn("SOURCE_SENTINEL", output)
+        self.assertNotIn("── End extension module ──", output)
+        self.assertEqual((self.root / self.EXTENSION_LOG).read_bytes(), expected)
+        self.assertIn(self.EXTENSION_LOG, lines[-2])
+        self.assertEqual(summary["preview_logs"], [self.EXTENSION_LOG])
+        self.assertFalse((self.root / ".wavefoundry/upgrade-in-progress.json").exists())
+
+    def test_refused_extension_log_names_archive_entry_and_stays_advisory(self):
+        pack = self.root / "wavefoundry-1.0.0.2abc.zip"
+        source = b"# SOURCE_SENTINEL\n"
+        with zipfile.ZipFile(pack, "w") as archive:
+            archive.writestr(self.EXTENSION_ENTRY, source)
+        (self.root / self.EXTENSION_LOG).mkdir(parents=True)
+        lines, summary = self._dry_lines()
+        self.assertEqual(1, sum("Warning" in line and self.EXTENSION_ENTRY in line for line in lines))
+        output = "\n".join(lines)
+        self.assertIn(hashlib.sha256(source).hexdigest(), output)
+        self.assertIn("lines: 1", output)
+        self.assertNotIn("SOURCE_SENTINEL", output)
+        self.assertNotIn(self.EXTENSION_LOG, output)
+        self.assertEqual(summary["preview_logs"], [])
+
+    def test_missing_module_preserves_previous_source_log(self):
+        path = self.root / self.EXTENSION_LOG
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"previous\r\n")
+        pack = self.root / "wavefoundry-1.0.0.2abc.zip"
+        for with_pack in (False, True):
+            with self.subTest(with_pack=with_pack):
+                if with_pack:
+                    with zipfile.ZipFile(pack, "w") as archive:
+                        archive.writestr("framework/VERSION", "1.0.0")
+                lines, summary = self._dry_lines()
+                self.assertIn("none (upgrade_extensions.py not in zip)" if with_pack else "n/a (no zip)", "\n".join(lines))
+                self.assertNotIn(self.EXTENSION_LOG, "\n".join(lines))
+                self.assertEqual(summary["preview_logs"], [])
+                self.assertEqual(path.read_bytes(), b"previous\r\n")
 
     def test_convention_hook_source_surfaced(self):
         """Convention hook scripts found on disk appear in dry-run output."""
@@ -1042,7 +1080,7 @@ class DryRunTests(unittest.TestCase):
         orig_log = self.mod._log
         self.mod._log = lambda msg: lines.append(msg)
         try:
-            self.mod.phase_dry_run(self.root)
+            self.assertEqual(self.mod.phase_dry_run(self.root), 0)
         finally:
             self.mod._log = orig_log
         self.assertTrue(lines[-1].startswith(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL))
@@ -1057,7 +1095,8 @@ class DryRunTests(unittest.TestCase):
         (self.root / self.MIGRATION_LOG).write_text("old\n", encoding="utf-8")
         self._pack_writing(self.MIGRATION_LOG, self.CONVERGENCE_LOG)
         lines, summary = self._dry_lines()
-        expected = sorted([self.MIGRATION_LOG, self.CONVERGENCE_LOG])
+        migration_logs = sorted([self.MIGRATION_LOG, self.CONVERGENCE_LOG])
+        expected = [*migration_logs, self.EXTENSION_LOG]
         self.assertEqual(
             lines[-2],
             "No upgrade changes were made; wrote preview log(s) "
@@ -1067,7 +1106,7 @@ class DryRunTests(unittest.TestCase):
         self.assertNotIn("upgrade-earlier.preview.log", output)
         self.assertNotIn(str(self.root), output)
         self.assertNotIn(str(self.root.resolve()), output)
-        for rel in expected:
+        for rel in migration_logs:
             self.assertIn(f"  preview log: {rel}", lines)
             self.assertIn(f"PREVIEW BODY {rel}", output)
         self.assertEqual(summary["preview_logs"], expected)
@@ -1090,7 +1129,7 @@ class DryRunTests(unittest.TestCase):
         self.assertNotIn("@@", "\n".join(lines))
         self.assertFalse((self.root / ".wavefoundry/logs/upgrade-seed-diffs.log").exists())
 
-    def test_final_line_unchanged_when_no_preview_log_is_written(self):
+    def test_only_extension_log_is_reported_when_hook_writes_no_log(self):
         logs = self.root / ".wavefoundry" / "logs"
         logs.mkdir(parents=True)
         (self.root / self.STALE_LOG).write_text("from an earlier run\n", encoding="utf-8")
@@ -1098,13 +1137,13 @@ class DryRunTests(unittest.TestCase):
         self._pack_writing()
         lines, summary = self._dry_lines()
         self.assertEqual(
-            lines[-2], "No changes were made. Run without --dry-run to execute the upgrade."
+            lines[-2], f"No upgrade changes were made; wrote preview log(s) {self.EXTENSION_LOG}. Run without --dry-run to execute the upgrade."
         )
         self.assertIn("  no planned actions (dry-run produced no preview log)", lines)
         output = "\n".join(lines)
         self.assertNotIn("preview log:", output)
         self.assertNotIn(str(self.root), output)
-        self.assertEqual(summary["preview_logs"], [])
+        self.assertEqual(summary["preview_logs"], [self.EXTENSION_LOG])
         self.assertEqual(summary["summary_schema_version"], 1)
 
     def test_preview_logs_is_absent_from_the_shared_summary_builder(self):
@@ -3552,7 +3591,7 @@ class CouncilRoleLinkRepairUpgradeTests(unittest.TestCase):
         self.ras.migrate_council_role_renames(self.root)
         self.assertEqual(self.peer.read_text(), raw.replace(encoded, self.new.name.replace("-", "%2d")))
 
-    def test_upgrade_driver_dry_run_reports_without_target_writes(self):
+    def test_upgrade_driver_dry_run_only_writes_extension_preview(self):
         package = self.root.parent / (self.root.name + ".zip")
         self.addCleanup(package.unlink, missing_ok=True)
         with zipfile.ZipFile(package, "w") as archive:
@@ -3573,7 +3612,15 @@ class CouncilRoleLinkRepairUpgradeTests(unittest.TestCase):
         self.assertIn("would repair council role link", out.getvalue())
         self.assertIn(f"would move {self.old_rel} -> {self.new_rel}", out.getvalue())
         self.assertNotIn("preview failed", out.getvalue())
-        self.assertEqual(self._tree(), before)
+        preview_path = ".wavefoundry/logs/upgrade-extension-module.preview.log"
+        after = self._tree()
+        self.assertNotIn(preview_path, before)
+        with zipfile.ZipFile(package) as archive:
+            self.assertEqual(
+                after.pop(preview_path)[0],
+                archive.read(".wavefoundry/framework/scripts/upgrade_extensions.py"),
+            )
+        self.assertEqual(after, before)
 
     def test_preview_child_uses_incoming_isolation_and_utf8_environment(self):
         import upgrade_extensions as extension
@@ -13729,6 +13776,16 @@ class PermissionsRenderConsentTests(unittest.TestCase):
              patch("child_tee.run", side_effect=fake_run) as run_mock:
             self.mod.phase_surface_rendering(self.root)
         return lines, run_mock
+
+    def test_low_risk_selection_counts_unmanaged_rules(self):
+        from declaration_support import base_declaration
+        with base_declaration():
+            settings = {"permissions": {"allow": ["mcp__wavefoundry__wf_mark_task"]}}
+            for enabled, count in ((False, 0), (True, 1)):
+                if enabled:
+                    settings["wavefoundryAllowLowRiskWriteTools"] = True
+                self.settings.write_text(json.dumps(settings), encoding="utf-8")
+                self.assertEqual(self.mod._permissions_unmanaged_present(self.root), count)
 
     def test_upgrade_render_passes_include_permissions_switch(self):
         captured: list[list[str]] = []

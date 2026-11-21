@@ -2534,6 +2534,33 @@ class AliasServingTests(unittest.TestCase):
         self.assertEqual(self.out["served_after_failure"], ["wf_reload_mcp"])
 
 
+class LowRiskDeclaredToolsTests(unittest.TestCase):
+    def test_only_served_core_behaviors_receive_low_risk_rules(self):
+        from declaration_support import base_declaration
+        import mcp_tool_extensions as ext
+        import mcp_tool_roster as roster
+
+        with base_declaration(
+            EXTENSION_MODULES=("dist_tools",),
+            EXTENSION_TOOL_PREFIXES=("dist_",),
+            EXTENSION_TOOL_TIERS={"dist_write": "write"},
+            EXTENSION_TOOL_ALIASES={
+                "wf_tick_criterion": "wf_mark_ac", "index_build_docs": "index_build",
+                "wf_finish_set": "wf_close_wave",
+            },
+            EXTENSION_TOOL_PARAMETERS={"index_build_docs": {"fixed": {"content": "docs"}}},
+            EXTENSION_HIDDEN_TOOLS=("wf_mark_ac",),
+            EXTENSION_REPLACEMENTS={"dist_tools": {"wf_garden_docs": {"alias_for_core": "wf_core_garden_docs"}}},
+        ):
+            names = set(roster.tools_for_tiers(include_low_risk=True)) - set(roster.tools_for_tiers())
+            self.assertEqual(names, (roster.LOW_RISK_WRITE_TOOLS - {"wf_mark_ac", "wf_garden_docs"})
+                             | {"wf_tick_criterion", "index_build_docs", "wf_core_garden_docs"})
+            self.assertTrue(names <= roster.all_tool_tiers().keys())
+        with base_declaration(EXTENSION_TOOL_TIERS={"wf_mark_ac": "read"}):
+            with self.assertRaises(ext.ExtensionDeclarationError):
+                roster.allow_rules(include_low_risk=True)
+
+
 class ReplacementServingTests(unittest.TestCase):
     """Wave 1z8oz AC-4 and AC-7: core names reused with incompatible handlers."""
 
@@ -4190,7 +4217,8 @@ class ExtensionLifecycleToolTests(unittest.TestCase):
         stock_locked = sorted(n for n, labels in self.stock["markers"].items() if "lock" in labels)
         self.assertEqual(self.out["lock_tools"], self.out["lock_tools_after"])
         self.assertNotIn("acme_record", self.out["lock_tools_after"])
-        self.assertEqual(len(self.out["lock_tools_after"]), 13)  # wave 1zlu1 added wf_close_change; 23q0s wf_cleanup_work
+        self.assertEqual(len(self.out["lock_tools_after"]), 15)
+        self.assertTrue({"wf_mark_ac", "wf_mark_task", "wf_close_change", "wf_close_wave"} <= set(self.out["lock_tools_after"]))
         self.assertTrue(set(stock_locked) <= set(self.out["lock_tools_after"]))
         self.assertNotIn("acme_make", self.out["artifact_extractors_after"])
         self.assertEqual(self.out["artifact_extractors"], self.out["artifact_extractors_after"])
@@ -4465,6 +4493,9 @@ NON_BEHAVIOR_COLLECTIONS = {
     # Flat script module names a declared module may not take (wave 1zls8,
     # 1zltx); "memory_backfill" is also a tool name, but these are modules.
     ("mcp_tool_extensions.py", "FRAMEWORK_SCRIPT_MODULE_NAMES"),
+    # Permission metadata resolves core handler identities after validating the declaration.
+    # A replacement served under a member name does not inherit the core permission.
+    ("mcp_tool_roster.py", "LOW_RISK_WRITE_TOOLS"),
     ("mcp_tool_roster.py", "RUNNER_TOOLS"),
     ("mcp_tool_roster.py", "TOOL_TIERS"),
     ("reconcile_scan.py", "_CONFIG_KEY_TOOL_NAMES"),

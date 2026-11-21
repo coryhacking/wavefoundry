@@ -155,6 +155,8 @@ When you have reviewed the evidence and are ready to close, tell your agent:
 
 Wavefoundry checks the required approvals and completion records, then keeps the spec and review evidence in the repository.
 
+To start another change while the first awaits your decision, ask: “Pause wave A and implement prepared wave B,” using their IDs. A reviewed, finished wave appears as **Awaiting closure**. Later, “Close wave A” closes that delivery while work on B continues.
+
 ---
 
 ## Who this is for

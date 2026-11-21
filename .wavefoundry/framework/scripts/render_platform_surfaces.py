@@ -2148,6 +2148,7 @@ PERMISSIONS_PROVENANCE_KEY = "wavefoundryManagedAllow"
 # cannot self-edit under host auto-mode guards (see reconcile_scan
 # HOST_PERMISSION_FILES). Not in workflow-config, not in any rendered block.
 PERMISSIONS_WRITE_TIER_KEY = "wavefoundryAllowWriteTools"
+PERMISSIONS_LOW_RISK_KEY = "wavefoundryAllowLowRiskWriteTools"
 
 
 def _load_tool_roster():
@@ -2158,6 +2159,14 @@ def _load_tool_roster():
     import mcp_tool_roster
 
     return mcp_tool_roster
+
+
+def selected_permission_rules(settings: dict) -> tuple[str, ...]:
+    """Both upgrade reporting and rendering use the operator's strict JSON booleans."""
+    return _load_tool_roster().allow_rules(
+        include_write=settings.get(PERMISSIONS_WRITE_TIER_KEY) is True,
+        include_low_risk=settings.get(PERMISSIONS_LOW_RISK_KEY) is True,
+    )
 
 
 def render_claude_permissions(repo_root: Path) -> None:
@@ -2174,11 +2183,10 @@ def render_claude_permissions(repo_root: Path) -> None:
     That boundary is OPERATOR-APPROVED, not structurally unreachable by an
     agent, and this docstring must not claim otherwise. ``wf_upgrade`` is an
     ordinary agent-callable MCP tool whose upgrade orchestration renders here,
-    so an agent can trigger a permissions render; its blast radius is bounded
-    to the READ tier, because the write tier requires the operator-authored
-    ``PERMISSIONS_WRITE_TIER_KEY`` and ``wf_upgrade`` is itself a write-tier
-    tool, so an agent-triggered upgrade can never allowlist the tool that
-    triggered it. Passing ``--include-permissions`` through the ``wf``
+    so an agent can trigger a render of the rules the operator selected. The
+    default includes reads. ``wavefoundryAllowLowRiskWriteTools`` adds bounded
+    writes. Only the full-write opt-in includes ``wf_upgrade``. No low-risk
+    tool can trigger a permissions render. Passing ``--include-permissions`` through the ``wf``
     dispatcher (which forwards argv verbatim) is an accepted residual outside
     the threat model: an agent holding unrestricted shell access can write
     ``.claude/settings.json`` directly. Protection of the write-tier knob is a
@@ -2201,7 +2209,8 @@ def render_claude_permissions(repo_root: Path) -> None:
 
     The write (mutating) tier is included only when the operator-owned
     ``PERMISSIONS_WRITE_TIER_KEY`` is ``true`` in the settings file; turning
-    it off prunes the write-tier entries the renderer emitted.
+    it off prunes claimed write rules except those still selected by the
+    low-risk opt-in.
 
     Uniformly FAIL-SAFE: every way this file can refuse to be read (corrupt
     JSON, a valid non-object payload, or an OS-level read fault such as a
@@ -2209,7 +2218,6 @@ def render_claude_permissions(repo_root: Path) -> None:
     returns, because this runs on a post-extraction tree where the caller
     aborts the whole upgrade on a non-zero exit.
     """
-    roster = _load_tool_roster()
     settings_path = repo_root / ".claude" / "settings.json"
     existing: dict[str, object] = {}
     if settings_path.exists():
@@ -2249,8 +2257,7 @@ def render_claude_permissions(repo_root: Path) -> None:
             )
             return
         existing = loaded
-    include_write = existing.get(PERMISSIONS_WRITE_TIER_KEY) is True
-    desired = list(roster.allow_rules(include_write=include_write))
+    desired = list(selected_permission_rules(existing))
     desired_set = set(desired)
     prior_raw = existing.get(PERMISSIONS_PROVENANCE_KEY)
     claimed_set = (

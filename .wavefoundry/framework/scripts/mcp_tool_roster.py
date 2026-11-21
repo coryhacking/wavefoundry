@@ -24,9 +24,9 @@ Tier semantics:
 * ``read``: retrieval, listing, status, search, and report-only diagnostics.
   Rendered into the distributed default allowlist.
 * ``write``: mutating lifecycle, memory, index, dashboard, and upgrade
-  operations (plus anything not proven report-only). Rendered ONLY when the
-  operator-owned knob (``render_platform_surfaces.PERMISSIONS_WRITE_TIER_KEY``
-  in ``.claude/settings.json``) is set by the operator.
+  operations. During install or upgrade, ``wavefoundryAllowLowRiskWriteTools``
+  opts into the named low-risk subset. ``wavefoundryAllowWriteTools`` opts into
+  every write tool. Both settings are operator-owned and default to off.
 
 Runner-registered reload-survivor tools (registered by ``server.py``, not
 ``server_impl.register_mcp_surface``) ARE roster members: they are part of
@@ -184,6 +184,14 @@ TOOL_TIERS: dict[str, str] = {
 }
 
 
+LOW_RISK_WRITE_TOOLS = frozenset({
+    "index_build", "index_optimize", "wf_garden_docs", "wf_mark_ac", "wf_mark_task",
+    "wf_memory_eval", "wf_new_bug", "wf_new_change", "wf_new_documentation",
+    "wf_new_enhancement", "wf_new_feature", "wf_new_maintenance", "wf_new_operations",
+    "wf_new_refactor", "wf_new_task", "wf_new_tech_debt",
+})
+
+
 def all_tool_tiers() -> dict[str, str]:
     """Core tiers plus validated declared extension tiers.
 
@@ -215,12 +223,29 @@ def all_tool_tiers() -> dict[str, str]:
     return tiers
 
 
-def tools_for_tiers(include_write: bool = False) -> tuple[str, ...]:
-    """Sorted tool names for the selected tiers (read always; write opt-in)."""
-    tiers = {TIER_READ} | ({TIER_WRITE} if include_write else set())
-    return tuple(sorted(name for name, tier in all_tool_tiers().items() if tier in tiers))
+def _served_low_risk_write_tools(tiers: dict[str, str]) -> set[str]:
+    """Resolve the reviewed core handlers under the validated distribution declaration."""
+    replacements = mcp_tool_extensions.replacement_targets()
+    original = LOW_RISK_WRITE_TOOLS.difference(replacements)
+    names = set(original)
+    names.update(spec["alias_for_core"] for name, (_, spec) in replacements.items()
+                 if name in LOW_RISK_WRITE_TOOLS)
+    names.update(alias for alias, name in mcp_tool_extensions.EXTENSION_TOOL_ALIASES.items()
+                 if name in original)
+    return {name for name in names if tiers.get(name) == TIER_WRITE}
 
 
-def allow_rules(include_write: bool = False) -> tuple[str, ...]:
-    """Sorted Claude Code ``permissions.allow`` rule strings for the selected tiers."""
-    return tuple(MCP_RULE_PREFIX + name for name in tools_for_tiers(include_write=include_write))
+def tools_for_tiers(include_write: bool = False, include_low_risk: bool = False) -> tuple[str, ...]:
+    """Select served names after validating the current declaration."""
+    tiers = all_tool_tiers()
+    names = {name for name, tier in tiers.items() if tier == TIER_READ}
+    if include_write:
+        names.update(name for name, tier in tiers.items() if tier == TIER_WRITE)
+    elif include_low_risk:
+        names.update(_served_low_risk_write_tools(tiers))
+    return tuple(sorted(names))
+
+
+def allow_rules(include_write: bool = False, include_low_risk: bool = False) -> tuple[str, ...]:
+    """Sorted Claude Code permission rules for the operator's selection."""
+    return tuple(MCP_RULE_PREFIX + name for name in tools_for_tiers(include_write, include_low_risk))

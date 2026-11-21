@@ -4471,7 +4471,8 @@ print(json.dumps(r.lifecycle_baseline_drift(root, incoming)))
             findings = json.loads(_incoming_renderer_query(ctx, program))
         except Exception as exc:
             findings = [{"channel": "lifecycle_baseline_drift", "file": "",
-                         "detail": "baseline_unknown: pre-extraction comparison unavailable (" + type(exc).__name__ + "); no previous-template claim"}]
+                         "detail": "baseline_unknown: pre-extraction comparison unavailable (" + type(exc).__name__ + "); no previous-template claim",
+                         "action": "preserve: Compare the files by hand before replacing anything."}]
     if persist and not isinstance(captured, list):
         fields = {_LIFECYCLE_BASELINE_FIELD: findings,
                   _LIFECYCLE_BASELINE_PACK_FIELD: _pack_sha256(pack)}
