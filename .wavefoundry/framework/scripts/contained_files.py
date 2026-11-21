@@ -160,6 +160,14 @@ def _windows() -> bool:
     return os.name == "nt"
 
 
+def _can_set_descriptor_mode() -> bool:
+    """Whether a mode can be set on an open descriptor. Python 3.13 added
+    ``os.fchmod`` on Windows, where the call is refused for these descriptors,
+    so the attribute alone does not answer; native Windows never sets a mode
+    this way and the file keeps the mode it was created with."""
+    return hasattr(os, "fchmod") and not _windows()
+
+
 def _checkpoint(stage: str) -> None:
     """A no-op seam between the checks and the descriptor work that follows
     them. ``stage`` is ``"open"`` (read: after the checks, before the open) or
@@ -903,7 +911,7 @@ def write_contained_bytes(root, path, data: bytes, *, mode: "int | None" = None,
         wanted = stat.S_IMODE(entry.st_mode) | extra
     else:
         wanted = None
-    can_chmod = hasattr(os, "fchmod")
+    can_chmod = _can_set_descriptor_mode()
     same = False
     if entry is not None and entry.st_size == len(data):
         fd, opened = _open_verified(resolved_root, target, entry)

@@ -425,8 +425,8 @@ class DashboardSnapshotTests(unittest.TestCase):
         wave_md = _waves_dir(self.root) / "12x test-wave" / _RECORD
         text = wave_md.read_text(encoding="utf-8")
         text = text.replace("Status: active", "Status: closed", 1).replace(
-            "| council-readiness | pending |",
-            "| council-readiness | historical |",
+            "| council-readiness | readiness | pending |",
+            "| council-readiness | readiness | historical |",
             1,
         )
         wave_md.write_text(text, encoding="utf-8")

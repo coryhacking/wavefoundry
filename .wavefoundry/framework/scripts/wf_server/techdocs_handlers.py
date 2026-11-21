@@ -98,7 +98,12 @@ def wf_techdocs_audit_response(root: Path, compare_to: str = "") -> dict[str, An
     elif report.degraded:
         diagnostics.append(_diagnostic(
             "techdocs_audit_degraded",
-            "the audit could not compute part of its answer: " + ", ".join(report.degraded)
+            # Change 23z90: an audience token names its baseline ref and documents;
+            # data.degraded keeps the bare tokens.
+            "the audit could not compute part of its answer: " + ", ".join(
+                techdocs_audit_lib.describe_degrade(token, report.audience)
+                for token in report.degraded
+            )
             + ". A degraded run never reports a clean verdict.",
             recovery_tools=["wf_techdocs_audit"],
             recovery_usage=usage,

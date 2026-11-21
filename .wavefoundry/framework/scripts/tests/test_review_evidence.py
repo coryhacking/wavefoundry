@@ -2938,7 +2938,7 @@ class ReviewStatusProjectionTests(unittest.TestCase):
         self.assertNotIn("old generated state", rendered)
         self.assertIn("withdrawn during an exploratory review", rendered)
         self.assertIn("<approved when operator confirms closure>", rendered)
-        self.assertIn("| qa-reviewer | approved |", rendered)
+        self.assertIn("| qa-reviewer | delivery | approved |", rendered)
 
     def test_malformed_or_duplicate_marker_fails_closed(self) -> None:
         text = (
@@ -3000,6 +3000,41 @@ class ReadinessDeliveryIsolationTests(unittest.TestCase):
 
     def project(self, rows, phase):
         return subject.review_authority_projection(rows, self.LANES, approval_phase=phase)
+
+    def test_table_shows_each_recorded_readiness_before_its_delivery(self):
+        records = [row for row in self.fixture() if row.get("record_type") == "review_policy_receipt"
+                   or row.get("approval_phase") == "readiness"]
+        # Council and specialist approvals bind the same receipt.
+        self.assertTrue(records[0].get("receipt_id"))
+        table = subject.review_status_human_table(records, self.LANES)
+        rows = [line.split("|")[1:4] for line in table.splitlines()[2:]]
+        cells = [tuple(value.strip() for value in row) for row in rows]
+        for key in self.LANES[:-1]:
+            pos = cells.index((key, "readiness", "approved"))
+            self.assertEqual(cells[pos + 1], (key, "delivery", "pending"))
+        self.assertIn((self.LANES[-1], "readiness", "approved"), cells)
+        self.assertEqual(len(cells), 2 * len(self.LANES) - 1)
+        stale = LapsedApprovalReasonTests._receipt("b" * 64, list(self.LANES), current=records[0])
+        records.append(stale)
+        lines = subject.review_status_human_table(records, self.LANES).splitlines()
+        for key in self.LANES[:-1]:
+            self.assertTrue(any(line.startswith(f"| {key} | readiness | pending |") and
+                                "approval binding is stale" in line for line in lines), lines)
+        default = subject.review_status_rows(records, self.LANES)
+        self.assertEqual(len(default), len(self.LANES))
+        self.assertTrue(all("phase" not in row for row in default))
+
+    def test_empty_status_block_has_five_columns_and_preserves_legacy_council_label(self):
+        before = "# Wave\n\n## Review Evidence\n\n"
+        begin, end = subject.REVIEW_STATUS_MARKER_BEGIN, subject.REVIEW_STATUS_MARKER_END
+        projected = subject.render_review_status_projection(before, (), ())
+        block = projected.split(begin, 1)[1].split(end, 1)[0].strip().splitlines()
+        self.assertEqual(block, ["| Signoff | Phase | State | Why | Next action |",
+                                 "| --- | --- | --- | --- | --- |", "| — | — | — | — | — |"])
+        old = before + begin + "\n| Signoff | State | Why | Next action |\n| --- | --- | --- | --- |\n"
+        old += "| wave-council-readiness | pending | old | old |\n" + end + "\n"
+        new = subject.render_review_status_projection(old, (), [subject.COUNCIL_READINESS_SIGNOFF_KEY])
+        self.assertIn("| wave-council-readiness | readiness | pending |", new)
 
     def test_delivery_origin_exempts_every_readiness_lane_but_not_delivery(self):
         rows = self.fixture()

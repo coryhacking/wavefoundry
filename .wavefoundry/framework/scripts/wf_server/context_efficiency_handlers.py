@@ -14,9 +14,10 @@ import context_efficiency
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 import index_source_guard
 import record_paths
+from path_containment import contained_path
 from lifecycle_gate_support import _read_wave_record_text
 from lifecycle_lock import _cause_label  # class and errno name, no exception text (wave 1zls7)
-from lifecycle_lock import path_free_text
+from lifecycle_lock import path_free_exception_text, path_free_text
 from review_evidence import ProjectPublicationUnavailable, publication_unavailable_detail
 
 if TYPE_CHECKING:
@@ -142,6 +143,25 @@ def _maybe_project_context_efficiency(
     }
 
 
+_CE_STORE_TARGET = context_efficiency.STORE_RELATIVE_PATH.as_posix()
+
+
+def _wave_record_target(root: Path, wave_md: Path) -> str | None:
+    """The wave record as a repository-relative POSIX path, or None outside the root."""
+    try:
+        base = root.resolve()
+        record = contained_path(base, wave_md.absolute())
+        return record.relative_to(base).as_posix() if record is not None else None
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _failed_step_fields(step: tuple[str, str | None]) -> dict[str, str]:
+    """``operation`` and, for a step with one file, ``target`` (change 23z90)."""
+    operation, target = step
+    return {"operation": operation, **({"target": target} if target else {})}
+
+
 def _project_context_efficiency_wave(
     root: Path,
     wave_id: str,
@@ -160,13 +180,19 @@ def _project_context_efficiency_wave(
     if wave_md is None:
         return {"persistence": "failed", "projection": "wave_not_found"}
     canonical_wave = wave_md.parent.name
+    # Change 23z90: the step in flight and its single file, so a failed row names
+    # both. Set before every call in the lock block; a step with no single file
+    # has no target.
+    record_target = _wave_record_target(root, wave_md)
+    step: tuple[str, str | None] = ("acquire_publication_lock", None)
     try:
         with (index_source_guard.index_source_guard(root, wait=False) if automatic else nullcontext()), \
                 server_impl.project_state_publication_lock(root, wait=not automatic):
             # Status, floor, and the durable generation are one publication
             # decision.  Read all three only after acquiring the shared lock;
             # otherwise a concurrent close can be overwritten with sealed=0.
-            current, current_read_error = _read_wave_record_text(wave_md)
+            step = ("read_wave_record", record_target)
+            current, current_read_error = _read_wave_record_text(wave_md, error_root=root)
             if current is None:
                 # Wave 1v0lw: same failed shape the broad handler below
                 # produced, with the sanitized cause.
@@ -175,7 +201,9 @@ def _project_context_efficiency_wave(
                     "projection": "pending",
                     "error": current_read_error,
                     "wave_id": canonical_wave,
+                    **_failed_step_fields(step),
                 }
+            step = ("parse_wave_record", None)
             status_match = server_impl._STATUS_PATTERN.search(current)
             sealed = bool(status_match and status_match.group(1) == "closed")
             if automatic and sealed:
@@ -186,12 +214,14 @@ def _project_context_efficiency_wave(
                     "wave_id": canonical_wave,
                 }
             floor = context_efficiency.parse_checkpoint_block(current)
+            step = ("reconcile_checkpoint_authority", _CE_STORE_TARGET)
             context_efficiency.reconcile_checkpoint_authority(
                 root,
                 canonical_wave,
                 floor or context_efficiency.empty_checkpoint(canonical_wave),
                 sealed=sealed,
             )
+            step = ("read_wave_snapshot", _CE_STORE_TARGET)
             snapshot = context_efficiency.read_wave_snapshot(root, canonical_wave)
             if automatic and not snapshot.get("pending"):
                 return {
@@ -202,17 +232,23 @@ def _project_context_efficiency_wave(
                     "changed": False,
                     "already_current": True,
                 }
+            step = ("render_checkpoint_block", None)
             published = dict(snapshot)
             published["pending"] = False
             updated = context_efficiency.replace_checkpoint_block(current, published)
+            # Loads a framework script and reads the store and the ledgers: no
+            # single file to name.
+            step = ("render_exploration_block", None)
             exploration = server_impl._load_script("exploration_avoided")
             updated = exploration.replace_checkpoint_block(
                 updated, root, canonical_wave
             )
             if updated != current:
+                step = ("write_wave_record", record_target)
                 server_impl._atomic_replace_text(
                     wave_md, updated, "context-efficiency-projection"
                 )
+            step = ("mark_checkpoint_published", _CE_STORE_TARGET)
             marked = context_efficiency.mark_checkpoint_published(
                 root,
                 canonical_wave,
@@ -220,6 +256,7 @@ def _project_context_efficiency_wave(
                 expected_generation=int(snapshot.get("generation", 0)),
                 seal=sealed,
             )
+            step = ("compact_published_wave", _CE_STORE_TARGET)
             compacted = (
                 context_efficiency.compact_published_wave(
                     root,
@@ -229,6 +266,7 @@ def _project_context_efficiency_wave(
                 if marked and sealed
                 else not sealed
             )
+            step = ("clear_focus_state", None)
             focus_clear_error = ""
             if marked and sealed and compacted and handler is not None:
                 if server_impl._focus_clear_write_needed(handler):
@@ -276,11 +314,15 @@ def _project_context_efficiency_wave(
             "wave_id": canonical_wave,
         }
     except Exception as exc:
+        # Change 23z90: the step and its file, with the exception rendered
+        # without an absolute path (a filename under the root is kept
+        # repository-relative).
         return {
             "persistence": "failed",
             "projection": "pending",
-            "error": _cause_label(exc),
+            "error": path_free_exception_text(exc, root),
             "wave_id": canonical_wave,
+            **_failed_step_fields(step),
         }
 
 
@@ -299,6 +341,9 @@ def _flush_context_efficiency(
     from wf_server import server_impl
     root = handler.root
     canonical_wave = wave_id
+    # Change 23z90: the step in flight and its single file, as in
+    # _project_context_efficiency_wave.
+    step: tuple[str, str | None] = ("locate_wave_record", None)
     try:
         wave_md = server_impl._find_wave_md(root, wave_id)
         if wave_md is None:
@@ -307,14 +352,16 @@ def _flush_context_efficiency(
                 None,
             )
         canonical_wave = wave_md.parent.name
+        record_target = _wave_record_target(root, wave_md)
         # Wave 1z2ma: replay failed writes before the general-bucket transfer
         # below, so a close adopts every event it can.
         try:
             context_efficiency.replay_spool(root)
         except Exception:
             pass
+        step = ("read_wave_record", record_target)
         floor = server_impl._wave_checkpoint_floor(root, canonical_wave)
-        initial_markdown, initial_read_error = _read_wave_record_text(wave_md)
+        initial_markdown, initial_read_error = _read_wave_record_text(wave_md, error_root=root)
         if initial_markdown is None:
             # Wave 1v0lw: same failed shape the broad handler below produced,
             # with the sanitized cause.
@@ -324,33 +371,48 @@ def _flush_context_efficiency(
                     "projection": "pending",
                     "error": initial_read_error,
                     "wave_id": canonical_wave,
+                    **_failed_step_fields(step),
                 },
                 None,
             )
+        step = ("parse_wave_record", None)
         status_match = server_impl._STATUS_PATTERN.search(initial_markdown)
         sealed = bool(status_match and status_match.group(1) == "closed")
+        step = ("reconcile_checkpoint_authority", _CE_STORE_TARGET)
         context_efficiency.reconcile_checkpoint_authority(
             root, canonical_wave, floor, sealed=sealed
         )
         # Wave 1t3ek (1t3el): boundary adoption stamps the stage the wave is
         # actually in — plan while planned/paused (create/prepare boundaries),
         # implement while OPEN, review once the ledger holds a delivery run.
+        step = ("derive_wave_stage", None)
         wave_status = status_match.group(1) if status_match else ""
         if wave_status in OPEN_CONTAINER_STATUSES:
             transfer_stage = context_efficiency._derive_open_wave_stage(wave_md.parent)
         else:
             transfer_stage = "plan"
+        step = ("flush_telemetry", _CE_STORE_TARGET)
         flushed = handler.telemetry.flush(
             root,
             transfer_general_to=canonical_wave if transfer_general else None,
             transfer_stage=transfer_stage,
             checkpoint_floors=None,
         )
+        # Change 23z90: the flush names its own step and file; fall back to this
+        # function's step for a result that names none.
+        flush_operation = getattr(flushed, "operation", None)
+        flush_target = getattr(flushed, "target", None)
+        flush_step = (
+            (flush_operation, flush_target if isinstance(flush_target, str) else None)
+            if isinstance(flush_operation, str) and flush_operation
+            else step
+        )
         if flushed.persistence == "deferred":
             return (
                 {"persistence": "deferred", "projection": "pending",
                  "pending_transfer": True, "authority_status": "healthy",
-                 "error": flushed.error, "wave_id": canonical_wave},
+                 "error": flushed.error, "wave_id": canonical_wave,
+                 **_failed_step_fields(flush_step)},
                 flushed,
             )
         if not flushed.success:
@@ -359,9 +421,11 @@ def _flush_context_efficiency(
                     "persistence": "failed",
                     "projection": "pending",
                     "error": flushed.error,
+                    **_failed_step_fields(flush_step),
                 },
                 flushed,
             )
+        step = ("read_spool", None)
         if sealed and context_efficiency.spooled_events_affecting(root, canonical_wave):
             # An event this close could not replay would be missing from the
             # sealed totals; mark them incomplete (store-wide gap if that fails).
@@ -371,6 +435,7 @@ def _flush_context_efficiency(
                 context_efficiency.poison_accounting_gap(
                     root, operation="close_spool_mark", error=exc
                 )
+        step = ("project_checkpoint", None)
         projection = _project_context_efficiency_wave(
             root, canonical_wave, handler=handler, automatic=False
         )
@@ -393,8 +458,9 @@ def _flush_context_efficiency(
             {
                 "persistence": "failed",
                 "projection": "pending",
-                "error": f"{type(exc).__name__}: {exc}",
+                "error": path_free_exception_text(exc, root),
                 "wave_id": canonical_wave,
+                **_failed_step_fields(step),
             },
             None,
         )

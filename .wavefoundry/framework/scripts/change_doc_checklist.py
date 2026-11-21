@@ -306,6 +306,33 @@ def comment_visible_lines(lines: list[str], *, tracking_fences: bool = False) ->
     return visible
 
 
+_RECORD_SECTION_START = re.compile(r"(?m)^ {0,3}#{2,6}(?=[ \t\r]|$)")
+_STATUS_HEADER = re.compile(r"(?im)^status:[ \t]*(.*?)[ \t\r]*$")
+_STATUS_VALUE = re.compile(r"[a-zA-Z0-9-]+")
+
+
+def wave_status_match(text: str | None) -> re.Match[str] | None:
+    """Find the sole visible status in the leading metadata, retaining source offsets."""
+    if not text:
+        return None
+    section = _RECORD_SECTION_START.search(text)
+    header = text[:section.start()] if section else text
+    # Ordinary records need only their short header. An apparent heading
+    # inside an example can hide the actual end until the example closes.
+    if any(marker in header for marker in ("<!--", "```", "~~~")):
+        lines = comment_visible_lines(text.split("\n"))
+        fenced = fenced_line_flags(lines)
+        header = "\n".join(" " * len(line) if hidden else line for line, hidden in zip(lines, fenced))
+        section = _RECORD_SECTION_START.search(header)
+        if section:
+            header = header[:section.start()]
+    rows = list(_STATUS_HEADER.finditer(header))
+    if len(rows) != 1:
+        return None
+    row = rows[0]
+    return row if _STATUS_VALUE.fullmatch(row.group(1)) else None
+
+
 def comment_visible_text(text: str) -> str:
     """Return a position-preserving view for whole-document section searches."""
     if "<!--" not in text or "-->" not in text:

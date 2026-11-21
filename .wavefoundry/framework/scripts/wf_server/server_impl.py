@@ -11278,7 +11278,7 @@ def _validate_review_evidence_as_recorded(wave_md: Path, text: str | None = None
     return validate_external_review_evidence(wave_md)
 
 
-def _project_current_review_status(root: Path, wave_md: Path, text: str) -> str:
+def _project_current_review_status(root: Path, wave_md: Path, text: str, *, owned_block_only: bool = False) -> str:
     """Rebuild both human projections from the canonical ledger."""
 
     if not _wave_uses_external_review_evidence(root, wave_md):
@@ -11291,6 +11291,7 @@ def _project_current_review_status(root: Path, wave_md: Path, text: str) -> str:
         projected,
         validation.records,
         _review_status_signoff_keys(root, projected, validation.records),
+        owned_block_only=owned_block_only,
     )
 
 
@@ -15565,7 +15566,9 @@ def wf_close_change_response(
     done from ``planned``/``blocked`` to ``ready``, and restores every written
     file when a post-write scoped docs-lint finds a failure the write
     introduced.  No review evidence is written; the ledger is read only to
-    refuse while an unsettled security candidate is open (wave 22upa)."""
+    refuse while an unsettled security candidate is open (wave 22upa) and to
+    carry the security advisories Review and Close report on a ``dry_run`` or
+    ``ok`` response (change 23z8z); an advisory never refuses."""
     from wave_lint_lib import constants as lint_constants
     from wave_lint_lib.wave_validators import _parse_change_records
 
@@ -15754,6 +15757,11 @@ def wf_close_change_response(
     # candidates come from the validated authority Review and Close read, so a typed
     # record whose ledger cannot establish that authority refuses instead of skipping the
     # check. A legacy prose record has no ledger and is unchanged.
+    # Change 23z8z: the same source's advisories (selected by the `advisory` flag, not by
+    # code) are carried on a `dry_run` or `ok` response. They never enter `diagnostics`,
+    # whose non-emptiness refuses the close, and are read only where authority was
+    # established.
+    security_advisories: list[dict[str, Any]] = []
     authority = resolve_review_authority(root, wave_md, wave_text=text)
     if authority.typed and authority.ledger_errors:
         missing = not os.path.lexists(review_event_path(wave_md))
@@ -15772,10 +15780,15 @@ def wf_close_change_response(
             recovery_usage=f"wf_review_wave(wave_id={canonical_wave_id!r})",
         ))
     else:
+        security_diagnostics = lifecycle_gates.security_candidate_diagnostics(authority)
         diagnostics.extend(
-            diagnostic for diagnostic in lifecycle_gates.security_candidate_diagnostics(authority)
+            diagnostic for diagnostic in security_diagnostics
             if diagnostic.get("code") == "unsettled_security_candidate"
         )
+        security_advisories = [
+            diagnostic for diagnostic in security_diagnostics
+            if diagnostic.get("advisory") is True
+        ]
 
     if diagnostics:
         return _response(
@@ -15803,7 +15816,7 @@ def wf_close_change_response(
     doc_updates: list[tuple[Path, str, str]] = [(doc_path, doc_raw, new_doc)]
     activated: list[dict[str, Any]] = []
     not_activated: list[dict[str, Any]] = []
-    advisories: list[dict[str, Any]] = []
+    advisories: list[dict[str, Any]] = list(security_advisories)
     written_ids = [change_id]
     for candidate in records:
         if candidate.record_id == change_id or change_id not in candidate.depends_on:
@@ -27933,7 +27946,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         projection_status = "current"
         try:
             rendered = _project_current_review_status(
-                get_handler().root, path, raw
+                get_handler().root, path, raw, owned_block_only=True
             )
             if rendered != raw or validation.projection_errors:
                 projection_status = "stale"

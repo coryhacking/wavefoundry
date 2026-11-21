@@ -406,13 +406,13 @@ class StickyLabelTests(unittest.TestCase):
         before = _section(subject.review_status_human_table([], [OLD_DELIVERY]))
         after = subject.render_review_status_projection(
             before, [_approval(NEW_DELIVERY)], [NEW_DELIVERY])
-        self.assertIn(f"| {OLD_DELIVERY} | approved |", after)
+        self.assertIn(f"| {OLD_DELIVERY} | delivery | approved |", after)
         self.assertNotIn(f"| {NEW_DELIVERY} |", after)
 
     def test_a_block_without_the_row_uses_the_current_spelling(self) -> None:
         before = _section(subject.review_status_human_table([], ["code-reviewer"]))
         after = subject.render_review_status_projection(before, [], [OLD_READINESS, "code-reviewer"])
-        self.assertIn(f"| {NEW_READINESS} | pending |", after)
+        self.assertIn(f"| {NEW_READINESS} | readiness | pending |", after)
         self.assertNotIn(OLD_READINESS, after)
 
     def test_a_generated_legacy_line_is_dropped_when_the_ledger_holds_the_new_key(self) -> None:
@@ -689,17 +689,17 @@ class LifecycleCompatibilityTests(unittest.TestCase):
         root, wave_md, wave_id = self._readied("sticky", status="active", approvals=("code-reviewer",))
         self._respell(root, wave_md, (NEW_READINESS, NEW_DELIVERY))
         text = wave_md.read_text(encoding="utf-8")
-        self.assertIn(f"| {OLD_READINESS} | pending |", text)
+        self.assertIn(f"| {OLD_READINESS} | readiness | pending |", text)
         self.assertEqual(check_wave_docs(root), [])
         response = self._event(root, wave_id, "approval", ACTOR, "sticky-readiness",
                                mode="create", signoff_key=NEW_READINESS, approval_phase="readiness")
         self.assertEqual(response["status"], "ok", response)
         text = wave_md.read_text(encoding="utf-8")
-        self.assertIn(f"| {OLD_READINESS} | approved |", text)
+        self.assertIn(f"| {OLD_READINESS} | readiness | approved |", text)
         self.assertNotIn(f"| {NEW_READINESS} |", text)
         created = self.srv.wf_create_wave_response(root, "fresh-wave", mode="create")["data"]
         fresh = (root / created["path"]).read_text(encoding="utf-8")
-        self.assertIn(f"| {NEW_READINESS} | pending |", fresh)
+        self.assertIn(f"| {NEW_READINESS} | readiness | pending |", fresh)
         self.assertNotIn(OLD_READINESS, fresh)
         self.assertEqual(check_wave_docs(root), [])
 
@@ -711,7 +711,7 @@ class LifecycleCompatibilityTests(unittest.TestCase):
         root, wave_md, wave_id = self._readied("dashboard-sticky", status="active",
                                                approvals=("code-reviewer",))
         self._respell(root, wave_md, (NEW_READINESS, NEW_DELIVERY))
-        self.assertIn(f"| {OLD_READINESS} | pending |", wave_md.read_text(encoding="utf-8"))
+        self.assertIn(f"| {OLD_READINESS} | readiness | pending |", wave_md.read_text(encoding="utf-8"))
         response = self._event(root, wave_id, "approval", ACTOR, "dashboard-readiness",
                                mode="create", signoff_key=NEW_READINESS, approval_phase="readiness")
         self.assertEqual(response["status"], "ok", response)
@@ -721,7 +721,7 @@ class LifecycleCompatibilityTests(unittest.TestCase):
         rows = {row["key"]: row["value"] for row in state["approvals"]}
         self.assertEqual(rows.get(OLD_READINESS), "approved", rows)
         self.assertNotIn(NEW_READINESS, rows)
-        self.assertIn(f"| {OLD_READINESS} | approved |", state["projection"])
+        self.assertIn(f"| {OLD_READINESS} | readiness | approved |", state["projection"])
         self.assertNotIn(f"| {NEW_READINESS} |", state["projection"])
 
     def test_a_legacy_key_approval_replays_after_the_rename(self) -> None:

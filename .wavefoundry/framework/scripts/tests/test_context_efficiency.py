@@ -2341,6 +2341,44 @@ class DeferredTransferTests(TempRootTest):
         self.assertEqual(self.rows(),rows)
         self.assertEqual(ce.read_wave_snapshot(self.root,'1wave')['totals']['calls'],1)
 
+    def test_flush_error_is_path_free_and_names_the_store(self):
+        """Change 23z90 (AC-9): the deferred and the poisoned FlushResult render the
+        error without an absolute path and name the step and the store."""
+        import errno
+        telemetry = self.seed()
+        absolute = str(ce.store_path(self.root))
+        store_rel = '.wavefoundry/logs/context-efficiency.sqlite'
+        def failure():
+            return PermissionError(errno.EACCES, 'Permission denied', absolute)
+        with patch.object(ce, '_open_write_store_once', side_effect=failure()), \
+                patch.object(ce, 'BUSY_RETRY_BUDGET_SECONDS', 0):
+            deferred = telemetry.flush(self.root, transfer_general_to='1wave')
+        with patch.object(ce, 'FLUSH_RETRYABLE_EXCEPTIONS', ()), \
+                patch.object(ce, '_open_write_store_once', side_effect=failure()), \
+                patch.object(ce.time, 'sleep'):
+            poisoned = telemetry.flush(self.root, transfer_general_to='1wave')
+        self.assertEqual((deferred.persistence, poisoned.persistence), ('deferred', 'poisoned'))
+        for result in (deferred, poisoned):
+            with self.subTest(persistence=result.persistence):
+                self.assertEqual(result.error, f'PermissionError EACCES on {store_rel}')
+                self.assertEqual(result.operation, 'transfer_general_rows')
+                self.assertEqual(result.target, store_rel)
+                rendered = json.dumps([result.error, result.operation, result.target])
+                for root_text in {str(self.root), str(Path(self.root).resolve())}:
+                    for form in (root_text, root_text.replace('/', '\\'), json.dumps(root_text)[1:-1]):
+                        self.assertNotIn(form, rendered)
+
+    def test_importing_context_efficiency_loads_no_lifecycle_lock(self):
+        """Change 23z90 (Requirement 7): the path-free renderer is imported inside
+        the two except branches, never at module level."""
+        code = ('import sys\nimport context_efficiency\n'
+                'print(sorted(m for m in ("lifecycle_lock", "review_evidence") if m in sys.modules))\n')
+        env = dict(os.environ, PYTHONPATH=str(SCRIPTS_DIR), PYTHONDONTWRITEBYTECODE='1')
+        result = subprocess.run([sys.executable, '-B', '-c', code], capture_output=True, text=True,
+                                env=env, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), '[]')
+
     def test_commit_failure_clears_touched_and_postcommit_close_is_success(self):
         telemetry=self.seed();before=self.rows();original=ce._open_write_store_once
         class Connection:
@@ -2521,6 +2559,8 @@ class DeferredTransferTests(TempRootTest):
             with patch.object(runtime_lock,'_open_lock_carrier',side_effect=exc),patch.object(ce,'BUSY_RETRY_BUDGET_SECONDS',0):
                 result=other.flush(self.root,transfer_general_to='1wave')
             self.assertEqual(result.persistence,'deferred');self.assertFalse(other._lease_attempted)
+            self.assertEqual(result.operation, 'acquire_producer_lease')
+            self.assertEqual(result.target, ce.producer_lease_path(Path(), other.producer_id).as_posix())
             self.assertIsNone(ce.read_gap_reason(self.root))
 
 

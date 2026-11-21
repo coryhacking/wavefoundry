@@ -438,11 +438,16 @@ def maybe_trigger_reindex(file_path: str) -> None:
         return
     _spawn_reindex()
 
+def gate_message(gate: str) -> str:
+    return (f"The {gate} gate is closed. Ask the operator before opening it. "
+            f"With approval, use wf_open_gate(gate='{gate}') or wf gate open {gate}.")
+
+
 def main() -> int:
     payload = load_payload(read_payload_text())
     file_path = detect_file_path(payload)
     if is_seed_prompt(file_path) and not guard_enabled("seed_edit_allowed"):
-        print("Seed prompt edit requires `.wavefoundry/guard-overrides.json` with `seed_edit_allowed.enabled: true` before intentional seed edits.")
+        print(gate_message("seed_edit_allowed"))
         return 10
     return 0
 

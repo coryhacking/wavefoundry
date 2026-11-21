@@ -2468,7 +2468,9 @@ def patch_root_bridge(path: Path, *, root: Path) -> bool:
     """
     if not path.is_file():
         return False
-    original = _read_repo_text(root, path)
+    disk = _read_repo_text(root, path, translate_newlines=False)
+    newline = "\r\n" if "\r\n" in disk else "\n"
+    original = _universal_newlines(disk)
     text = _canonicalize_owned_markers(original)
 
     # Refresh an existing bridge block in place.
@@ -2478,13 +2480,8 @@ def patch_root_bridge(path: Path, *, root: Path) -> bool:
     )
     if bridge_re.search(text):
         text = bridge_re.sub(lambda _match: ROOT_BRIDGE_BLOCK, text, count=1)
-        if text != original:
-            _write_repo_text_platform_newlines(root, path, text)
-            return True
-        return False
-
-    # Replace the legacy prose pointer if present; otherwise insert after the H1.
-    if _LEGACY_THIN_POINTER_RE.search(text):
+    # Replace a legacy pointer, or insert the bridge after the H1.
+    elif _LEGACY_THIN_POINTER_RE.search(text):
         text = _LEGACY_THIN_POINTER_RE.sub(lambda _match: ROOT_BRIDGE_BLOCK + "\n", text, count=1)
     else:
         lines = text.splitlines(keepends=True)
@@ -2500,7 +2497,7 @@ def patch_root_bridge(path: Path, *, root: Path) -> bool:
         text = "".join(new_lines)
 
     if text != original:
-        _write_repo_text_platform_newlines(root, path, text)
+        _write_repo_bytes(root, path, text.replace("\n", newline).encode("utf-8"))
         return True
     return False
 
@@ -2915,7 +2912,7 @@ def _write_text_exclusive_identity(path: Path, content: str, *, root: Path,
             raise RuntimeError(
                 f"review carrier write refused for {_rel_label(root, path)}: {type(exc).__name__}"
             ) from None
-        if mode is not None and hasattr(os, "fchmod"):
+        if mode is not None and contained_files._can_set_descriptor_mode():
             os.fchmod(fd, mode)
         created = os.fstat(fd)
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
@@ -2976,7 +2973,7 @@ def _write_bytes_atomic_exclusive_identity(path: Path, content: bytes, *, root: 
             with os.fdopen(fd, "wb") as handle:
                 handle.write(content)
                 handle.flush()
-                if mode is not None and hasattr(os, "fchmod"):
+                if mode is not None and contained_files._can_set_descriptor_mode():
                     os.fchmod(handle.fileno(), mode)
                 os.fsync(handle.fileno())
                 published = os.fstat(handle.fileno())
@@ -3004,7 +3001,7 @@ def _write_bytes_atomic_exclusive_identity(path: Path, content: bytes, *, root: 
                     created = os.fstat(out)
                     published = created
                     try:
-                        if mode is not None and hasattr(os, "fchmod"):
+                        if mode is not None and contained_files._can_set_descriptor_mode():
                             os.fchmod(out, mode)
                         with os.fdopen(out, "wb") as handle:
                             handle.write(content)
@@ -4695,15 +4692,14 @@ def _agent_surface_output_destinations(repo_root: Path) -> list[str]:
     preflight consults regardless of Guru availability).
     """
 
+    destinations = ["CLAUDE.md"] if (repo_root / "CLAUDE.md").is_file() else []
     if not guru_available(repo_root):
-        return []
-    destinations: list[str] = []
+        return destinations
     if (repo_root / ".cursor").exists():
         destinations.append(".cursor/rules/auto-guru.mdc")
     if (repo_root / ".claude").exists():
         destinations.append(".claude/agents/guru.md")
     for optional in (
-        "CLAUDE.md",
         ".junie/guidelines.md",
         "WARP.md",
         ".github/copilot-instructions.md",
@@ -5590,17 +5586,15 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
             ]
         )
     )
-    if not guru_available(repo_root):
-        return SkillRenderResult(framework_written)
-
-    # Preflight every path this Guru-enabled pass may write before the first
-    # native/thin-pointer mutation.  The initial carrier census intentionally
-    # ignores a missing native wrapper, so a symlinked wrapper directory with
-    # no leaf file would otherwise escape during materialization and be noticed
-    # only by the second carrier reconciliation.
-    preflight_agent_surface_paths(repo_root)
-
-    written: list[str] = list(framework_written)
+    has_guru = guru_available(repo_root)
+    if has_guru:
+        # Validate all native destinations before writing the first pointer.
+        preflight_agent_surface_paths(repo_root)
+    written = list(framework_written)
+    if patch_root_bridge(repo_root / "CLAUDE.md", root=repo_root):
+        written.append("CLAUDE.md")
+    if not has_guru:
+        return SkillRenderResult(written)
 
     # Wave 1t72b (1t729 live find): tier-3 templates are written unconditionally
     # and then RECONCILED by the closing carrier pass, so write-time comparison
@@ -5642,18 +5636,13 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     # Wave 1p6lp: the Codex guru skill is registry-rendered (wf-guru) by
     # render_skills above; the ad-hoc CODEX_AUTO_GURU_SKILL write is retired.
 
-    # Root @import bridge — make CLAUDE.md a real @AGENTS.md import (1p5xc).
-    # The single, contained @import; replaces the prose "read AGENTS.md first"
-    # pointer so AGENTS.md is the deterministic single source of truth.
-    if patch_root_bridge(repo_root / "CLAUDE.md", root=repo_root):
-        written.append("CLAUDE.md")
-
     # Tier 2 — thin pointers (marker blocks)
     claude_path = repo_root / "CLAUDE.md"
     if claude_path.is_file():
         claude_body = CLAUDE_AUTO_GURU_SECTION.strip()
         claude_block = f"{MARKER_BEGIN}\n{claude_body}\n{MARKER_END}"
-        disk_text = _read_repo_text(repo_root, claude_path)
+        claude_disk = _read_repo_text(repo_root, claude_path, translate_newlines=False)
+        disk_text = _universal_newlines(claude_disk)
         text = strip_legacy_auto_guru_lines(disk_text)
         if MARKER_BEGIN in text:
             text = re.sub(
@@ -5674,7 +5663,8 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
             else:
                 text = insert_after_heading(text, "## Startup Order", claude_block)
         if text != disk_text:
-            _write_repo_text_platform_newlines(repo_root, claude_path, text)
+            newline = "\r\n" if "\r\n" in claude_disk else "\n"
+            _write_repo_bytes(repo_root, claude_path, text.replace("\n", newline).encode("utf-8"))
             written.append("CLAUDE.md")
 
     pointer_specs: list[tuple[Path, str]] = [

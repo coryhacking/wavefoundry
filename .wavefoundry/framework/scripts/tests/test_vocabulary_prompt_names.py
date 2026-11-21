@@ -18,6 +18,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -1819,6 +1820,290 @@ class DefaultSpecRenameMigrationTests(unittest.TestCase):
                 self.assertEqual(second, {"written": []})
                 after = _tree_digest(root)
                 self.assertEqual({rel: after.get(rel) for rel in kept}, kept)
+
+
+# ---------------------------------------------------------------------------
+# Wave 23z45 (change 23z8y): planning names derive from each key's role
+# ---------------------------------------------------------------------------
+
+# A distribution that vendors the framework through a word map (the shipped
+# item word to "wave", the shipped container word to "set"): item Wave,
+# container Set, the container prompts at their Set names, and the earlier
+# default slug VALUES rewritten by the same map. The prompt keys are not.
+_RENAMED_VOCABULARY = {"ITEM_NAME": "Wave", "ITEM_NAME_PLURAL": "Waves",
+                       "CONTAINER_NAME": "Set", "CONTAINER_NAME_PLURAL": "Sets"}
+_RENAMED_CONTAINER_NAMES = {
+    "create-wave": {"slug": "create-set", "shortcut": "Create set"},
+    "prepare-wave": {"slug": "prepare-set", "shortcut": "Prepare set"},
+    "implement-wave": {"slug": "implement-set", "shortcut": "Implement set"},
+    "pause-wave": {"slug": "pause-set", "shortcut": "Pause set"},
+    "review-wave": {"slug": "review-set", "shortcut": "Review set"},
+    "close-wave": {"slug": "close-set", "shortcut": "Close set"},
+}
+_RENAMED_EARLIER_SLUGS = {
+    "plan-change": "plan-wave",
+    "add-change-to-wave": "add-wave-to-set",
+    "remove-change-from-wave": "remove-wave-from-set",
+    "implement-change": "implement-wave",
+    "close-change": "close-wave",
+}
+# The two keys whose word-derived names collided with the container prompts.
+_RENAMED_TWO_PINS = {
+    "implement-change": {"slug": "implement-wave", "shortcut": "Implement wave"},
+    "close-change": {"slug": "close-wave", "shortcut": "Close wave"},
+}
+# (slug, shortcut, aliases) per planning key: what each profile derived
+# before this change, recorded by execution against the unmodified module.
+_SHIPPED_PLANNING_NAMES = {
+    "plan-change": ("plan-spec", "Plan spec", ("Plan change",)),
+    "add-change-to-wave": ("add-spec-to-wave", "Add spec to wave", ("Add change to wave",)),
+    "remove-change-from-wave": ("remove-spec-from-wave", "Remove spec from wave", ("Remove change from wave",)),
+    "implement-change": ("implement-spec", "Implement spec", ("Implement change",)),
+    "close-change": ("close-spec", "Close spec", ("Close change",)),
+}
+_TICKET_BATCH_PLANNING_NAMES = {
+    "plan-change": ("plan-ticket-doc", "Plan ticket doc", ()),
+    "add-change-to-wave": ("add-ticket-doc-to-batch", "Add ticket doc to batch", ()),
+    "remove-change-from-wave": ("remove-ticket-doc-from-batch", "Remove ticket doc from batch", ()),
+    "implement-change": ("implement-ticket-doc", "Implement ticket doc", ()),
+    "close-change": ("close-ticket-doc", "Close ticket doc", ()),
+}
+_WAVE_SET_PLANNING_NAMES = {
+    "plan-change": ("plan-wave-doc", "Plan wave doc", ()),
+    "add-change-to-wave": ("add-wave-doc-to-set", "Add wave doc to set", ()),
+    "remove-change-from-wave": ("remove-wave-doc-from-set", "Remove wave doc from set", ()),
+    "implement-change": ("implement-wave-doc", "Implement wave doc", ()),
+    "close-change": ("close-wave-doc", "Close wave doc", ()),
+}
+_EARLIER_TABLE_RE = re.compile(r'(?ms)^EARLIER_DEFAULT_PROMPT_SLUGS: "dict\[str, str\]" = \{\n.*?^\}\n')
+
+# ``sys.argv[1]`` the scripts tree: import the profile as a fresh interpreter
+# does and print every derived name for a repository with no manifest.
+_IMPORT_PROBE = r"""
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import vocabulary_profile as vp
+names = vp.derive_prompt_names(manifest={})
+print(json.dumps({key: [row["slug"], row["shortcut"], list(row["aliases"])] for key, row in names.items()}))
+"""
+
+
+def _renamed_scripts_tree(dest: Path, pins: "dict | None" = None) -> Path:
+    """A scripts tree as the renaming distribution vendors it. The vocabulary
+    and the overrides are applied (and validated) the way a fork edits them;
+    the earlier slug values are then rewritten as its word map does, with no
+    validation, so the caller observes the import itself."""
+    scripts = _scripts_tree(dest, {
+        "description": "A distribution whose rename also rewrites upstream's file words.",
+        "modules": {"vocabulary_profile": {
+            **_RENAMED_VOCABULARY, "PROMPT_NAME_OVERRIDES": {**_RENAMED_CONTAINER_NAMES, **(pins or {})}}},
+    })
+    path = scripts / "vocabulary_profile.py"
+    text = path.read_text(encoding="utf-8")
+    rows = "".join(f'    "{key}": "{slug}",\n' for key, slug in _RENAMED_EARLIER_SLUGS.items())
+    rewritten, count = _EARLIER_TABLE_RE.subn(
+        lambda _m: 'EARLIER_DEFAULT_PROMPT_SLUGS: "dict[str, str]" = {\n' + rows + "}\n", text)
+    assert count == 1, "the earlier default slug table moved"
+    path.write_text(rewritten, encoding="utf-8")
+    return scripts
+
+
+def _import_names(scripts: Path) -> "tuple[int, dict, str]":
+    """(return code, derived names, stderr) of a fresh interpreter importing
+    ``scripts``' vocabulary profile."""
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    result = subprocess.run([sys.executable, "-B", "-c", _IMPORT_PROBE, str(scripts)],
+                            env=env, text=True, capture_output=True, check=False, timeout=300)
+    names = json.loads(result.stdout.strip().splitlines()[-1]) if result.returncode == 0 else {}
+    return result.returncode, names, result.stderr
+
+
+def _role_table_problems(roles: dict, keys, tier_words) -> "list[str]":
+    """Why ``roles`` is not a usable role declaration for ``keys``: a key
+    without a role, a role for no key, or a phrase holding a tier word."""
+    problems = [f"{key}: no role declared" for key in keys if key not in roles]
+    problems += [f"{key}: a role for a key that is not a planning key" for key in roles if key not in keys]
+    banned = {word.casefold() for word in tier_words}
+    for key, phrase in roles.items():
+        for word in re.findall(r"[A-Za-z0-9]+", str(phrase)):
+            if word.casefold() in banned:
+                problems.append(f"{key}: the phrase {phrase!r} holds the tier word {word!r}")
+    return problems
+
+
+@contextlib.contextmanager
+def _planning_vocabulary(item: str, container: str, **tables):
+    """The loaded module under an item and container name (both are read at
+    call time), with any of its tables replaced."""
+    with contextlib.ExitStack() as stack:
+        for name, value in {"ITEM_NAME": item, "CONTAINER_NAME": container, **tables}.items():
+            stack.enter_context(mock.patch.object(vocabulary_profile, name, value))
+        yield
+
+
+def _planning_rows(overrides: dict) -> dict:
+    names = vocabulary_profile.derive_prompt_names(overrides, manifest={})
+    return {key: (names[key]["slug"], names[key]["shortcut"], tuple(names[key]["aliases"]))
+            for key in vocabulary_profile.EARLIER_DEFAULT_PROMPT_SLUGS}
+
+
+class _RenamedTrees:
+    """The renamed distribution's scripts trees, built once on first use."""
+
+    trees: "dict[str, Path]" = {}
+
+    @classmethod
+    def get(cls, name: str) -> Path:
+        if name not in cls.trees:
+            _default, _profiled, base = _Trees.get()
+            pins = {"renamed": None, "renamed-two-pins": _RENAMED_TWO_PINS}[name]
+            cls.trees[name] = _renamed_scripts_tree(Path(tempfile.mkdtemp(dir=base)) / name, pins)
+        return cls.trees[name]
+
+
+class RoleDerivedPlanningNameTests(unittest.TestCase):
+    """A custom planning vocabulary names each unregistered planning key from
+    its role and the profile's nouns, whatever a rename did to the earlier
+    default slugs."""
+
+    def test_a_renamed_vocabulary_imports_with_role_correct_names(self) -> None:
+        # AC-1. Before the change this import raised VocabularyProfileInvalid:
+        # ``implement-set`` and ``close-set`` were each derived for two keys.
+        code, names, stderr = _import_names(_RenamedTrees.get("renamed"))
+        self.assertEqual(code, 0, stderr[-3000:])
+        derived = {key: tuple(names[key][:2]) + (tuple(names[key][2]),) for key in _RENAMED_EARLIER_SLUGS}
+        self.assertEqual(derived, _WAVE_SET_PLANNING_NAMES)
+        for key in ("plan-change", "implement-change", "close-change"):
+            words = names[key][0].split("-")
+            self.assertEqual(words[1:], ["wave", "doc"], key)
+            self.assertNotIn("set", words, key)
+        for key in ("add-change-to-wave", "remove-change-from-wave"):
+            words = names[key][0].split("-")
+            self.assertEqual(words[1:3], ["wave", "doc"], key)
+            self.assertEqual(words[-1], "set", key)
+            self.assertEqual(words.count("set"), 1, key)
+        slugs = [row[0] for row in names.values()]
+        shortcuts = [row[1].casefold() for row in names.values()]
+        self.assertEqual(len(slugs), len(set(slugs)), slugs)
+        self.assertEqual(len(shortcuts), len(set(shortcuts)), shortcuts)
+        self.assertEqual({names[key][0] for key in _RENAMED_CONTAINER_NAMES},
+                         {spec["slug"] for spec in _RENAMED_CONTAINER_NAMES.values()})
+
+    def test_two_pins_leave_the_other_keys_at_their_role_names(self) -> None:
+        # AC-4. Before the change the plan key came out as ``plan-set``.
+        code, names, stderr = _import_names(_RenamedTrees.get("renamed-two-pins"))
+        self.assertEqual(code, 0, stderr[-3000:])
+        for key in ("plan-change", "add-change-to-wave", "remove-change-from-wave"):
+            self.assertEqual((names[key][0], names[key][1]), _WAVE_SET_PLANNING_NAMES[key][:2], key)
+        self.assertNotIn("set", names["plan-change"][0].split("-"))
+        for key, spec in _RENAMED_TWO_PINS.items():
+            self.assertEqual((names[key][0], names[key][1]), (spec["slug"], spec["shortcut"]), key)
+
+    def test_unrenamed_profiles_keep_the_names_they_had(self) -> None:
+        # AC-2: the literal tables above were recorded before the change.
+        for item, container, overrides, expected in (
+                ("Change", "Wave", {}, _SHIPPED_PLANNING_NAMES),
+                ("Ticket", "Batch", {}, _TICKET_BATCH_PLANNING_NAMES),
+                ("Wave", "Set", _RENAMED_CONTAINER_NAMES, _WAVE_SET_PLANNING_NAMES)):
+            with self.subTest(item=item, container=container), _planning_vocabulary(item, container):
+                self.assertEqual(vocabulary_profile.prompt_name_errors(overrides, manifest={}), [])
+                self.assertEqual(_planning_rows(overrides), expected)
+
+    def test_the_derivation_reads_no_slug_word(self) -> None:
+        # Requirement 2: neither table's slug words reach a derived name.
+        earlier = {key: f"zz-change-{index}-wave" for index, key in enumerate(_RENAMED_EARLIER_SLUGS)}
+        defaults = {key: ({**row, "slug": f"yy-wave-{key}-change"} if key in earlier else row)
+                    for key, row in vocabulary_profile.DEFAULT_PROMPT_NAMES.items()}
+        with _planning_vocabulary("Ticket", "Batch", EARLIER_DEFAULT_PROMPT_SLUGS=earlier,
+                                  DEFAULT_PROMPT_NAMES=defaults):
+            self.assertEqual(_planning_rows({}), _TICKET_BATCH_PLANNING_NAMES)
+        with _planning_vocabulary("Wave", "Set", EARLIER_DEFAULT_PROMPT_SLUGS=dict(_RENAMED_EARLIER_SLUGS)):
+            self.assertEqual(vocabulary_profile.prompt_name_errors(_RENAMED_CONTAINER_NAMES, manifest={}), [])
+            self.assertEqual(_planning_rows(_RENAMED_CONTAINER_NAMES), _WAVE_SET_PLANNING_NAMES)
+
+    def test_the_role_table_covers_the_planning_keys_and_holds_no_tier_word(self) -> None:
+        # AC-3. The tier words are the shipped ones, whatever profile is loaded.
+        shipped = shipped_default_profile()["modules"]["vocabulary_profile"]
+        with _planning_vocabulary(shipped["ITEM_NAME"], shipped["CONTAINER_NAME"]):
+            planning = vocabulary_profile.planning_noun().split()
+        tier_words = {shipped["ITEM_NAME"], shipped["CONTAINER_NAME"], *planning}
+        self.assertEqual({word.casefold() for word in tier_words}, {"change", "wave", "spec"})
+        roles = vocabulary_profile.PLANNING_PROMPT_ROLES
+        keys = tuple(vocabulary_profile.EARLIER_DEFAULT_PROMPT_SLUGS)
+        self.assertEqual(_role_table_problems(roles, keys, tier_words), [])
+        for phrase in roles.values():
+            self.assertIn("{item}", phrase)
+        # Each check reports its own defect, by name.
+        for key in keys:
+            dropped = {k: v for k, v in roles.items() if k != key}
+            self.assertEqual(_role_table_problems(dropped, keys, tier_words), [f"{key}: no role declared"])
+            self.assertEqual(_role_table_problems(roles, [k for k in keys if k != key], tier_words),
+                             [f"{key}: a role for a key that is not a planning key"])
+            for word in sorted(tier_words):
+                planted = {**roles, key: roles[key].replace("{item}", word.lower())}
+                problems = _role_table_problems(planted, keys, tier_words)
+                self.assertEqual(len(problems), 1, problems)
+                self.assertIn(f"holds the tier word {word.lower()!r}", problems[0])
+                self.assertTrue(problems[0].startswith(f"{key}: "), problems[0])
+
+
+class FreshRenamedInstallTests(unittest.TestCase):
+    """AC-6: a fresh install under the renamed distribution records the
+    role-derived names and routes each planning shortcut to its own key's
+    prompt path, never to a container prompt."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        _default, _profiled, base = _Trees.get()
+        cls.work = Path(tempfile.mkdtemp(dir=base))
+
+    def _install(self, scripts: Path, name: str, shortcuts) -> "tuple[Path, list]":
+        root = build_fresh_target(self.work / name)
+        (first, created, second, third, *routes), _ = _drive(scripts, [
+            {"action": "render", "root": str(root)},
+            {"action": "ensure_manifest", "root": str(root)},
+            {"action": "render", "root": str(root)},
+            {"action": "render", "root": str(root)},
+            *({"action": "route", "root": str(root), "shortcut": shortcut} for shortcut in shortcuts)])
+        self.assertNotIn("error", first)
+        self.assertEqual(created, {"created": True})
+        self.assertNotIn("error", second)
+        self.assertEqual(third, {"written": []})
+        return root, routes
+
+    def test_the_unpinned_install_records_and_routes_the_role_names(self) -> None:
+        expected = {key: row[0] for key, row in _WAVE_SET_PLANNING_NAMES.items()}
+        shortcuts = {key: row[1] for key, row in _WAVE_SET_PLANNING_NAMES.items()}
+        root, routes = self._install(_RenamedTrees.get("renamed"), "fresh-renamed", shortcuts.values())
+        recorded = _read_manifest(root)["prompt_names"]
+        self.assertEqual({key: recorded.get(key) for key in expected}, expected)
+        self.assertEqual({key: recorded.get(key) for key in _RENAMED_CONTAINER_NAMES},
+                         {key: spec["slug"] for key, spec in _RENAMED_CONTAINER_NAMES.items()})
+        container_paths = {_prompt_pair(spec["slug"])[0] for spec in _RENAMED_CONTAINER_NAMES.values()}
+        for key, route in zip(shortcuts, routes):
+            self.assertEqual(route["path"], _prompt_pair(expected[key])[0], key)
+            self.assertNotIn(route["path"], container_paths, key)
+        close_doc = root / _prompt_pair(expected["close-change"])[0]
+        self.assertTrue(close_doc.is_file())
+        self.assertTrue(close_doc.read_text(encoding="utf-8").strip())
+        for key in ("plan-change", "close-change"):
+            for folder in SKILL_FOLDERS:
+                skill = (root / folder / f"wf-{expected[key]}/SKILL.md").read_text(encoding="utf-8")
+                self.assertIn(_prompt_pair(expected[key])[0], skill, (key, folder))
+                for path in container_paths:
+                    self.assertNotIn(path, skill, (key, folder))
+
+    def test_the_two_pin_install_keeps_the_plan_shortcut_off_the_container(self) -> None:
+        # Before the change this arrangement offered "Plan set" for the plan key.
+        root, (plan, container_phrase) = self._install(
+            _RenamedTrees.get("renamed-two-pins"), "fresh-renamed-two-pins", ("Plan wave doc", "Plan set"))
+        self.assertEqual(plan["path"], _prompt_pair("plan-wave-doc")[0])
+        self.assertIsNone(container_phrase["path"])
+        recorded = _read_manifest(root)["prompt_names"]
+        self.assertEqual(recorded.get("plan-change"), "plan-wave-doc")
+        self.assertEqual({key: recorded.get(key) for key in _RENAMED_TWO_PINS},
+                         {key: spec["slug"] for key, spec in _RENAMED_TWO_PINS.items()})
 
 
 def tearDownModule() -> None:  # noqa: N802 (unittest name)

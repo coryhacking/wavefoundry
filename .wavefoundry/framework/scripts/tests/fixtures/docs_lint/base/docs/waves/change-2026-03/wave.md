@@ -34,11 +34,11 @@ Depends On: `00058-bug fixture-core`
 ## Review Evidence
 
 <!-- wave:review-status begin -->
-| Signoff | State | Why | Next action |
-| --- | --- | --- | --- |
-| wave-council-readiness | pending | no current executed approval | record approval evidence for wave-council-readiness |
-| wave-council-delivery | pending | no current executed approval | record approval evidence for wave-council-delivery |
-| operator-signoff | pending | no current executed approval | record approval evidence for operator-signoff |
+| Signoff | Phase | State | Why | Next action |
+| --- | --- | --- | --- | --- |
+| wave-council-readiness | readiness | pending | no current executed approval | record approval evidence for wave-council-readiness |
+| wave-council-delivery | delivery | pending | no current executed approval | record approval evidence for wave-council-delivery |
+| operator-signoff | delivery | pending | no current executed approval | record approval evidence for operator-signoff |
 <!-- wave:review-status end -->
 
 ## Finding Synthesis

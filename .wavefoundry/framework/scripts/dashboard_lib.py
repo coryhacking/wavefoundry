@@ -40,6 +40,7 @@ from review_evidence import (
     review_status_rows,
     validate_review_evidence_records,
     wave_record_closed,
+    wave_record_historical,
 )
 
 
@@ -1065,11 +1066,12 @@ def _review_evidence_dashboard_state(
     )
     try:
         expected_wave = render_review_evidence_projection(text, records)
-        if not closed:
+        if not wave_record_historical(text):
             expected_wave = render_review_status_projection(
                 expected_wave,
                 records,
                 status_keys,
+                owned_block_only=True,
             )
     except ValueError:
         projection_status = "missing"

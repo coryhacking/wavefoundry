@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+import contained_files
 import record_paths  # record roots (wave 1y0gz)
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 import review_evidence
@@ -52,9 +52,38 @@ def _atomic_replace(path: Path, body: bytes) -> None:
         tmp.unlink(missing_ok=True)
 
 
-def _status(text: str) -> str:
-    match = re.search(r"(?mi)^Status:\s*([^\n]+)$", text)
-    return match.group(1).strip().lower() if match else ""
+def refresh_review_status_blocks(root: Path) -> None:
+    """Refresh live declared records under the caller's upgrade transaction."""
+    from lifecycle_gate_support import MEMBER_DOC_MAX_BYTES
+
+    for folder in record_paths.discover_wave_dirs(root):
+        path = folder / _vocab.RECORD_FILENAME
+        relative = path.relative_to(root).as_posix()
+        try:
+            raw, identity = contained_files.read_contained(
+                root, path, max_bytes=MEMBER_DOC_MAX_BYTES, follow_links=False
+            )
+            original = raw.decode("utf-8")
+            text = original.replace("\r\n", "\n")
+            source, errors = review_evidence.parse_review_evidence_source(text)
+            if review_evidence.wave_record_historical(text) or errors or source != review_evidence.REVIEW_EVIDENCE_SOURCE:
+                continue
+            authority = review_evidence.validate_external_review_evidence(path, wave_text=text)
+            if authority.errors:
+                print(f"Review status unchanged for {relative}: {authority.errors[0]}")
+                continue
+            keys = review_evidence.required_review_status_keys(root, text, authority.records)
+            updated = review_evidence.render_review_status_projection(
+                original, authority.records, keys, owned_block_only=True
+            )
+            if updated != original:
+                contained_files.write_contained_bytes(
+                    root, path, updated.encode("utf-8"), no_links=True,
+                    expected_identity=(identity.st_dev, identity.st_ino),
+                )
+                print(f"Refreshed review status for {relative}")
+        except (OSError, ValueError) as exc:
+            print(f"Review status unchanged for {relative}: {exc}")
 
 
 def _read_config_bytes(config_path: Path) -> bytes | None:
@@ -120,7 +149,7 @@ def plan_review_policy_upgrade(root: Path) -> ReviewPolicyUpgradePlan:
         except (OSError, UnicodeError) as exc:
             errors.append(f"{wave_md}: unreadable wave: {exc}")
             continue
-        if _status(text) == "closed" or review_evidence.REVIEW_EVIDENCE_SOURCE_DECLARATION not in text:
+        if review_evidence.wave_record_historical(text) or review_evidence.REVIEW_EVIDENCE_SOURCE_DECLARATION not in text:
             continue
         records, ledger_errors = review_evidence.read_review_event_ledger(wave_md)
         if ledger_errors:
@@ -201,5 +230,5 @@ def apply_review_policy_upgrade(
 
 __all__ = [
     "ReviewPolicyUpgradePlan", "WaveMigration", "apply_review_policy_upgrade",
-    "plan_review_policy_upgrade",
+    "plan_review_policy_upgrade", "refresh_review_status_blocks",
 ]

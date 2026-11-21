@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-21
 
 ## Verification Commands
 
@@ -526,6 +526,8 @@ existing working files immediately.
 A malformed managed docs-default region stops rendering before writing
 `.gitattributes`. Restore its matching markers or remove the damaged managed
 region, preserving project rules, then retry.
+
+Full and incremental docs lint run the blocking `markdown_control_character` check. It flags C0 controls except TAB, LF and CR, plus DEL and all C1 controls. Closed or completed record folders, the record archive and the memory archive are exempt. At each reported file, line and column, delete the character or replace it with visible text such as `U+001B`. The first ten findings per file include coordinates. For longer lists, the final line gives the total.
 
 **Secrets scanning** runs in the docs gate, but in **record-only** mode (wave 1p5pz). `wf docs-lint` runs `wave_lint_lib/secrets_validators.py` against the merged ruleset (`.wavefoundry/framework/scan-rules.toml` + `docs/scan-rules.toml`) and **records** new matches to `docs/scan-findings.json` as `pending` — but it does **not** fail on secret findings. Invalid configuration, malformed suppression directives and incomplete scans of eligible files are errors; record-only describes finding disposition, not permission to report an unfinished scan as successful. For an on-demand scan use `wf_scan_secrets(mode="full")` (MCP) — incremental mode invalidates scan currency when rule, profile, supporting asset or runtime-path policy identity changes. **The `wf_close_wave` secrets gate is the sole enforcement point**: `pending` and `suspected-secret` entries hard-block close until classified (via the security reviewer, `seed-213`); `confirmed-secret` is **non-blocking** and surfaces a standing reminder; `false-positive` (cleared) passes.
 

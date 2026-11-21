@@ -34,6 +34,7 @@ import sys
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
+from typing import Any, Mapping
 
 # Change 1zyv1: bytecode goes only to the project cache (``bytecode_cache``),
 # never beside the sources; writes stay off until configure() enables the cache.
@@ -1212,6 +1213,62 @@ def _baseline_text(repo_root: Path, ref: str, rel: str) -> "tuple[str | None, st
     if not (result.stdout or "").strip():
         return None, DEGRADE_BASELINE_UNTRACKED
     return None, DEGRADE_BASELINE_MISSING
+
+
+# The audience degrade tokens: the ones an ``audience`` entry carries in its
+# ``degrade`` field, each tied to one baseline ref and one document.
+AUDIENCE_DEGRADE_TOKENS = (
+    DEGRADE_WORKING_TREE_MISSING,
+    DEGRADE_GIT_UNAVAILABLE,
+    DEGRADE_BASELINE_UNTRACKED,
+    DEGRADE_BASELINE_MISSING,
+)
+
+# The longest escaped ref body a degrade description renders (between the quotes).
+DEGRADE_REF_DISPLAY_MAX = 80
+
+_ESCAPED_REF_UNIT_RE = re.compile(r"\\u[0-9a-fA-F]{4}|\\.|[^\\]")
+
+
+def _display_ref(ref: object) -> str:
+    """A git ref for message text: quoted, ASCII-escaped (``json.dumps``) and truncated.
+
+    ``_ref_refused`` bounds neither length nor non-ASCII control characters, so
+    an accepted ref is never rendered raw. A truncated ref ends with ``...``
+    outside the closing quote, and the cut falls between whole escapes.
+    """
+    body = json.dumps(str(ref), ensure_ascii=True)[1:-1]
+    if len(body) <= DEGRADE_REF_DISPLAY_MAX:
+        return f'"{body}"'
+    kept = ""
+    for unit in _ESCAPED_REF_UNIT_RE.findall(body):
+        if len(kept) + len(unit) > DEGRADE_REF_DISPLAY_MAX:
+            break
+        kept += unit
+    return f'"{kept}"...'
+
+
+def describe_degrade(token: str, audience: "Mapping[str, Any] | None") -> str:
+    """One degrade token for a human-readable message (change 23z90).
+
+    An audience token is followed by the baseline ref the audit compared against
+    and the repository-relative documents that carry it, read ONLY from entries
+    with a ``degrade`` field: a refused ref (``compare_to_refused``, whose
+    entries carry none) is therefore never rendered. Every other token, and an
+    audience token no entry carries, is returned unchanged. The MCP diagnostic
+    and both CLI notes call this, so their wording cannot drift; the machine
+    token list (``degraded``) is not touched.
+    """
+    if token not in AUDIENCE_DEGRADE_TOKENS or not isinstance(audience, Mapping):
+        return token
+    by_ref: dict[str, list[str]] = {}
+    for rel, entry in audience.items():
+        if isinstance(entry, Mapping) and entry.get("degrade") == token:
+            by_ref.setdefault(_display_ref(entry.get("baseline_ref", "")), []).append(str(rel))
+    if not by_ref:
+        return token
+    parts = [f"baseline ref {ref}: {', '.join(paths)}" for ref, paths in by_ref.items()]
+    return f"{token} ({'; '.join(parts)})"
 
 
 def _ref_refused(ref: str) -> bool:

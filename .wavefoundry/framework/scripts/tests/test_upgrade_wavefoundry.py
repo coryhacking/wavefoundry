@@ -670,6 +670,39 @@ class PrintChangePlanSeedDiffsTests(unittest.TestCase):
             self.mod._log = orig_log
         return "\n".join(lines)
 
+    def test_apply_summary_retains_unabridged_diff_after_cleanup(self):
+        seeds = self.root / ".wavefoundry/framework/seeds"
+        seeds.mkdir(parents=True)
+        (seeds / "sample.md").write_text("old text", encoding="utf-8")
+        pack = self.root / "incoming.zip"
+        with zipfile.ZipFile(pack, "w") as archive:
+            archive.writestr(".wavefoundry/framework/seeds/sample.md", "++literal text")
+        diffs = self.mod._compute_seed_diffs(self.root, pack)
+        output = self._capture_plan(diffs)
+        path = self.root / ".wavefoundry/logs/upgrade-seed-diffs.log"
+        self.assertIn("sample.md [modified] +1 -1", output)
+        self.assertIn(path.relative_to(self.root).as_posix(), output)
+        self.assertNotIn("@@", output)
+        self.assertNotIn("── Seed diff:", output)
+        expected = diffs[0][2].encode()
+        self.assertEqual(path.read_bytes(), expected)
+        self.assertNotIn("upgrade-seed-diffs", self._capture_plan([]))
+        _load_upgrade_lib().write_upgrade_lock(self.root, "1.0.0", "1.1.0")
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.mod.phase_cleanup(root=self.root, from_version="1.0.0", to_version="1.1.0",
+                                   zip_path=None, pruned_count=0, ran_index_rebuild=False,
+                                   failed_phase=None, lock_present=True)
+        self.assertEqual(path.read_bytes(), expected)
+
+    def test_diff_write_failure_warns_and_leaves_target_intact(self):
+        logs = self.root / ".wavefoundry/logs"
+        logs.mkdir(parents=True)
+        path = logs / "upgrade-seed-diffs.log"
+        path.mkdir()
+        output = self._capture_plan([("sample.md", "modified", "--- a\n+++ b\n")])
+        self.assertIn("Warning: could not write .wavefoundry/logs/upgrade-seed-diffs.log", output)
+        self.assertTrue(path.is_dir())
+
     def test_no_zip_shows_na(self):
         """seed_diffs=None (no zip) must emit 'n/a', not 'none'."""
         output = self._capture_plan(seed_diffs=None)
@@ -1040,6 +1073,23 @@ class DryRunTests(unittest.TestCase):
         self.assertEqual(summary["preview_logs"], expected)
         self.assertEqual(summary["summary_schema_version"], 1)
 
+    def test_refused_preview_lists_diff_log_without_printing_or_inviting_apply(self):
+        pack = self.root / "wavefoundry-1.0.0.2abc.zip"
+        with zipfile.ZipFile(pack, "w") as archive:
+            archive.writestr(".wavefoundry/framework/seeds/sample.md", "line of seed text\n")
+            archive.writestr(".wavefoundry/framework/scripts/upgrade_extensions.py",
+                             "def post_extract(ctx):\n    ctx.docs_preflight = {'verdict': 'would_be_refused'}\n")
+        lines, summary = self._dry_lines()
+        rel = ".wavefoundry/logs/upgrade-seed-diffs.preview.log"
+        self.assertIn(rel, summary["preview_logs"])
+        self.assertIn(rel, lines[-2])
+        self.assertIn("upgrade would be refused", lines[-2])
+        self.assertNotIn("Run without --dry-run", lines[-2])
+        self.assertEqual(summary["docs_preflight"]["verdict"], "would_be_refused")
+        self.assertIn("+line of seed text", (self.root / rel).read_text())
+        self.assertNotIn("@@", "\n".join(lines))
+        self.assertFalse((self.root / ".wavefoundry/logs/upgrade-seed-diffs.log").exists())
+
     def test_final_line_unchanged_when_no_preview_log_is_written(self):
         logs = self.root / ".wavefoundry" / "logs"
         logs.mkdir(parents=True)
@@ -1398,7 +1448,11 @@ class PhaseCleanupLockStateTests(unittest.TestCase):
                 pruned_count=0, ran_index_rebuild=False, failed_phase="docs_gate", lock_present=True,
             )
         out = buf.getvalue()
-        self.assertIn("--resume-after-gate", out)
+        self.assertIn(self.mod._docs_resume_command(), out)
+        for platform, launcher in (("nt", r".\.wavefoundry\bin\wf.cmd"), ("posix", "./.wavefoundry/bin/wf")):
+            command = self.mod._docs_resume_command(platform)
+            self.assertTrue(command.startswith(launcher + " upgrade --resume-after-gate"))
+            self.assertIn("wf_upgrade(phase='resume_after_gate')", command)
         self.assertIn(self.mod.WAVE_UPGRADE_SUMMARY_SENTINEL, out)
         self.assertNotIn("Agent editing pass, if not done yet:", out)
         self.assertNotIn("wf upgrade --update-index", out)
@@ -3503,6 +3557,10 @@ class CouncilRoleLinkRepairUpgradeTests(unittest.TestCase):
         self.addCleanup(package.unlink, missing_ok=True)
         with zipfile.ZipFile(package, "w") as archive:
             archive.writestr(".wavefoundry/framework/VERSION", "1.29.0+preview")
+            # This fixture changes only role links. Include its installed seeds so
+            # the runner has no seed changes to describe in a preview log.
+            for path in (self.scripts.parent / "seeds").rglob("*.md"):
+                archive.write(path, path.relative_to(self.root).as_posix())
             for path in self.scripts.rglob("*.py"):
                 archive.write(path, ".wavefoundry/framework/scripts/" + path.relative_to(self.scripts).as_posix())
         before = self._tree()

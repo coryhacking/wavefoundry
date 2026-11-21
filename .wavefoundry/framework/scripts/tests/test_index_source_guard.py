@@ -167,8 +167,13 @@ with index_source_guard.index_source_guard(Path(sys.argv[1])):
                           side_effect=PermissionError(errno.EACCES, 'denied', str(self.wave_md))):
             row = server._project_context_efficiency_wave(self.root, self.wave, automatic=True)
         self.assertEqual(row.get('persistence'), 'failed', row)
-        self.assertEqual(row.get('error'), 'PermissionError EACCES')
-        for error in (row['error'],):
+        # Change 23z90: the failed row names the step, its file, and the
+        # exception's own filename made repository-relative.
+        record_rel = self.wave_md.relative_to(self.root).as_posix()
+        self.assertEqual(row.get('error'), f'PermissionError EACCES on {record_rel}')
+        self.assertEqual(row.get('operation'), 'read_wave_snapshot')
+        self.assertEqual(row.get('target'), '.wavefoundry/logs/context-efficiency.sqlite')
+        for error in (row['error'], row['operation'], row['target']):
             self.assert_path_free(error)
 
     def test_same_process_build_excludes_monitor_and_unlocked_carrier_allows_write(self):

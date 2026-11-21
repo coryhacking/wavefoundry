@@ -289,6 +289,9 @@ class FlushResult:
     duplicate_keys: frozenset[tuple[str, str]] = frozenset()
     touched_waves: frozenset[str] = frozenset()
     error: Optional[str] = None
+    # Change 23z90: the step that failed and its repository-relative file.
+    operation: Optional[str] = None
+    target: Optional[str] = None
 
 
 def store_path(root: Path) -> Path:
@@ -2296,11 +2299,15 @@ class ProcessTelemetry:
             transfer_general_to, transfer_stage = self.pending_transfer
         touched: set[str] = set()
         committed = False
+        operation, target_file = "flush_telemetry", None
         try:
             if transfer_general_to:
                 def _transfer_once_locked() -> None:
-                    nonlocal committed
+                    nonlocal committed, operation, target_file
+                    operation = "acquire_producer_lease"
+                    target_file = producer_lease_path(Path(), self.producer_id).as_posix()
                     self._ensure_lease(demanded=True)
+                    operation, target_file = "transfer_general_rows", STORE_RELATIVE_PATH.as_posix()
                     conn = _open_write_store_once(self.root)
                     orphan_leases: dict[str, Any] = {}
                     claimed_orphans: set[str] = set()
@@ -2424,14 +2431,21 @@ class ProcessTelemetry:
                 return FlushResult(True, "durable", touched_waves=frozenset(touched))
             touched.clear()
             if _is_retryable_flush_error(exc):
+                from lifecycle_lock import path_free_exception_text
+
                 with self._lock:
                     self._pending_transfer = (str(transfer_general_to), transfer_stage)
-                return FlushResult(False, "deferred", touched_waves=frozenset(), error=f"{type(exc).__name__}: {exc}")
+                return FlushResult(
+                    False, "deferred", touched_waves=frozenset(),
+                    error=path_free_exception_text(exc, Path(root)), operation=operation, target=target_file,
+                )
             poisoned = _write_gap_sentinel(Path(root), "flush", exc)
+            from lifecycle_lock import path_free_exception_text
+
             return FlushResult(
                 False,
                 "poisoned" if poisoned else "failed",
-                error=f"{type(exc).__name__}: {exc}",
+                error=path_free_exception_text(exc, Path(root)), operation=operation, target=target_file,
             )
 
 

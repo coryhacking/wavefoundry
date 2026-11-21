@@ -37,6 +37,7 @@ After Phase 1 completes, you must restart your AI agent so the MCP server become
 After every step, call `wf_audit_install` — it reports expected missing artifacts from pending seed rows in `pending_lint`, blocks only on blocking lint errors or invalid checked-row artifacts, and returns the next unchecked row.
 
 - [ ] 2.1 — Audit Phase 1 outputs (verify) — expects: `wf_audit_install(phase=1)` returns `{status: "phase_complete"}`; `pending_lint` may list expected absences while Phase 2 seed rows remain pending, and `lint_errors.errors` lists only blocking findings
+- [ ] 2.1.5 — Request operator approval for guarded Phase 2 edits when applicable (instruction)
 - [ ] 2.2 — Capture legacy baseline wave if applicable (seed-110 / conditional) — artifact: `docs/waves/00000 wave-zero-plans-and-specs/wave.md` (or mark `[~]` if no legacy corpora detected)
 - [ ] 2.3 — Bootstrap evidence base (seed-030) — artifact: `docs/repo-profile.json`
 - [ ] 2.4 — Create canonical docs structure and topical artifact homes (seed-040) — artifact: `docs/README.md`
@@ -49,6 +50,7 @@ After every step, call `wf_audit_install` — it reports expected missing artifa
 - [ ] 2.11 — Synthesize project-specific personas (seed-120) — artifact: `docs/agents/personas/README.md`
 - [ ] 2.13 — Register drift and reindex expectations (seed-140) — artifact: drift entries in `docs/workflow-config.json`
 - [ ] 2.13.5 — Generate the Backstage catalog and TechDocs baseline via Refresh TechDocs (seed-178) — artifact: `catalog-info.yaml`
+- [ ] 2.13.7 — Verify the install gates are closed (verify) — expects: `wf_gate_status()` reports the gates opened for this install closed
 - [ ] 2.14 — Remove the consumed bootstrap file (instruction)
 - [ ] 2.15 — Prepare the structured operator summary (instruction)
 

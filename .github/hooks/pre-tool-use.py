@@ -438,6 +438,11 @@ def maybe_trigger_reindex(file_path: str) -> None:
         return
     _spawn_reindex()
 
+def gate_message(gate: str) -> str:
+    return (f"The {gate} gate is closed. Ask the operator before opening it. "
+            f"With approval, use wf_open_gate(gate='{gate}') or wf gate open {gate}.")
+
+
 def load_payload_strict(raw: str) -> tuple[object, str]:
     # Returns (payload, "") or (None, reason) when the payload cannot be inspected.
     if not raw.strip():
@@ -613,13 +618,13 @@ def main() -> int:
 def gate_file_path(file_path: str) -> int:
     if is_seed_prompt(file_path) and not guard_enabled("seed_edit_allowed"):
         print(
-            "BLOCKED: Seed prompt edit requires `.wavefoundry/guard-overrides.json` with `seed_edit_allowed.enabled: true` before intentional seed edits.",
+            "BLOCKED: " + gate_message("seed_edit_allowed"),
             file=sys.stderr,
         )
         return 2
     if is_framework_maintenance_surface(file_path) and not guard_enabled("framework_edit_allowed"):
         print(
-            "BLOCKED: Broad framework-maintenance edits require `.wavefoundry/guard-overrides.json` with `framework_edit_allowed.enabled: true` after an approved file-level plan.",
+            "BLOCKED: " + gate_message("framework_edit_allowed"),
             file=sys.stderr,
         )
         return 2

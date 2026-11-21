@@ -5,10 +5,13 @@ import re
 import stat
 from pathlib import Path
 from dataclasses import dataclass, field
+from itertools import groupby
+from operator import itemgetter
 from typing import Iterable
 
 from review_evidence import (
     wave_record_closed,
+    wave_record_historical,
     REVIEW_STATUS_MARKER_BEGIN,
     canonicalize_finding_synthesis_markers,
     closed_legacy_inline_record,
@@ -88,6 +91,10 @@ from .constants import (
 )
 from .helpers import (
     RECORD_CAUSE_LINK,
+    _docs_lint_max_file_bytes,
+    _oversized_docs,
+    iter_markdown_docs,
+    suppress_lint_refusals,
     is_under_archive_root,
     load_json,
     read_doc_text,
@@ -1763,10 +1770,10 @@ def archive_readability_findings(root: Path) -> list[str]:
 HEADING_CHECK_MEMORY_ARCHIVE_DIR = "docs/agents/memory/archive"
 
 
-def _heading_check_history(root: Path, path: Path, roots, closed_cache: dict[Path, bool]) -> bool:
+def _heading_check_history(root: Path, path: Path, roots, closed_cache: dict[Path, bool | None]) -> bool:
     """True when ``path`` is history the heading check never reports: under the record
     archive root, under the memory archive, or in a record folder whose record is
-    closed or completed (``status_drift_exempt``)."""
+    closed or completed according to its visible status header."""
     if is_under_archive_root(root, path):
         return True
     try:
@@ -1778,22 +1785,95 @@ def _heading_check_history(root: Path, path: Path, roots, closed_cache: dict[Pat
     if roots is None:
         return False
     waves = roots.waves
-    folder = path.parent
-    while folder != waves and waves in folder.parents:
-        record = folder / _vocab.RECORD_FILENAME
+    if not path.is_relative_to(waves):
+        return False
+    # Discovery stops at the first record from the configured root. A copy
+    # inside evidence belongs to that record, regardless of the copy's status.
+    folder = waves
+    depth = roots.max_depth if roots.nested else 1
+    for part in path.parent.relative_to(waves).parts[:depth]:
+        folder /= part
         if folder not in closed_cache:
-            closed = False
+            record = folder / _vocab.RECORD_FILENAME
             if record.is_file():
-                # Through the member-doc rule, like every other record read.
-                record_text = read_record_text(root, record)
-                closed = record_text is not None and status_drift_exempt(record_text)
-            closed_cache[folder] = closed
-        if closed_cache[folder]:
-            return True
-        if record.is_file():
-            return False
-        folder = folder.parent
+                closed_cache[folder] = wave_record_historical(read_record_text(root, record))
+            else:
+                closed_cache[folder] = None
+        historical = closed_cache[folder]
+        if historical is not None:
+            return historical
     return False
+
+
+_CONTROL_CHARACTER = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+_CONTROL_NAMES = (
+    "NUL SOH STX ETX EOT ENQ ACK BEL BS HT LF VT FF CR SO SI DLE DC1 DC2 DC3 DC4 NAK SYN ETB "
+    "CAN EM SUB ESC FS GS RS US"
+).split()
+_C1_NAMES = (
+    "C1 C1 BPH NBH IND NEL SSA ESA HTS HTJ VTS PLD PLU RI SS2 SS3 DCS PU1 PU2 STS CCH MW SPA "
+    "EPA SOS C1 SCI CSI ST OSC PM APC"
+).split()
+
+
+def _control_character_records(root, paths, skip):
+    roots = resolve_record_roots(root)
+    closed_cache: dict[Path, bool | None] = {}
+    for path in sorted(set(paths)):
+        if path in skip or path.suffix != ".md" or _heading_check_history(root, path, roots, closed_cache):
+            continue
+        text = read_doc_text(root, path)
+        if text is None:
+            continue
+        relative = relative_to_root(root, path)
+        line, line_start, previous = 1, 0, 0
+        for match in _CONTROL_CHARACTER.finditer(text):
+            offset = match.start()
+            newlines = text.count("\n", previous, offset)
+            if newlines:
+                line += newlines
+                line_start = text.rindex("\n", previous, offset) + 1
+            previous = offset + 1
+            yield {"path": relative, "line": line, "column": offset - line_start + 1,
+                   "code_point": ord(match.group())}
+
+
+def scan_markdown_control_characters(root: Path) -> list[dict]:
+    """Return every live Markdown occurrence for the incoming upgrade preflight.
+
+    Paths are raw repository-relative POSIX names. The standalone scan skips
+    unreadable entries without publishing refusals to a concurrent lint run.
+    """
+    # Full lint stops on an invalid layout. The standalone caller needs the
+    # same signal: an empty list would claim the scan succeeded.
+    failures: list[str] = []
+    if resolve_record_roots(root, failures) is None:
+        raise record_paths.RecordLayoutInvalid(failures)
+    with suppress_lint_refusals():
+        paths = [*iter_markdown_docs(root), *root.glob("*.md")]
+        oversized, _ = _oversized_docs(root, paths, _docs_lint_max_file_bytes(root))
+        return list(_control_character_records(root, paths, oversized))
+
+
+def markdown_control_character_findings(root: Path, paths: Iterable[Path], *, skip=frozenset()) -> list[str]:
+    findings = []
+    records = _control_character_records(root, paths, skip)
+    for path, group in groupby(records, key=itemgetter("path")):
+        # The printable ASCII range excludes all controls and is representable
+        # even on strict legacy consoles. Keep raw paths in the public records.
+        displayed = "".join(char if " " <= char <= "~" else
+                            (f"\\u{ord(char):04x}" if ord(char) <= 0xffff else f"\\U{ord(char):08x}")
+                            for char in path)
+        for count, record in enumerate(group, 1):
+            if count <= 10:
+                cp = record["code_point"]
+                name = _CONTROL_NAMES[cp] if cp < 32 else ("DEL" if cp == 127 else _C1_NAMES[cp - 128])
+                findings.append(f"{displayed}:{record['line']}:{record['column']}: control character "
+                                f"U+{cp:04X} ({name}) in markdown; delete it or write it as visible text "
+                                f"such as U+{cp:04X}")
+        if count > 10:
+            findings.append(f"{displayed}: {count} control characters in total; first 10 shown")
+    return findings
 
 
 def heading_blank_line_findings(root: Path, paths: Iterable[Path], *,
@@ -1806,7 +1886,7 @@ def heading_blank_line_findings(root: Path, paths: Iterable[Path], *,
     inside a closed fence, or straight after a renderer ``begin`` marker.
     """
     roots = resolve_record_roots(root)
-    closed_cache: dict[Path, bool] = {}
+    closed_cache: dict[Path, bool | None] = {}
     findings: list[str] = []
     for path in sorted(set(paths)):
         if path in skip or path.suffix != ".md":
@@ -1960,13 +2040,14 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
                         expected_projection = render_review_evidence_projection(
                             text, review_evidence.records
                         )
-                        if not wave_record_closed(text):
+                        if not wave_record_historical(text):
                             expected_projection = render_review_status_projection(
                                 expected_projection,
                                 review_evidence.records,
                                 required_review_status_keys(
                                     root, expected_projection, review_evidence.records
                                 ),
+                                owned_block_only=True,
                             )
                     except ValueError as exc:
                         failures.append(f"{rel}: review evidence projection: {exc}")

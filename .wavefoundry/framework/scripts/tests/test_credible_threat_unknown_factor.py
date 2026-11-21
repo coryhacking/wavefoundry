@@ -82,6 +82,53 @@ def missing_clauses(section: str) -> list[str]:
     return [clause for clause in CORE_CLAUSES if clause.lower() not in section]
 
 
+# Change 23z8z: the paragraph says Review and close show the trigger of a finding shown
+# unreachable, and how such a finding is reconsidered. Matched lowercased, in this order.
+EXCEPTION_SENTENCE = (
+    "(except `unsupported_reachability` with `supported_reachability: false`, a finding "
+    "shown unreachable, which stays `dont_do_later`)."
+)
+SO_DOES_SENTENCE = (
+    "so does a candidate whose `observable_impact` or `containment` is unknown when its "
+    "`authority_domain` is anything but `none`."
+)
+VISIBILITY_OPENING = "a finding shown unreachable with a gate factor still `unverified` stays `dont_do_later`"
+VISIBILITY_NEXT = "unknown evidence is not a demonstrated defect"
+VISIBILITY_STATEMENTS = (
+    "review and close name it with its promotion trigger as a non-blocking advisory",
+    "the `repair_start` must carry a judgment that no longer records it as shown unreachable",
+    "leaves the factor `unverified`",
+    "a start that keeps the exempt judgment is refused",
+)
+
+
+def visibility_problems(text: str) -> list[str]:
+    """Return what is wrong with the shown-unreachable visibility sentence in seed 209."""
+    section = gate_section(text)
+    paragraph = next(
+        (line for line in section.splitlines() if line.startswith(f"**{MARKER}.**")), "")
+    if not paragraph:
+        return ["the unknown-factor paragraph is not in the gate section"]
+    if paragraph.count(VISIBILITY_OPENING) != 1:
+        return ["the paragraph does not carry the visibility sentence exactly once"]
+    problems: list[str] = []
+    if f"{EXCEPTION_SENTENCE} {SO_DOES_SENTENCE}" not in paragraph:
+        problems.append("the exception sentence is not directly followed by the so-does sentence")
+    if f"{SO_DOES_SENTENCE} {VISIBILITY_OPENING}" not in paragraph:
+        problems.append("the visibility sentence does not directly follow the so-does sentence")
+    sentence, found, _rest = paragraph[paragraph.index(VISIBILITY_OPENING):].partition(
+        f". {VISIBILITY_NEXT}")
+    if not found:
+        problems.append("the visibility sentence is not followed by the demonstrated-defect sentence")
+    problems.extend(
+        f"the visibility sentence lacks: {statement}"
+        for statement in VISIBILITY_STATEMENTS if statement not in sentence)
+    problems.extend(
+        f"the visibility sentence repeats a counted clause: {clause}"
+        for clause in CORE_CLAUSES if clause.lower() in sentence.replace("**", ""))
+    return problems
+
+
 def is_source_repository() -> bool:
     """The source repository's explicit opt-in (change 21ile); a broken config fails closed."""
     required, cause = fixtures_required()
@@ -154,6 +201,47 @@ class CoreRuleTests(unittest.TestCase):
         rule = text[start:end]
         moved = text[:start] + text[end:] + "\n\n### Elsewhere\n\n" + rule + "\n"
         self.assertEqual(missing_clauses(gate_section(moved)), list(CORE_CLAUSES))
+
+
+class ShownUnreachableVisibilityTests(unittest.TestCase):
+    """Change 23z8z AC-7: the gate paragraph says the trigger is shown, and where."""
+
+    def setUp(self) -> None:
+        self.text = (SEEDS / CORE).read_text(encoding="utf-8")
+        start = self.text.lower().index(VISIBILITY_OPENING)
+        end = self.text.lower().index(VISIBILITY_NEXT, start)
+        self.sentence = self.text[start:end]
+
+    def test_the_paragraph_states_the_advisory_and_the_reconsideration_route(self) -> None:
+        self.assertEqual(visibility_problems(self.text), [])
+        self.assertEqual(self.text.lower().count(VISIBILITY_OPENING), 1)
+
+    def test_a_missing_misplaced_or_clause_repeating_sentence_is_detected(self) -> None:
+        without = self.text.replace(self.sentence, "", 1)
+        so_does = self.text[self.text.lower().index(SO_DOES_SENTENCE):][:len(SO_DOES_SENTENCE)]
+        mutants = {
+            "absent": without,
+            "outside the gate section": without + "\n\n### Elsewhere\n\n" + self.sentence + "\n",
+            "before the so-does sentence": without.replace(so_does, self.sentence + so_does, 1),
+            "after the demonstrated-defect sentence": without.replace(
+                "never as exploitable. ", "never as exploitable. " + self.sentence, 1),
+            "repeats a counted clause": self.text.replace(
+                self.sentence, self.sentence.rstrip()[:-1] + "; it is kept on record with its trigger. ", 1),
+            "drops the reconsideration route": self.text.replace(
+                self.sentence, self.sentence.split("; to reconsider it")[0] + ". ", 1),
+            "drops the advisory statement": self.text.replace(
+                ", and Review and close name it with its promotion trigger as a non-blocking advisory", "", 1),
+        }
+        for name, mutant in mutants.items():
+            with self.subTest(mutant=name):
+                self.assertNotEqual(mutant, self.text)
+                self.assertNotEqual(visibility_problems(mutant), [])
+        # Placing it before the so-does sentence is reported as splitting the exception.
+        self.assertIn("the exception sentence is not directly followed by the so-does sentence",
+                      visibility_problems(mutants["before the so-does sentence"]))
+        self.assertEqual(
+            visibility_problems(mutants["repeats a counted clause"]),
+            ["the visibility sentence repeats a counted clause: kept on record with its trigger"])
 
 
 class CarrierCensusTests(unittest.TestCase):

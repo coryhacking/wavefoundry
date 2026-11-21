@@ -211,10 +211,315 @@ def _operator_python(executable: str, *, platform_name: str | None = None) -> st
     return executable
 
 
+# The installing runner imports this file before extraction, including older
+# runners without our layout or lint modules. Resolve each version in its own
+# interpreter; importing either one into the runner would mix framework versions.
+_INSTALLED_PREFLIGHT_LAYOUT = """
+import json, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+sys.path.insert(0, str(root / ".wavefoundry/framework/scripts"))
+import record_paths, vocabulary_profile, memory_records
+roots = record_paths.load_record_roots(root)
+vocabulary_profile.validate()
+print(json.dumps(dict(waves=roots.waves_rel, plans=roots.plans_rel, archive=roots.archive_rel,
+                      nested=roots.nested, max_depth=roots.max_depth, name=vocabulary_profile.RECORD_FILENAME,
+                      memory_archive=memory_records.MEMORY_ARCHIVE_DIR)))
+"""
+
+_INCOMING_CONTROL_SCAN = """
+import json, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[2])
+import record_paths, vocabulary_profile
+layout = json.loads(sys.argv[3])
+# Only the scan code comes from the incoming pack. Its corpus is the
+# unchanged target, including open records outside docs under a fork profile.
+if layout:
+    record_paths.WAVES_ROOT = layout["waves"]
+    record_paths.PLANS_ROOT = layout["plans"]
+    record_paths.ARCHIVE_ROOT = layout["archive"]
+    record_paths.NESTED = layout["nested"]
+    record_paths.MAX_DEPTH = layout["max_depth"]
+    vocabulary_profile.RECORD_FILENAME = layout["name"]
+from wave_lint_lib import wave_validators
+if layout:
+    wave_validators.HEADING_CHECK_MEMORY_ARCHIVE_DIR = layout["memory_archive"]
+print(json.dumps(wave_validators.scan_markdown_control_characters(Path(sys.argv[1]))))
+"""
+
+
+def _docs_preflight_command(pack=None, *, platform_name=None):
+    windows = (platform_name or os.name) == "nt"
+    launcher = r".\.wavefoundry\bin\wf.cmd" if windows else "./.wavefoundry/bin/wf"
+    args = ["--pack", str(pack)] if pack is not None else ["--resume-after-gate"]
+    return _render_command([launcher, "upgrade", *args], platform_name=platform_name)
+
+
+def _preflight_marker(root):
+    for name in ("upgrade-in-progress.json", "upgrade-manifest-old.json", "index/sqlite-migration.json"):
+        marker = root / ".wavefoundry" / name
+        try:
+            info = marker.lstat()
+            if (name == "index/sqlite-migration.json" and stat.S_ISREG(info.st_mode)
+                    and not _is_link_metadata(info)
+                    and json.loads(marker.read_bytes()).get("state") == "complete"):
+                continue
+        except FileNotFoundError:
+            continue
+        except (OSError, ValueError, AttributeError):
+            pass  # An unreadable receipt cannot prove a fresh run.
+        return name
+    return None
+
+
+def _preflight_timeout(root):
+    try:
+        value = json.loads((root / "docs/workflow-config.json").read_bytes())["docs_lint"]["full_scan_timeout_seconds"]
+        if type(value) in (float, int) and 0 < value < float("inf"):
+            return value
+    except (OSError, ValueError, TypeError, KeyError):
+        pass
+    return 300
+
+
+def _preflight_child(processes, args, root, timeout):
+    env = processes.utf8_child_env({**os.environ, "PROJECT_ROOT": str(root), "PYTHONDONTWRITEBYTECODE": "1"})
+    return processes.run_with_tree_kill([sys.executable, "-B", *args], cwd=root, env=env,
+                                        capture_output=True, text=True, timeout=timeout)
+
+
+def _preflight_error_path(root, line, layout):
+    """Resolve the linter's unquoted 'path[:line[:column]]: message' on the target.
+
+    More than one existing candidate means the message cannot identify the
+    document. A missing candidate under a configured record root can also be
+    the subject of a historical diagnostic, so it cannot prove a shorter
+    ordinary file was the subject.
+    """
+    if not line.startswith("ERROR: ") or not layout:
+        return None
+    body = line[len("ERROR: "):]
+    matched = None
+    record_roots = {layout[key].casefold() + "/" for key in ("waves", "archive", "memory_archive")
+                    if layout.get(key)}
+    for boundary in re.finditer(r":(?=(?:[0-9]+:){0,2}[ \t]+)", body):
+        rel = body[:boundary.start()]
+        parts = rel.split("/")
+        if any(part in {"", ".", ".."} for part in parts) or "\\" in rel or PureWindowsPath(rel).anchor:
+            continue
+        if os.name == "nt" and ":" in rel:
+            continue
+        if matched and any(rel.casefold().startswith(prefix) and
+                           not matched.casefold().startswith(prefix) for prefix in record_roots):
+            return None
+        cursor = root
+        try:
+            for part in parts:
+                cursor /= part
+                info = cursor.lstat()
+                if _is_link_metadata(info):
+                    return None
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        except OSError as exc:
+            # Human explanations can be longer than any possible filename.
+            if exc.errno == errno.ENAMETOOLONG or getattr(exc, "winerror", None) in {123, 206}:
+                continue
+            return None
+        except ValueError:
+            continue
+        if stat.S_ISREG(info.st_mode):
+            if matched is not None:
+                return None
+            matched = rel
+    return matched
+
+
+def _preflight_member_status(root, rel, layout, cache, status_match=None):
+    """Require a real, unaliased document and a positive live status in record folders."""
+    if not rel or not layout:
+        return "unknown"
+    waves = layout["waves"]
+    parts = rel.split("/")
+    if (any(part in {"", ".", ".."} for part in parts) or "\\" in rel or PureWindowsPath(rel).anchor):
+        return "unknown"
+    path = root / rel
+    # Compare normalized path components so case aliases on Windows cannot
+    # turn a history path into an ordinary document.
+    part_key = tuple(part.casefold() for part in parts)
+    def inside(prefix):
+        return bool(prefix) and part_key[:len(prefix.split("/"))] == tuple(p.casefold() for p in prefix.split("/"))
+    if inside(layout["archive"]) or inside(layout["memory_archive"]):
+        return "closed"
+    try:
+        cursor = root
+        for part in parts:
+            cursor /= part
+            if _is_link_metadata(cursor.lstat()):
+                return "unknown"
+        if not stat.S_ISREG(cursor.stat().st_mode):
+            return "unknown"
+        if not inside(waves):
+            return "live" if (inside(layout["plans"]) or parts[0] == "docs" or
+                              (len(parts) == 1 and path.suffix.lower() == ".md")) else "unknown"
+        wave_depth = len(waves.split("/"))
+        if len(parts) == wave_depth + 1:
+            return "live" if parts[-1] == "README.md" else "unknown"
+        depth_limit = layout["max_depth"] if layout["nested"] else 1
+        for depth in range(wave_depth + 1, min(len(parts), wave_depth + depth_limit + 1)):
+            record = root.joinpath(*parts[:depth], layout["name"])
+            if record not in cache:
+                try:
+                    info = record.lstat()
+                except FileNotFoundError:
+                    cache[record] = None
+                    continue
+                if _is_link_metadata(info) or not stat.S_ISREG(info.st_mode):
+                    return "unknown"
+                if status_match is None:
+                    status_match = _incoming_framework_module("change_doc_checklist").wave_status_match
+                match = status_match(record.read_text(encoding="utf-8"))
+                cache[record] = match.group(1).lower() if match else ""
+            status = cache[record]
+            if status in {"closed", "completed"}:
+                return "closed"
+            if status is not None:
+                # Discovery stops at the owner. A saved record below it cannot
+                # grant or remove the owner's live-document status.
+                return "live" if status in {"planned", "ready", "active", "implementing", "paused"} else "unknown"
+    except (OSError, UnicodeError, ValueError):
+        pass
+    return "unknown"
+
+
+def _docs_preflight(ctx):
+    pack = getattr(ctx, "zip_path", None)
+    if not pack:
+        return
+    root = Path(ctx.root)
+    result = {"verdict": "passed", "blocking": 0, "ignored_closed": 0, "ignored_secrets": 0,
+              "indeterminate": 0, "findings": []}
+    ctx.docs_preflight = result
+    reasons = []
+    cache = {}
+
+    def classify(rel, line):
+        status = _preflight_member_status(root, rel, layout, cache, status_match)
+        if status == "live":
+            result["blocking"] += 1
+            if len(result["findings"]) < 50:
+                result["findings"].append(line)
+        elif status == "closed":
+            result["ignored_closed"] += 1
+        else:
+            result["indeterminate"] += 1
+
+    def incoming():
+        with zipfile.ZipFile(pack) as archive:
+            member = next(name for name in (".wavefoundry/framework/scripts", "framework/scripts")
+                          if name + "/wave_lint_lib/wave_validators.py" in archive.namelist())
+        child = _preflight_child(processes, ["-I", "-c", _INCOMING_CONTROL_SCAN, str(root),
+                                  str(Path(pack).resolve() / member), json.dumps(layout)], root, timeout)
+        if child.returncode:
+            raise ValueError("incoming scan unavailable")
+        for row in json.loads(child.stdout):
+            rel = row["path"]
+            # Keep the original path for classification; display terminal-safe
+            # ASCII on every output channel, matching the extracted linter.
+            displayed = "".join(char if " " <= char <= "~" else
+                                (f"\\u{ord(char):04x}" if ord(char) <= 0xffff else f"\\U{ord(char):08x}")
+                                for char in rel)
+            classify(rel, f"ERROR: {displayed}:{row['line']}:{row['column']}: control character "
+                     f"U+{row['code_point']:04X} (rule added by incoming version)")
+
+    try:
+        marker = _preflight_marker(root)
+        if marker:
+            reasons.append("retained " + marker)
+        else:
+            # Older installed runners may have a different helper API.
+            processes = _incoming_framework_module("subprocess_util", pack)
+            status_match = _incoming_framework_module("change_doc_checklist", pack).wave_status_match
+            timeout = _preflight_timeout(root)
+            layout = None
+            try:
+                probe = _preflight_child(processes, ["-I", "-c", _INSTALLED_PREFLIGHT_LAYOUT, str(root)], root, timeout)
+                if probe.returncode == 0:
+                    layout = json.loads(probe.stdout)
+                if not layout:
+                    reasons.append("unchanged target record layout unavailable")
+            except (OSError, ValueError, subprocess.TimeoutExpired):
+                reasons.append("unchanged target record layout unavailable")
+            linter = root / ".wavefoundry/framework/scripts/docs_lint.py"
+            try:
+                if not linter.is_file():
+                    reasons.append("installed docs linter missing")
+                else:
+                    child = _preflight_child(processes, [str(linter), "--read-only"], root, timeout)
+                    if child.returncode:
+                        output = child.stdout + "\n" + child.stderr
+                        errors = [line for line in output.split("\n") if line.startswith("ERROR:")]
+                        if "\ufffd" in output:
+                            reasons.append("installed linter output contains undecodable bytes")
+                        if not errors:
+                            reasons.append("installed linter rejects --read-only" if
+                                           "unrecognized arguments: --read-only" in output
+                                           else f"installed linter exited {child.returncode} without ERROR lines")
+                        for line in errors:
+                            if "[secrets]" in line:
+                                result["ignored_secrets"] += 1
+                                continue
+                            classify(_preflight_error_path(root, line, layout), line)
+            except subprocess.TimeoutExpired:
+                reasons.append("installed lint timed out")
+            except (OSError, ValueError):
+                reasons.append("installed lint unavailable")
+            if not result["blocking"]:
+                try:
+                    incoming()
+                except subprocess.TimeoutExpired:
+                    reasons.append("incoming control-character scan timed out")
+                except (OSError, UnicodeError, ValueError, TypeError, KeyError, StopIteration, zipfile.BadZipFile):
+                    reasons.append("incoming control-character scan unavailable")
+    except Exception as exc:
+        reasons.append(f"preflight fault ({type(exc).__name__})")
+
+    if result["indeterminate"]:
+        reasons.append(f"{result['indeterminate']} findings without confirmed live status")
+    if reasons:
+        result["verdict"] = "indeterminate"
+        result["reason"] = ", ".join(reasons)
+        print("docs_preflight_indeterminate: " + result["reason"], flush=True)
+    if result["ignored_secrets"] or result["ignored_closed"]:
+        print(f"Docs preflight ignored {result['ignored_secrets']} secrets and "
+              f"{result['ignored_closed']} closed-history findings.", flush=True)
+    if not result["blocking"]:
+        if not reasons:
+            print("Docs preflight passed.", flush=True)
+        return
+
+    result["verdict"] = "would_be_refused"
+    count = result["blocking"]
+    action = "would be refused" if getattr(ctx, "dry_run", False) else "refused"
+    command = _docs_preflight_command(getattr(ctx, "selected_feature_zip", None) or pack)
+    lines = [f"docs_preflight_failed: upgrade {action}, {count} blocking findings. Repository is unchanged.",
+             *result["findings"]]
+    if count > len(result["findings"]):
+        lines.append(f"{count - len(result['findings'])} additional findings omitted.")
+    lines.append(f"Repair the documents, then retry with {command} or wf_upgrade(phase='preflight_to_docs_gate').")
+    message = "\n".join(lines)
+    if getattr(ctx, "dry_run", False):
+        print(message, flush=True)
+    else:
+        raise RuntimeError(message)
+
+
 def post_preflight(ctx):
     """Protocol refusal takes precedence over project-prompt migration."""
     _check_protocol(ctx)
     _check_review_plan_prompt(ctx)
+    _docs_preflight(ctx)
 
 
 def _check_review_plan_prompt(ctx):
@@ -3021,6 +3326,31 @@ def _fence_serialization_examples(text, declares, parser=None):
     return repaired
 
 
+def _refresh_incoming_review_status(ctx):
+    """Use the extracted renderer without importing old runner modules."""
+    scripts = _journal_scripts_dir(ctx.root)
+    if not (scripts / "review_policy_upgrade.py").is_file():
+        print("Review status refresh unavailable: extracted upgrade scripts missing.", flush=True)
+        return
+    child = _incoming_framework_module("subprocess_util", getattr(ctx, "zip_path", None))
+    program = (
+        "import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); "
+        "from review_policy_upgrade import refresh_review_status_blocks; "
+        "refresh_review_status_blocks(Path(sys.argv[2]))"
+    )
+    env = {key: value for key, value in os.environ.items() if key != "PYTHONPYCACHEPREFIX"}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    result = child.run_with_tree_kill(
+        [child.windowless_pythonw() or sys.executable, "-B", "-c", program, str(scripts), str(ctx.root)],
+        capture_output=True, text=True, encoding="utf-8", timeout=60, env=child.utf8_child_env(env),
+    )
+    if result.stdout:
+        print(result.stdout, end="", flush=True)
+    if result.returncode:
+        detail = result.stderr.strip().splitlines()[-1:] or [f"exit {result.returncode}"]
+        print(f"Review status refresh incomplete: {detail[0]}", flush=True)
+
+
 def pre_docs_gate(ctx):
     """Run the retired-sidecar cutover before the docs gate validates the tree.
 
@@ -3041,6 +3371,7 @@ def pre_docs_gate(ctx):
     # the rule. Repair first, from this pack-loaded module, so it clears on the
     # same run rather than one upgrade later.
     repair_declaring_scaffold(ctx.root)
+    _refresh_incoming_review_status(ctx)
 
     # A graph extraction change may advance the framework-owned version while
     # leaving an exact project-local reliability claim behind. The incoming
@@ -4182,6 +4513,7 @@ def post_extract(ctx):
     it there.
     """
     if getattr(ctx, "dry_run", False):
+        _docs_preflight(ctx)
         lifecycle_baseline_report(ctx)
         print("journal hook preview: " + json.dumps(
             _journal_hook_preview(ctx.root, getattr(ctx, "zip_path", None)), sort_keys=True

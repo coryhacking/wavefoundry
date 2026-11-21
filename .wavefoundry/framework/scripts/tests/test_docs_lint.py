@@ -473,8 +473,8 @@ class DocsLintFixtureTests(_DocsLintFixture, unittest.TestCase):
         wave_md = root / self.WAVE_DOC_PATH
         text = wave_md.read_text(encoding="utf-8")
         text = text.replace("Status: active", "Status: closed", 1).replace(
-            "| wave-council-readiness | pending |",
-            "| wave-council-readiness | historical |",
+            "| wave-council-readiness | readiness | pending |",
+            "| wave-council-readiness | readiness | historical |",
             1,
         )
         wave_md.write_text(text, encoding="utf-8")
@@ -3651,6 +3651,198 @@ class HeadingBlankLineCheckTests(unittest.TestCase):
         self.assertFalse([f for f in failures if "heading has no blank line" in f])
 
 
+class MarkdownControlCharacterTests(unittest.TestCase):
+    def setUp(self):
+        self.helper = DocsLintFixtureTests()
+        self.root = self.helper.copy_fixture()
+        self.addCleanup(shutil.rmtree, self.root, True)
+
+    def test_full_reports_the_exact_character_coordinates_and_then_passes(self):
+        path = self.root / "README-control.md"
+        body = "\ufeffa\t\0\7\v\x85\f\x1b\x1c\x7f\n\té\x80\x9f\nok"
+        names = ["NUL", "BEL", "VT", "NEL", "FF", "ESC", "FS", "DEL", "C1", "APC"]
+        expected = []
+        for char, name, (line, col) in zip("\0\7\v\x85\f\x1b\x1c\x7f\x80\x9f", names,
+                                           [(1, n) for n in range(3, 11)] + [(2, 3), (2, 4)]):
+            cp = f"U+{ord(char):04X}"
+            expected.append(f"ERROR: {path.name}:{line}:{col}: control character {cp} ({name}) "
+                            f"in markdown; delete it or write it as visible text such as {cp}")
+        for newline in ("\n", "\r\n", "\r"):
+            with self.subTest(newline=repr(newline)):
+                path.write_bytes(body.replace("\n", newline).encode())
+                run = self.helper.run_docs_lint(self.root)
+                self.assertEqual(1, run.returncode, run.stderr)
+                self.assertEqual(expected, [line for line in run.stderr.splitlines()
+                                            if "control character U+" in line])
+        path.write_bytes("\ufeffa\tb\r\né\u00a0🙂\rc\n".encode())
+        run = self.helper.run_docs_lint(self.root)
+        self.assertEqual(0, run.returncode, run.stderr)
+
+    def test_git_changed_and_full_route_through_the_registry(self):
+        from wave_lint_lib import cli
+        from wave_lint_lib.constants import SENSOR_POLARITY_REGISTRY
+        from contextlib import redirect_stdout, redirect_stderr
+        import io
+
+        doc = self.root / self.helper.PERSONA_DOC_PATH
+        entry = self.root / "AGENTS.md"
+        other = self.root / "docs/references/project-overview.md"
+        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
+        with other.open("a", encoding="utf-8") as fh:
+            fh.write("\n\033\n")
+        subprocess.run(["git", "add", "."], cwd=self.root, check=True)
+        subprocess.run(["git", "-c", "user.email=test@example.invalid", "-c", "user.name=Test",
+                        "commit", "-qm", "fixture"], cwd=self.root, check=True)
+        for path in (doc, entry):
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write("\n\033\n")
+        changed = self.helper.run_docs_lint_with_args(self.root, "--changed")
+        full = self.helper.run_docs_lint(self.root)
+        for run in (changed, full):
+            self.assertEqual(1, run.returncode, run.stderr)
+        def hits(run):
+            return {line for line in run.stderr.splitlines() if "control character U+" in line}
+
+        self.assertEqual(2, len(hits(changed)))
+        self.assertEqual(hits(changed), {s for s in hits(full) if not s.startswith(
+            f"ERROR: {other.relative_to(self.root).as_posix()}:")})
+        self.assertEqual(3, len(hits(full)))
+        key = "markdown_control_character"
+        self.assertEqual({"polarity": "blocking", "introduced_wave": "23z46"}, SENSOR_POLARITY_REGISTRY[key])
+        with patch.dict(SENSOR_POLARITY_REGISTRY, {key: {"polarity": "advisory", "introduced_wave": "23z46",
+                                                         "decided_wave": "23z46"}}), \
+                patch.dict(os.environ, PROJECT_ROOT=str(self.root)), patch.object(sys, "argv", ["docs-lint", "--changed"]), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as stderr:
+            self.assertEqual(0, cli.main(), stderr.getvalue())
+        self.assertEqual(2, sum(s.startswith("WARNING:") and key in s for s in stderr.getvalue().splitlines()))
+
+    def test_changed_lint_reads_tracked_unicode_and_untracked_control_filenames(self):
+        from wave_lint_lib.secrets_validators import _get_changed_files
+
+        def git(*args):
+            subprocess.run(["git", *args], cwd=self.root, capture_output=True, check=True)
+
+        git("init", "-q")
+        git("config", "core.quotePath", "true")
+        tracked = self.root / "docs/文.md"
+        tracked.write_text("# Test\n\nOwner: Engineering\nStatus: active\nLast verified: 2026-03-21\n")
+        git("add", ".")
+        git("-c", "user.email=test@example.invalid", "-c", "user.name=Test", "commit", "-qm", "fixture")
+        names = {tracked: r"docs/\u6587.md"}
+        if os.name != "nt":
+            names[self.root / "docs/new\x1b.md"] = r"docs/new\u001b.md"
+        body = tracked.read_bytes() + b"\x07"
+        for path in names:
+            path.write_bytes(body)
+        selected = set(_get_changed_files(self.root))
+        run = self.helper.run_docs_lint_with_args(self.root, "--changed")
+        for path, display in names.items():
+            with self.subTest(filename=display):
+                self.assertIn(path, selected)
+                self.assertIn(f"ERROR: {display}:6:1: control character U+0007 (BEL)", run.stderr)
+        self.assertEqual(1, run.returncode, run.stderr)
+        self.assertNotIn("\x1b", run.stderr)
+
+    def test_scan_preserves_refusals_and_returns_live_occurrences_under_renamed_roots(self):
+        from contextlib import redirect_stdout, redirect_stderr
+        import io
+        from wave_lint_lib import helpers, wave_validators
+
+        with patch.multiple(wave_validators.record_paths, WAVES_ROOT="project/sets", ARCHIVE_ROOT="docs/old", NESTED=True), \
+                patch.object(wave_validators._vocab, "RECORD_FILENAME", "set.md"):
+            def write(path, text):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+            for status in ("closed", "completed", "active"):
+                parent = self.root / "project/sets/domain" / status
+                example = "completed" if status == "active" else "active"
+                write(parent / wave_validators._vocab.RECORD_FILENAME,
+                      f"# Set\n\n<!--\nStatus: {example}\n-->\nStatus: {status}\n")
+                write(parent / "sub/spec.md", "\0")
+                # The owning record decides whether a saved copy under evidence is history.
+                write(parent / "evidence/saved" / wave_validators._vocab.RECORD_FILENAME,
+                      f"# Snapshot\nStatus: {example}\n")
+                write(parent / "evidence/saved/output.md", "\x07")
+            write(self.root / "docs/old/notes.md", "\0")
+            write(self.root / wave_validators.HEADING_CHECK_MEMORY_ARCHIVE_DIR / "memo.md", "\0")
+            write(self.root / "entry.md", "\x1b\n\0")
+            # Guard the public caller's refusal state even when enumeration refuses
+            # an entry. The sentinel also catches clearing a prior run's report.
+            refused = self.root / "docs/unreadable.md"
+            write(refused, "\0")
+            helpers.doc_refusal(self.root, self.root / "prior.md", helpers.RECORD_CAUSE_UNREADABLE)
+            self.addCleanup(helpers.read_text_cache_clear)
+            before = (helpers.record_refusals(), helpers.doc_refusal_failures())
+            real = helpers.doc_entry_is_regular
+
+            def deny(root, path):
+                if path == refused:
+                    helpers.doc_refusal(root, path, helpers.RECORD_CAUSE_UNREADABLE)
+                    return False
+                return real(root, path)
+
+            def snapshot():
+                return {p: p.read_bytes() if p.is_file() else None for p in self.root.rglob("*")}
+
+            before_files = snapshot()
+            with patch.object(helpers, "doc_entry_is_regular", deny), redirect_stdout(io.StringIO()) as out, \
+                    redirect_stderr(io.StringIO()) as err:
+                rows = wave_validators.scan_markdown_control_characters(self.root)
+            self.assertEqual("", out.getvalue() + err.getvalue())
+            self.assertEqual(before_files, snapshot())
+            self.assertEqual(before, (helpers.record_refusals(), helpers.doc_refusal_failures()))
+            self.assertEqual(rows, [
+                {"path": "entry.md", "line": 1, "column": 1, "code_point": 27},
+                {"path": "entry.md", "line": 2, "column": 1, "code_point": 0},
+                {"path": "project/sets/domain/active/evidence/saved/output.md", "line": 1, "column": 1, "code_point": 7},
+                {"path": "project/sets/domain/active/sub/spec.md", "line": 1, "column": 1, "code_point": 0},
+            ])
+
+    def test_display_is_ascii_and_bounded_while_preflight_has_every_occurrence(self):
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+        from wave_lint_lib import cli, wave_validators
+        names = ["文🙂.md"]
+        if os.name != "nt":
+            names.append("esc\x1b.md")
+        for name in names:
+            (self.root / name).write_text("\x1b\7" * 25, encoding="utf-8")
+        rows = wave_validators.scan_markdown_control_characters(self.root)
+        self.assertEqual(len(rows), 50 * len(names))
+        with io.TextIOWrapper(io.BytesIO(), encoding="cp1252", errors="strict") as sink, \
+                patch.dict(os.environ, PROJECT_ROOT=str(self.root)), patch.object(sys, "argv", ["docs-lint"]), \
+                redirect_stdout(io.StringIO()), redirect_stderr(sink):
+            self.assertEqual(1, cli.main())
+            sink.flush()
+            lines = [s for s in sink.buffer.getvalue().decode("cp1252").split("\n") if "control character" in s]
+        self.assertEqual(11 * len(names), len(lines))
+        for message in lines:
+            self.assertTrue(message.isascii() and message.isprintable(), repr(message))
+        for name in names:
+            escaped = ("\\u6587\\U0001f642.md" if name == names[0] else "esc\\u001b.md")
+            subset = [s for s in lines if s.startswith(f"ERROR: {escaped}:")]
+            self.assertEqual(11, len(subset))
+            self.assertEqual(f"ERROR: {escaped}: 50 control characters in total; first 10 shown", subset[-1])
+
+    def test_direct_scan_declines_an_unknown_record_layout(self):
+        from wave_lint_lib import wave_validators
+        with patch.object(wave_validators.record_paths, "WAVES_ROOT", "../outside"):
+            with self.assertRaises(wave_validators.record_paths.RecordLayoutInvalid):
+                wave_validators.scan_markdown_control_characters(self.root)
+
+    def test_full_and_direct_skip_entries_over_the_project_cap(self):
+        from wave_lint_lib.wave_validators import scan_markdown_control_characters
+        cfg = self.root / "docs/workflow-config.json"
+        data = json.loads(cfg.read_text())
+        data["docs_lint"] = {"max_file_bytes": 100}
+        cfg.write_text(json.dumps(data))
+        path = self.root / "oversized.md"
+        path.write_bytes(b"A" * 100 + b"\0")
+        self.assertFalse(scan_markdown_control_characters(self.root))
+        run = self.helper.run_docs_lint(self.root)
+        self.assertNotIn("control character U+", run.stderr)
+
+
 class InertRecordLayoutConfigTests(unittest.TestCase):
     """Wave 1yyoj: inert record-layout config keys warn through the advisory channel.
 
@@ -3795,13 +3987,14 @@ class SensorPolarityRegistryTests(unittest.TestCase):
     def test_both_advisory_sensors_carry_the_recorded_decision(self) -> None:
         # Wave 1yzj9 (1yzj8 AC-3): removing either decided_wave fails here.
         from wave_lint_lib.constants import SENSOR_POLARITY_REGISTRY
-        decided = {name: entry.get("decided_wave") for name, entry in SENSOR_POLARITY_REGISTRY.items()}
+        decided = {name: entry.get("decided_wave") for name, entry in SENSOR_POLARITY_REGISTRY.items()
+                   if entry["polarity"] == "advisory"}
         self.assertEqual({"ac_asserts_repository_state": "1yzj9", "inert_record_layout_config": "1yzj9",
                           "record_file_not_found": "1z8mm", "archive_record_unreadable": "1z8ts",
                           "heading_without_blank_line_before": "22yox"}, decided)
-        for name, entry in SENSOR_POLARITY_REGISTRY.items():
-            with self.subTest(sensor=name):
-                self.assertEqual("advisory", entry["polarity"])
+        self.assertEqual(set(decided) | {"markdown_control_character"}, set(SENSOR_POLARITY_REGISTRY))
+        self.assertEqual({"polarity": "blocking", "introduced_wave": "23z46"},
+                         SENSOR_POLARITY_REGISTRY["markdown_control_character"])
 
     def test_an_invalid_decided_wave_fails_loudly_even_without_findings(self) -> None:
         # Wave 1yzj9 (1yzj8 AC-2): validation runs before any branch on findings or

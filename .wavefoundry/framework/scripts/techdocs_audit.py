@@ -88,8 +88,16 @@ def _emit_text(report) -> None:
         f"{_PREFIX}: {summary['verdict']}; {summary['finding_count']} finding(s) over "
         f"{publication.get('survivor_count', 0)} published page(s)"
     )
+    _emit_degraded_notes(report)
+
+
+def _emit_degraded_notes(report) -> None:
+    # Change 23z90: an audience token names its baseline ref and documents, in
+    # the wording the MCP diagnostic uses (one helper).
+    from techdocs_audit_lib import describe_degrade
+
     for reason in report.degraded:
-        print(f"{_PREFIX}: NOTE degraded: {reason}", file=sys.stderr)
+        print(f"{_PREFIX}: NOTE degraded: {describe_degrade(reason, report.audience)}", file=sys.stderr)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -117,8 +125,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.json:
         print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
-        for reason in report.degraded:
-            print(f"{_PREFIX}: NOTE degraded: {reason}", file=sys.stderr)
+        _emit_degraded_notes(report)
     else:
         _emit_text(report)
 

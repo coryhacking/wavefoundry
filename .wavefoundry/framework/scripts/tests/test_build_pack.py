@@ -508,7 +508,7 @@ tasks = dashboard_lib._parse_tasks(
 )
 print(json.dumps({
     "status_marker": "<!-- wave:review-status begin -->" in rendered,
-    "qa_pending": "| qa-reviewer | pending |" in rendered,
+    "qa_pending": "| qa-reviewer | delivery | pending |" in rendered,
     "memory_state": summary["state"],
     "ac_text": acs[0]["text"],
     "ac_priority": acs[0]["priority"],

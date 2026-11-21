@@ -21,6 +21,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import lifecycle_gates
 import review_evidence as subject
 import vocabulary_profile
 import container_fixture_profile
@@ -975,6 +976,299 @@ class CompatibilityTests(_ServedLedger):
         self.assertIn(TRIGGER, advisories[0]["message"])
         self.assertIn("`repair_start`", advisories[0]["message"])
         self.assertEqual(response["status"], "dry_run", response)
+
+
+SHOWN_UNREACHABLE = judgment(rejection_basis="unsupported_reachability",
+                             supported_reachability=False)
+SHOWN_CODE = "security_candidate_shown_unreachable"
+SECURITY_ADVISORY_CODES = (SHOWN_CODE, "security_candidate_predates_rule",
+                           "security_candidate_waived")
+
+
+class AcceptedCandidateAdvisoryTests(_ServedLedger):
+    """Change 23z8z: accepted security candidates are named at Review and both closes.
+
+    A finding shown unreachable with a gate factor still unknown, a pre-rule head and a
+    waived head are advisories on Review, wave close and change close. No outcome moves.
+    """
+
+    def _reopen_member(self, wave_md):
+        """Make the delivered record's one member closable again (`complete` to `active`)."""
+        label = vocabulary_profile.MEMBER_STATUS_LABEL
+        for doc in wave_md.parent.glob("*.md"):
+            text = doc.read_text(encoding="utf-8")
+            self.assertIn(f"{label}: `complete`", text)
+            doc.write_text(text.replace(f"{label}: `complete`", f"{label}: `active`", 1),
+                           encoding="utf-8")
+
+    def _shown(self, name, value=SHOWN_UNREACHABLE, **kwargs):
+        root, wave_md, wave_id = self._delivered(name)
+        self._assert_ok(self._finding(root, wave_id, run_kind="initial_delivery", cycle=0,
+                                      actor="code-reviewer", context="sec-initial",
+                                      judgment_value=value, **kwargs))
+        return root, wave_md, wave_id
+
+    @staticmethod
+    def _named(response, code):
+        return [d for d in response.get("diagnostics") or [] if d["code"] == code]
+
+    def _security_codes(self, response):
+        return [code for code in self._codes(response)
+                if code in SECURITY_ADVISORY_CODES or code == "unsettled_security_candidate"]
+
+    def _close_both_modes(self, root, wave_md, wave_id, code, message):
+        """Close the member; each successful response carries the one advisory."""
+        change_id = self._change_id(wave_md)
+        before = self._tree(root)
+        dry_run = self._close_change(root, wave_id, change_id)
+        self.assertEqual(dry_run["status"], "dry_run", dry_run)
+        self.assertEqual(self._tree(root), before)
+        created = self._close_change(root, wave_id, change_id, mode="create")
+        self.assertEqual(created["status"], "ok", created)
+        for response in (dry_run, created):
+            [advisory] = self._named(response, code)
+            self.assertIs(advisory["advisory"], True)
+            self.assertEqual(advisory["message"], message)
+            self.assertEqual(self._security_codes(response), [code])
+        return before, dry_run, created
+
+    # AC-1, AC-3.1 -------------------------------------------------------
+
+    def test_review_and_both_closes_name_a_finding_shown_unreachable(self):
+        root, wave_md, wave_id = self._shown("shown")
+        head = dict(self._head(wave_md))
+        self.assertEqual(record_disposition(head), ("dont_do_later", "not_required"))
+        self.assertFalse(head["blocking"])
+        self.assertEqual(subject.unsettled_security_factors(head), ())
+        self.assertFalse(subject.predates_security_rule(head))
+        review = self._review(root, wave_id)
+        self.assertEqual(review["status"], "ok", review)
+        close = self._close_dry_run(root, wave_id)
+        self.assertEqual(close["status"], "dry_run", close)
+        messages = []
+        for response in (review, close):
+            [advisory] = self._named(response, SHOWN_CODE)
+            self.assertIs(advisory["advisory"], True)
+            self.assertEqual(self._security_codes(response), [SHOWN_CODE])
+            messages.append(advisory["message"])
+        message = messages[0]
+        self.assertEqual(messages[1], message)
+        for needle in (f"`{FINDING}`", "`attacker_reachability` still unverified", TRIGGER,
+                       "`dont_do_later`", "accepted as shown unreachable", "holds no signoff",
+                       "missing evidence, not a demonstrated defect",
+                       "`repair_start` for it in the next cycle whose judgment no longer "
+                       "records it as shown unreachable and leaves the factor `unverified`"):
+            self.assertIn(needle, message)
+        self.assertEqual(self._rows(wave_md)["operator-signoff"]["state"], "approved")
+        self._assert_lints(root)
+
+        self._reopen_member(wave_md)
+        before, _dry_run, created = self._close_both_modes(root, wave_md, wave_id, SHOWN_CODE, message)
+        # The close writes what it writes for a record with no such head (the control).
+        self.assertEqual(dict(self._head(wave_md)), head)
+        after = self._tree(root)
+        changed = sorted(rel for rel in after if after[rel] != before.get(rel))
+        self.assertEqual(sorted(after), sorted(before))
+        self.assertEqual(sorted(created["data"]["written"]), changed)
+        control_root, control_md, control_id = self._closable("shown-control")
+        control = self._close_change(control_root, control_id, self._change_id(control_md),
+                                     mode="create")
+        self.assertEqual(control["status"], "ok", control)
+        self.assertEqual(control.get("diagnostics") or [], [])
+        record_name = vocabulary_profile.RECORD_FILENAME
+        self.assertEqual([Path(rel).name for rel in created["data"]["written"]].count(record_name),
+                         [Path(rel).name for rel in control["data"]["written"]].count(record_name))
+        self.assertEqual(len(created["data"]["written"]), len(control["data"]["written"]))
+        self.assertEqual(created["data"]["status"], control["data"]["status"])
+        self.assertEqual(created["data"]["previous_status"], control["data"]["previous_status"])
+
+    def test_two_unknown_factors_are_named_in_gate_order_and_no_trigger_reads_none_recorded(self):
+        records = [{
+            "record_type": "finding_synthesis", "finding_id": "two",
+            "disposition": "dont_do_later", "repair_execution_state": "not_required",
+            **judgment(rejection_basis="unsupported_reachability", supported_reachability=False,
+                       containment="unverified"),
+        }]
+        [candidate] = subject.security_candidate_state(records)["shown_unreachable"]
+        self.assertEqual(candidate, {
+            "finding_id": "two", "promotion_trigger": None, "disposition": "dont_do_later",
+            "unverified_factors": ("attacker_reachability", "containment"),
+        })
+        [diagnostic] = lifecycle_gates.security_candidate_diagnostics(
+            SimpleNamespace(typed=True, records=records))
+        self.assertEqual(diagnostic["code"], SHOWN_CODE)
+        self.assertIn("`attacker_reachability`, `containment` all still unverified",
+                      diagnostic["message"])
+        self.assertIn("Promotion trigger: none recorded.", diagnostic["message"])
+
+    # AC-1.1 -------------------------------------------------------------
+
+    def test_a_settled_or_correctness_side_head_shown_unreachable_gets_no_advisory(self):
+        root, wave_md, wave_id = self._delivered("shown-quiet")
+        quiet = {
+            "all-settled": judgment(rejection_basis="unsupported_reachability",
+                                    supported_reachability=False, attacker_reachability=False),
+            "correctness-impact": judgment(rejection_basis="unsupported_reachability",
+                                           supported_reachability=False, attacker_reachability=False,
+                                           authority_domain="none", authority_delta="none",
+                                           observable_impact="unverified"),
+            "correctness-containment": judgment(rejection_basis="unsupported_reachability",
+                                                supported_reachability=False,
+                                                attacker_reachability=False, authority_domain="none",
+                                                authority_delta="none", containment="unverified"),
+        }
+        for finding_id, value in quiet.items():
+            self._assert_ok(self._finding(root, wave_id, run_kind="initial_delivery", cycle=0,
+                                          actor="code-reviewer", context=f"ctx-{finding_id}",
+                                          judgment_value=value, finding_id=finding_id))
+            self.assertEqual(record_disposition(self._head(wave_md, finding_id)),
+                             ("dont_do_later", "not_required"))
+        self.assertEqual(subject.security_candidate_state(self._ledger(wave_md))["shown_unreachable"], ())
+        review = self._review(root, wave_id)
+        self.assertEqual(review["status"], "ok", review)
+        close = self._close_dry_run(root, wave_id)
+        self.assertEqual(close["status"], "dry_run", close)
+        self._reopen_member(wave_md)
+        change = self._close_change(root, wave_id, self._change_id(wave_md))
+        self.assertEqual(change["status"], "dry_run", change)
+        for response in (review, close, change):
+            self.assertEqual(self._security_codes(response), [])
+
+    # AC-1.2 -------------------------------------------------------------
+
+    def test_the_named_factors_match_the_unsettled_rule_over_the_factor_matrix(self):
+        factors = DerivationTests.FACTORS
+        settled = judgment(attacker_reachability=False, authority_delta="none")
+        combos = [c for size in range(1, 5) for c in itertools.combinations(factors, size)]
+        self.assertEqual(len(combos), 15)
+        for combo in combos:
+            for domain in ("confidentiality", "none"):
+                unknown = {**settled, "authority_domain": domain,
+                           **{factor: "unverified" for factor in combo}}
+                exempt = {**unknown, "rejection_basis": "unsupported_reachability",
+                          "supported_reachability": False}
+                # The literal expectation: every factor, or only the two older ones.
+                expected = combo if domain != "none" else tuple(f for f in combo if f in factors[:2])
+                with self.subTest(unknown=combo, domain=domain):
+                    self.assertEqual(subject.unsettled_security_factors(unknown), expected)
+                    self.assertEqual(subject.unsettled_security_factors(exempt), ())
+                    self.assertEqual(subject.derive_disposition(exempt), "dont_do_later")
+                    records = [{"record_type": "finding_synthesis", "finding_id": "matrix",
+                                "disposition": "dont_do_later",
+                                "repair_execution_state": "not_required",
+                                "promotion_trigger": TRIGGER, **exempt}]
+                    state = subject.security_candidate_state(records)
+                    self.assertEqual((state["unsettled"], state["waived"], state["predates"]),
+                                     ((), (), ()))
+                    diagnostics = lifecycle_gates.security_candidate_diagnostics(
+                        SimpleNamespace(typed=True, records=records))
+                    if not expected:
+                        self.assertEqual(state["shown_unreachable"], ())
+                        self.assertEqual(diagnostics, [])
+                        continue
+                    [candidate] = state["shown_unreachable"]
+                    self.assertEqual(candidate["unverified_factors"], expected)
+                    [diagnostic] = diagnostics
+                    self.assertEqual(diagnostic["code"], SHOWN_CODE)
+                    self.assertIs(diagnostic["advisory"], True)
+                    self.assertFalse(lifecycle_gates.has_blocking_diagnostics(diagnostics))
+                    named = re.search(r"shown unreachable with (.*?) (?:all )?still unverified",
+                                      diagnostic["message"]).group(1)
+                    self.assertEqual(tuple(re.findall(r"`([a-z_]+)`", named)), expected)
+                    # A record that is not real is in no class.
+                    for status in ("invalid", "conforming"):
+                        self.assertEqual(subject.security_candidate_state(
+                            [{**records[0], "validation_status": status}])["shown_unreachable"], ())
+
+    def test_the_new_code_is_not_a_shared_blocking_code(self):
+        self.assertNotIn(SHOWN_CODE, lifecycle_gates.SHARED_DELIVERY_DIAGNOSTIC_CODES)
+
+    # AC-2 ---------------------------------------------------------------
+
+    def test_change_close_carries_the_pre_rule_advisory_review_returns(self):
+        root, wave_md, wave_id, records = self._old_rule_records("predates-close")
+        self._write_ledger(root, wave_md, records)
+        review = self._review(root, wave_id)
+        self.assertEqual(review["status"], "ok", review)
+        [advisory] = self._named(review, "security_candidate_predates_rule")
+        self.assertIn(TRIGGER, advisory["message"])
+        close = self._close_dry_run(root, wave_id)
+        self.assertEqual(close["status"], "dry_run", close)
+        self.assertEqual(self._rows(wave_md)["operator-signoff"]["state"], "approved")
+        head = dict(self._head(wave_md))
+        self._reopen_member(wave_md)
+        self._close_both_modes(root, wave_md, wave_id, "security_candidate_predates_rule",
+                               advisory["message"])
+        self.assertEqual(dict(self._head(wave_md)), head)
+
+    def test_change_close_carries_the_waived_advisory_review_returns(self):
+        root, wave_md, wave_id = self._unsettled("waived-close")
+        self._assert_ok(self._operator_close(root, wave_id, cycle=1))
+        review = self._review(root, wave_id)
+        [advisory] = self._named(review, "security_candidate_waived")
+        self.assertIn(WAIVER["waiver_id"], advisory["message"])
+        self._reopen_member(wave_md)
+        self._close_both_modes(root, wave_md, wave_id, "security_candidate_waived",
+                               advisory["message"])
+
+    # AC-3.2 -------------------------------------------------------------
+
+    def test_a_pending_unsettled_head_still_refuses_the_change_close_without_an_advisory(self):
+        root, wave_md, wave_id = self._unsettled("still-refused")
+        self._assert_ok(self._finding(root, wave_id, run_kind="initial_delivery", cycle=0,
+                                      actor="code-reviewer", context="sec-exempt",
+                                      judgment_value=SHOWN_UNREACHABLE, finding_id="exempt"))
+        self.assertEqual(subject.unsettled_security_factors(self._head(wave_md, "exempt")), ())
+        # Review names both; the refused change close names only what refuses it.
+        self.assertEqual(sorted(self._security_codes(self._review(root, wave_id))),
+                         sorted([SHOWN_CODE, "unsettled_security_candidate"]))
+        self._reopen_member(wave_md)
+        change_id = self._change_id(wave_md)
+        for mode in ("dry_run", "create"):
+            with self.subTest(mode=mode):
+                before = self._tree(root)
+                response = self._close_change(root, wave_id, change_id, mode=mode)
+                self.assertEqual(response["status"], "error", response)
+                self.assertEqual(self._codes(response), ["unsettled_security_candidate"])
+                self.assertEqual(response["data"]["written"], [])
+                self.assertEqual(self._tree(root), before)
+
+    # AC-4 ---------------------------------------------------------------
+
+    def test_a_legacy_or_unreadable_record_gets_no_security_advisory(self):
+        root, wave_md, wave_id = self._closable("no-authority")
+        change_id = self._change_id(wave_md)
+        self._assert_ok(self._finding(root, wave_id, run_kind="readiness", cycle=0,
+                                      actor="code-reviewer", context="sec-exempt",
+                                      judgment_value=SHOWN_UNREACHABLE))
+        ledger = subject.review_event_path(wave_md)
+        good = ledger.read_bytes()
+        # The readable typed record carries the advisory, so the cases below are not vacuous.
+        self.assertEqual(self._security_codes(self._close_change(root, wave_id, change_id)),
+                         [SHOWN_CODE])
+        # Unreadable: the advisory-eligible head is still in the file, behind a bad line.
+        ledger.write_bytes(good + b"{not json\n")
+        for mode in ("dry_run", "create"):
+            with self.subTest(ledger="malformed", mode=mode):
+                before = self._tree(root)
+                response = self._close_change(root, wave_id, change_id, mode=mode)
+                self.assertEqual(response["status"], "error", response)
+                self.assertEqual(self._codes(response), ["review_ledger_unreadable"])
+                self.assertEqual(self._tree(root), before)
+        # Legacy prose: no declaration, so no typed authority even with the ledger present.
+        ledger.write_bytes(good)
+        declaration = subject.REVIEW_EVIDENCE_SOURCE_DECLARATION
+        text = wave_md.read_text(encoding="utf-8")
+        self.assertEqual(text.count(declaration + "\n"), 1)
+        wave_md.write_text(text.replace(declaration + "\n", "", 1), encoding="utf-8")
+        ledger.unlink()
+        self.assertFalse(subject.resolve_review_authority(root, wave_md).typed)
+        for mode in ("dry_run", "create"):
+            with self.subTest(record="legacy", mode=mode):
+                response = self._close_change(root, wave_id, change_id, mode=mode)
+                self.assertEqual(response["status"], "dry_run" if mode == "dry_run" else "ok",
+                                 response)
+                self.assertEqual(self._security_codes(response), [])
 
 
 class SurfaceCensusTests(unittest.TestCase):

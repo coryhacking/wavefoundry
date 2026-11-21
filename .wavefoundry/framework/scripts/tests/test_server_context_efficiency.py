@@ -4929,6 +4929,275 @@ class PathFreeMonitorRowTests(unittest.TestCase):
         self.assertEqual(row["error"], message)
 
 
+class FailedRowStepAndTargetTests(unittest.TestCase):
+    """Change 23z90: a failed ``context_efficiency_persistence`` row names the step
+    that raised (``operation``) and that step's repository-relative file
+    (``target``), and renders ``error`` without an absolute path."""
+
+    STORE_REL = ".wavefoundry/logs/context-efficiency.sqlite"
+    WAVE = "1aaaa failed-row"
+
+    def setUp(self):
+        import errno
+        from wf_server import server_impl as live_impl
+
+        self.errno = errno
+        self.impl = live_impl
+        self.live_ce = ce_handlers.context_efficiency
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        # Deliberately not resolved: the raw and the resolved root both count.
+        self.root = Path(tmp.name) / "repo"
+        self.root.mkdir()
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        self.outside = Path(outside.name) / "elsewhere" / "state.db"
+        self.record_rel = f"{_WAVES_REL}/{self.WAVE}/{_RECORD}"
+
+    def _wave(self, status="planned"):
+        _repo(self.root)
+        wave_md = _waves_dir(self.root) / self.WAVE / _RECORD
+        wave_md.parent.mkdir(parents=True)
+        wave_md.write_text(f"{_TITLE}\n\nStatus: {status}\n", encoding="utf-8")
+        telemetry = ce.ProcessTelemetry(self.root)
+        self.addCleanup(telemetry.close)
+        telemetry.set_focus(self.WAVE, "plan", new_phase=True)
+        telemetry.record_retrieval(dict(SpoolAtCloseTests.METRIC), event_id="pending")
+        self.wave_md = wave_md
+        return SimpleNamespace(root=self.root, telemetry=telemetry)
+
+    def _denied(self, filename=None):
+        if filename is None:
+            return PermissionError(self.errno.EACCES, "Permission denied")
+        return PermissionError(self.errno.EACCES, "Permission denied", str(filename))
+
+    def _assert_path_free(self, row):
+        import lifecycle_lock
+
+        text = json.dumps(row)
+        for absolute in {str(self.root), str(self.root.resolve()), str(self.outside), str(self.outside.resolve())}:
+            for form in (absolute, absolute.replace("\\", "/"), absolute.replace("/", "\\")):
+                self.assertNotIn(form, text)
+                self.assertNotIn(json.dumps(form)[1:-1], text)
+        for key, value in row.items():
+            if isinstance(value, str):
+                self.assertIsNone(lifecycle_lock._ABSOLUTE_PATH_IN_TEXT_RE.search(value), (key, value))
+
+    def test_a_wave_record_write_failure_names_the_write_and_the_record(self):
+        """AC-1 and AC-4."""
+        self._wave()
+        with patch.object(self.impl, "_atomic_replace_text", side_effect=self._denied(self.wave_md)):
+            row = ce_handlers._project_context_efficiency_wave(self.root, self.WAVE)
+        self.assertEqual(row, {
+            "persistence": "failed", "projection": "pending",
+            "error": f"PermissionError EACCES on {self.record_rel}",
+            "wave_id": self.WAVE,
+            "operation": "write_wave_record", "target": self.record_rel,
+        })
+        self._assert_path_free(row)
+
+    def test_a_filename_outside_the_root_is_dropped_and_the_target_still_names_the_record(self):
+        """AC-4: the exception's own filename lies outside the root."""
+        self._wave()
+        with patch.object(self.impl, "_atomic_replace_text", side_effect=self._denied(self.outside)):
+            row = ce_handlers._project_context_efficiency_wave(self.root, self.WAVE)
+        self.assertEqual(row["error"], "PermissionError EACCES")
+        self.assertEqual((row["operation"], row["target"]), ("write_wave_record", self.record_rel))
+        self._assert_path_free(row)
+
+    def test_a_store_step_failure_without_a_filename_names_the_step_and_the_store(self):
+        """AC-2 and AC-4."""
+        self._wave()
+        with patch.object(self.live_ce, "mark_checkpoint_published", side_effect=self._denied()):
+            row = ce_handlers._project_context_efficiency_wave(self.root, self.WAVE)
+        self.assertEqual(row["persistence"], "failed")
+        self.assertEqual(row["error"], "PermissionError EACCES")
+        self.assertEqual((row["operation"], row["target"]), ("mark_checkpoint_published", self.STORE_REL))
+        self._assert_path_free(row)
+
+    def test_every_step_in_the_lock_block_names_itself(self):
+        """Requirement 1: the tracker is set before every call, a pure step and
+        lock acquisition carry an operation and no target."""
+        cases = [
+            # (wave status, patched owner, attribute, operation, target)
+            ("planned", self.impl, "project_state_publication_lock", "acquire_publication_lock", None),
+            ("planned", self.live_ce, "parse_checkpoint_block", "parse_wave_record", None),
+            ("planned", self.live_ce, "reconcile_checkpoint_authority",
+             "reconcile_checkpoint_authority", self.STORE_REL),
+            ("planned", self.live_ce, "read_wave_snapshot", "read_wave_snapshot", self.STORE_REL),
+            ("planned", self.live_ce, "replace_checkpoint_block", "render_checkpoint_block", None),
+            ("planned", self.impl, "_load_script", "render_exploration_block", None),
+            ("planned", self.impl, "_atomic_replace_text", "write_wave_record", "record"),
+            ("planned", self.live_ce, "mark_checkpoint_published", "mark_checkpoint_published", self.STORE_REL),
+            ("closed", self.live_ce, "compact_published_wave", "compact_published_wave", self.STORE_REL),
+            ("closed", self.impl, "_focus_clear_write_needed", "clear_focus_state", None),
+        ]
+        for status, owner, attribute, operation, target in cases:
+            with self.subTest(step=operation):
+                tmp = tempfile.TemporaryDirectory()
+                self.addCleanup(tmp.cleanup)
+                self.root = Path(tmp.name) / "repo"
+                self.root.mkdir()
+                handler = self._wave(status)
+                with patch.object(owner, attribute, side_effect=ValueError("step failed")):
+                    row = ce_handlers._project_context_efficiency_wave(
+                        self.root, self.WAVE, handler=handler)
+                self.assertEqual(row["persistence"], "failed", row)
+                self.assertEqual(row["error"], "ValueError: step failed")
+                self.assertEqual(row["operation"], operation)
+                expected = self.record_rel if target == "record" else target
+                self.assertEqual(row.get("target"), expected)
+                self.assertEqual("target" in row, expected is not None)
+                self._assert_path_free(row)
+
+    def test_an_unreadable_record_names_the_read_in_the_projection_row(self):
+        """AC-3.1 and AC-4: the ``current is None`` branch."""
+        self._wave()
+        self.wave_md.write_bytes(b"\xff\xfe not utf-8")
+        row = ce_handlers._project_context_efficiency_wave(self.root, self.WAVE)
+        self.assertEqual((row["persistence"], row["projection"]), ("failed", "pending"))
+        self.assertTrue(row["error"].startswith("UnicodeDecodeError"), row)
+        self.assertEqual((row["operation"], row["target"]), ("read_wave_record", self.record_rel))
+        self._assert_path_free(row)
+
+    def test_an_unreadable_record_names_the_read_on_the_lifecycle_path(self):
+        """AC-3.2 and AC-4: the ``initial_markdown is None`` branch, which the
+        lifecycle path reaches first."""
+        handler = self._wave()
+        self.wave_md.write_bytes(b"\xff\xfe not utf-8")
+        with patch.object(ce_handlers, "_project_context_efficiency_wave") as projected:
+            row, flushed = ce_handlers._flush_context_efficiency(handler, self.WAVE)
+        projected.assert_not_called()
+        self.assertIsNone(flushed)
+        self.assertEqual((row["persistence"], row["projection"]), ("failed", "pending"))
+        self.assertTrue(row["error"].startswith("UnicodeDecodeError"), row)
+        self.assertEqual((row["operation"], row["target"]), ("read_wave_record", self.record_rel))
+        self._assert_path_free(row)
+
+    def test_the_lifecycle_flush_carries_the_projection_step_and_target(self):
+        """AC-5: what the lifecycle tools attach as context_efficiency_persistence."""
+        handler = self._wave()
+        with patch.object(self.impl, "_atomic_replace_text", side_effect=self._denied(self.wave_md)):
+            row, flushed = ce_handlers._flush_context_efficiency(handler, self.WAVE)
+        self.assertIsNotNone(flushed)
+        self.assertEqual(row["persistence"], "failed")
+        self.assertEqual(row["error"], f"PermissionError EACCES on {self.record_rel}")
+        self.assertEqual((row["operation"], row["target"]), ("write_wave_record", self.record_rel))
+        self._assert_path_free(row)
+
+    def test_denied_wave_read_reports_errno_and_relative_file_then_recovers(self):
+        handler = self._wave()
+        # Inject only the OS read failure. The shared reader, both lifecycle
+        # paths and the follow-up publication all run against the real record.
+        open_path = Path.open
+
+        def open_with_denied_wave_read(path, *args, **kwargs):
+            if path == self.wave_md or path == self.wave_md.resolve():
+                raise self._denied(path)
+            return open_path(path, *args, **kwargs)
+
+        with patch.object(Path, "open", open_with_denied_wave_read):
+            projection = ce_handlers._project_context_efficiency_wave(self.root, self.WAVE)
+            lifecycle, flushed = ce_handlers._flush_context_efficiency(handler, self.WAVE)
+        self.assertIsNone(flushed)
+        for row in (projection, lifecycle):
+            self.assertEqual(row["persistence"], "failed")
+            self.assertEqual(row["operation"], "read_wave_record")
+            self.assertEqual(row["target"], self.record_rel)
+            self.assertEqual(row["error"], f"PermissionError EACCES on {self.record_rel}")
+            self._assert_path_free(row)
+        recovered, _ = ce_handlers._flush_context_efficiency(handler, self.WAVE)
+        self.assertEqual(recovered["projection"], "published")
+
+    def test_busy_producer_lease_reports_the_lock_and_recovers_after_release(self):
+        handler = self._wave()
+        handler.telemetry = self.live_ce.ProcessTelemetry(self.root)
+        self.addCleanup(handler.telemetry.close)
+        telemetry = handler.telemetry
+        lock_path = self.live_ce.producer_lease_path(telemetry.root, telemetry.producer_id)
+        with self.live_ce.RuntimeFileLock(lock_path, blocking=False), \
+                patch.object(self.live_ce, "BUSY_RETRY_BUDGET_SECONDS", 0), \
+                patch.object(self.live_ce, "_open_write_store_once", wraps=self.live_ce._open_write_store_once) as store:
+            row, flush = ce_handlers._flush_context_efficiency(handler, self.WAVE, transfer_general=True)
+            store.assert_not_called()
+        self.assertEqual(row["persistence"], "deferred")
+        self.assertEqual(flush.operation, "acquire_producer_lease")
+        self.assertEqual(row["operation"], flush.operation)
+        self.assertEqual(row["target"], lock_path.relative_to(telemetry.root).as_posix())
+        self.assertEqual(flush.target, row["target"])
+        self._assert_path_free(row)
+        recovered, _ = ce_handlers._flush_context_efficiency(handler, self.WAVE)
+        self.assertEqual(recovered["persistence"], "durable")
+
+    def test_flush_failures_are_path_free_and_name_the_store(self):
+        """AC-9: a general-bucket transfer refused at the store, retryable
+        (deferred) and not retryable (poisoned)."""
+        store = ce.store_path(self.root.resolve())
+        for retryable in (True, False):
+            with self.subTest(retryable=retryable):
+                tmp = tempfile.TemporaryDirectory()
+                self.addCleanup(tmp.cleanup)
+                self.root = Path(tmp.name) / "repo"
+                self.root.mkdir()
+                handler = self._wave()
+                store = ce.store_path(self.root.resolve())
+                patches = [
+                    patch.object(ce, "_open_write_store_once", side_effect=self._denied(store)),
+                    patch.object(ce, "BUSY_RETRY_BUDGET_SECONDS", 0),
+                ]
+                if not retryable:
+                    patches += [patch.object(ce, "FLUSH_RETRYABLE_EXCEPTIONS", ()),
+                                patch.object(ce.time, "sleep")]
+                for item in patches:
+                    item.start()
+                try:
+                    row, flushed = ce_handlers._flush_context_efficiency(
+                        handler, self.WAVE, transfer_general=True)
+                    barrier = (ce_handlers.project_pending_context_efficiency(handler)
+                               if retryable else None)
+                finally:
+                    for item in patches:
+                        item.stop()
+                self.assertEqual(row["persistence"], "deferred" if retryable else "failed")
+                expected = f"PermissionError EACCES on {self.STORE_REL}"
+                self.assertEqual(flushed.error, expected)
+                self.assertEqual(row["error"], expected)
+                self.assertEqual((row["operation"], row["target"]),
+                                 ("transfer_general_rows", self.STORE_REL))
+                self._assert_path_free(row)
+                self._assert_path_free({"error": flushed.error})
+                if barrier is not None:
+                    # Out of scope for the new keys: the barrier row keeps its
+                    # documented key set and receives the path-free error only.
+                    pending = barrier["pending_general_transfer"]
+                    self.assertEqual(set(pending), {"persistence", "projection", "wave_id", "error"})
+                    self.assertEqual(pending["error"], expected)
+
+    def test_the_outer_flush_handler_names_its_step_without_an_absolute_path(self):
+        """AC-9: an OSError with an absolute filename caught by the outer handler."""
+        handler = self._wave()
+        store = ce.store_path(self.root.resolve())
+        for filename, error in ((store, f"PermissionError EACCES on {self.STORE_REL}"),
+                                (self.outside, "PermissionError EACCES")):
+            with self.subTest(filename=str(filename)):
+                failure = OSError(self.errno.EACCES, "Permission denied", str(filename))
+                with patch.object(self.live_ce, "reconcile_checkpoint_authority", side_effect=failure):
+                    row, flushed = ce_handlers._flush_context_efficiency(handler, self.WAVE)
+                self.assertIsNone(flushed)
+                self.assertEqual(row, {
+                    "persistence": "failed", "projection": "pending", "error": error,
+                    "wave_id": self.WAVE,
+                    "operation": "reconcile_checkpoint_authority", "target": self.STORE_REL,
+                })
+                self._assert_path_free(row)
+        # A step with no single file carries an operation and no target.
+        self.wave_md.write_text(f"{_TITLE}\n\nStatus: implementing\n", encoding="utf-8")
+        with patch.object(self.live_ce, "_derive_open_wave_stage", side_effect=ValueError("no stage")):
+            row, _ = ce_handlers._flush_context_efficiency(handler, self.WAVE)
+        self.assertEqual(row["operation"], "derive_wave_stage")
+        self.assertNotIn("target", row)
+
+
 class DeferredTransferBoundaryTests(unittest.TestCase):
     def test_oversized_gap_reason_prevents_healthy_publication(self):
         from test_context_efficiency import _metric

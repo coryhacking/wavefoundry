@@ -9,6 +9,7 @@ is the state a repository is in once the workflow has authored its pages.
 from __future__ import annotations
 
 import ast
+import json
 import os
 import shutil
 import subprocess
@@ -2168,3 +2169,143 @@ class TechdocsAuditAudienceTests(unittest.TestCase):
         flat = [token for argv in seen for token in argv]
         self.assertNotIn(hostile, flat)
         self.assertFalse([t for t in flat if t.startswith("--upload-pack")])
+
+
+class TechdocsAuditDegradeDescriptionTests(unittest.TestCase):
+    """Change 23z90: a degraded audit names the baseline ref and the documents.
+
+    The machine token list stays bare; the MCP diagnostic and both CLI notes take
+    their wording from one helper, and a caller-supplied ref reaches message text
+    only quoted, ASCII-escaped and truncated (a refused ref never does).
+    """
+
+    DOCS = "docs/ARCHITECTURE.md, docs/references/project-overview.md"
+
+    def setUp(self):
+        if shutil.which("git") is None:  # pragma: no cover
+            self.skipTest("git unavailable")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "repo"
+        self.root.mkdir()
+        _build(self.root)
+        self._git("init", "-q", ".")
+        self._git("config", "user.email", "test@example.invalid")
+        self._git("config", "user.name", "Test")
+
+    def _git(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True, text=True)
+
+    def _commit(self, *, startup_docs: bool) -> None:
+        self._git("add", "-A")
+        if not startup_docs:
+            self._git("rm", "-q", "--cached", *audit.STARTUP_ORDER_DOCS)
+        self._git("commit", "-q", "-m", "baseline")
+
+    def _mcp_message(self, compare_to: str = "") -> "tuple[dict, str]":
+        from wf_server.techdocs_handlers import wf_techdocs_audit_response
+
+        response = wf_techdocs_audit_response(self.root, compare_to)
+        self.assertEqual(response["status"], "ok", response)
+        messages = [d["message"] for d in response["diagnostics"] if d["code"] == "techdocs_audit_degraded"]
+        self.assertEqual(len(messages), 1, response["diagnostics"])
+        return response, messages[0]
+
+    def _cli(self, *args: str) -> subprocess.CompletedProcess:
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+        return subprocess.run(
+            [sys.executable, "-B", str(SCRIPTS_ROOT / "techdocs_audit.py"), "--root", str(self.root), *args],
+            capture_output=True, text=True, encoding="utf-8", env=env, timeout=120,
+        )
+
+    def test_the_mcp_message_names_the_ref_and_the_uncommitted_documents(self):
+        """AC-6: both startup-order documents uncommitted, mkdocs.yml present."""
+        self._commit(startup_docs=False)
+        response, message = self._mcp_message()
+        self.assertIn(f'baseline_untracked (baseline ref "HEAD": {self.DOCS})', message)
+        degraded = response["data"]["degraded"]
+        self.assertIn(audit.DEGRADE_BASELINE_UNTRACKED, degraded)
+        self.assertEqual(list(degraded), list(audit.audit_techdocs(self.root).degraded))
+        for token in degraded:
+            self.assertRegex(token, r"\A[a-z_]+\Z", "data.degraded keeps the bare tokens")
+
+    def test_the_cli_notes_name_a_missing_ref_in_both_modes_and_match_the_mcp_message(self):
+        """AC-7: a ref that does not exist reads as baseline_missing, and names the ref."""
+        self._commit(startup_docs=True)
+        description = f'baseline_missing (baseline ref "nosuchref": {self.DOCS})'
+        for mode in ((), ("--json",)):
+            with self.subTest(mode=mode):
+                result = self._cli("--compare-to", "nosuchref", *mode)
+                notes = [line for line in result.stderr.splitlines() if "NOTE degraded: baseline_missing" in line]
+                self.assertEqual(notes, [f"techdocs-audit: NOTE degraded: {description}"], result.stderr)
+                if mode:
+                    envelope = json.loads(result.stdout)
+                    self.assertIn(audit.DEGRADE_BASELINE_MISSING, envelope["degraded"])
+                    for token in envelope["degraded"]:
+                        self.assertRegex(token, r"\A[a-z_]+\Z")
+        _response, message = self._mcp_message("nosuchref")
+        self.assertIn(description, message)
+
+    def test_a_refused_ref_is_never_echoed(self):
+        """AC-7.1: compare_to_refused entries carry no degrade, so the ref is not read."""
+        self._commit(startup_docs=True)
+        hostile = "HEAD\x1bREFUSEDMARK"
+        self.assertTrue(audit._ref_refused(hostile))
+        for mode in ((), ("--json",)):
+            with self.subTest(mode=mode):
+                result = self._cli("--compare-to", hostile, *mode)
+                self.assertIn("NOTE degraded: compare_to_refused", result.stderr)
+                self.assertNotIn("REFUSEDMARK", result.stderr)
+                self.assertNotIn("\x1b", result.stderr)
+        _response, message = self._mcp_message(hostile)
+        self.assertIn(audit.DEGRADE_COMPARE_TO_REFUSED, message)
+        self.assertNotIn("REFUSEDMARK", message)
+
+    def test_an_accepted_ref_is_rendered_escaped_and_truncated(self):
+        """AC-7.2: _ref_refused bounds neither length nor non-ASCII control characters."""
+        limit = audit.DEGRADE_REF_DISPLAY_MAX
+        control = "caf\u0085‮"
+        long_ref = control + "x" * (limit * 3)
+        for ref in (control, long_ref):
+            self.assertFalse(audit._ref_refused(ref))
+        audience = {
+            "docs/ARCHITECTURE.md": {"baseline_ref": long_ref, "degrade": audit.DEGRADE_BASELINE_MISSING},
+            "docs/references/project-overview.md": {"baseline_ref": long_ref,
+                                                    "degrade": audit.DEGRADE_BASELINE_MISSING},
+        }
+        text = audit.describe_degrade(audit.DEGRADE_BASELINE_MISSING, audience)
+        self.assertTrue(text.isascii(), text)
+        self.assertNotIn(long_ref, text)
+        self.assertNotIn("\u0085", text)
+        self.assertIn('"caf\\u0085\\u202e', text)
+        body = text.split('"')[1]
+        self.assertLessEqual(len(body), limit)
+        self.assertIn('"...: ' + self.DOCS, text)
+
+        short = audit.describe_degrade(
+            audit.DEGRADE_BASELINE_UNTRACKED,
+            {"docs/ARCHITECTURE.md": {"baseline_ref": control, "degrade": audit.DEGRADE_BASELINE_UNTRACKED}},
+        )
+        self.assertEqual(short, 'baseline_untracked (baseline ref "caf\\u0085\\u202e": docs/ARCHITECTURE.md)')
+
+        # A cut never leaves half an escape: the limit falls inside a \uXXXX unit.
+        split = audit.describe_degrade(
+            audit.DEGRADE_BASELINE_MISSING,
+            {"docs/ARCHITECTURE.md": {"baseline_ref": "a" * (limit - 3) + "\u0085" * 4,
+                                      "degrade": audit.DEGRADE_BASELINE_MISSING}},
+        )
+        self.assertIn('"' + "a" * (limit - 3) + '"...', split)
+
+    def test_only_entries_with_a_degrade_field_are_described(self):
+        refused = {rel: {"checked": False, "baseline_ref": "SECRETREF", "baseline_identical": False,
+                         "preserved": None, "missing_headings": []} for rel in audit.STARTUP_ORDER_DOCS}
+        for token in (audit.DEGRADE_COMPARE_TO_REFUSED, *audit.AUDIENCE_DEGRADE_TOKENS):
+            self.assertEqual(audit.describe_degrade(token, refused), token)
+        described = {"docs/ARCHITECTURE.md": {"baseline_ref": "HEAD", "degrade": audit.DEGRADE_GIT_UNAVAILABLE}}
+        # Other tokens keep their rendering even when an entry carries a degrade.
+        self.assertEqual(audit.describe_degrade(audit.DEGRADE_MKDOCS_ABSENT, described), audit.DEGRADE_MKDOCS_ABSENT)
+        self.assertEqual(audit.describe_degrade(audit.DEGRADE_BASELINE_MISSING, described),
+                         audit.DEGRADE_BASELINE_MISSING)
+        self.assertEqual(audit.describe_degrade(audit.DEGRADE_GIT_UNAVAILABLE, described),
+                         'git_unavailable (baseline ref "HEAD": docs/ARCHITECTURE.md)')
+        self.assertEqual(audit.describe_degrade(audit.DEGRADE_GIT_UNAVAILABLE, None), audit.DEGRADE_GIT_UNAVAILABLE)

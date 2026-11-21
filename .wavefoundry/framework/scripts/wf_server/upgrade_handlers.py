@@ -1225,7 +1225,7 @@ def wf_upgrade_response(
     """Invoke upgrade_wavefoundry.py for the requested phase (12r0b).
 
     mode values:
-      "dry_run" — print the full upgrade plan + hook inventory (seed diffs,
+      "dry_run" — print the full upgrade plan + hook inventory (seed change counts, a path to the full diffs,
           extension module source, convention hook scripts) without modifying
           upgrade state. Incoming migration previews may write named preview
           logs. Use this before the real upgrade to review what
@@ -1244,7 +1244,8 @@ def wf_upgrade_response(
           Use when update_index is insufficient (e.g. index corruption, or
           a chunker bump that the auto-escalation did not catch).
       "cleanup" — phase 5: remove upgrade lock + print operator summary.
-      "resume_after_gate" — rebuild and persist current review-status projection,
+      "resume_after_gate" — refresh stale review-status blocks from the ledgers
+          of non-closed declared containers,
           then re-run docs-gardener + docs-lint against the already-extracted
           tree (no extract/render/prune). Recovers a retained lock whose
           failed_phase is "docs_gate" or "post_docs_gate" (including the

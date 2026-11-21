@@ -6,6 +6,24 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Fresh upgrades and dry runs check live documents before extraction. Repair a `docs_preflight_failed` result and retry with the command shown. Closed history and secrets findings cannot block preflight. Unknown paths or status permit the upgrade to continue unless another finding identifies a live error. The check has no override for an installed-linter false positive on a live document. The final docs gate can retain the lock for an older problem or a new one. The incoming hooks provide the check, its control-character scan and its dry-run verdict on the installing upgrade. An older runner still prints full seed diffs and can end its preview with the old invitation after the hook reports refusal. On the next upgrade, the new runner reports the verdict in the final line and summary, gives the full resume command, and saves complete diffs in `.wavefoundry/logs/upgrade-seed-diffs.log` or `.wavefoundry/logs/upgrade-seed-diffs.preview.log`. Wave 23z46 / 23zia.
+
+- A wave’s Review Evidence table shows `Signoff | Phase | State | Why | Next action`. A specialist who approved the plan now has a readiness row above the delivery row. The installing upgrade refreshes non-closed tables before its docs gate and does the same on resume. Wave 23z46 / 23zl1.
+- The blocking `markdown_control_character` check flags C0 controls except TAB, LF and CR, plus DEL and all C1 controls in live Markdown. Closed or completed record folders, the record archive and the memory archive are exempt. A pre-existing control can stop the installing upgrade at its docs gate, which runs the extracted linter. When preflight loads the incoming scan and confirms the document is live, it reports the finding before extraction. Run `wf docs-lint` with the new linter, or use the reported file, line and column to delete the character or replace it with visible text such as `U+001B`. Wave 23z46 / 23zl2.
+
+- Fresh installs ask the operator before guarded edits and verify the install gates are closed afterward. Hook messages identify the gate and how to open it. Rendering also gives an existing root `CLAUDE.md` its `@AGENTS.md` import when the project has no Guru role. Wave 23z46 / 23zib.
+- Review, wave close and change close name every security candidate that was accepted with a gate factor still unknown. A finding shown unreachable with an unverified factor is reported as the advisory `security_candidate_shown_unreachable`, with its promotion trigger and how to reconsider it. `wf_close_change` carries the security advisories that Review and wave close return, including `security_candidate_predates_rule` and `security_candidate_waived`, on a successful `dry_run` or `create`. No gate outcome changes: nothing that passed is refused and nothing that was refused passes. A caller that compares the exact diagnostic list of a clean Review or close sees the new advisory. Wave 23z45 / 23z8z.
+- Two failure messages name what the operator needs to act. A failed or deferred lifecycle telemetry row that reports an exception names the failed `operation`. If the step has one file, `target` gives its repository-relative path. The `error` contains no absolute path. A degraded `wf_techdocs_audit` and the `wf techdocs-audit` notes name the baseline ref and the documents behind `baseline_untracked`, `baseline_missing`, `git_unavailable` and `working_tree_missing`; the `degraded` token list is unchanged. Paths use forward slashes on Windows, macOS, Linux and WSL2. Wave 23z45 / 23z90.
+
+### Fixed
+
+- A distribution whose rename also changes the words in upstream's file names needs no planning-name pins. Under a custom item or container name, each of the five planning prompts gets its fresh default name from its role and the profile's nouns, so the framework imports and a fresh install offers the right shortcut for each prompt. Registered names, explicit overrides and the names existing distributions get are unchanged. Wave 23z45 / 23z8y.
+- Setup, surface rendering and record writes no longer fail with `PermissionError` on native Windows with Python 3.13 or later. Python 3.13 added `os.fchmod` on Windows, where the call is refused; the framework now skips setting a mode on a descriptor there, as it did on Python 3.12 and earlier. A requested read-only mode is not applied on native Windows. macOS, Linux and WSL2 are unchanged. Wave 23z45 / 23z47.
+
 ## [1.46.0] - 2026-11-20
 
 ### Added

@@ -1711,24 +1711,22 @@ def derive_action_required(record: Mapping[str, Any]) -> bool:
     )
 
 
-def unsettled_security_factors(record: Mapping[str, Any]) -> tuple[str, ...]:
-    """The security gate factors that leave a real record unsettled, in gate order.
-
-    Wave 22upa (change 22ubf): `attacker_reachability` or `authority_delta` is
-    `unverified`, whatever the rejection basis and whatever the `authority_domain`.
-    Change 230k6: `observable_impact` or `containment` is `unverified` on a record whose
-    `authority_domain` is anything but `none`. Empty for a finding shown unreachable
-    (`unsupported_reachability` with `supported_reachability: false`) and for any record
-    that is not real. `authority_domain` alone never triggers it, and with a `none`
-    domain an unknown impact or containment is a correctness-side unknown.
-    """
-    if record.get("validation_status") != "real":
-        return ()
-    if (
+def _shown_unreachable(record: Mapping[str, Any]) -> bool:
+    """True when a record's judgment records the finding as shown unreachable."""
+    return (
         record.get("rejection_basis") == "unsupported_reachability"
         and record.get("supported_reachability") is False
-    ):
-        return ()
+    )
+
+
+def _unverified_security_gate_factors(record: Mapping[str, Any]) -> tuple[str, ...]:
+    """The security gate factors a record leaves `unverified`, in gate order.
+
+    The one factor rule (change 23z8z): `attacker_reachability` or `authority_delta`
+    under any `authority_domain`, and `observable_impact` or `containment` when
+    `authority_domain` is not `none`. It reads the factors only: the caller decides
+    whether the record is real and whether the shown-unreachable exemption applies.
+    """
     factors = [
         field
         for field in SECURITY_GATE_FACTORS_ANY_DOMAIN
@@ -1741,6 +1739,26 @@ def unsettled_security_factors(record: Mapping[str, Any]) -> tuple[str, ...]:
             if record.get(field) == "unverified"
         )
     return tuple(factors)
+
+
+def unsettled_security_factors(record: Mapping[str, Any]) -> tuple[str, ...]:
+    """The security gate factors that leave a real record unsettled, in gate order.
+
+    Wave 22upa (change 22ubf): `attacker_reachability` or `authority_delta` is
+    `unverified`, whatever the rejection basis and whatever the `authority_domain`.
+    Change 230k6: `observable_impact` or `containment` is `unverified` on a record whose
+    `authority_domain` is anything but `none`. Empty for a finding shown unreachable
+    (`unsupported_reachability` with `supported_reachability: false`) and for any record
+    that is not real. `authority_domain` alone never triggers it, and with a `none`
+    domain an unknown impact or containment is a correctness-side unknown. Change 23z8z:
+    the exemption wraps the shared factor rule, which `security_candidate_state` also
+    applies to a head shown unreachable, so the two lists cannot drift.
+    """
+    if record.get("validation_status") != "real":
+        return ()
+    if _shown_unreachable(record):
+        return ()
+    return _unverified_security_gate_factors(record)
 
 
 def security_factor_unsettled(record: Mapping[str, Any]) -> bool:
@@ -2074,7 +2092,12 @@ def security_candidate_state(
     waiver a reconsideration superseded. ``waived``: the operator closed it
     (`operator_waived`), with the waiver and the operator identity from its linked
     evidence. ``predates``: a `maybe_later` or `dont_do_later` head written before the rule existed that
-    would now derive `security_unsettled`. Reads stored state; never re-judges a head.
+    would now derive `security_unsettled`. ``shown_unreachable`` (change 23z8z): a real head
+    in none of those classes whose judgment records it as shown unreachable
+    (`unsupported_reachability` with `supported_reachability: false`) while at least one
+    gate factor is `unverified` under the rule `unsettled_security_factors` applies to a
+    head that is not exempt; it is accepted, holds no signoff and is reported as an
+    advisory with its trigger. Reads stored state; never re-judges a head.
     """
 
     rows = tuple(records)
@@ -2086,6 +2109,7 @@ def security_candidate_state(
     unsettled: list[dict[str, Any]] = []
     waived: list[dict[str, Any]] = []
     predates: list[dict[str, Any]] = []
+    shown_unreachable: list[dict[str, Any]] = []
     # Change 230k6: a reconsideration supersedes an operator close without erasing it; the
     # latest superseded waiver of each finding stays named beside its new head.
     superseded_waivers: dict[str, str] = {}
@@ -2134,10 +2158,20 @@ def security_candidate_state(
                 "disposition": str(head.get("disposition")),
                 "unverified_factors": unsettled_security_factors(head),
             })
+        elif head.get("validation_status") == "real" and _shown_unreachable(head):
+            factors = _unverified_security_gate_factors(head)
+            if factors:
+                shown_unreachable.append({
+                    "finding_id": str(finding_id),
+                    "promotion_trigger": trigger,
+                    "disposition": str(head.get("disposition")),
+                    "unverified_factors": factors,
+                })
     return {
         "unsettled": tuple(unsettled),
         "waived": tuple(waived),
         "predates": tuple(predates),
+        "shown_unreachable": tuple(shown_unreachable),
     }
 
 
@@ -2442,37 +2476,19 @@ def _guided_repair_cycle(records: Iterable[Mapping[str, Any]]) -> int:
     return highest + 1 if highest in completed else highest
 
 
-_RECORD_SECTION_START = re.compile(r"(?m)^ {0,3}#{2,6}(?=[ \t\r]|$)")
-_STATUS_HEADER = re.compile(r"(?im)^status:[ \t]*(.*?)[ \t\r]*$")
-_STATUS_VALUE = re.compile(r"[a-zA-Z0-9-]+")
-
-
-def wave_status_match(text: str | None) -> re.Match[str] | None:
-    """Find the sole visible status in the leading metadata, retaining source offsets."""
-    if not text:
-        return None
-    section = _RECORD_SECTION_START.search(text)
-    header = text[:section.start()] if section else text
-    # Ordinary records need only their short header. An apparent heading
-    # inside an example can hide the actual end until the example closes.
-    if any(marker in header for marker in ("<!--", "```", "~~~")):
-        lines = change_doc_checklist.comment_visible_lines(text.split("\n"))
-        fenced = change_doc_checklist.fenced_line_flags(lines)
-        header = "\n".join(" " * len(line) if hidden else line for line, hidden in zip(lines, fenced))
-        section = _RECORD_SECTION_START.search(header)
-        if section:
-            header = header[:section.start()]
-    rows = list(_STATUS_HEADER.finditer(header))
-    if len(rows) != 1:
-        return None
-    row = rows[0]
-    return row if _STATUS_VALUE.fullmatch(row.group(1)) else None
+wave_status_match = change_doc_checklist.wave_status_match
 
 
 def wave_record_closed(wave_text: str | None) -> bool:
     """Only an unambiguous closed header exempts a record from current review."""
     status = wave_status_match(wave_text)
     return status is not None and status.group(1).lower() == "closed"
+
+
+def wave_record_historical(wave_text: str | None) -> bool:
+    """Identify closed and completed records from their visible status header."""
+    status = wave_status_match(wave_text)
+    return status is not None and status.group(1).lower() in {"closed", "completed"}
 
 
 def receipt_change_ids(receipt: Mapping[str, Any] | None) -> frozenset[str] | None:
@@ -3204,8 +3220,8 @@ def review_status_human_table(
     wave_closed: bool = False,
 ) -> str:
     lines = [
-        "| Signoff | State | Why | Next action |",
-        "| --- | --- | --- | --- |",
+        "| Signoff | Phase | State | Why | Next action |",
+        "| --- | --- | --- | --- | --- |",
     ]
     records = tuple(records)
     required_signoff_keys = tuple(required_signoff_keys)
@@ -3213,25 +3229,28 @@ def review_status_human_table(
         records, required_signoff_keys, wave_closed=wave_closed
     )
     if not status_rows:
-        lines.append("| — | — | — | — |")
-    for row in status_rows:
-        lines.append(
-            "| "
-            + " | ".join(
-                _markdown_cell(row[name])
-                for name in ("signoff_key", "state", "why", "next_action")
-            )
-            + " |"
+        lines.append("| — | — | — | — | — |")
+    readiness_claims = _approval_rows(records, approval_phase="readiness")
+    readiness_keys = [
+        key for key in required_signoff_keys
+        if _specialist_readiness_identity(key, key, "readiness")
+        and f"approval:{key}" in readiness_claims
+    ]
+    readiness_rows = {
+        row["signoff_key"]: row for row in review_status_rows(
+            records, readiness_keys, approval_phase="readiness", wave_closed=wave_closed
         )
-    # The main table defaults specialist rows to delivery. Preserve the distinct
-    # readiness N/A account without claiming a delivery approval or a detected defect.
-    for row in review_status_rows(
-        records, required_signoff_keys, approval_phase="readiness",
-        wave_closed=wave_closed,
-    ):
-        if "known_bad_not_applicable_reason" in row:
-            lines.append("\nReadiness " + _markdown_cell(row["signoff_key"]) + ": "
-                         + _markdown_cell(row["why"]) + ".")
+    } if readiness_keys else {}
+
+    def append_row(row: Mapping[str, Any], phase: str) -> None:
+        cells = row["signoff_key"], phase, row["state"], row["why"], row["next_action"]
+        lines.append("| " + " | ".join(_markdown_cell(value) for value in cells) + " |")
+
+    for row in status_rows:
+        key = row["signoff_key"]
+        if key in readiness_rows:
+            append_row(readiness_rows[key], "readiness")
+        append_row(row, _council_approval_phase(key))
     return "\n".join(lines)
 
 
@@ -3851,12 +3870,15 @@ def render_review_status_projection(
     text: str,
     records: Iterable[Mapping[str, Any]],
     required_signoff_keys: Iterable[str],
+    *,
+    owned_block_only: bool = False,
 ) -> str:
     """Replace the bounded current review-status block.
 
     Historical transitions remain solely in ``events.jsonl``.  Exact generated
     approval/withdrawal lines are removed only for signoff keys represented by
-    typed ledger state; placeholders and human prose are preserved.
+    typed ledger state. Upgrade and staleness checks select owned_block_only
+    to leave surrounding record bytes untouched, including signoff examples.
     """
 
     rows = tuple(dict(record) for record in records)
@@ -3871,16 +3893,31 @@ def render_review_status_projection(
     end_count = body.count(REVIEW_STATUS_MARKER_END)
     if begin_count != end_count or begin_count > 1:
         raise ValueError("Review Evidence status markers are malformed or duplicated")
+    owned = (
+        f"{REVIEW_STATUS_MARKER_BEGIN}\n"
+        f"{review_status_human_table(rows, keys, wave_closed=wave_record_closed(text))}\n"
+        f"{REVIEW_STATUS_MARKER_END}"
+    )
     if begin_count:
         begin = body.find(REVIEW_STATUS_MARKER_BEGIN)
         end = body.find(REVIEW_STATUS_MARKER_END, begin)
         if end < begin:
             raise ValueError("Review Evidence status markers are out of order")
+        if owned_block_only:
+            start = matches[0].start("body") + begin
+            stop = matches[0].start("body") + end + len(REVIEW_STATUS_MARKER_END)
+            if text.startswith("\r\n", start + len(REVIEW_STATUS_MARKER_BEGIN)):
+                owned = owned.replace("\n", "\r\n")
+            return text[:start] + owned + text[stop:]
         body = (
             body[:begin].rstrip()
             + "\n"
             + body[end + len(REVIEW_STATUS_MARKER_END):].lstrip("\n")
         )
+    elif owned_block_only:
+        start = matches[0].start("body")
+        newline = "\r\n" if text[:start].endswith("\r\n") else "\n"
+        return text[:start] + newline + owned.replace("\n", newline) + newline + newline + text[start:]
     typed_keys = {
         canonical_signoff_key(
             str(record.get("claim_id", "")).removeprefix("approval:")
@@ -3901,11 +3938,6 @@ def render_review_status_projection(
         )
 
     body = _GENERATED_SIGNOFF_LINE_RE.sub(preserve_generated, body).strip("\r\n")
-    owned = (
-        f"{REVIEW_STATUS_MARKER_BEGIN}\n"
-        f"{review_status_human_table(rows, keys, wave_closed=wave_record_closed(text))}\n"
-        f"{REVIEW_STATUS_MARKER_END}"
-    )
     # ``_REVIEW_EVIDENCE_SECTION_RE`` consumes the heading's terminating LF.
     # One leading LF therefore produces exactly one Markdown blank line.
     new_body = "\n" + owned

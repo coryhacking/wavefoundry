@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-19
+Last verified: 2026-11-21
 
 ## Allowed Dependencies
 
@@ -34,6 +34,9 @@ Controlled role/lifecycle document migration remains renderer-owned. Its two exi
 | Handler siblings → `wf_server/server_impl.py` | No module-top import of the composition root or another handler sibling. Shared helpers resolve through function-local public imports; every handler sibling participates in purge-and-reimport reload. Registration remains in the composition root. | `test_handler_modules.py` checks import boundaries, re-export identity, name resolution, packaging and actual scratch reload; import-derived purge coverage is checked by `test_lifecycle_gates_structure.py`. |
 | Declared extension modules → `wf_server/server_impl.py` | Registration stays in the composition root except for modules declared in `mcp_tool_extensions`, which register against a staging surface; `server_impl` imports them by declared name during registration (not at module top) and installs their tools before the prefix contract and `MIDDLEWARE`; aliases, core-behaviour aliases and hidden names (wave `1z8oz`) are applied after the chain, inside the same fail-closed block. `mcp_tool_roster` reads `mcp_tool_extensions` (the first import dependency between flat siblings, recorded in `1ye5y-adr`). | `test_extension_tool_modules.py` drives build, reload and refusal through the real server in a scratch scripts tree. |
 | `render_agent_surfaces.py` → `mcp_tool_extensions.py` | The second import dependency between flat siblings (wave `1zv8c`), beside `mcp_tool_roster` → `mcp_tool_extensions`: the agent-surface renderer imports the stdlib-only declaration module at module top and reads `EXTENSION_SKILLS` through the module attribute at call time (never a `from` import), so a test base declaration and the upgrade old-code window see the current module, and an old module without the constant reads as empty. The edge points one way: `mcp_tool_extensions` imports no framework module. Syntax validation stays in that stdlib-only module; complete effective core/retired skill-name collisions stay in the renderer, which owns the registry. No reverse import or second registry is added. `EXTENSION_SKILLS` is read only by the renderer and is never fatal to the server: it is outside `declared()`, `declaration_problems` and `validate_declaration`, and `_skill_output_destinations`, which `preflight_agent_surface_paths` calls, validates it before the first write of any render. | `test_declared_extension_skills.py` (byte-identical tree on refusal for both render entry points, call-time read, skills-only declaration keeps `declared()` false) |
+| Incoming `post_preflight` → installed `docs_lint.py` | Run a read-only child against the unchanged target on a fresh upgrade. | Only a documented live path can refuse the upgrade. |
+| Incoming `post_preflight` → packaged Markdown control-character scan | Run the incoming Python package in an isolated child. | Installed and incoming dependencies coexist without replacing the parent’s imports. |
+| `upgrade_extensions.pre_docs_gate` → extracted `review_policy_upgrade.refresh_review_status_blocks` | A child process imports the incoming renderer before docs-lint. The old runner may still hold the installed renderer in memory. Resume calls the extracted helper directly. | The live record supplies the display labels and its ledger supplies the approval states. Closed records keep the table they had at closure. |
 | `upgrade_extensions.py` → `mcp_tool_extensions.py` and the declared journal hook's helper module | Waves `1zyb3`, `206is`: `pre_docs_gate` selects `legacy_cutover` (absent/shipped default) or literal `journals_present` statically, refusing invalid/nonliteral/conditional/duplicate bindings before declaration execution or dependent migration. Unknown source skips later-version execution with uncertainty; the original pre-1.15 validated apply-time fallback remains. Only contained direct regular singly linked Markdown journals excluding README qualify for opt-in, on any version; the built-in migration remains independently pre-1.15. Selected declaration validation and exact helper-file loading/call run in a journal-only incoming import context: incoming top-level modules/packages and descendants shadow old cache entries, incoming path precedes old paths, and prior module identities/path are restored with new matching modules removed on success/failure. Preview executes no declaration/hook/distribution helper. Journal declarations remain outside MCP `declared()`; the pure validator preserves third positional `helper_modules`. At most one hook call per invocation; retries require an idempotent hook, with no exactly-once-across-crashes guarantee or rollback of hook-owned partial effects. `mcp_tool_extensions` imports no framework module. See [journal flow](data-and-control-flow.md#upgrade-journal-hook-selection-and-migration-wave-206is) and the repository MCP surface contract's static decision table. | Existing `JournalDeclarationMigrationTests` cover the legacy contract. New `206is` static-decision, source/version, preview, failure/retry and actual older-runner cached dependency/restoration controls in `test_upgrade_wavefoundry.py` and `test_upgrade_protocol.py` are the integration qualification targets; this row alone does not claim those checks passed. |
 | MCP server → target repo | Must never write outside configured allowed roots without mutation tool approval | Inferred from AGENTS.md and seed-050 safety rules |
 | `build_pack.py` → VERSION | Must stamp VERSION before writing zip; VERSION must match zip basename date+letter | Verified from build_pack.py behavior described in seeds |
@@ -153,7 +156,9 @@ message, frozen oracle and retired-name sites. When the waves root holds folders
 but none contains the profile's record file, docs-lint, `wf_list_waves` and
 `wf_current_wave` report the advisory `record_file_not_found`.
 
-It also owns the names of the tier-named lifecycle prompts and optional Plan arc command (wave 1zyb4):
+### Lifecycle prompt names
+
+The vocabulary profile owns the names of the tier-named lifecycle prompts and optional Plan arc command (wave 1zyb4):
 a fixed `DEFAULT_PROMPT_NAMES` table (slug, shortcut and aliases per prompt)
 overlaid with the fork-edited `PROMPT_NAME_OVERRIDES` into `PROMPT_NAMES`, read
 through its helpers (`prompt_doc`, `agent_prompt_doc`, `skill_name`, `shortcut`,
@@ -178,7 +183,10 @@ default names when their manifest still registers them.
 A distribution that renames the item or container keeps the five planning names already
 registered in each repository. A render lists the names it kept. On a fresh installation
 the planning-document and container nouns determine the default names. For example, a
-distribution with item Wave and container Set gets `add-wave-doc-to-set`. To change a
+distribution with item Wave and container Set gets `add-wave-doc-to-set`. Each fresh
+default name comes from its key's role (the item alone, or the item in the container)
+and the profile's nouns. It does not depend on the earlier default slugs, so a
+distribution whose rename rewrites those slugs gets the same names. To change a
 registered name deliberately, set that key in `PROMPT_NAME_OVERRIDES`. A custom profile
 can set a shortcut or aliases while keeping its registered slug. Explicit slugs retain
 the usual conflict checks and interruption recovery. The tool and argument identifiers
@@ -332,5 +340,7 @@ separate from the storage conversion receipt; incoming code cannot protect
 already-loaded unprotected hosts without the confirmed fresh-CLI handoff.
 
 The incoming `upgrade_extensions.post_preflight` gates protocol compatibility first, then privately loads the standard-library-only `review_plan_prompt_check` from the verified pack; it does not load the incoming renderer against installed siblings. The renderer shares the exact classifier/profile table but keeps its contained identity reader. Prompt refusals precede checkpoint, extraction and policy/wave mutation. The current runner releases its existing outer lifecycle/publication transaction on the hook's exit-3 path and cleans only its separately verified staging copy; no second transaction exit is introduced. The checker participates in the framework module roster and setup source identity without becoming a mandatory protocol-census module.
+
+The hook also invokes the installed docs linter as a read-only child with bytecode disabled and calls the incoming Markdown control-character scan in a separate child. The incoming scan has package dependencies. Its loader isolates those imports from the installed runner.
 
 Index-guard retention consumes the existing `sqlite_storage_migration.restart_command` API without changing storage restart semantics. `contained_files` owns descriptor reads and identity-checked deletion; the upgrade checkpoint owns the single recovery archive's root/token/target/locator/identity/hash binding and terminal lifetime. The resume resolver validates this binding before loading archive code and never replaces it with discovery. Terminal cleanup finalization precedes archive resolution and index recovery backstops, requires completed fatal obligations, and uses the existing lifecycle/publication transaction rather than introducing another archive/cache service. Exact reviewed ownership comparisons participate in the existing identity-boundary census; unlisted comparisons still fail that census.

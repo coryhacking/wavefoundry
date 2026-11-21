@@ -258,13 +258,28 @@ DEFAULT_PROMPT_NAMES: "dict[str, dict[str, object]]" = {
 # rendered under the earlier default has no ``prompt_names`` entry for the key,
 # and its manifest still registers the earlier doc: that registration is the
 # authority to move it (``applied_prompt_slugs``). These are not retired names;
-# a distribution may use one for another key.
+# a distribution may use one for another key. Naming that earlier doc is this
+# table's only job: no default name is derived from the words of these slugs
+# (see PLANNING_PROMPT_ROLES).
 EARLIER_DEFAULT_PROMPT_SLUGS: "dict[str, str]" = {
     "plan-change": "plan-change",
     "add-change-to-wave": "add-change-to-wave",
     "remove-change-from-wave": "remove-change-from-wave",
     "implement-change": "implement-change",
     "close-change": "close-change",
+}
+# The role of each planning prompt, for a custom planning vocabulary: the
+# phrase its fresh default name is built from, with ``{item}`` standing for
+# ``planning_noun()`` and ``{container}`` for ``tier_noun("container")``. The
+# keys are the EARLIER_DEFAULT_PROMPT_SLUGS keys. A phrase holds a verb, a
+# preposition and placeholders only, never a tier name, so a distribution's
+# source rewrite of the tier words leaves every phrase as it is.
+PLANNING_PROMPT_ROLES: "dict[str, str]" = {
+    "plan-change": "plan {item}",
+    "add-change-to-wave": "add {item} to {container}",
+    "remove-change-from-wave": "remove {item} from {container}",
+    "implement-change": "implement {item}",
+    "close-change": "close {item}",
 }
 # Framework prompt slugs a renamed prompt may not take: the untiered and
 # product-named prompts, the agent bodies without a public twin, the retired
@@ -317,7 +332,13 @@ def custom_planning_vocabulary() -> bool:
 
 
 def _custom_planning_defaults(manifest: dict) -> dict:
-    """Names for the five renamed prompts in one distribution checkout."""
+    """Names for the five renamed prompts in one distribution checkout.
+
+    A key the manifest registers or records keeps that name. Any other key is
+    named from its role (``PLANNING_PROMPT_ROLES``) and the profile's planning
+    and container nouns; no slug is read to build it, so the names hold
+    whatever a distribution's rename does to the earlier default slugs.
+    """
     applied = applied_prompt_slugs(manifest.get("prompt_names"), registered_prompt_docs(manifest))
     entries = manifest.get("public_prompt_surface")
     if not isinstance(entries, list):
@@ -328,7 +349,7 @@ def _custom_planning_defaults(manifest: dict) -> dict:
     }
     recorded = manifest.get("prompt_names") or {}
     defaults = {}
-    for key, earlier in EARLIER_DEFAULT_PROMPT_SLUGS.items():
+    for key in EARLIER_DEFAULT_PROMPT_SLUGS:
         slug = applied[key]
         entry = registered.get(f"docs/prompts/{slug}.prompt.md")
         if entry is not None or key in recorded:
@@ -344,9 +365,7 @@ def _custom_planning_defaults(manifest: dict) -> dict:
                 if "aliases" not in entry and isinstance(row["shortcut"], str):
                     row["aliases"] = tuple(alias for alias in aliases if alias.casefold() != row["shortcut"].casefold())
         else:
-            words = [planning_noun() if word == "change" else tier_noun("container")
-                     if word == "wave" else word for word in earlier.split("-")]
-            phrase = " ".join(words)
+            phrase = PLANNING_PROMPT_ROLES[key].format(item=planning_noun(), container=tier_noun("container"))
             row = dict(slug="-".join(phrase.split()), shortcut=phrase[:1].upper() + phrase[1:], aliases=())
         defaults[key] = row
     return defaults

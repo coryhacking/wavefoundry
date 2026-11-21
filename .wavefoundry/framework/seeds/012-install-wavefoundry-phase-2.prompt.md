@@ -33,6 +33,14 @@ If the return is `{status: "checked_but_missing", ...}`, Phase 1 didn't actually
 
 If the return is `{status: "lint_errors", ...}`, its `errors` list contains only blocking findings; fix them before proceeding. The companion `pending_lint` object may list expected absences while Phase 2 seed rows remain pending and does not block this row.
 
+### 2.1.5 — Request approval for guarded edits (instruction)
+
+Ask the operator for permission to use `framework_edit_allowed` if Phase 2 will edit `AGENTS.md` or `docs/prompts/` and an enabled host guards these paths. The affected hosts are Claude, Copilot and Cursor. With Windsurf alone, mark this row `[~]` because its hook guards only seeds. Also mark it `[~]` when no enabled hook guards a planned edit.
+
+Call `wf_gate_status()`, describe the files you need to edit, ask the operator for permission, and wait for their decision. If they decline, stop and report which work remains. With approval, check the status again. If the gate is closed, the installer opens it with `wf_open_gate(gate="framework_edit_allowed")`. The CLI fallback is `./.wavefoundry/bin/wf gate open framework_edit_allowed` on POSIX and `.\.wavefoundry\bin\wf.cmd gate open framework_edit_allowed` on Windows.
+
+If the operator already opened the gate for this install, use it once they confirm who will close it. If another session owns it, wait until its owner closes it. Record the operator's decision and who will close the gate beside row 2.1.5. Never edit `.wavefoundry/guard-overrides.json` directly or use shell writes to bypass a hook. If work stops before row 2.13.7, have the designated owner close the gate and verify closure. On resume, obtain fresh permission before the next guarded edit even if row 2.1.5 already shows `[x]`. Run `wf_audit_install()` after updating the row.
+
 ### 2.2 — Capture legacy baseline wave if applicable (seed-110 / conditional)
 
 **Action:** If legacy wave/spec/change corpora are detected, read `seed-110` and capture the reserved closed baseline at `docs/waves/00000 wave-zero-plans-and-specs/wave.md`. If no legacy corpora apply, mark this row `[~]`.
@@ -211,6 +219,10 @@ Answer each explicitly. A "no, this project has no admin role" is a valid answer
 **Action:** Run **Refresh TechDocs** (`docs/prompts/refresh-techdocs.prompt.md`, rendered at step 2.9 from `seed-178`; the `wf-techdocs` skill is the same workflow). Its first step runs `wf_techdocs_baseline` over MCP (CLI fallback: the dispatcher `./.wavefoundry/bin/wf techdocs-baseline`, native Windows `.\.wavefoundry\bin\wf.cmd techdocs-baseline`), which generates the root `catalog-info.yaml`, the root `mkdocs.yml`, and `docs/index.md` **missing-only**, each with a one-line generated-by stamp, and only when `docs/references/project-overview.md`, `docs/ARCHITECTURE.md`, and `docs/prompts/index.md` exist (all three are Phase 2 artifacts, which is why this row sits at the end of the phase); existing files are preserved byte-for-byte, and a mixed trio (some generated, some project-owned) prints one `techdocs-baseline: WARNING` naming the project-owned files. Steps 2 and 3 of the workflow author the published pages with the technical-writer-coordinated collaboration and validate through Wavefoundry's Python tools. Wavefoundry does not render or preview the downstream site; rendering and publication are owned by the operator's chosen Backstage/CI environment. Mark this row `[~]` when the precondition is unmet (for example row 2.6 was `[~]`) or when the operator declines TechDocs for this project; nothing runs by accident, the command is explicit and missing-only. The operator follow-up checklist (owner, catalog-unique name, rendering/publication ownership, production CI plus storage, optional edit links, files intentionally not generated) lives in that prompt; carry it into the step 2.15 summary.
 
 **Expected artifact:** `catalog-info.yaml` at the repository root (plus `mkdocs.yml` and `docs/index.md`); when the row is `[~]`, none.
+
+### 2.13.7 — Verify the install gates are closed (verify)
+
+Use the ownership note beside row 2.1.5. Close the gates assigned to the installer with `wf_close_gate` and ask the operator to close any they kept. Call `wf_gate_status()` and verify every gate opened for this install is closed. Leave gates that belong to other work with their owners. Record the result, mark the row complete and call `wf_audit_install()`.
 
 ### 2.14 — Remove the consumed bootstrap file (instruction)
 

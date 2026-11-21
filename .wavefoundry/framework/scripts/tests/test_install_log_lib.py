@@ -530,8 +530,10 @@ class FreshInstallContractParityTests(unittest.TestCase):
         template_by_number = {row.number: row for row in self.template_rows}
         expected_numbers = {
             *(f"2.{number}" for number in range(1, 12)),
+            "2.1.5",
             "2.13",
             "2.13.5",
+            "2.13.7",
             "2.14",
             "2.15",
         }
@@ -556,7 +558,36 @@ class FreshInstallContractParityTests(unittest.TestCase):
                 elif row.kind == "verify":
                     self.assertIn("wf_audit_install", section)
                 elif row.kind == "instruction":
-                    self.assertIn(number, {"2.14", "2.15"})
+                    self.assertIn(number, {"2.1.5", "2.14", "2.15"})
+
+    def test_phase_two_requests_and_closes_operator_gate(self):
+        rows = [row.number for row in self.template_rows]
+        self.assertLess(rows.index("2.1.5"), rows.index("2.2"))
+        self.assertLess(rows.index("2.13.5"), rows.index("2.13.7"))
+        self.assertLess(rows.index("2.13.7"), rows.index("2.14"))
+        opening = self.seed_sections["2.1.5"][1]
+        for needed in ("wait for their decision", "If they decline, stop",
+                       "Never edit `.wavefoundry/guard-overrides.json` directly",
+                       "shell writes", "who will close", "fresh permission",
+                       "another session owns it"):
+            self.assertIn(needed, opening)
+        entry = next(SEEDS_DIR.glob("010-*.md")).read_text(encoding="utf-8")
+        resume = next(line for line in entry.splitlines() if "Mid-install resumption" in line)
+        self.assertIn("row 2.1.5", resume)
+        self.assertIn("fresh operator permission", resume)
+        closing = self.seed_sections["2.13.7"][1]
+        self.assertIn("wf_close_gate", closing)
+        self.assertIn("wf_gate_status()", closing)
+
+    def test_seed_manifest_example_matches_gardener(self):
+        import docs_gardener
+        import json
+        seed = next(SEEDS_DIR.glob("100-*.md")).read_text(encoding="utf-8")
+        line = next(line for line in seed.splitlines() if "**`schema_version`**" in line)
+        example = re.search(r"JSON number `([^`]+)`", line)
+        self.assertIsNotNone(example, line)
+        self.assertEqual(json.loads(example.group(1)), docs_gardener.default_manifest_payload()["schema_version"])
+        self.assertIn("Preserve an existing value", line)
 
     def test_final_tail_is_parser_visible_and_has_exact_actions(self):
         by_number = {row.number: row for row in self.template_rows}

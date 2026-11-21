@@ -436,23 +436,27 @@ def _get_changed_files(root: Path) -> list[Path]:
     _FILESET_REFUSED.clear()
     # Tracked files changed since HEAD (staged + unstaged)
     changed = subprocess_util.isolated_run(
-        ["git", "diff", "--name-only", "HEAD"],
-        cwd=root, capture_output=True, text=True,
+        ["git", "diff", "--name-only", "-z", "HEAD"],
+        cwd=root, capture_output=True,
     )
     # Untracked files that are not gitignored (new files not yet staged)
     untracked = subprocess_util.isolated_run(
-        ["git", "ls-files", "--others", "--exclude-standard"],
-        cwd=root, capture_output=True, text=True,
+        ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+        cwd=root, capture_output=True,
     )
     if changed.returncode != 0 and untracked.returncode != 0:
         return []
     seen: set[Path] = set()
     paths: list[Path] = []
-    for line in (changed.stdout + untracked.stdout).splitlines():
-        line = line.strip()
-        if line and not is_scanner_excluded_path(line):
-            p = root / line
-            if p not in seen and _fileset_admits(root, p, line):
+    # Git's NUL-delimited output preserves filename bytes, including newlines
+    # and characters that its human-readable listings quote.
+    for raw in (changed.stdout + untracked.stdout).split(b"\0"):
+        if not raw:
+            continue
+        rel = os.fsdecode(raw)
+        if not is_scanner_excluded_path(rel):
+            p = root / rel
+            if p not in seen and _fileset_admits(root, p, rel):
                 seen.add(p)
                 paths.append(p)
     return paths

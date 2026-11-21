@@ -88,7 +88,8 @@ class StorageUpgradeProcessResumeTests(unittest.TestCase):
         (self.framework / "seeds").mkdir()
         (self.framework / "seeds/retired.md").write_text("old managed seed\n")
         (self.root / "docs").mkdir()
-        (self.root / "docs/workflow-config.json").write_text("{}\n")
+        shutil.copyfile(SCRIPTS / "tests/fixtures/docs_lint/base/docs/workflow-config.json",
+                        self.root / "docs/workflow-config.json")
         self.bootstrap = self.root / "install-wavefoundry.md"
         self.bootstrap.write_bytes(b"tracked project installer\n")
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
@@ -225,7 +226,13 @@ class StorageUpgradeProcessResumeTests(unittest.TestCase):
         self.assertEqual(attempted.returncode, 5, attempted.stdout + attempted.stderr)
         self.assertFalse(lock_path.exists())
         self.assertEqual(receipt_path.read_bytes(), before[receipt_path])
+        # The extracted target now has a deliberately invalid live config. Its
+        # retained storage receipt must permit the original pack to continue.
+        config = self.root / "docs/workflow-config.json"
+        config.write_text("{}\n")
         resumed = self.attempt(receipt['restart_action']['command_argv'])
+        self.assertIn("docs_preflight_indeterminate: retained ", resumed.stdout)
+        self.assertNotIn("docs_preflight_failed:", resumed.stderr)
         self.assertEqual(resumed.returncode, 77, resumed.stdout + resumed.stderr)
 
     def test_retired_memory_fields_preserve_read_only_storage_refusal(self):

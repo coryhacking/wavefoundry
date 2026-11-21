@@ -64,6 +64,13 @@ class PendingUpgradeTests(unittest.TestCase):
             self.assertEqual(after, before)
             output = out.getvalue() + err.getvalue()
             self.assertNotIn('would be cleared', output)
+            if code == 5:
+                self.assertEqual(sum(line.startswith("docs_preflight_indeterminate:")
+                                     for line in output.splitlines()), 1)
+                summary_line = next(line for line in output.splitlines()
+                                    if line.startswith(upgrade.WAVE_UPGRADE_SUMMARY_SENTINEL))
+                summary = json.loads(summary_line[len(upgrade.WAVE_UPGRADE_SUMMARY_SENTINEL):])
+                self.assertEqual(summary["docs_preflight"]["verdict"], "indeterminate")
             results.append((code, output))
         self.assertEqual(results[0][0], results[1][0], results)
         return results[1]

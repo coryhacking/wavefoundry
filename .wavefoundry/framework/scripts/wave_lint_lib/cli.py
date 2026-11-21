@@ -17,28 +17,27 @@ from .core_validators import check_forbidden_root_wrappers, check_prompt_file_ex
 from .design_system_validators import check_design_system
 from .design_system_governance_validators import check_design_governance
 from .design_system_surface_validators import check_design_surface
-from .constants import DOCS_LINT_MAX_FILE_BYTES_DEFAULT
 from .helpers import (
     _ENTRY_FILES,
     is_under_markdown_scan_root,
     iter_linkable_docs,
     iter_markdown_docs,
-    load_json,
+    _docs_lint_max_file_bytes,
+    _oversized_docs,
     read_text_cache_clear,
     record_refusal,
     record_refusal_failures,
-    relative_to_root,
     resolve_record_roots,
     write_if_changed,
 )
 from .link_validators import check_markdown_links
 from .lint_rules import LintRules, load_lint_rules
-from .helpers import doc_refusal, doc_refusal_failures, doc_entry_is_regular, RECORD_CAUSE_SIZE
-from contained_files import DEFAULT_MAX_BYTES
+from .helpers import doc_refusal_failures
 from .metadata_validators import check_metadata
 from .secrets_validators import _get_changed_files, _is_inside_git, check_hardcoded_secrets, fileset_refusals
 from .wave_validators import (
     heading_blank_line_findings,
+    markdown_control_character_findings,
     check_memory_docs,
     check_closed_wave_requirements,
     check_cross_artifact_consistency,
@@ -121,52 +120,6 @@ def _timed(timings, name: str):
         yield
     finally:
         timings[name] = timings.get(name, 0.0) + (time.perf_counter() - start) * 1000.0
-
-
-def _docs_lint_max_file_bytes(root: Path) -> int:
-    """Wave 1p9cj: the docs-lint file-size cap. Reads docs/workflow-config.json `docs_lint.max_file_bytes`
-    (fail-safe to the 5 MB default on missing/malformed), mirroring `docs_lint.hook_timeout_seconds`."""
-    cfg = root / "docs" / "workflow-config.json"
-    if cfg.is_file():
-        data, err = load_json(cfg)
-        if err is None and isinstance(data, dict):
-            dl = data.get("docs_lint")
-            if isinstance(dl, dict):
-                value = dl.get("max_file_bytes")
-                if isinstance(value, int) and not isinstance(value, bool) and value > 0:
-                    return value
-    return DOCS_LINT_MAX_FILE_BYTES_DEFAULT
-
-
-def _oversized_docs(root: Path, paths, cap: int) -> "tuple[set, list]":
-    """Wave 1p9cj: one `stat` pass — return (oversized_paths, warnings). An oversized doc's content
-    validators are skipped (the file is never read into the cache by those checks) with a loud
-    non-blocking WARNING naming the size, cap, and remedy. docs-lint is a correctness gate, so this is a
-    WARNING (visible), never a silent skip and never a blocking ERROR (a legit large generated doc must
-    not fail-close)."""
-    oversized: set = set()
-    warnings: list = []
-    for path in paths:
-        if not doc_entry_is_regular(root, path):
-            oversized.add(path)
-            continue
-        try:
-            size = path.lstat().st_size
-        except OSError:
-            continue
-        if size > DEFAULT_MAX_BYTES:
-            oversized.add(path)
-            doc_refusal(root, path, RECORD_CAUSE_SIZE)
-            continue
-        if size > cap:
-            oversized.add(path)
-            rel = relative_to_root(root, path)
-            warnings.append(
-                f"{rel}: {size} bytes exceeds the docs-lint file-size cap ({cap} bytes) — content "
-                f"validators skipped for this doc; split it, move it under docs/reports/, or raise "
-                f"`docs_lint.max_file_bytes` in docs/workflow-config.json"
-            )
-    return oversized, warnings
 
 
 def _render_audit_report(warnings: list[str], infos: list[str]) -> str:
@@ -325,6 +278,9 @@ def _run_incremental_checks(root: Path, *, proven_trigger_identity: str | None =
     _route_sensor_findings("heading_without_blank_line_before",
                            heading_blank_line_findings(root, changed_docs | changed_entry, skip=oversized),
                            failures, warnings)
+    _route_sensor_findings("markdown_control_character",
+                           markdown_control_character_findings(root, changed_docs | changed_entry, skip=oversized),
+                           failures, warnings)
     failures.extend(_record_refusal_report(root))
     return (failures, warnings)
 
@@ -343,7 +299,8 @@ def _run_full_checks(root: Path, args: argparse.Namespace, timings: dict | None 
     # with a loud non-blocking WARNING. Protects the regex/section passes + the read cache from a
     # pathological multi-MB doc, matching the secrets/indexing file caps.
     cap = _docs_lint_max_file_bytes(root)
-    oversized, size_warnings = _oversized_docs(root, iter_markdown_docs(root), cap)
+    markdown_paths = [*iter_markdown_docs(root), *sorted(root.glob("*.md"))]
+    oversized, size_warnings = _oversized_docs(root, markdown_paths, cap)
     warnings.extend(size_warnings)
 
     # Wave 1p5pz: docs-lint detects + records secret findings but does NOT block on
@@ -398,9 +355,11 @@ def _run_full_checks(root: Path, args: argparse.Namespace, timings: dict | None 
         # repository root; history is excluded by the check itself.
         _route_sensor_findings(
             "heading_without_blank_line_before",
-            heading_blank_line_findings(
-                root, [*iter_markdown_docs(root), *sorted(root.glob("*.md"))], skip=oversized),
+            heading_blank_line_findings(root, markdown_paths, skip=oversized),
             failures, warnings)
+        _route_sensor_findings("markdown_control_character",
+                               markdown_control_character_findings(root, markdown_paths, skip=oversized),
+                               failures, warnings)
         failures.extend(check_closed_wave_requirements(root))
         failures.extend(check_plan_filenames(root, skip=oversized))
         failures.extend(_check_agent_role_metadata(root, skip=oversized))

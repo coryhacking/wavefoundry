@@ -212,6 +212,26 @@ class RootBridgeTests(unittest.TestCase):
             self._render(repo_root)
             self.assertEqual(_bridge_region((repo_root / "CLAUDE.md").read_text(encoding="utf-8")), ras.ROOT_BRIDGE_BLOCK)
 
+    def test_existing_bridge_without_guru_preserves_crlf_and_reports_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "CLAUDE.md"
+            self.assertNotIn(path.name, ras.render_agent_surfaces(root))
+            self.assertFalse(path.exists())
+            path.write_bytes(b"# Team instructions\r\n\r\nKeep this note.\r\n")
+            with patch.object(ras, "_contained_review_carrier_path",
+                              wraps=ras._contained_review_carrier_path) as checked:
+                ras.preflight_agent_surface_paths(root)
+                checked.assert_any_call(root, path.name)
+            self.assertIn(path.name, ras.render_agent_surfaces(root))
+            content = path.read_bytes()
+            self.assertIn(b"@AGENTS.md", content)
+            self.assertIn(b"Keep this note.\r\n", content)
+            self.assertNotIn(b"\n", content.replace(b"\r\n", b""))
+            self.assertNotIn(ras.MARKER_BEGIN.encode(), content)
+            self.assertNotIn(path.name, ras.render_agent_surfaces(root))
+            self.assertEqual(path.read_bytes(), content)
+
     def test_bridge_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo_root = Path(tmp)

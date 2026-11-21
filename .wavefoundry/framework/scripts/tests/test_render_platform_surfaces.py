@@ -462,7 +462,7 @@ class RenderPlatformSurfacesScriptTests(unittest.TestCase):
                 (repo_root / ".claude" / "hooks" / "pre-edit.py").read_text(encoding="utf-8"),
             )
             self.assertIn(
-                ".wavefoundry/guard-overrides.json",
+                'GUARD_OVERRIDES = REPO_ROOT / ".wavefoundry" / "guard-overrides.json"',
                 (repo_root / ".claude" / "hooks" / "pre-edit.py").read_text(encoding="utf-8"),
             )
             post_edit = (repo_root / ".claude" / "hooks" / "post-edit.py").read_text(encoding="utf-8")
@@ -2160,7 +2160,7 @@ class RenderedEditHookPathTests(unittest.TestCase):
                 result = self._run_raw(".claude/hooks/pre-edit.py",
                                        json.dumps({"tool_name": tool, "tool_input": tool_input}))
                 self.assertEqual(result.returncode, 2, result.stderr)
-                self.assertIn("BLOCKED: Seed prompt edit requires", result.stderr)
+                self.assertIn("BLOCKED: The seed_edit_allowed gate is closed.", result.stderr)
 
     # Wave 1zyb3 (1zxny) -------------------------------------------------------------------------
 
@@ -4333,6 +4333,50 @@ class HookVenvMismatchTests(unittest.TestCase):
         # A raised activation records no deferral, so the in-process indexer.py loads are skipped.
         self.assertFalse((self.index / "reindex-pending").exists())
         self.assertEqual(self._spawns(), [])
+
+    def test_gate_hooks_explain_approval_and_identify_guarded_install_hosts(self):
+        # Discover the installed gate hooks from rendered bodies, independently of the seed.
+        import ast
+        hosts = {".claude": "Claude", ".github": "Copilot", ".cursor": "Cursor",
+                 ".windsurf": "Windsurf"}
+        for platform in self.mod.detect_platforms(self.root) | {"copilot"}:
+            self.mod.render_platform_entrypoints(self.root, platform)
+        files = ("AGENTS.md", "docs/prompts/install.prompt.md",
+                 ".wavefoundry/framework/seeds/100-x.prompt.md")
+        install_hosts = {rel: set() for rel in files[:2]}
+        self._guards(False)
+        candidates = [p for p in self.root.glob(".*/hooks/*.py")
+                      if any(isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                             and node.func.id == "guard_enabled"
+                             for node in ast.walk(ast.parse(p.read_text(encoding="utf-8"))))]
+        self.assertTrue(candidates)
+        for hook in candidates:
+            rel = hook.relative_to(self.root).as_posix()
+            host = hosts[hook.relative_to(self.root).parts[0]]
+            for path in files:
+                with self.subTest(host=host, hook=rel, path=path):
+                    result = self._run(rel, self._payload(self.root / path), self.usable)
+                    if result.returncode == 0:
+                        continue
+                    self.assertEqual(result.returncode, 10 if host == "Cursor" else 2)
+                    message = (result.stdout if host == "Cursor" else result.stderr).strip()
+                    if host in {"Claude", "Copilot"}:
+                        self.assertTrue(message.startswith("BLOCKED:"), message)
+                    message.encode("ascii")
+                    gate = "seed_edit_allowed" if "seed_edit_allowed" in message else "framework_edit_allowed"
+                    self.assertIn(f"wf_open_gate(gate='{gate}')", message)
+                    self.assertIn(f"wf gate open {gate}", message)
+                    self.assertIn("Ask the operator before opening", message)
+                    self.assertNotIn("enabled: true", message)
+                    if path in install_hosts:
+                        self.assertEqual(gate, "framework_edit_allowed")
+                        install_hosts[path].add(host)
+        seed = next((SCRIPT_PATH.parents[1] / "seeds").glob("012-*.md")).read_text(encoding="utf-8")
+        section = seed.split("### 2.1.5 ", 1)[1].split("\n### ", 1)[0]
+        named = section.split("The affected hosts are ", 1)[1].split(".", 1)[0]
+        for path, observed in install_hosts.items():
+            self.assertEqual(observed, {host for host in hosts.values() if host in named}, path)
+        self.assertIn("With Windsurf alone, mark this row `[~]`", section)
 
     def test_gate_verdicts_match_a_usable_venv_path_for_path(self):
         # AC-11: per-host block signals, unchanged by the mismatch.

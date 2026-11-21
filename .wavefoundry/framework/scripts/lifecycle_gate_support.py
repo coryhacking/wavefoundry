@@ -708,18 +708,26 @@ def _collect_silent_unchecked_items_for_close(
     return findings
 
 
-def _read_wave_record_text(wave_md: Path) -> tuple[Optional[str], Optional[str]]:
+def _read_wave_record_text(
+    wave_md: Path, *, error_root: Path | None = None,
+) -> tuple[Optional[str], Optional[str]]:
     """Sole raw-read boundary for wave records (wave 1v0lw).
 
     Returns ``(text, None)`` on success or ``(None, read_error)`` on failure,
-    where ``read_error`` is the operator-safe cause from ``_read_error_detail``
+    where the default ``read_error`` comes from ``_read_error_detail``
     (exception type plus detail, never an absolute path).  Every ``wave.md``
     read in this module must route through here; the residue census test keys
     on the resolved read target, so a new raw read cannot land unreviewed.
+    Callers that supply ``error_root`` receive the errno and relative filename
+    for an OS error.
     """
     try:
         return wave_md.read_text(encoding="utf-8"), None
     except (OSError, UnicodeError) as exc:
+        if error_root is not None:
+            from lifecycle_lock import path_free_exception_text
+
+            return None, path_free_exception_text(exc, error_root)
         return None, _read_error_detail(exc)
 
 

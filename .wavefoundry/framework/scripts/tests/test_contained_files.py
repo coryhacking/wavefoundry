@@ -476,6 +476,60 @@ class WindowsBranchTests(_Roots):
             self.assertEqual(target.read_bytes(), b"second")
             self.assertEqual([entry.name for entry in self.root.iterdir()], ["doc.md"])
 
+    def _simulated_windows_fchmod(self):
+        """Native Windows with Python 3.13 or later: ``os.fchmod`` exists and
+        refuses. ``create=True`` keeps the simulation valid where it is absent."""
+        refused = mock.Mock(side_effect=PermissionError(errno.EACCES, "Access is denied"))
+        for patcher in (mock.patch.object(cf, "_windows", return_value=True),
+                        mock.patch.object(os, "fchmod", refused, create=True)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        return refused
+
+    def test_windows_new_file_with_a_mode_never_calls_fchmod(self) -> None:
+        refused = self._simulated_windows_fchmod()
+        target = self.root / "doc.md"
+        self.assertTrue(cf.write_contained_bytes(self.root, target, b"first", mode=0o600))
+        self.assertEqual(refused.call_count, 0)
+        self.assertEqual(target.read_bytes(), b"first")
+        self.assertEqual([entry.name for entry in self.root.iterdir()], ["doc.md"])
+
+    def test_windows_new_executable_file_never_calls_fchmod(self) -> None:
+        refused = self._simulated_windows_fchmod()
+        target = self.root / "hook.py"
+        self.assertTrue(cf.write_contained_bytes(self.root, target, b"#!x\n", executable=True))
+        self.assertEqual(refused.call_count, 0)
+        self.assertEqual(target.read_bytes(), b"#!x\n")
+        self.assertEqual([entry.name for entry in self.root.iterdir()], ["hook.py"])
+
+    @unittest.skipUnless(POSIX, "the differing mode is set with a POSIX path chmod")
+    def test_windows_unchanged_bytes_with_a_differing_mode_never_calls_fchmod(self) -> None:
+        target = self.root / "doc.md"
+        target.write_bytes(b"same")
+        os.chmod(target, 0o644)
+        refused = self._simulated_windows_fchmod()
+        self.assertFalse(cf.write_contained_bytes(self.root, target, b"same", mode=0o600))
+        self.assertEqual(refused.call_count, 0)
+        self.assertEqual(target.read_bytes(), b"same")
+        self.assertEqual([entry.name for entry in self.root.iterdir()], ["doc.md"])
+
+    @unittest.skipUnless(POSIX, "POSIX permission bits")
+    def test_off_windows_the_path_branch_still_sets_the_requested_mode(self) -> None:
+        # 0o666 differs from any file created under a non-zero umask, and the
+        # unchanged-bytes rewrite differs from the 0o644 set by path, so each
+        # assertion fails when descriptor chmod is disabled everywhere.
+        self.assertTrue(cf._can_set_descriptor_mode())
+        target = self.root / "open.txt"
+        previous = os.umask(0o022)
+        try:
+            self.assertTrue(cf.write_contained_bytes(self.root, target, b"m", mode=0o666))
+        finally:
+            os.umask(previous)
+        self.assertEqual(stat.S_IMODE(os.stat(target).st_mode), 0o666)
+        os.chmod(target, 0o644)
+        self.assertFalse(cf.write_contained_bytes(self.root, target, b"m", mode=0o600))
+        self.assertEqual(stat.S_IMODE(os.stat(target).st_mode), 0o600)
+
     def test_a_swapped_file_identity_is_refused(self) -> None:
         target = self.root / "doc.md"
         target.write_bytes(b"inside\n")

@@ -4,7 +4,11 @@ import json
 import os
 import stat
 import contained_files
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
+
+from .constants import DOCS_LINT_MAX_FILE_BYTES_DEFAULT
 
 # Sibling module in the parent scripts dir (stdlib-only; wave 1y0gz). docs-lint runs in hosts without
 # the MCP runtime, and `record_paths` is deliberately import-light for exactly that reason.
@@ -112,6 +116,19 @@ _DOC_BYTES_CACHE: dict = {}
 _RECORD_TEXT_CACHE: dict[Path, tuple[tuple[int, int, int, int], str]] = {}
 
 
+_SUPPRESS_REFUSALS = ContextVar("docs_lint_suppress_refusals", default=False)
+
+
+@contextmanager
+def suppress_lint_refusals():
+    """A standalone reader must leave the lint run's refusal evidence intact."""
+    token = _SUPPRESS_REFUSALS.set(True)
+    try:
+        yield
+    finally:
+        _SUPPRESS_REFUSALS.reset(token)
+
+
 def _identity(st: os.stat_result) -> tuple[int, int, int, int]:
     return (st.st_dev, st.st_ino, st.st_mtime_ns, st.st_size)
 
@@ -130,6 +147,8 @@ def is_record_document(root: Path, path: Path) -> bool:
 
 def record_refusal(root: Path, path: Path, cause: str) -> None:
     """Record a refused record document once per run (the first cause wins)."""
+    if _SUPPRESS_REFUSALS.get():
+        return
     _RECORD_REFUSALS.setdefault(relative_to_root(root, Path(path)), cause)
 
 
@@ -216,6 +235,8 @@ def read_record_text(root: Path, path: Path) -> str | None:
 
 
 def doc_refusal(root: Path, path: Path, cause: str) -> None:
+    if _SUPPRESS_REFUSALS.get():
+        return
     if is_record_document(root, path):
         record_refusal(root, path, cause)
     else:
@@ -276,6 +297,52 @@ def load_json(path: Path) -> tuple[dict[str, object] | None, str | None]:
         return json.loads(path.read_text(encoding="utf-8")), None
     except Exception as exc:  # pragma: no cover - exercised by fixture failures if added later
         return None, str(exc)
+
+
+def _docs_lint_max_file_bytes(root: Path) -> int:
+    """Wave 1p9cj: the docs-lint file-size cap. Reads docs/workflow-config.json `docs_lint.max_file_bytes`
+    (fail-safe to the 5 MB default on missing/malformed), mirroring `docs_lint.hook_timeout_seconds`."""
+    cfg = root / "docs" / "workflow-config.json"
+    if cfg.is_file():
+        data, err = load_json(cfg)
+        if err is None and isinstance(data, dict):
+            dl = data.get("docs_lint")
+            if isinstance(dl, dict):
+                value = dl.get("max_file_bytes")
+                if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+                    return value
+    return DOCS_LINT_MAX_FILE_BYTES_DEFAULT
+
+
+def _oversized_docs(root: Path, paths, cap: int) -> "tuple[set, list]":
+    """Wave 1p9cj: one `stat` pass — return (oversized_paths, warnings). An oversized doc's content
+    validators are skipped (the file is never read into the cache by those checks) with a loud
+    non-blocking WARNING naming the size, cap, and remedy. docs-lint is a correctness gate, so this is a
+    WARNING (visible), never a silent skip and never a blocking ERROR (a legit large generated doc must
+    not fail-close)."""
+    oversized: set = set()
+    warnings: list = []
+    for path in paths:
+        if not doc_entry_is_regular(root, path):
+            oversized.add(path)
+            continue
+        try:
+            size = path.lstat().st_size
+        except OSError:
+            continue
+        if size > contained_files.DEFAULT_MAX_BYTES:
+            oversized.add(path)
+            doc_refusal(root, path, RECORD_CAUSE_SIZE)
+            continue
+        if size > cap:
+            oversized.add(path)
+            rel = relative_to_root(root, path)
+            warnings.append(
+                f"{rel}: {size} bytes exceeds the docs-lint file-size cap ({cap} bytes) — content "
+                f"validators skipped for this doc; split it, move it under docs/reports/, or raise "
+                f"`docs_lint.max_file_bytes` in docs/workflow-config.json"
+            )
+    return oversized, warnings
 
 
 def _is_under(path: Path, ancestor: Path) -> bool:

@@ -50,7 +50,7 @@ Carry the concise intent contract through existing prompts: Plan spec uses `## P
 5. Explain that artifacts use output contracts rather than rigid templates.
 6. Keep the split explicit: `docs/prompts/` is the public shortcut surface, while `docs/prompts/agents/` holds supporting agent-oriented prompt bodies that should not be listed as public commands.
 7. Register the prompt surface in `docs/prompts/prompt-surface-manifest.json`. The docs gate requires these three top-level keys (all must be present, or docs-lint reports `missing \`<key>\``):
- - **`schema_version`** — the manifest schema version string (e.g. `"1.0"`).
+ - **`schema_version`** — the gardener writes the JSON number `1` in a new manifest. Preserve an existing value.
  - **`seed_framework_source`** — the framework source root, exactly `".wavefoundry/framework"`. This must equal `docs/workflow-config.json` `prompt_generation.seed_framework_source` (a mismatch is a cross-artifact docs-lint error).
  - **`framework_revision`** — a string equal to `.wavefoundry/framework/VERSION` after init or upgrade reconciles the pack (used by `seed-160` **version guard** alongside the same `VERSION` file).
    If installation resumes after partial prompt authoring, compare actual files and manifest entries with this seed's current public catalog and conditional rules. Preserve project-authored content and reconcile only missing or stale required outputs. Do not use a fixed file count or mark install-log row 2.9 complete until the audit accepts the manifest and files.
@@ -154,7 +154,7 @@ Guardrails:
 
 For waves that declare `review-evidence-source: events.jsonl`, complete review
 history lives only in that canonical ledger. `wave.md` renders one marker-owned
-`Signoff | State | Why | Next action` table keyed by canonical `signoff_key`;
+`Signoff | Phase | State | Why | Next action` table. A specialist who approved at readiness has a readiness row directly above the delivery row. Council rows name their respective phase. Compare approvals by canonical `signoff_key`;
 lifecycle mutations rebuild it from current finding heads and executable
 approvals. Do not append repeated approval/withdrawal history to Markdown or
 infer adopted authority from prose order. Preserve human rationale outside the

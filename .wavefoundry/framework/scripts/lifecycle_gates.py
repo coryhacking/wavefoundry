@@ -142,13 +142,14 @@ def _review_evidence_diagnostics(
                         REVIEW_STATUS_MARKER_BEGIN in canonical_projection
                         or REVIEW_STATUS_MARKER_END in canonical_projection
                     )
-                    closed_archive = review_evidence.wave_record_closed(raw_projection)
+                    closed_archive = review_evidence.wave_record_historical(raw_projection)
                     if marker_present and not closed_archive and render_review_status_projection(
                         canonical_projection,
                         result.records,
                         lifecycle_gate_support._review_status_signoff_keys(
                             root, canonical_projection, result.records
                         ),
+                        owned_block_only=True,
                     ) != canonical_projection:
                         errors.append(
                             "Review Status projection is stale relative to canonical "
@@ -282,6 +283,8 @@ def _security_candidate_diagnostics(authority) -> list[dict[str, Any]]:
 
     An unsettled candidate blocks (it holds `operator-signoff` withheld); a waived
     candidate and a pre-rule `maybe_later` or `dont_do_later` are non-blocking advisories.
+    Change 23z8z: so is a finding shown unreachable with a gate factor still `unverified`,
+    named with its promotion trigger as `security_candidate_shown_unreachable`.
     """
 
     candidate_state = getattr(review_evidence, "security_candidate_state", None)
@@ -334,6 +337,22 @@ def _security_candidate_diagnostics(authority) -> list[dict[str, Any]]:
             "To reconsider it on fresh evidence, record a `repair_start` for it whose "
             "judgment keeps the factor in question `unverified`; a fresh, independent "
             "reverification or the operator close then settles it.",
+            advisory=True,
+        ))
+    for candidate in state.get("shown_unreachable", ()):
+        names = tuple(candidate.get("unverified_factors") or ())
+        factors = ", ".join(f"`{name}`" for name in names)
+        diagnostics.append(lifecycle_gate_support._diagnostic(
+            "security_candidate_shown_unreachable",
+            f"Security candidate `{candidate['finding_id']}` is accepted as shown unreachable "
+            f"with {factors} {'still' if len(names) == 1 else 'all still'} unverified; it is "
+            f"recorded as `{candidate.get('disposition') or 'dont_do_later'}` and holds no "
+            "signoff. This is missing evidence, not a demonstrated defect. Promotion trigger: "
+            f"{candidate['promotion_trigger'] or 'none recorded'}. "
+            "To reconsider it on fresh evidence, record a `repair_start` for it in the next "
+            "cycle whose judgment no longer records it as shown unreachable and leaves the "
+            "factor `unverified`; a fresh, independent reverification or the operator close "
+            "then settles it.",
             advisory=True,
         ))
     return diagnostics

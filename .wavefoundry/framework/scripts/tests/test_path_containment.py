@@ -245,8 +245,7 @@ class WrapperContractTests(unittest.TestCase):
 # containment, and remain explicit so the approximation cannot silently grow.
 CENSUS_FALSE_POSITIVES = {
     ('venv_bootstrap.py', '_running_inside_venv'): 'Interpreter identity, not path authority.',
-    ('build_pack.py', 'find_repo_root'): 'Ancestor traversal termination, not containment.',
-}
+    ('build_pack.py', 'find_repo_root'): 'Ancestor traversal termination, not containment.',}
 CONTAINMENT_ALLOWLIST = {
     ('indexer.py', '_is_relative_to'): 'Keep OSError/RuntimeError aborting the prepared-removal veto; follow-up only with a contract review.',
     ('context_efficiency.py', 'contained_stat_signature'): 'FileVersion/stat observation contract; separate follow-up.',

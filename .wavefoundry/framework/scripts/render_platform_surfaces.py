@@ -865,6 +865,15 @@ def compose_script(body: str, include_helpers: bool = True) -> str:
     return "".join(parts)
 
 
+def compose_gate_script(body: str) -> str:
+    message = '''
+def gate_message(gate: str) -> str:
+    return (f"The {gate} gate is closed. Ask the operator before opening it. "
+            f"With approval, use wf_open_gate(gate='{gate}') or wf gate open {gate}.")
+'''
+    return compose_script(message + "\n" + dedent(body))
+
+
 def compose_preactivation_script(body: str) -> str:
     """Compose a hook body WITHOUT ``HOOK_BOOTSTRAP`` or the hook helpers (wave 1yzcz).
 
@@ -1191,7 +1200,7 @@ def main() -> int:
 '''.replace("{edit_tools!r}", repr(CLAUDE_EDIT_TOOL_NAMES)).replace(
     "{non_edit_tools!r}", repr(CLAUDE_NON_EDIT_TOOL_NAMES)).replace(
     "{core_read_tools!r}", repr(core_reads)).replace("{core_read_contract!r}", repr(read_contract))
-    return compose_script(body + _GATE_FILE_PATH_SOURCE)
+    return compose_gate_script(body + _GATE_FILE_PATH_SOURCE)
 
 
 # The seed and framework gate verdict shared by the Claude and Copilot pre-edit hooks.
@@ -1200,13 +1209,13 @@ _GATE_FILE_PATH_SOURCE = '''
 def gate_file_path(file_path: str) -> int:
     if is_seed_prompt(file_path) and not guard_enabled("seed_edit_allowed"):
         print(
-            "BLOCKED: Seed prompt edit requires `.wavefoundry/guard-overrides.json` with `seed_edit_allowed.enabled: true` before intentional seed edits.",
+            "BLOCKED: " + gate_message("seed_edit_allowed"),
             file=sys.stderr,
         )
         return 2
     if is_framework_maintenance_surface(file_path) and not guard_enabled("framework_edit_allowed"):
         print(
-            "BLOCKED: Broad framework-maintenance edits require `.wavefoundry/guard-overrides.json` with `framework_edit_allowed.enabled: true` after an approved file-level plan.",
+            "BLOCKED: " + gate_message("framework_edit_allowed"),
             file=sys.stderr,
         )
         return 2
@@ -1310,13 +1319,13 @@ def claude_simulate_hooks_source() -> str:
 
 
 def cursor_seed_warn_source() -> str:
-    return compose_script(
+    return compose_gate_script(
         """
         def main() -> int:
             payload = load_payload(read_payload_text())
             file_path = detect_file_path(payload)
             if is_seed_prompt(file_path) and not guard_enabled("seed_edit_allowed"):
-                print("Seed prompt edit requires `.wavefoundry/guard-overrides.json` with `seed_edit_allowed.enabled: true` before intentional seed edits.")
+                print(gate_message("seed_edit_allowed"))
                 return 10
             return 0
 
@@ -1328,14 +1337,14 @@ def cursor_seed_warn_source() -> str:
 
 
 def cursor_framework_warn_source() -> str:
-    return compose_script(
+    return compose_gate_script(
         """
         def main() -> int:
             payload = load_payload(read_payload_text())
             file_path = detect_file_path(payload)
             if is_framework_maintenance_surface(file_path) and not guard_enabled("framework_edit_allowed"):
                 print(
-                    "Broad framework-maintenance edits require `.wavefoundry/guard-overrides.json` with `framework_edit_allowed.enabled: true` after an approved file-level plan."
+                    gate_message("framework_edit_allowed")
                 )
                 return 10
             return 0
@@ -1626,7 +1635,7 @@ def main() -> int:
             return verdict
     return 0
 """
-    return compose_script(body + _GATE_FILE_PATH_SOURCE)
+    return compose_gate_script(body + _GATE_FILE_PATH_SOURCE)
 
 
 def copilot_post_tool_use_source() -> str:
@@ -1660,14 +1669,14 @@ if __name__ == "__main__":
 
 
 def windsurf_seed_protect_source() -> str:
-    return compose_script(
+    return compose_gate_script(
         """
         def main() -> int:
             payload = load_payload(read_payload_text())
             file_path = detect_file_path(payload)
             if is_seed_prompt(file_path) and not guard_enabled("seed_edit_allowed"):
                 print(
-                    "Seed prompt edit requires `.wavefoundry/guard-overrides.json` with `seed_edit_allowed.enabled: true` before intentional seed edits.",
+                    gate_message("seed_edit_allowed"),
                     file=sys.stderr,
                 )
                 return 2

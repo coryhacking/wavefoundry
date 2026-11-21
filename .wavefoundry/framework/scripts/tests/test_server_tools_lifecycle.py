@@ -1895,8 +1895,8 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         text = wave_md.read_text(encoding="utf-8")
         text = text.replace("Status: planned", "Status: closed", 1).replace(
-            "| council-readiness | pending |",
-            "| council-readiness | historical |",
+            "| council-readiness | readiness | pending |",
+            "| council-readiness | readiness | historical |",
             1,
         )
         wave_md.write_text(text, encoding="utf-8")
@@ -2114,7 +2114,7 @@ class WaveLifecycleMutationTests(unittest.TestCase):
         wave_md = _waves_dir(self.root) / wave_id / vocabulary_profile.RECORD_FILENAME
         text = wave_md.read_text(encoding="utf-8")
         self.assertIn(
-            "| qa-reviewer | approved | current executed approval, not receipt-bound, follows every affected repair (local account: fixtureaccount) | none |",
+            "| qa-reviewer | delivery | approved | current executed approval, not receipt-bound, follows every affected repair (local account: fixtureaccount) | none |",
             text,
         )
         self.assertNotIn("- qa-reviewer: approved —", text)
@@ -11563,6 +11563,9 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 # never blocking; an unsettled one blocks separately.
                 ("_security_candidate_diagnostics", "_diagnostic", "security_candidate_waived"),
                 ("_security_candidate_diagnostics", "_diagnostic", "security_candidate_predates_rule"),
+                # Change 23z8z: a finding shown unreachable with a gate factor still
+                # unknown is named with its trigger; it is accepted and never blocks.
+                ("_security_candidate_diagnostics", "_diagnostic", "security_candidate_shown_unreachable"),
                 ("wf_prepare_wave_response", "_diagnostic", "prepare_council_verdict_missing"),
                 ("wf_prepare_wave_response", "_diagnostic", "review_policy_receipt_superseded"),
                 ("wf_review_wave_response", "_diagnostic", "review_policy_receipt_superseded"),

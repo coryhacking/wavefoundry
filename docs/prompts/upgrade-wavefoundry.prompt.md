@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-20
+Last verified: 2026-11-21
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -402,9 +402,19 @@ What this prompt is not:
 
 - `wf upgrade --detect-zip` — prints the absolute path of the selected pack and exits `0`. Exits `1` with empty output when no matching zip is found.
 - `wf upgrade --list-zips` — prints every match across all five search paths, semver-sorted (highest first), with `* ` on the selected pack.
-- `wf upgrade --dry-run` — checks retained state first; when ordinary preview is permitted, prints the selected pack on a `Zip to apply:` line with seed diffs and hook inventory. Migration previews may write named preview logs; the final line discloses them.
+- `wf upgrade --dry-run` checks retained state first. A fresh preview identifies the selected pack on its `Zip to apply:` line and lists seed changes, hook code and preview logs.
 
-Discovery/preview is **CLI-only**: run the flag via your shell (that is the agent-safe path — not `ls`). The MCP `wf_upgrade` tool *runs* the upgrade — its default `preflight_to_docs_gate` phase adopts the highest pack — and has **no** dry-run or discovery-only phase (its only argument is `phase=`; there is no `mode=`).
+Discovery/preview is **CLI-only**: run the flag via your shell (that is the agent-safe path — not `ls`). The MCP `wf_upgrade` tool *runs* the upgrade — its default `preflight_to_docs_gate` phase adopts the highest pack — and has **no** dry-run or discovery-only phase.
+
+### Check live documents before extraction
+
+On a fresh packaged upgrade, the incoming hook runs the target’s installed docs linter in read-only mode. It also checks live Markdown for control characters using the incoming rule. A confirmed live finding stops the upgrade before extraction with `docs_preflight_failed`. Repair the named documents and run the retry command shown. The refusal has no override. A false positive from the installed linter against a confirmed live document can therefore require a repair.
+
+The preflight excludes secrets findings and closed history. It reports findings with unknown locations, layouts or record status as `docs_preflight_indeterminate`. The upgrade proceeds unless a separate finding confirms a live error. Retained upgrades continue from their recorded state. The docs gate checks the extracted tree and retains a `failed_phase=docs_gate` lock if it fails, including when an unreadable record already existed before extraction. After repair, use the repository launcher with `upgrade --resume-after-gate` or call `wf_upgrade(phase='resume_after_gate')`.
+
+The installing upgrade gets the preflight, its direct control-character check and the dry-run verdict from the incoming hooks. The extracted linter checks control characters again at the docs gate. If the incoming scan cannot run early, the gate can still stop on a control character and retain the lock. The incoming pre-gate hook also refreshes the review phase tables from the ledgers. Resume uses the extracted runner to repeat that refresh.
+
+On the next upgrade driven by the new runner, the plan prints one summary per changed seed. Read the full apply diff in `.wavefoundry/logs/upgrade-seed-diffs.log` or the dry-run diff in `.wavefoundry/logs/upgrade-seed-diffs.preview.log`. The new runner also reports `docs_preflight` in its dry-run summary and gives the full resume command after a docs-gate failure. On the installing run, expect an older runner to print full seed diffs and end its dry run with the old invitation even after the incoming hook reported a would-be refusal. Act on the hook’s verdict.
 
 **Step 0 (optional zip adoption):** The ordinary upgrade selects a matching package from the supported discovery paths, extracts framework members and continues full reconciliation. A pack downloaded from a release is adopted only after the `SHA256SUMS` check in the operator flow above. Native Windows, WSL2, macOS and Linux use the same MCP/dispatcher flow. The package retains `install-wavefoundry.md` for fresh installs; upgrades exclude it before extraction, including the installing hop under a supported older runner. Zipapp runner members also stay out of the project root. For fully manual unpack, scope extraction: `unzip -o <zip> '.wavefoundry/*' -d .`. Existing root installers and older leftovers remain untouched. Do not infer ownership from the filename, matching bytes or untracked status; removal requires provenance review and operator authorization.
 

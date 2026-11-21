@@ -930,7 +930,10 @@ def _compute_seed_diffs(
             fromfile=from_label,
             tofile=to_label,
         ))
-        results.append((filename, status, "".join(diff_lines)))
+        # Keep adjacent additions and deletions separate when a source lacks a final LF.
+        diff_text = "".join(line if line.endswith("\n") else line + "\n\\ No newline at end of file\n"
+                            for line in diff_lines)
+        results.append((filename, status, diff_text))
     return results
 
 
@@ -1569,6 +1572,12 @@ def _check_project_scan_rules(root: Path, zip_path: Path | None) -> bool:
     return False
 
 
+def _docs_resume_command(platform_name: str | None = None) -> str:
+    windows = (platform_name or os.name) == "nt"
+    launcher = r".\.wavefoundry\bin\wf.cmd" if windows else "./.wavefoundry/bin/wf"
+    return f"{launcher} upgrade --resume-after-gate (MCP: wf_upgrade(phase='resume_after_gate'))"
+
+
 def phase_dry_run(root: Path, *, explicit_pack: Path | None = None,
                   confirm_hosts_stopped: bool = False) -> int:
     """Report retained state, or preview the selected pack without applying it.
@@ -1626,7 +1635,7 @@ def phase_dry_run(root: Path, *, explicit_pack: Path | None = None,
     # Change plan
     prompt_files = _detect_prompt_files(root)
     seed_diffs = _compute_seed_diffs(root, zip_path) if zip_path else None
-    _print_change_plan(
+    seed_preview_log = _print_change_plan(
         root=root,
         from_version=from_version,
         to_version=to_version,
@@ -1634,6 +1643,7 @@ def phase_dry_run(root: Path, *, explicit_pack: Path | None = None,
         dash_running=dash_running,
         prompt_files=prompt_files,
         seed_diffs=seed_diffs,
+        dry_run=True,
     )
 
     # ── Hook inventory ────────────────────────────────────────────────────────
@@ -1690,6 +1700,7 @@ def phase_dry_run(root: Path, *, explicit_pack: Path | None = None,
     # Wave 200ey (200ev): the preview logs this run wrote, found by an identity
     # snapshot around the incoming post_extract (any writer, old or new pack).
     preview_logs: list[str] = []
+    docs_preflight = None
     if zip_path is not None:
         ext_module = _load_extension_module(zip_path)
         if ext_module is not None and hasattr(ext_module, "post_extract"):
@@ -1707,7 +1718,11 @@ def phase_dry_run(root: Path, *, explicit_pack: Path | None = None,
                 ext_module.post_extract(preview_ctx)
             except Exception as exc:
                 _log(f"  (preview failed: {exc})")
-            preview_logs = _preview_logs_written(identities_before, _preview_log_identities(root))
+            docs_preflight = getattr(preview_ctx, "docs_preflight", None)
+            preview_logs = [
+                rel for rel in _preview_logs_written(identities_before, _preview_log_identities(root))
+                if rel != seed_preview_log
+            ]
             for rel in preview_logs:
                 _log(f"  preview log: {rel}")
                 try:
@@ -1719,13 +1734,16 @@ def phase_dry_run(root: Path, *, explicit_pack: Path | None = None,
             _log("── End migration preview ──")
 
     _log("\n── End Dry Run ──────────────────────────────────────────────────────────")
+    if seed_preview_log:
+        preview_logs.append(seed_preview_log)
     if preview_logs:
-        _log(
-            "No upgrade changes were made; wrote preview log(s) "
-            f"{', '.join(preview_logs)}. Run without --dry-run to execute the upgrade."
-        )
+        outcome = f"No upgrade changes were made; wrote preview log(s) {', '.join(preview_logs)}."
     else:
-        _log("No changes were made. Run without --dry-run to execute the upgrade.")
+        outcome = "No changes were made."
+    if isinstance(docs_preflight, dict) and docs_preflight.get("verdict") == "would_be_refused":
+        _log(outcome + " The upgrade would be refused. Repair the named documents and retry.")
+    else:
+        _log(outcome + " Run without --dry-run to execute the upgrade.")
     dry_summary = _build_upgrade_summary(
         root=root,
         from_version=from_version,
@@ -1741,6 +1759,8 @@ def phase_dry_run(root: Path, *, explicit_pack: Path | None = None,
     dry_summary[SUMMARY_SCHEMA_KEY] = SUMMARY_SCHEMA_VERSION
     # Wave 200ey (200ev): additive, dry-run only; the schema version stays 1.
     dry_summary["preview_logs"] = list(preview_logs)
+    if isinstance(docs_preflight, dict):
+        dry_summary["docs_preflight"] = docs_preflight
     _emit_summary_line(dry_summary)
     return 0
 
@@ -1966,7 +1986,8 @@ def _print_change_plan(
     dash_running: bool,
     prompt_files: list[str],
     seed_diffs: list[tuple[str, str, str]] | None = None,
-) -> None:
+    *, dry_run: bool = False,
+) -> str | None:
     _log("")
     _log("Wavefoundry Upgrade Plan")
     _log("=" * 40)
@@ -2013,14 +2034,32 @@ def _print_change_plan(
 
     _log("")
 
-    # Full seed diffs — emitted after the plan table so the agent can act on them
+    diff_log = None
     if seed_diffs:
-        _log("── Seed Diffs ──────────────────────────────────────────────────────────")
+        import contained_files
+
         for filename, status, diff_text in seed_diffs:
-            _log(f"\n── Seed diff: {filename} [{status}] ──")
-            _log(diff_text.rstrip())
-        _log("\n── End Seed Diffs ──────────────────────────────────────────────────────")
-        _log("")
+            changes = diff_text.split("\n")[2:]  # Exclude the old and new file headers.
+            added = sum(line.startswith("+") for line in changes)
+            removed = sum(line.startswith("-") for line in changes)
+            _log(f"  {filename} [{status}] +{added} -{removed}")
+        name = "upgrade-seed-diffs.preview.log" if dry_run else "upgrade-seed-diffs.log"
+        rel = f".wavefoundry/logs/{name}"
+        try:
+            data = "".join(diff for _, _, diff in seed_diffs).encode("utf-8")
+            target = root / rel
+            try:
+                info = target.lstat()
+                identity = (info.st_dev, info.st_ino)
+            except FileNotFoundError:
+                identity = None
+            contained_files.write_contained_bytes(root, target, data, no_links=True,
+                                                  expected_identity=identity)
+        except (OSError, ValueError) as exc:
+            _log(f"  Warning: could not write {rel} ({type(exc).__name__}).")
+        else:
+            diff_log = rel
+            _log(f"  Full seed diffs: {rel}")
     if zip_path:
         extension = _load_extension_module(zip_path)
         report = getattr(extension, "lifecycle_baseline_report", None)
@@ -2029,6 +2068,8 @@ def _print_change_plan(
             preview.lifecycle_baseline_findings = None
             preview.lifecycle_baseline_reported = False
             _LIFECYCLE_BASELINE_PLAN_FINDINGS[(str(root), str(zip_path))] = report(preview)
+
+    return diff_log
 
 
 
@@ -3748,13 +3789,13 @@ def phase_cleanup(
             )
         if failed_phase == "docs_gate":
             _log(
-                "  Resolve the docs findings, run --resume-after-gate, then "
+                f"  Resolve the docs findings, run {_docs_resume_command()}, then "
                 "--update-index and --cleanup."
             )
         elif failed_phase == POST_DOCS_GATE_PHASE:
             _log(
                 "  The docs gate passed and a later step failed. Run "
-                "--resume-after-gate, then --update-index and --cleanup."
+                f"{_docs_resume_command()}, then --update-index and --cleanup."
             )
         elif failed_phase == "review_sidecar_cleanup":
             _log(
@@ -5459,7 +5500,7 @@ def _finalize_failed_upgrade(root: Path, tree_mutated: bool, current_phase: str)
         )
         if current_phase == "docs_gate":
             recovery = (
-                "Resolve the docs findings, then run --resume-after-gate. "
+                f"Resolve the docs findings, then run {_docs_resume_command()}. "
                 "Index publication and cleanup remain blocked until that "
                 "recovery succeeds."
             )
@@ -5467,7 +5508,7 @@ def _finalize_failed_upgrade(root: Path, tree_mutated: bool, current_phase: str)
             recovery = (
                 "The docs gate passed; a later step failed before the "
                 "post-docs hook completed. Resolve the error, "
-                "then run --resume-after-gate (wf_upgrade(phase='resume_after_gate')); "
+                f"then run {_docs_resume_command()}; "
                 "it re-runs the docs gate and continues without re-extracting."
             )
         elif current_phase == "review_sidecar_cleanup":
@@ -5892,12 +5933,15 @@ def _report_pending_upgrade(root: Path, *, explicit_pack: Path | None = None,
         pending = _pending_upgrade(root, explicit_pack=explicit_pack,
                                    confirm_hosts_stopped=confirm_hosts_stopped)
     except (OSError, ValueError, RuntimeError, TypeError, KeyError) as exc:
+        _log("docs_preflight_indeterminate: could not verify retained upgrade state; skipped document preflight.")
         _err(f"Retained upgrade refused before pack discovery; nothing restored or cleared: {exc}")
         return 3
     if pending is not None:
+        reason = f"retained upgrade checkpoint ({pending['state']}); skipped document preflight"
+        _log(f"docs_preflight_indeterminate: {reason}.")
         _log(f"Pending upgrade to {pending['to_version']} ({pending['state']}); checkpoint retained. No new pack selected.")
         _log(pending["guidance"])
-        _emit_summary_line({"pending_upgrade": pending})
+        _emit_summary_line({"pending_upgrade": pending, "docs_preflight": {"verdict": "indeterminate", "reason": reason}})
         return 5
     return None
 
@@ -6221,7 +6265,7 @@ def main(argv: list[str] | None = None) -> int:
             _err(
                 "Index publication and cleanup are refused while the retained "
                 f"upgrade lock has failed_phase={failed_phase!r}: the docs gate "
-                "passed and a later step failed. Run --resume-after-gate, then "
+                f"passed and a later step failed. Run {_docs_resume_command()}, then "
                 "retry the requested phase."
             )
             return True
@@ -6238,7 +6282,7 @@ def main(argv: list[str] | None = None) -> int:
         _err(
             "Index publication and cleanup are refused while the retained "
             f"upgrade lock has failed_phase={failed_phase!r}. Resolve the "
-            "docs findings, run --resume-after-gate, then retry the requested "
+            f"docs findings, run {_docs_resume_command()}, then retry the requested "
             "phase."
         )
         return True
@@ -6559,7 +6603,7 @@ def main(argv: list[str] | None = None) -> int:
                 # on a declaring scaffold stays halted on every resume, which
                 # is the one path it can travel.
                 _repair_declaring_scaffold_on_resume(root)
-                # Re-run only docs-gardener/docs-lint; no extract/render/prune.
+                review_policy_upgrade.refresh_review_status_blocks(root)
                 phase_docs_gate(root)
             except SystemExit:
                 upgrade_lib.update_upgrade_lock(
@@ -6570,7 +6614,7 @@ def main(argv: list[str] | None = None) -> int:
                 _err(
                     "Docs gate still failing — lock retained "
                     "(failed_phase=docs_gate); resolve the findings and run "
-                    "--resume-after-gate again."
+                    f"{_docs_resume_command()} again."
                 )
                 _close_log()
                 raise

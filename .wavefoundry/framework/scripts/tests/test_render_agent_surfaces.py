@@ -6052,8 +6052,13 @@ class DisplayNameTests(unittest.TestCase):
 
 class MovePublicationIdentityTests(unittest.TestCase):
     def test_actual_publication_identity_across_all_byte_publisher_branches(self):
-        for branch in ("hard-link", "direct-copy", "windows-rename"):
+        native_windows = ras.contained_files._windows()
+        branches = ["hard-link", "windows-rename"]
+        if not native_windows:
+            branches.append("direct-copy")
+        for branch in branches:
             with self.subTest(branch=branch), tempfile.TemporaryDirectory() as temporary:
+                windows_writer = native_windows or branch == "windows-rename"
                 root = Path(temporary).resolve()
                 target = root / "docs" / "new.md"
                 captured = {}
@@ -6073,14 +6078,18 @@ class MovePublicationIdentityTests(unittest.TestCase):
 
                 with patch.object(ras, "_exclusive_open", side_effect=track_open), \
                         patch.object(os, "link", side_effect=link), \
-                        patch.object(ras.contained_files, "_windows", return_value=branch == "windows-rename"), \
-                        patch.object(ras.contained_files, "_dir_fd_supported", return_value=ras.contained_files._DIR_FD_SUPPORTED and branch != "windows-rename"):
+                        patch.object(ras.contained_files, "_windows", return_value=windows_writer), \
+                        patch.object(ras.contained_files, "_dir_fd_supported", return_value=ras.contained_files._DIR_FD_SUPPORTED and not windows_writer):
                     judged, identity = ras._write_bytes_atomic_exclusive_identity(target, b"body\r\n", root=root, mode=0o444)
                 actual = target.stat()
                 self.assertEqual(judged, target)
                 self.assertEqual(identity, (actual.st_dev, actual.st_ino))
                 self.assertEqual(target.read_bytes(), b"body\r\n")
-                if hasattr(os, "fchmod"):
+                # The mode is set only where the descriptor predicate is true:
+                # the simulated native Windows branch leaves the creation mode.
+                if windows_writer:
+                    self.assertNotEqual(stat.S_IMODE(actual.st_mode), 0o444)
+                elif hasattr(os, "fchmod") and os.name != "nt":
                     self.assertEqual(stat.S_IMODE(actual.st_mode), 0o444)
                 if branch == "direct-copy":
                     self.assertEqual(identity, captured["target"])
@@ -6099,11 +6108,44 @@ class MovePublicationIdentityTests(unittest.TestCase):
             entry = target.stat()
             self.assertEqual((judged, identity), (target, (entry.st_dev, entry.st_ino)))
             self.assertEqual(target.read_bytes(), b"body\r\n")
-            if hasattr(os, "fchmod"):
+            # Judged from the host, not from the predicate under test, so a
+            # predicate that is false on POSIX fails here.
+            if hasattr(os, "fchmod") and os.name != "nt":
                 self.assertEqual(stat.S_IMODE(entry.st_mode), 0o444)
             self.assertIsNone(ras._write_text_exclusive(root / "old-text.md", "text", root=root))
             self.assertIsNone(ras._write_bytes_atomic_exclusive(root / "old-bytes.md", b"bytes", root=root))
             self.assertIsNone(ras._write_review_carrier_text(root / "carrier.md", b"carrier", exclusive=True, root=root))
+
+    def test_simulated_windows_carrier_writers_never_call_fchmod(self):
+        # Native Windows with Python 3.13 or later: os.fchmod exists and refuses.
+        for writer in ("text", "bytes-hard-link", "bytes-rename"):
+            with self.subTest(writer=writer), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                target = root / "docs" / "new.md"
+                real_link = os.link
+
+                def link(*args, **kwargs):
+                    if writer == "bytes-rename":
+                        raise OSError(1, "no hard links")
+                    return real_link(*args, **kwargs)
+
+                with patch.object(ras.contained_files, "_windows", return_value=True), \
+                        patch.object(ras.contained_files, "_dir_fd_supported", return_value=False), \
+                        patch.object(os, "link", side_effect=link), \
+                        patch.object(os, "fchmod", create=True,
+                                     side_effect=PermissionError(13, "Access is denied")) as refused:
+                    if writer == "text":
+                        target.parent.mkdir()
+                        judged, identity = ras._write_text_exclusive_identity(
+                            target, "body\r\n", root=root, mode=0o444)
+                    else:
+                        judged, identity = ras._write_bytes_atomic_exclusive_identity(
+                            target, b"body\r\n", root=root, mode=0o444)
+                    self.assertEqual(refused.call_count, 0)
+                actual = target.stat()
+                self.assertEqual((judged, identity), (target, (actual.st_dev, actual.st_ino)))
+                self.assertEqual(target.read_bytes(), b"body\r\n")
+                self.assertEqual([entry.name for entry in target.parent.iterdir()], ["new.md"])
 
 
 

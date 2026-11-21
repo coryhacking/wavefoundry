@@ -2,12 +2,12 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-21
 
 ## Configuration
 
 - **Primary config:** `docs/workflow-config.json` — lifecycle epoch, wave settings, review policies, and dashboard host/port preferences. Read by `lifecycle_id.py`, `dashboard_server.py`, and the Wave Framework self-hosted surface.
-- **Guard overrides:** `.wavefoundry/guard-overrides.json` (gitignored) — temporary flags for seed/framework edits. Consumed by Claude Code pre-edit hook.
+- The operator approves temporary gates for seed and framework edits. Use `wf_open_gate` and `wf_close_gate` to update the gitignored `.wavefoundry/guard-overrides.json`. Claude, Copilot and Cursor guard framework edits. Windsurf guards seed edits.
 - **Hook dispatch:** Claude's owned pre-edit registration receives all tool names, then the existing classifier checks supported explicit paths. Post-edit remains selective to known edits. This is host dispatch plus path classification, not shell interception or universal write enforcement.
 - **Dashboard runtime metadata:** `.wavefoundry/locks/dashboard-server.lock` (host-local; untracked) — the dashboard server's lifetime lock file, which also carries the last known endpoint and startup metadata written in place. Written only by `dashboard_server.py`.
 - **Dashboard auto-index write boundary:** when `dashboard.auto_index: true`, `dashboard_server.py` may also write to `.wavefoundry/index/` via a spawned indexer subprocess. This is the only non-metadata write the daemon performs; it is opt-in, subprocess-isolated (`start_new_session=True`, `close_fds=True`), and uses the same atomic temp-then-rename strategy as direct indexer runs.

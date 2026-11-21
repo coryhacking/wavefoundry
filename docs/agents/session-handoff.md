@@ -2,9 +2,21 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-20
+Last verified: 2026-11-21
 
 ## Current state
+
+**Wave 23z45 is paused after delivery review.** All four specs are implemented. Five specialists and the council approved the repairs. The current close preview requires operator signoff. The changes cover Windows file writes, custom planning names, security review advisories and actionable telemetry and TechDocs errors. The wave's own full suite ran 13,123 tests across 251 files with 12 skips.
+
+**Wave 23z46 has finished implementation.** Install hooks explain when permission is due. Fresh upgrades identify live document errors before replacing files, flag control characters with their locations and save the full seed diff. The Review Evidence table shows whether each approval covers readiness or delivery. Five specialists and the council approved delivery after all three release profiles passed. All eleven delivery findings have independent reverification. The wave remains open for operator signoff.
+
+**Upgrade boundaries.** The new preflight ignores closed history. The existing final integrity gate can still reject a historical Finding Synthesis that disagrees with its ledger. The v1.31 planner can also refuse a completed record with a missing declared ledger. On a live document, an installed linter's false positive blocks the fresh upgrade. Release notes describe the repair and retry path.
+
+**Release preparation.** The combined default suite passed 13,160 tests across 253 files with 12 skips. The renamed profile passed 13,138 tests across the same 253 files with 38 skips. Its skip comparison identified exactly 26 approved default-only skips. The distribution-tool profile passed 13,160 tests across the same 253 files with the same 12 skip IDs and reasons as the default run. All three qualification reports match the current framework source. The release notes are under Unreleased in CHANGELOG.md. The operator chose to stay on the 1.x release line. The proposed next version is 1.47.0. Projects with a prohibited control character in a live document must repair it to complete the upgrade. Both waves await operator signoff and closure.
+
+**Field coverage.** The runs used macOS. Windows capability simulations covered the file-write repair. Native Windows execution and downstream operator use remain unverified.
+
+## Previous state for 23ve6
 
 Idle after closing wave **23ve6 developer-delivery-walkthrough** with operator signoff. Explain walks an operator through a reviewed wave or a named spec. All specialist delivery reviewers approved. The final suite passed (13,082 tests, 12 skips), and close removed the owned work folder.
 
