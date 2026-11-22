@@ -8,6 +8,17 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.48.0] - 2026-11-21
+
+### Added
+
+- Explain can illustrate a delivered request or recovery path with labeled arrows. Codex CLI and Claude Code terminal walkthroughs show a compact text diagram inline. The offline dashboard shows each relationship on its arrow and in a text list. Wave 24239 / 24238.
+- The local dashboard draws optional dependency flowcharts in wave and spec documents offline. Plan spec shows how to draw a branch or join. Unsupported diagrams display their source. Wave 24237 / 24236.
+
+### Changed
+
+- The writing guide adds sentence-structure checks. A long sentence carries one action or point. A checklist item holds one result. Writers name the head noun first. They write complete sentences in records. Reviewers apply the reader tasks to changelog entries and handoffs. The Pause wave prompt points writers to the guide. Wave 241c3 / 240wz.
+
 ## [1.47.0] - 2026-11-21
 
 ### Added

@@ -102,6 +102,27 @@ Spec format:
 
 If a change edits `canonical_review_policy_body` or any of its normalizers, say so in the spec and expect a one-time cost that no other edit has. Those functions decide what the review-policy digest SEES, so changing them re-digests every spec in the repository at once, lapsing every readiness approval in every open wave with no document edited. Plan for one re-Prepare per open wave, disclose it, and avoid making the edit while waves are readied but unclosed without saying so.
 
+### Show dependencies that branch or rejoin
+
+Use a list for a sequence. When several tasks can run in parallel or a step needs several checks, an optional diagram can show those relationships. Put dependencies within one spec in its Agent Execution Graph. Put dependencies between specs in the wave record and keep its machine-readable `Depends On:` entries. State in a sentence which checks must finish before the next step.
+
+#### Dashboard flowchart syntax
+
+The local dashboard renders fenced `mermaid` flowcharts offline. Start with `flowchart LR` for left to right or `flowchart TD` (also `flowchart TB`) for top to bottom. Write one arrow per line. Start each node ID with an ASCII letter and use up to 64 ASCII letters, digits and underscores in total. Mermaid reserves the lowercase ID `end`. Choose an ID such as `finish`. For a node label, put short, nonempty plain text in double quotes inside square brackets. Keep it on one line and leave out double quotes, angle brackets and control characters. Reuse the ID on later lines.
+
+- **Dependencies.** Leave every arrow unlabeled. Each arrow points from a prerequisite to the step it enables.
+- **Implementation relationships.** Label every arrow. Read `A -->|reads from| B` as “A reads from B.” Two arrows between the same components can carry different verbs. Use 1 to 64 UTF-16 code units per edge label after trimming surrounding spaces, including nonbreaking spaces. Omit pipes, double quotes, angle brackets, control and format characters, and Unicode line and paragraph separators.
+
+The dashboard displays the complete source if a block mixes labeled and unlabeled arrows or cannot be drawn.
+
+For example, both the code review and the QA check must finish before integration starts.
+
+```mermaid
+flowchart LR
+  code["Review code"] --> integrate["Start integration"]
+  qa["Run QA checks"] --> integrate
+```
+
 ### Plan shape and readiness repairs
 
 - A requirement naming a set the implementer must act on states the rule deriving that set; the derived set governs. Examples or a historical enumeration do not replace that rule.

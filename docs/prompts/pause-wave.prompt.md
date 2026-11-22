@@ -20,7 +20,7 @@ Pause a wave to hand off unfinished work or to queue a reviewed delivery for ope
    - Transitions wave.md `Status: active` → `Status: paused` (idempotent on already-paused; advisory diagnostic when the wave is not active).
    - Writes a session-handoff entry to `docs/agents/session-handoff.md`.
    - Returns `data.status_transition: {"from": ..., "to": ...}` so you can see what changed.
-2. Update `docs/agents/session-handoff.md` with a standardized structure beyond what `wf_pause_wave` recorded. Use these labeled sections:
+2. Update `docs/agents/session-handoff.md` with a standardized structure beyond what `wf_pause_wave` recorded. Write each section in complete sentences, as `.wavefoundry/framework/docs/writing-guide.md` directs. Use these labeled sections:
    - **Done** — changes/tasks completed this session
    - **Next** — ordered next actions
    - **Files touched** — key files modified

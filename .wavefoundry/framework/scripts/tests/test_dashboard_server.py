@@ -4669,6 +4669,19 @@ process.stdout.write(JSON.stringify(out));
                       "the --- inside the fenced block must remain literal text")
 
 
+class RenderMarkdownishDependencyDiagramTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "node unavailable for dashboard execution")
+    def test_dependency_diagrams_and_source_fallback(self):
+        import subprocess
+
+        driver = SCRIPTS_ROOT / "tests" / "fixtures" / "dashboard-dependency-diagrams.cjs"
+        result = subprocess.run(
+            ["node", str(driver), str(WFDS_PATH.parent.parent)],
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
 class RenderMarkdownishDocumentContractTests(unittest.TestCase):
     """The shared document renderer hides metadata and joins soft-wrapped prose."""
 

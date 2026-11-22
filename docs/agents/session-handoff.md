@@ -6,7 +6,11 @@ Last verified: 2026-11-21
 
 ## Current state
 
-All waves are closed. The last wave, `23zmr`, added guidance for early contract checks, combining review findings and testing claims of improvement. It joins `23zbf`, `23zbg` and `23xo7` in v1.47.0. Their wave records contain the delivery reviews and operator signoffs.
+All three waves for 1.48.0 are closed. Wave `24237` added optional dependency diagrams to planning and the offline dashboard. Wave `24239` added labeled implementation walkthroughs and inline text diagrams for terminal users. Wave `241c3` updated the shared writing guide and preserved the scripts for measuring later specs. The full framework suite passed 13,194 tests with 12 skips. The close tools removed the owned work directories.
+
+The [read-only handoff pilot](../reports/review-handoff-graph-pilot.md) is complete. Both coordinators chose the correct action at all five checkpoints. The team kept the existing review workflow. After three post-release waves contribute at least 700 spec sentences, use the [measurement instructions](../waves/241c3%20writing-guide-sentence-structure/evidence/README.md) to compare sentence length with the historical baseline.
+
+The previous release, v1.47.0, contains the four closed waves `23zmr`, `23zbf`, `23zbg` and `23xo7`.
 
 ## Open questions
 

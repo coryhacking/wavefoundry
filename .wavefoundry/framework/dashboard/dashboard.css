@@ -3785,6 +3785,13 @@ html[data-theme="dark"] .index-build-badge--current {
   overflow-wrap: anywhere;
 }
 
+.dependency-diagram { margin: var(--space-3) 0; min-width: 0; }
+.dependency-scroll { max-width: 100%; overflow-x: auto; }
+.dependency-scroll svg { display: block; max-width: none; color: var(--text); }
+.dependency-scroll rect { fill: var(--surface-raised); stroke: var(--border); }
+.dependency-scroll text { fill: var(--text); font: 14px system-ui; }
+.dependency-diagram summary { cursor: pointer; }
+
 .doc-dialog-body h1 {
   font-size: 1.25rem;
   font-weight: 700;

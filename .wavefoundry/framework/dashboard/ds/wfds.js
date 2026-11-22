@@ -34,7 +34,7 @@
 (function (root) {
   "use strict";
 
-  function defineWFDS(React) {
+  function defineWFDS(React, Layout = root.ELK) {
     const h = React.createElement;
     const { useState, useEffect, useRef, useCallback } = React;
 
@@ -359,6 +359,127 @@
       return parts.length === 1 && typeof parts[0] === "string" ? parts[0] : parts;
     }
 
+    // Only interpret the flowchart notation documented in Plan spec. Reject
+    // the whole block if any statement would be lost in the drawing.
+    function dependencyGraph(source) {
+      if (source.length > 8192) return null;
+      const lines = source.trim().split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+      const direction = /^flowchart\s+(LR|TD|TB)$/.exec(lines.shift() || "");
+      if (!direction || !lines.length || lines.length > 64) return null;
+      const endpoint = /^([A-Za-z][A-Za-z0-9_]{0,63})(?:\["([^"<>\x00-\x1f]{1,100})"\])?$/;
+      const nodes = new Map();
+      const edges = [];
+      function node(token) {
+        const match = endpoint.exec(token.trim());
+        if (!match || match[1] === "end") return null;
+        const [, name, label] = match;
+        if (!nodes.has(name)) nodes.set(name, { id: "n" + nodes.size, name });
+        const item = nodes.get(name);
+        if (label !== undefined) {
+          if (item.label !== undefined && item.label !== label) return null;
+          item.label = label;
+        }
+        return item;
+      }
+      for (const line of lines) {
+        const parts = line.split("-->");
+        if (parts.length !== 2) return null;
+        let target = parts[1].trim(), verb = null;
+        if (target.startsWith("|")) {
+          const label = /^\|([^|"<>\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+)\|(.*)$/u.exec(target);
+          if (!label) return null;
+          verb = label[1].trim();
+          if (!verb || verb.length > 64) return null;
+          target = label[2];
+        }
+        if (edges.length && (edges[0].verb === null) !== (verb === null)) return null;
+        const from = node(parts[0]), to = node(target);
+        if (!from || !to || nodes.size > 32) return null;
+        edges.push({ id: "e" + edges.length, from, to, verb });
+      }
+      return { direction: direction[1] === "LR" ? "RIGHT" : "DOWN", nodes: [...nodes.values()],
+        edges, labeled: edges[0].verb !== null };
+    }
+
+    function DependencyDiagram({ source, graph }) {
+      const [drawing, setDrawing] = useState(null);
+      const arrow = React.useId();
+      // The element key includes the source, so even a pending or failed
+      // replacement immediately shows its own code block.
+      useEffect(() => {
+        let current = true;
+        async function draw() {
+          const measure = root.document.createElement("canvas").getContext("2d");
+          measure.font = "14px system-ui";
+          const layout = await new Layout().layout({
+            id: "root",
+            layoutOptions: { "elk.algorithm": "layered", "elk.direction": graph.direction,
+              "elk.layered.spacing.nodeNodeBetweenLayers": "38" },
+            children: graph.nodes.map(({ id, name, label }) => ({
+              id, width: Math.ceil(measure.measureText(label || name).width) + 28, height: 36,
+            })),
+            edges: graph.edges.map(({ id, from, to, verb }) => {
+              const edge = { id, sources: [from.id], targets: [to.id] };
+              if (verb) edge.labels = [{ text: verb, width: Math.ceil(measure.measureText(verb).width) + 8, height: 20 }];
+              return edge;
+            }),
+          });
+          const positive = n => Number.isFinite(n) && n > 0;
+          if (!positive(layout.width) || !positive(layout.height)) return;
+          const point = p => p && Number.isFinite(p.x) && Number.isFinite(p.y) &&
+            p.x >= 0 && p.y >= 0 && p.x <= layout.width && p.y <= layout.height;
+          const box = b => point(b) && positive(b.width) && positive(b.height) &&
+            b.x + b.width <= layout.width && b.y + b.height <= layout.height;
+          if (layout.children.length !== graph.nodes.length || layout.edges.length !== graph.edges.length ||
+              !layout.children.every(box)) return;
+          for (const edge of layout.edges) {
+            const section = edge.sections?.[0];
+            if (edge.sections?.length !== 1 || !point(section?.startPoint) || !point(section.endPoint) ||
+                !(section.bendPoints || []).every(point)) return;
+          }
+          if (graph.labeled) {
+            const verbs = new Map(graph.edges.map(edge => [edge.id, edge.verb]));
+            for (const edge of layout.edges) {
+              const label = edge.labels?.[0];
+              if (edge.labels?.length !== 1 || !verbs.has(edge.id) || label.text !== verbs.get(edge.id) ||
+                  !box(label)) return;
+              verbs.delete(edge.id);
+            }
+          }
+          if (current) setDrawing(layout);
+        }
+        draw().catch(() => { /* Keep the complete, readable source. */ });
+        return () => { current = false; };
+      }, [source]);
+      if (!drawing) return h("pre", null, h("code", null, source));
+      const labels = new Map(graph.nodes.map(n => [n.id, n.label || n.name]));
+      return h("figure", { className: "dependency-diagram" },
+        h("div", { className: "dependency-scroll", tabIndex: 0, role: "region",
+          "aria-label": graph.labeled ? "Relationship diagram" : "Dependency diagram" },
+          h("svg", { width: drawing.width, height: drawing.height, "aria-hidden": true },
+            h("defs", null, h("marker", { id: arrow, markerWidth: 8, markerHeight: 8,
+              refX: 8, refY: 4, orient: "auto", markerUnits: "userSpaceOnUse" },
+              h("path", { d: "M0 0 L8 4 L0 8 Z", fill: "currentColor" }))),
+            drawing.edges.map(edge => {
+              const section = edge.sections[0];
+              const points = [section.startPoint, ...(section.bendPoints || []), section.endPoint];
+              const line = h("polyline", { key: edge.id, points: points.map(p => p.x + "," + p.y).join(" "),
+                fill: "none", stroke: "currentColor", markerEnd: "url(#" + arrow + ")" });
+              if (!graph.labeled) return line;
+              const label = edge.labels[0];
+              return h("g", { key: edge.id }, line, h("text", {
+                x: label.x + label.width / 2, y: label.y + label.height / 2,
+                textAnchor: "middle", dominantBaseline: "central" }, label.text));
+            }),
+            drawing.children.map(n => h("g", { key: n.id },
+              h("rect", { x: n.x, y: n.y, width: n.width, height: n.height, rx: 5 }),
+              h("text", { x: n.x + n.width / 2, y: n.y + n.height / 2,
+                textAnchor: "middle", dominantBaseline: "central" }, labels.get(n.id)))))),
+        h("details", null, h("summary", null, graph.labeled ? "Relationships" : "Dependencies"),
+          h("ul", null, graph.edges.map(({ id, from, to, verb }) => h("li", { key: id },
+            labels.get(from.id), " ", verb || "must finish before", " ", labels.get(to.id))))));
+    }
+
     function renderMarkdownish(text) {
       const lines = text.split("\n");
       const result = [];
@@ -369,6 +490,8 @@
       let paragraphLines = [];
       let tableLines = [];
       let codeLines = null; // null = not in a code block; [] = collecting
+      let mermaidFence = false;
+      let diagramCount = 0;
       let inHtmlComment = false;
       let key = 0;
       let lastH2 = "";
@@ -448,9 +571,16 @@
         // Fenced code block handling
         if (codeLines !== null) {
           const line = raw.trim();
-          if (line.startsWith("```")) {
+          if (mermaidFence ? /^`{3,}$/.test(line) : line.startsWith("```")) {
             // Closing fence — emit the block
-            result.push(h("pre", { key: key++ }, h("code", null, codeLines.join("\n"))));
+            const source = codeLines.join("\n");
+            const graph = mermaidFence && Layout && diagramCount < 8 && dependencyGraph(source);
+            if (graph) {
+              diagramCount++;
+              result.push(h(DependencyDiagram, { key: key++ + ":" + source, source, graph }));
+            } else {
+              result.push(h("pre", { key: key++ }, h("code", null, source)));
+            }
             codeLines = null;
           } else {
             codeLines.push(raw); // preserve original indentation inside the block
@@ -486,6 +616,7 @@
           flushParagraph();
           flushList();
           flushTable();
+          mermaidFence = line === "```mermaid";
           codeLines = [];
           continue;
         }

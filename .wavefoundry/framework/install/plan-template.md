@@ -43,6 +43,8 @@ Name at least one AC, or a clearly identified combination, that tests whether th
 
 ## Agent Execution Graph
 
+For a simple sequence, use a list. If work branches or rejoins, you may add a fenced `mermaid` flowchart here and name every prerequisite for the join in a sentence. Put dependencies between specs in the wave record and keep its `Depends On:` entries. See Plan spec for supported diagram syntax.
+
 | Workstream | Owner | Depends On | Notes |
 | --- | --- | --- | --- |
 | [workstream] | [role] | — | |

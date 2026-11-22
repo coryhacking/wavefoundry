@@ -63,6 +63,27 @@ Code-grounded authoring (required; definition in seed-209, "Code-Grounded Verifi
 - Write each Acceptance Criterion so that an implementation with the fix absent cannot satisfy it, and state the failing condition where it is not obvious. This is the authoring counterpart of the reviewer's known-bad rule in seed-209; an AC satisfiable by a no-op, or by documenting a defect the change itself introduces, is a defect in the plan.
 - **Mechanism efficacy:** before selecting an approach, test whether its mechanism will achieve the goal, in proportion to the change (one sentence for a small fix; each point for a new mechanism, sensor or gate): replay the motivating case through the mechanism and say whether it would catch or fix it; say whether the mechanism controls the outcome or only advises, and what makes someone act on the advice; name what it would flag wrongly, miss, or what would make it ignored; check whether existing data or an existing mechanism gives most of the value; and state how success will be measured after release. Record the answers with the selected approach in `## Decision Log`.
 
+### Show dependencies that branch or rejoin
+
+Use a list for a sequence. When several tasks can run in parallel or a step needs several checks, an optional diagram can show those relationships. Put dependencies within one spec in its Agent Execution Graph. Put dependencies between specs in the wave record and keep its machine-readable `Depends On:` entries. State in a sentence which checks must finish before the next step.
+
+#### Dashboard flowchart syntax
+
+The local dashboard renders fenced `mermaid` flowcharts offline. Start with `flowchart LR` for left to right or `flowchart TD` (also `flowchart TB`) for top to bottom. Write one arrow per line. Start each node ID with an ASCII letter and use up to 64 ASCII letters, digits and underscores in total. Mermaid reserves the lowercase ID `end`. Choose an ID such as `finish`. For a node label, put short, nonempty plain text in double quotes inside square brackets. Keep it on one line and leave out double quotes, angle brackets and control characters. Reuse the ID on later lines.
+
+- **Dependencies.** Leave every arrow unlabeled. Each arrow points from a prerequisite to the step it enables.
+- **Implementation relationships.** Label every arrow. Read `A -->|reads from| B` as “A reads from B.” Two arrows between the same components can carry different verbs. Use 1 to 64 UTF-16 code units per edge label after trimming surrounding spaces, including nonbreaking spaces. Omit pipes, double quotes, angle brackets, control and format characters, and Unicode line and paragraph separators.
+
+The dashboard displays the complete source if a block mixes labeled and unlabeled arrows or cannot be drawn.
+
+For example, both the code review and the QA check must finish before integration starts.
+
+```mermaid
+flowchart LR
+  code["Review code"] --> integrate["Start integration"]
+  qa["Run QA checks"] --> integrate
+```
+
 ### Plan shape and readiness repairs
 
 - A requirement naming a set the implementer must act on states the rule deriving that set; the derived set governs. Examples or a historical enumeration do not replace that rule.

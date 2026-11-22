@@ -1000,6 +1000,8 @@ Guardrails:
 
 Render the missing Explain baseline and skill. Compare the existing public delivery review prompt with the shipped walkthrough handoff. Merge the question once at the end of the review result and point acceptance to Explain. Have internal review instructions delegate to that same handoff. Preserve project edits and vocabulary, including custom review prompt names. Verify the Explain shortcut in the catalog, manifest and agent routing table and the skill on each active host. Repeat upgrades should leave current prompts intact.
 
+Compare the installed Explain baseline at `.wavefoundry/framework/install/lifecycle-prompts/explain.prompt.md` with the project's Explain prompt, and seed 170's **Dashboard flowchart syntax** with the project's planning prompt. Resolve the prompts through the local catalog so renamed commands reach the correct files. Merge missing walkthrough guidance beside the existing trace instruction, including the inline text diagram for terminal readers. Merge missing dashboard syntax into the planning prompt's diagram section. Keep the syntax in that one section and point Explain to its local heading. Preserve local terms, instructions and equivalent guidance, even if they use different words. On a repeat, read both destinations again. If each covers the guidance once and the reference resolves, leave both files as they are.
+
 ## Reader-centered writing reconciliation
 
 The pack carries `.wavefoundry/framework/docs/writing-guide.md`; ordinary feature extraction delivers it even when no seed changed. During this upgrade, read the installed guide and inspect the actual destinations below. Setup and surface rendering do not merge this authored prose.
