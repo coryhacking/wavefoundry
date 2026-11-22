@@ -564,31 +564,26 @@ _CLAUDE_GURU_TEMPLATE_DESCRIPTION = next(
 CLAUDE_GURU_DESCRIPTION = _guru_shortcuts(_CLAUDE_GURU_TEMPLATE_DESCRIPTION)
 
 
-def previous_guru_descriptions(shortcut=None) -> tuple[str, ...]:
-    """Guru subagent descriptions shipped before the current one.
+def previous_guru_descriptions() -> tuple[str, ...]:
+    """Guru subagent description forms shipped before the current one.
 
     These came from this renderer's ``CLAUDE_GURU_AGENT`` and from seed 050's
     Claude Code subagent template, which an installing agent writes by hand.
-    A render replaces an existing ``.claude/agents/guru.md`` description that
-    equals one of them, because nobody customized it; any other description
-    is kept. When the description changes here or in seed 050, add the
-    outgoing text. ``shortcut`` fills the placeholder form with the project's
-    lifecycle shortcuts (default: the active vocabulary profile).
+    Each form holds ``{plan}``, ``{implement}``, ``{close}`` and ``{prepare}``
+    placeholders where a vocabulary profile put its lifecycle shortcuts. A
+    render replaces an existing ``.claude/agents/guru.md`` description that
+    matches one of them, or the current template, with any shortcut in each
+    slot (``_is_managed_guru_description``); any other description is kept.
+    When the description changes here or in seed 050, add the outgoing form.
     """
-    shortcut = shortcut or vocabulary_profile.shortcut
     long_form = (
         "PROACTIVELY use when the user asks how this repository's source code or project "
         "documentation works — behavior, architecture, specs, framework scripts, indexing, "
         "chunking, retrieval, or where to find implementation. Do not use for wave lifecycle "
         "commands ({plan}, {implement}, {close}, {prepare}, etc.)."
     )
-    short_form = (
-        "PROACTIVELY use when the user asks how this repository's source code or project "
-        "documentation works. Do not use for wave lifecycle commands ({plan}, Implement wave, "
-        "Close wave, etc.)."
-    )
-    # The investigation wording, shipped with the earlier default plan
-    # shortcut before that shortcut was renamed.
+    # The investigation wording, shipped before durable documents were called
+    # behavior contracts.
     investigation_form = (
         "PROACTIVELY use when the user asks how this repository's source code or project "
         "documentation works and answering needs an investigation — behavior, architecture, "
@@ -596,48 +591,58 @@ def previous_guru_descriptions(shortcut=None) -> tuple[str, ...]:
         "finding a definition or reading one value, needs no subagent. Do not use for wave "
         "lifecycle commands ({plan}, {implement}, {close}, {prepare}, etc.)."
     )
-    defaults = {"implement": "Implement wave", "close": "Close wave", "prepare": "Prepare wave"}
-    texts = [
-        long_form.format(plan="Plan feature", **defaults),
-        long_form.format(plan="Plan change", **defaults),
-        investigation_form.format(plan="Plan change", **defaults),
-        # The investigation wording with the project's current shortcuts,
-        # shipped before durable documents were called behavior contracts.
-        investigation_form.format(
-            plan=shortcut("plan-change"),
-            implement=shortcut("implement-wave"),
-            close=shortcut("close-wave"),
-            prepare=shortcut("prepare-wave"),
-        ),
-        long_form.format(
-            plan=shortcut("plan-change"),
-            implement=shortcut("implement-wave"),
-            close=shortcut("close-wave"),
-            prepare=shortcut("prepare-wave"),
-        ),
-        # A profile that renamed the other lifecycle prompts but kept the
-        # earlier default plan shortcut shipped that shortcut with its own
-        # names for the rest.
-        *(
-            form.format(
-                plan="Plan change",
-                implement=shortcut("implement-wave"),
-                close=shortcut("close-wave"),
-                prepare=shortcut("prepare-wave"),
-            )
-            for form in (investigation_form, long_form)
-        ),
-        short_form.format(plan="Plan feature"),
-        short_form.format(plan="Plan change"),
-    ]
-    return tuple(dict.fromkeys(texts))
+    short_form = (
+        "PROACTIVELY use when the user asks how this repository's source code or project "
+        "documentation works. Do not use for wave lifecycle commands ({plan}, {implement}, "
+        "{close}, etc.)."
+    )
+    return (long_form, investigation_form, short_form)
+
+
+_GURU_SLOT_PLACEHOLDERS = ("{plan}", "{implement}", "{close}", "{prepare}")
+# A shortcut slot holds one or more characters other than the separators that
+# delimit the slots, so a slot cannot absorb a neighbor or an extra list item.
+_GURU_SLOT = r"[^,()\r\n]+"
+
+
+def _is_managed_guru_description(value: str, shortcut=None) -> bool:
+    """Whether ``value`` is a shipped Guru description under any shortcuts.
+
+    ``value`` must fully match the current template or an earlier form, with
+    each shortcut slot holding either the active profile's own shortcut for
+    that slot (``shortcut``, default: the active vocabulary profile) or text
+    matching ``_GURU_SLOT``. Every character outside the slots must match.
+    """
+    shortcut = shortcut or vocabulary_profile.shortcut
+    current = _CLAUDE_GURU_TEMPLATE_DESCRIPTION
+    for token, placeholder in (("@PLAN@", "{plan}"), ("@IMPLEMENT@", "{implement}"),
+                               ("@CLOSE@", "{close}"), ("@PREPARE@", "{prepare}")):
+        current = current.replace(token, placeholder)
+    # Literal keys keep these lookups visible to the reconcile-key census.
+    own = {
+        "{plan}": shortcut("plan-change"),
+        "{implement}": shortcut("implement-wave"),
+        "{close}": shortcut("close-wave"),
+        "{prepare}": shortcut("prepare-wave"),
+    }
+    for form in (current, *previous_guru_descriptions()):
+        pieces = re.split(r"(\{plan\}|\{implement\}|\{close\}|\{prepare\})", form)
+        pattern = "".join(
+            f"(?:{re.escape(own[piece])}|{_GURU_SLOT})"
+            if piece in _GURU_SLOT_PLACEHOLDERS else re.escape(piece)
+            for piece in pieces
+        )
+        if re.fullmatch(pattern, value):
+            return True
+    return False
 
 
 def _refresh_guru_description(text: str, current: str, path: Path, shortcut=None) -> str:
     """Replace a previously shipped Guru description with ``current``.
 
     Only a single ``description:`` line inside a valid frontmatter block whose
-    value equals a known shipped text is replaced; its line ending and every
+    value is a managed shipped description (``_is_managed_guru_description``)
+    is replaced; its line ending and every
     other byte are kept. The key counts in any quoting or indentation, and a
     following indented line continues the value, so either case is treated as
     customized. Anything else returns ``text`` unchanged.
@@ -659,7 +664,7 @@ def _refresh_guru_description(text: str, current: str, path: Path, shortcut=None
     body = line.rstrip("\r\n")
     ending = line[len(body):]
     value = body[len("description:"):].strip()
-    if value == current or value not in previous_guru_descriptions(shortcut):
+    if value == current or not _is_managed_guru_description(value, shortcut):
         return text
     lines[hits[0]] = f"description: {current}{ending}"
     print(

@@ -4625,28 +4625,121 @@ class GuruDescriptionRefreshTests(unittest.TestCase):
         self.assertIn(b"## Your job", result, "the body still refreshes")
         self.assertIn(self.NOTICE, stderr)
 
+    # Every text previous_guru_descriptions() recognized before slot matching
+    # (wave 242yp), captured from that code as literals so the oracle does not
+    # come from the matcher under test. DEFAULT_SHIPPED is the default
+    # profile's set; RENAMED_SHIPPED adds the texts for a table that renames
+    # all four keys; PAREN_SHIPPED adds the texts for a plan shortcut that
+    # contains parentheses, recognized only while that profile is active.
+    DEFAULT_SHIPPED = (
+        "PROACTIVELY use when the user asks how this repository's source code or project documentation works — behavior, architecture, specs, framework scripts, indexing, chunking, retrieval, or where to find implementation. Do not use for wave lifecycle commands (Plan feature, Implement wave, Close wave, Prepare wave, etc.).",
+        "PROACTIVELY use when the user asks how this repository's source code or project documentation works — behavior, architecture, specs, framework scripts, indexing, chunking, retrieval, or where to find implementation. Do not use for wave lifecycle commands (Plan change, Implement wave, Close wave, Prepare wave, etc.).",
+        "PROACTIVELY use when the user asks how this repository's source code or project documentation works and answering needs an investigation — behavior, architecture, specs, framework scripts, indexing, chunking, or retrieval. A direct lookup, such as finding a definition or reading one value, needs no subagent. Do not use for wave lifecycle commands (Plan change, Implement wave, Close wave, Prepare wave, etc.).",
+        "PROACTIVELY use when the user asks how this repository's source code or project documentation works and answering needs an investigation — behavior, architecture, specs, framework scripts, indexing, chunking, or retrieval. A direct lookup, such as finding a definition or reading one value, needs no subagent. Do not use for wave lifecycle commands (Plan spec, Implement wave, Close wave, Prepare wave, etc.).",
+        "PROACTIVELY use when the user asks how this repository's source code or project documentation works — behavior, architecture, specs, framework scripts, indexing, chunking, retrieval, or where to find implementation. Do not use for wave lifecycle commands (Plan spec, Implement wave, Close wave, Prepare wave, etc.).",
+        "PROACTIVELY use when the user asks how this repository's source code or project documentation works. Do not use for wave lifecycle commands (Plan feature, Implement wave, Close wave, etc.).",
+        "PROACTIVELY use when the user asks how this repository's source code or project documentation works. Do not use for wave lifecycle commands (Plan change, Implement wave, Close wave, etc.).",
+    )
+    RENAMED_TABLE = {"plan-change": "Plan task", "implement-wave": "Build batch",
+                     "close-wave": "Close batch", "prepare-wave": "Prepare batch"}
+    RENAMED_SHIPPED = (
+        "PROACTIVELY use when the user asks how this repository's source code or project documentation works and answering needs an investigation — behavior, architecture, specs, framework scripts, indexing, chunking, or retrieval. A direct lookup, such as finding a definition or reading one value, needs no subagent. Do not use for wave lifecycle commands (Plan task, Build batch, Close batch, Prepare batch, etc.).",
+        "PROACTIVELY use when the user asks how this repository's source code or project documentation works — behavior, architecture, specs, framework scripts, indexing, chunking, retrieval, or where to find implementation. Do not use for wave lifecycle commands (Plan task, Build batch, Close batch, Prepare batch, etc.).",
+        "PROACTIVELY use when the user asks how this repository's source code or project documentation works and answering needs an investigation — behavior, architecture, specs, framework scripts, indexing, chunking, or retrieval. A direct lookup, such as finding a definition or reading one value, needs no subagent. Do not use for wave lifecycle commands (Plan change, Build batch, Close batch, Prepare batch, etc.).",
+        "PROACTIVELY use when the user asks how this repository's source code or project documentation works — behavior, architecture, specs, framework scripts, indexing, chunking, retrieval, or where to find implementation. Do not use for wave lifecycle commands (Plan change, Build batch, Close batch, Prepare batch, etc.).",
+    )
+    PAREN_SHIPPED = (
+        "PROACTIVELY use when the user asks how this repository's source code or project documentation works and answering needs an investigation — behavior, architecture, specs, framework scripts, indexing, chunking, or retrieval. A direct lookup, such as finding a definition or reading one value, needs no subagent. Do not use for wave lifecycle commands (Plan (spec), Implement wave, Close wave, Prepare wave, etc.).",
+        "PROACTIVELY use when the user asks how this repository's source code or project documentation works — behavior, architecture, specs, framework scripts, indexing, chunking, retrieval, or where to find implementation. Do not use for wave lifecycle commands (Plan (spec), Implement wave, Close wave, Prepare wave, etc.).",
+    )
+    ENCODINGS = (("\n", ""), ("\r\n", ""), ("\r\n", "﻿"), ("\n", "﻿"))
+
+    @staticmethod
+    def _table(names):
+        original = vp.shortcut
+        return lambda key, *a, **k: names.get(key) or original(key, *a, **k)
+
+    @staticmethod
+    def _fill(names) -> str:
+        text = ras._CLAUDE_GURU_TEMPLATE_DESCRIPTION
+        for token, key in (("@PLAN@", "plan-change"), ("@IMPLEMENT@", "implement-wave"),
+                           ("@CLOSE@", "close-wave"), ("@PREPARE@", "prepare-wave")):
+            text = text.replace(token, names.get(key) or vp.shortcut(key))
+        return text
+
+    def _assert_kept(self, header: str, shortcut=None) -> None:
+        result, stderr = self._render(header, shortcut=shortcut)
+        self.assertTrue(result.startswith(header.encode()), "header bytes must survive")
+        self.assertNotIn(self.NOTICE, stderr)
+
     def test_each_previously_shipped_description_is_replaced(self) -> None:
-        for description in ras.previous_guru_descriptions():
-            for newline, bom in (("\n", ""), ("\r\n", ""), ("\r\n", "﻿"), ("\n", "﻿")):
+        # AC-4 cases 1 and 2: rendered under the active (default) profile.
+        for description in (*self.DEFAULT_SHIPPED, *self.RENAMED_SHIPPED):
+            for newline, bom in self.ENCODINGS:
                 with self.subTest(description=description[-60:], newline=repr(newline), bom=bool(bom)):
                     self._assert_replaced(description, newline, bom)
 
-    def test_placeholder_form_follows_a_non_default_vocabulary(self) -> None:
-        names = {"plan-change": "Plan task", "implement-wave": "Build batch",
-                 "close-wave": "Close batch", "prepare-wave": "Prepare batch"}
-        renamed = ras.previous_guru_descriptions(names.__getitem__)
-        custom = next(d for d in renamed if "Plan task" in d)
-        self.assertNotIn(custom, ras.previous_guru_descriptions())
-        # Under the renamed vocabulary the filled placeholder form is a shipped text.
-        original = vp.shortcut
-        self._assert_replaced(custom, shortcut=lambda key, *a, **k: names.get(key) or original(key, *a, **k))
-        # Under the default vocabulary the same text was never shipped, so it is kept.
-        result, stderr = self._render(self._header(custom))
-        self.assertTrue(result.startswith(self._header(custom).encode()))
-        self.assertNotIn(self.NOTICE, stderr)
+    def test_a_shortcut_with_parentheses_is_recognised_while_its_profile_is_active(self) -> None:
+        # AC-4 case 3: the generic slot excludes "(", so only the active
+        # profile's own shortcut, matched literally, recognizes these texts.
+        shortcut = self._table({"plan-change": "Plan (spec)"})
+        for description in self.PAREN_SHIPPED:
+            for newline, bom in self.ENCODINGS:
+                with self.subTest(description=description[-60:], newline=repr(newline), bom=bool(bom)):
+                    self._assert_replaced(description, newline, bom, shortcut=shortcut)
+        # Once that profile has departed, its text is kept (fails safe).
+        self._assert_kept(self._header(self.PAREN_SHIPPED[0]))
+
+    def test_the_current_template_under_a_departing_profile_is_replaced(self) -> None:
+        # AC-1: the reported case, plus an in-slot routing exclusion, which a
+        # slot accepts and a render replaces.
+        cases = {
+            "departing profile": self._fill({"plan-change": "Plan wave", "implement-wave": "Implement set",
+                                             "close-wave": "Close set", "prepare-wave": "Prepare set"}),
+            "in-slot routing exclusion": self._fill({"prepare-wave": "Prepare wave or security reviews"}),
+        }
+        for label, description in cases.items():
+            for newline, bom in self.ENCODINGS:
+                with self.subTest(case=label, newline=repr(newline), bom=bool(bom)):
+                    self._assert_replaced(description, newline, bom)
+
+    def test_a_description_differing_outside_the_slots_is_kept(self) -> None:
+        # AC-2, under the default profile.
+        current = ras.CLAUDE_GURU_DESCRIPTION
+        plan = vp.shortcut("plan-change")
+        cases = {
+            "edit inside the fixed prose": current.replace("needs no subagent", "needs no agent"),
+            "slot value with a comma": current.replace(f"({plan},", f"({plan}, Plan arc,"),
+            "slot value with a parenthesis": current.replace(f"({plan},", f"({plan} (and arcs),"),
+            "trailing text": current + " Also billing.",
+            "earlier form with trailing text": self.DEFAULT_SHIPPED[5] + " Also billing.",
+        }
+        for label, description in cases.items():
+            with self.subTest(case=label):
+                self.assertNotEqual(description, current)
+                self._assert_kept(self._header(description))
+
+    def test_an_empty_slot_is_kept(self) -> None:
+        # AC-3.
+        current = ras.CLAUDE_GURU_DESCRIPTION
+        plan = vp.shortcut("plan-change")
+        prepare = vp.shortcut("prepare-wave")
+        for label, description in (("empty plan slot", current.replace(f"({plan},", "(,")),
+                                    ("empty prepare slot", current.replace(f", {prepare},", ", ,"))):
+            with self.subTest(case=label):
+                self.assertNotEqual(description, current)
+                self._assert_kept(self._header(description))
+
+    def test_the_current_description_is_left_unchanged(self) -> None:
+        # AC-5: no rewrite and no notice, under the default profile and while
+        # a renamed profile is active (its own current text).
+        self._assert_kept(self._header(ras.CLAUDE_GURU_DESCRIPTION))
+        shortcut = self._table(self.RENAMED_TABLE)
+        with patch.object(ras, "_vp_shortcut", side_effect=shortcut):
+            self._assert_kept(self._header(self._fill(self.RENAMED_TABLE)), shortcut=shortcut)
 
     def test_other_descriptions_and_headers_are_kept(self) -> None:
-        shipped = ras.previous_guru_descriptions()[0]
+        shipped = self.DEFAULT_SHIPPED[0]
         cases = {
             "customized": self._header("Answer questions about our billing code."),
             "current": self._header(ras.CLAUDE_GURU_DESCRIPTION),
@@ -4675,9 +4768,12 @@ class GuruDescriptionRefreshTests(unittest.TestCase):
 
     def test_known_set_is_non_empty_and_excludes_the_current_description(self) -> None:
         known = ras.previous_guru_descriptions()
-        self.assertGreaterEqual(len(known), 4)
+        # Three earlier forms: long, investigation and short.
+        self.assertGreaterEqual(len(known), 3)
         self.assertNotIn(ras.CLAUDE_GURU_DESCRIPTION, known)
         self.assertEqual(len(known), len(set(known)))
+        for form in known:
+            self.assertIn("({plan}, {implement}, {close}", form, "every form slots its shortcuts")
         # The current constant's description is what a render writes.
         self.assertIn(f"description: {ras.CLAUDE_GURU_DESCRIPTION}\n", ras.CLAUDE_GURU_AGENT)
 
@@ -4692,7 +4788,7 @@ class GuruDescriptionRefreshTests(unittest.TestCase):
     )
 
     def test_current_description_is_pinned(self) -> None:
-        # When this fails, the description changed: add the outgoing text to
+        # When this fails, the description changed: add the outgoing form to
         # previous_guru_descriptions() so upgraded projects receive the new
         # one, then update this pin.
         current = ras.CLAUDE_GURU_DESCRIPTION
@@ -4700,10 +4796,12 @@ class GuruDescriptionRefreshTests(unittest.TestCase):
                                  ("close-wave", "@CLOSE@"), ("prepare-wave", "@PREPARE@")):
             current = current.replace(vp.shortcut(key), placeholder)
         self.assertEqual(current, self.PINNED_CURRENT_DESCRIPTION,
-                         "Guru description changed: add the outgoing text to previous_guru_descriptions()")
+                         "Guru description changed: add the outgoing form to previous_guru_descriptions()")
 
     def test_control_without_the_known_set_leaves_a_stale_description(self) -> None:
-        shipped = ras.previous_guru_descriptions()[0]
+        # An earlier-form text the current template cannot match, so removing
+        # the earlier forms must leave it stale.
+        shipped = self.DEFAULT_SHIPPED[0]
         self._assert_replaced(shipped)
         with patch.object(ras, "previous_guru_descriptions", return_value=()):
             with self.assertRaises(AssertionError):
@@ -6382,7 +6480,7 @@ class StaleDefaultSkillNameTests(unittest.TestCase):
             "finding a definition or reading one value, needs no subagent. Do not use for wave "
             "lifecycle commands (Plan change, Implement batch, Close batch, Prepare batch, etc.)."
         )
-        self.assertIn(shipped, ras.previous_guru_descriptions(names.__getitem__))
+        self.assertTrue(ras._is_managed_guru_description(shipped, names.__getitem__))
 
 
 if __name__ == "__main__":

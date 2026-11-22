@@ -30,6 +30,7 @@ import score_context_efficiency_pairs as pair_scorer
 import record_paths
 import vocabulary_profile
 from declaration_support import RecordingFastMCP  # shared FastMCP-backed double (change 1zim4)
+from perf_budget_policy import timing_budget  # change 242yq: distribution bypass
 
 # Record locations and markers follow the loaded profile (wave 1zim5).
 _WAVES_REL = record_paths.WAVES_ROOT
@@ -1057,7 +1058,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                     )
                 elapsed = time.perf_counter() - started
             self.assertEqual(result["reason"], "nothing_pending")
-            self.assertLess(elapsed, 2.0)
+            timing_budget(self, "1000 idle projection polls", lambda: self.assertLess(elapsed, 2.0))
 
     def test_automatic_pass_does_not_starve_later_waves_after_retryable_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3805,13 +3806,14 @@ if flushed is None or not flushed.success:
                         f"effective {effective_ms:.3f}ms",
                         file=sys.stderr,
                     )
-                self.assertLessEqual(
+                timing_budget(self, label, lambda observed_p95=observed_p95, effective_ms=effective_ms,
+                              label=label, budget_ms=budget_ms: self.assertLessEqual(
                     observed_p95,
                     effective_ms,
                     f"{label} p95 {observed_p95:.3f}ms exceeds effective "
                     f"budget {effective_ms:.3f}ms (nominal {budget_ms}ms "
                     f"x contention factor {factor:.3f})",
-                )
+                ))
 
     def test_closed_projection_seals_compacts_and_clears_process_focus(self):
         with tempfile.TemporaryDirectory() as tmp:

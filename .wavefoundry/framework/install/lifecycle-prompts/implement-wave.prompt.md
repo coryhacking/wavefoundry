@@ -46,6 +46,12 @@ Correct an agent-only misreading directly from the established requirement. Rout
    summon another council.
 6. Re-prepare only when scope, required contracts, architecture ownership,
    trust boundaries, or readiness semantics materially change.
+7. When a choice or discovery occurs, record in the affected spec what the next
+   engineer needs that the diff and tests cannot reliably show. Follow seed
+   180's **Rationale for the next engineer** for what belongs in
+   `## Decision Log` and `## Progress Log`. A routine fix needs only its
+   ordinary completion entry. Seed 180's **Retrospective on rationale records**
+   sets the later review of this guidance.
 
 ## When the Wavefoundry MCP is attached
 

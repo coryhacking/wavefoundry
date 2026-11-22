@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-22
 
 ## Tensorwell qualification
 
@@ -391,6 +391,20 @@ four pieces, all test infrastructure in
   example `waveforge.json`) beside them with `"active": true` and its
   constants, so its default run checks its intended profile and a run mode
   layers the framework's assets over it.
+- **Throughput-budget bypass (change 242yq).** A distribution whose machines
+  cannot meet upstream throughput budgets adds a top-level
+  `"skip_timing_budgets": "<reason>"` to its active asset. The reason is a
+  one-line string (non-empty, no line break) of at most 200 characters.
+  `load_profile` refuses the key in any asset that is not marked active, so a
+  run-mode layer and the framework's own `second.json`, `declared.json` and
+  `prompt-names.json` cannot declare it. `timing_budget_bypass_reason()` in
+  `record_layout_support` reads the active asset only and propagates
+  `ProfileInvalid`; it never turns a load error into "no bypass". No
+  environment variable enables the bypass: a stray shell value would skip
+  upstream budgets unseen. In this repository a test fails if any profile
+  asset declares the key; in a distribution that test skips as an
+  upstream-only assertion. The budgets it skips are described under
+  "Performance-Test Budget Policy" below.
 - **Second-profile run.** `run_tests.py --profile NAME [--file NAME ...]`,
   exclusive with `--no-cache` and the schedule-control options, copies
   `git ls-files -co --exclude-standard` into a temporary git repository
@@ -662,6 +676,31 @@ suite follows the policy in
 - never globally serialize the suite, and never inflate a budget without the
   measured basis (a deliberately injected meaningful slowdown must still
   fail — pinned by `test_perf_budget_policy.py`).
+
+**Distribution bypass (change 242yq).** A throughput budget measures ordinary
+work against a fixed upper bound. Every throughput budget asserts through
+`timing_budget(testcase, label, check)` in `perf_budget_policy.py`, directly
+or through `assert_within_budget` and `assert_operation_within_budget`. The
+label must be unique within its test; a repeated label raises at call time,
+with or without a declaration, because two skips with one identity make
+`qualification_report.worker_detail` report the worker incomplete. Without a
+declaration the helper runs the bound's own assertion unchanged. When the
+active profile asset declares `skip_timing_budgets` (see "Expected profile"
+above), the helper records a subtest skip `<test id> (timing_budget='<label>')`
+with the reason `timing-budget bypass: declared by
+tests/fixtures/profiles/<name>.json: <declared reason>`, and the rest of the
+test still runs. The threshold tests call the never-bypassed core
+`check_operation_within_budget`.
+
+Do not route a complexity, hang or denial-of-service guard, or a liveness
+bound, through the helper. A guard proves that pathological or maximum-size
+input cannot cause a super-linear or unbounded slowdown (for example the
+techdocs pattern and symlink-cycle tests, the glob, parser and scanner
+bounds). A liveness bound proves that a deadline, timeout, kill or fail-fast
+path ends promptly. Both are correctness signals that stay on in every tree;
+routing one would let the bypass hide it. `test_perf_budget_policy.py` pins
+the 8 routed tests (11 bounds) and checks that the 9 listed guard tests do not
+call the helper; it does not detect a new, unrouted budget elsewhere.
 
 ## Close-Time Verification: the framework test receipt (wave 1wur7)
 

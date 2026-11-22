@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import indexer  # noqa: E402
 import lexical_ranking_eval as subject  # noqa: E402
 import retrieval_eval  # noqa: E402
+from perf_budget_policy import timing_budget  # noqa: E402 (change 242yq)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3].parent
@@ -233,7 +234,8 @@ class ShippedCorpusProbeTests(unittest.TestCase):
             for case in self.calibration["cases"]:
                 subject.measure_case(index_dir, case)
         elapsed = time.perf_counter() - started
-        self.assertLess(elapsed, subject.RUNNER_BUDGET_SECONDS)
+        timing_budget(self, "calibration pass runtime",
+                      lambda: self.assertLess(elapsed, subject.RUNNER_BUDGET_SECONDS))
 
     def test_every_case_is_measured_with_exactly_three_repetitions(self):
         calls = []

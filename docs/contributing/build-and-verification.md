@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-21
+Last verified: 2026-11-22
 
 ## Verification Commands
 
@@ -187,6 +187,21 @@ because its vocabulary and layout remain the shipped defaults. Isolated graph
 and pinned historical fixtures keep copied checkouts independent of local
 indexes and missing Git references. A local-pack operator waiver applies only
 to its named artifact and does not qualify a later build.
+
+A distribution can skip the suite's throughput budgets on its own machines by
+adding `"skip_timing_budgets": "<one-line reason>"` to its active profile asset
+(change 242yq; contract in `docs/architecture/testing-architecture.md`
+"Expected profile" and "Performance-Test Budget Policy"). Only the active asset
+may carry the key, and no environment variable enables it. Each skipped bound
+is reported as `<test id> (timing_budget='<label>')` with the reason
+`timing-budget bypass: declared by tests/fixtures/profiles/<name>.json: <declared reason>`.
+The default and profile runs read the same asset, so their reports carry the
+same skips and compare equal under the existing rule; labels are unique within
+each test, so no worker reports a duplicate skipped-test identity. Complexity,
+hang and denial-of-service guards and liveness bounds are never skipped. The
+framework's own assets never declare the key, and a test in this repository
+fails if any profile asset does, so an upstream qualification report carries
+no bypass skip.
 
 Compatibility scope comes from the reviewed `tests/fixtures/profiles/qualification/coverage.json` inventory. Its initial independent footprint is the version-comparison test and its direct stdlib-only helper chain; all other workers remain profile-required or uncertain. Pins cover the test, helper dependencies, runner/worker/profile contracts and profile assets. Unknown tests or extensions, changed contracts and invalid inventory expand to a full profile. A distribution can declare its own profile JSON files in an optional, distribution-owned `tests/fixtures/profiles/qualification/distribution-assets.json` (`{"schema_version": 1, "assets": {"tests/fixtures/profiles/<name>.json": "<sha256>"}}`) instead of editing the upstream inventory; a declared asset must be a direct child of the profiles folder, must not repeat an inventory asset or be named `second.json` or `declared.json`, and must match its digest, or the scope falls back to full. Declared assets are not coverage contracts; their bytes are bound by each report's source hash. A fork that edits pinned contracts still falls back to full. The comparator recomputes coverage from source, checks source-owned profile identity and applied-profile values for full, fallback and selected reports, and compares only the selected workers against a complete default baseline. `--profile NAME` still runs the full reference; `--file` is diagnostic even when it happens to list every worker. The initial reduction was one of 187 workers per profile, with no timing claim. The inventory now classifies 188 of 200 workers and some pins are stale, so current runs fall back to full until it is reviewed again. Pins are never refreshed automatically. When a pinned file changes, review whether its independence claim still holds, run the affected focused controls and update only the reviewed hash. Until then, full fallback is correct. A full reference matrix is required for the initial selection or a substantive expansion of its coverage claims, not for routine pin refreshes that preserve the reviewed footprint.
 

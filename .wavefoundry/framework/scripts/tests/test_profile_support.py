@@ -1593,5 +1593,76 @@ class ProfileArgumentTests(unittest.TestCase):
         self.assertIn("no profile asset named 'absent'", err.getvalue())
 
 
+class TimingBudgetBypassDeclarationTests(unittest.TestCase):
+    """Change 242yq: ``skip_timing_budgets`` is honored only in the active
+    asset, and its reader propagates an invalid asset."""
+
+    MODULES = {"record_paths": {"MAX_DEPTH": SHIPPED_DEFAULTS["record_paths"]["MAX_DEPTH"]}}
+    KEY = record_layout_support.TIMING_BUDGET_BYPASS_KEY
+
+    def _asset(self, **fields) -> dict:
+        return {"description": "A distribution's own profile (test).", "modules": self.MODULES, **fields}
+
+    def test_an_inactive_asset_carrying_the_key_is_invalid(self) -> None:
+        for active in (None, False):
+            with self.subTest(active=active):
+                asset = self._asset(**{self.KEY: "slow disks"})
+                if active is not None:
+                    asset["active"] = active
+                with framework_profiles(dist=asset) as directory:
+                    with self.assertRaises(ProfileInvalid) as ctx:
+                        load_profile("dist", directory)
+                    self.assertIn(self.KEY, str(ctx.exception))
+                    # The reader never maps the load error to None.
+                    with self.assertRaises(ProfileInvalid):
+                        record_layout_support.timing_budget_bypass_reason(directory)
+                    with self.assertRaises(ProfileInvalid):
+                        expected_profile({}, directory)
+
+    def test_a_run_mode_layer_cannot_declare_the_key(self) -> None:
+        with framework_profiles(mode=self._asset(**{self.KEY: "slow disks"})) as directory:
+            with self.assertRaises(ProfileInvalid) as ctx:
+                expected_profile({TEST_PROFILE_ENV: "mode"}, directory)
+            self.assertIn(self.KEY, str(ctx.exception))
+
+    def test_the_reason_must_be_one_line_and_bounded(self) -> None:
+        limit = record_layout_support.TIMING_BUDGET_BYPASS_MAX_CHARS
+        for value in ("", "two\nlines", "cr\rhere", "x" * (limit + 1), 7, None, ["slow"]):
+            with self.subTest(value=value):
+                errors = record_layout_support._profile_errors(self._asset(active=True, **{self.KEY: value}))
+                self.assertEqual(len(errors), 1, errors)
+                self.assertIn(self.KEY, errors[0])
+        for value in ("slow disks", "x" * limit):
+            with self.subTest(value=value[:20]):
+                self.assertEqual(record_layout_support._profile_errors(
+                    self._asset(active=True, **{self.KEY: value})), [])
+
+    def test_the_active_asset_supplies_the_exact_reason(self) -> None:
+        with framework_profiles(dist=self._asset(active=True, **{self.KEY: "slow disks"})) as directory:
+            self.assertEqual(
+                record_layout_support.timing_budget_bypass_reason(directory),
+                "timing-budget bypass: declared by tests/fixtures/profiles/dist.json: slow disks")
+            # The run-mode layer never supplies or removes the reason.
+            self.assertEqual(expected_profile({TEST_PROFILE_ENV: "second"}, directory).base.name, "dist")
+        with framework_profiles(dist=self._asset(active=True)) as directory:
+            self.assertIsNone(record_layout_support.timing_budget_bypass_reason(directory))
+        with framework_profiles() as directory:
+            self.assertIsNone(record_layout_support.timing_budget_bypass_reason(directory))
+
+    def test_no_profile_asset_in_this_repository_declares_the_bypass(self) -> None:
+        # Upstream accident guard: in this repository a declaration fails;
+        # in a distribution the test skips as an upstream-only assertion.
+        upstream_fixture_support.source_repository_fixture(PROFILES_DIR)
+        declaring = [path.name for path in sorted(PROFILES_DIR.glob("*.json"))
+                     if self.KEY in json.loads(path.read_text(encoding="utf-8"))]
+        self.assertEqual(declaring, [], "an upstream profile asset declares the timing-budget bypass")
+
+    def test_the_accident_guard_fails_on_a_declaring_asset(self) -> None:
+        with framework_profiles(dist=self._asset(active=True, **{self.KEY: "slow disks"})) as directory:
+            with mock.patch.object(sys.modules[__name__], "PROFILES_DIR", directory):
+                with self.assertRaises(AssertionError):
+                    self.test_no_profile_asset_in_this_repository_declares_the_bypass()
+
+
 if __name__ == "__main__":
     unittest.main()

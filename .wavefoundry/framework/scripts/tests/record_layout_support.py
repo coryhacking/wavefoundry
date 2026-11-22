@@ -273,12 +273,52 @@ def _module_file_errors(data: dict, profiles_dir: "Path | None") -> list[str]:
     return errors
 
 
+# Change 242yq: a distribution's active asset may declare that the suite's
+# throughput budgets skip on its machines. The key is honored only in the
+# active asset, so a run-mode layer and the framework's own assets cannot
+# carry it; its value is the distribution's one-line reason.
+TIMING_BUDGET_BYPASS_KEY = "skip_timing_budgets"
+TIMING_BUDGET_BYPASS_MAX_CHARS = 200
+
+
+def _timing_budget_bypass_errors(data: dict) -> list[str]:
+    value = data[TIMING_BUDGET_BYPASS_KEY]
+    if data.get("active") is not True:
+        return [f"{TIMING_BUDGET_BYPASS_KEY} is honored only in the asset marked \"active\": true"]
+    if (not isinstance(value, str) or value.splitlines() != [value]
+            or len(value) > TIMING_BUDGET_BYPASS_MAX_CHARS):
+        return [f"{TIMING_BUDGET_BYPASS_KEY} must be a one-line reason of at most "
+                f"{TIMING_BUDGET_BYPASS_MAX_CHARS} characters, not {value!r}"]
+    return []
+
+
+def timing_budget_bypass_reason(profiles_dir: "Path | None" = None) -> "str | None":
+    """The skip reason when the active asset declares ``skip_timing_budgets``,
+    else ``None``. Reads the base layer (the active asset) only, never the
+    run-mode layer, and propagates :class:`ProfileInvalid`: an invalid asset,
+    such as an inactive one carrying the key, is an error, never ``None``."""
+    directory = PROFILES_DIR if profiles_dir is None else Path(profiles_dir)
+    return _timing_budget_bypass_reason(str(directory))
+
+
+@functools.lru_cache(maxsize=8)
+def _timing_budget_bypass_reason(directory: str) -> "str | None":
+    for name in profile_names(Path(directory)):
+        data = load_profile(name, Path(directory))
+        if data.get("active") is True and TIMING_BUDGET_BYPASS_KEY in data:
+            return (f"timing-budget bypass: declared by tests/fixtures/profiles/{name}.json: "
+                    f"{data[TIMING_BUDGET_BYPASS_KEY]}")
+    return None
+
+
 def _profile_errors(data: Any, profiles_dir: "Path | None" = None) -> list[str]:
     if not isinstance(data, dict) or not isinstance(data.get("modules"), dict) or not data["modules"]:
         return ["a profile needs a non-empty 'modules' object"]
     errors: list[str] = _module_file_errors(data, profiles_dir)
     if "active" in data and not isinstance(data["active"], bool):
         errors.append(f"'active' must be true or false, not {data['active']!r}")
+    if TIMING_BUDGET_BYPASS_KEY in data:
+        errors += _timing_budget_bypass_errors(data)
     for module, values in data["modules"].items():
         if module not in PROFILE_MODULES:
             errors.append(f"unknown module {module!r} (expected one of {', '.join(PROFILE_MODULES)})")

@@ -12,6 +12,8 @@ Help the operator take responsibility for the changed code. Explain what the tea
 
 Use the delivery just reviewed when the engineer accepts the review offer. A direct request can name an open or closed record or a single admitted change. Ask which record they mean if the reference is ambiguous. Read the record, its decisions and review findings. Use `wf_get_change(wave_id=...)` for the admitted set or `wf_get_change(change_id=...)` for one change. Follow relevant code, documentation, diffs and verification records using the project's read-only retrieval tools. If a record is missing or work is unfinished, say which claims the available evidence supports.
 
+On request, walk through a spec that is still in progress. Separate behavior that an executed check verified, work and checks that are still planned, and unknowns. Name each executed check with its result, and label a planned check as planned. A routine fix needs no walkthrough unless the operator asks for one.
+
 ## Walk through the change
 
 - Start with one observable difference for a user or maintainer. For several changes, explain how they fit together and offer a place to drill down. For one named change, include a sibling only when a dependency explains the behavior.

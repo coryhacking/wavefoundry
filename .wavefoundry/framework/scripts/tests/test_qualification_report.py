@@ -865,5 +865,102 @@ class ExactReaderTests(unittest.TestCase):
         self.assertFalse(qualification.worker_detail("WF_QUALIFICATION:n:" + json.dumps(envelope) + "\nRan 1 test in 0.001s\nOK (skipped=1)", "n", 0, 1, 1)["complete"])
 
 
+BYPASS_REASON = "timing-budget bypass: declared by tests/fixtures/profiles/dist.json: slow disks"
+
+
+class TimingBudgetBypassCompareTests(unittest.TestCase):
+    """Change 242yq AC-4 point 3: bypass skips compare like any other skip."""
+
+    report = ExactReaderTests.report
+
+    def test_a_bypass_skip_must_be_in_the_default_baseline(self):
+        skip = {"id": "test_one.C.test_budget (timing_budget='warm')", "reason": BYPASS_REASON,
+                "default_profile_only": None}
+        default = self.report(skips=[skip])
+        for profile in ("second", "declared"):
+            with self.subTest(profile=profile):
+                self.assertTrue(qualification.compare(default, self.report(profile, [skip]), profile)["equal"])
+                with self.assertRaisesRegex(ValueError, "unexpected"):
+                    qualification.compare(self.report(), self.report(profile, [skip]), profile)
+
+
+CENSUS_SELECTION = """import unittest
+import test_memory_records as records
+import test_server_context_efficiency as efficiency
+SELECTED = (
+    (efficiency.ContextEfficiencyServerIntegrationTests, "test_repeated_warm_estimator_and_projection_budgets"),
+    (efficiency.ContextEfficiencyServerIntegrationTests, "test_idle_projection_poll_is_bounded_and_does_not_scan_docs"),
+    (records.HotPathBoundedIOTests, "test_warm_path_call_counts_and_latency_are_bounded"),
+)
+def load_tests(loader, tests, pattern):
+    return unittest.TestSuite(cls(name) for cls, name in SELECTED)
+"""
+
+REPEATED_LABEL = """import unittest
+class Repeated(unittest.TestCase):
+    def test_repeated(self):
+        for _ in range(2):
+            with self.subTest(timing_budget="same"):
+                self.skipTest("timing-budget bypass: declared by tests/fixtures/profiles/dist.json: slow disks")
+"""
+
+
+class TimingBudgetBypassWorkerTests(unittest.TestCase):
+    """Change 242yq AC-7: routed census tests under a declared bypass, run
+    through the real qualification worker, give a complete report."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="wf-qualification-bypass-")
+        self.addCleanup(self.tmp.cleanup)
+        self.scripts = Path(self.tmp.name).resolve() / ".wavefoundry/framework/scripts"
+        keep = {"test_worker_guard.py", "test_server_context_efficiency.py", "test_memory_records.py"}
+        shutil.copytree(SCRIPTS, self.scripts, ignore=lambda directory, names: set(
+            shutil.ignore_patterns("test_*.py", "__pycache__")(directory, names)) - keep)
+        profile = shipped_default_profile()
+        profile["modules"]["mcp_tool_extensions"] = json.loads(json.dumps(SHIPPED_DECLARATION))
+        apply_profile(self.scripts, profile, python=sys.executable)
+        asset = {"description": "A distribution's own profile (test).", "active": True,
+                 "skip_timing_budgets": "slow disks", "modules": {"record_paths": {"MAX_DEPTH": 4}}}
+        (self.scripts / "tests/fixtures/profiles/dist.json").write_text(json.dumps(asset), encoding="utf-8")
+        self.env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", WAVEFOUNDRY_DISABLE_BYTECODE_CACHE="1")
+        self.env.pop("WAVEFOUNDRY_TEST_PROFILE", None)
+        self.env.pop("PYTHONPYCACHEPREFIX", None)
+
+    def run_worker(self, name: str, source: str) -> "tuple[dict, dict]":
+        (self.scripts / "tests" / name).write_text(source, encoding="utf-8")
+        nonce = "b" * 32
+        done = subprocess.run([sys.executable, "-B", str(self.scripts / "qualification_worker.py"),
+                               str(self.scripts / "tests"), name, nonce],
+                              cwd=self.scripts, env=self.env, capture_output=True, text=True, timeout=300)
+        output = done.stdout + done.stderr
+        frame = [line for line in output.splitlines() if line.startswith(f"WF_QUALIFICATION:{nonce}:")]
+        self.assertEqual(len(frame), 1, output[-3000:])
+        envelope = json.loads(frame[0].split(":", 2)[2])
+        return envelope, qualification.worker_detail(output, nonce, done.returncode,
+                                                     envelope["tests"], envelope["skipped"])
+
+    def test_routed_census_worker_report_is_complete(self):
+        envelope, detail = self.run_worker("test_bypass_census.py", CENSUS_SELECTION)
+        self.assertTrue(envelope["successful"], envelope)
+        self.assertEqual(detail["issues"], [])
+        self.assertTrue(detail["complete"], detail)
+        efficiency = "test_server_context_efficiency.ContextEfficiencyServerIntegrationTests."
+        records = "test_memory_records.HotPathBoundedIOTests.test_warm_path_call_counts_and_latency_are_bounded"
+        expected = sorted(
+            [f"{efficiency}test_repeated_warm_estimator_and_projection_budgets (timing_budget={label!r})"
+             for label in ("10-source warm", "50-source warm", "lifecycle flush/projection warm")]
+            + [f"{efficiency}test_idle_projection_poll_is_bounded_and_does_not_scan_docs "
+               "(timing_budget='1000 idle projection polls')"]
+            + [f"{records} (timing_budget={label!r})" for label in ("first advisory call", "warm advisory call")])
+        self.assertEqual([row["id"] for row in detail["skips"]], expected)
+        self.assertEqual({row["reason"] for row in detail["skips"]}, {BYPASS_REASON})
+
+    def test_a_repeated_label_would_make_the_report_incomplete(self):
+        # Known-bad control: what the helper's refusal prevents.
+        _envelope, detail = self.run_worker("test_bypass_repeated.py", REPEATED_LABEL)
+        self.assertFalse(detail["complete"])
+        self.assertIn("duplicate skipped-test identity", detail["issues"])
+
+
 if __name__ == "__main__":
     unittest.main()

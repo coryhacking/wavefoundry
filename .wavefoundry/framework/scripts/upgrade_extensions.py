@@ -2330,6 +2330,9 @@ class JournalDeclarationError(RuntimeError):
 
 # Private module names, so a stale ``mcp_tool_extensions`` (or helper) in
 # ``sys.modules`` never answers and nothing loaded here is left registered.
+# ``_exec_module_from_file`` registers each one only while its file executes
+# (241l1); a hook's call-time ``typing.get_type_hints`` or pickling of its own
+# classes still fails, since the module is unregistered by then.
 _JOURNAL_DECLARATION_MODULE = "_wf_upgrade_journal_declaration"
 _JOURNAL_HOOK_MODULE_PREFIX = "_wf_upgrade_journal_hook_"
 _JOURNAL_TRIGGER_NAME = "EXTENSION_JOURNAL_PRE_MIGRATION_TRIGGER"
@@ -2405,13 +2408,30 @@ def _journal_incoming_imports(scripts: Path):
 
 
 def _exec_module_from_file(name: str, path: Path):
-    """Execute the ``.py`` file at ``path`` as a fresh module called ``name``,
-    never registered in ``sys.modules``."""
+    """Execute the ``.py`` file at ``path`` as a fresh module called ``name``.
+
+    The module is registered in ``sys.modules`` under ``name`` only while the
+    file executes, so ``dataclasses`` and ``typing`` can resolve the module
+    during import (wave 242yp, change 241l1). Afterwards the prior entry is
+    put back, or the name is removed when there was none, on success and on
+    any exception: the module is never left registered.
+
+    Limit: the module is no longer registered when a function it defines is
+    called, so calling ``typing.get_type_hints`` on its own classes or
+    pickling their instances at call time still fails."""
     spec = importlib.util.spec_from_file_location(name, str(path))
     if spec is None or spec.loader is None:
         raise ImportError(name)
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    prior = sys.modules.get(name, _UNSET)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        if prior is _UNSET:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = prior
     return module
 
 

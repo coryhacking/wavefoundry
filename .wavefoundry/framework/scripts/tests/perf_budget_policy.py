@@ -21,8 +21,19 @@ Policy for any NEW wall-clock budget in the suite:
 
 Do not globally serialize the suite and do not inflate budgets without the
 measured basis.
+
+Distribution bypass (change 242yq). Every throughput budget asserts through
+:func:`timing_budget` (directly, or through the two ``assert_*`` helpers
+below) with a label unique within its test. When a distribution's active
+profile asset declares ``skip_timing_budgets``, the helper records a subtest
+skip for that label instead of evaluating the bound, and the test continues.
+Do NOT route a complexity, hang or denial-of-service guard, or a liveness
+bound (a deadline, timeout, kill or fail-fast path), through it: those stay
+always on, and routing one would let the bypass hide it.
 """
 from __future__ import annotations
+
+from typing import Callable
 
 
 # Canonical per-operation budget table (operator-review repair): the SINGLE
@@ -54,17 +65,56 @@ PERMISSIVENESS_MIN_RATIO = 3.0
 PERMISSIVENESS_MAX_RATIO = 50.0
 
 
-def assert_operation_within_budget(testcase, operation: str, elapsed_s: float) -> None:
-    """Budget assertion for a REGISTERED operation — the table is the source."""
+def _timing_budget_bypass_reason() -> "str | None":
+    try:
+        from record_layout_support import timing_budget_bypass_reason
+    except ImportError:  # imported as ``tests.perf_budget_policy``
+        from tests.record_layout_support import timing_budget_bypass_reason
+    return timing_budget_bypass_reason()
+
+
+def timing_budget(testcase, label: str, check: "Callable[[], None]") -> None:
+    """Run ``check`` (the bound's own assertion) unless a declared bypass is
+    active, in which case record a subtest skip for ``label`` and return.
+
+    ``label`` must be unique within the test: a repeated label raises
+    ``ValueError`` at call time, with or without a declaration, so no two
+    bypass skips in one worker share an identity. The labels used are kept
+    on the test-case instance, which unittest creates per test."""
+    if not isinstance(label, str) or not label.strip():
+        raise ValueError("timing_budget needs a non-empty label")
+    used = testcase.__dict__.setdefault("_timing_budget_labels", set())
+    if label in used:
+        raise ValueError(f"timing_budget label {label!r} is already used in this test")
+    used.add(label)
+    reason = _timing_budget_bypass_reason()
+    if reason is None:
+        check()
+        return
+    with testcase.subTest(timing_budget=label):
+        testcase.skipTest(reason)
+
+
+def check_operation_within_budget(testcase, operation: str, elapsed_s: float) -> None:
+    """The assertion core for a REGISTERED operation, never bypassed: the
+    threshold tests in ``test_perf_budget_policy.py`` call it directly."""
     entry = PERF_BUDGETS[operation]
-    assert_within_budget(
+    check_within_budget(
         testcase, elapsed_s, entry["budget_s"],
         operation=operation,
         isolated_reference_s=entry["isolated_reference_s"],
     )
 
 
-def assert_within_budget(
+def assert_operation_within_budget(testcase, operation: str, elapsed_s: float) -> None:
+    """Budget assertion for a REGISTERED operation; the table is the source.
+    Labelled by the operation name; skipped under a declared bypass."""
+    PERF_BUDGETS[operation]  # an unregistered operation raises KeyError, even under a bypass
+    timing_budget(testcase, operation,
+                  lambda: check_operation_within_budget(testcase, operation, elapsed_s))
+
+
+def check_within_budget(
     testcase,
     elapsed_s: float,
     budget_s: float,
@@ -72,7 +122,7 @@ def assert_within_budget(
     operation: str,
     isolated_reference_s: float,
 ) -> None:
-    """Budget assertion with contention-aware diagnostics."""
+    """The budget assertion core with contention-aware diagnostics, never bypassed."""
     testcase.assertLess(
         elapsed_s,
         budget_s,
@@ -84,3 +134,18 @@ def assert_within_budget(
             "operation regressed."
         ),
     )
+
+
+def assert_within_budget(
+    testcase,
+    elapsed_s: float,
+    budget_s: float,
+    *,
+    operation: str,
+    isolated_reference_s: float,
+) -> None:
+    """Budget assertion with contention-aware diagnostics, labelled by
+    ``operation``; skipped under a declared bypass."""
+    timing_budget(testcase, operation, lambda: check_within_budget(
+        testcase, elapsed_s, budget_s,
+        operation=operation, isolated_reference_s=isolated_reference_s))

@@ -1320,7 +1320,7 @@ class JournalIncomingRunnerTests(unittest.TestCase):
             else:
                 sys.modules[name] = module
 
-    def _pack(self, *, fail=""):
+    def _pack(self, *, fail="", dataclass=False):
         import re
 
         declaration = (SCRIPTS / "mcp_tool_extensions.py").read_text(encoding="utf-8")
@@ -1352,6 +1352,14 @@ class JournalIncomingRunnerTests(unittest.TestCase):
             "    effect = root / 'idempotent-effect.txt'\n"
             "    if not effect.exists():\n        effect.write_text('once')\n"
         )
+        if dataclass:
+            # 241l1: postponed annotations plus @dataclass make dataclasses
+            # look the class's module up in sys.modules while it executes.
+            hook = (
+                "from __future__ import annotations\nfrom dataclasses import dataclass\n" + hook
+                + "\n@dataclass\nclass Entry:\n    path: Path\n    count: int = 0\n"
+                "ENTRY = Entry(Path('journal.md'))\n"
+            )
         if fail == "import":
             hook += "\nraise RuntimeError('secret-import-' + str(Path(__file__)))\n"
         elif fail == "call":
@@ -1429,6 +1437,89 @@ class JournalIncomingRunnerTests(unittest.TestCase):
         self._assert_restored()
         self.assertFalse((self.root / "invocations.txt").exists())
         self.assertFalse((self.root / "idempotent-effect.txt").exists())
+
+    def test_dataclass_hook_module_with_postponed_annotations_loads_and_is_called(self):
+        """241l1: the hook module defines a dataclass under
+        ``from __future__ import annotations``; it loads and is called, and
+        its private name is not left registered."""
+        self._pack(dataclass=True)
+        self._dispatch()
+        self._assert_restored()
+        self.assertEqual((self.root / "invocations.txt").read_text().splitlines(), ["called"])
+        self.assertFalse(any(name.startswith(upgrade_extensions._JOURNAL_HOOK_MODULE_PREFIX) for name in sys.modules))
+
+
+class ExecModuleFromFileTests(unittest.TestCase):
+    """241l1: ``_exec_module_from_file`` registers the module only while it
+    executes and restores the prior ``sys.modules`` state afterwards."""
+
+    NAME = "_wf_upgrade_journal_hook_241l1_probe"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.saved = sys.modules.pop(self.NAME, None)
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        sys.modules.pop(self.NAME, None)
+        if self.saved is not None:
+            sys.modules[self.NAME] = self.saved
+
+    def _module(self, body: str) -> Path:
+        path = Path(self.tmp.name) / "probe_module.py"
+        path.write_text(
+            "import sys\n"
+            "_entry = sys.modules.get(__name__)\n"
+            "SEEN_SELF = _entry is not None and vars(_entry) is globals()\n" + body,
+            encoding="utf-8",
+        )
+        return path
+
+    def test_registered_while_executing_and_absent_afterwards(self):
+        module = upgrade_extensions._exec_module_from_file(self.NAME, self._module(""))
+        self.assertTrue(module.SEEN_SELF)
+        self.assertNotIn(self.NAME, sys.modules)
+
+    def test_dataclass_with_postponed_annotations_loads(self):
+        path = Path(self.tmp.name) / "dataclass_module.py"
+        path.write_text(
+            "from __future__ import annotations\nfrom dataclasses import dataclass\n"
+            "@dataclass\nclass Row:\n    x: int\nVALUE = Row(1)\n",
+            encoding="utf-8",
+        )
+        module = upgrade_extensions._exec_module_from_file(self.NAME, path)
+        self.assertEqual(module.VALUE.x, 1)
+        self.assertNotIn(self.NAME, sys.modules)
+
+    def test_prior_entry_restored_by_identity_after_success(self):
+        sentinel = types.ModuleType("sentinel")
+        sys.modules[self.NAME] = sentinel
+        module = upgrade_extensions._exec_module_from_file(self.NAME, self._module(""))
+        self.assertTrue(module.SEEN_SELF)
+        self.assertIs(sys.modules.get(self.NAME), sentinel)
+
+    def test_prior_entry_restored_by_identity_after_exception_and_system_exit(self):
+        for raised, body in ((RuntimeError, "raise RuntimeError('boom')\n"), (SystemExit, "raise SystemExit(7)\n")):
+            with self.subTest(raised=raised.__name__):
+                sentinel = types.ModuleType("sentinel")
+                sys.modules[self.NAME] = sentinel
+                with self.assertRaises(raised):
+                    upgrade_extensions._exec_module_from_file(self.NAME, self._module(body))
+                self.assertIs(sys.modules.get(self.NAME), sentinel)
+
+    def test_absent_entry_stays_absent_after_exception_and_system_exit(self):
+        for raised, body in ((RuntimeError, "raise RuntimeError('boom')\n"), (SystemExit, "raise SystemExit(7)\n")):
+            with self.subTest(raised=raised.__name__):
+                with self.assertRaises(raised):
+                    upgrade_extensions._exec_module_from_file(self.NAME, self._module(body))
+                self.assertNotIn(self.NAME, sys.modules)
+
+    def test_module_that_removes_its_own_entry_does_not_break_restore(self):
+        module = upgrade_extensions._exec_module_from_file(
+            self.NAME, self._module("del sys.modules[__name__]\n"))
+        self.assertTrue(module.SEEN_SELF)
+        self.assertNotIn(self.NAME, sys.modules)
 
 
 if __name__ == "__main__":

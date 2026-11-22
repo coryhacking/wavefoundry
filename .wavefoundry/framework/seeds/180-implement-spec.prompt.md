@@ -110,6 +110,19 @@ Before the first implementation edit of each change, record a concise `Readback:
 
 Correct an agent-only misreading directly from the established requirement. Route an actual contract contradiction or missing consequential decision back to planning under existing escalation rules, pausing only dependent work. A readback correction is not automatically Level 3 and adds no second approval. Refresh only materially changed understanding after scope changes or handoff; do not repeat an unchanged readback or create another artifact.
 
+Rationale for the next engineer:
+
+This applies to single-spec and wave implementation alike. When a choice or discovery occurs, ask what the next engineer needs that the diff and tests cannot reliably show, and record it in the affected spec at that time.
+
+- In `## Decision Log`, name the constraint, the alternative actually considered when one existed, and the consequence of the choice. Cover an algorithm, dependency, architecture, performance or security choice when one is relevant.
+- In `## Progress Log`, record an issue that changed the work, how the team addressed it, and the observation that showed the result.
+- For a remaining compromise or TODO, record the next action and its owner or revisit condition when known.
+- Link existing evidence once instead of restating it. Omit an empty category. Do not invent an alternative, and label an effect nobody measured as unmeasured.
+
+A routine fix needs only its ordinary completion entry. A change to requirements or acceptance still follows the existing amendment rule: amend the owning section, and let the log point at that edit. This guidance adds no artifact, gate, approval or required walkthrough.
+
+**Retrospective on rationale records:** after five waves implemented under the guidance above have closed, a maintainer samples their specs, including routine fixes when available. Count only waves that closed after the project installed the framework release that introduced this guidance. The report states which choices have a traceable reason, what evidence separates verified work from open checks, and where notes repeat the diff or leave a handoff unclear. It cites examples and recommends keeping or adjusting the guidance. When a case is absent from the sample, the report says the evidence is limited. This later analysis does not gate adoption, delivery or closure.
+
 MCP-first code exploration:
 
 Reading code is not executing it: this exploration order locates and explains code, but a load-bearing claim about behavior (a mechanism repairs its defect, a dispatch path validates an object, a census is complete) is verified by executing it (a test, a probe, a real invocation), and following this order perfectly is not, by itself, verification (seed-209, "Code-Grounded Verification").

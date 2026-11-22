@@ -28,6 +28,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
 import index_paths  # noqa: E402 — one definition of the shared database name
 import record_paths  # noqa: E402
 import vocabulary_profile  # noqa: E402
+from perf_budget_policy import timing_budget  # noqa: E402 (change 242yq)
 
 # Record filename and labels of the loaded vocabulary profile.
 RECORD = vocabulary_profile.RECORD_FILENAME
@@ -2205,8 +2206,8 @@ class HotPathBoundedIOTests(_MemoryCase):
         self.assertEqual(counters["communities"], 1,
                          "communities must hydrate once, then be shared")
         # Bounded latency (local file ops; generous ceiling).
-        self.assertLess(t1 - t0, 0.5)
-        self.assertLess(t2 - t1, 0.5)
+        timing_budget(self, "first advisory call", lambda: self.assertLess(t1 - t0, 0.5))
+        timing_budget(self, "warm advisory call", lambda: self.assertLess(t2 - t1, 0.5))
 
     def test_cache_invalidates_when_a_record_changes(self):
         self.srv._memory_advisories_for_path(self.root, "src/core.py")  # warm

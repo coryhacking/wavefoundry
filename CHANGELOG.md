@@ -6,6 +6,21 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- A distribution whose machines cannot meet upstream throughput budgets can add `"skip_timing_budgets": "<reason>"` to its active test profile asset. Each throughput bound in the suite then reports as skipped with a reason that names the asset, and the rest of each test still runs. Only the active asset may carry the key, and no environment variable enables it. Complexity, hang and denial-of-service guards and timeout bounds still run. Upstream runs and release qualification are unchanged, and a test fails if any profile asset in this repository declares the key. Wave 242yp / 242yq.
+
+### Changed
+
+- Implement spec and Implement wave now ask the implementer to record, when a choice or discovery occurs, what the next engineer needs that the diff and tests cannot show: the constraint, the alternative actually considered and the consequence in the Decision Log, and an issue that changed the work with its resolving observation in the Progress Log. A routine fix still needs only its ordinary completion entry. On request, Explain walks through a spec still in progress and separates executed checks from planned ones. After five waves under this guidance close, a maintainer samples their specs and recommends keeping or adjusting it; that review gates nothing. Wave 241lr / 241lq.
+
+### Fixed
+
+- An upgrade now loads a journal pre-migration hook module, or `mcp_tool_extensions.py`, that defines a dataclass under `from __future__ import annotations`. The module is registered under a private name only while it runs and is not left registered. A hook that resolves its own annotations or pickles its own classes when called still fails. Wave 242yp / 241l1.
+- A render now replaces a managed Guru subagent description written under any vocabulary profile's shortcut names, so a profile change no longer leaves the earlier names in place. A description edited outside the shortcut names is still kept. Wave 242yp / 241l2.
+
 ## [1.49.0] - 2026-11-22
 
 ### Added
