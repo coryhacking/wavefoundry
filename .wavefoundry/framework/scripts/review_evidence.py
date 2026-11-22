@@ -423,6 +423,25 @@ def _council_approval_phase(key: Any) -> str:
 
 
 EVIDENCE_STATUSES =frozenset({"executed", "inferred", "unverified", "not_applicable"})
+# Change 242k4: a finding may state how its claim was verified in
+# `evidence.execution_status`; an omitted status stays `executed`. This map is
+# the one source for the per-status meaning. Seed 209's field table row and the
+# rendered review-evidence carrier block state each entry verbatim, and tests
+# compare both with it.
+EXECUTION_STATUS_FIELD = "execution_status"
+EXECUTION_STATUS_DEFAULT = "executed"
+EXECUTION_STATUS_MEANINGS = {
+    "executed": "a command, test, probe or handler call ran, and its result is the observation",
+    "inferred": (
+        "the actor read code, documents or earlier output, or ran a read-only "
+        "search such as `grep` or `code_read`"
+    ),
+    "unverified": "neither: the claim was not run, and was not read far enough to conclude",
+    "not_applicable": (
+        "the state or path the claim concerns does not exist, and the record "
+        "cites the contract fact that proves it"
+    ),
+}
 EVIDENCE_CLAIM_KINDS = frozenset(
     {"finding", "approval", "dedup", "lane_reassessment", "census"}
 )
@@ -786,6 +805,22 @@ def review_action_input_schema() -> dict[str, Any]:
             "finding": {
                 "required_fields": list(REVIEW_FINDING_REQUIRED_EVIDENCE_FIELDS),
                 "field_kind": "non-empty string",
+                # Change 242k4: optional, in its own key; `required_fields` and the
+                # per-action caller inputs are unchanged.
+                "optional_fields": {
+                    EXECUTION_STATUS_FIELD: {
+                        "kind": "enum",
+                        "required": False,
+                        "allowed_values": list(EXECUTION_STATUS_MEANINGS),
+                        "default": EXECUTION_STATUS_DEFAULT,
+                        "meanings": dict(EXECUTION_STATUS_MEANINGS),
+                        "meaning": (
+                            "how the recording actor verified the claim; evidence that "
+                            "was not executed can open and record a finding, and it "
+                            "clears no lane and completes no repair"
+                        ),
+                    },
+                },
                 # Wave 22u26 (22r95): required by judgment.rejection_basis, refused otherwise.
                 "conditional_fields": {
                     "promotion_trigger": {
@@ -4487,6 +4522,7 @@ def build_compact_review_event(
                 specialist_readiness=_specialist_readiness_identity(signoff_key, actor, approval_phase),
             )
         errors.extend(integrity_errors)
+        errors.extend(_contrary_execution_status_errors(event, "approval event"))
         if _nonempty_string(signoff_key):
             errors.extend(
                 _intent_fit_errors(signoff_key, approval_phase, event, "approval event")
@@ -4602,10 +4638,24 @@ def build_compact_review_event(
     # A prose-length heuristic here would be both bypassable (generic filler passes) and
     # over-strict (a valid concise basis like "read API keys" is short), so no machine
     # check is added; `disposition_rationale` remains required non-empty above.
-    execution_status = str(event.get("execution_status", "executed"))
+    # Change 242k4: the status is an optional caller statement. Omitted (or null)
+    # keeps `executed`; a stated value is stored exactly as stated; a value outside
+    # the vocabulary is refused here, with the allowed values, before validation.
+    stated_status = event.get(EXECUTION_STATUS_FIELD)
+    if stated_status is None:
+        execution_status = EXECUTION_STATUS_DEFAULT
+    elif isinstance(stated_status, str) and stated_status in EVIDENCE_STATUSES:
+        execution_status = stated_status
+    else:
+        execution_status = ""
+        errors.append(
+            "finding event evidence.execution_status must be one of: "
+            + ", ".join(EXECUTION_STATUS_MEANINGS)
+            + f"; got {stated_status!r}. Omit it to record the claim as executed"
+        )
     integrity_checks, integrity_errors = _validated_integrity_checks(
         event.get("integrity_checks"),
-        executed=execution_status == "executed",
+        executed=execution_status == EXECUTION_STATUS_DEFAULT,
         label="finding event",
     )
     errors.extend(integrity_errors)
@@ -4853,6 +4903,20 @@ def build_compact_review_event(
             )
         )
     )
+    if execution_status != EXECUTION_STATUS_DEFAULT and prior_head is not None:
+        # Change 242k4: no gate changes. Evidence that was not executed may record
+        # this event, and it may not change what a gate reads. The rule is stated
+        # by outcome, so no run kind or phase label selects an easier one.
+        outcomes = _non_executed_gate_outcomes(prior_head, synthesis)
+        if outcomes:
+            return (), (
+                f"a finding event recorded as `{execution_status}` cannot "
+                + " or ".join(outcomes)
+                + f": that outcome requires executed evidence. `{finding_id}` keeps "
+                "its current head and nothing was appended. Run a check whose result "
+                "bears on the claim and record it as executed, or record this event "
+                "with the lanes and repair state left as they are.",
+            )
     if terminal_reverification and (
         event.get("fresh_context") is not True
         or event.get("independent") is not True
@@ -4926,6 +4990,64 @@ def build_compact_review_event(
     return tuple(rows), ()
 
 
+def _contrary_execution_status_errors(
+    event: Mapping[str, Any], label: str
+) -> tuple[str, ...]:
+    """Refuse a stated status the record would not store (change 242k4).
+
+    An approval and an operator close always store `executed`: on an approval the
+    status attests that the approving actor performed its review pass, and an
+    operator close is tool-derived. A caller that states another value is refused,
+    because storing `executed` over it would replace the caller's statement.
+    """
+
+    stated = event.get(EXECUTION_STATUS_FIELD)
+    if stated is None or stated == EXECUTION_STATUS_DEFAULT:
+        return ()
+    return (
+        f"{label} cannot state evidence.execution_status={stated!r}: the record "
+        "stores `executed`, which attests that the review pass was performed, and "
+        "the tool does not replace a stated status. An actor who cannot affirm the "
+        "review records a finding or does not approve; say what was read and what "
+        "was run in `limitations`. Nothing was appended.",
+    )
+
+
+def _synthesis_head_terminal(row: Mapping[str, Any]) -> bool:
+    """Whether a synthesis head is terminal, as the review projection derives it."""
+
+    return bool(
+        row.get("disposition") in {"not_issue", "dont_do_later"}
+        or (
+            row.get("repair_execution_state")
+            in {"completed", "operator_waived", "not_required"}
+            and not _string_items(row.get("blocking_required_lanes", []))
+        )
+    )
+
+
+def _non_executed_gate_outcomes(
+    prior_head: Mapping[str, Any], synthesis: Mapping[str, Any]
+) -> tuple[str, ...]:
+    """Gate outcomes a superseding synthesis would produce (change 242k4).
+
+    Evidence that was not executed may not drop a blocking lane, set the repair
+    `completed` on a head with no blocking lanes left, or make terminal a head
+    that was not terminal. A `completed` state with lanes still blocking gates
+    nothing (closure needs empty lanes), so it is not listed.
+    """
+
+    lanes_left = _string_items(synthesis.get("blocking_required_lanes", []))
+    outcomes: list[str] = []
+    if set(_string_items(prior_head.get("blocking_required_lanes", []))) - set(lanes_left):
+        outcomes.append("clear a required lane")
+    if synthesis.get("repair_execution_state") == "completed" and not lanes_left:
+        outcomes.append("complete a repair")
+    if _synthesis_head_terminal(synthesis) and not _synthesis_head_terminal(prior_head):
+        outcomes.append("make a finding terminal")
+    return tuple(outcomes)
+
+
 def _build_operator_close(
     prior: tuple[dict[str, Any], ...],
     event: Mapping[str, Any],
@@ -4983,6 +5105,7 @@ def _build_operator_close(
     for field in REVIEW_APPROVAL_REQUIRED_EVIDENCE_FIELDS:
         if not _nonempty_string(event.get(field)):
             errors.append(f"operator close requires {field}")
+    errors.extend(_contrary_execution_status_errors(event, "operator close"))
     if errors:
         return (), tuple(errors)
     finding_id = str(finding_id)
@@ -5209,6 +5332,12 @@ def _validated_integrity_checks(
                 f"executed {label} cannot carry integrity_checks.{field}=false: "
                 "affirm only checks actually demonstrated; otherwise do not "
                 "record the claim as executed. "
+                + (
+                    "When the check was not run, state evidence.execution_status "
+                    "as inferred (the claim was read) or unverified. "
+                    if label == "finding event"
+                    else ""
+                )
                 + READINESS_KNOWN_BAD_GUIDANCE
             )
     method = value.get(INTEGRITY_CHECK_METHOD_FIELD)
@@ -6008,7 +6137,13 @@ def _validate_relationships(
             errors.append(
                 f"review run `{run.get('review_run_id')}` sealed-universe evidence must be dedup/census or its sole finding evidence"
             )
-        elif evidence.get("execution_status") != "executed":
+        elif (
+            evidence.get("execution_status") != "executed"
+            # Change 242k4: a one-candidate run may reuse its own finding evidence
+            # as the sealed-universe proof, whatever that finding's status. Separate
+            # dedup and census evidence must still be executed.
+            and evidence.get("claim_kind") != "finding"
+        ):
             errors.append(
                 f"review run `{run.get('review_run_id')}` dedup evidence must be executed"
             )

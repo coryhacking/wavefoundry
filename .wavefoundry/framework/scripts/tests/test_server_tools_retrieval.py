@@ -14292,6 +14292,36 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
                 "wf_review_event description",
             )
 
+    def test_execution_status_values_match_the_registry_on_every_surface(self):
+        """Change 242k4 AC-9.2: the tool description names exactly the registry's
+        statuses for `evidence.execution_status`, and the seed and the tool spec
+        name the field and every status."""
+
+        review_evidence = sys.modules["review_evidence"]
+        statuses = set(review_evidence.EVIDENCE_STATUSES)
+        description = " ".join(self._tool_description("wf_review_event").split())
+        match = re.search(
+            r"``evidence\.execution_status`` is optional on a finding, one of ([^.]*)\.",
+            description,
+        )
+        self.assertIsNotNone(match, "the description must list the status values")
+        self.assertEqual(set(re.findall(r"``([a-z_]+)``", match.group(1))), statuses)
+        self.assertIn("stored as ``executed``", description)
+        self.assertIn("clears no required lane, completes no repair", description)
+        # Known-bad: one fabricated status in the registry breaks the comparison.
+        self.assertNotEqual(
+            set(re.findall(r"``([a-z_]+)``", match.group(1))), statuses | {"assumed"})
+        seed = (
+            SCRIPTS_ROOT.parent / "seeds" / "209-agent-harness-core.prompt.md"
+        ).read_text(encoding="utf-8")
+        spec = (
+            SCRIPTS_ROOT.parents[2] / "docs" / "specs" / "mcp-tool-surface.md"
+        ).read_text(encoding="utf-8")
+        for surface_name, surface in (("seed 209", seed), ("tool spec", spec)):
+            self.assertIn("evidence.execution_status", surface, surface_name)
+            for status in statuses:
+                self.assertIn(f"`{status}`", surface, f"{status} missing from {surface_name}")
+
     def test_review_field_vocabulary_matches_all_public_contract_surfaces(self):
         """AC-5: exported registries are semantic pins, not declarations only."""
 

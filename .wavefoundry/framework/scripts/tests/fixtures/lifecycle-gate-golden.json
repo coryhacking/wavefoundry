@@ -575,6 +575,26 @@
                     }
                   },
                   "field_kind": "non-empty string",
+                  "optional_fields": {
+                    "execution_status": {
+                      "allowed_values": [
+                        "executed",
+                        "inferred",
+                        "unverified",
+                        "not_applicable"
+                      ],
+                      "default": "executed",
+                      "kind": "enum",
+                      "meaning": "how the recording actor verified the claim; evidence that was not executed can open and record a finding, and it clears no lane and completes no repair",
+                      "meanings": {
+                        "executed": "a command, test, probe or handler call ran, and its result is the observation",
+                        "inferred": "the actor read code, documents or earlier output, or ran a read-only search such as `grep` or `code_read`",
+                        "not_applicable": "the state or path the claim concerns does not exist, and the record cites the contract fact that proves it",
+                        "unverified": "neither: the claim was not run, and was not read far enough to conclude"
+                      },
+                      "required": false
+                    }
+                  },
                   "required_fields": [
                     "proposition",
                     "failure_condition",
@@ -1542,6 +1562,26 @@
                     }
                   },
                   "field_kind": "non-empty string",
+                  "optional_fields": {
+                    "execution_status": {
+                      "allowed_values": [
+                        "executed",
+                        "inferred",
+                        "unverified",
+                        "not_applicable"
+                      ],
+                      "default": "executed",
+                      "kind": "enum",
+                      "meaning": "how the recording actor verified the claim; evidence that was not executed can open and record a finding, and it clears no lane and completes no repair",
+                      "meanings": {
+                        "executed": "a command, test, probe or handler call ran, and its result is the observation",
+                        "inferred": "the actor read code, documents or earlier output, or ran a read-only search such as `grep` or `code_read`",
+                        "not_applicable": "the state or path the claim concerns does not exist, and the record cites the contract fact that proves it",
+                        "unverified": "neither: the claim was not run, and was not read far enough to conclude"
+                      },
+                      "required": false
+                    }
+                  },
                   "required_fields": [
                     "proposition",
                     "failure_condition",
@@ -2477,6 +2517,26 @@
                     }
                   },
                   "field_kind": "non-empty string",
+                  "optional_fields": {
+                    "execution_status": {
+                      "allowed_values": [
+                        "executed",
+                        "inferred",
+                        "unverified",
+                        "not_applicable"
+                      ],
+                      "default": "executed",
+                      "kind": "enum",
+                      "meaning": "how the recording actor verified the claim; evidence that was not executed can open and record a finding, and it clears no lane and completes no repair",
+                      "meanings": {
+                        "executed": "a command, test, probe or handler call ran, and its result is the observation",
+                        "inferred": "the actor read code, documents or earlier output, or ran a read-only search such as `grep` or `code_read`",
+                        "not_applicable": "the state or path the claim concerns does not exist, and the record cites the contract fact that proves it",
+                        "unverified": "neither: the claim was not run, and was not read far enough to conclude"
+                      },
+                      "required": false
+                    }
+                  },
                   "required_fields": [
                     "proposition",
                     "failure_condition",

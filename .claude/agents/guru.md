@@ -41,6 +41,17 @@ record findings and approvals through `wf_review_event`; never hand-edit
 coordinator; a role without lifecycle mutation authority returns those
 facts to its coordinator instead of writing wave state.
 
+For each finding, a reviewer also tells the coordinator how the claim was
+verified, and the coordinator records it as `evidence.execution_status`.
+`executed`: a command, test, probe or handler call ran, and its result is
+the observation. `inferred`: the actor read code, documents or earlier
+output, or ran a read-only search such as `grep` or `code_read`.
+`unverified`: neither: the claim was not run, and was not read far enough
+to conclude. `not_applicable`: the state or path the claim concerns does
+not exist, and the record cites the contract fact that proves it. Evidence
+that was not executed can open and record a finding; it clears no lane and
+completes no repair.
+
 The tools enforce `reverification_context_not_fresh`,
 `reverification_actor_not_distinct`, and `review_evidence_independence_invalid`
 for decidable independence contradictions as protocol policy, not caller

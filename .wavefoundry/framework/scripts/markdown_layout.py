@@ -24,6 +24,32 @@ _RENDERER_BEGIN_RE = re.compile(
 )
 
 
+def split_table_row(line: str) -> list[str]:
+    """Split a pipe row while preserving escaped and inline-code pipes."""
+    text = line.strip().strip("|")
+    cells: list[str] = []
+    current: list[str] = []
+    escaped = False
+    in_code = False
+    for char in text:
+        if escaped:
+            current.append(char)
+            escaped = False
+        elif char == "\\":
+            escaped = True
+            current.append(char)
+        elif char == "`":
+            in_code = not in_code
+            current.append(char)
+        elif char == "|" and not in_code:
+            cells.append("".join(current).strip())
+            current = []
+        else:
+            current.append(char)
+    cells.append("".join(current).strip())
+    return cells
+
+
 def _is_blank(line: str) -> bool:
     return line.strip(" \t") == ""
 

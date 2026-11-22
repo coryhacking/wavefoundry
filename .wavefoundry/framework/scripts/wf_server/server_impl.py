@@ -11797,6 +11797,9 @@ def _review_evidence_list_response(
         compact: dict[str, Any] = {"id": _identity(record), "record_type": record.get("record_type")}
         for key in (
             "run_kind", "cycle", "finding_id", "claim_kind", "claim_id",
+            # Change 242k4: a reader tells executed evidence from evidence that was
+            # read without asking for verbose records.
+            "execution_status",
             "signoff_key", "disposition", "repair_execution_state",
             "source_lanes", "blocking_required_lanes", "approval_recheck_lanes",
             "supersedes_record_id", "verification_context",
@@ -25811,7 +25814,21 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         must provide every load-bearing judgment
         field explicitly in ``judgment``; the tool derives only IDs, actionability, blocking,
         review depth, supersession, cycle linkage, and record ordering. ``evidence`` carries the
-        falsifiable proposition and executed observation fields. An executed claim also requires
+        falsifiable proposition and executed observation fields.
+        ``evidence.execution_status`` is optional on a finding, one of ``executed``, ``inferred``, ``unverified`` or ``not_applicable``.
+        ``executed``: a command, test, probe or handler call ran. ``inferred``: the
+        actor read code, documents or earlier output, or ran a read-only search
+        such as grep or code_read. ``unverified``: neither. ``not_applicable``: the
+        state or path does not exist. Omitted, the status is stored as
+        ``executed``; stated, it is stored as stated. A finding that is not
+        ``executed`` may carry honest ``false`` integrity checks. It can open and
+        record a finding, and it clears no required lane, completes no repair and
+        makes no existing finding terminal: an event that would is refused and
+        appends nothing, whatever its run kind or phase. A blocking finding cannot
+        rest on ``unverified`` or ``not_applicable`` evidence. An approval and an
+        operator close always store ``executed``, which attests that the review
+        pass was performed; one that states another status is refused.
+        An executed claim also requires
         the exact caller-supplied ``integrity_checks`` object: five booleans
         the recording actor honestly affirms about its own evidence for its
         phase (a readiness approval attests to the review of the current tree
@@ -25841,7 +25858,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         ``failure_condition``, ``public_path``, ``command_or_fixture``,
         ``expected``, ``observed``, ``artifact_or_test_id``,
         ``known_bad_detection_method``, ``limitations``,
-        ``safety_and_authorization``, ``disposition_rationale``, and
+        ``safety_and_authorization``, ``disposition_rationale``, the optional
+        ``execution_status``, and
         ``promotion_trigger`` when it applies). ``promotion_trigger`` is
         required when ``judgment.rejection_basis`` is
         ``insufficient_evidence``, ``unsupported_reachability`` or
@@ -25953,7 +25971,8 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             evidence: Evidence narrative/fixture facts. Finding requires proposition,
                 failure_condition, public_path, command_or_fixture, expected, observed,
                 artifact_or_test_id, known_bad_detection_method, limitations,
-                safety_and_authorization, and disposition_rationale. Approval requires observed
+                safety_and_authorization, and disposition_rationale; execution_status is
+                optional (default executed). Approval requires observed
                 and artifact_or_test_id; other fields are optional overrides.
             source_lanes: Originating reviewer lanes for a finding.
             blocking_required_lanes: Required lanes still blocking the finding.

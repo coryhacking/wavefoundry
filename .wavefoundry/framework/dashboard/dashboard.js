@@ -4096,11 +4096,11 @@ function renderChangeIdParts(id) {
 }
 
 function Activity({ activity, onChangeClick }) {
-  const all    = activity?.recent_progress || [];
+  const all    = activity?.recent_changes || [];
   const today  = todayLocalDate();
   const groups = [];
   const seen   = {};
-  for (const item of all.slice(0, 30)) {
+  for (const item of all) {
     const key = item.date || "undated";
     if (!seen[key]) { seen[key] = []; groups.push({ date: key, items: seen[key] }); }
     seen[key].push(item);
@@ -4116,7 +4116,7 @@ function Activity({ activity, onChangeClick }) {
         h("ol", { className: "timeline" },
           items.map((item, i) => {
             const clickable = !!onChangeClick;
-            const handleClick = clickable ? () => onChangeClick({ change_id: item.change_id, wave_id: item.wave_id || "", title: item.title || "" }) : undefined;
+            const handleClick = clickable ? () => onChangeClick(item) : undefined;
             return h("li", {
               key: i,
               onClick: handleClick,

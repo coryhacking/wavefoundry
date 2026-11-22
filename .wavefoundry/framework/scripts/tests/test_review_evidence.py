@@ -1066,16 +1066,21 @@ class ReviewEvidenceStateMachineTests(unittest.TestCase):
 
     def test_non_executed_finding_may_honestly_carry_false_integrity_check(self) -> None:
         """1uf64: the honest-false path stays open for non-executed findings;
-        the attestation gate applies only to executed claims."""
+        the attestation gate applies only to executed claims.
+
+        Change 242k4: the built rows are validated as a ledger. The earlier form
+        of this test stopped at the builder, so it passed while the validator
+        refused every non-executed finding on the public path."""
         event = self._compact_integrity_finding_event(
-            execution_status="unverified",
+            execution_status="inferred",
             integrity_checks=integrity_checks(known_bad_detected=False),
         )
         rows, errors = subject.build_compact_review_event([], event)
         self.assertEqual(errors, ())
         evidence_row = rows[0]
-        self.assertEqual(evidence_row["execution_status"], "unverified")
+        self.assertEqual(evidence_row["execution_status"], "inferred")
         self.assertIs(evidence_row["known_bad_detected"], False)
+        self.assertEqual(subject.validate_review_evidence_records(rows), ())
 
     def test_publication_lock_is_cross_process_exclusive(self) -> None:
         # Wave 1tomw: two spawned OS processes contend on the real physical
@@ -6144,3 +6149,617 @@ class DeliveryMembershipHelperTests(unittest.TestCase):
         self.assertEqual(subject.delivery_approval_admissions(rows, 2, None), ())
         renamed = (receipt("r1", ["a-old"]), {"record_type": "approval"}, receipt("r2", ["a-new"]))
         self.assertEqual(subject.delivery_approval_admissions(renamed, 1, renamed[2]), ("a-new",))
+
+
+class ExecutionStatusHonestyTests(unittest.TestCase):
+    """Change 242k4: a finding states how its claim was verified, and evidence
+    that was not executed clears no lane and completes no repair.
+
+    Every case builds through ``build_compact_review_event`` and then validates
+    the whole ledger, because the defect was a builder-only test that never
+    reached the validator. The handler-level cases live in
+    ``test_server_tools_lifecycle.ReviewEventExecutionStatusTests``.
+    """
+
+    HONEST = {
+        "test_ran_without_unintended_skip": False,
+        "public_path_reached": False,
+        "boundary_values_realistic": True,
+        "assertions_non_vacuous": True,
+        "known_bad_detected": False,
+        "known_bad_detection_method": "none: read the source only",
+    }
+    JUDGMENT = {
+        "validation_status": "real",
+        "scope_relation": "admitted",
+        "introduced_or_worsened_by_wave": True,
+        "contract_relevance": "public_contract",
+        "supported_reachability": True,
+        "attacker_reachability": False,
+        "authority_domain": "none",
+        "authority_delta": "none",
+        "observable_impact": "material",
+        "containment": "none",
+    }
+    REPAIR = {
+        "fix_risk": "lower",
+        "optional_value": "none",
+        "repair_scope_bounded": True,
+        "repair_safety": "safe",
+        "benefit_vs_fix_risk": "less",
+        "rejection_basis": "insufficient_evidence",
+    }
+    NONBLOCKING = dict(JUDGMENT, contract_relevance="none", observable_impact="low")
+    INVALID = dict(JUDGMENT, validation_status="invalid")
+    UNSETTLED = dict(
+        JUDGMENT, contract_relevance="none", introduced_or_worsened_by_wave=False,
+        observable_impact="low", containment="preventive",
+        attacker_reachability="unverified", authority_domain="integrity", **REPAIR,
+    )
+    SETTLED_NOT_ACTIONABLE = dict(UNSETTLED, attacker_reachability=False)
+    SETTLED_ACTIONABLE = dict(
+        JUDGMENT, authority_domain="integrity", authority_delta="material",
+        attacker_reachability=True,
+    )
+    IMPLEMENTER = {"fresh_context": False, "independent": False}
+    OMIT = object()
+
+    def event(self, finding_id, actor, context, run_kind, cycle, lanes, *,
+              status="executed", judgment=None, **overrides):
+        judgment = dict(self.JUDGMENT if judgment is None else judgment)
+        event = {
+            "event": "finding", "actor": actor, "context_id": context,
+            "finding_id": finding_id, "run_kind": run_kind, "cycle": cycle,
+            "judgment": judgment,
+            "proposition": "the handler forwards the flag",
+            "failure_condition": "the flag is dropped",
+            "public_path": "handler source",
+            "command_or_fixture": "read of the handler",
+            "expected": "flag forwarded",
+            "observed": "flag forwarded",
+            "artifact_or_test_id": "handler",
+            "limitations": "read-only",
+            "safety_and_authorization": "local read",
+            "disposition_rationale": "actionable",
+            "integrity_checks": (
+                integrity_checks() if status in ("executed", self.OMIT) else dict(self.HONEST)
+            ),
+            "review_boundaries_changed": [],
+            "source_lanes": ["qa-reviewer"],
+            "blocking_required_lanes": list(lanes),
+            "approval_recheck_lanes": list(lanes),
+            "fresh_context": True, "independent": True,
+        }
+        if judgment.get("rejection_basis") in subject.PROMOTION_TRIGGER_REJECTION_BASES:
+            event["promotion_trigger"] = "evidence that the path is reachable"
+        if status is not self.OMIT:
+            event["execution_status"] = status
+        event.update(overrides)
+        return event
+
+    def apply(self, records, event):
+        """Build and validate one event; return (rows, refusal text)."""
+        rows, errors = subject.build_compact_review_event(tuple(records), event)
+        if errors:
+            return (), "\n".join(errors)
+        problems = subject.validate_review_evidence_records([*records, *rows])
+        if problems:
+            return (), "\n".join(problems)
+        return rows, ""
+
+    def chain(self, *events):
+        """Apply events that must all record; return the ledger."""
+        records = []
+        for event in events:
+            rows, refusal = self.apply(records, event)
+            self.assertEqual(refusal, "", event["run_kind"])
+            records.extend(rows)
+        return records
+
+    def repaired(self, origin, lanes, *, finding_id="F-1", judgment=None):
+        """A finding with its repair cycle open, recorded as executed."""
+        return self.chain(
+            self.event(finding_id, "qa-reviewer", "origin", origin, 0, lanes, judgment=judgment),
+            self.event(finding_id, "implementer", "repair", "repair_start", 1, lanes,
+                       judgment=judgment, **self.IMPLEMENTER),
+        )
+
+    def head(self, records, finding_id="F-1"):
+        return subject.current_synthesis_heads(records)[finding_id]
+
+    def assert_outcome_refused(self, records, event, *, finding_id="F-1"):
+        before = dict(self.head(records, finding_id))
+        rows, refusal = self.apply(records, event)
+        self.assertEqual(rows, ())
+        self.assertIn("requires executed evidence", refusal)
+        self.assertEqual(dict(self.head(records, finding_id)), before)
+        return refusal
+
+    # --- AC-1 / AC-3: recording a finding honestly --------------------------------
+
+    def test_non_executed_finding_with_false_checks_records_and_validates(self) -> None:
+        for status, judgment, lanes in (
+            ("inferred", self.JUDGMENT, ["qa-reviewer"]),
+            ("unverified", self.INVALID, []),
+            ("not_applicable", self.INVALID, []),
+        ):
+            with self.subTest(status=status):
+                rows, refusal = self.apply(
+                    [], self.event("F-1", "qa-reviewer", "c0", "initial_delivery", 0, lanes,
+                                   status=status, judgment=judgment))
+                self.assertEqual(refusal, "")
+                evidence = rows[0]
+                self.assertEqual(evidence["execution_status"], status)
+                for field in ("test_ran_without_unintended_skip", "public_path_reached",
+                              "known_bad_detected"):
+                    self.assertIs(evidence[field], False, field)
+
+    def test_safe_boundary_inferred_finding_records(self) -> None:
+        rows, refusal = self.apply(
+            [], self.event("F-1", "qa-reviewer", "c0", "initial_delivery", 0, ["qa-reviewer"],
+                           status="inferred", safe_boundary=True,
+                           unexecuted_remainder_prohibited=True))
+        self.assertEqual(refusal, "")
+        self.assertIs(rows[0]["safe_boundary"], True)
+
+    def test_inferred_repair_start_with_false_checks_records(self) -> None:
+        records = self.chain(
+            self.event("F-1", "qa-reviewer", "c0", "readiness", 0, ["qa-reviewer"]))
+        rows, refusal = self.apply(
+            records, self.event("F-1", "implementer", "c1", "repair_start", 1, ["qa-reviewer"],
+                                status="inferred", **self.IMPLEMENTER))
+        self.assertEqual(refusal, "")
+        self.assertEqual(rows[0]["execution_status"], "inferred")
+        self.assertEqual(self.head([*records, *rows])["repair_execution_state"], "pending")
+
+    def test_omitted_status_is_executed_and_equals_stated_executed(self) -> None:
+        for run_kind in ("readiness", "initial_delivery"):
+            with self.subTest(run_kind=run_kind):
+                omitted = self.event("F-1", "qa-reviewer", "c0", run_kind, 0, ["qa-reviewer"],
+                                     status=self.OMIT)
+                stated = self.event("F-1", "qa-reviewer", "c0", run_kind, 0, ["qa-reviewer"])
+                rows_omitted, errors_omitted = subject.build_compact_review_event((), omitted)
+                rows_stated, errors_stated = subject.build_compact_review_event((), stated)
+                self.assertEqual((errors_omitted, errors_stated), ((), ()))
+                self.assertEqual(rows_omitted, rows_stated)
+                self.assertEqual(rows_omitted[0]["execution_status"], "executed")
+                self.assertEqual(
+                    subject.review_event_request_digest(omitted),
+                    subject.review_event_request_digest(stated),
+                )
+        records = self.chain(
+            self.event("F-1", "qa-reviewer", "c0", "initial_delivery", 0, ["qa-reviewer"],
+                       status=self.OMIT),
+            self.event("F-1", "implementer", "c1", "repair_start", 1, ["qa-reviewer"],
+                       status=self.OMIT, **self.IMPLEMENTER),
+            self.event("F-1", "qa-reviewer", "c2", "reverification", 1, [], status=self.OMIT),
+        )
+        statuses = {
+            row["execution_status"] for row in records
+            if row["record_type"] == "executable_evidence"
+        }
+        self.assertEqual(statuses, {"executed"})
+        self.assertEqual(self.head(records)["repair_execution_state"], "completed")
+
+    def test_unknown_status_is_refused_by_the_builder_with_the_allowed_values(self) -> None:
+        for value in ("bogus", "", 7):
+            with self.subTest(value=value):
+                rows, errors = subject.build_compact_review_event(
+                    (), self.event("F-1", "qa-reviewer", "c0", "initial_delivery", 0,
+                                   ["qa-reviewer"], status=value))
+                self.assertEqual(rows, ())
+                joined = "\n".join(errors)
+                self.assertIn("evidence.execution_status must be one of", joined)
+                for status in subject.EVIDENCE_STATUSES:
+                    self.assertIn(status, joined)
+
+    def test_executed_finding_with_a_false_check_names_the_remedy(self) -> None:
+        for status in ("executed", self.OMIT):
+            with self.subTest(stated=status is not self.OMIT):
+                rows, errors = subject.build_compact_review_event(
+                    (), self.event("F-1", "qa-reviewer", "c0", "initial_delivery", 0,
+                                   ["qa-reviewer"], status=status,
+                                   integrity_checks=dict(self.HONEST)))
+                self.assertEqual(rows, ())
+                joined = "\n".join(errors)
+                self.assertIn(
+                    "executed finding event cannot carry integrity_checks.public_path_reached=false",
+                    joined)
+                self.assertIn("evidence.execution_status", joined)
+                self.assertIn("inferred", joined)
+                self.assertIn("unverified", joined)
+                self.assertIn("Never change false to true", joined)
+
+    def test_null_check_and_empty_method_are_refused_on_every_finding(self) -> None:
+        for status in sorted(subject.EVIDENCE_STATUSES):
+            with self.subTest(status=status, case="null"):
+                checks = integrity_checks(known_bad_detected=None)
+                rows, errors = subject.build_compact_review_event(
+                    (), self.event("F-1", "qa-reviewer", "c0", "initial_delivery", 0, [],
+                                   status=status, judgment=self.INVALID,
+                                   integrity_checks=checks))
+                self.assertEqual(rows, ())
+                self.assertIn("integrity_checks.known_bad_detected must be boolean",
+                              "\n".join(errors))
+        for status in ("inferred", "unverified", "not_applicable"):
+            with self.subTest(status=status, case="method"):
+                checks = dict(self.HONEST, known_bad_detection_method="")
+                rows, errors = subject.build_compact_review_event(
+                    (), self.event("F-1", "qa-reviewer", "c0", "initial_delivery", 0, [],
+                                   status=status, judgment=self.INVALID,
+                                   integrity_checks=checks))
+                self.assertEqual(rows, ())
+                self.assertIn("known_bad_detection_method", "\n".join(errors))
+
+    # --- AC-4: approvals and operator records stay executed -----------------------
+
+    def approval(self, signoff_key, actor, phase="delivery", **overrides):
+        event = {
+            "event": "approval", "actor": actor, "context_id": f"approve-{signoff_key}",
+            "signoff_key": signoff_key, "approval_phase": phase,
+            "observed": "review pass complete", "artifact_or_test_id": "review:pass",
+            "fresh_context": True, "independent": True,
+            "integrity_checks": integrity_checks(),
+        }
+        if subject.requires_intent_fit(signoff_key):
+            event["intent_fit"] = "establishes"
+        if actor == "operator":
+            event.pop("integrity_checks")
+            event.update(fresh_context=False, independent=False)
+        event.update(overrides)
+        return event
+
+    def test_approval_stating_a_non_executed_status_is_refused(self) -> None:
+        for signoff_key, actor in (
+            ("qa-reviewer", "qa-reviewer"),
+            ("council-delivery", "council-chair"),
+            ("operator-signoff", "operator"),
+        ):
+            for status in ("inferred", "unverified", "not_applicable"):
+                with self.subTest(signoff_key=signoff_key, status=status):
+                    rows, errors = subject.build_compact_review_event(
+                        (), self.approval(signoff_key, actor, execution_status=status))
+                    self.assertEqual(rows, ())
+                    joined = "\n".join(errors)
+                    self.assertIn("evidence.execution_status", joined)
+                    self.assertIn("records a finding or does not approve", joined)
+
+    def test_approval_omitting_or_stating_executed_is_recorded_as_before(self) -> None:
+        for signoff_key, actor in (
+            ("qa-reviewer", "qa-reviewer"),
+            ("council-delivery", "council-chair"),
+            ("operator-signoff", "operator"),
+        ):
+            with self.subTest(signoff_key=signoff_key):
+                omitted, errors_omitted = subject.build_compact_review_event(
+                    (), self.approval(signoff_key, actor))
+                stated, errors_stated = subject.build_compact_review_event(
+                    (), self.approval(signoff_key, actor, execution_status="executed"))
+                self.assertEqual((errors_omitted, errors_stated), ((), ()))
+                self.assertEqual(omitted, stated)
+                self.assertEqual(omitted[0]["execution_status"], "executed")
+                self.assertEqual(subject.validate_review_evidence_records(omitted), ())
+
+    def operator_close(self, **overrides):
+        event = {
+            "event": "finding", "actor": "operator", "context_id": "operator-close",
+            "finding_id": "F-1", "run_kind": "reverification", "cycle": 1,
+            "observed": "the operator accepts the residual risk",
+            "artifact_or_test_id": "operator:close",
+            "waiver": {
+                "waiver_id": "W-1", "waiver_scope": "F-1", "waiver_reason": "accepted",
+                "waiver_risk": "the factor stays unverified",
+            },
+        }
+        event.update(overrides)
+        return event
+
+    def unsettled(self):
+        records = self.chain(
+            self.event("F-1", "security-reviewer", "c0", "initial_delivery", 0, [],
+                       judgment=self.UNSETTLED))
+        self.assertEqual(self.head(records)["disposition"], subject.SECURITY_UNSETTLED)
+        return records
+
+    def test_operator_close_refuses_a_contrary_status_and_keeps_the_omitted_form(self) -> None:
+        records = self.unsettled()
+        rows, errors = subject.build_compact_review_event(
+            tuple(records), self.operator_close(execution_status="inferred"))
+        self.assertEqual(rows, ())
+        self.assertIn("evidence.execution_status", "\n".join(errors))
+        omitted, refusal = self.apply(records, self.operator_close())
+        self.assertEqual(refusal, "")
+        stated, errors_stated = subject.build_compact_review_event(
+            tuple(records), self.operator_close(execution_status="executed"))
+        self.assertEqual(errors_stated, ())
+        self.assertEqual(omitted, stated)
+        self.assertEqual(omitted[0]["execution_status"], "executed")
+        self.assertEqual(
+            self.head([*records, *omitted])["repair_execution_state"], "operator_waived")
+
+    # --- AC-5: evidence that was not executed clears and completes nothing ---------
+
+    def test_non_executed_reverification_cannot_clear_a_lane(self) -> None:
+        for origin in ("readiness", "initial_delivery"):
+            for status in ("inferred", "unverified", "not_applicable"):
+                with self.subTest(origin=origin, status=status):
+                    records = self.repaired(origin, ["qa-reviewer"])
+                    self.assert_outcome_refused(
+                        records, self.event("F-1", "qa-reviewer", "c2", "reverification", 1, [],
+                                            status=status))
+                    self.assertEqual(self.head(records)["blocking_required_lanes"],
+                                     ["qa-reviewer"])
+
+    def test_readiness_label_after_a_delivery_run_selects_no_easier_rule(self) -> None:
+        records = self.chain(
+            self.event("F-0", "qa-reviewer", "d0", "initial_delivery", 0, ["qa-reviewer"]),
+            self.event("F-1", "qa-reviewer", "c0", "readiness", 0, ["qa-reviewer"]),
+            self.event("F-1", "implementer", "c1", "repair_start", 1, ["qa-reviewer"],
+                       **self.IMPLEMENTER),
+        )
+        self.assertEqual(subject._finding_origin_phases(records)["F-1"], "readiness")
+        self.assert_outcome_refused(
+            records, self.event("F-1", "qa-reviewer", "c2", "reverification", 1, [],
+                                status="inferred"))
+
+    def test_one_of_two_lanes_cannot_be_dropped_by_inferred_evidence(self) -> None:
+        lanes = ["qa-reviewer", "code-reviewer"]
+        records = self.chain(
+            self.event("F-1", "qa-reviewer", "c0", "initial_delivery", 0, lanes,
+                       source_lanes=lanes),
+            self.event("F-1", "implementer", "c1", "repair_start", 1, lanes,
+                       source_lanes=lanes, **self.IMPLEMENTER),
+        )
+        refusal = self.assert_outcome_refused(
+            records, self.event("F-1", "qa-reviewer", "c2", "reverification", 1,
+                                ["code-reviewer"], status="inferred", source_lanes=lanes))
+        self.assertIn("clear a required lane", refusal)
+
+    def test_lane_less_terminal_reverification_needs_executed_evidence(self) -> None:
+        for origin in ("readiness", "initial_delivery"):
+            for status in ("inferred", "unverified", "not_applicable"):
+                with self.subTest(origin=origin, status=status):
+                    records = self.repaired(origin, [], judgment=self.NONBLOCKING)
+                    self.assert_outcome_refused(
+                        records, self.event("F-1", "qa-reviewer", "c2", "reverification", 1, [],
+                                            status=status, judgment=self.NONBLOCKING))
+                    self.assertEqual(self.head(records)["repair_execution_state"], "pending")
+            with self.subTest(origin=origin, status="executed"):
+                records = self.repaired(origin, [], judgment=self.NONBLOCKING)
+                rows, refusal = self.apply(
+                    records, self.event("F-1", "qa-reviewer", "c2", "reverification", 1, [],
+                                        judgment=self.NONBLOCKING))
+                self.assertEqual(refusal, "")
+                self.assertEqual(
+                    self.head([*records, *rows])["repair_execution_state"], "completed")
+
+    def checkpoint_ledger(self, judgment):
+        """Two repair cycles; F-C's cycle-2 repair is open and lane-less."""
+        return self.chain(
+            self.event("F-A", "qa-reviewer", "a0", "initial_delivery", 0, [], judgment=judgment),
+            self.event("F-C", "qa-reviewer", "c0", "initial_delivery", 0, [], judgment=judgment),
+            self.event("F-A", "implementer", "a1", "repair_start", 1, [], judgment=judgment,
+                       **self.IMPLEMENTER),
+            self.event("F-A", "qa-reviewer", "a2", "reverification", 1, [], judgment=judgment),
+            self.event("F-C", "implementer", "c1", "repair_start", 2, [], judgment=judgment,
+                       **self.IMPLEMENTER),
+        )
+
+    def test_caller_authored_checkpoint_cannot_complete_a_repair_without_execution(self) -> None:
+        for status in ("inferred", "unverified", "not_applicable"):
+            with self.subTest(status=status):
+                records = self.checkpoint_ledger(self.NONBLOCKING)
+                self.assert_outcome_refused(
+                    records,
+                    self.event("F-C", "qa-reviewer", "c2", "convergence_checkpoint", 2, [],
+                               status=status, judgment=self.NONBLOCKING,
+                               frozen_boundary=["F-A", "F-C"]),
+                    finding_id="F-C")
+                self.assertEqual(self.head(records, "F-C")["repair_execution_state"], "pending")
+        records = self.checkpoint_ledger(self.NONBLOCKING)
+        rows, refusal = self.apply(
+            records,
+            self.event("F-C", "qa-reviewer", "c2", "convergence_checkpoint", 2, [],
+                       judgment=self.NONBLOCKING, frozen_boundary=["F-A", "F-C"]))
+        self.assertEqual(refusal, "", "the executed control records as today")
+        self.assertEqual(
+            self.head([*records, *rows], "F-C")["repair_execution_state"], "completed")
+
+    def test_completed_condition_alone_refuses_a_checkpoint_on_a_terminal_head(self) -> None:
+        """The head is already terminal and lane-less, so no lane drops and nothing
+        becomes terminal: only `completed` on a head with no lanes left refuses.
+        The approval that predates the repair must stay stale."""
+        lane = "security-reviewer"
+        approval = self.approval(lane, lane)
+        records = []
+        rows, errors = subject.build_compact_review_event((), approval)
+        self.assertEqual(errors, ())
+        records.extend(rows)
+        for event in (
+            self.event("F-A", "qa-reviewer", "a0", "initial_delivery", 0, [],
+                       approval_recheck_lanes=[]),
+            self.event("F-A", "implementer", "a1", "repair_start", 1, [],
+                       approval_recheck_lanes=[], **self.IMPLEMENTER),
+            self.event("F-A", "qa-reviewer", "a2", "reverification", 1, [],
+                       approval_recheck_lanes=[]),
+            self.event("F-C", "qa-reviewer", "c0", "initial_delivery", 0, [],
+                       approval_recheck_lanes=[lane]),
+            self.event("F-C", "implementer", "c1", "repair_start", 2, [],
+                       approval_recheck_lanes=[lane], **self.IMPLEMENTER),
+            self.event("F-C", "qa-reviewer", "c2", "reverification", 2, [],
+                       approval_recheck_lanes=[lane]),
+        ):
+            rows, refusal = self.apply(records, event)
+            self.assertEqual(refusal, "", event["context_id"])
+            records.extend(rows)
+
+        def approval_state(ledger):
+            projection = subject.review_authority_projection(
+                ledger, [lane], approval_phase="delivery")
+            return projection["status_rows"][0]["state"]
+
+        self.assertNotEqual(approval_state(records), "approved")
+        head = dict(self.head(records, "F-C"))
+        self.assertEqual(head["repair_execution_state"], "completed")
+        self.assertEqual(head["blocking_required_lanes"], [])
+        refusal = self.assert_outcome_refused(
+            records,
+            self.event("F-C", "qa-reviewer", "c3", "convergence_checkpoint", 2, [],
+                       status="inferred", approval_recheck_lanes=[],
+                       frozen_boundary=["F-A", "F-C"]),
+            finding_id="F-C")
+        self.assertIn("complete a repair", refusal)
+        self.assertNotIn("clear a required lane", refusal)
+        self.assertNotIn("make a finding terminal", refusal)
+        self.assertNotEqual(approval_state(records), "approved")
+
+    def test_inferred_reverification_that_keeps_its_lanes_is_recorded(self) -> None:
+        for origin in ("readiness", "initial_delivery"):
+            with self.subTest(origin=origin):
+                records = self.repaired(origin, ["qa-reviewer"])
+                rows, refusal = self.apply(
+                    records, self.event("F-1", "code-reviewer", "c2", "reverification", 1,
+                                        ["qa-reviewer"], status="inferred"))
+                self.assertEqual(refusal, "")
+                self.assertEqual(rows[0]["execution_status"], "inferred")
+                head = self.head([*records, *rows])
+                self.assertEqual(head["blocking_required_lanes"], ["qa-reviewer"])
+                self.assertEqual(head["repair_execution_state"], "completed")
+                facts = subject.review_authority_projection(
+                    [*records, *rows], [], approval_phase="delivery")["finding_facts"]
+                fact = next(item for item in facts if item["finding_id"] == "F-1")
+                self.assertIs(fact["terminal"], False)
+
+    def test_executed_reverification_clears_the_lane_as_before(self) -> None:
+        for origin in ("readiness", "initial_delivery"):
+            with self.subTest(origin=origin):
+                records = self.repaired(origin, ["qa-reviewer"])
+                rows, refusal = self.apply(
+                    records, self.event("F-1", "qa-reviewer", "c2", "reverification", 1, []))
+                self.assertEqual(refusal, "")
+                self.assertEqual(self.head([*records, *rows])["blocking_required_lanes"], [])
+
+    def test_inferred_reclassification_to_invalid_is_refused_on_a_non_blocking_finding(self) -> None:
+        records = self.repaired("initial_delivery", [], judgment=self.NONBLOCKING)
+        self.assertIs(self.head(records)["blocking"], False)
+        invalid = dict(self.NONBLOCKING, validation_status="invalid")
+        refusal = self.assert_outcome_refused(
+            records, self.event("F-1", "qa-reviewer", "c2", "reverification", 1, [],
+                                status="inferred", judgment=invalid))
+        self.assertIn("make a finding terminal", refusal)
+        self.assertNotIn("complete a repair", refusal)
+        rows, executed_refusal = self.apply(
+            records, self.event("F-1", "qa-reviewer", "c2", "reverification", 1, [],
+                                judgment=invalid))
+        self.assertEqual(executed_refusal, "", "the executed control records as today")
+        self.assertEqual(self.head([*records, *rows])["repair_execution_state"], "not_required")
+
+    def test_security_unsettled_settlement_follows_the_outcome_rule(self) -> None:
+        def opened():
+            records = self.unsettled()
+            rows, refusal = self.apply(
+                records, self.event("F-1", "implementer", "c1", "repair_start", 1, [],
+                                    judgment=self.UNSETTLED, **self.IMPLEMENTER))
+            self.assertEqual(refusal, "")
+            return [*records, *rows]
+
+        records = opened()
+        refusal = self.assert_outcome_refused(
+            records, self.event("F-1", "security-reviewer", "c2", "reverification", 1, [],
+                                status="inferred", judgment=self.SETTLED_NOT_ACTIONABLE))
+        self.assertIn("make a finding terminal", refusal)
+        for label, judgment, disposition in (
+            ("actionable", self.SETTLED_ACTIONABLE, "do_now"),
+            ("still unsettled", self.UNSETTLED, subject.SECURITY_UNSETTLED),
+        ):
+            with self.subTest(label=label):
+                records = opened()
+                rows, refusal = self.apply(
+                    records, self.event("F-1", "security-reviewer", "c2", "reverification", 1,
+                                        [], status="inferred", judgment=judgment))
+                self.assertEqual(refusal, "")
+                head = self.head([*records, *rows])
+                self.assertEqual(head["disposition"], disposition)
+                self.assertEqual(head["repair_execution_state"], "pending")
+
+    # --- AC-6: the remaining gates keep their outcomes ------------------------------
+
+    def test_blocking_finding_needs_executed_or_inferred_evidence(self) -> None:
+        for status in ("unverified", "not_applicable"):
+            with self.subTest(status=status):
+                rows, refusal = self.apply(
+                    [], self.event("F-1", "qa-reviewer", "c0", "initial_delivery", 0,
+                                   ["qa-reviewer"], status=status))
+                self.assertEqual(rows, ())
+                self.assertIn("cannot rely on unverified/not_applicable evidence", refusal)
+        rows, refusal = self.apply(
+            [], self.event("F-1", "qa-reviewer", "c0", "initial_delivery", 0, ["qa-reviewer"],
+                           status="inferred"))
+        self.assertEqual(refusal, "")
+        self.assertIs(self.head(list(rows))["blocking"], True)
+
+    def test_validator_still_rejects_inferred_approval_reassessment_and_dedup(self) -> None:
+        approval = executable_evidence(
+            "approval-1", "approval:qa-reviewer", claim_kind="approval",
+            required_for_approval=True, execution_status="inferred")
+        self.assertIn(
+            "must be executed in delivery", "\n".join(validate_records([approval]).errors))
+        for phase in ("readiness", "delivery"):
+            with self.subTest(phase=phase):
+                reassessment = executable_evidence(
+                    "reassess-1", "F-1", claim_kind="lane_reassessment", phase=phase,
+                    execution_status="inferred")
+                self.assertIn(
+                    "lane reassessment evidence must be executed",
+                    "\n".join(validate_records([reassessment]).errors))
+        dedup = executable_evidence("dedup-run-0", "dedup-run-0", claim_kind="dedup",
+                                    execution_status="inferred")
+        result = validate_records([dedup, review_run(candidates=[])])
+        self.assertIn("dedup evidence must be executed", "\n".join(result.errors))
+
+    # --- AC-7: records written before the change stay valid -------------------------
+
+    def test_pre_change_record_shapes_still_validate(self) -> None:
+        read_only_stored_as_executed = self.chain(
+            self.event("F-1", "qa-reviewer", "c0", "readiness", 0, ["qa-reviewer"],
+                       status=self.OMIT, limitations="Read-only; no probe executed"))
+        self.assertEqual(read_only_stored_as_executed[0]["execution_status"], "executed")
+        self.assertEqual(
+            subject.validate_review_evidence_records(read_only_stored_as_executed), ())
+        finding_evidence = executable_evidence(
+            "evidence-synthesis-0", "finding-1", execution_status="inferred",
+            public_path_reached=False)
+        hand_authored = [
+            executable_evidence("dedup-run-0", "dedup-run-0", claim_kind="dedup"),
+            finding_evidence,
+            review_run(),
+            synthesis(),
+        ]
+        self.assertEqual(validate_records(hand_authored).errors, ())
+
+    # --- AC-9: guidance matches the code -------------------------------------------
+
+    def test_schema_describes_the_optional_status_field(self) -> None:
+        finding = subject.review_action_input_schema()["evidence"]["finding"]
+        self.assertNotIn("execution_status", finding["required_fields"])
+        field = finding["optional_fields"]["execution_status"]
+        self.assertEqual(field["allowed_values"], list(subject.EXECUTION_STATUS_MEANINGS))
+        self.assertEqual(set(field["allowed_values"]), set(subject.EVIDENCE_STATUSES))
+        self.assertEqual(field["default"], "executed")
+        self.assertEqual(field["meanings"], dict(subject.EXECUTION_STATUS_MEANINGS))
+        self.assertIs(field["required"], False)
+
+    def test_seed_209_states_each_status_meaning_verbatim(self) -> None:
+        seed = " ".join(
+            (SCRIPTS_ROOT.parent / "seeds" / "209-agent-harness-core.prompt.md")
+            .read_text(encoding="utf-8").split())
+        self.assertEqual(set(subject.EXECUTION_STATUS_MEANINGS), set(subject.EVIDENCE_STATUSES))
+        for status, meaning in subject.EXECUTION_STATUS_MEANINGS.items():
+            self.assertIn(f"`{status}`: {meaning}", seed, status)
+        for phrase in (
+            "`grep` or `code_read`",
+            "clears no lane and completes no repair",
+            "attests that the approving actor performed its review pass",
+            "is `unverified`",
+        ):
+            self.assertIn(phrase, seed, phrase)

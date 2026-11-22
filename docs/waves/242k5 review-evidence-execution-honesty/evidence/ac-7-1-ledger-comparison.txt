@@ -1,0 +1,13 @@
+AC-7.1 read-only ledger comparison, wave 242k5 / change 242k4
+without the change: /Users/coryhacking/Developer/wavefoundry/.wavefoundry/work/242k5/impl/baseline/review_evidence.py
+with the change:    /Users/coryhacking/Developer/wavefoundry/.wavefoundry/framework/scripts/review_evidence.py
+ledgers read: 396 and 396 | same set: True
+ledgers with validation errors (without / with): 0 / 0
+ledgers raising an exception (without / with): 0 / 0
+approval rows compared: 4998
+finding facts compared: 1217
+ledgers whose validation errors differ: 0 []
+ledgers whose approval currency or finding facts differ: 0 []
+ledgers whose exception differs: 0 []
+ledgers whose bytes differ between the two passes: 0
+RESULT: IDENTICAL

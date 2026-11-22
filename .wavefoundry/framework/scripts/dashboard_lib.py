@@ -12,10 +12,13 @@ import zlib
 import contextlib
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from itertools import groupby
 from pathlib import Path
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 from typing import Any
 
+import change_doc_checklist
+from markdown_layout import split_table_row
 import server
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 import record_paths  # record roots (wave 1y0gz)
@@ -692,16 +695,34 @@ def _is_terminal_change_status(status: str) -> bool:
     return status.strip().lower() in _lint_constants().DONE_CHANGE_STATUSES
 
 
-def _parse_progress_log(section_text: str) -> list[dict[str, str]]:
-    rows = _markdown_table_rows(section_text)
-    if len(rows) < 2:
-        return []
-    headers = [h.strip().lower() for h in rows[0]]
-    result: list[dict[str, str]] = []
-    for row in rows[1:]:
-        if len(row) != len(headers):
+def _parse_progress_log(document: str) -> list[dict[str, str]]:
+    """Read dated updates under their own table's header in the Progress Log."""
+    if "```" in document or "~~~" in document or "<!--" in document:
+        document = change_doc_checklist.unfenced_text(document)
+    section = _extract_section(document, "Progress Log")
+    result = []
+    for is_table, lines in groupby(section.splitlines(), lambda line: bool(re.match(r"^ {0,3}\|", line))):
+        if not is_table:
             continue
-        result.append({headers[i]: row[i] for i in range(len(headers))})
+        columns = [cell.lower() for cell in split_table_row(next(lines))]
+        separator = next(lines, "").strip()
+        if not {"date", "update"}.issubset(columns) or not _MARKDOWN_TABLE_SEPARATOR_RE.fullmatch(separator):
+            continue
+        for line in lines:
+            cells = split_table_row(line)
+            if len(cells) != len(columns):
+                # Historical prose may quote a lone backtick or a backslash.
+                # Plain separators still identify its cells when the width agrees.
+                cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+                if len(cells) != len(columns):
+                    continue
+            entry = dict(zip(columns, cells))
+            try:
+                day = date.fromisoformat(entry["date"])
+            except ValueError:
+                continue
+            if entry["date"] == day.isoformat() and entry["update"]:
+                result.append(entry)
     return result
 
 
@@ -1223,7 +1244,7 @@ def parse_change_doc(root: Path, change_path: Path, text: str | None = None) -> 
     ac_completed = _completed_ac_counts(ac_items)
     ac_deferred = _deferred_ac_counts(ac_items)
     tasks = _parse_tasks(tasks_section, change_status)
-    progress = _parse_progress_log(_extract_section(text, "Progress Log"))
+    progress = _parse_progress_log(text)
     latest = progress[-1] if progress else None
     waves_prefix = record_paths.load_record_roots(root).waves_prefix
     scope = "wave" if waves_prefix in str(change_path).replace("\\", "/") else "plan"
@@ -1613,25 +1634,33 @@ def collect_activity(root: Path, change_sets: dict[str, list[dict[str, Any]]]) -
     handoff_text = handoff_path.read_text(encoding="utf-8") if handoff_path.exists() else ""
     active_match = _ACTIVE_WAVE_RE.search(handoff_text)
     recent_progress: list[dict[str, Any]] = []
+    latest_by_document: dict[tuple[str, ...], dict[str, Any]] = {}
     for item in change_sets["wave"] + change_sets["plan"]:
+        path = item.get("path") or ""
+        wave_id = item.get("wave_id") or ""
+        identity = (path,) if path else (item["scope"], wave_id, item["change_id"])
         for entry in item.get("progress_log", []):
-            recent_progress.append(
-                {
-                    "change_id": item["change_id"],
-                    "wave_id": item.get("wave_id") or "",
-                    "path": item.get("path") or "",
-                    "title": item["title"],
-                    "scope": item["scope"],
-                    "date": entry.get("date", ""),
-                    "update": entry.get("update", ""),
-                    "evidence": entry.get("evidence", ""),
-                }
-            )
+            row = {
+                "change_id": item["change_id"],
+                "wave_id": wave_id,
+                "path": path,
+                "title": item["title"],
+                "scope": item["scope"],
+                "date": entry["date"],
+                "update": entry["update"],
+                "evidence": entry.get("evidence", ""),
+            }
+            recent_progress.append(row)
+            previous = latest_by_document.get(identity)
+            if previous is None or row["date"] >= previous["date"]:
+                latest_by_document[identity] = row
+    recent_changes = sorted(latest_by_document.values(), key=lambda row: row["date"], reverse=True)
     recent_progress.sort(key=lambda row: row.get("date", ""), reverse=True)
     return {
         "session_handoff_path": "docs/agents/session-handoff.md",
         "session_handoff_active_wave": active_match.group(1).strip() if active_match else "",
         "recent_progress": recent_progress[:10],
+        "recent_changes": recent_changes[:10],
         "files_changed_all": list_git_changed_files(root),
     }
 

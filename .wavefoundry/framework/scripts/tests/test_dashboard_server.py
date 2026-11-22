@@ -3226,6 +3226,54 @@ Wave: `12x test-wave`
         text += _localize_record("\nChange ID: `12x3a-enh multi-log`\nChange Status: `ready`\n")
         wave_md.write_text(text, encoding="utf-8")
 
+    def test_only_genuine_progress_tables_contribute_cards(self):
+        self._make_multi_entry_change()
+        path = next(self.root.rglob("12x3a-enh multi-log.md"))
+        with path.open("a", encoding="utf-8") as spec:
+            spec.write(r"""
+### Mutation evidence
+
+| Mutation | Test | Result |
+| --- | --- | --- |
+| skip_idle_summary_validation | test_example | FAILED |
+| 2099-10-01 | date-like mutation | FAILED |
+
+```markdown
+## Progress Log
+| Date | Update | Evidence |
+| --- | --- | --- |
+| 2099-11-01 | Example | example |
+```
+
+| Date | Update | Evidence |
+| --- | --- | --- |
+| 2099-02-30 | Impossible date | invalid |
+| 2026-05-08 | Report a literal ` in a diagnostic | run output |
+| 2026-05-09 | Final \| same-day update | `left|right` |
+""")
+        activity = self.lib.collect_dashboard_snapshot(self.root)["activity"]
+        cards = [row for row in activity["recent_changes"] if row["change_id"] == path.stem]
+        self.assertEqual([(r["date"], r["update"]) for r in cards], [("2026-05-09", r"Final \| same-day update")])
+        self.assertEqual(cards[0]["evidence"], "`left|right`")
+        self.assertEqual(cards[0]["path"], path.relative_to(self.root).as_posix())
+        events = [r["update"] for r in activity["recent_progress"] if r["change_id"] == path.stem]
+        self.assertCountEqual(events, ["First entry", "Second entry", "Third entry",
+                                       "Report a literal ` in a diagnostic", r"Final \| same-day update"])
+
+    def test_unique_card_limit_applies_after_selecting_latest_per_document(self):
+        common = {"change_id": "shared-id", "title": "Example", "scope": "plan"}
+        changes = [{"wave_id": "current", "path": "busy.md", **common,
+                    "progress_log": [{"date": "2026-05-10", "update": str(i)} for i in range(15)]}]
+        for i in range(1, 12):
+            changes.append({**common, "path": f"other-{i}.md",
+                            "progress_log": [{"date": f"2026-04-{i:02}", "update": str(i)}]})
+        activity = self.lib.collect_activity(self.root, {"wave": changes[:1], "plan": changes[1:]})
+        cards = activity["recent_changes"]
+        self.assertEqual([card["path"] for card in cards],
+                         ["busy.md"] + [f"other-{i}.md" for i in range(11, 2, -1)])
+        self.assertEqual(cards[0]["update"], "14")
+        self.assertEqual([row["path"] for row in activity["recent_progress"]], ["busy.md"] * 10)
+
     def test_all_progress_entries_collected_not_just_latest(self):
         self._make_multi_entry_change()
         snapshot = self.lib.collect_dashboard_snapshot(self.root)

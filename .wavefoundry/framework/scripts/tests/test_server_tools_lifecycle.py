@@ -20471,3 +20471,494 @@ class CriterionDeferralCurrencyTests(_RegisteredApprovalWaveFixture):
             'Criterion status when recorded: {"c":{"AC-1":{"deferred":1,"note":""}}}'))
         self.assertIsNone(review_evidence.parse_criterion_status_line(
             'Criterion status when recorded: {"c":{}}\ntrailing'), "only the final line is read")
+
+
+class ReviewEventExecutionStatusTests(unittest.TestCase):
+    """Change 242k4, through the real ``wf_review_event_response`` handler.
+
+    A finding may state how its claim was verified. Evidence that was not
+    executed is recorded, and it clears no lane and completes no repair. The
+    builder-level matrix lives in
+    ``test_review_evidence.ExecutionStatusHonestyTests``.
+    """
+
+    HONEST = {
+        "test_ran_without_unintended_skip": False,
+        "public_path_reached": False,
+        "boundary_values_realistic": True,
+        "assertions_non_vacuous": True,
+        "known_bad_detected": False,
+        "known_bad_detection_method": "none: read the source only",
+    }
+    JUDGMENT = {
+        "validation_status": "real",
+        "scope_relation": "admitted",
+        "introduced_or_worsened_by_wave": True,
+        "contract_relevance": "public_contract",
+        "supported_reachability": True,
+        "attacker_reachability": False,
+        "authority_domain": "none",
+        "authority_delta": "none",
+        "observable_impact": "material",
+        "containment": "none",
+    }
+    NONBLOCKING = dict(JUDGMENT, contract_relevance="none", observable_impact="low")
+    EVIDENCE = {
+        "proposition": "the handler forwards the flag",
+        "failure_condition": "the flag is dropped",
+        "public_path": "handler source",
+        "command_or_fixture": "read of the handler; nothing run",
+        "expected": "flag forwarded",
+        "observed": "flag forwarded",
+        "artifact_or_test_id": "handler",
+        "limitations": "read-only, no probe run",
+        "safety_and_authorization": "local read",
+        "disposition_rationale": "actionable",
+    }
+    OMIT = object()
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = load_server()
+
+    def setUp(self):
+        self.srv = type(self).srv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = _make_repo(Path(self.tmp.name))
+        for name in ("_run_post_write_lint", "_trigger_background_index_refresh_for_paths"):
+            patcher = patch.object(self.srv, name, return_value={"mode": "stubbed"})
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        created = self.srv.wf_create_wave_response(self.root, "status-honesty", mode="create")
+        self.assertEqual(created["status"], "ok", created)
+        self.wave_id = created["data"]["wave_id"]
+        self.record = _waves_dir(self.root) / self.wave_id / vocabulary_profile.RECORD_FILENAME
+        self.contexts = 0
+
+    def set_status(self, status):
+        text, count = re.subn(
+            r"(?m)^Status: planned$", f"Status: {status}",
+            self.record.read_text(encoding="utf-8"), count=1)
+        self.assertEqual(count, 1)
+        self.record.write_text(text, encoding="utf-8")
+
+    def records(self):
+        records, errors = self.srv.read_review_event_ledger(self.record)
+        self.assertFalse(errors, errors)
+        return list(records)
+
+    def head(self, finding_id):
+        return sys.modules["review_evidence"].current_synthesis_heads(self.records())[finding_id]
+
+    def finding(self, finding_id, run_kind, *, actor="qa-reviewer", cycle=0,
+                lanes=("qa-reviewer",), status=OMIT, judgment=None, mode="create",
+                fresh=True, context=None, checks=None, source_lanes=("qa-reviewer",),
+                extra=None):
+        self.contexts += 1
+        evidence = dict(self.EVIDENCE, **(extra or {}))
+        if status is not self.OMIT:
+            evidence["execution_status"] = status
+        if checks is None:
+            checks = integrity_checks() if status in (self.OMIT, "executed") else dict(self.HONEST)
+        return self.srv.wf_review_event_response(
+            self.root, self.wave_id, "finding", actor,
+            context or f"context-{self.contexts}", mode=mode,
+            finding_id=finding_id, run_kind=run_kind, cycle=cycle,
+            judgment=dict(self.JUDGMENT if judgment is None else judgment),
+            source_lanes=list(source_lanes), blocking_required_lanes=list(lanes),
+            approval_recheck_lanes=list(lanes), fresh_context=fresh, independent=fresh,
+            evidence=evidence, integrity_checks=checks)
+
+    def ok(self, response):
+        self.assertEqual(response["status"], "ok", response.get("diagnostics"))
+        return response
+
+    def messages(self, response):
+        return "\n".join(
+            row["message"] for row in response.get("diagnostics", []) if not row.get("advisory"))
+
+    def open_repair(self, finding_id, origin, lanes, *, judgment=None, cycle=1):
+        self.ok(self.finding(finding_id, origin, lanes=lanes, judgment=judgment))
+        self.ok(self.finding(finding_id, "repair_start", actor="implementer", cycle=cycle,
+                             lanes=lanes, judgment=judgment, fresh=False))
+
+    def assert_refused_and_unchanged(self, finding_id, call):
+        before_records = self.records()
+        before_head = dict(self.head(finding_id))
+        response = call()
+        self.assertEqual(response["status"], "error", response)
+        self.assertIn("requires executed evidence", self.messages(response))
+        self.assertEqual(self.records(), before_records, "a refusal appends nothing")
+        self.assertEqual(dict(self.head(finding_id)), before_head)
+        return response
+
+    # --- AC-1 ---------------------------------------------------------------------
+
+    def test_read_only_finding_with_false_checks_is_recorded(self):
+        preview = self.finding("F-1", "initial_delivery", status="inferred", mode="dry_run",
+                               context="read-only")
+        self.assertEqual(preview["status"], "dry_run", preview.get("diagnostics"))
+        self.assertEqual(self.records(), [])
+        written = self.ok(self.finding("F-1", "initial_delivery", status="inferred",
+                                       context="read-only"))
+        self.assertEqual(
+            [row["record_type"] for row in written["data"]["appended_records"]],
+            [row["record_type"] for row in preview["data"]["appended_records"]])
+        evidence = next(
+            row for row in self.records() if row["record_type"] == "executable_evidence")
+        self.assertEqual(evidence["execution_status"], "inferred")
+        self.assertEqual(evidence["limitations"], "read-only, no probe run")
+        for field in ("test_ran_without_unintended_skip", "public_path_reached",
+                      "known_bad_detected"):
+            self.assertIs(evidence[field], False, field)
+        self.assertEqual(preview["data"]["appended_records"][0]["execution_status"], "inferred")
+        self.assertTrue(self.srv.validate_external_review_evidence(self.record).ok)
+        self.assertIs(self.head("F-1")["blocking"], True)
+
+    def test_non_blocking_unverified_and_not_applicable_findings_are_recorded(self):
+        invalid = dict(self.JUDGMENT, validation_status="invalid")
+        for index, status in enumerate(("unverified", "not_applicable")):
+            with self.subTest(status=status):
+                self.ok(self.finding(f"F-{index}", "initial_delivery", status=status,
+                                     judgment=invalid, lanes=()))
+        statuses = [
+            row["execution_status"] for row in self.records()
+            if row["record_type"] == "executable_evidence"]
+        self.assertEqual(statuses, ["unverified", "not_applicable"])
+
+    def test_inferred_repair_start_with_false_checks_is_recorded(self):
+        self.ok(self.finding("F-1", "readiness"))
+        self.ok(self.finding("F-1", "repair_start", actor="implementer", cycle=1,
+                             status="inferred", fresh=False))
+        head = self.head("F-1")
+        self.assertEqual(head["repair_execution_state"], "pending")
+        self.assertEqual(head["blocking_required_lanes"], ["qa-reviewer"])
+
+    # --- AC-2 / AC-3 --------------------------------------------------------------
+
+    def test_omitted_status_is_stored_as_executed_and_honest_false_names_the_remedy(self):
+        self.ok(self.finding("F-1", "initial_delivery"))
+        evidence = self.records()[0]
+        self.assertEqual(evidence["execution_status"], "executed")
+        refused = self.finding("F-2", "initial_delivery", checks=dict(self.HONEST))
+        self.assertEqual(refused["status"], "error")
+        text = self.messages(refused)
+        self.assertIn("executed finding event cannot carry integrity_checks", text)
+        self.assertIn("evidence.execution_status", text)
+        self.assertIn("inferred", text)
+
+    def test_unknown_status_is_refused_with_the_allowed_values(self):
+        before = self.records()
+        refused = self.finding("F-1", "initial_delivery", status="bogus",
+                               checks=dict(self.HONEST))
+        self.assertEqual(refused["status"], "error")
+        text = self.messages(refused)
+        self.assertIn("evidence.execution_status must be one of", text)
+        for status in ("executed", "inferred", "unverified", "not_applicable"):
+            self.assertIn(status, text)
+        self.assertEqual(self.records(), before)
+
+    # --- AC-4 / AC-7.5 ------------------------------------------------------------
+
+    def approval(self, context, *, status=OMIT, mode="create"):
+        evidence = {"observed": "review pass complete", "artifact_or_test_id": "review:pass"}
+        if status is not self.OMIT:
+            evidence["execution_status"] = status
+        return self.srv.wf_review_event_response(
+            self.root, self.wave_id, "approval", "qa-reviewer", context, mode=mode,
+            signoff_key="qa-reviewer", approval_phase="delivery", fresh_context=True,
+            independent=True, evidence=evidence, integrity_checks=integrity_checks())
+
+    def test_approval_stating_inferred_is_refused_and_appends_nothing(self):
+        refused = self.approval("approve-read", status="inferred")
+        self.assertEqual(refused["status"], "error", refused)
+        self.assertIn("records a finding or does not approve", self.messages(refused))
+        self.assertEqual(self.records(), [])
+        self.ok(self.approval("approve-pass"))
+        self.assertEqual(self.records()[0]["execution_status"], "executed")
+
+    def test_stored_approval_replays_before_the_new_refusal(self):
+        """An approval the earlier code accepted from a request that stated
+        `inferred` must replay. The refusal lives in the builder, which runs after
+        the replay lookup; a refusal placed before the lookup fails this test."""
+        review_evidence = sys.modules["review_evidence"]
+        with patch.object(review_evidence, "_contrary_execution_status_errors",
+                          return_value=()):
+            self.ok(self.approval("approve-old", status="inferred"))
+        stored = self.records()
+        self.assertEqual(len(stored), 1)
+        self.assertEqual(stored[0]["execution_status"], "executed")
+        retry = self.ok(self.approval("approve-old", status="inferred"))
+        self.assertIs(retry["data"]["replayed"], True)
+        self.assertEqual(self.records(), stored)
+        fresh = self.approval("approve-new", status="inferred")
+        self.assertEqual(fresh["status"], "error", "a new such approval is refused")
+        self.assertEqual(self.records(), stored)
+
+    def test_finding_already_in_the_ledger_replays_on_an_identical_retry(self):
+        for status in (self.OMIT, "inferred"):
+            with self.subTest(stated=status is not self.OMIT):
+                finding_id = "F-omitted" if status is self.OMIT else "F-inferred"
+                self.ok(self.finding(finding_id, "initial_delivery", status=status,
+                                     context=f"replay-{finding_id}"))
+                stored = self.records()
+                retry = self.ok(self.finding(finding_id, "initial_delivery", status=status,
+                                             context=f"replay-{finding_id}"))
+                self.assertIs(retry["data"]["replayed"], True)
+                self.assertEqual(self.records(), stored)
+
+    # --- AC-5 ---------------------------------------------------------------------
+
+    def test_non_executed_reverification_cannot_clear_a_delivery_lane(self):
+        self.open_repair("F-1", "initial_delivery", ("qa-reviewer",))
+        for status in ("inferred", "unverified", "not_applicable"):
+            with self.subTest(status=status):
+                self.assert_refused_and_unchanged(
+                    "F-1", lambda status=status: self.finding(
+                        "F-1", "reverification", cycle=1, lanes=(), status=status))
+        self.assertEqual(self.head("F-1")["blocking_required_lanes"], ["qa-reviewer"])
+        self.ok(self.finding("F-1", "reverification", cycle=1, lanes=()))
+        self.assertEqual(self.head("F-1")["blocking_required_lanes"], [])
+
+    def test_relabelled_readiness_finding_cannot_be_cleared_by_a_re_read(self):
+        review_evidence = sys.modules["review_evidence"]
+        scenarios = (
+            ("after a delivery run", "planned", True),
+            ("open wave, no delivery record", "implementing", False),
+            ("planned wave", "planned", False),
+        )
+        for index, (label, status, delivery_first) in enumerate(scenarios):
+            with self.subTest(label=label):
+                created = self.srv.wf_create_wave_response(
+                    self.root, f"relabel-{index}", mode="create")
+                self.wave_id = created["data"]["wave_id"]
+                self.record = (_waves_dir(self.root) / self.wave_id
+                               / vocabulary_profile.RECORD_FILENAME)
+                if status != "planned":
+                    self.set_status(status)
+                if delivery_first:
+                    self.ok(self.finding("F-0", "initial_delivery"))
+                self.open_repair("F-1", "readiness", ("qa-reviewer",))
+                self.assertEqual(
+                    review_evidence._finding_origin_phases(self.records())["F-1"], "readiness")
+                self.assert_refused_and_unchanged(
+                    "F-1", lambda: self.finding(
+                        "F-1", "reverification", cycle=1, lanes=(), status="inferred"))
+                self.assertEqual(self.head("F-1")["blocking_required_lanes"], ["qa-reviewer"])
+                self.ok(self.finding("F-1", "reverification", cycle=1, lanes=()))
+                self.assertEqual(self.head("F-1")["blocking_required_lanes"], [])
+
+    def test_lane_less_finding_is_not_completed_by_unexecuted_evidence(self):
+        for index, origin in enumerate(("initial_delivery", "readiness")):
+            finding_id = f"F-{index}"
+            with self.subTest(origin=origin):
+                self.open_repair(finding_id, origin, (), judgment=self.NONBLOCKING,
+                                 cycle=index + 1)
+                for status in ("inferred", "unverified", "not_applicable"):
+                    self.assert_refused_and_unchanged(
+                        finding_id, lambda status=status: self.finding(
+                            finding_id, "reverification", cycle=index + 1, lanes=(),
+                            status=status, judgment=self.NONBLOCKING))
+                self.assertEqual(self.head(finding_id)["repair_execution_state"], "pending")
+                self.ok(self.finding(finding_id, "reverification", cycle=index + 1, lanes=(),
+                                     judgment=self.NONBLOCKING))
+                self.assertEqual(self.head(finding_id)["repair_execution_state"], "completed")
+
+    def test_caller_authored_checkpoint_cannot_complete_a_repair_by_a_re_read(self):
+        judgment = self.NONBLOCKING
+        self.ok(self.finding("F-A", "initial_delivery", lanes=(), judgment=judgment))
+        self.ok(self.finding("F-C", "initial_delivery", lanes=(), judgment=judgment))
+        self.ok(self.finding("F-A", "repair_start", actor="implementer", cycle=1, lanes=(),
+                             judgment=judgment, fresh=False))
+        self.ok(self.finding("F-A", "reverification", cycle=1, lanes=(), judgment=judgment))
+        self.ok(self.finding("F-C", "repair_start", actor="implementer", cycle=2, lanes=(),
+                             judgment=judgment, fresh=False))
+        boundary = {"frozen_boundary": ["F-A", "F-C"]}
+        for status in ("inferred", "unverified", "not_applicable"):
+            with self.subTest(status=status):
+                self.assert_refused_and_unchanged(
+                    "F-C", lambda status=status: self.finding(
+                        "F-C", "convergence_checkpoint", cycle=2, lanes=(), status=status,
+                        judgment=judgment, extra=boundary))
+        self.assertEqual(self.head("F-C")["repair_execution_state"], "pending")
+
+    def test_one_of_two_lanes_is_not_dropped_by_inferred_evidence(self):
+        lanes = ("qa-reviewer", "code-reviewer")
+        self.ok(self.finding("F-1", "initial_delivery", lanes=lanes, source_lanes=lanes))
+        self.ok(self.finding("F-1", "repair_start", actor="implementer", cycle=1, lanes=lanes,
+                             source_lanes=lanes, fresh=False))
+        self.assert_refused_and_unchanged(
+            "F-1", lambda: self.finding(
+                "F-1", "reverification", cycle=1, lanes=("code-reviewer",),
+                source_lanes=lanes, status="inferred"))
+
+    def test_inferred_reverification_that_keeps_its_lanes_is_recorded(self):
+        for index, origin in enumerate(("readiness", "initial_delivery")):
+            finding_id = f"F-{index}"
+            with self.subTest(origin=origin):
+                # Both repairs share cycle 1: a kept lane leaves the cycle open.
+                self.open_repair(finding_id, origin, ("qa-reviewer",))
+                self.ok(self.finding(finding_id, "reverification", actor="code-reviewer",
+                                     cycle=1, status="inferred"))
+                self.assertEqual(
+                    self.head(finding_id)["blocking_required_lanes"], ["qa-reviewer"])
+                listing = self.srv.wf_review_event_response(
+                    self.root, self.wave_id, "list", "probe", "list")
+                chain = listing["data"]["chain_summary"][finding_id]
+                self.assertIs(chain["terminal"], False)
+                self.assertEqual(chain["unresolved_required_lanes"], ["qa-reviewer"])
+
+    # --- AC-8 ---------------------------------------------------------------------
+
+    def test_compact_listing_shows_the_status_of_each_evidence_record(self):
+        self.ok(self.finding("F-run", "initial_delivery"))
+        self.ok(self.finding("F-read", "initial_delivery", status="inferred"))
+        listing = self.srv.wf_review_event_response(
+            self.root, self.wave_id, "list", "probe", "list")
+        rows = [row for row in listing["data"]["records"]
+                if row["record_type"] == "executable_evidence"]
+        self.assertEqual(
+            {row["claim_id"]: row["execution_status"] for row in rows},
+            {"F-run": "executed", "F-read": "inferred"})
+        others = [row for row in listing["data"]["records"]
+                  if row["record_type"] != "executable_evidence"]
+        self.assertTrue(others)
+        self.assertFalse([row for row in others if "execution_status" in row])
+
+    # --- The same public path for the remaining sub-points --------------------------
+
+    REPAIR = {
+        "fix_risk": "lower", "optional_value": "none", "repair_scope_bounded": True,
+        "repair_safety": "safe", "benefit_vs_fix_risk": "less",
+        "rejection_basis": "insufficient_evidence",
+    }
+    UNSETTLED = dict(
+        JUDGMENT, contract_relevance="none", introduced_or_worsened_by_wave=False,
+        observable_impact="low", containment="preventive",
+        attacker_reachability="unverified", authority_domain="integrity", **REPAIR)
+    TRIGGER = {"promotion_trigger": "evidence that the path is reachable"}
+
+    def test_safe_boundary_inferred_finding_is_recorded(self):
+        self.ok(self.finding(
+            "F-1", "initial_delivery", status="inferred",
+            extra={"safe_boundary": True, "unexecuted_remainder_prohibited": True}))
+        evidence = self.records()[0]
+        self.assertIs(evidence["safe_boundary"], True)
+        self.assertEqual(evidence["execution_status"], "inferred")
+
+    def test_null_check_and_empty_method_are_refused_on_a_finding(self):
+        invalid = dict(self.JUDGMENT, validation_status="invalid")
+        for status in ("executed", "inferred", "unverified", "not_applicable"):
+            with self.subTest(status=status, case="null"):
+                refused = self.finding(
+                    "F-1", "initial_delivery", status=status, judgment=invalid, lanes=(),
+                    checks=integrity_checks(known_bad_detected=None))
+                self.assertEqual(refused["status"], "error")
+                self.assertIn("known_bad_detected must be boolean", self.messages(refused))
+        for status in ("inferred", "unverified", "not_applicable"):
+            with self.subTest(status=status, case="method"):
+                refused = self.finding(
+                    "F-1", "initial_delivery", status=status, judgment=invalid, lanes=(),
+                    checks=dict(self.HONEST, known_bad_detection_method=""))
+                self.assertEqual(refused["status"], "error")
+                self.assertIn("known_bad_detection_method", self.messages(refused))
+        self.assertEqual(self.records(), [])
+
+    def test_blocking_finding_cannot_rest_on_unverified_or_not_applicable_evidence(self):
+        for status in ("unverified", "not_applicable"):
+            with self.subTest(status=status):
+                refused = self.finding("F-1", "initial_delivery", status=status)
+                self.assertEqual(refused["status"], "error")
+                self.assertIn(
+                    "cannot rely on unverified/not_applicable evidence", self.messages(refused))
+        self.assertEqual(self.records(), [])
+
+    def test_council_and_operator_approvals_stating_inferred_are_refused(self):
+        cases = (
+            ("council-delivery", "council-chair", True, {"intent_fit": "establishes"}, True),
+            ("operator-signoff", "operator", False, {}, False),
+        )
+        for signoff_key, actor, fresh, extra, with_checks in cases:
+            with self.subTest(signoff_key=signoff_key):
+                evidence = {
+                    "observed": "review pass complete", "artifact_or_test_id": "review:pass",
+                    "execution_status": "inferred", **extra}
+                refused = self.srv.wf_review_event_response(
+                    self.root, self.wave_id, "approval", actor, f"approve-{signoff_key}",
+                    mode="create", signoff_key=signoff_key, approval_phase="delivery",
+                    fresh_context=fresh, independent=fresh, evidence=evidence,
+                    integrity_checks=integrity_checks() if with_checks else None)
+                self.assertEqual(refused["status"], "error", refused)
+                self.assertIn("records a finding or does not approve", self.messages(refused))
+        self.assertEqual(self.records(), [])
+
+    def operator_close(self, context, *, status=OMIT):
+        evidence = {
+            "observed": "the operator accepts the residual risk",
+            "artifact_or_test_id": "operator:close",
+            "waiver": {
+                "waiver_id": "W-1", "waiver_scope": "F-1", "waiver_reason": "accepted",
+                "waiver_risk": "the factor stays unverified",
+            },
+        }
+        if status is not self.OMIT:
+            evidence["execution_status"] = status
+        return self.srv.wf_review_event_response(
+            self.root, self.wave_id, "finding", "operator", context, mode="create",
+            finding_id="F-1", run_kind="reverification", cycle=1, evidence=evidence)
+
+    def test_operator_close_refuses_a_contrary_status_and_records_when_it_is_omitted(self):
+        self.ok(self.finding("F-1", "initial_delivery", actor="security-reviewer", lanes=(),
+                             judgment=self.UNSETTLED, extra=self.TRIGGER))
+        self.assertEqual(self.head("F-1")["disposition"], "security_unsettled")
+        before = self.records()
+        refused = self.operator_close("close-read", status="inferred")
+        self.assertEqual(refused["status"], "error", refused)
+        self.assertIn("evidence.execution_status", self.messages(refused))
+        self.assertEqual(self.records(), before)
+        self.ok(self.operator_close("close-plain"))
+        head = self.head("F-1")
+        self.assertEqual(head["repair_execution_state"], "operator_waived")
+        evidence = next(
+            row for row in self.records()
+            if row["record_type"] == "executable_evidence"
+            and row["evidence_record_id"] == head["evidence_record_id"])
+        self.assertEqual(evidence["execution_status"], "executed")
+        self.assertIsNone(evidence["public_path_reached"])
+
+    def test_inferred_reclassification_to_invalid_is_refused_on_a_non_blocking_finding(self):
+        self.open_repair("F-1", "initial_delivery", (), judgment=self.NONBLOCKING)
+        self.assertIs(self.head("F-1")["blocking"], False)
+        invalid = dict(self.NONBLOCKING, validation_status="invalid")
+        refused = self.assert_refused_and_unchanged(
+            "F-1", lambda: self.finding(
+                "F-1", "reverification", cycle=1, lanes=(), status="inferred",
+                judgment=invalid))
+        self.assertIn("make a finding terminal", self.messages(refused))
+        self.ok(self.finding("F-1", "reverification", cycle=1, lanes=(), judgment=invalid))
+        self.assertEqual(self.head("F-1")["repair_execution_state"], "not_required")
+
+    def test_security_unsettled_settlement_follows_the_outcome_rule(self):
+        self.ok(self.finding("F-1", "initial_delivery", actor="security-reviewer", lanes=(),
+                             judgment=self.UNSETTLED, extra=self.TRIGGER))
+        self.ok(self.finding("F-1", "repair_start", actor="implementer", cycle=1, lanes=(),
+                             judgment=self.UNSETTLED, extra=self.TRIGGER, fresh=False))
+        not_actionable = dict(self.UNSETTLED, attacker_reachability=False)
+        refused = self.assert_refused_and_unchanged(
+            "F-1", lambda: self.finding(
+                "F-1", "reverification", actor="security-reviewer", cycle=1, lanes=(),
+                status="inferred", judgment=not_actionable, extra=self.TRIGGER))
+        self.assertIn("make a finding terminal", self.messages(refused))
+        self.ok(self.finding(
+            "F-1", "reverification", actor="security-reviewer", cycle=1, lanes=(),
+            status="inferred", judgment=self.UNSETTLED, extra=self.TRIGGER))
+        self.assertEqual(self.head("F-1")["disposition"], "security_unsettled")
+        actionable = dict(self.JUDGMENT, authority_domain="integrity",
+                          authority_delta="material", attacker_reachability=True)
+        self.ok(self.finding(
+            "F-1", "reverification", actor="security-reviewer", cycle=1, lanes=(),
+            status="inferred", judgment=actionable, context="settle-actionable"))
+        head = self.head("F-1")
+        self.assertEqual(head["disposition"], "do_now")
+        self.assertEqual(head["repair_execution_state"], "pending")

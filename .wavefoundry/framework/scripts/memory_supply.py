@@ -36,6 +36,7 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
+from markdown_layout import split_table_row
 from chunker import _EXT_TO_LANGUAGE
 from review_evidence import read_review_event_ledger, current_synthesis_heads
 import record_paths  # record roots (wave 1y0gz)
@@ -347,32 +348,6 @@ def _admitted_change_docs(wave_dir: Path, profile: Any = None) -> list[Path]:
     return docs
 
 
-def _split_markdown_row(line: str) -> list[str]:
-    """Split a pipe row while preserving escaped and inline-code pipes."""
-    text = line.strip().strip("|")
-    cells: list[str] = []
-    current: list[str] = []
-    escaped = False
-    in_code = False
-    for char in text:
-        if escaped:
-            current.append(char)
-            escaped = False
-        elif char == "\\":
-            escaped = True
-            current.append(char)
-        elif char == "`":
-            in_code = not in_code
-            current.append(char)
-        elif char == "|" and not in_code:
-            cells.append("".join(current).strip())
-            current = []
-        else:
-            current.append(char)
-    cells.append("".join(current).strip())
-    return cells
-
-
 def _decision_log_rows(text: str) -> list[dict[str, str]]:
     """Extract ``## Decision Log`` data rows as ``{decision, reason, alternatives, refs}``.
 
@@ -392,7 +367,7 @@ def _decision_log_rows(text: str) -> list[dict[str, str]]:
             continue
         if not in_section or not stripped.startswith("|"):
             continue
-        cells = _split_markdown_row(stripped)
+        cells = split_table_row(stripped)
         if set("".join(cells)) <= set("-: "):  # the |---|---| separator
             continue
         if not header_seen:  # first row is the column header

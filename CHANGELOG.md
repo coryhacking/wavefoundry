@@ -12,6 +12,11 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Operators can request one independent code reviewer at readiness and delivery for a single internal spec covering up to three files. Prepare explains eligibility. Review and Close check the actual files and the approved contents. Expanded scope returns to ordinary review. Operator signoff and existing test requirements still apply. Wave 241lp / 240t6.
 
+### Fixed
+
+- The dashboard shows each recently updated spec once and opens its source document. Test results in a Progress Log no longer appear as updates. Wave 2423b / 2423a.
+- A reviewer who verified a finding by reading can now record it honestly. A finding may state `evidence.execution_status` (`executed`, `inferred`, `unverified` or `not_applicable`), and the review ledger stores that status with the reviewer's own integrity values; before, every finding was stored as `executed` and an honest read-only finding was refused. The field is optional and an omitted status is still `executed`. Evidence that was not executed clears no lane, completes no repair and satisfies no approval, and an approval that states another status is refused instead of being stored as `executed`. The review listing shows the status of each evidence record. Existing ledgers are unchanged. A ledger that holds a non-executed finding does not validate under an earlier release. Wave 242k5 / 242k4.
+
 ## [1.48.0] - 2026-11-21
 
 ### Added

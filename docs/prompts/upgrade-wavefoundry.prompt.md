@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-21
+Last verified: 2026-11-22
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -745,6 +745,8 @@ operator still does not copy or type a terminal command.
 <!-- wavefoundry:review-policy-upgrade:end -->
 
 Council signoff keys: from this release new approvals are written as `council-readiness` and `council-delivery`. The earlier `wave-council-*` spellings stay valid in workflow configs, as `wf_review_event` input and in recorded history, and every reader accepts both, so no config, wave record or `events.jsonl` ledger needs rewriting.
+
+Review evidence status: from this release a finding recorded through `wf_review_event` may state `evidence.execution_status` (`executed`, `inferred`, `unverified` or `not_applicable`) to say how its claim was verified. The field is optional and an omitted status is stored as `executed`, so existing prompts, scripts and agent instructions that record findings need no change, and no record or `events.jsonl` ledger needs rewriting. Evidence that was not executed can open and record a finding; it clears no lane and completes no repair. Restart or reload the MCP server after the upgrade before recording a finding that is not `executed`: a server still running the earlier code refuses it with "dedup evidence must be executed".
 
 ## Host-neutral orchestration reconciliation
 

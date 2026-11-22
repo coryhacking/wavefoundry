@@ -1,0 +1,3 @@
+AC-7.3: ledger bytes after the comparison, both full-suite runs and both second-profile runs
+ledgers in the snapshot: 396 | ledgers now: 396 | same set: True
+ledgers whose SHA-256 changed: 0 []

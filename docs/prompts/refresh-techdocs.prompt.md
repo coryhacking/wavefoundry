@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-22
 
 **Shortcut phrases:** `Refresh TechDocs` · `Author TechDocs`
 
@@ -67,7 +67,7 @@ These required checks stay inside Wavefoundry's declared Python tool environment
 
 ### Recording boundary
 
-The writer and every supplier return facts to the coordinating agent; none of them writes wave state. Outside an open wave, the docs-contract check is reported to the operator as a fact. Inside an open wave, the lifecycle coordinator records the facts through `wf_review_event` as executed evidence: inside the `observed` / `artifact_or_test_id` of that lane's whole-wave delivery approval, or as an executed `finding` record when there is a proposition to record. Never record a standalone page-only `approval:docs-contract-reviewer` for this workflow, which would pre-satisfy a required lane, and never treat a `run` event as evidence (it is an empty cycle marker).
+The writer and every supplier return facts to the coordinating agent; none of them writes wave state. Outside an open wave, the docs-contract check is reported to the operator as a fact. Inside an open wave, the lifecycle coordinator records the facts through `wf_review_event`: inside the `observed` / `artifact_or_test_id` of that lane's whole-wave delivery approval, or as a `finding` record that states how the fact was verified (`evidence.execution_status`) when there is a proposition to record. Never record a standalone page-only `approval:docs-contract-reviewer` for this workflow, which would pre-satisfy a required lane, and never treat a `run` event as evidence (it is an empty cycle marker).
 
 ### Install and upgrade
 

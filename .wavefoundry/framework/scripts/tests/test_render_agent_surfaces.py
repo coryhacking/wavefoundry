@@ -1324,6 +1324,39 @@ class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
             f"`{review_evidence.REVIEW_EVIDENCE_INDEPENDENCE_INVALID}`", block
         )
 
+    def test_carrier_block_states_each_execution_status_meaning(self) -> None:
+        """Change 242k4 AC-9.5: the carrier names exactly the registry's statuses,
+        and states each one-line meaning as the registry and seed 209 state it, so
+        the three cannot drift apart."""
+        import review_evidence
+
+        meanings = review_evidence.EXECUTION_STATUS_MEANINGS
+        self.assertEqual(set(meanings), set(review_evidence.EVIDENCE_STATUSES))
+        block = " ".join(ras.REVIEW_PROTOCOL_CARRIER_BLOCK.split())
+        seed = " ".join(
+            (SCRIPTS_ROOT.parent / "seeds" / "209-agent-harness-core.prompt.md")
+            .read_text(encoding="utf-8").split())
+        self.assertIn("`evidence.execution_status`", block)
+        named = set(re.findall(r"`([a-z_]+)`: ", block))
+        self.assertEqual(named, set(review_evidence.EVIDENCE_STATUSES))
+        for status, meaning in meanings.items():
+            fragment = f"`{status}`: {meaning}"
+            self.assertIn(fragment, block, status)
+            self.assertIn(fragment, seed, status)
+        self.assertIn("clears no lane and completes no repair", block)
+        lowered = block.lower()
+        for token in review_policy.RETIRED_LIFECYCLE_TOKENS:
+            self.assertNotIn(token, lowered, token)
+        # Every registered carrier renders the shared block, so every file that
+        # holds the region carries the sentence after a surface render.
+        for carrier in ras.REVIEW_PROTOCOL_CARRIER_REGISTRY:
+            rendered = " ".join(ras._carrier_protocol_block(carrier).split())
+            for status, meaning in meanings.items():
+                self.assertIn(f"`{status}`: {meaning}", rendered, carrier.destination)
+        # Known-bad: a meaning that differs in one word is detected.
+        drifted = dict(meanings, inferred=meanings["inferred"].replace("read", "skimmed"))
+        self.assertNotIn(f"`inferred`: {drifted['inferred']}", block)
+
     def test_independent_reference_carrier_is_role_scoped_and_carries_the_proof_ceiling(self) -> None:
         code = ras._carrier_protocol_block(
             ras.ReviewProtocolCarrier(
