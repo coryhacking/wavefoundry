@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-22
 
 ## Host-neutral orchestration
 
@@ -22,11 +22,11 @@ Wavefoundry uses the standard Wave Framework generic roles. The wave-coordinator
 |------|------------|
 | `planner` | Drafting a consolidated spec; discovery; planning a wave shape |
 | `wave-coordinator` | Admitting changes; managing execution order; closing waves |
-| `council-chair` | Synthesizing Wave Council readiness and delivery passes when `wave_review.enabled` |
+| `council-chair` | Synthesizing each receipt-required Wave Council phase |
 | `implementer` | Executing code changes per admitted spec |
 | `code-reviewer` | Any implementation change (mandatory for non-trivial code changes) |
 | `architecture-reviewer` | Changes touching module boundaries, integration contracts, or data flow |
-| `qa-reviewer` | Bug fixes (required); any change with acceptance criteria requiring test coverage |
+| `qa-reviewer` | Ordinary review of bug fixes and other changes when project policy requires QA |
 | `security-reviewer` | Changes touching trust boundaries, allowed-roots logic, or guard mechanisms |
 | `docs-contract-reviewer` | Changes touching `docs/specs/*.md` behavioral contracts |
 | `performance-reviewer` | Changes touching indexing, search, or MCP server response paths |
@@ -34,14 +34,14 @@ Wavefoundry uses the standard Wave Framework generic roles. The wave-coordinator
 
 ### Bug Fix Policy
 
-`docs/workflow-config.json` `review_policies.require_qa_reviewer_for_bug_fixes: true` — all bug fixes admitted into a wave must include `qa-reviewer` in readiness and **Review checkpoints** before closure.
+`docs/workflow-config.json` `review_policies.require_qa_reviewer_for_bug_fixes: true` — in ordinary review, bug fixes must include `qa-reviewer` in readiness and **Review checkpoints** before closure.
 
 ## Wave Council Routing
 
-When `docs/workflow-config.json` `wave_review.enabled` is true:
+For an eligible small change, the independent `code-reviewer` checks the required AC rows at delivery. In ordinary review, follow the current Prepare receipt.
 
-- `council-readiness` is required at **Prepare wave**
-- `council-delivery` is required at **Review wave** / before **Close wave**
+- `council-readiness` is required at **Prepare wave** when ordinary review enables Council
+- `council-delivery` is required before **Close wave** when the receipt selects delivery Council
 - `council-chair` owns the synthesis output for both phases
 - `wave-coordinator` gathers evidence, routes lanes, and enforces the gate, but does not author the council verdict
 

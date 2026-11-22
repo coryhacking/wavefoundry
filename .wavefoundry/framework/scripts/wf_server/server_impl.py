@@ -100,6 +100,10 @@ for _wll_key in list(sys.modules):
             "lifecycle_id",
             "lifecycle_gate_support",
             "lifecycle_gates",
+            "small_change_lane",
+            "gen_codebase_map",
+            "reconcile_scan",
+            "render_platform_surfaces",
             "sensor_runner",
             "index_source_guard",
             "path_containment",
@@ -9202,6 +9206,7 @@ def wf_add_change_response(
     change_id: str,
     mode: str = "dry_run",
     cache: Optional[McpRepoCache] = None,
+    small_change: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     mode_s = "create" if (mode or "").strip().lower() == "apply" else (mode or "").strip().lower()
     if mode_s not in {"dry_run", "create"}:
@@ -9270,7 +9275,31 @@ def wf_add_change_response(
             data={"wave_id": wave_id, "change_id": canonical_change_id, "mode": mode_s},
             sibling_diagnostics=_unreadable_wave_sibling_diagnostics(unreadable_waves),
         )
+    import small_change_lane
     existing = _extract_change_ids_from_wave_text(text)
+    selection = small_change_lane.read_selection(text)
+    declined = small_change_lane.read_selection(text, marker=small_change_lane.DECLINED)
+    admission = selection if selection is not None else declined
+    if small_change is not None:
+        try:
+            small_change_lane.validate_request(small_change)
+        except ValueError as exc:
+            return _response("error", {"wave_id": wave_id, "change_id": canonical_change_id},
+                             diagnostics=[_diagnostic("invalid_small_change_request", str(exc))])
+        if canonical_change_id in existing or admission is not None:
+            matching = (admission is not None and admission.get("change_id") == canonical_change_id
+                        and admission.get("paths") == sorted(set(small_change["paths"]))
+                        and all(admission.get(k) == small_change[k] for k in ("operator_direction", "intended_diff")))
+            if not matching:
+                return _response("error", {"wave_id": wave_id, "change_id": canonical_change_id},
+                                 diagnostics=[_diagnostic("small_change_admission_immutable",
+                                     "Small review can only be selected at original admission. The existing admission is preserved.")])
+    lane_data = {}
+    if admission is not None:
+        members = existing if canonical_change_id in existing else [*existing, canonical_change_id]
+        assessment = small_change_lane.assess(root, wave_md, admission, members)
+        lane_data = {"small_change": {"selection": admission, **assessment}}
+
     location = _change_location_state(root, wave_md, canonical_change_id)
     if source_path.parent.name != wave_md.parent.name and record_paths.load_record_roots(root).waves_prefix in str(change_matches[0]["path"]).replace("\\", "/") and source_path != target_path:
         return _response(
@@ -9307,6 +9336,7 @@ def wf_add_change_response(
                 "mode": mode_s,
                 "updated": False,
                 "relocated": location["wave_exists"],
+                **lane_data,
                 "path": _repo_rel(root, location["wave_path"]) if location["wave_exists"] else _repo_rel(root, source_path),
             },
             diagnostics=diagnostics,
@@ -9348,6 +9378,16 @@ def wf_add_change_response(
                 next_tools=["wf_get_change"],
                 usage=f"wf_get_change(change_id={canonical_change_id!r})",
             )
+    if small_change is not None and admission is None:
+        policy_reason = small_change_lane.admission_policy_reason(root, text)
+        selection, assessment = small_change_lane.capture(
+            root, wave_md, canonical_change_id, small_change, [*existing, canonical_change_id],
+            policy_reason=policy_reason)
+        marker = small_change_lane.DECLINED if policy_reason else small_change_lane.MARKER
+        lane_data = {"small_change": {"selection": selection, **assessment}}
+        text = small_change_lane.add_header(text, small_change_lane.selection_line(selection, marker=marker))
+    elif selection is not None and small_change_lane.EXPANDED not in text.splitlines():
+        text = small_change_lane.add_header(text, small_change_lane.EXPANDED)
     if mode_s == "create":
         if os.path.lexists(target_path) and source_path != target_path:
             return _response(
@@ -9434,6 +9474,7 @@ def wf_add_change_response(
             "source_path": _repo_rel(root, source_path),
             "target_path": _repo_rel(root, target_path),
             "broken_links": broken_links,
+            **lane_data,
         },
         next_tools=["wf_current_wave", "wf_add_change", "wf_get_change"],
         usage=f"wf_get_change(change_id={canonical_change_id!r})",
@@ -11340,6 +11381,14 @@ def _bind_prepare_council_brief_to_receipt(
     """
 
     bound = dict(council_brief)
+    if (receipt or {}).get("small_change", {}).get("effective_lane") == "small":
+        bound.update(
+            fixed_seat=None, rotating_seat=None, council_seats=[], rotating_seat_reason=None,
+            instructions=["Run the independent code-reviewer readiness review. Trace the effect to its "
+                          "consumers and check an existing-state compatibility case when applicable."],
+            verdict_format="Record code-reviewer readiness approval with small_change_impact='internal'.",
+        )
+        return bound
     seats = receipt.get("council_seats") if isinstance(receipt, Mapping) else None
     if not isinstance(seats, list) or not seats:
         return bound
@@ -11544,6 +11593,17 @@ def _guided_review_actions(
 
     records = tuple(records)
     required_signoff_keys = tuple(required_signoff_keys)
+    small = (current_policy_receipt(records) or {}).get("small_change")
+    if small and small["effective_lane"] == "small" and approval_phase == "delivery" and wave_md and root:
+        import review_evidence
+        import small_change_lane
+        current = review_evidence._approval_rows(records, approval_phase="delivery").get("approval:code-reviewer")
+        if current:
+            text, _error = _read_wave_record_text(wave_md)
+            members = _extract_change_ids_from_wave_text(text or "")
+            live = small_change_lane.assess(root, wave_md, small["selection"], members)
+            if not live["eligible"] or current[1].get("small_change_content_digest") != live["content_digest"]:
+                rerecord_signoff_keys = {*rerecord_signoff_keys, "code-reviewer"}
     projection = review_authority_projection(
         records,
         required_signoff_keys,
@@ -11564,6 +11624,11 @@ def _guided_review_actions(
         "action_cap": projection["action_cap"],
         "caller_input_schema": review_action_input_schema(),
     }
+    if small and small["effective_lane"] == "small":
+        payload["caller_input_schema"]["evidence"]["small_change_approval"] = {
+            "signoff_key": "code-reviewer", "small_change_impact": "internal",
+            "delivery_requires": "small_change_content_digest from the inspected delivery contents",
+        }
     if approval_phase == "readiness":
         payload["readiness_decision_packet"] = _readiness_decision_packet(projection)
     diagnostics: list[dict[str, Any]] = []
@@ -12360,6 +12425,8 @@ def wf_review_event_response(
                     if policy_input_error_cause(error)
                     not in POLICY_INPUT_DEGRADABLE_CAUSES
                 ]
+                if lifecycle_gate_support.selected_small_change(original, current.records):
+                    blocking = list(recompute_errors)
                 if blocking:
                     return _response(
                         "error",
@@ -12438,6 +12505,21 @@ def wf_review_event_response(
                         )
                     ],
                 )
+            elif signoff_key == "code-reviewer" and recompute_state.get("small_change", {}).get("effective_lane") == "small":
+                small = recompute_state["small_change"]
+                issue = ""
+                if semantic_event.get("small_change_impact") != "internal":
+                    issue = ("Trace affected consumers and prior-state compatibility. Record small_change_impact "
+                             "as 'internal', or record an escalating finding when the effect is public or ambiguous.")
+                elif delivery_approval and (
+                    not small["content_digest"] or semantic_event.get("small_change_content_digest") != small["content_digest"]
+                ):
+                    issue = ("Inspect the current file contents, then supply the matching "
+                             "small_change_content_digest from wf_review_wave in the delivery approval evidence.")
+                if issue:
+                    return _response("error", {"wave_id": wave_id, "small_change": small},
+                                     diagnostics=[_diagnostic("invalid_review_event", issue,
+                                                              recovery_tools=["wf_review_wave"])])
         if existing_bundle is not None:
             if existing_bundle[0].get(REQUEST_DIGEST_FIELD) not in replay_digests:
                 return _response(
@@ -12935,6 +13017,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
     configured_gates: list[dict[str, Any]] = []
     wave_md = None
     headings_fixed: list[str] = []
+    small_change_status = None
 
     def _prepare_envelope(
         status: str,
@@ -12943,6 +13026,8 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         next_tools: list[str] | None = None,
         usage: str = "",
     ) -> dict[str, Any]:
+        if small_change_status is not None:
+            data["small_change"] = small_change_status
         if headings_fixed:
             # Change 22y1k: the documents prepare rewrote to space their headings.
             data = {**data, "headings_fixed": list(headings_fixed)}
@@ -13128,6 +13213,7 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         else None
     )
     if policy_response is not None:
+        small_change_status = policy_state.get("small_change")
         policy_response["receipt"] = {
             key: value for key, value in policy_response["receipt"].items()
             if key not in {"policy_inputs", "review_context"}
@@ -13484,6 +13570,43 @@ def wf_pause_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
 _REVIEW_PHASE_ALIASES = {"readiness": "prepare", "delivery": "implementation"}
 
 
+def _retain_review_escalation(root, wave_md, authority, lane):
+    """Keep a confirmed expansion until Prepare publishes the ordinary receipt."""
+    import small_change_lane
+
+    if not lane or lane["effective_lane"] != "ordinary" or authority.wave_closed or authority.ledger_errors:
+        return None
+    previous = current_policy_receipt(authority.records) or {}
+    if previous.get("small_change", {}).get("effective_lane") != "small":
+        return None
+    reason = " ".join(lane["reasons"])[:2000]
+    try:
+        with project_state_publication_lock(root):
+            contained, _ = _contained_wave_review_paths(root, wave_md)
+            live, error = _read_wave_record_text(contained)
+            if live is None:
+                raise ValueError(error)
+            latest = resolve_review_authority(root, contained, wave_text=live)
+            if latest.wave_closed or latest.ledger_errors or current_policy_receipt(latest.records) != previous:
+                raise ValueError("Review authority changed during scope inspection")
+            if not lifecycle_gate_support.retained_small_change_reason(live):
+                encoded = json.dumps(reason, ensure_ascii=True).replace("<", "\\u003c").replace(">", "\\u003e")
+                line = f"{lifecycle_gate_support.SMALL_CHANGE_ESCALATION} {encoded}"
+                updated = small_change_lane.add_header(live, line)
+                _atomic_replace_text(contained, set_reprepare_marker(updated, True), "review-escalation")
+        message = "Review recorded the scope expansion. Run Prepare to establish the ordinary review requirements."
+    except (OSError, ValueError, ProjectPublicationUnavailable) as exc:
+        return _diagnostic(
+            "review_escalation_unrecorded",
+            f"Review could not retain the scope expansion ({_read_error_detail(exc)}). Retry Review.",
+            recovery_tools=["wf_review_wave"], recovery_usage=f"wf_review_wave(wave_id={wave_md.parent.name!r})",
+        )
+    return _diagnostic(
+        "review_policy_reprepare_required", message, recovery_tools=["wf_prepare_wave"],
+        recovery_usage=f"wf_prepare_wave(wave_id={wave_md.parent.name!r}, mode='ready')",
+    )
+
+
 @_configured_phase_envelope
 @_fail_closed_on_record_layout("wf_review_wave")
 def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementation") -> dict[str, Any]:
@@ -13679,6 +13802,15 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
             )
         prepare_data = {"wave_id": wave_id, "phase": phase_s, "required_lanes": required_lanes, "lane_results": lane_results, "lint_passed": lint_result["passed"], "review_actions": review_actions,
                         "work_area": _wave_work_area(root, wave_md)}
+        selected = lifecycle_gate_support.selected_review_state(root, wave_md, wave_text, authority.records)
+        if selected:
+            prepare_data["small_change"] = selected["small_change"]
+            escalation = _retain_review_escalation(root, wave_md, authority, selected["small_change"])
+            if escalation:
+                diagnostics.append(escalation)
+                status = "error"
+                prepare_next_tools = escalation["recovery_tools"]
+                prepare_usage = escalation["recovery_usage"]
         if status != "ok" and isinstance(review_actions.get("recommended_next_action"), Mapping):
             prepare_data["next_action_note"] = _review_action_note(review_actions["recommended_next_action"])
         return _response(
@@ -13772,6 +13904,13 @@ def wf_review_wave_response(root: Path, wave_id: str, phase: str = "implementati
     status = "ok" if not review_blocking else "error"
     # 1p8gy AC-6: prior review findings and lessons relevant to this wave.
     _review_data = {"wave_id": wave_id, "phase": phase_s, "required_lanes": required_lanes, "lane_results": lane_results, "required_council_signoffs": required_council_signoffs, "council_results": council_results, "lint_passed": lint_result["passed"], "max_severity": max_severity}
+    if "small_change" in shared:
+        _review_data["small_change"] = shared["small_change"]
+        escalation = _retain_review_escalation(root, wave_md, shared["authority"], shared["small_change"])
+        if escalation:
+            diagnostics.append(escalation)
+            review_blocking.insert(0, escalation)
+            status = "error"
     # Wave 1t3ek (1t230): the delivery council reads the implement-stage numbers
     # in-context rather than discovering them at close.
     if phase_s == "implementation":
@@ -14084,7 +14223,12 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
     current_status = (status_match.group(1) if status_match else "").lower()
 
     if current_status == "implementing":
+        resume_diagnostics, selected = _selected_activation_state(root, wave_md, wave_text)
+        if resume_diagnostics:
+            return _response("error", {"wave_id": wave_id, "small_change": selected}, diagnostics=resume_diagnostics,
+                             next_tools=["wf_prepare_wave", "wf_review_wave"])
         return _response("ok", {"wave_id": wave_id, "mode": mode_s, "status": "implementing", "already_implementing": True, "transitioned_to_implementing": False,
+            **({"small_change": selected} if selected else {}),
             "work_area": _wave_work_area(root, wave_md, create=mode_s == "create")}, next_tools=["wf_current_wave", "wf_review_wave"], usage="wf_current_wave()")
     # Wave 1p45l: implement opens an `active` wave (legacy prepare-and-open) OR a readied
     # `planned` wave.
@@ -14116,6 +14260,10 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
     # readiness approval; prose cannot forge it. Legacy waves preserve the
     # structural prepare-council contract byte-for-byte.
     _activation_authority = resolve_review_authority(root, wave_md, wave_text=wave_text)
+    selected = lifecycle_gate_support.selected_review_state(root, wave_md, wave_text, _activation_authority.records)
+    lane_data = {"small_change": selected["small_change"]} if selected else {}
+    if selected:
+        diagnostics.extend(lifecycle_gates.small_change_clearance(selected, _activation_authority, ("readiness",)))
     if _activation_authority.typed:
         _readiness_keys = _required_wave_council_signoffs(
             root, "prepare", wave_text=wave_text, wave_md=wave_md
@@ -14226,7 +14374,7 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
         ))
 
     if diagnostics:
-        return _response("error", {"wave_id": wave_id, "mode": mode_s}, diagnostics=diagnostics, next_tools=["wf_review_wave", "wf_current_wave"], usage=f"wf_review_wave(wave_id={wave_id!r}, phase='prepare')")
+        return _response("error", {"wave_id": wave_id, "mode": mode_s, **lane_data}, diagnostics=diagnostics, next_tools=["wf_review_wave", "wf_current_wave"], usage=f"wf_review_wave(wave_id={wave_id!r}, phase='prepare')")
 
     # All gates passed — build implementation context
     change_ids = _extract_change_ids_from_wave_text(wave_text)
@@ -14319,6 +14467,7 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
     resp_data = {
         "wave_id": wave_id,
         "mode": mode_s,
+        **lane_data,
         "transitioned_to_implementing": mode_s == "create",
         "status_transition": {"from": current_status, "to": "implementing"} if mode_s == "create" else {"from": current_status, "to": f"{current_status} (dry_run)"},
         "ordered_changes": ordered_changes,
@@ -15120,8 +15269,11 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
 
     configured_gates: list[dict[str, Any]] = []
     preserve_workspace = False
+    selected_lane = None
 
     def _close_envelope(status, data, **kwargs):
+        if selected_lane:
+            data["small_change"] = selected_lane
         if preserve_workspace:
             data["shared_workspace_preserved"] = True
         return _response(status, {**data, "configured_gates": configured_gates}, **kwargs)
@@ -15166,6 +15318,7 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     shared_result = lifecycle_gates.CLOSE_SHARED_GATES[0](gate_ctx)
     shared = {**shared_result.data, "diagnostics": shared_result.diagnostics}
     authority = shared["authority"]
+    selected_lane = shared.get("small_change")
     # Wave 1zls7 (1zlu0): openness comes from docs-lint's record parser and
     # the one done predicate beside the lint constants; an unknown or
     # unreadable status is open.
@@ -15904,6 +16057,19 @@ def wf_close_change_response(
             if diagnostic.get("advisory") is True
         ]
 
+    if lifecycle_gate_support.selected_small_change(text, authority.records):
+        selected = lifecycle_gate_support.selected_review_state(root, wave_md, text, authority.records)
+        diagnostics.extend(_review_policy_receipt_diagnostics(root, wave_md, text))
+        if selected is None or not authority.typed:
+            diagnostics.append(_diagnostic("review_policy_receipt_stale", "Re-Prepare the selected admission to establish review clearance.",
+                                           recovery_tools=["wf_prepare_wave"]))
+        else:
+            base["small_change"] = selected["small_change"]
+            diagnostics.extend(lifecycle_gates.small_change_clearance(selected, authority, ("readiness", "delivery")))
+            diagnostics.extend(lifecycle_gates._review_evidence_diagnostics(
+                text, root=root, wave_md=wave_md, closure=True, required_run_kind="initial_delivery",
+            ))
+
     if diagnostics:
         return _response(
             "error", {**base, "previous_status": previous_status, "written": [], "activated": [], "not_activated": []},
@@ -16100,6 +16266,21 @@ def wf_close_change_response(
     return _attach_lint_to_response(envelope, root, mode_s)
 
 
+def _selected_activation_state(root, wave_md, wave_text):
+    authority = resolve_review_authority(root, wave_md, wave_text=wave_text)
+    if not lifecycle_gate_support.selected_small_change(wave_text, authority.records):
+        return [], None
+    state = lifecycle_gate_support.selected_review_state(root, wave_md, wave_text, authority.records)
+    diagnostics = _review_policy_receipt_diagnostics(root, wave_md, wave_text)
+    if authority.ledger_errors or state is None or not authority.typed:
+        diagnostics.append(_diagnostic("review_policy_receipt_stale",
+                                       "Selected review requires a verifiable admission and current policy receipt.",
+                                       recovery_tools=["wf_prepare_wave"]))
+        return diagnostics, None
+    diagnostics.extend(lifecycle_gates.small_change_clearance(state, authority, ("readiness",)))
+    return diagnostics, state["small_change"]
+
+
 @_fail_closed_on_record_layout("wf_reopen_wave")
 def wf_reopen_wave_response(root: Path, wave_id: str) -> dict[str, Any]:
     wave_md, wave_read_error, unreadable_waves = _find_wave_md_detailed(root, wave_id)
@@ -16140,6 +16321,10 @@ def wf_reopen_wave_response(root: Path, wave_id: str) -> dict[str, Any]:
         )
     # Set status back to active
     text = text[:status_match.start(1)] + "active" + text[status_match.end(1):]
+    activation_diagnostics, selected = _selected_activation_state(root, wave_md, text)
+    if activation_diagnostics:
+        return _response("error", {"wave_id": wave_id, "current_status": current_status, "small_change": selected},
+                         diagnostics=activation_diagnostics, next_tools=["wf_prepare_wave", "wf_review_wave"])
     # Remove any "Completed At: ..." line stamped by wf_close_wave
     text = re.sub(r"^Completed At:.*\n?", "", text, flags=re.MULTILINE)
     wave_md.write_text(text, encoding="utf-8")
@@ -16151,6 +16336,7 @@ def wf_reopen_wave_response(root: Path, wave_id: str) -> dict[str, Any]:
             "status": "active",
             "updated": True,
             "work_area": _wave_work_area(root, wave_md, create=True, reopen=current_status == "closed"),
+            **({"small_change": selected} if selected else {}),
             # Wave 1t72b (1t67p): reopening activates the wave; serve the
             # posture directive like every other activation path.
             "retrieval_posture": _RETRIEVAL_POSTURE_DIRECTIVE,
@@ -25205,13 +25391,17 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             )
 
     @mcp.tool(annotations=_MUTATING_TOOL)
-    def wf_add_change(wave_id: str, change_id: str, mode: str = "dry_run", **kwargs: Any) -> dict[str, Any]:
+    def wf_add_change(wave_id: str, change_id: str, mode: str = "dry_run", small_change: Optional[dict[str, Any]] = None, **kwargs: Any) -> dict[str, Any]:
         """Admit a change into a wave's Changes section.
 
         Args:
             wave_id: Wave ID or unique prefix.
             change_id: Change ID or unique prefix.
             mode: Either "dry_run" or "create".
+            small_change: Only on explicit operator direction for this admission,
+                pass operator_direction, intended_diff (one sentence) and paths
+                (one to three exact repository-relative code, test or fixture files).
+                Omission retains the original or ordinary admission.
         """
         bad = _ensure_no_extra_args("wf_add_change", kwargs)
         if bad is not None:
@@ -25226,6 +25416,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 change_id,
                 mode=mode,
                 cache=handler.cache,
+                **({"small_change": small_change} if small_change is not None else {}),
             )
 
     @mcp.tool(annotations=_MUTATING_TOOL)

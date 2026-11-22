@@ -8,6 +8,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Operators can request one independent code reviewer at readiness and delivery for a single internal spec covering up to three files. Prepare explains eligibility. Review and Close check the actual files and the approved contents. Expanded scope returns to ordinary review. Operator signoff and existing test requirements still apply. Wave 241lp / 240t6.
+
 ## [1.48.0] - 2026-11-21
 
 ### Added

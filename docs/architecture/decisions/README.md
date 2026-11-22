@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-08
+Last verified: 2026-11-22
 
 Architecture Decision Records (ADRs) capture significant design decisions made for Wavefoundry.
 
@@ -48,5 +48,6 @@ Copy `template.md` and fill in all sections. Link new ADRs from `docs/ARCHITECTU
 | [1zcxi-adr](1zcxi-adr%20startup-dependency-install.md) | MCP startup installs missing or version-incompatible declared dependencies (uv only, shared lock, background when deferrable, no opt-out); the upgrade installs them as its own step and reports setup readiness; everything else stays report-only | accepted |
 | [1yja8-adr](1yja8-adr%20persisted-storage-continuity.md) | Persisted path and available-inode continuity, with pure recovery reads | accepted |
 | [20355-adr](20355-adr%20council-chair-actor-rename.md) | The council moderator actor and role are `council-chair`; the earlier `wave-council` is accepted on read forever and aliased on write, and recorded history is never rewritten | accepted |
+| [240go-adr](240go-adr%20small-change-review-lane.md) | Plan an operator-selected small-change review lane | accepted |
 
 - [Index Build Source Races](1yj14-adr%20index-build-source-races.md) — automatic-writer exclusion, bounded coherent retry and verified precommit recovery.

@@ -117,6 +117,7 @@ ROUTED = {
     ("index_state_store.py", "_gardener_only_pairs", "_run_git"): 1,
     ("index_state_store.py", "_git_authority", "_run_git"): 2,
     ("index_state_store.py", "_git_head", "_run_git"): 1,
+    ("small_change_lane.py", "_git", "_run_git"): 1,
     ("techdocs_audit_lib.py", "_baseline_text", "_run_git"): 1,
     # _git_strip_vars cannot call _run_git (it would recurse), so it binds the
     # call-time resolution to a local named after the helper; pinned by a spy.

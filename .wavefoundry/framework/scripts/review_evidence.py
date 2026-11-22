@@ -547,7 +547,7 @@ _EVIDENCE_REQUIRED = frozenset(
 _EVIDENCE_OPTIONAL = frozenset(
     {
         "approval_phase", "policy_receipt_id", "census", EVENT_IDENTITY_FIELD, REQUEST_DIGEST_FIELD,
-        "intent_fit",
+        "intent_fit", "small_change_impact", "small_change_content_digest",
     }
 )
 INTEGRITY_CHECK_BOOLEAN_FIELDS = (
@@ -2639,11 +2639,13 @@ def review_authority_projection(
     heads = current_synthesis_heads(rows)
     finding_origin_phases = _finding_origin_phases(rows)
     current_receipt = current_policy_receipt(rows)
+    selection = (current_receipt or {}).get("small_change")
+    positions = {id(record): position for position, record in enumerate(rows)}
+    receipt_position = positions.get(id(current_receipt), -1)
     guided_repair_cycle = _guided_repair_cycle(rows)
     # Wave 22upa (change 22ubf): stored `security_unsettled` + `pending` heads hold
     # `operator-signoff` withheld; lane rows are unaffected.
     unsettled_candidates = security_candidate_state(rows)["unsettled"]
-    positions = {id(record): position for position, record in enumerate(rows)}
     runs_by_id = {
         str(record.get("review_run_id")): record
         for record in rows
@@ -2801,6 +2803,14 @@ def review_authority_projection(
             and approval_record.get("policy_receipt_id")
             == current_receipt.get("receipt_id")
         )
+        selected_binding_current = True
+        if selection and approval_record is not None:
+            if selected_phase == "delivery":
+                selected_binding_current = approval_position > receipt_position
+            if selection["effective_lane"] == "small" and key == "code-reviewer":
+                selected_binding_current &= approval_record.get("small_change_impact") == "internal"
+                if selected_phase == "delivery":
+                    selected_binding_current &= bool(approval_record.get("small_change_content_digest"))
         # Change 23q1g: membership currency for delivery-phase approvals.
         admitted_after_approval: tuple[str, ...] = ()
         if (
@@ -2816,6 +2826,7 @@ def review_authority_projection(
             and actor_valid
             and independence_valid
             and receipt_binding_current
+            and selected_binding_current
             and not admitted_after_approval
         )
         blocking: list[dict[str, Any]] = []
@@ -2902,6 +2913,8 @@ def review_authority_projection(
             state = "pending"
             if approval_record is None:
                 why = "no current executed approval"
+            elif not selected_binding_current:
+                why = "the selected review policy requires fresh evidence against the current receipt and internal impact"
             elif admitted_after_approval:
                 listed = ", ".join(f"`{item}`" for item in admitted_after_approval[:8])
                 if len(admitted_after_approval) > 8:
@@ -2978,7 +2991,7 @@ def review_authority_projection(
             approval_state = "absent"
         elif not (context_valid and actor_valid and independence_valid):
             approval_state = "invalid"
-        elif not receipt_binding_current or admitted_after_approval:
+        elif not receipt_binding_current or not selected_binding_current or admitted_after_approval:
             approval_state = "stale"
         elif blocking or operator_unsettled:
             approval_state = "withheld"
@@ -3372,6 +3385,8 @@ def required_review_status_keys(
         if mode == "universal" or (mode == "targeted" and targeted_required):
             council_keys.append(review_key)
 
+    if (current_policy_receipt(records) or {}).get("small_change", {}).get("effective_lane") == "small":
+        council_keys = []
     return review_status_signoff_keys(
         records,
         (*council_keys, *lanes, "operator-signoff"),
@@ -4408,6 +4423,20 @@ def build_compact_review_event(
     if event_type == "approval":
         signoff_key = event.get("signoff_key")
         approval_phase = event.get("approval_phase")
+        receipt = current_policy_receipt(prior) or {}
+        small_fields = {"small_change_impact", "small_change_content_digest"}.intersection(event)
+        narrow = (receipt.get("small_change", {}).get("effective_lane") == "small" and signoff_key == "code-reviewer")
+        if small_fields and not narrow:
+            errors.append("Small-change impact and content evidence apply only to the selected narrow code review.")
+        if narrow:
+            if event.get("small_change_impact") != "internal":
+                errors.append("Confirm the change's internal effect with small_change_impact='internal'.")
+            if approval_phase == "delivery":
+                digest = event.get("small_change_content_digest")
+                if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                    errors.append("Narrow delivery approval requires the reviewed small_change_content_digest.")
+            elif "small_change_content_digest" in event:
+                errors.append("Only delivery binds small_change_content_digest.")
         if not _nonempty_string(signoff_key):
             errors.append("approval event requires signoff_key")
         else:
@@ -4481,6 +4510,8 @@ def build_compact_review_event(
                 "required_for_approval": True,
                 "phase": "delivery",
                 "approval_phase": approval_phase,
+                **{field: event[field] for field in ("small_change_impact", "small_change_content_digest")
+                   if field in event},
                 **(
                     {"policy_receipt_id": event["policy_receipt_id"]}
                     if approval_phase == "readiness"
@@ -5403,6 +5434,16 @@ def _validate_evidence_shape(record: Mapping[str, Any], index: int) -> list[str]
             errors.append(enum_error)
         if record.get("claim_kind") != "approval":
             errors.append(f"{label}: `approval_phase` is valid only for approval evidence")
+    if "small_change_impact" in record or "small_change_content_digest" in record:
+        if (record.get("claim_id") != "approval:code-reviewer" or record.get("claim_kind") != "approval"
+                or record.get("small_change_impact") != "internal"):
+            errors.append(f"{label}: small-change impact belongs to an internal code-reviewer approval")
+        digest = record.get("small_change_content_digest")
+        if record.get("approval_phase") == "delivery":
+            if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                errors.append(f"{label}: small-change delivery requires a SHA-256 content digest")
+        elif "small_change_content_digest" in record:
+            errors.append(f"{label}: small-change content digest belongs to delivery")
     if "policy_receipt_id" in record:
         if not _nonempty_string(record.get("policy_receipt_id")):
             errors.append(f"{label}: `policy_receipt_id` must be a non-empty string")

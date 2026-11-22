@@ -3187,6 +3187,37 @@ class LapsedApprovalReasonTests(unittest.TestCase):
         )
         return row
 
+    def test_selection_is_receipt_semantic_and_scopes_delivery_currency(self):
+        ordinary = self._receipt("a" * 64, ["code-reviewer"])
+        selection = {"paths": ["src/helper.py"], "change_id": "1abc-fix helper"}
+        fields = {**ordinary, "council_seats": [], "small_change": {
+            "effective_lane": "small", "selection": selection, "reasons": []
+        }}
+        del fields["receipt_id"]
+        small, appended = review_policy.build_policy_receipt(fields, ordinary)
+        self.assertTrue(appended)
+        self.assertFalse(review_policy.validate_policy_receipt(small))
+        self.assertNotEqual(small["receipt_id"], ordinary["receipt_id"])
+        approval = executable_evidence(
+            "ev-code", "approval:code-reviewer", claim_kind="approval", actor="code-reviewer",
+            required_for_approval=True, approval_phase="delivery", small_change_impact="internal",
+            small_change_content_digest="a" * 64,
+        )
+        def state(records):
+            return self._single_row(records, "code-reviewer", approval_phase="delivery")["state"]
+        self.assertEqual(state([ordinary, small, approval]), "approved")
+        self.assertEqual(state([ordinary, approval, small]), "pending")
+        for field in ("small_change_impact", "small_change_content_digest"):
+            self.assertEqual(state([ordinary, small, {k: v for k, v in approval.items() if k != field}]), "pending")
+        escalated, _ = review_policy.build_policy_receipt({
+            **fields, "council_seats": ["red-team"], "small_change": {
+                "effective_lane": "ordinary", "selection": selection, "reasons": ["external effect"],
+            }
+        }, small)
+        self.assertEqual(state([ordinary, small, approval, escalated]), "pending")
+        ordinary_approval = {k: v for k, v in approval.items() if not k.startswith("small_change_")}
+        self.assertEqual(state([ordinary, small, approval, escalated, ordinary_approval]), "approved")
+
     def test_supersession_lapse_names_stale_binding_with_both_ids(self) -> None:
         first = self._receipt("a" * 64, ["code-reviewer"])
         second = self._receipt("b" * 64, ["qa-reviewer"], current=first)

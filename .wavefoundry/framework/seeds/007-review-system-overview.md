@@ -14,13 +14,13 @@ Explain the shared Wave Framework review model: what review is for, how it fits 
 
 ## Bounded readiness orchestration
 
-After the first full readiness review, focused review is the default. Collect typed findings, perform one bounded repair pass, publish the repaired packet with `wf_prepare_wave(mode="ready")`, and run one focused verification round. Include original findings, repair diff and directly affected contracts, including unchanged context needed to detect contradictions and regressions. Every required lane and the council re-record required readiness approvals against the current receipt after publication; source/blocking lanes replay findings, other approving lanes review repair effects, and newly required lanes review their remit once. At the end of focused verification, escalate every remaining blocker to the operator, whether original or new. No further automatic repair/review round begins. The operator chooses another bounded repair and focused verification, or replanning; record the decision and scope in `## Review Checkpoints`. Approval is not promised; this protocol never waives required-lane authority. Settlement is descriptive only. Carry wording preferences as implementation notes; never suppress a demonstrated defect. Delivery's automatic repair behavior is unchanged.
+After the first full readiness review, focused review is the default. Collect typed findings, perform one bounded repair pass, publish the repaired packet with `wf_prepare_wave(mode="ready")`, and run one focused verification round. Include original findings, repair diff and directly affected contracts, including unchanged context needed to detect contradictions and regressions. When the receipt requires Council, the following approval rule applies. Every required lane and the council re-record required readiness approvals against the current receipt after publication; source/blocking lanes replay findings, other approving lanes review repair effects, and newly required lanes review their remit once. At the end of focused verification, escalate every remaining blocker to the operator, whether original or new. No further automatic repair/review round begins. The operator chooses another bounded repair and focused verification, or replanning; record the decision and scope in `## Review Checkpoints`. Approval is not promised; this protocol never waives required-lane authority. Settlement is descriptive only. Carry wording preferences as implementation notes; never suppress a demonstrated defect. Delivery's automatic repair behavior is unchanged.
 
 Seed `215-council-chair.prompt.md` owns the bounded protocol and briefing template; seed `209-agent-harness-core.prompt.md` owns the readiness finding bar and unchanged actionability derivations. Readiness adds no settlement control state, ledger record or runtime review-round counter. The single convergence checkpoint and aggregate repair-cycle bookkeeping remain unchanged. Prepare receipt-publication telemetry is advisory supporting evidence, not a count of review rounds or proof of convergence.
 
 ## Wave Council Meta-Review
 
-Projects may enable **Wave Council** as a phase-specific meta-review. Wave Council does **not** replace specialist review lanes. Readiness Council is required whenever review is enabled; delivery Council follows `wave_review.delivery_mode` (`universal`, risk-selected `targeted`, or the valid review-disabled `disabled` pairing). `targeted` is the default: it escalates to full Council for upgrade/release, permission or trust boundaries, cross-platform behavior, and the other shared boundary triggers; ordinary work keeps its required specialist lanes:
+Projects may enable **Wave Council** as a phase-specific meta-review. Wave Council does **not** replace specialist review lanes. An eligible operator-selected small change uses independent code review at both phases. In ordinary review, enabled review requires readiness Council, and delivery Council follows `wave_review.delivery_mode` (`universal`, risk-selected `targeted`, or the valid review-disabled `disabled` pairing). `targeted` is the default: it escalates to full Council for upgrade/release, permission or trust boundaries, cross-platform behavior, and the other shared boundary triggers; ordinary work keeps its required specialist lanes:
 
 - **`council-readiness`** — before implementation begins; declared waves record this authority as a typed approval event in `events.jsonl`, while legacy waves retain the structured prose verdict gate. A declared wave may keep a structured checkpoint as narrative, but it is not machine authority.
 - **`council-delivery`** — after implementation and before closure only when selected by the current Prepare receipt
@@ -172,8 +172,8 @@ Projects that enable Wave Council should also declare an explicit council policy
 
 `transition_policy` controls rollout for waves already in flight. The framework default, `applies-from-next-prepare`, means:
 
-- the next `Prepare wave` pass must record `council-readiness`
-- waves already past readiness still require the delivery-phase council pass before closure
+- the next `Prepare wave` pass must record `council-readiness` when its receipt requires readiness Council
+- waves already past readiness still require the delivery-phase council pass before closure when the receipt selects it
 - closure does not retroactively require a readiness signoff for a wave that has never recorded one, carries no published review-policy receipt, and whose event ledger is readable. A wave becomes governed by publishing a receipt — normally at `Prepare wave`, but also through `wf_mark_ac(state='~')` on a wave that uses external review evidence with `wave_review` configured, which can publish a receipt from an empty ledger.
 
 ### Recording signoff
@@ -188,7 +188,7 @@ After running an inferential sensor, record its verdict (on a declared wave, a t
 
 The format is: `- <lane-name>: <verdict> [(<severity> — <one-line summary>)]`. The severity annotation is required when severity is `medium` or above.
 
-When Wave Council is enabled, record the machine-readable council signoffs the same way (on a declared wave, typed approval events via `wf_review_event`, projected into `## Review Evidence`; only legacy prose waves write the lines into the **same** `## Review Evidence` section directly):
+When the current receipt requires Council for a phase, record its machine-readable council signoff the same way (on a declared wave, typed approval events via `wf_review_event`, projected into `## Review Evidence`; only legacy prose waves write the lines into the **same** `## Review Evidence` section directly):
 
 ```
 - council-readiness: approved (moderator: council-chair — seats aligned on scope, lane selection, and protected surfaces; prepare-council verdict recorded with structured fields)

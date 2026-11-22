@@ -24,6 +24,8 @@ dependent change.
 
 ## Gates
 
+For an operator-selected small change, the spec close checks the current review policy and the approved file contents. If the contents changed, obtain a fresh code-reviewer delivery approval. If the work moved to ordinary review, follow the listed approval requirements. Wave closure remains a separate operator decision.
+
 First, before any gate and with nothing written, `wf_close_change` refuses
 a wave record it cannot read unambiguously (`wave_record_ambiguous`): an id
 in more than one record, a record with more than one status line (fenced or

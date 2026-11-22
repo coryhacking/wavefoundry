@@ -6,6 +6,10 @@ Last verified: {{generated_at}}
 
 Shortcut: **`Close wave`**
 
+## Operator-selected small changes
+
+On an eligible small change, close checks the current delivered contents against the independent code reviewer’s approval. Follow the returned review actions when the files have changed or the work has expanded. The operator still signs off and explicitly directs closure.
+
 ## Host-neutral orchestration
 
 Follow `.wavefoundry/framework/seeds/180-implement-spec.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose models and reasoning effort for reconciliation and unresolved judgments by task fit. Efficient routine checks do not waive review evidence or explicit operator closure authority. Use only available host capabilities; sequential implementation does not satisfy required independent review.
@@ -30,7 +34,7 @@ briefed subagent.
    every AC and task is completed or intentionally deferred with rationale.
    **Close spec** (`wf_close_change`) is optional; use it to mark a single
    change `complete` and activate its dependents inside the open wave.
-2. Required review lanes and configured council signoffs are current.
+2. Required review lanes are current. Check each Council signoff required by the current Prepare receipt for its phase (`council-readiness` or `council-delivery`).
 3. Change status, wave status, completion date, and chronology agree.
 4. Architecture, behavior contracts, public prompts, and release notes reflect the
    delivered behavior.

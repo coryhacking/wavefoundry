@@ -639,7 +639,7 @@ def spy_response(impl, name, calls, echo=False):
     """Replace a core response function; record its arguments and the lock state.
 
     With ``echo`` the spy's ``data`` echoes its arguments at top level, by the
-    real function's parameter names and defaults, as the lifecycle handlers do
+    real function's parameter names, including any defaults forwarded by the public wrapper
     (wave 1zime, 1zimm).
     """
     signature = inspect.signature(getattr(impl, name))
@@ -649,7 +649,6 @@ def spy_response(impl, name, calls, echo=False):
                       "lock_held": probe.get("held"), "acquired": probe.get("acquired")})
         if echo:
             bound = signature.bind(root, *args, **kwargs)
-            bound.apply_defaults()
             return {"status": "ok", "data": {k: v for k, v in bound.arguments.items() if k not in ("root", "cache")}}
         return {"status": "ok", "data": {"spied": name}}
     setattr(impl, name, spy)
@@ -981,6 +980,11 @@ def register(mcp, get_handler):
             out["delegate_cost"] = list(costs)
             out["delegate_lock_acquired"] = impl._WF_LOCK_PROBE["acquired"]
         out["add_calls"] = list(add_calls)
+        selection = {"operator_direction": "Use small review for this admission.",
+                     "intended_diff": "Order internal samples.", "paths": ["src/sample.py"]}
+        ccall(mcp, "fork_add_wave", {"set_id": "1abcd", "wave_id": "1abce-feat x",
+                                      "small_change": selection})
+        out["selected_add_kwargs"] = add_calls[-1]["kwargs"]
         out["review_calls"] = list(review_calls)
         out["remove_calls"] = list(remove_calls)
         before = (len(add_calls), len(review_calls))
@@ -2714,6 +2718,10 @@ class ParameterMappedAliasTests(unittest.TestCase):
         self.assertEqual(swap["kwargs"], {"mode": "dry_run"})
         self.assertEqual(pinned["args"], ["1abcd", "1abce-feat x"])
         self.assertEqual(pinned["kwargs"], {"mode": "create"})
+        self.assertEqual(self.out["selected_add_kwargs"], {"mode": "dry_run", "small_change": {
+            "operator_direction": "Use small review for this admission.",
+            "intended_diff": "Order internal samples.", "paths": ["src/sample.py"],
+        }})
         (review,) = self.out["review_calls"]
         self.assertEqual(review["args"], ["1abcd"])
         self.assertEqual(review["kwargs"], {"phase": "prepare"})
@@ -2745,8 +2753,8 @@ class ParameterMappedAliasTests(unittest.TestCase):
             with self.subTest(case=label):
                 self.assertEqual(extras[label]["codes"], ["error", "unknown_arguments"])
                 self.assertEqual(extras[label]["data"]["rejected_arguments"], rejected)
-        self.assertEqual(extras["pinned_override"]["data"]["supported_arguments"], ["set_id", "wave_id"])
-        self.assertIn("Supported parameters: set_id, wave_id.", extras["pinned_override"]["message"][0])
+        self.assertEqual(extras["pinned_override"]["data"]["supported_arguments"], ["set_id", "small_change", "wave_id"])
+        self.assertIn("Supported parameters: set_id, small_change, wave_id.", extras["pinned_override"]["message"][0])
         self.assertEqual(extras["pinned_phase"]["data"]["supported_arguments"], ["wave_id"])
         self.assertFalse(self.out["extras_reached_canonical"])
         # The empty compatibility payload is accepted, as on canonical tools.
@@ -4424,7 +4432,7 @@ class ExtensionRefusalTests(unittest.TestCase):
         # Wave 1zim3: an alias parameter may reuse a canonical name that is renamed away.
         result = self.out["cases"]["params_swap_valid"]
         self.assertIsNone(result["raised"], result)
-        self.assertEqual(sorted(result["parameters"]["properties"]), ["mode", "set_id", "wave_id"])
+        self.assertEqual(sorted(result["parameters"]["properties"]), ["mode", "set_id", "small_change", "wave_id"])
 
     def test_changed_default_alone_is_call_compatible(self):
         # A different default changes behavior, not the values callers may send.

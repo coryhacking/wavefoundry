@@ -1581,6 +1581,19 @@
             "title": "Mode",
             "type": "string"
           },
+          "small_change": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Small Change"
+          },
           "wave_id": {
             "title": "Wave Id",
             "type": "string"

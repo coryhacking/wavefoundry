@@ -1,11 +1,13 @@
 # Decide whether one-sentence changes get a lighter lifecycle lane
 
 Change ID: `2136q-change small-change-lane`
-Change Status: `planned`
+Change Status: `complete`
 Owner: Engineering
-Status: planned
-Last verified: 2026-10-18
-Wave: TBD
+Status: complete
+Last verified: 2026-11-22
+Wave: 241lp operator-selected-small-change-review
+
+This decision is complete. The [decision record](../../architecture/decisions/240go-adr%20small-change-review-lane.md) records the operator’s choice. Wave 241lp owns implementation in spec 240t6.
 
 ## Rationale
 
@@ -59,14 +61,14 @@ This change records the decision. **It is a framework policy change for every ta
 
 ## Acceptance Criteria
 
-- [ ] AC-1: A decision record exists under `docs/architecture/decisions/`, comparing options A and C with costs and risks, and recording B as an alternative. The operator chose the outcome, and the record quotes their words.
-- [ ] AC-2: If A is chosen, a follow-up change doc exists with requirements and ACs for it. If C is chosen, the Decision Log says so and no follow-up exists.
+- [x] AC-1: A decision record exists under `docs/architecture/decisions/`, comparing options A and C with costs and risks, and recording B as an alternative. The operator chose the outcome, and the record quotes their words.
+- [x] AC-2: If A is chosen, a follow-up change doc exists with requirements and ACs for it. If C is chosen, the Decision Log says so and no follow-up exists.
 
 ## Tasks
 
-- [ ] Run **Evaluate decision** with the operator.
-- [ ] Write the decision record.
-- [ ] Plan the follow-up change, or record the status quo.
+- [x] Run **Evaluate decision** with the operator.
+- [x] Write the decision record.
+- [x] Plan the follow-up change, or record the status quo.
 
 ## Agent Execution Graph
 
@@ -95,12 +97,15 @@ This change records the decision. **It is a framework policy change for every ta
 | ---- | ------ | -------- |
 | 2026-10-18 | Planned from the best-practices review. Existing light paths and enforcement points were identified. | Guru investigation |
 | 2026-10-18 | Plan review: the claims were verified. Revised to the A-versus-C shape that seed 176 expects, with B as an alternative. The waiver citation was corrected, and the 1yxyw figure is labelled an operator report. | Fable plan review |
+| 2026-11-21 | Evaluation recommendation: retain the current gates. In a sample of 30 recent closed waves with typed review records, only two had one required readiness specialist. Both called for docs review. Fourteen already used targeted delivery without a delivery council. The sample measures frequency. Reviewer time savings remain unknown. | Latest policy receipts in 30 closed waves, 22yox through 24239 by lifecycle ID. |
+| 2026-11-21 | To test the case for a lighter readiness review, compare three eligible internal changes under the current process. Record the relevant specialist's findings before reading the remaining reviews, then compare findings, reviewer effort and elapsed readiness time. Keep the usual delivery checks throughout the comparison. | Wave 210e9's QA review caught a fixture issue, and review of 210eb corrected a compatibility promise on a two-line filter. |
 
 ## Decision Log
 
 | Date | Decision | Reason | Alternatives |
 | ---- | -------- | ------ | -------- |
 | 2026-10-18 | Plan as a decision, not as code. | It reverses a stated framework principle (020:17) for every target. | Implement option A directly; skips the decision the operator owns. |
+| 2026-11-21 | Operator selected A: “Plan the permanent small-change lane”. | A standard, operator-selected path takes priority over a measurement-only pilot. | Keep current policy with a pilot first, or defer. See [the decision](../../architecture/decisions/240go-adr%20small-change-review-lane.md) and [the implementation spec](240t6-enh%20operator-selected-small-change-lane.md). |
 
 ## Risks
 

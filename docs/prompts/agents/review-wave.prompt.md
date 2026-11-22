@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-20
+Last verified: 2026-11-22
 
 After reporting the review result, use the single walkthrough offer in the [public review handoff](../review-wave.prompt.md#offer-a-walkthrough).
 
@@ -40,7 +40,7 @@ If MCP is not available, use `grep -rn "symbol" .` for references and `grep -n "
 
 ## AC Priority Reconciliation
 
-Update the `## AC priority` table if scope shifted during implementation. `qa-reviewer` must attest every required row has verification evidence or a recorded deferral.
+Update the `## AC priority` table if scope shifted during implementation. On an eligible small change, the assigned `code-reviewer` reconciles AC priority. In ordinary review, use `qa-reviewer` when the delivery roster requires QA. Otherwise assign the check to an existing delivery reviewer when one is available. The assigned reviewer checks that every required row has verification evidence or a recorded deferral.
 
 ## Findings Classification
 

@@ -1374,6 +1374,8 @@ def receipt_semantic_fields(receipt: Mapping[str, Any]) -> dict[str, Any]:
     if int(receipt.get("evaluator_version", 0)) < 5:
         keys.append("council_seats")
     keys.extend(("requested_lanes", "required_lanes", "delivery_council_required"))
+    if "small_change" in receipt:
+        keys.append("small_change")
     return {key: receipt[key] for key in keys}
 
 
@@ -1430,7 +1432,7 @@ def validate_policy_receipt(record: Mapping[str, Any]) -> tuple[str, ...]:
         "policy_input_digest", "delivery_mode", "primer_depth", "council_seats",
         "requested_lanes", "required_lanes", "delivery_council_required",
     }
-    optional = {"supersedes_receipt_id", "policy_inputs", "review_context"}
+    optional = {"supersedes_receipt_id", "policy_inputs", "review_context", "small_change"}
     errors: list[str] = []
     keys = set(record)
     if required - keys:
@@ -1451,6 +1453,20 @@ def validate_policy_receipt(record: Mapping[str, Any]) -> tuple[str, ...]:
     for field in ("schema_version", "evaluator_version"):
         if not isinstance(record.get(field), int) or isinstance(record.get(field), bool):
             errors.append(f"review_policy_receipt {field} must be an integer")
+    if "small_change" in record:
+        lane = record["small_change"]
+        if (not isinstance(lane, dict) or set(lane) != {"selection", "effective_lane", "reasons"}
+                or not isinstance(lane["selection"], dict)
+                or lane["effective_lane"] not in ("small", "ordinary")
+                or not isinstance(lane["reasons"], list)
+                or any(not isinstance(reason, str) or not reason for reason in lane["reasons"])
+                or bool(lane["reasons"]) != (lane["effective_lane"] == "ordinary")):
+            errors.append("review_policy_receipt small_change requires the admission selection, lane and escalation reasons")
+        elif lane["effective_lane"] == "small" and (
+            record.get("required_lanes") != ["code-reviewer"] or record.get("council_seats") != []
+            or record.get("delivery_council_required") is not False
+        ):
+            errors.append("a small review receipt requires the code reviewer and no council")
     if "policy_inputs" in record:
         inputs = record["policy_inputs"]
         if not isinstance(inputs, dict) or set(inputs) != {"changes", "project_policy_sha256"}:

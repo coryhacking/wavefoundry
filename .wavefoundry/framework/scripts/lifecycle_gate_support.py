@@ -48,6 +48,7 @@ from review_evidence import (
     validate_review_evidence_records,
 )
 import review_evidence
+import small_change_lane
 import review_policy  # the pure lane helper is called through the module (wave 1zlu1)
 import change_doc_checklist  # shared checklist parser (wave 1zime, 1zimq)
 
@@ -173,6 +174,12 @@ def _required_wave_council_signoffs(
     policy = _read_wave_council_policy(root)
     if not policy or not policy.get("enabled"):
         return []
+    if small_change_lane.read_selection(wave_text or "") is not None:
+        if records is None and wave_md is not None:
+            records, _errors = read_review_event_ledger(wave_md)
+        receipt = current_policy_receipt(records or ()) or {}
+        if receipt.get("small_change", {}).get("effective_lane") == "small":
+            return []
     phase_map = {
         "prepare": ["prepare"],
         "review": ["review"],
@@ -1112,6 +1119,13 @@ def receipt_supersession_attribution(
             else f"digested {_vocab.tier_noun('item')} ids: none"
         ),
     ]
+    if "small_change" in pending:
+        lane = state.get("small_change", pending["small_change"])
+        parts.append(f"selected small review now uses {lane['effective_lane']} review")
+        parts.extend(lane["reasons"])
+        for phase in ("readiness", "delivery"):
+            if lane.get(f"required_{phase}"):
+                parts.append(f"required {phase} approvals: " + ", ".join(lane[f"required_{phase}"]))
     old_inputs = current.get("policy_inputs")
     new_inputs = pending.get("policy_inputs")
     if isinstance(old_inputs, Mapping) and isinstance(new_inputs, Mapping):
@@ -1176,6 +1190,81 @@ def policy_input_error_cause(error: str) -> str:
     """Cause for one policy-selection error; `unknown` for untagged legacy strings."""
 
     return getattr(error, "cause", "unknown")
+
+
+def selected_small_change(wave_text: str, records=()) -> bool:
+    """A receipt still identifies a selected wave if someone removes its admission line."""
+    return (small_change_lane.read_selection(wave_text) is not None
+            or "small_change" in (current_policy_receipt(records) or {}))
+
+
+SMALL_CHANGE_ESCALATION = "small-change-escalation:"
+
+
+def retained_small_change_reason(wave_text: str) -> str | None:
+    for line in wave_text.partition("\n## ")[0].splitlines():
+        if line.startswith(SMALL_CHANGE_ESCALATION):
+            try:
+                reason = json.loads(line.removeprefix(SMALL_CHANGE_ESCALATION))
+            except ValueError:
+                reason = None
+            return reason if isinstance(reason, str) and reason else "Review recorded a scope expansion."
+    return None
+
+
+def _small_change_policy(root, wave_md, wave_text, change_ids, records, policy_inputs,
+                         requested, mandated):
+    """Resolve the selected lane once, keeping the file fingerprint out of readiness identity."""
+    selection = small_change_lane.read_selection(wave_text)
+    current = current_policy_receipt(records) or {}
+    previous = current.get("small_change")
+    if selection is None and previous is None:
+        return None
+    original = previous["selection"] if previous else selection
+    live = small_change_lane.assess(root, wave_md, original, change_ids)
+    reasons = [] if live["eligible"] else list(live["reasons"])
+    if retained := retained_small_change_reason(wave_text):
+        reasons.append(retained)
+    if original != selection:
+        reasons.append("The operator's recorded selection or baseline changed after Prepare.")
+    if previous and current.get("policy_inputs", {}).get("changes") != policy_inputs["changes"]:
+        reasons.append("The admitted specification changed after narrow readiness selection.")
+    reviewer_lanes = set()
+    triggers = set()
+    for record in records:
+        if record.get("record_type") != "finding_synthesis":
+            continue
+        triggers.update(field for field in review_policy.FULL_COUNCIL_TRIGGER_FIELDS if record.get(field) is True)
+        reviewer_lanes.update(record.get("blocking_required_lanes", ()))
+        if record.get("validation_status") == "real" and record.get("contract_relevance") == "public_contract":
+            triggers.add("public_contract")
+    reviewer_lanes -= {"operator-signoff", "code-reviewer", *review_evidence.COUNCIL_SIGNOFF_KEYS}
+    extra = (set(requested) | set(mandated) | reviewer_lanes) - {"code-reviewer"}
+    if extra:
+        reasons.append("Additional specialist required: " + ", ".join(sorted(extra)) + ".")
+    if triggers:
+        reasons.append("Review boundary requires ordinary review: " + ", ".join(sorted(triggers)) + ".")
+    if previous and previous["effective_lane"] == "ordinary":
+        # The escalation reason is a historical fact. Extra lanes and Council
+        # requirements continue to follow current policy and ledger obligations.
+        reasons = list(previous["reasons"])
+    reasons = list(dict.fromkeys(reasons))
+    return {
+        "selection": original, "effective_lane": "ordinary" if reasons else "small",
+        "reasons": reasons, "changed_paths": live["changed_paths"],
+        "content_digest": live["content_digest"], "additional_lanes": sorted(reviewer_lanes),
+        "boundary_escalated": bool(triggers),
+    }
+
+
+def selected_review_state(root, wave_md, wave_text, records):
+    if not selected_small_change(wave_text, records):
+        return None
+    state, _errors = _prepare_policy_state(
+        root, wave_md, wave_text, _extract_change_ids_from_wave_text(wave_text), {},
+        validated_records=records,
+    )
+    return state
 
 
 def _prepare_policy_state(
@@ -1293,6 +1382,27 @@ def _prepare_policy_state(
         "\n".join(canonical_change_texts)
     )
     seats = ["red-team", *([stable_rotating] if stable_rotating else [])]
+    small = _small_change_policy(
+        root, wave_md, wave_text, change_ids, records, policy_inputs, requested,
+        (*readiness_project_lanes, *delivery_project_lanes),
+    )
+    if small is not None:
+        if small["effective_lane"] == "small":
+            required_lanes = delivery_lanes = ("code-reviewer",)
+            reasons = {"code-reviewer": ("operator-selected internal change",)}
+            seats = []
+            delivery_council = False
+        else:
+            required_lanes = tuple(dict.fromkeys((*required_lanes, *small["additional_lanes"])))
+            delivery_lanes = tuple(dict.fromkeys((*delivery_lanes, *small["additional_lanes"])))
+            delivery_council |= mode == "targeted" and small["boundary_escalated"]
+        council = _read_wave_council_policy(root)["phases"]
+        small["required_readiness"] = list(required_lanes)
+        small["required_delivery"] = [*delivery_lanes, "operator-signoff"]
+        if small["effective_lane"] == "ordinary" and council.get("prepare"):
+            small["required_readiness"].append(council["prepare"]["signoff_key"])
+        if delivery_council and council.get("review"):
+            small["required_delivery"].append(council["review"]["signoff_key"])
     review_documents = {change_id: body for change_id, _kind, body in change_inputs}
     review_context = review_policy.build_review_context(review_documents)
     semantic = {
@@ -1307,6 +1417,8 @@ def _prepare_policy_state(
         "required_lanes": list(required_lanes),
         "delivery_council_required": delivery_council,
     }
+    if small is not None:
+        semantic["small_change"] = {key: small[key] for key in ("selection", "effective_lane", "reasons")}
     # Oversized optional attribution must not become a new readiness gate.
     if not review_policy._review_context_errors(review_context):
         semantic["review_context"] = review_context
@@ -1328,6 +1440,7 @@ def _prepare_policy_state(
         "receipt_append_required": append_required,
         "records": records,
         "review_documents": review_documents,
+        **({"small_change": small, "wave_id": wave_md.parent.name} if small is not None else {}),
     }, ()
 
 

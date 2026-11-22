@@ -490,7 +490,10 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
             "branch-complete and re-entrant checks",
             "QA verifies state across repeated calls or routine steps",
             "current receipt-derived `required_council_signoffs` lists `council-delivery`",
-            "AC scope gap check", "`qa-reviewer` attests every required row",
+            "AC scope gap check",
+            "the assigned `code-reviewer` reconciles AC priority",
+            "use `qa-reviewer` when the delivery roster requires QA",
+            "checks every required row for verification evidence or a recorded deferral",
             "Verify every `[~]` AC", "## AC and Task Verification Truth Hierarchy",
             "## Project review specifics",
             "{shortcut[review-wave]} ends when every required lane and any receipt-required council approval is current in `wf_review_wave`",
@@ -504,6 +507,8 @@ class HostNeutralOrchestrationCarrierTests(unittest.TestCase):
         mutants = (
             ("delivery phase", "readiness phase"),
             ("but records no approval", "and records approval"),
+            ("the assigned `code-reviewer` reconciles AC priority",
+             "a separate `qa-reviewer` reconciles AC priority"),
             # The wording this template actually carries: the profile's nouns
             # or, for a distribution that kept the shipped text, the shipped ones.
             next((tiered("It does not close the {wave}", seed=seed), tiered("It closes the {wave}", seed=seed))

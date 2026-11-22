@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-21
+Last verified: 2026-11-22
 
 ## Review Lane Summary
 
@@ -10,19 +10,25 @@ Last verified: 2026-11-21
 |------|--------------|--------|
 | `code-reviewer` | Non-trivial implementation changes | Yes — blocking findings return to implementation |
 | `architecture-reviewer` | Cross-boundary or integration-contract changes | Yes |
-| `qa-reviewer` | Bug fixes (always); acceptance criteria requiring coverage | Yes |
+| `qa-reviewer` | Ordinary review of bug fixes and acceptance criteria when project policy requires QA | Yes |
 | `security-reviewer` | Trust boundary, guard mechanism, or allowed-roots changes | Yes |
 | `docs-contract-reviewer` | `docs/specs/*.md` behavioral contract changes | Yes at wave closure |
 | `performance-reviewer` | Indexing, search, or MCP response path changes | Advisory |
 | `release-reviewer` | Packaging, VERSION, or distribution format changes | Yes |
-| `council-readiness` | Every wave before implementation (`wave_review.enabled`) | Yes |
+| `council-readiness` | Before implementation when the current Prepare receipt requires readiness Council | Yes |
 | `council-delivery` | Before closure when the current Prepare receipt/configured delivery mode requires it | Yes when required |
 
 All review lanes follow the **Retrieval Posture (All Lanes)** in `docs/contributing/agent-team-workflow.md` — MCP retrieval tools first, and how-many/blast-radius claims backed by `code_references`/`code_callhierarchy`, never a sampled grep.
 
 In existing readiness and delivery reviews, ask whether meeting Requirements and ACs would establish Product Intent and the wave Objective, and whether added complexity, runtime cost or operator burden undermines that outcome. At delivery, distinguish evidenced outcomes from intended benefits; checked implementation steps alone prove neither benefit nor approval. Use the existing lanes and gates.
 
-The council-chair records this as `intent_fit` in both phases (seed 215). At readiness it states, for each admitted change and the wave Objective, whether the plan `establishes`, `partially` establishes or `does_not` establish the Product Intent, which measure of success the plan cites and whether that measure can be read after release. On every delivery review, the coordinator drafts one dated `Intent outcome:` paragraph in the existing `## Review Checkpoints` section (never a second such section). Assign the independent check to `qa-reviewer` when it is in the current required delivery roster; otherwise assign one reviewer already in that roster. If the roster is empty, record `No independent delivery-lane intent check ran` in `## Review Checkpoints`; do not add a lane or claim an independent check occurred. The assigned reviewer independently confirms or corrects whether the delivered work achieves each admitted change's Product Intent and the wave Objective, citing delivery evidence and material limitations, whether or not delivery Council is required. A correction showing unachieved intent is a typed finding under seed 209; a wording-only correction is editorial. The coordinator incorporates corrections before close; a required delivery Council judges the same draft using the assigned reviewer's assessment when available. Every intent issue, including the gap behind a `partially` verdict and every untested part of the intent, is recorded as a typed finding through `wf_review_event` and triaged under seed 209 like any defect: supply the judgment fields and the tool derives the disposition (`do_now`, `maybe_later`, `dont_do_later`, `not_issue` or `security_unsettled`). Classify a part of the intent that the Product Intent or Objective needs as `contract_relevance: required_ac` and any other part as `important_ac`, so only the existing blocking derivation stops the wave. This covers every intent issue, a deliberate exception to the readiness finding bar; never leave one as prose or settle it by choosing a checkbox state, and keep `intent_fit` on the approval, not the finding. The council approval records that verdict as `evidence.intent_fit`, the worst across every admitted change and the Objective: the tool refuses a council approval without it, refuses `does_not` at readiness, and accepts it at delivery, where Review and Close show it to the operator before sign-off without blocking. The qa-reviewer adds an independent intent-coverage map at readiness: each required AC against the part of the intent it proves, and any part no AC tests.
+The council-chair records this as `intent_fit` in both phases (seed 215). At readiness it states, for each admitted change and the wave Objective, whether the plan `establishes`, `partially` establishes or `does_not` establish the Product Intent, which measure of success the plan cites and whether that measure can be read after release. On every delivery review, the coordinator drafts one dated `Intent outcome:` paragraph in the existing `## Review Checkpoints` section (never a second such section). Assign the independent check to `qa-reviewer` when it is in the current required delivery roster; otherwise assign one reviewer already in that roster. If the roster is empty, record `No independent delivery-lane intent check ran` in `## Review Checkpoints`; do not add a lane or claim an independent check occurred. The assigned reviewer independently confirms or corrects whether the delivered work achieves each admitted change's Product Intent and the wave Objective, citing delivery evidence and material limitations, whether or not delivery Council is required. A correction showing unachieved intent is a typed finding under seed 209; a wording-only correction is editorial. The coordinator incorporates corrections before close; a required delivery Council judges the same draft using the assigned reviewer's assessment when available. Every intent issue, including the gap behind a `partially` verdict and every untested part of the intent, is recorded as a typed finding through `wf_review_event` and triaged under seed 209 like any defect: supply the judgment fields and the tool derives the disposition (`do_now`, `maybe_later`, `dont_do_later`, `not_issue` or `security_unsettled`). Classify a part of the intent that the Product Intent or Objective needs as `contract_relevance: required_ac` and any other part as `important_ac`, so only the existing blocking derivation stops the wave. This covers every intent issue, a deliberate exception to the readiness finding bar; never leave one as prose or settle it by choosing a checkbox state, and keep `intent_fit` on the approval, not the finding. The council approval records that verdict as `evidence.intent_fit`, the worst across every admitted change and the Objective: the tool refuses a council approval without it, refuses `does_not` at readiness, and accepts it at delivery, where Review and Close show it to the operator before sign-off without blocking. When the readiness roster includes QA, the qa-reviewer adds an independent intent-coverage map: each required AC against the part of the intent it proves, and any part no AC tests.
+
+## Small-change review
+
+At admission, an operator may select one independent code reviewer for a single internal spec covering up to three exact files. Prepare checks the declared scope and Git baseline. Delivery checks the actual edits, including new files, and binds approval to the reviewed contents. The reviewer assesses external effects even when all paths look internal. An additional specialist, protected behavior, unclear scope or unprovable baseline requires ordinary review. On escalation, follow the approvals listed by the tool. Approval history stays readable.
+
+The operator still controls closure. Use the existing full-suite receipt where the project requires it. On an eligible small change, the assigned `code-reviewer` reconciles AC priority. In ordinary review, use `qa-reviewer` when the delivery roster requires QA. Otherwise assign the check to an existing delivery reviewer when one is available. Early qualification compares reviewers on identical inputs to measure unique findings and effort separately from queue and suite time.
 
 ## Review Protocol Ownership
 
@@ -66,7 +72,7 @@ The events-only contract carries no receipt ledger, checkpoint record, or hash c
 
 A readiness finding identifies how the plan, followed as written on the current tree, would ship wrong behavior, cannot be implemented correctly because a substantive decision is unresolved, or has a required acceptance criterion that cannot pass or cannot fail. Genuine design defects may block from the first review onward. Preferences without these consequences remain untyped notes; they do not reopen an accepted decision. Existing actionability and blocking derivations are unchanged.
 
-After the first full readiness review, focused review is the default. Follow seed 215's bounded readiness protocol: collect typed findings, perform one bounded repair pass with normal repair-start records, publish through `wf_prepare_wave(mode="ready")`, and run one focused verification round. Its packet includes original findings, the repair diff, directly affected contracts and unchanged context needed to detect contradictions and regressions. Finding source/blocking lanes replay their findings; other approving lanes and the council review repair effects, and a newly required lane reviews its remit once. Every required lane and the council re-record required readiness approvals against the current receipt after publication.
+After the first full readiness review, focused review is the default. Follow seed 215's bounded readiness protocol: collect typed findings, perform one bounded repair pass with normal repair-start records, publish through `wf_prepare_wave(mode="ready")`, and run one focused verification round. Its packet includes original findings, the repair diff, directly affected contracts and unchanged context needed to detect contradictions and regressions. Finding source/blocking lanes replay their findings; other approving lanes and any required council review repair effects, and a newly required lane reviews its remit once. When the receipt requires Council, the following approval rule applies. Every required lane and the council re-record required readiness approvals against the current receipt after publication.
 
 At the end of focused verification, escalate every remaining blocker to the operator, including surviving original blockers and newly discovered defects. No further automatic repair/review round begins. Record the operator's choice and scope for another bounded repair and focused verification, or replanning, in `## Review Checkpoints`. A discovered blocker is not suppressed because it falls outside the packet. Approval is not promised; this protocol never waives required-lane authority. Settlement prose does not change scope, budget, authority or receipt currency.
 
@@ -80,8 +86,8 @@ Before implementation begins, the wave-coordinator confirms:
 - [ ] Every required lane has a current readiness approval bound to the current receipt; council approval does not replace lane approvals
 - [ ] AC priority recorded on each spec (`## AC priority`)
 - [ ] product-owner acknowledgment recorded for product-impacting waves
-- [ ] `qa-reviewer` confirmed for any bug fix (per `review_policies.require_qa_reviewer_for_bug_fixes`)
-- [ ] `council-readiness` signoff recorded when `wave_review.enabled` (on declared waves this is a typed approval event in `events.jsonl`, projected into `## Review Evidence`; a prose signoff line satisfies the gate only on legacy waves)
+- [ ] In ordinary review, `qa-reviewer` confirmed for any bug fix (per `review_policies.require_qa_reviewer_for_bug_fixes`)
+- [ ] `council-readiness` signoff recorded when the current Prepare receipt requires it (on declared waves this is a typed approval event in `events.jsonl`, projected into `## Review Evidence`; a prose signoff line satisfies the gate only on legacy waves)
 - [ ] Every blocking readiness finding has a terminal current head before that signoff; repair and
       independent reverification happen during readiness, before implementation
 
@@ -91,7 +97,7 @@ Before implementation begins, the wave-coordinator confirms:
 
 1. All changes marked `implemented`, `complete`, or `deferred` with explicit rationale for deferral
 2. All required review lanes from readiness are reconciled in `## Review Checkpoints` (including deferred with rationale when applicable)
-3. `council-readiness` is present when review is enabled, and `council-delivery` is present when the persisted Prepare receipt says the configured delivery mode requires it (typed, phase-scoped approval events on declared waves; prose lines count only on legacy waves)
+3. Confirm both phase rosters. Require `council-readiness` and `council-delivery` only for their respective phases when selected by the current Prepare receipt (typed, phase-scoped approval events on declared waves; prose lines count only on legacy waves)
 4. Docs-contract review: recorded as performed (findings in `## Review Checkpoints`) or `not applicable` with rationale, when any `docs/specs/*.md` changed during the wave
 5. Typed memory candidate review complete: review every actual wave-linked pending candidate, including candidates absent from current proposals; record evidence-based dispositions through the memory tools
 6. Promote only justified durable lessons; a wave may correctly yield zero new memories, with the rationale recorded inline in `wave.md`. Routine successful work does not require creating memory
@@ -104,9 +110,9 @@ Record the applicable closure obligations and their evidence in the wave record.
 
 ## Wave Council
 
-The framework ships `wave_review.enabled: true` and `delivery_mode: targeted` by default. Readiness Council is required whenever review is enabled. Delivery Council follows the explicit mode: `universal` requires it for every wave, `targeted` requires it only when the Prepare receipt or current boundary triggers select it (including upgrade/release, permission/trust-boundary, and cross-platform work), and `disabled` is valid only with `enabled: false`.
+The framework ships `wave_review.enabled: true` and `delivery_mode: targeted` by default. In ordinary review, enabled review requires readiness Council. The ordinary delivery Council follows the explicit mode: `universal` requires it for every wave, `targeted` requires it only when the Prepare receipt or current boundary triggers select it (including upgrade/release, permission/trust-boundary, and cross-platform work), and `disabled` is valid only with `enabled: false`.
 
-- `council-readiness` before implementation
+- `council-readiness` before implementation when the current Prepare receipt requires it
 - `council-delivery` before closure when the selected delivery mode requires it
 
 Wave Council runs a red-team adversarial primer (Phase 1) before fixed seats (Phase 2), then synthesizes. The full protocol — depth tiers, seat responsibilities, output shape — is in `docs/agents/specialists/council-chair.md`.
@@ -121,7 +127,7 @@ Prepare is the sole policy authority. It derives the ordered specialist roster f
 
 Review and Close consume one shared delivery evaluator for ledger validity, receipt/marker currency, docs lint, required lanes, Council selection, approval evidence, and operator state. Close then adds only its registered closure delta (garden, unresolved change/checkbox, repair-independence, memory, secrets, gates, and transition checks), preventing the two lifecycle paths from silently drifting.
 
-**Readiness recording contract:** on declared waves, the typed `council-readiness` approval is the machine authority. A structured `prepare-council` checkpoint may still summarize the seats actually run, but it is narrative and cannot change a lifecycle result; when present, docs-lint may warn if its roster lacks corresponding evidence. Legacy waves retain the structured verdict compatibility gate. Seat verification follows the all-phase code-grounded verification tenet (canonical definition: seed `209-agent-harness-core.prompt.md`, "Code-Grounded Verification"; review-phase contract: `docs/prompts/council-review.prompt.md`).
+**Readiness recording contract:** for a declared wave whose receipt requires readiness Council, the typed `council-readiness` approval is the machine authority. A structured `prepare-council` checkpoint may still summarize the seats actually run, but it is narrative and cannot change a lifecycle result; when present, docs-lint may warn if its roster lacks corresponding evidence. Legacy waves retain the structured verdict compatibility gate. Seat verification follows the all-phase code-grounded verification tenet (canonical definition: seed `209-agent-harness-core.prompt.md`, "Code-Grounded Verification"; review-phase contract: `docs/prompts/council-review.prompt.md`).
 
 ## Code Review Requirements
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-22
 
 Shortcut: **`Implement wave`**
 
@@ -12,7 +12,7 @@ Follow `.wavefoundry/framework/seeds/180-implement-spec.prompt.md` **Host-neutra
 
 ## Purpose and readiness
 
-Implement the admitted changes, then hand the evidence to **Review wave**. **Prepare wave** must have passed; declared review-enabled waves require the typed `council-readiness` approval on the current receipt, with legacy prose-verdict and review-disabled behavior preserved. Implementation consumes that authority without repeating the critique.
+Implement the admitted changes, then hand the evidence to **Review wave**. **Prepare wave** must have passed; declared review-enabled waves in ordinary review require the typed `council-readiness` approval on the current receipt. An eligible operator-selected small change requires current independent code-reviewer readiness approval. Legacy prose-verdict and review-disabled behavior are preserved. Implementation consumes that authority without repeating the critique.
 
 Activation enforces the single-OPEN invariant: pause any other OPEN wave in the same configured activation scope before `wf_implement_wave` opens this readied wave.
 

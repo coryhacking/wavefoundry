@@ -2,9 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-22
 
 Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
+
+## Operator-selected small changes
+
+Check the effective lane returned by Prepare. If the operator selected the small-change lane at admission and the change qualifies, obtain an independent code-reviewer readiness approval on the current receipt. The reviewer must inspect the intended effect, including whether an internal helper changes public behavior. Request ordinary review if that effect is public or uncertain. Follow the council steps below for ordinary review.
 
 ## Host-neutral orchestration
 
@@ -14,22 +18,22 @@ Follow `.wavefoundry/framework/seeds/180-implement-spec.prompt.md` **Host-neutra
 
 In existing readiness and delivery reviews, ask whether meeting Requirements and ACs would establish Product Intent and the wave Objective, and whether added complexity, runtime cost or operator burden undermines that outcome. At delivery, distinguish evidenced outcomes from intended benefits; checked implementation steps alone prove neither benefit nor approval. Use the existing lanes and gates.
 
-Prepare wave has passed cleanly; declared review-enabled waves require the typed `council-readiness` approval on the current receipt. Legacy prose-verdict and review-disabled behavior are preserved.
+Prepare wave has passed cleanly; declared review-enabled waves in ordinary review require the typed `council-readiness` approval on the current receipt. An eligible operator-selected small change requires current independent code-reviewer readiness approval. Legacy prose-verdict and review-disabled behavior are preserved.
 
 ## Steps
 
 1. Validate that every admitted spec already lives in `docs/waves/<wave-id>/`. If an admitted doc is still staged in `docs/plans/`, repair the placement by moving it into the wave folder; if duplicate staged and wave copies exist, stop and resolve the conflict explicitly.
 2. Confirm each spec is complete: Rationale, Requirements, Scope, Acceptance Criteria, Affected architecture docs.
 3. Select required review lanes for each admitted change (see `docs/contributing/agent-team-workflow.md`).
-4. Confirm `qa-reviewer` is included for any bug fix (`review_policies.require_qa_reviewer_for_bug_fixes: true`).
-5. When `wave_review.enabled` is true, run the Wave Council readiness pass in two phases: first, the `council-chair` declares a **primer depth tier** (`lightweight` / `standard` / `full`) based on trust boundaries touched, files in scope, and change type — this sets how many stances and `primer_questions` Phase 1 produces; (1) `red-team` runs the adversarial primer (`council-adversarial-primer` mode) first in isolation at the declared depth — strongest challenge, best alternative, `primer_questions`, and an `efficacy_replay` of each change's motivating case through its mechanism; (2) fixed seats each receive the standard briefing plus the primer output and must address `strongest_challenge` and `primer_questions` and engage with the `efficacy_replay` before producing their own findings; a rotating fifth seat finds the strongest alternative path the wave did not take; `council-chair` synthesizes all outputs. On declared waves, record `council-readiness` as a typed approval event via `wf_review_event`; this typed record is the sole machine authority, and any structured `prepare-council` checkpoint is narrative only. Legacy prose waves retain the structured checkpoint compatibility gate. Call `wf_prepare_wave` again after the current typed approval is recorded (`ready` to ready without opening, or `create` to prepare and open).
+4. For ordinary review, confirm `qa-reviewer` is included for any bug fix (`review_policies.require_qa_reviewer_for_bug_fixes: true`).
+5. For ordinary review when `wave_review.enabled` is true, run the Wave Council readiness pass in two phases: first, the `council-chair` declares a **primer depth tier** (`lightweight` / `standard` / `full`) based on trust boundaries touched, files in scope, and change type — this sets how many stances and `primer_questions` Phase 1 produces; (1) `red-team` runs the adversarial primer (`council-adversarial-primer` mode) first in isolation at the declared depth — strongest challenge, best alternative, `primer_questions`, and an `efficacy_replay` of each change's motivating case through its mechanism; (2) fixed seats each receive the standard briefing plus the primer output and must address `strongest_challenge` and `primer_questions` and engage with the `efficacy_replay` before producing their own findings; a rotating fifth seat finds the strongest alternative path the wave did not take; `council-chair` synthesizes all outputs. On declared waves, record `council-readiness` as a typed approval event via `wf_review_event`; this typed record is the sole machine authority, and any structured `prepare-council` checkpoint is narrative only. Legacy prose waves retain the structured checkpoint compatibility gate. Call `wf_prepare_wave` again after the current typed approval is recorded (`ready` to ready without opening, or `create` to prepare and open).
 6. **AC priority check:** categorize each admitted change's ACs as required / important / nice-to-have / not-this-scope; record in `## AC priority` on the spec; interrogate required and important ACs until each classification is explicitly justified. ACs admitted with the `[~]` marker (intentionally not met from the outset) are unusual but accepted — they must already carry an inline status note explaining the deferral, in the canonical `*Status: <reason>*` form, and the `## AC priority` row must still record their priority. See `.wavefoundry/framework/seeds/170-plan-spec.prompt.md` *"AC and task checkbox states — the `[~]` marker"* for the canonical convention. Note the close-time hard gate: silent `[ ]` items block `wf_close_wave`, so prepare-time AC tracking habits matter.
 7. Record product-owner acknowledgment for product-impacting waves (feature changes shifting product behavior/UX/acceptance).
 8. Record the readiness verdict; the wave stays **readied** (`Status: planned`). Readiness no longer flips the wave to `active` (wave 1p45l) — opening it is a separate, single-OPEN-gated step. Complete readiness with `wf_prepare_wave(mode='ready')` (readies without opening — works while another wave is OPEN) or `wf_prepare_wave(mode='create')` (prepare-and-open in one step, the common single-wave flow). Use `mode='evaluate'` as the documented read-only alias for `dry_run`.
 
 ## Bounded readiness review
 
-After the first full readiness review, focused review is the default. Collect typed findings, perform one bounded repair pass, publish the repaired packet with `wf_prepare_wave(mode="ready")`, and run one focused verification round. Include original findings, repair diff and directly affected contracts, including unchanged context needed to detect contradictions and regressions. Every required lane and the council re-record required readiness approvals against the current receipt after publication; source/blocking lanes replay findings, other approving lanes review repair effects, and newly required lanes review their remit once. At the end of focused verification, escalate every remaining blocker to the operator, whether original or new. No further automatic repair/review round begins. The operator chooses another bounded repair and focused verification, or replanning; record the decision and scope in `## Review Checkpoints`. Approval is not promised; this protocol never waives required-lane authority. Settlement is descriptive only. Carry wording preferences as implementation notes; never suppress a demonstrated defect. Delivery's automatic repair behavior is unchanged.
+After the first full readiness review, focused review is the default. Collect typed findings, perform one bounded repair pass, publish the repaired packet with `wf_prepare_wave(mode="ready")`, and run one focused verification round. Include original findings, repair diff and directly affected contracts, including unchanged context needed to detect contradictions and regressions. When the receipt requires Council, the following approval rule applies. Every required lane and the council re-record required readiness approvals against the current receipt after publication; source/blocking lanes replay findings, other approving lanes review repair effects, and newly required lanes review their remit once. At the end of focused verification, escalate every remaining blocker to the operator, whether original or new. No further automatic repair/review round begins. The operator chooses another bounded repair and focused verification, or replanning; record the decision and scope in `## Review Checkpoints`. Approval is not promised; this protocol never waives required-lane authority. Settlement is descriptive only. Carry wording preferences as implementation notes; never suppress a demonstrated defect. Delivery's automatic repair behavior is unchanged.
 
 Follow `.wavefoundry/framework/seeds/215-council-chair.prompt.md` **Bounded readiness review** and **Focused readiness briefing**; seed 209 owns the readiness finding bar. Material scope or authority changes follow existing replanning/full-council rules. Review rounds are not aggregate repair-cycle numbers and do not reset the single convergence checkpoint.
 
@@ -39,7 +43,7 @@ Record a readiness verdict in the wave record `## Review Checkpoints` (e.g., `Pr
 - All admitted specs are complete and wave-owned
 - Any admitted-doc placement drift was repaired or explicitly resolved
 - Every required lane has a current readiness approval bound to the current receipt
-- `council-readiness` is recorded when `wave_review.enabled`, and the council-chair's `intent_fit` states, for each admitted change and the wave Objective, whether meeting its Requirements and ACs would establish its Product Intent, citing the measure of success and whether it can be read after release (seed 215); the typed `council-readiness` approval records that verdict as `evidence.intent_fit` (`establishes` or `partially`), and a plan that will not establish its intent is a finding, not an approval
+- `council-readiness` is recorded for ordinary review when `wave_review.enabled`, and the council-chair's `intent_fit` states, for each admitted change and the wave Objective, whether meeting its Requirements and ACs would establish its Product Intent, citing the measure of success and whether it can be read after release (seed 215); the typed `council-readiness` approval records that verdict as `evidence.intent_fit` (`establishes` or `partially`), and a plan that will not establish its intent is a finding, not an approval
 - AC priority is recorded on each spec
 - Product-owner acknowledgment is recorded (when applicable)
 
@@ -63,7 +67,7 @@ The `wf_current_wave` tool returns `data.waves[]` with all non-closed waves: OPE
 
 ## Wavefoundry-Specific Review Lane Selection
 
-Assign lanes at Prepare time and record them in the wave record `## Participants` section. Two tiers:
+For ordinary review, assign lanes at Prepare time and record them in the wave record `## Participants` section. Two tiers:
 
 **Tier 1 — assign whenever the change type matches (most waves will have all three):**
 
@@ -82,9 +86,9 @@ Assign lanes at Prepare time and record them in the wave record `## Participants
 | New or modified chunker/indexer hot paths, per-file loops, or regex scan patterns | `performance-reviewer` |
 | New file-access tools, path argument from MCP caller, `re.compile` with user input, or write-path constraint on a read-only tool | `security-reviewer` |
 
-**Policy:** `qa-reviewer` is always required for bug fixes (`review_policies.require_qa_reviewer_for_bug_fixes: true`).
+**Ordinary review policy:** `qa-reviewer` is required for bug fixes (`review_policies.require_qa_reviewer_for_bug_fixes: true`).
 
-When Wave Council is enabled, `red-team` always runs first as the adversarial primer (Phase 1) before any other seat. The fixed Phase 2 seats are `architecture-reviewer`, `security-reviewer`, `qa-reviewer`, and `reality-checker` — each receives the red-team primer and must engage with it. The fifth seat rotates from the admitted wave evidence: prefer `docs-contract-reviewer` for seed/prompt/contract work, `performance-reviewer` for indexing/search/hot-path work, `release-reviewer` for packaging/distribution work, or an applicable persona when operator-facing acceptance is central.
+When the current receipt requires readiness Council, `red-team` always runs first as the adversarial primer (Phase 1) before any other seat. The fixed Phase 2 seats are `architecture-reviewer`, `security-reviewer`, `qa-reviewer`, and `reality-checker` — each receives the red-team primer and must engage with it. The fifth seat rotates from the admitted wave evidence: prefer `docs-contract-reviewer` for seed/prompt/contract work, `performance-reviewer` for indexing/search/hot-path work, `release-reviewer` for packaging/distribution work, or an applicable persona when operator-facing acceptance is central.
 
 **Do not assign** legacy factor lanes (`factor-12`, `factor-13`) — these have no governing prompt body and their review obligations are covered by the lanes above.
 
@@ -118,7 +122,7 @@ Use `wf_review_wave(phase="prepare")` for `data.review_actions.readiness_decisio
 
 After the actual bounded repair and focused verification, give the operator a short decision handoff before any further automatic round: each remaining blocking finding and unmet obligation, decisive evidence or uncertainty, affected lanes/current approvals, advisory notes separately, and the next safe options. Offer another explicitly scoped bounded repair/verification, a plan/scope amendment with re-Prepare, or needed evidence with dependent work paused. An applicable explicit residual-risk waiver uses the existing `waiver_id`, `waiver_scope`, `waiver_reason` and `waiver_risk` protocol; it is neither independent verification nor specialist approval. Do not select an option, waive a requirement or accept sensitive-data risk on the operator's behalf. Ordinary unfinished readiness alone is not this stop boundary.
 
-Use the existing cumulative `focused_rereview` packet: source/blocking lanes replay each finding; other approving lanes assess only delta effects plus necessary unchanged context; new lanes assess their remit once. Full amended plans remain available for context, not an invitation to an unrelated whole-document sweep. Every required lane and council still re-record current-receipt approvals; no approval is carried forward by the summary.
+Use the existing cumulative `focused_rereview` packet: source/blocking lanes replay each finding; other approving lanes assess only delta effects plus necessary unchanged context; new lanes assess their remit once. Full amended plans remain available for context, not an invitation to an unrelated whole-document sweep. Every required lane and any receipt-required council still re-record current-receipt approvals; no approval is carried forward by the summary.
 
 ## Focused readiness re-review
 

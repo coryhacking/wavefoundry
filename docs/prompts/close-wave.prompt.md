@@ -2,9 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-21
+Last verified: 2026-11-22
 
 Shortcut: **`Close wave`**
+
+## Operator-selected small changes
+
+On an eligible small change, close checks the current delivered contents against the independent code reviewer’s approval. Follow the returned review actions when the files have changed or the work has expanded. The operator still signs off and explicitly directs closure.
 
 ## Host-neutral orchestration
 
@@ -24,7 +28,7 @@ All closure-time code and docs investigation follows the run contract's Retrieva
 
 1. All changes `implemented`, `complete`, or `deferred` with explicit rationale (matching the `wf_close_wave` open-changes gate). **Close spec** (`docs/prompts/close-spec.prompt.md`, `wf_close_change`) is optional: use it to mark a single change `complete` and activate its dependents inside the open wave
 2. All required review lanes from readiness reconciled in `## Review checkpoints` (or deferred with rationale)
-3. When review is enabled, `council-readiness` is present and `council-delivery` is present only when selected by the current Prepare receipt in `## Review Evidence`
+3. Check each Council signoff required by the current Prepare receipt for its phase (`council-readiness` or `council-delivery`). The approval appears in `## Review Evidence`.
 4. **Docs-contract review:** recorded as performed with findings, or `Docs-contract review: not applicable` with rationale — required whenever any `docs/specs/*.md` changed during the wave
 5. Chronology reconciled: `Status: completed`, `Completed at:` date, all change statuses settled
 6. Memory capture: important implementation/review lessons recorded as typed memory candidates and validated at the close checkpoint (absence of new candidates is acceptable if nothing warranted one)
@@ -95,7 +99,7 @@ Before closure, explicitly author one concise `Intent outcome:` paragraph in the
 - If framework scripts changed: confirm `python3 .wavefoundry/framework/scripts/run_tests.py` passes
 - If `docs/prompts/` or manifest changed: confirm docs gate passes (**`wf_validate_docs`** over MCP, or **`wf docs-lint`** if MCP is unavailable)
 - If seed prompts changed: confirm guard-overrides reset to `false`
-- If Wave Council is enabled: confirm `council-readiness` is current and confirm `council-delivery` only when the current Prepare receipt selected it (typed approval events in the wave's `events.jsonl` on declared waves, projected into `## Review Evidence`; prose lines count only on legacy waves)
+- Check that each receipt-required Council signoff is current for its phase (typed approval events in the wave's `events.jsonl` on declared waves, projected into `## Review Evidence`; prose lines count only on legacy waves)
 
 ## Agent Memory Validation Checkpoint
 

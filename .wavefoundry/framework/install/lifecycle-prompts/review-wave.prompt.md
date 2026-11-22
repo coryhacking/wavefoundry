@@ -6,6 +6,10 @@ Last verified: {{generated_at}}
 
 Shortcut: **`Review wave`**
 
+## Operator-selected small changes
+
+For an eligible small change, start a fresh independent code-reviewer context. Inspect the actual files and their behavior. Use the content digest from the review inspection when recording delivery approval. A later edit invalidates approval of those contents. If the effect crosses a protected boundary, record the finding and follow the ordinary review actions. Operator signoff remains separate.
+
 ## Host-neutral orchestration
 
 Follow `.wavefoundry/framework/seeds/180-implement-spec.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose reviewer models and effort for the actual review risks. Read the existing scope, fingerprint, commands/results, findings and next action; independently verify the current tree. A host change does not itself establish independence. Use only available host capabilities; sequential implementation does not satisfy required independent review.
@@ -65,7 +69,7 @@ Brief each lane using seed 209's **Briefing Packet**, including
 
 - `code-reviewer` is not optional when required by readiness or project policy,
   or when the change touches non-trivial product logic. Include branch-complete
-  and re-entrant checks for affected per-key mutable state. QA verifies state
+  and re-entrant checks for affected per-key mutable state. When the roster includes QA, QA verifies state
   across repeated calls or routine steps, or records deferral and residual risk.
 - On every delivery review, the coordinator first drafts one `Intent outcome:`
   paragraph, prefixed `YYYY-MM-DD: `, in the existing exact `## Review Checkpoints`
@@ -95,8 +99,7 @@ Brief each lane using seed 209's **Briefing Packet**, including
   valuable important/nice-to-have items outside admitted scope for operator
   disposition, and confirm not-this-scope deferrals.
 - When an admitted change carries an AC priority table, reconcile it against
-  delivered behavior. `qa-reviewer` attests every required row has verification
-  evidence or a recorded deferral; record that reconciliation before closure.
+  delivered behavior. On an eligible small change, the assigned `code-reviewer` reconciles AC priority. In ordinary review, use `qa-reviewer` when the delivery roster requires QA. Otherwise assign the check to an existing delivery reviewer when one is available. The assigned reviewer checks every required row for verification evidence or a recorded deferral and records the reconciliation before closure.
 - Verify every `[~]` AC has a legitimate inline note naming when, who and why;
   a silent marker is a blocking review finding under seed 170's checkbox rules.
 

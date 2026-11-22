@@ -278,7 +278,7 @@ FRAMEWORK_SCRIPT_MODULE_NAMES = frozenset({
     'run_secrets_scan', 'run_tests', 'runtime_advisory', 'runtime_lock', 'scan_secrets',
     'scanner_skips', 'scanner_upgrade', 'score_context_efficiency_pairs', 'sensor_runner', 'server', 'server_impl',
     'setup_commands', 'setup_index', 'setup_readiness', 'setup_reconciliation', 'setup_requirements',
-    'setup_wavefoundry', 'sqlite_runtime', 'sqlite_storage_migration', 'sqlite_vector_store',
+    'setup_wavefoundry', 'small_change_lane', 'sqlite_runtime', 'sqlite_storage_migration', 'sqlite_vector_store',
     'storage_identity', 'subprocess_util', 'techdocs_audit', 'techdocs_audit_lib',
     'inference_profile', 'inference_provider', 'techdocs_baseline', 'tensorwell_client', 'test_worker_guard', 'tree_sitter_cache', 'upgrade_bridge_bootstrap', 'upgrade_bundle',
     'upgrade_extensions', 'upgrade_lib', 'upgrade_protocol', 'upgrade_wavefoundry',

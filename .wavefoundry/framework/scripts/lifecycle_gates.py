@@ -505,6 +505,11 @@ def _reviewed_delivery(root: Path, wave_md: Path, wave_text: str) -> bool:
         root, wave_md, wave_text, validated_records=records, change_texts=texts
     ):
         return False
+    if support.selected_small_change(wave_text, records):
+        selected = support.selected_review_state(root, wave_md, wave_text, records)
+        authority = resolve_review_authority(root, wave_md, wave_text=wave_text)
+        if not selected or small_change_clearance(selected, authority, ("readiness", "delivery")):
+            return False
     council = support._required_wave_council_signoffs(root, "review", wave_text, wave_md, records=records)
     required = [
         *support._extract_required_delivery_lanes(wave_text),
@@ -537,6 +542,44 @@ def paused_wave_presentation(root: Path, wave_md: Path, wave_text: str | None) -
     return {"display_status": "Paused", "next_action": "resume_wave"}
 
 
+def small_change_clearance(state, authority, phases):
+    """Apply the same phase requirements to a selected admission at every transition."""
+    lane = state["small_change"]
+    diagnostics = []
+    for phase in phases:
+        run_kind = "readiness" if phase == "readiness" else "initial_delivery"
+        if not any(row.get("record_type") == "review_run" and row.get("run_kind") == run_kind
+                   for row in authority.records):
+            diagnostics.append(lifecycle_gate_support._diagnostic(
+                "review_evidence_invalid", f"Selected review requires an executed {run_kind} review run.",
+                recovery_tools=["wf_review_event"],
+            ))
+        keys = lane[f"required_{phase}"]
+        missing = [
+            key for key in keys if key != "operator-signoff" and (
+                state["receipt_append_required"] or not authority.signoff_current(key, approval_phase=phase)
+            )
+        ]
+        if phase == "delivery" and lane["effective_lane"] == "small" and "code-reviewer" not in missing:
+            approvals = review_evidence._approval_rows(authority.records, approval_phase=phase)
+            record = approvals["approval:code-reviewer"][1]
+            if not lane["content_digest"] or record.get("small_change_content_digest") != lane["content_digest"]:
+                missing.append("code-reviewer")
+        if missing:
+            reason = " ".join(lane["reasons"])
+            diagnostics.append(lifecycle_gate_support._diagnostic(
+                "missing_required_lane",
+                f"{lane['effective_lane'].capitalize()} review requires current {phase} approval from "
+                f"{', '.join(missing)}. {reason} "
+                + ("Re-Prepare, then run the required reviews." if state["receipt_append_required"]
+                   else "Review the current scope and record fresh evidence."),
+                recovery_tools=["wf_prepare_wave"] if state["receipt_append_required"] else ["wf_review_wave"],
+                recovery_usage=(f"wf_prepare_wave(wave_id={state['wave_id']!r}, mode='ready')" if state["receipt_append_required"]
+                                else f"wf_review_wave(wave_id={state['wave_id']!r}, phase={phase!r})"),
+            ))
+    return diagnostics
+
+
 def _evaluate_shared_delivery_state(
     root: Path,
     wave_md: Path,
@@ -549,6 +592,7 @@ def _evaluate_shared_delivery_state(
 
     wave_id = wave_md.parent.name
     authority = resolve_review_authority(root, wave_md, wave_text=wave_text)
+    selected_state = lifecycle_gate_support.selected_review_state(root, wave_md, wave_text, authority.records)
     # Wave 1zlu1 (1zlu4): Review and Close read the delivery roster and the
     # close-phase project lanes.  A config error blocks through
     # `_wave_review_policy_diagnostics` below.
@@ -563,6 +607,12 @@ def _evaluate_shared_delivery_state(
     required_council = lifecycle_gate_support._required_wave_council_signoffs(
         root, lifecycle_phase, wave_text=wave_text, wave_md=wave_md
     )
+    if selected_state:
+        required_lanes = selected_state["delivery_lanes"]
+        lane = selected_state["small_change"]
+        required_council = [key for key in lane["required_delivery"] if key not in (*required_lanes, "operator-signoff")]
+        if lifecycle_phase == "close":
+            required_council += [key for key in lane["required_readiness"] if key not in selected_state["required_lanes"]]
     diagnostics = _review_evidence_diagnostics(
         wave_text,
         root=root,
@@ -604,6 +654,11 @@ def _evaluate_shared_delivery_state(
         root, wave_md, wave_text, authority
     )
     diagnostics.extend(deferral_diagnostics)
+    if selected_state:
+        diagnostics.extend(small_change_clearance(selected_state, authority, ("readiness",)))
+        if selected_state["small_change"]["effective_lane"] == "small":
+            if small_change_clearance(selected_state, authority, ("delivery",)):
+                rerecord_keys.add("code-reviewer")
     diagnostics.extend(_criterion_scope_advisories(root, wave_md, wave_text))
     operator_current = (
         authority.operator_signoff_present() and "operator-signoff" not in rerecord_keys
@@ -651,6 +706,13 @@ def _evaluate_shared_delivery_state(
             )
         )
     lane_results = review_lane_results(authority, required_lanes, approval_phase="delivery")
+    if selected_state:
+        for row in lane_results:
+            if (selected_state["receipt_append_required"]
+                    or (row["recorded_signoff"] and row["lane"] in rerecord_keys)):
+                row.update(recorded_signoff=False, approval_current=False, approval_state="stale",
+                           state="pending", why="the review policy or reviewed file contents changed",
+                           next_action="run a fresh review of the current scope")
     missing_lanes = [
         row["lane"] for row in lane_results if not row["recorded_signoff"]
     ]
@@ -718,6 +780,7 @@ def _evaluate_shared_delivery_state(
         "max_severity": authority.max_severity(),
         "authority": authority,
         "rerecord_signoff_keys": sorted(rerecord_keys),
+        **({"small_change": selected_state["small_change"]} if selected_state else {}),
     }
 
 
@@ -1293,6 +1356,9 @@ def council_signoff_gate(ctx: GateContext) -> GateResult:
         and lifecycle_gate_support._read_workflow_config(ctx.root).get("wave_review") is None
     ):
         required_council_signoffs = [review_evidence.COUNCIL_READINESS_SIGNOFF_KEY]
+    selected = lifecycle_gate_support.selected_review_state(ctx.root, ctx.wave_md, ctx.wave_text, _prepare_authority.records)
+    if selected:
+        diagnostics.extend(small_change_clearance(selected, _prepare_authority, ("readiness",)))
     if required_council_signoffs:
         # Wave 1to78: council-signoff currency is review-evidence content —
         # typed-exclusive on declared waves, prose on legacy waves.

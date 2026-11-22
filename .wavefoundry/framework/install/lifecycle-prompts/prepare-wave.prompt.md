@@ -6,6 +6,10 @@ Last verified: {{generated_at}}
 
 Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
 
+## Operator-selected small changes
+
+Check the effective lane returned by Prepare. If the operator selected the small-change lane at admission and the change qualifies, obtain an independent code-reviewer readiness approval on the current receipt. The reviewer must inspect the intended effect, including whether an internal helper changes public behavior. Request ordinary review if that effect is public or uncertain. Follow the council steps below for ordinary review.
+
 ## Host-neutral orchestration
 
 Follow `.wavefoundry/framework/seeds/180-implement-spec.prompt.md` **Host-neutral orchestration** across the lifecycle. Choose models and reasoning effort for readiness analysis by task fit, and record the bounded work allocation in the existing wave record. Use only available host capabilities; sequential implementation does not satisfy required independent review.
@@ -26,7 +30,7 @@ only one wave may be open for implementation.
    explicit dependencies.
 4. Classify each acceptance criterion as required, important, nice-to-have, or
    not-this-scope, with rationale.
-5. Select reviewer and builder lanes. Automatic lanes are derived from the
+5. Follow the effective lane returned by Prepare. For ordinary review, select reviewer and builder lanes under project policy. Automatic lanes are derived from the
    explicit repo-relative paths each spec declares in
    `## Serialization Points`, never from Scope or other narrative, and never
    from prose inside that section, in either declaration form. A path is
@@ -55,10 +59,10 @@ only one wave may be open for implementation.
    churn because `wave.md` is not part of the review-policy digest. Architecture,
    security and performance risk in particular are usually judgment calls that
    no file path expresses — an ownership shift or a protocol change can live
-   entirely in files that recruit only the code lane. Include QA for bug fixes
+   entirely in files that recruit only the code lane. In ordinary review, include QA for bug fixes
    and any additional lanes required by local policy, and never read an empty
    automatic roster as evidence that no review is warranted.
-6. Run the configured readiness council when enabled and record its actual
+6. When the current receipt requires `council-readiness`, run the readiness council and record its actual
    seats, evidence, disagreements, and verdict, including the council-chair's
    `intent_fit`: for each admitted change and the wave Objective, whether
    meeting its Requirements and ACs would establish its Product Intent, citing
@@ -85,7 +89,7 @@ Use `wf_review_wave(phase="prepare")` for `data.review_actions.readiness_decisio
 
 After the actual bounded repair and focused verification, give the operator a short decision handoff before any further automatic round: each remaining blocking finding and unmet obligation, decisive evidence or uncertainty, affected lanes/current approvals, advisory notes separately, and the next safe options. Offer another explicitly scoped bounded repair/verification, a plan/scope amendment with re-Prepare, or needed evidence with dependent work paused. An applicable explicit residual-risk waiver uses the existing `waiver_id`, `waiver_scope`, `waiver_reason` and `waiver_risk` protocol; it is neither independent verification nor specialist approval. Do not select an option, waive a requirement or accept sensitive-data risk on the operator's behalf. Ordinary unfinished readiness alone is not this stop boundary.
 
-Use the existing cumulative `focused_rereview` packet: source/blocking lanes replay each finding; other approving lanes assess only delta effects plus necessary unchanged context; new lanes assess their remit once. Full amended plans remain available for context, not an invitation to an unrelated whole-document sweep. Every required lane and council still re-record current-receipt approvals; no approval is carried forward by the summary.
+Use the existing cumulative `focused_rereview` packet: source/blocking lanes replay each finding; other approving lanes assess only delta effects plus necessary unchanged context; new lanes assess their remit once. Full amended plans remain available for context, not an invitation to an unrelated whole-document sweep. Every required lane and any receipt-required council still re-record current-receipt approvals; no approval is carried forward by the summary.
 
 ## Focused readiness re-review
 

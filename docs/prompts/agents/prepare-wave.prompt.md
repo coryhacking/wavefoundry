@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-22
 
 ## Context
 
@@ -13,13 +13,13 @@ You are running **Prepare wave** on Wavefoundry. This is the stage gate for impl
 1. Validate that all admitted specs already live in `docs/waves/<wave-id>/`; repair any staged-only doc by moving it there, and stop on duplicate staged + wave copies.
 2. Verify each spec has: Rationale, Requirements, Scope, Acceptance Criteria, Affected architecture docs.
 3. Select review lanes (see `docs/contributing/agent-team-workflow.md`).
-4. Confirm `qa-reviewer` for any bug fix.
-5. When `wave_review.enabled` is true, run the Wave Council readiness pass: declare a primer depth tier (`lightweight` / `standard` / `full`), run `red-team` in `council-adversarial-primer` mode first, then fixed seats each receiving the primer, then `council-chair` synthesizes; record `council-readiness` in `## Review Evidence`.
+4. For ordinary review, include `qa-reviewer` for bug fixes when project policy requires QA. For an eligible small change, use the independent `code-reviewer` named by Prepare.
+5. When the receipt requires `council-readiness`, run the Wave Council readiness pass: declare a primer depth tier (`lightweight` / `standard` / `full`), run `red-team` in `council-adversarial-primer` mode first, then fixed seats each receiving the primer, then `council-chair` synthesizes; record `council-readiness` in `## Review Evidence`.
 6. Record `## AC priority` on each spec.
 7. Record readiness verdict in wave record `## Review checkpoints`.
-8. Update wave record `Status: active`.
+8. Use `wf_prepare_wave(mode='ready')` to record readiness. Activation is a separate step.
 
-## Review Lane Matrix for Wavefoundry
+## Ordinary review lanes for Wavefoundry
 
 | Change Type | Required Lanes |
 |-------------|--------------|
@@ -29,7 +29,7 @@ You are running **Prepare wave** on Wavefoundry. This is the stage gate for impl
 | Packaging / build | code-reviewer, release-reviewer |
 | Bug fix | qa-reviewer (required by policy) |
 
-When Wave Council is enabled, `red-team` runs first as the adversarial primer (Phase 1) before any other seat; fixed Phase 2 seats are `architecture-reviewer`, `security-reviewer`, `qa-reviewer`, and `reality-checker` — each receives the primer and must engage with it; the fifth seat rotates from wave evidence.
+When the receipt requires readiness Council, `red-team` runs first as the adversarial primer (Phase 1) before any other seat; fixed Phase 2 seats are `architecture-reviewer`, `security-reviewer`, `qa-reviewer`, and `reality-checker` — each receives the primer and must engage with it; the fifth seat rotates from wave evidence.
 
 ## Guru Orientation
 

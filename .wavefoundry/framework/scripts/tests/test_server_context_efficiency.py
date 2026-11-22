@@ -2414,10 +2414,11 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
         self.assertIn("subagent briefed for investigation or verification", directive)
         self.assertIn("executed probes", directive)
         source = source_path("server_impl.py").read_text(encoding="utf-8")
-        idx = source.index("def wf_implement_wave_response")
+        activation = next(node for node in ast.parse(source).body
+                          if isinstance(node, ast.FunctionDef) and node.name == "wf_implement_wave_response")
         self.assertIn(
             '"retrieval_posture": _RETRIEVAL_POSTURE_DIRECTIVE',
-            source[idx : idx + 16000],
+            ast.get_source_segment(source, activation),
         )
 
     def test_retrieval_posture_gap_fires_on_zero_retrieval_with_footprint(self):
