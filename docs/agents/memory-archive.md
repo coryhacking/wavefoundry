@@ -4,7 +4,7 @@ Owner: Engineering
 Role: memory-archive
 Category: specialist
 Status: active
-Last verified: 2026-10-26
+Last verified: 2026-11-22
 
 Searchable compact register for history-worthy retired memory. Full bodies remain under
 `docs/agents/memory/archive/` and are excluded from ordinary indexing; this register remains indexed.
@@ -143,6 +143,33 @@ Searchable compact register for history-worthy retired memory. Full bodies remai
 - Archived: `2026-09-17`
 - Successor: `1y7ig-mem verify-package-contents-through-the-real-release-and-injecti`
 - Archive path: `docs/agents/memory/archive/1vkk1-mem retired-pack-members-need-an-exact-absence-assertion-on-a-re.md`
+
+## 1wj1s-mem bounded-symbol-id-parsers-duplicate-names-in-string-braces-s
+
+- Title: `Bounded symbol-id parsers: duplicate names, in-string braces, shadowable residue labels, detection order`
+- Kind: `failed_attempt`
+- Targets: `.wavefoundry/framework/scripts/chunker.py`, `.wavefoundry/framework/scripts/tests/test_chunker.py`
+- Archived: `2026-11-22`
+- Successor: `245u8-mem chunker-ids-and-guards-prove-uniqueness-and-pins-with-hostil`
+- Archive path: `docs/agents/memory/archive/1wj1s-mem bounded-symbol-id-parsers-duplicate-names-in-string-braces-s.md`
+
+## 1wk93-mem line-start-anchored-chunk-ids-are-not-unique-census-probes-n
+
+- Title: `Line-start-anchored chunk ids are not unique; census probes need the same-line-sibling shape`
+- Kind: `failed_attempt`
+- Targets: `.wavefoundry/framework/scripts/chunker.py`, `.wavefoundry/framework/scripts/tests/test_chunker.py`
+- Archived: `2026-11-22`
+- Successor: `245u8-mem chunker-ids-and-guards-prove-uniqueness-and-pins-with-hostil`
+- Archive path: `docs/agents/memory/archive/1wk93-mem line-start-anchored-chunk-ids-are-not-unique-census-probes-n.md`
+
+## 1wllw-mem a-degenerate-input-test-does-not-pin-a-guard-when-an-earlier
+
+- Title: `A degenerate-input test does not pin a guard when an earlier fallback enforces the same outcome`
+- Kind: `failed_attempt`
+- Targets: `.wavefoundry/framework/scripts/chunker.py`, `.wavefoundry/framework/scripts/tests/test_chunker.py`
+- Archived: `2026-11-22`
+- Successor: `245u8-mem chunker-ids-and-guards-prove-uniqueness-and-pins-with-hostil`
+- Archive path: `docs/agents/memory/archive/1wllw-mem a-degenerate-input-test-does-not-pin-a-guard-when-an-earlier.md`
 
 ## 1xgfv-mem pin-historical-changelog-assertions-to-their-owning-release
 

@@ -1,14 +1,18 @@
 # A degenerate-input test does not pin a guard when an earlier fallback enforces the same outcome
 
 Owner: Engineering
-Status: active
+Status: archived
 Last verified: 2026-08-29
 
 Memory ID: `1wllw-mem a-degenerate-input-test-does-not-pin-a-guard-when-an-earlier`
+Superseded by: `245u8-mem chunker-ids-and-guards-prove-uniqueness-and-pins-with-hostil`
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-08-29
-Updated: 2026-08-29
+Updated: 2026-11-22
+Archived: 2026-11-22
+Archive reason: consolidated into 245u8-mem chunker-ids-and-guards-prove-uniqueness-and-pins-with-hostil
+Archive path: `docs/agents/memory/archive/1wllw-mem a-degenerate-input-test-does-not-pin-a-guard-when-an-earlier.md`
 
 ## Summary
 

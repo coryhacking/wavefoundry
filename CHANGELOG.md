@@ -8,6 +8,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Review memories now audits a bounded batch of active records in each run, so an over-budget corpus can shrink without waiting for records to retire on their own. The reviewer lists the 15 records reviewed longest ago with `memory_search(status="active", order="least_recently_reviewed", limit=15)` and records one outcome with a reason for each: keep, retire to stale, supersede, rewrite or unresolved. A record retires as encoded elsewhere only when the reviewer names an assertion that would fail on a regression and covers the lesson's whole scope. A keep calls `memory_reconcile(status="active")`, which rewrites only the `Updated:` date and moves the record to the end of the order, so repeated runs advance through the corpus. Records the audit retires are archived in the same run, never purged in it. The order applies only to queryless listings; combining it with `query` is refused. Memory validation, status changes and archives no longer remove the blank line after `Updated:`. Wave 244fi / 244fh.
+
 ## [1.50.1] - 2026-11-22
 
 ### Changed

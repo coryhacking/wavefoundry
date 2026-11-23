@@ -46,6 +46,9 @@ def _rollback_member_present(path: Path) -> bool:
 # agent actually reads before acting.
 MEMORY_BRIEF_CAP = 5
 MEMORY_SEARCH_CAP = 20
+# Change 244fh: queryless audit order for the memory review.
+MEMORY_ORDER_LEAST_RECENTLY_REVIEWED = "least_recently_reviewed"
+MEMORY_SEARCH_ORDERS = (MEMORY_ORDER_LEAST_RECENTLY_REVIEWED,)
 MEMORY_QUERY_CHECK_CAP = 5
 MEMORY_QUERY_MIN_LOGIT = -4.0
 MEMORY_PROPOSE_CAP = 20
@@ -1729,10 +1732,31 @@ def memory_search_response(
     include_history: bool = False,
     limit: int = 10,
     index: Optional[server_impl.WaveIndex] = None,
+    order: str = "",
 ) -> dict[str, Any]:
     from wf_server import server_impl
     mem = _memory_mod()
     n = max(1, min(int(limit), MEMORY_SEARCH_CAP))
+    order = (order or "").strip()
+    if order and order not in MEMORY_SEARCH_ORDERS:
+        return server_impl._response(
+            "error", {"records": [], "count": 0},
+            diagnostics=[_diagnostic("invalid_arguments",
+                                     f"unknown order {order!r}; allowed: {', '.join(MEMORY_SEARCH_ORDERS)}",
+                                     recovery_tools=["memory_search"], recovery_usage="memory_search()")],
+            next_tools=["memory_search"], usage="",
+        )
+    if order and query:
+        # Change 244fh: an audit order lists the corpus; it never reorders a
+        # relevance-ranked query result.
+        return server_impl._response(
+            "error", {"records": [], "count": 0},
+            diagnostics=[_diagnostic("invalid_arguments",
+                                     f"order={order!r} applies only to queryless listings; omit query",
+                                     recovery_tools=["memory_search"],
+                                     recovery_usage=f"memory_search(status='active', order='{order}', limit=15)")],
+            next_tools=["memory_search"], usage="",
+        )
     if kind and kind not in mem.MEMORY_KINDS:
         return server_impl._response(
             "error", {"records": [], "count": 0},
@@ -1779,6 +1803,14 @@ def memory_search_response(
                 return bool(tokens) and all(t in haystack for t in tokens)
             records = [r for r in records if _text_match(r)]
     ranked = _memory_ranked(root, records)
+    if order == MEMORY_ORDER_LEAST_RECENTLY_REVIEWED:
+        # Change 244fh: oldest review first (the ``Updated:`` date a keep
+        # stamp rewrites), then weakest, then id; applied before the cap.
+        ranked.sort(key=lambda pair: (
+            str(pair[0].get("updated_at") or ""),
+            float(pair[1].get("effective_confidence") or 0.0),
+            pair[0]["memory_id"],
+        ))
     if query_order is not None:
         # Preserve selected RRF order while retaining existing decay/provenance
         # metadata. Relevance ordering does not establish instruction authority.

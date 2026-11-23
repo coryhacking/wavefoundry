@@ -1413,6 +1413,11 @@
             "title": "Limit",
             "type": "integer"
           },
+          "order": {
+            "default": "",
+            "title": "Order",
+            "type": "string"
+          },
           "query": {
             "default": "",
             "title": "Query",

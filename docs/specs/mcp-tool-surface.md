@@ -2268,7 +2268,7 @@ abort_if_duplicate: bool = False)`
   collision with a generated id is retried rather than refused.
 
 `memory_search(query: str = "", target: str = "", symbol: str = "", kind: str = "",
-status: str = "", include_history: bool = False, limit: int = 10)`
+status: str = "", include_history: bool = False, limit: int = 10, order: str = "")`
 
 - Read-only search over memory records by free-text `query`, by the file `target` or
   `symbol` a record must target (matching `symbol:` references), by `kind` and by `status`.
@@ -2281,6 +2281,12 @@ status: str = "", include_history: bool = False, limit: int = 10)`
   query path, its relevance screening and its lexical-policy recovery are described under
   **Explicit memory-query retrieval** below. Queryless listings keep kind-aware
   confidence and freshness ordering.
+- `order="least_recently_reviewed"` (wave 244fi) is the memory review's audit order for a
+  queryless listing. It sorts by `updated_at` ascending, then `effective_confidence`
+  ascending, then `memory_id`, before the cap, so the record reviewed or changed longest ago
+  comes first. A keep stamp (`memory_reconcile(memory_id, status="active")`) moves a record
+  to the end. Combining an `order` with `query`, or passing an unknown `order`, is refused
+  with `invalid_arguments`. Without `order` the ordering is unchanged.
 - Results are ranked evidence, not verified answers: the calling agent judges each
   record's relevance, support and applicability. An empty result adds a
   `no_memory_matches` diagnostic; absence of a record is not absence of risk.
@@ -2335,7 +2341,9 @@ or hosted model; optional Tensorwell inference uses authenticated local loopback
 - `memory_reconcile(memory_id: str, status: str, superseded_by: str = "", archive_reason: str = "",
   eligibility_confirmed: bool = False, retain_for_history: bool = False)` transitions one
   memory record's status. A `superseded` transition requires `superseded_by`; an `archived`
-  transition is the physical archive described next.
+  transition is the physical archive described next. A same-status call on an active record
+  (`status="active"`) is the memory review's keep stamp: it rewrites only the `Updated:`
+  date and leaves the body, `Created:` and decay unchanged (wave 244fi).
 - `memory_reconcile(memory_id, status="archived", archive_reason,
   retain_for_history=true, eligibility_confirmed=false)` archives only a reviewed,
   history-worthy `stale`, `superseded`, or

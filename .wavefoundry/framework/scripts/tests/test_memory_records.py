@@ -5340,5 +5340,109 @@ class MemoryAgentValidationTests(_MemoryCase):
         self.assertEqual(self.srv._memory_validation_diagnostics(self.root, "1empty"), [])
 
 
+class LeastRecentlyReviewedOrderTests(_MemoryCase):
+    """Change 244fh: the memory review's queryless audit order and keep stamp."""
+
+    ORDER = "least_recently_reviewed"
+
+    def setUp(self):
+        super().setUp()
+        self.srv = load_server()
+        # Kinds that never decay, plus churn kinds with no index (no churn),
+        # so effective confidence equals the base confidence written here.
+        self._add("mem-old-decision", "decision", confidence=0.95, created="2026-01-01")
+        self._add("mem-tie-weak", "successful_pattern", confidence=0.7, created="2026-02-01")
+        self._add("mem-tie-strong", "failed_attempt", confidence=0.9, created="2026-02-01")
+        self._add("mem-new-fragile", "fragile_file", confidence=0.6, created="2026-03-01")
+        self._add("mem-candidate", "failed_attempt", status="candidate",
+                  confidence=0.5, created="2025-12-01")
+
+    def _ids(self, **kwargs):
+        resp = self.srv.memory_search_response(self.root, **kwargs)
+        self.assertEqual(resp["status"], "ok", resp)
+        return [r["memory_id"] for r in resp["data"]["records"]]
+
+    def test_orders_by_review_date_then_weakest_then_id(self):
+        got = self._ids(status="active", order=self.ORDER, limit=15)
+        self.assertEqual(got, ["mem-old-decision", "mem-tie-weak",
+                               "mem-tie-strong", "mem-new-fragile"])
+
+    def test_sort_runs_before_the_cap(self):
+        # A cap-before-sort order keeps the default policy's first two
+        # records and returns mem-tie-strong second.
+        got = self._ids(status="active", order=self.ORDER, limit=2)
+        self.assertEqual(got, ["mem-old-decision", "mem-tie-weak"])
+
+    def test_confidence_first_order_is_a_failing_known_bad(self):
+        resp = self.srv.memory_search_response(self.root, status="active", limit=15)
+        records = resp["data"]["records"]
+        confidence_first = [r["memory_id"] for r in sorted(
+            records, key=lambda r: (r["effective_confidence"], r["memory_id"]))]
+        self.assertEqual(confidence_first[0], "mem-new-fragile")
+        self.assertNotEqual(confidence_first,
+                            self._ids(status="active", order=self.ORDER, limit=15))
+        # The default policy order is not the audit order either, so removing
+        # the sort makes the literal expectation above fail.
+        self.assertNotEqual([r["memory_id"] for r in records],
+                            self._ids(status="active", order=self.ORDER, limit=15))
+
+    def test_keep_stamp_rotates_the_record_to_the_end(self):
+        kept = self.srv.memory_reconcile_response(self.root, "mem-old-decision", "active")
+        self.assertTrue(kept["data"]["updated"], kept)
+        got = self._ids(status="active", order=self.ORDER, limit=15)
+        # A skip-then-cap order would drop the stamped record instead.
+        self.assertEqual(got, ["mem-tie-weak", "mem-tie-strong",
+                               "mem-new-fragile", "mem-old-decision"])
+
+    def test_order_with_query_and_unknown_order_are_errors(self):
+        with_query = self.srv.memory_search_response(self.root, query="x", order=self.ORDER)
+        self.assertEqual(with_query["status"], "error")
+        self.assertEqual(with_query["data"]["count"], 0)
+        unknown = self.srv.memory_search_response(self.root, order="weakest")
+        self.assertEqual(unknown["status"], "error")
+
+    def test_default_order_is_unchanged(self):
+        records = self.mem.load_memory_records(
+            self.root, statuses=list(self.mem.DEFAULT_SURFACED_STATUSES))
+        import wf_server.memory_handlers as memory_handlers
+        expected = [r["memory_id"] for r, _ in memory_handlers._memory_ranked(self.root, records)]
+        self.assertEqual(self._ids(limit=20), expected)
+        self.assertIn("mem-candidate", expected)
+
+
+class SameStatusKeepStampTests(_MemoryCase):
+    """Change 244fh: a keep is a same-status reconcile that rewrites only Updated."""
+
+    def setUp(self):
+        super().setUp()
+        self.srv = load_server()
+        self.path = self._add("mem-keep", "decision", confidence=0.95, created="2026-01-01")
+
+    def _assert_stamped(self, before: str, after: str, today: str) -> None:
+        record = self.mem.parse_memory_record(self.path)
+        self.assertEqual(record["status"], "active")
+        self.assertEqual(record["created_at"], "2026-01-01")
+        self.assertEqual(record["updated_at"], today)
+        changed = [(a, b) for a, b in zip(before.splitlines(), after.splitlines()) if a != b]
+        self.assertEqual(changed, [("Updated: 2026-01-01", f"Updated: {today}")])
+
+    def test_same_status_reconcile_stamps_updated_only(self):
+        before = self.path.read_text(encoding="utf-8")
+        resp = self.srv.memory_reconcile_response(self.root, "mem-keep", "active")
+        self.assertEqual(resp["status"], "ok", resp)
+        self.assertTrue(resp["data"]["updated"])
+        self.assertEqual(resp["data"]["record"]["effective_confidence"], 0.95)
+        self._assert_stamped(before, self.path.read_text(encoding="utf-8"),
+                             time.strftime("%Y-%m-%d"))
+
+    def test_known_bad_without_updated_rewrite_fails(self):
+        import re
+        before = self.path.read_text(encoding="utf-8")
+        with patch.object(self.mem, "_UPDATED_LINE_RE", re.compile(r"(?!x)x")):
+            self.mem.reconcile_memory_record(self.root, "mem-keep", "active", date="2026-11-22")
+        with self.assertRaises(AssertionError):
+            self._assert_stamped(before, self.path.read_text(encoding="utf-8"), "2026-11-22")
+
+
 if __name__ == "__main__":
     unittest.main()

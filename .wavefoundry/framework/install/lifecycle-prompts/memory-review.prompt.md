@@ -14,7 +14,8 @@ asks for a read-only review, use the separate read-only procedure and make no mu
 
 ## Safety boundaries
 
-- Review meaning and current evidence; never retire a record because of age alone.
+- Review meaning and current evidence; never retire a record because of age alone. The
+  audit order selects a record for review and never decides its outcome.
 - Treat the active-memory budget as a curation signal, not a deletion quota. Do not merge
   unrelated records or remove useful knowledge merely to reach the cap.
 - Decisions, operator preferences, and fragile-file records are protected kinds. Supply
@@ -23,6 +24,8 @@ asks for a read-only review, use the separate read-only procedure and make no mu
 - Leave unresolved judgment calls unchanged and report them.
 - Archive only memories that remain important to project history. Git remains the recovery
   record for everything else, so purge reviewed retired records that are not history-worthy.
+  The exception: records the active-record audit retires are archived in the same run, never
+  purged in it, so a later review gives them a second look before any purge.
 
 ## Apply procedure
 
@@ -40,33 +43,61 @@ asks for a read-only review, use the separate read-only procedure and make no mu
    - Never send a hand-authored or already-finalized candidate to `memory_validate`. When
      justified, disposition it with `memory_reconcile(memory_id=...,
      status="active"|"rejected")`; otherwise leave it unchanged and report it unresolved.
-3. Call `memory_consolidate(mode="dry_run")`. If a related group is worth consolidating,
+3. Audit a bounded batch of active records. List it with
+   `memory_search(status="active", order="least_recently_reviewed", limit=15)`: the 15 active
+   records of every kind whose `updated_at` is oldest, weakest effective confidence first on a
+   tie. Protected kinds retire only after current review proves the knowledge is no longer
+   operational. Archive every record this step retires in step 6; do not purge it in this run.
+   Record one outcome and a reason that names current evidence for each record:
+   - **keep:** the record still changes a future action, or you cannot name the evidence another
+     outcome needs. Stamp it with `memory_reconcile(memory_id=..., status="active")`, which
+     rewrites only its `Updated:` line and moves it to the end of the order. The stamp means
+     "reviewed, unchanged", not a content change. Repeated runs advance through the corpus.
+   - **retire to stale, encoded elsewhere:** name the specific assertion (test, check or code
+     path) that would fail on a regression of the lesson. It must cover the lesson's whole scope,
+     not only the instance the record came from; otherwise keep or rewrite. Then call
+     `memory_reconcile(memory_id=..., status="stale")`.
+   - **retire to stale, target gone or duplicate:** name the missing target path, or the canonical
+     document and section that already carries the same action.
+   - **supersede:** another active record carries the knowledge at equal or wider scope. Call
+     `memory_reconcile(memory_id=..., status="superseded", superseded_by=...)`.
+   - **rewrite:** the knowledge is still operational but the record is wrong or outdated. Call
+     `memory_add(..., status="active", supersedes=<original id>)`; it also marks the original
+     superseded. Only when it reports `supersedes_target_not_updated`, finish with
+     `memory_reconcile(memory_id=<original id>, status="superseded", superseded_by=<new id>)`.
+     Never send an active record to `memory_validate`.
+   - **unresolved:** leave the record unchanged and report it.
+4. Call `memory_consolidate(mode="dry_run")`. If a related group is worth consolidating,
    apply at most one exact returned group with
    `memory_consolidate(mode="create", memory_ids=<one exact groups[].memory_ids>,
    title=..., summary=..., reviewed=true, eligibility_confirmed=...)`. Set
    `eligibility_confirmed=true` only after current protected-kind review. The tool does not
    expose or accept a bulk retired-record cleanup list; disposition retired records individually.
-4. Consolidation creates the replacement before superseding and archiving every selected
+5. Consolidation creates the replacement before superseding and archiving every selected
    source. Verify the replacement through `memory_search(...)` and
    `memory_search(include_history=true, ...)`. Do not re-archive those source IDs. Retain a
    source archive only when it remains history-worthy; otherwise purge that retired source
    individually with `memory_purge(memory_id=..., reviewed=true,
    eligibility_confirmed=...)`.
-5. Review other pre-existing retired records individually:
-   - Keep important history with `memory_reconcile(memory_id=..., status="archived",
-     retain_for_history=true, archive_reason=..., eligibility_confirmed=...)`.
-   - Remove unimportant history with `memory_purge(memory_id=..., reviewed=true,
-     eligibility_confirmed=...)`.
+6. Review retired records individually, both those retired before this run and those the
+   audit retired in step 3:
+   - Archive every record the audit retired in step 3 with `memory_reconcile(memory_id=...,
+     status="archived", retain_for_history=true, archive_reason=..., eligibility_confirmed=...)`.
+   - For a record retired before this run, keep important history with
+     `memory_reconcile(memory_id=..., status="archived", retain_for_history=true,
+     archive_reason=..., eligibility_confirmed=...)`.
+   - For a record retired before this run, remove unimportant history with
+     `memory_purge(memory_id=..., reviewed=true, eligibility_confirmed=...)`.
    Protected kinds receive `eligibility_confirmed=true` only after the current review.
-6. Verify the final live and historical corpus with `memory_search(...)` and
+7. Verify the final live and historical corpus with `memory_search(...)` and
    `memory_search(include_history=true, ...)`, then run `wf_validate_docs()`.
-7. Run `index_build(content="docs", mode="update")`. If it reports `up_to_date=true`,
+8. Run `index_build(content="docs", mode="update")`. If it reports `up_to_date=true`,
    continue. Otherwise poll `index_build_status(layer="project")` until `lock.held=false`,
    `lock.ended_at` records clean completion, and either `state="finished"` or
    `state="idle"` with `epoch.status="complete"` and `epoch.interrupted=false`. If the
    build fails, is interrupted, or never reaches one of those clean terminal forms,
    stop and report it; do not evaluate memory against a stale or partial index.
-8. After clean index completion, run `index_health()` and `wf_memory_eval()`, then report.
+9. After clean index completion, run `index_health()` and `wf_memory_eval()`, then report.
 
 ## Read-only procedure
 
@@ -74,11 +105,13 @@ When the operator explicitly requests read-only review, use only:
 
 - `memory_brief(context="review")`
 - `memory_search(...)` and `memory_search(include_history=true, ...)`
+- `memory_search(status="active", order="least_recently_reviewed", limit=15)` for the audit
+  walk: report the batch and each proposed outcome with its reason
 - `memory_consolidate(mode="dry_run")`
 - `wf_memory_eval()`
 
-Do not call `memory_validate`, consolidation create, `memory_reconcile`, `memory_purge`,
-any docs mutation, or any index mutation in the read-only procedure.
+Do not call `memory_validate`, consolidation create, `memory_reconcile`, `memory_add`,
+`memory_purge`, any docs mutation, or any index mutation in the read-only procedure.
 
 ## Report
 
@@ -86,6 +119,8 @@ Keep the result compact and include:
 
 - before/after counts by status, disposition counts, and active count versus budget;
 - unresolved records left unchanged;
+- active-record audit counts: audited, kept, retired, superseded, rewritten and unresolved,
+  plus each retired or superseded record with its reason, protected kinds listed separately;
 - live-corpus bytes before/after: UTF-8 byte sizes of lint-valid record bodies directly
   under `docs/agents/memory/`, excluding `README.md` and `archive/`;
 - estimated removed tokens as `ceil(max(before_bytes - after_bytes, 0) / 4)`, clearly

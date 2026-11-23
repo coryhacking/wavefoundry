@@ -79,6 +79,21 @@ def assert_memory_review_contract(test: unittest.TestCase, text: str) -> None:
         "index_health()",
         "wf_memory_eval()",
         "Do not record model names.",
+        # Change 244fh: the bounded active-record audit.
+        'memory_search(status="active", order="least_recently_reviewed", limit=15)',
+        'memory_reconcile(memory_id=..., status="active")',
+        "reviewed, unchanged",
+        "It must cover the lesson's whole scope",
+        "not only the instance the record came from",
+        'memory_reconcile(memory_id=..., status="stale")',
+        'status="superseded", superseded_by=...)',
+        'memory_add(..., status="active", supersedes=<original id>)',
+        "supersedes_target_not_updated",
+        "Never send an active record to `memory_validate`.",
+        "do not purge it in this run",
+        "never\n  purged in it",
+        "selects a record for review and never decides its outcome",
+        "audited, kept, retired, superseded, rewritten and unresolved",
     ):
         test.assertIn(literal, text)
 
@@ -101,6 +116,11 @@ def assert_memory_review_contract(test: unittest.TestCase, text: str) -> None:
         calls,
     )
     test.assertIn('memory_consolidate(mode="dry_run")', read_only)
+    test.assertIn('order="least_recently_reviewed"', read_only)
+    test.assertIn("`memory_add`", read_only)
+    # The audit step precedes consolidation (change 244fh).
+    test.assertLess(text.index('order="least_recently_reviewed"'),
+                    text.index('memory_consolidate(mode="dry_run")'))
 
 
 class LegacyAutoGuruSectionTests(unittest.TestCase):
@@ -1048,11 +1068,30 @@ class MemoryReviewPromptTests(unittest.TestCase):
                 1,
             ),
             prompt.replace('index_build_status(layer="project")', "", 1),
+            prompt.replace("It must cover the lesson's whole scope", "It may cover one instance", 1),
+            prompt.replace('order="least_recently_reviewed"', 'order="weakest"'),
+            prompt.replace("do not purge it in this run", "purge it when unimportant", 1),
+            prompt.replace("never decides its outcome", "may decide its outcome", 1),
         )
         for broken in known_bad:
             with self.subTest():
                 with self.assertRaises(AssertionError):
                     assert_memory_review_contract(self, broken)
+
+    def test_seed_and_self_hosted_prompt_carry_the_contract(self) -> None:
+        # Change 244fh: the seed is the source and the self-hosted copy is a
+        # hand merge, so both must carry the same contract as the template.
+        repo = PROJECT_ROOT.parent
+        for rel in (
+            ".wavefoundry/framework/seeds/240-memory-review.prompt.md",
+            "docs/prompts/memory-review.prompt.md",
+        ):
+            with self.subTest(rel=rel):
+                text = (repo / rel).read_text(encoding="utf-8")
+                assert_memory_review_contract(self, text)
+                with self.assertRaises(AssertionError):
+                    assert_memory_review_contract(
+                        self, text.replace("not only the instance the record came from", "", 1))
 
     def test_missing_only_baseline_materializes_and_preserves_existing_prompt(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

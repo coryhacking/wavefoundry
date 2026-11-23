@@ -1,14 +1,18 @@
 # Line-start-anchored chunk ids are not unique; census probes need the same-line-sibling shape
 
 Owner: Engineering
-Status: active
+Status: archived
 Last verified: 2026-08-29
 
 Memory ID: `1wk93-mem line-start-anchored-chunk-ids-are-not-unique-census-probes-n`
+Superseded by: `245u8-mem chunker-ids-and-guards-prove-uniqueness-and-pins-with-hostil`
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-08-29
-Updated: 2026-08-29
+Updated: 2026-11-22
+Archived: 2026-11-22
+Archive reason: consolidated into 245u8-mem chunker-ids-and-guards-prove-uniqueness-and-pins-with-hostil
+Archive path: `docs/agents/memory/archive/1wk93-mem line-start-anchored-chunk-ids-are-not-unique-census-probes-n.md`
 
 ## Summary
 

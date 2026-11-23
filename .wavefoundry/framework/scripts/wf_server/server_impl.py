@@ -27302,7 +27302,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     @mcp.tool(annotations=_READONLY_TOOL)
     def memory_search(query: str = "", target: str = "", symbol: str = "",
                            kind: str = "", status: str = "", include_history: bool = False,
-                           limit: int = 10, **kwargs: Any) -> dict[str, Any]:
+                           limit: int = 10, order: str = "", **kwargs: Any) -> dict[str, Any]:
         """Search agent memory records by query, target file/symbol, kind, or status.
 
         Free-text queries fuse memory-scoped semantic and lexical candidates,
@@ -27324,6 +27324,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             status: Restrict to one status (default: active + candidate).
             include_history: Include stale/superseded/rejected/archived bodies.
             limit: Max records (default 10; query cap 5, queryless cap 20).
+            order: Optional queryless audit order. ``"least_recently_reviewed"``
+                sorts by ``updated_at`` ascending, then effective confidence
+                ascending, then memory id, before the cap; a keep stamp
+                (``memory_reconcile(status="active")``) moves a record to the
+                end. Combining it with ``query`` is a validation error.
         """
         bad = _ensure_no_extra_args("memory_search", kwargs)
         if bad is not None:
@@ -27332,6 +27337,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return memory_search_response(
             handler.root, query=query, target=target, symbol=symbol, kind=kind,
             status=status, include_history=include_history, limit=limit, index=handler.index,
+            order=order,
         )
 
     @mcp.tool(annotations=_READONLY_TOOL)

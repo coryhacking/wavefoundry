@@ -1022,7 +1022,10 @@ def create_memory_record(
 
 
 _STATUS_LINE_RE = re.compile(r"^(Status:\s+)\S+\s*$", re.MULTILINE)
-_UPDATED_LINE_RE = re.compile(r"^(Updated:\s*)\d{4}-\d{2}-\d{2}\s*$", re.MULTILINE)
+# Change 244fh: match only the date and leave the line ending and any
+# following blank line intact (a trailing ``\s*$`` consumed the blank line
+# before ``## Summary``); the lookahead also tolerates a CRLF ending.
+_UPDATED_LINE_RE = re.compile(r"^(Updated:[ \t]*)\d{4}-\d{2}-\d{2}(?=[ \t]*\r?$)", re.MULTILINE)
 
 
 def _replace_or_insert_metadata(text: str, pattern: re.Pattern[str], line: str) -> str:
