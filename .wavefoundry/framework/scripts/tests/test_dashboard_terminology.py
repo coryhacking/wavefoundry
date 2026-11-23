@@ -259,8 +259,8 @@ const collect = () => {
     ...classes(waves, 'empty-state'), ...nodes(waves).filter(n => n.tag === 'p').map(text),
     ...nodes(tasks).filter(n => n.tag === 'label').map(text)];
 };
-const defaults = ['Wave lifecycle', 'Plan spec', 'Prepare Wave', 'Implement Wave', 'Review Wave', 'Close & Maintain',
-  'Idea', 'Scope', 'Draft spec', 'Review', 'Open questions', 'Prepare Wave', 'Wave + specs', 'Implement', 'Check tasks + ACs', 'Run tests', 'Prepare for review', 'Review', 'Evidence', 'Findings', 'Signoff', 'Archive',
+const defaults = ['Wave lifecycle', 'Plan spec', 'Prepare Wave', 'Implement Wave', 'Review Wave', 'Close Wave',
+  'Idea', 'Scope', 'Draft spec', 'Admit', 'Readiness reviewers', 'Council', 'Ready', 'Wave + specs', 'Implement', 'Check tasks + ACs', 'Run tests', 'Prepare for review', 'Delivery reviewers', 'Evidence', 'Findings', 'Operator signoff', 'Close', 'Archive',
   'Waves', 'Changes', 'Acceptance criteria', 'Implementation tasks', 'Waves', 'No active waves.', '1 closed wave.', 'Tasks'];
 assert.deepEqual(collect(), defaults);
 context.updateTerminology({wave: 'Sprint', change: 'Story', task: 'Step'});
@@ -269,13 +269,17 @@ assert.equal(context.tierLabel('change', true), 'storys');
 const flow = context.FrameworkFlow({onSelectProcess: () => {}});
 assert.ok(nodes(flow).some(n => n.props['aria-label'] === 'Sprint Framework process flow'));
 assert.ok(nodes(flow).some(n => n.props['aria-label'] === 'Open Prepare Sprint'));
+for (const stage of context.FRAMEWORK_FLOW()) {
+  assert.doesNotMatch(stage.body, /Sprint Council/, 'the council name must not come from the tier label');
+}
 context.updateTerminology({wave: 'Batch', change: 'Ticket'}, {shortcut: 'Draft a ticket', doc: 'ticket doc', docs: 'ticket docs'});
 let selected;
 const customFlow = context.FrameworkFlow({onSelectProcess: process => { selected = process; }});
 nodes(customFlow).find(n => n.props['aria-label'] === 'Open Draft a ticket').props.onClick();
 assert.equal(selected.id, 'plan');
 context.renderMarkdownish = content => h('p', {}, content);
-context.DialogFrame = ({children}) => h('section', {}, ...children);
+const frames = [];
+context.DialogFrame = props => { frames.push(props); return h('section', {}, ...props.children); };
 context.badgeClass = status => 'badge-' + status;
 vm.runInContext(slice('function WavesDialog(', 'function ChangesDialog('), context);
 const paused = [
@@ -295,6 +299,12 @@ assert.match(text(context.FrameworkProcessDialog({process: selected})), /Use thi
 for (const stage of context.FRAMEWORK_FLOW()) {
   const detail = text(context.FrameworkProcessDialog({process: stage}));
   assert.doesNotMatch(detail, /\b(?:waves?|specs?)\b/i);
+}
+const stageFrames = frames.filter(frame => String(frame.className || '').startsWith('framework-process-dialog'));
+assert.equal(stageFrames.length, context.FRAMEWORK_FLOW().length + 1);
+for (const frame of stageFrames) {
+  assert.ok(!frame.meta || frame.meta.every(item => item && item.value != null && String(item.value).trim() !== ''),
+    'a lifecycle dialog must pass no empty meta item');
 }
 context.updateTerminology(undefined);
 assert.deepEqual(collect(), defaults, 'register reset must affect flow after first render');

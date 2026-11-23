@@ -235,7 +235,11 @@ function summarizeAc(counts = {}, completed = {}) {
 // Rebuild on render so fetched labels also reach lifecycle titles and steps.
 function FRAMEWORK_FLOW() {
   const container = tierLabel("wave");
+  const containers = tierLabel("wave", true);
   const title = tierLabel("wave", false, true);
+  const item = tierLabel("change");
+  const step = tierLabel("task");
+  const steps = tierLabel("task", true);
   return [
     {
       id: "plan",
@@ -243,15 +247,15 @@ function FRAMEWORK_FLOW() {
       title: planning.shortcut,
       summary: `Define the outcome and its acceptance criteria in the ${planning.doc}.`,
       flow: ["Idea", "Scope", `Draft ${planning.doc}`],
-      body: `Use this stage to write the ${planning.doc}. Name who benefits, what they should be able to do, and how to demonstrate it. Admit the finished ${planning.doc} to a ${container} when the team is ready to schedule the work.`,
+      body: `**What you do.** Ask for ${planning.shortcut}. Use this stage to write the ${planning.doc}. Name who benefits, what they should be able to do, and how to demonstrate it; the ${planning.doc} also holds the requirements and ${steps}. An optional plan review walks each open decision with you, one question at a time.\n\n**What runs automatically.** The id is minted (\`wf_new_<kind>\`) and edited docs are linted as you go.\n\n**Councils and reviewers.** None yet. The optional plan review records no approval and gates nothing.\n\n**Gates.** In every repository, no repository code is edited until the ${planning.doc} is admitted and its ${container} is readied.\n\n**What comes next.** Admit the finished ${planning.doc} to a ${container} (\`wf_create_wave\`, then \`wf_add_change\`) and prepare it.`,
     },
     {
       id: "prepare",
       step: "02",
       title: `Prepare ${title}`,
-      summary: `Check readiness before the ${container} starts.`,
-      flow: ["Review", "Open questions", `Prepare ${title}`],
-      body: `Review the admitted ${planning.docs}, their dependencies and how the team will check the outcome. Resolve material gaps before opening the ${container} for implementation.`,
+      summary: `Create the ${container}, add ${planning.docs}, and check readiness.`,
+      flow: ["Admit", "Readiness reviewers", "Council", "Ready"],
+      body: `**What you do.** Create the ${container} (\`wf_create_wave\`), add each ${planning.doc} (\`wf_add_change\`), then prepare it (\`wf_prepare_wave\`). You can ready several ${containers} at once.\n\n**What runs automatically.** Docs are validated and gardened, the admitted ${planning.docs} move into the ${container} folder, readiness reviewers are selected from the declared review targets and requested lanes, and the review-policy receipt is recorded.\n\n**Councils and reviewers.** This is when the readiness council runs, before any code. In ordinary review the readiness reviewers record approvals, then the readiness council runs: a red-team primer, the configured fixed seats and one rotating seat, synthesized by the council chair into the \`council-readiness\` approval. A small ${item} the operator selected at admission gets one independent code reviewer instead. A project with review disabled runs no council.\n\n**Gates.** In every repository, implementation refuses until the readiness approval the current receipt requires is recorded. Editing a reviewed section of a ${planning.doc} rotates the receipt and lapses those approvals: record them again and call \`wf_prepare_wave\` again. Project-configured required sensors, when set, must pass. Readying does not open the ${container}, so it never takes the open slot.\n\n**What comes next.** Open the readied ${container} with \`wf_implement_wave\`.`,
     },
     {
       id: "implement",
@@ -259,23 +263,23 @@ function FRAMEWORK_FLOW() {
       title: `Implement ${title}`,
       summary: `Deliver the outcomes in the admitted ${planning.docs}.`,
       flow: [`${title} + ${planning.docs}`, "Implement", `Check ${tierLabel("task", true)} + ACs`, "Run tests", "Prepare for review"],
-      body: `Read the ${container} record and each admitted ${planning.doc}. Make the edits, run the relevant tests, and record evidence for completed acceptance criteria. Return to planning if the team needs a different outcome.`,
+      body: `**What you do.** Open the ${container} with \`wf_implement_wave\`, read its record and each admitted ${planning.doc}, make the edits and run the relevant tests. Mark each ${step} and acceptance criterion as it completes, with evidence. Return to planning if the team needs a different outcome.\n\n**What runs automatically.** The ${container} becomes open, memory advisories for the files in scope are briefed, and focused checks run.\n\n**Councils and reviewers.** None routinely; reviewers run in the next stage.\n\n**Gates.** By default one ${container} is open at a time (\`record_paths.OPEN_CONTAINER_SCOPE\`); activation refuses while another is open, so pause or close that one first. Edits to framework or seed files need the \`framework_edit_allowed\` or \`seed_edit_allowed\` gate, opened with \`wf_open_gate\`; while a gate is closed, the host refuses those edits. These gates do not affect product code.\n\n**What comes next.** Check the result with \`wf_review_wave\`.`,
     },
     {
       id: "review",
       step: "04",
       title: `Review ${title}`,
       summary: "Compare the result against evidence and acceptance criteria.",
-      flow: ["Review", "Evidence", "Findings"],
-      body: `Compare the delivered work with what the ${planning.docs} promised. Record findings, verify repairs and identify any evidence still needed before closing the ${container}.`,
+      flow: ["Delivery reviewers", "Evidence", "Findings"],
+      body: `**What you do.** Run \`wf_review_wave\` and compare the delivered work with what the ${planning.docs} promised.\n\n**What runs automatically.** Findings and approvals are recorded as typed events in the review ledger (\`events.jsonl\`) and shown in the ${container} record.\n\n**Councils and reviewers.** This is when the delivery reviewers run, after implementation. The delivery council runs only when the receipt selects \`council-delivery\`: with \`delivery_mode\` set to \`targeted\`, the shipped default, it joins when the work crosses a boundary such as a release, a trust or permission boundary, or cross-platform behavior. The readiness council is not rerun; final review re-evaluates the reviewers newly applicable to what was delivered.\n\n**Gates.** A blocking finding sends the ${container} back for repair, and the reviewer that raised it verifies the repair independently.\n\n**What comes next.** Close the ${container}, or pause it (\`wf_pause_wave\`) while other work continues.`,
     },
     {
       id: "close",
       step: "05",
-      title: "Close & Maintain",
-      summary: "Capture what shipped and hand it off.",
-      flow: ["Signoff", "Archive"],
-      body: `With operator direction, close the ${container}. Record what shipped, preserve evidence needed later, and leave a handoff that explains any remaining work.`,
+      title: `Close ${title}`,
+      summary: `The operator signs off and the ${container} closes.`,
+      flow: ["Operator signoff", "Close", "Archive"],
+      body: `**What you do.** Read the evidence, record your operator signoff, and tell the agent to close (\`wf_close_wave\`). Optional: close one reviewed ${planning.doc} first with \`wf_close_change\`; this is a workflow step, not a gate, and it never closes the ${container}. To switch work, pause with \`wf_pause_wave\`: a paused ${container} whose review is complete shows Awaiting closure and can be closed without reopening.\n\n**What runs automatically.** The ${planning.docs} are reconciled, the ${container} folder becomes the permanent record, and memory candidates are validated. The operator commits the result.\n\n**Councils and reviewers.** No new council; the operator signs off.\n\n**Gates.** In every repository, close refuses without operator signoff or a required delivery approval, or with any acceptance criterion or ${step} still unchecked; project-configured required sensors, when set, must pass; and the agent closes only on the operator's explicit instruction. In the framework source repository only, close also needs a current, passing framework test receipt; in a project that consumes the packaged framework, that check does nothing.\n\n**What comes next.** Plan the next ${container}, carrying forward any unfinished work.`,
     },
   ];
 }
@@ -312,9 +316,6 @@ function FrameworkProcessDialog({ process, onClose }) {
       h("span", { key: "title" }, process.title),
     ],
     subtitle: process.summary,
-    meta: [
-      { value: process.track, cls: "dialog-meta-pill" },
-    ],
     className: `framework-process-dialog framework-process-dialog--${process.id}`,
     onClose,
   },

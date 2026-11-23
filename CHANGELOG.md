@@ -6,6 +6,18 @@ the individual wave records under [`docs/waves/`](docs/waves/).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.50.1] - 2026-11-22
+
+### Changed
+
+- The lifecycle now reads the same everywhere as five stages: Plan spec, Prepare wave, Implement wave, Review wave and Close wave. The Lifecycle At A Glance table in the framework lifecycle overview owns each stage's facts: what you do, what runs automatically, which reviewers and councils run, which gates refuse and where they apply, and what comes next. The README gains a five-stage table and a Spec Kit command mapping, and the local workflow docs point to that table. In the dashboard, each lifecycle dialog explains its stage's councils and gates, tile 5 is renamed from "Close & Maintain" to "Close Wave", and the dialog no longer renders an empty label. The README and docs no longer say that only two stages are gated, that Create wave opens a wave, that Review wave reruns the readiness council, or that an agent commits a closed wave. No gate or tool behavior changes. Wave 2430r / 2430q.
+
+### Fixed
+
+- The `lifecycle flush/projection warm` row of the context-efficiency timing test now asserts the median of its samples against 50 ms, in place of the p95 against 25 ms. The row times durable SQLite writes, and its contention factor measures CPU contention only, so one or two stalled disk writes decided the p95 and failed healthy runs on loaded machines. The row still fails when most flushes slow down, at about 6x the measured median of 7 ms. The two estimator rows keep their p95 budgets, and the row's label and distribution bypass are unchanged. Wave 242ys / 242yr.
+
 ## [1.50.0] - 2026-11-22
 
 ### Added

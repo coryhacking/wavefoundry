@@ -157,6 +157,20 @@ Wavefoundry checks the required approvals and completion records, then keeps the
 
 To start another change while the first awaits your decision, ask: “Pause wave A and implement prepared wave B,” using their IDs. A reviewed, finished wave appears as **Awaiting closure**. Later, “Close wave A” closes that delivery while work on B continues.
 
+### The lifecycle in five stages
+
+Every change follows the same five stages. The dashboard shows them as five tiles, and each tile's dialog explains its stage.
+
+| Stage | What you do | Who reviews | What can stop you |
+| --- | --- | --- | --- |
+| 1. **Plan spec** | Ask for a spec. The agent writes one file holding the outcome, acceptance criteria and tasks. Optional: **Review plan** walks the open decisions with you. | Nobody yet. **Review plan** records no approval. | No code is edited until the spec's wave is readied. |
+| 2. **Prepare wave** | **Create wave**, **Add spec to wave**, then **Prepare wave**. You can ready several waves at once. | Readiness reviewers, then the readiness Wave Council (a red-team primer, fixed seats and one rotating seat, synthesized by the council chair). A small change you select at admission gets one independent code reviewer instead. | Implementation refuses until the readiness approval is recorded. Editing a reviewed spec section means preparing again. |
+| 3. **Implement wave** | **Implement wave** opens the wave and builds every admitted spec. | Nobody yet; reviewers run in the next stage. | By default only one wave is open at a time. Edits to framework or seed files also need their edit gate opened. |
+| 4. **Review wave** | **Review wave** checks the result against the acceptance criteria. | The required delivery reviewers. The delivery Wave Council joins only when the change crosses a boundary such as a release, a trust or permission boundary, or cross-platform behavior. | A blocking finding sends the wave back for a repair, which the reviewer checks again. |
+| 5. **Close wave** | Read the evidence, sign off, and tell the agent to close. Optional **Close spec** closes one reviewed change first. **Pause wave** parks work; a reviewed paused wave shows **Awaiting closure**. | You. Only the operator approves a close. | Close refuses without your signoff, a required approval, or with an unchecked acceptance criterion. In the Wavefoundry framework repository itself, close also needs a current, passing framework test run; in your project that check does nothing. |
+
+The full facts for each stage, including what runs automatically, are in [Lifecycle At A Glance](.wavefoundry/framework/seeds/001-framework-lifecycle-overview.md#lifecycle-at-a-glance).
+
 ---
 
 ## Who this is for
@@ -179,13 +193,25 @@ If you already work spec-first, the documents map across like this. The Spec Kit
 
 | What it is | Wavefoundry | Spec Kit | OpenSpec |
 | --- | --- | --- | --- |
-| The document that plans one piece of work | A **spec**: one file, `docs/plans/<id>.md`, moved into its wave folder on admission | A feature directory `specs/<feature>/` holding `spec.md`, `plan.md` and `tasks.md` | A change proposal folder `openspec/changes/<name>/` holding `proposal.md`, delta specs, `design.md` and `tasks.md` |
+| The document that plans one piece of work | A **spec**: one file, `docs/plans/<id>.md`, moved into its wave folder on admission | A feature, with its own `spec.md`, `plan.md` and `tasks.md` | A change proposal folder `openspec/changes/<name>/` holding `proposal.md`, delta specs, `design.md` and `tasks.md` |
 | The durable description of current behavior | A **behavior contract** under `docs/specs/` | None mandated; the team chooses what happens to the feature documents after delivery, and the constitution persists | Main specs under `openspec/specs/` |
-| The unit that is reviewed and delivered together | A **wave**: one or more changes, readied, reviewed and closed as a bundle | No core equivalent found | No equivalent found |
+| The unit that is reviewed and delivered together | A **wave**: one or more specs, readied, reviewed and closed as a bundle | No core equivalent found | No equivalent found |
 | What happens when the work is done | The spec stays in its closed wave folder as the record | Left to the team's retention policy | The change folder is archived and its deltas merge into the main specs |
 
+A Spec Kit feature corresponds to one Wavefoundry spec, not to a wave. The commands map like this. They were checked on 2026-11-22 against the [Spec Kit README](https://github.com/github/spec-kit), its [command reference](https://github.github.io/spec-kit/reference/agentic-sdd.html) and its [quickstart](https://github.github.io/spec-kit/quickstart.html). Spec Kit is invoked as `/speckit.<name>`, or `/speckit-<name>` in Copilot skills mode.
 
-If you use Spec Kit to specify, clarify, plan, and break work into tasks, you can make those requests in Wavefoundry too. **Plan spec** keeps the decisions in one document. Product can stop after defining behavior, and engineering can resume with the approach and tasks. Follow [the health-check example](#fix-a-bug-or-add-an-enhancement) to see that handoff.
+| Spec Kit command | Wavefoundry step | The difference |
+| --- | --- | --- |
+| `constitution` | **Init Wavefoundry** writes `AGENTS.md`, the architecture docs and behavior contracts | Wavefoundry derives the operating rules from your repository; there is no single principles file |
+| `specify`, `plan`, `tasks` | **Plan spec** | One command and one document hold the requirements, the approach and the tasks |
+| `clarify` | **Review plan** (optional) | It records no approval and gates nothing |
+| `checklist` | **Prepare wave** readiness reviewers and council | There is no checklist file; reviewers record approvals, and implementation refuses without the required ones |
+| `analyze` | **Prepare wave** | Readiness is required, not optional |
+| `implement` | **Implement wave** | It builds every spec in the wave; by default one wave is open at a time |
+| `converge` | **Review wave** | Delivery reviewers record findings in a review ledger; review does not append tasks |
+| none | **Create wave**, **Add spec to wave**, **Close wave** | A wave bundles specs for review and delivery, and only the operator approves its close |
+
+If you use Spec Kit to specify, clarify, plan, and break work into tasks, you can make those requests in Wavefoundry too. **Plan spec** keeps the decisions in one document. Product can stop after defining behavior, and engineering can resume with the approach and tasks. Follow [the health-check example](#fix-a-bug-or-add-an-enhancement) to see that handoff, and [the five stages](#the-lifecycle-in-five-stages) for what happens next.
 
 ---
 
@@ -193,7 +219,7 @@ If you use Spec Kit to specify, clarify, plan, and break work into tasks, you ca
 
 **A path from vision to delivery.** `Envision project` establishes the product destination and an adaptable roadmap. Optional `Plan arc` records a bounded outcome that can span multiple waves. `Plan spec` defines the individual changes, and waves carry those changes through implementation and review. Horizons describe progress toward the vision; arcs connect useful outcomes to the waves that advance them. These records support planning today; autonomous coordination of a program remains part of the roadmap.
 
-**A structured delivery lifecycle** — plan spec(s) → prepare wave → implement → review → close. Two phases are enforced gates. `Prepare wave` refuses to advance an incomplete spec. `Close wave` refuses without operator signoff.
+**A structured delivery lifecycle**: Plan spec, Prepare wave, Implement wave, Review wave, Close wave. Implementation refuses until readiness is approved, by default only one wave is open at a time, and `Close wave` refuses without operator signoff. See [the five stages](#the-lifecycle-in-five-stages).
 
 **A local MCP server with working knowledge of your codebase.** The same server that runs the lifecycle indexes your code and docs locally and exposes them as agent tools:
 
@@ -281,12 +307,13 @@ A *spec* explains why the team needs a change, what it covers and how the team w
 
 ### Lifecycle
 
-A spec enters the pipeline by being admitted into a wave. The wave moves through five phases — **plan spec(s)**, **prepare wave**, **implement**, **review**, **close** — and two of those phases are *enforced gates*:
+A spec enters the pipeline by being admitted into a wave. The wave moves through five stages: **Plan spec**, **Prepare wave**, **Implement wave**, **Review wave** and **Close wave**. Three of them refuse to proceed when prerequisites are missing:
 
-- **`Prepare wave`** blocks until docs lint passes. AC priority must be recorded on every admitted change. When configured, a structured council readiness review must be recorded.
-- **`Close wave`** blocks until every required reviewer lane has recorded a signoff and the operator has confirmed closure.
+- **Readiness:** implementation refuses until **Prepare wave** has recorded the required readiness approval, normally from the readiness Wave Council.
+- **Activation:** by default only one wave is open at a time; readying more waves does not open them.
+- **Closure:** `Close wave` refuses without the required approvals, the operator's signoff and checked acceptance criteria.
 
-The agent cannot route around either gate.
+The agent cannot route around these gates. The facts for each stage are in [Lifecycle At A Glance](.wavefoundry/framework/seeds/001-framework-lifecycle-overview.md#lifecycle-at-a-glance).
 
 ### Waves
 
@@ -367,14 +394,15 @@ Hosts marked **skills** also receive the `/wf-…` lifecycle skills as project-l
 
 ## Day-to-day phrases
 
-You'll use about six phrases day-to-day; the rest of the surface is there when you need it.
+You'll use about seven phrases day-to-day; the rest of the surface is there when you need it.
 
-- `Plan spec` — author a spec
-- `Create wave` — open a delivery unit
-- `Add spec to wave` — admit a change to the active wave
-- `Prepare wave` — readiness gate before implementation
-- `Implement wave` — coordinator-managed implementation loop with review lanes
-- `Close wave` — structured closure with operator signoff
+- `Plan spec`: author a spec
+- `Create wave`: create a planned delivery record
+- `Add spec to wave`: admit a spec to a named wave
+- `Prepare wave`: readiness gate before implementation
+- `Implement wave`: open the wave and run the coordinator-managed implementation loop
+- `Review wave`: run the required delivery reviewers
+- `Close wave`: structured closure with operator signoff
 
 The [full tool surface](docs/prompts/index.md) covers wave admin, code search, graph queries, dashboard control, gate management, and adversarial review. The catalog is searchable from inside the agent (`docs_search`, `code_ask`).
 

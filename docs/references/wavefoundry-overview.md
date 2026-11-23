@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-19
+Last verified: 2026-11-22
 
 ## Vision and Roadmap
 
@@ -57,14 +57,15 @@ Waves address this by making the lifecycle explicit:
 
 ```
 Plan spec       → Author a spec with rationale, requirements, ACs, and scope
-Create wave        → Create a delivery record and admit the change
+Create wave        → Create a planned delivery record
+Add spec to wave   → Admit the spec into the wave
 Prepare wave       → Run a readiness check; the gate must pass before any code is touched
 Implement wave     → Open a readied wave and execute its admitted changes
 Review wave        → Run required reviewer lanes; record structured verdicts with severity
 Close wave         → Seal with operator signoff; validate memory candidates; promote durable memory
 ```
 
-Readiness, activation and closure have mechanical gates; workflow guidance directs the surrounding authoring and review work. `wf_close_wave` will not succeed without operator signoff. If the project declares `security-review` as a required lane, `wf_close_wave` will not succeed without a recorded `security-review` signoff. The agent cannot talk its way past these checks.
+These group into five stages (Plan spec, Prepare wave, Implement wave, Review wave, Close wave), owned by the **Lifecycle At A Glance** table in `.wavefoundry/framework/seeds/001-framework-lifecycle-overview.md`. Readiness, activation and closure have mechanical gates; workflow guidance directs the surrounding authoring and review work. `wf_close_wave` will not succeed without operator signoff. If the project declares `security-review` as a required lane, `wf_close_wave` will not succeed without a recorded `security-review` signoff. The agent cannot talk its way past these checks.
 
 ### The spec
 

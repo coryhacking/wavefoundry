@@ -42,7 +42,7 @@ Do not conflate persona agents with agent roles. They are complementary, not int
 
 - A wave should evaluate persona participation during the readiness gate before implementation begins.
 - Persona lanes selected by readiness evaluation are gating for that wave's relevant checkpoints rather than optional commentary.
-- The same readiness evaluation should be rerun during final review so implementation drift cannot bypass newly relevant persona concerns.
+- Final review evaluates persona lanes newly applicable to the delivered scope, so implementation drift cannot bypass newly relevant persona concerns. This is not a blanket rerun of an unchanged readiness council.
 - Review gates remain defined by project policy in the repository; persona agents add the user perspective but do not replace reviewer lanes.
 
 ## Seeded Repository Expectations

@@ -44,12 +44,15 @@ Four terms name the moving parts. A **spec** is the document that plans one chan
 
 ## Lifecycle At A Glance
 
-1. Plan the wave — define scope, admit changes, establish review gates.
-2. Ready the wave — validate that admitted specs are already wave-owned, repair placement drift if needed, evaluate the admitted changes, select required implementer, reviewer, persona, and council lanes, run the Wave Council readiness pass when the project enables it, and block start until readiness is clean.
-3. Implement the wave — consume the current readiness approval, then implement and run focused computational checks for all admitted changes.
-4. Review the wave — run required review lanes as a unified set, run the Wave Council delivery pass when the project enables it, and rerun readiness at final review.
-5. Close and commit the wave — record completion, reconcile wave-owned specs and reports, commit the result.
-6. Either plan the next wave (carry incomplete changes forward) or close out the work.
+The lifecycle has five stages. This table is the single owner of their facts: the README, the local lifecycle overview and the dashboard dialogs copy their rows from it, and other surfaces use the same stage names and link here. A gate marked **every repository** refuses in any seeded project; other gates say where they apply.
+
+| Stage | What you do | What runs automatically | Councils and reviewers | Gates: where each applies and how to clear it | What comes next |
+| --- | --- | --- | --- | --- | --- |
+| 1. **Plan spec** | Ask for **Plan spec** (`wf_new_<kind>`). The agent writes one spec in `docs/plans/<change-id>.md` holding the outcome, requirements, acceptance criteria and tasks. Optional: **Review plan** walks each open decision with you, one question at a time. | The change id is minted, and changed docs are linted as they are edited. | None. **Review plan** records no signoff and gates nothing. | **Every repository:** no repository code is edited until the spec is admitted and its wave is readied (the stage gate). | Prepare wave. |
+| 2. **Prepare wave** | **Create wave** (`wf_create_wave`), **Add spec to wave** (`wf_add_change`), then **Prepare wave** (`wf_prepare_wave`; alias **Ready wave**). Any number of waves can be readied at once. | Docs validation and gardening, wave ownership of the admitted specs, selection of readiness lanes from declared review targets and requested lanes, and the review-policy receipt. | In ordinary review, the readiness specialist lanes record approvals and the readiness Wave Council runs: a `red-team` adversarial primer, the configured fixed seats and one rotating seat, then `council-chair` synthesis into a `council-readiness` approval. An operator-selected small change uses an independent code reviewer instead. A project with review disabled runs no council. | **Every repository:** implementation refuses until the readiness approval the current receipt requires is recorded. Editing a reviewed section of a spec rotates the receipt and lapses those approvals; record them again and call `wf_prepare_wave` again. Project-configured required sensors, when set, must pass. Readying never takes the OPEN slot. | Implement wave. |
+| 3. **Implement wave** | **Implement wave** (`wf_implement_wave`). Mark each task and acceptance criterion as it completes. | The wave becomes OPEN; memory advisories for the files in scope are briefed; focused computational checks run. | None routinely; reviewer lanes run in Review wave. | **Every repository:** by default one wave is OPEN at a time, checked when a wave is activated (`record_paths.OPEN_CONTAINER_SCOPE`); pause or close the OPEN wave first. **Host hooks, framework maintenance only:** `framework_edit_allowed` and `seed_edit_allowed` guard framework and seed paths; open them with `wf_open_gate` and close them after. While closed, the host refuses those edits. They do not gate product code. | Review wave. |
+| 4. **Review wave** | **Review wave** (`wf_review_wave`). | Findings and approvals are recorded as typed events in the wave's `events.jsonl` ledger and projected into the wave record. | The required delivery specialist lanes. The delivery Wave Council runs only when the receipt lists `council-delivery`: `wave_review.delivery_mode` `targeted` (the shipped default) escalates on boundary triggers such as release, trust or permission boundary, and cross-platform changes. The readiness council is not rerun; final review re-evaluates the lanes newly applicable to the delivered scope. | A blocking finding returns the wave to implementation; each repair needs independent reverification by the lane that raised it. | Close wave, or Pause wave. |
+| 5. **Close wave** | Review the evidence, record your operator signoff, and tell the agent to close (`wf_close_wave`). Optional **Close spec** (`wf_close_change`) first closes one reviewed change inside the OPEN wave; it is a workflow step, not a gate. **Pause wave** (`wf_pause_wave`) parks work in the handoff; a paused wave whose review is complete shows **Awaiting closure** and closes without reopening. | Changes are reconciled, the wave folder becomes the permanent record, and memory candidates are validated. The operator commits the result. | No new council; the operator signs off. | **Every repository:** close refuses without operator signoff or a required delivery approval, or with any acceptance criterion or task still `[ ]`; project-configured required sensors, when set, must pass; agents close only on the operator's explicit instruction. **Framework source repository only:** the framework test receipt must be current and green; in a project that consumes the packaged framework, this check is a no-op. | Plan the next wave, carrying forward unfinished work. |
 
 - **Execution ordering:** Steps 3–4 are distinct: implementation produces complete evidence first, then **`Review wave`** runs the required inferential lanes. A high-risk boundary may request the named focused checkpoint below, but routine reviewer passes belong to Review. **Close** verifies that the delivery review is current.
 
@@ -58,9 +61,7 @@ Four terms name the moving parts. A **spec** is the document that plans one chan
 ```mermaid
 flowchart TD
     A[Start work request] --> B[Read canonical change workflow and classify the work]
-    B --> C{Needs structured wave planning?}
-    C -->|No| D[Stay in the smaller change workflow]
-    C -->|Yes| E[Create specs for each admitted change]
+    B --> E[Create specs for each admitted change]
     E --> F[Define the wave: objective, admitted changes, review gates, dependencies]
     F --> G[Confirm assumptions, completion criteria, and participant roster]
     G --> H{Wave scope bounded and implementation-ready?}
@@ -69,7 +70,7 @@ flowchart TD
     H -->|Yes| J[Wave is ready for delivery]
 ```
 
-- Start by classifying the work and deciding whether it can stay in the smaller default workflow or needs the full wave lifecycle.
+- Start by classifying the work. Every repository-code change goes through the wave lifecycle regardless of apparent simplicity; the operator may select the small-change review lane at admission.
 - Create a consolidated spec (`docs/plans/<change-id>.md`) for each tracked change admitted into the wave, then move the admitted docs into `docs/waves/<wave-id>/` during `Add spec to wave` before implementation begins.
 - Define the wave record under `docs/waves/<wave-id>/wave.md` with: objective, admitted changes as `## Changes`, completion criteria, review checkpoints, and participant roster.
 - A wave may admit one or more changes when their assumptions, dependencies, and review timing are compatible enough to execute together.
@@ -175,7 +176,7 @@ The implement loop has three distinct levels. The finding type — not severity 
 
 The structured Thought→Action→Observe record in `## Progress Log` means any session can resume a paused wave by reading the last Observation and computing the next Thought — without reconstructing coordinator state from chat history. Level 2 is a bounded named checkpoint inside implementation; only Level 3 sends the wave back to planning or re-Prepare.
 
-## 4. Close And Commit The Wave
+## 4. Close The Wave
 
 ```mermaid
 flowchart TD
@@ -184,7 +185,7 @@ flowchart TD
     C --> D[Archive reports from the wave period into the wave folder]
     D --> E[Update wave.md with final status, Completed at, and review checkpoints]
     E --> F[Promote durable lessons to memory records and core memory docs]
-    F --> G[Commit the wave result]
+    F --> G[Operator commits the wave result]
     G --> H{More work remains under these or related changes?}
     H -->|Yes| I[Carry incomplete changes forward in the next wave]
     I --> J[Plan the next wave]
@@ -195,7 +196,7 @@ flowchart TD
 - Ensure all admitted change plan files were moved from `docs/plans/` into `docs/waves/<wave-id>/` during `Add spec to wave`, then leave them there through closure.
 - Move all reports from `docs/reports/` that fall within the wave's active period into `docs/waves/<wave-id>/` and summarize them in `## Reports` in `wave.md`.
 - Record `Completed at` in `wave.md` when the wave is formally closed.
-- Rerun the readiness evaluation during final review before closure so new reviewer or persona triggers introduced during implementation do not get skipped.
+- Final review evaluates reviewer and persona lanes newly applicable to the delivered scope, so triggers introduced during implementation are not skipped. This is not a blanket rerun of an unchanged readiness council.
 - The wave folder (`docs/waves/<wave-id>/`) becomes the self-contained permanent archive.
 - If changes remain, carry them forward in the next wave — do not let incomplete work drift without a new wave home.
 - If no work remains, close out: promote durable behavior into canonical docs, persona guidance, workflow memory, and typed memory records.

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-19
+Last verified: 2026-11-22
 
 The public catalog of shortcut phrases you can say to your agent. Each phrase routes to the documented prompt body for that command. See `AGENTS.md` for the agent-side routing table.
 
@@ -44,7 +44,7 @@ Stop at the requested step. Defining behavior or breaking it into tasks authoriz
 | **Plan arc** | Plan or resume a bounded outcome in one concise arc record linked to waves; alias Plan initiative; no new approval gate | `docs/prompts/plan-arc.prompt.md` |
 | **Plan spec** / **Plan change** | Author a consolidated spec | `docs/prompts/plan-spec.prompt.md` |
 | **Create wave** | Create a wave record | `docs/prompts/create-wave.prompt.md` |
-| **Add spec to wave** / **Add change to wave** | Admit a spec into the active wave | `docs/prompts/add-spec-to-wave.prompt.md` |
+| **Add spec to wave** / **Add change to wave** | Admit a spec into a named wave | `docs/prompts/add-spec-to-wave.prompt.md` |
 | **Remove spec from wave** / **Remove change from wave** | Remove an admitted change from the wave | `docs/prompts/remove-spec-from-wave.prompt.md` |
 | **Prepare wave** / **Ready wave** | Confirm readiness; validate/repair spec placement; AC priority | `docs/prompts/prepare-wave.prompt.md` |
 | **Implement wave** | Coordinator-managed multi-change implementation loop | `docs/prompts/implement-wave.prompt.md` |
@@ -90,8 +90,8 @@ The following phrases are accepted for backwards compatibility but redirect to p
 
 ## Usage Notes
 
-- **Full lifecycle required before code:** Every non-trivial code change needs a spec, wave admission, and a clean **Prepare wave** before implementation. See `AGENTS.md` **Stage Gate (repository code)**.
-- **Wave Council:** when `docs/workflow-config.json` `wave_review.enabled` is true, every wave requires a council readiness pass during **Prepare wave**. Delivery Council during **Review wave** / before **Close wave** follows `delivery_mode`: `targeted` is the default and escalates full Council for upgrade/release, permission/trust-boundary, cross-platform, and other shared boundary triggers; `universal` applies it to every wave; `disabled` requires review disabled. These meta-review checkpoints do not replace the persisted specialist roster.
+- **Full lifecycle required before code:** Every repository-code change, regardless of apparent simplicity, needs a spec, wave admission, and a readied wave before implementation. See `AGENTS.md` **Stage Gate (repository code)**. The five stages (**Plan spec**, **Prepare wave**, **Implement wave**, **Review wave**, **Close wave**) and their gates are owned by the **Lifecycle At A Glance** table in `.wavefoundry/framework/seeds/001-framework-lifecycle-overview.md`.
+- **Wave Council:** when `docs/workflow-config.json` `wave_review.enabled` is true, every wave requires a council readiness pass during **Prepare wave**, except an operator-selected small change, which requires an independent code reviewer instead. Delivery Council during **Review wave** / before **Close wave** follows `delivery_mode`: `targeted` is the default and escalates full Council for upgrade/release, permission/trust-boundary, cross-platform, and other shared boundary triggers; `universal` applies it to every wave; `disabled` requires review disabled. These meta-review checkpoints do not replace the persisted specialist roster.
 - **Implement wave vs Implement spec:** Use **Implement wave** for multiple admitted changes; use **Implement spec** for a single docs-first change.
 - **Concurrency and protected surfaces:** See `docs/prompts/agent-routing-concurrency.prompt.md` for read-only vs write-owning lane rules.
 - **Review plan vs Review wave:** After **Plan spec**, use optional **Review plan** to walk unresolved branches before or after admission and before implementation; it records no typed signoff and satisfies no gate. **Review wave** is the later lifecycle command that runs the open wave's required lanes and records typed evidence.

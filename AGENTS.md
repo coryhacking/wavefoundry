@@ -117,7 +117,7 @@ Public Wave Framework commands for Wavefoundry's self-hosted surface. Full detai
 | **Plan arc** | Plan or resume a bounded outcome in one concise arc record linked to waves; alias Plan initiative; no new approval gate | `docs/prompts/plan-arc.prompt.md` |
 | **Plan spec** / **Plan change** | Author a consolidated spec | `docs/prompts/plan-spec.prompt.md` |
 | **Create wave** | Create a wave record | `docs/prompts/create-wave.prompt.md` |
-| **Add spec to wave** / **Add change to wave** | Admit a spec into the active wave | `docs/prompts/add-spec-to-wave.prompt.md` |
+| **Add spec to wave** / **Add change to wave** | Admit a spec into a named wave | `docs/prompts/add-spec-to-wave.prompt.md` |
 | **Remove spec from wave** / **Remove change from wave** | Remove an admitted change | `docs/prompts/remove-spec-from-wave.prompt.md` |
 | **Prepare wave** / **Ready wave** | Confirm readiness before implementation | `docs/prompts/prepare-wave.prompt.md` |
 | **Implement wave** | Coordinator-managed multi-change implementation | `docs/prompts/implement-wave.prompt.md` |

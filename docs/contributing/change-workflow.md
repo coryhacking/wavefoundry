@@ -2,16 +2,16 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-22
 
 ## Default Change Path
 
-All non-trivial work follows this sequence. Do not edit repository code before step 4 (Prepare wave).
+Every repository-code change follows this sequence, regardless of apparent simplicity. Do not edit repository code before step 4 (Prepare wave). The steps group into the five lifecycle stages (**Plan spec**, **Prepare wave**, **Implement wave**, **Review wave**, **Close wave**); their gates and councils are owned by the **Lifecycle At A Glance** table in `.wavefoundry/framework/seeds/001-framework-lifecycle-overview.md`.
 
-1. **Plan spec** — write a consolidated spec at `docs/plans/<change-id>.md` using `docs/plans/plan-template.md`. Generate a change ID with the MCP `wave_new_<kind>` tool (it dedupes against on-disk IDs); CLI fallback when MCP is unavailable: `wf lifecycle-id --kind <kind> --slug <slug>`.
+1. **Plan spec** — write a consolidated spec at `docs/plans/<change-id>.md` using `docs/plans/plan-template.md`. Generate a change ID with the MCP `wf_new_<kind>` tool (it dedupes against on-disk IDs); CLI fallback when MCP is unavailable: `wf lifecycle-id --kind <kind> --slug <slug>`.
 2. **Create wave** — create `docs/waves/<wave-id>/wave.md`. Generate a wave ID with the MCP `wf_create_wave` tool; CLI fallback when MCP is unavailable: `wf lifecycle-id --kind wave --slug <slug>`.
 3. **Add spec to wave** — admit the change into the wave and relocate the active spec from `docs/plans/` into `docs/waves/<wave-id>/`.
-4. **Prepare wave** — confirm readiness: validate admitted-doc placement, repair any staged-only doc, confirm all admitted changes are documented, select review lanes, record AC priority. The wave must have a clean Prepare wave pass before implementation begins.
+4. **Prepare wave** — confirm readiness: validate admitted-doc placement, repair any staged-only doc, confirm all admitted changes are documented, select review lanes, record AC priority. Implementation refuses until the readiness approval the current receipt requires is recorded: `council-readiness` in ordinary review, or an independent code reviewer for an operator-selected small change.
 5. **Implement wave / Implement spec** — execute admitted changes and focused computational verification; use an exceptional named checkpoint only at a high-risk boundary.
 6. **Review wave** — after implementation evidence is complete, all required inferential lanes (code, QA, architecture, etc.) must produce findings or be explicitly deferred with rationale; blocking findings return to implementation.
 7. **Close spec** (per change, optional) then **Close wave** (the only wave close): all changes implemented, complete, or deferred; validate memory candidates; promote memory to canonical docs; clear session handoff.
@@ -109,7 +109,7 @@ Canonical source: `.wavefoundry/framework/seeds/170-plan-spec.prompt.md`,
 
 ## Documentation-Only Changes
 
-Changes confined to `docs/` with no impact on framework behavior, seed prompts, or platform surfaces may skip the stage gate with an explicit operator waiver recorded in the session handoff or spec.
+Documentation-only edits under `docs/` with no behavioral impact are outside the repository-code stage gate (see `AGENTS.md` **Stage Gate**). An operator may also waive the gate explicitly for a named scope; record that waiver in the spec or `docs/agents/session-handoff.md`.
 
 ## Git Commits
 
