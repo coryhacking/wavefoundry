@@ -74,7 +74,7 @@ def _read(repo_root: Path) -> dict:
 def _write(repo_root: Path, data: dict) -> None:
     path = _overrides_path(repo_root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
 
 
 def _status(data: dict) -> None:

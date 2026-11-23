@@ -448,9 +448,11 @@ def relative_to_root(root: Path, path: Path) -> str:
 
 
 def write_if_changed(path: Path, content: str) -> bool:
-    existing = path.read_text(encoding="utf-8") if path.exists() else None
-    if existing == content:
+    """Write a generated report as LF bytes on every platform when its bytes
+    change (wave 244in, change 244fj: generated files are LF)."""
+    existing = path.read_bytes() if path.exists() else None
+    if existing == content.encode("utf-8"):
         return False
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    path.write_text(content, encoding="utf-8", newline="\n")
     return True

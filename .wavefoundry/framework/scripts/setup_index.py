@@ -1429,7 +1429,7 @@ def _merged_trust_bundle() -> "str | None":
     try:
         _CA_MERGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         if not out.exists():
-            out.write_text(payload, encoding="utf-8")
+            out.write_text(payload, encoding="utf-8", newline="\n")
     except OSError:
         return None
     return str(out)
@@ -2571,7 +2571,7 @@ def _spawn_background_semantic_build(root: Path, args: argparse.Namespace, conte
     finally:
         log_file.close()
     pid_path = root / ".wavefoundry" / "index" / "background-build.pid"
-    pid_path.write_text(str(proc.pid), encoding="utf-8")
+    pid_path.write_text(str(proc.pid), encoding="utf-8", newline="\n")
     label = "Code" if content == "code" else "Docs"
     print(
         f"{label} index build started in background (PID {proc.pid}).\n"
@@ -3130,7 +3130,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             _bg_pid = root / ".wavefoundry" / "index" / "background-build.pid"
             _bg_pid.parent.mkdir(parents=True, exist_ok=True)
-            _bg_pid.write_text(str(os.getpid()), encoding="utf-8")
+            _bg_pid.write_text(str(os.getpid()), encoding="utf-8", newline="\n")
         except OSError:
             pass
     _code_only = args.code_only or background_docs

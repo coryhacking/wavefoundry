@@ -94,7 +94,7 @@ def _prune_meta_json(framework_dir: Path, removed: set[str], *, dry_run: bool = 
     if not changed or dry_run:
         return changed
 
-    meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+    meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8", newline="\n")
     return True
 
 

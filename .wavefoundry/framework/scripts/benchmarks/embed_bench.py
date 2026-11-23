@@ -578,7 +578,7 @@ def main() -> None:
             report["models"].append({"model": model_name, "error": str(exc)})
 
     out_path = Path(args.report)
-    out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    out_path.write_text(json.dumps(report, indent=2), encoding="utf-8", newline="\n")
     print(f"\nReport written to {out_path}", flush=True)
 
     # Print summary table

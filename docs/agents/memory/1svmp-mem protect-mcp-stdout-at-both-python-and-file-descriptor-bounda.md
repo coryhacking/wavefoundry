@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-11-22
 
 Memory ID: `1svmp-mem protect-mcp-stdout-at-both-python-and-file-descriptor-bounda`
 Kind: `environment_gotcha`
 Confidence: 0.98
 Created: 2026-07-18
-Updated: 2026-07-18
+Updated: 2026-11-22
 Source event: `decision-log:1p9io-bug windows-stdout-purity:e4f5e70483942e76`
 Validation: promote
 Validated by: agent

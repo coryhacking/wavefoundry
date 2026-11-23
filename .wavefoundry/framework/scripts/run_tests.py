@@ -341,7 +341,7 @@ def _write_cache(inputs_hash: str, test_count: int,
         }
     try:
         tmp = _CACHE_FILE.with_name(_CACHE_FILE.name + ".tmp")
-        tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
         os.replace(tmp, _CACHE_FILE)
     except Exception:  # noqa: BLE001
         pass  # cache write failure is non-fatal
@@ -1054,7 +1054,7 @@ def _write_timings_manifest(path_str: str, source_digest: str,
     try:
         path = Path(path_str)
         tmp = path.with_name(path.name + ".tmp")
-        tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
         os.replace(tmp, path)
     except Exception as exc:  # noqa: BLE001
         return f"failed to write timings manifest {path_str}: {exc}"
@@ -1255,7 +1255,7 @@ def _acquire_run_lock():
     ("already running" busy diagnostic) is preserved unchanged.
     """
     try:
-        lock_file = _LOCK_FILE.open("a+", encoding="utf-8")
+        lock_file = _LOCK_FILE.open("a+", encoding="utf-8", newline="\n")
     except Exception as exc:  # noqa: BLE001
         return None, f"Could not open test runner lock file {_LOCK_FILE}: {exc}"
 

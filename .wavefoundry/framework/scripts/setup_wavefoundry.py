@@ -257,8 +257,9 @@ def _provision_workflow_defaults_if_absent(root: Path) -> int:
             cfg_is_file = stat.S_ISREG(os.stat(cfg).st_mode)
         except (FileNotFoundError, NotADirectoryError):
             cfg_is_file = False
-        data = json.loads(cfg.read_text(encoding="utf-8")) if cfg_is_file else {}
-    except (OSError, json.JSONDecodeError, RuntimeError) as exc:
+        original = cfg.read_bytes().decode("utf-8") if cfg_is_file else ""
+        data = json.loads(original) if cfg_is_file else {}
+    except (OSError, ValueError, RuntimeError) as exc:
         print(
             f"ERROR: workflow config defaults could not be provisioned ({exc}); "
             "fix the JSON or framework install assets and re-run setup.",
@@ -285,10 +286,14 @@ def _provision_workflow_defaults_if_absent(root: Path) -> int:
     # operator values survive as-is (`ensure_ascii=False`) instead of being
     # rewritten as \uXXXX escapes; a write-time OSError surfaces as an ERROR
     # line rather than a traceback.
+    import line_endings  # the in-place line-ending rule (wave 244in, change 244fj)
     import upgrade_wavefoundry
 
+    # Wave 244in (244fj): an existing config keeps its own line endings; a
+    # missing one is created LF on every platform.
+    merged = line_endings.merge(original, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
     try:
-        upgrade_wavefoundry._atomic_write_json(cfg, data)
+        upgrade_wavefoundry._atomic_write_json(cfg, merged)
     except OSError as exc:
         print(f"ERROR: could not write {cfg}: {exc}", file=sys.stderr)
         return 1

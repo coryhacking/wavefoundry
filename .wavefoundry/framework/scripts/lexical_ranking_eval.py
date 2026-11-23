@@ -466,7 +466,7 @@ def write_report(report: Mapping[str, Any], destination: Path) -> str:
             "report_destination_exists",
             f"report destination already exists and is never overwritten: {destination}")
     destination.write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
     return payload["content_sha256"]
 
 

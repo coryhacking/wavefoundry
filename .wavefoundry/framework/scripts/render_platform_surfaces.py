@@ -22,6 +22,7 @@ if __name__ == "__main__":
     bytecode_cache.configure()
 
 import contained_files  # contained repository reads and writes (wave 200ey, change 1zyv2)
+import line_endings  # the in-place line-ending rule (wave 244in, change 244fj)
 import subprocess_util
 
 
@@ -2055,9 +2056,11 @@ def render_claude_settings(repo_root: Path) -> None:
     legacy_commands = mcp_tool_extensions.legacy_claude_hook_commands(str(repo_root.resolve()))
     settings_path = repo_root / ".claude" / "settings.json"
     existing: dict[str, object] = {}
+    disk = ""
     if settings_path.exists():
+        disk = read_repo_text(repo_root, settings_path, translate_newlines=False)
         try:
-            loaded = json.loads(read_repo_text(repo_root, settings_path))
+            loaded = json.loads(disk)
             if isinstance(loaded, dict):
                 existing = loaded
         except json.JSONDecodeError:
@@ -2132,7 +2135,11 @@ def render_claude_settings(repo_root: Path) -> None:
         existing["attribution"] = {"commit": ""}
     elif isinstance(attribution, dict) and "commit" not in attribution:
         attribution["commit"] = ""
-    write_text(settings_path, json.dumps(existing, indent=2) + "\n", root=repo_root)
+    # Wave 244in (244fj): existing lines keep their ending; new lines take the
+    # file's majority ending; a new file is LF.
+    new_lf = json.dumps(existing, indent=2) + "\n"
+    if new_lf != line_endings.to_lf(disk):
+        write_text(settings_path, line_endings.merge(disk, new_lf), root=repo_root)
 
 
 # ── Renderer-owned MCP permission allowlist (wave 1u2b0 / 1u2az) ──────────────
@@ -2220,9 +2227,11 @@ def render_claude_permissions(repo_root: Path) -> None:
     """
     settings_path = repo_root / ".claude" / "settings.json"
     existing: dict[str, object] = {}
+    disk = ""
     if settings_path.exists():
         try:
-            loaded = json.loads(read_repo_text(repo_root, settings_path))
+            disk = read_repo_text(repo_root, settings_path, translate_newlines=False)
+            loaded = json.loads(disk)
         except json.JSONDecodeError:
             # Never rebuild a corrupt operator settings file from scratch here:
             # writing permissions into a fresh dict would DELETE operator
@@ -2305,7 +2314,9 @@ def render_claude_permissions(repo_root: Path) -> None:
     permissions["allow"] = kept
     existing["permissions"] = permissions
     existing[PERMISSIONS_PROVENANCE_KEY] = sorted(new_claims)
-    write_text(settings_path, json.dumps(existing, indent=2) + "\n", root=repo_root)
+    new_lf = json.dumps(existing, indent=2) + "\n"  # wave 244in (244fj)
+    if new_lf != line_endings.to_lf(disk):
+        write_text(settings_path, line_endings.merge(disk, new_lf), root=repo_root)
 
 
 def _merge_mcp_server(target: Path, stanza: dict, *, root: Path) -> None:
@@ -2316,16 +2327,22 @@ def _merge_mcp_server(target: Path, stanza: dict, *, root: Path) -> None:
     Safe to call repeatedly — subsequent calls are idempotent for the same stanza.
     """
     existing: dict[str, object] = {}
+    disk = ""
     if target.exists():
+        disk = read_repo_text(root, target, translate_newlines=False)
         try:
-            loaded = json.loads(read_repo_text(root, target))
+            loaded = json.loads(disk)
             if isinstance(loaded, dict):
                 existing = loaded
         except json.JSONDecodeError:
             existing = {}
     existing.setdefault("mcpServers", {})
     existing["mcpServers"]["wavefoundry"] = stanza
-    write_text(target, json.dumps(existing, indent=2) + "\n", root=root)
+    # Wave 244in (244fj): write only when the LF content changes; existing lines
+    # keep their ending, new lines take the file's majority ending.
+    new_lf = json.dumps(existing, indent=2) + "\n"
+    if new_lf != line_endings.to_lf(disk):
+        write_text(target, line_endings.merge(disk, new_lf), root=root)
 
 
 def render_mcp_json(repo_root: Path) -> None:
@@ -2429,8 +2446,10 @@ def render_codex_mcp_config(repo_root: Path) -> None:
 
     target = repo_root / ".codex" / "config.toml"
     existing: str | None = None
+    disk = ""
     if target.is_file():
-        existing = read_repo_text(repo_root, target, translate_newlines=False)
+        disk = read_repo_text(repo_root, target, translate_newlines=False)
+        existing = line_endings.to_lf(disk)
     fail_safe_reasons: list[str] = []
     merged = upsert_codex_mcp_config(
         existing, on_fail_safe=fail_safe_reasons.append
@@ -2443,7 +2462,9 @@ def render_codex_mcp_config(repo_root: Path) -> None:
             file=sys.stderr,
         )
         return
-    write_text(target, merged, root=repo_root)
+    # Wave 244in (244fj): the upserted region takes the file's majority ending.
+    if merged != line_endings.to_lf(disk):
+        write_text(target, line_endings.merge(disk, merged), root=repo_root)
 
 
 def render_cursor_hooks(repo_root: Path) -> None:
@@ -2795,8 +2816,10 @@ def render_aiignore(repo_root: Path) -> None:
         ".wavefoundry/framework/*.lock",
     ]
     lines: list[str] = []
+    disk = ""
     if aiignore.exists():
-        for line in read_repo_text(repo_root, aiignore).splitlines():
+        disk = read_repo_text(repo_root, aiignore, translate_newlines=False)
+        for line in line_endings.to_lf(disk).splitlines():
             if ".wavefoundry/framework/seeds/*.prompt.md" in line:
                 continue
             if "Protect seed prompts" in line:
@@ -2840,7 +2863,9 @@ def render_aiignore(repo_root: Path) -> None:
     if rest:
         lines_out.append("")
         lines_out.extend(rest)
-    write_text(aiignore, "\n".join(lines_out).rstrip() + "\n", root=repo_root)
+    new_lf = "\n".join(lines_out).rstrip() + "\n"  # wave 244in (244fj)
+    if new_lf != line_endings.to_lf(disk):
+        write_text(aiignore, line_endings.merge(disk, new_lf), root=repo_root)
 
 
 _GITIGNORE_BEGIN = "# >>> wavefoundry runtime (managed by render_platform_surfaces.py — edits here are overwritten) >>>"
@@ -2971,8 +2996,10 @@ def render_gitignore_block(repo_root: Path) -> None:
     silently failed when a repo was not a git repo at install time and upgrade never backfilled it."""
     gitignore = repo_root / ".gitignore"
     existing: list[str] = []
+    disk = ""
     if gitignore.exists():
-        existing = read_repo_text(repo_root, gitignore).splitlines()
+        disk = read_repo_text(repo_root, gitignore, translate_newlines=False)
+        existing = line_endings.to_lf(disk).splitlines()
 
     preserved: list[str] = []
     in_block = False
@@ -2998,7 +3025,9 @@ def render_gitignore_block(repo_root: Path) -> None:
     if out:
         out.append("")
     out.extend(managed)
-    write_text(gitignore, "\n".join(out).rstrip() + "\n", root=repo_root)
+    new_lf = "\n".join(out).rstrip() + "\n"  # wave 244in (244fj)
+    if new_lf != line_endings.to_lf(disk):
+        write_text(gitignore, line_endings.merge(disk, new_lf), root=repo_root)
 
 
 _GITATTRIBUTES_BEGIN = "# >>> wavefoundry line-endings (managed by render_platform_surfaces.py — edits here are overwritten) >>>"
@@ -3050,8 +3079,10 @@ def render_gitattributes_block(repo_root: Path) -> None:
     propagated to targets before this wave)."""
     gitattributes = repo_root / ".gitattributes"
     existing: list[str] = []
+    disk = ""
     if gitattributes.exists():
-        existing = read_repo_text(repo_root, gitattributes).splitlines()
+        disk = read_repo_text(repo_root, gitattributes, translate_newlines=False)
+        existing = line_endings.to_lf(disk).splitlines()
 
     preserved: list[str] = []
     block_ends = {
@@ -3089,7 +3120,9 @@ def render_gitattributes_block(repo_root: Path) -> None:
     out.extend(preserved)
     out.append("")
     out.extend(managed)
-    write_text(gitattributes, "\n".join(out).rstrip() + "\n", root=repo_root)
+    new_lf = "\n".join(out).rstrip() + "\n"  # wave 244in (244fj)
+    if new_lf != line_endings.to_lf(disk):
+        write_text(gitattributes, line_endings.merge(disk, new_lf), root=repo_root)
 
 
 # Wave 1p6lp: render_upgrade_skill retired. The upgrade skill is a registry
@@ -3345,6 +3378,7 @@ def main(argv: list[str] | None = None) -> int:
                         "partial_skill_delivery": getattr(agent_written, "partial", None),
                         "skill_collisions": getattr(agent_written, "skill_collisions", [])}, indent=1),
             encoding="utf-8",
+            newline="\n",  # generated: LF on every platform (wave 244in, change 244fj)
         )
     return 0
 

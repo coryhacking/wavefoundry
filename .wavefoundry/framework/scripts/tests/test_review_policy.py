@@ -2641,15 +2641,19 @@ class ReviewPolicyCRLFUpgradeTests(unittest.TestCase):
             review_policy_upgrade.apply_review_policy_upgrade(root, plan)
             self.assertEqual(path.read_bytes(), projected)
 
-    def test_stray_crlf_selects_crlf_for_the_whole_upgrade_output(self):
+    def test_stray_crlf_line_keeps_its_ending_and_the_rest_stays_lf(self):
+        # Wave 244in (244fj) supersedes the 208l3 "any CRLF" rule: the stray
+        # CRLF first line keeps its ending, and every other line (existing or
+        # inserted) takes the file's majority ending, LF.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             path = self._wave(root)
             path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n", 1))
             migration = review_policy_upgrade.plan_review_policy_upgrade(root).waves[0]
             for payload in (migration.marked, migration.projected):
-                self.assertIn(b"\r\n", payload)
-                self.assertIsNone(re.search(rb"(?<!\r)\n", payload))
+                self.assertEqual(payload.count(b"\r\n"), 1)
+                self.assertTrue(payload.split(b"\n", 1)[0].endswith(b"\r"))
+                self.assertNotIn(b"\r\r\n", payload)
 
     def test_crlf_ledger_refusal_names_lf_requirement_before_projection(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3343,3 +3347,86 @@ class ReceiptSectionContextTests(unittest.TestCase):
         self.assertNotIn("not attributable", detail)
         del old["review_context"]
         self.assertIn("not attributable", lifecycle_gate_support.receipt_supersession_attribution(state, ["abc12-enh example"]))
+
+
+class ReviewPolicyInPlaceLineEndingTests(unittest.TestCase):
+    """Wave 244in (change 244fj) AC-1: the reconciler, the review-policy
+    upgrade and the status refresh keep each existing line's ending and give
+    inserted lines the file's majority ending, natively and under the
+    Windows-write simulation."""
+
+    def _matrix(self, path, before, after, run):
+        import line_ending_support
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        line_ending_support.run_matrix(
+            self, lambda text: path.write_bytes(text.encode("utf-8")), run,
+            path.read_bytes, before, after,
+        )
+
+    def test_lifecycle_section_reconciliation(self):
+        relative = vocabulary_profile.prompt_doc("implement-wave")
+        legacy, current = next(
+            (old, new)
+            for old, new in review_policy_reconcile.KNOWN_SECTION_REPLACEMENTS[relative]
+            if old == "Required review lanes from readiness must participate during execution."
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            before = f"# Implement wave\n\n{legacy}\n\noperator suffix\n"
+            after = f"# Implement wave\n\n{current}\n\noperator suffix\n"
+
+            def run():
+                self.assertEqual(review_policy_reconcile.reconcile_lifecycle_sections(root), (relative,))
+
+            self._matrix(root / relative, before, after, run)
+
+    def test_upgrade_policy_surface_inserts_block_with_majority_ending(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / review_policy_reconcile.UPGRADE_POLICY_DESTINATION
+            before = "# Upgrade Wavefoundry\n\nOperator body.\n"
+            after = before.rstrip() + "\n\n" + review_policy.UPGRADE_POLICY_BLOCK + "\n"
+            self._matrix(path, before, after, lambda: self.assertEqual(
+                review_policy_reconcile.reconcile_upgrade_policy_surface(root),
+                (review_policy_reconcile.UPGRADE_POLICY_DESTINATION,),
+            ))
+
+    def test_review_policy_upgrade_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "docs/workflow-config.json"
+            before = json.dumps({"keep": 1, "wave_review": {"enabled": True}}, indent=2) + "\n"
+            migrated = {"keep": 1, "wave_review": review_policy.migrate_wave_review_policy({"enabled": True})}
+            after = json.dumps(migrated, indent=2, ensure_ascii=False) + "\n"
+
+            def run():
+                plan = review_policy_upgrade.plan_review_policy_upgrade(root)
+                review_policy_upgrade.apply_review_policy_upgrade(root, plan)
+
+            self._matrix(path, before, after, run)
+
+    def test_crlf_config_with_canonical_content_is_a_no_op(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "docs/workflow-config.json"
+            path.parent.mkdir(parents=True)
+            canonical = {"wave_review": review_policy.migrate_wave_review_policy({"enabled": True})}
+            data = (json.dumps(canonical, indent=2, ensure_ascii=False) + "\n").replace("\n", "\r\n")
+            path.write_bytes(data.encode("utf-8"))
+            plan = review_policy_upgrade.plan_review_policy_upgrade(root)
+            self.assertEqual(plan.config_after, plan.config_before)
+
+    def test_refresh_review_status_blocks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = ReviewPolicyCRLFUpgradeTests._wave(self, root)
+            fresh = path.read_text(encoding="utf-8")
+            before = fresh.replace("no current executed approval", "stale reason", 1)
+            self.assertNotEqual(before, fresh)
+            path.write_text(before, encoding="utf-8")
+            review_policy_upgrade.refresh_review_status_blocks(root)
+            after = path.read_text(encoding="utf-8")
+            self.assertNotEqual(after, before)
+            self._matrix(path, before, after,
+                         lambda: review_policy_upgrade.refresh_review_status_blocks(root))

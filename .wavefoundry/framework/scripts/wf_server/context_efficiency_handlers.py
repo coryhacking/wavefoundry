@@ -15,7 +15,8 @@ import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm
 import index_source_guard
 import record_paths
 from path_containment import contained_path
-from lifecycle_gate_support import _read_wave_record_text
+import line_endings  # the projection keeps each line's ending (wave 244in, change 244fj)
+from lifecycle_gate_support import _read_wave_record_original, _read_wave_record_text
 from lifecycle_lock import _cause_label  # class and errno name, no exception text (wave 1zls7)
 from lifecycle_lock import path_free_exception_text, path_free_text
 from review_evidence import ProjectPublicationUnavailable, publication_unavailable_detail
@@ -192,7 +193,14 @@ def _project_context_efficiency_wave(
             # decision.  Read all three only after acquiring the shared lock;
             # otherwise a concurrent close can be overwritten with sealed=0.
             step = ("read_wave_record", record_target)
-            current, current_read_error = _read_wave_record_text(wave_md, error_root=root)
+            # Wave 244in (244fj): one raw read; the checkpoint blocks render
+            # on its LF text and publish through ``line_endings.merge``.
+            current_original, current_read_error = _read_wave_record_original(
+                wave_md, error_root=root
+            )
+            current = (
+                None if current_original is None else line_endings.to_lf(current_original)
+            )
             if current is None:
                 # Wave 1v0lw: same failed shape the broad handler below
                 # produced, with the sanitized cause.
@@ -246,7 +254,9 @@ def _project_context_efficiency_wave(
             if updated != current:
                 step = ("write_wave_record", record_target)
                 server_impl._atomic_replace_text(
-                    wave_md, updated, "context-efficiency-projection"
+                    wave_md,
+                    line_endings.merge(current_original, updated),
+                    "context-efficiency-projection",
                 )
             step = ("mark_checkpoint_published", _CE_STORE_TARGET)
             marked = context_efficiency.mark_checkpoint_published(
@@ -766,7 +776,7 @@ def wf_context_efficiency_eval_response(
             }
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(
-                json.dumps(skeleton, indent=1) + "\n", encoding="utf-8"
+                json.dumps(skeleton, indent=1) + "\n", encoding="utf-8", newline="\n"
             )
             result = {
                 "scaffolded": True,

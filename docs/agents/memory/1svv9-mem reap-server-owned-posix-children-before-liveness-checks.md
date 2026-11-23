@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-09-25
+Last verified: 2026-11-22
 
 Memory ID: `1svv9-mem reap-server-owned-posix-children-before-liveness-checks`
 Kind: `successful_pattern`
 Confidence: 0.95
 Created: 2026-07-18
-Updated: 2026-07-18
+Updated: 2026-11-22
 Source event: `decision-log:1rswx-bug dashboard-zombie-child-reaping:96dc5b5f8d5980d8`
 Validation: promote
 Validated by: agent

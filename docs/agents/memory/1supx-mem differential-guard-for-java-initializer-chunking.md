@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-18
+Last verified: 2026-11-22
 
 Memory ID: `1supx-mem differential-guard-for-java-initializer-chunking`
 Kind: `successful_pattern`
 Confidence: 0.95
 Created: 2026-07-18
-Updated: 2026-07-18
+Updated: 2026-11-22
 Source event: `decision-log:1sbfl-bug java-chunker-static-initializer-bodies:c265ef8445f42fd3`
 Validation: promote
 Validated by: agent

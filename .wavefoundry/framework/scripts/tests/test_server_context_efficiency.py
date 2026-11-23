@@ -5572,5 +5572,60 @@ class LifecycleResponseCallbackTests(unittest.TestCase):
         self.assertEqual(detached, {"x": [{"y": [1]}]})
 
 
+class CheckpointProjectionLineEndingTests(unittest.TestCase):
+    """Wave 244in (change 244fj) AC-1: the checkpoint projection keeps the
+    wave record's own line endings on every platform."""
+
+    def _seed(self, root, wave_id, record_lf):
+        _repo(root)
+        wave_md = _waves_dir(root) / wave_id / _RECORD
+        wave_md.parent.mkdir(parents=True)
+        wave_md.write_text(record_lf, encoding="utf-8", newline="")
+        telemetry = ce.ProcessTelemetry(root)
+        telemetry.set_focus(wave_id, "review", new_phase=True)
+        telemetry.record_retrieval(
+            {
+                "estimated_request_tokens": 1,
+                "estimated_returned_tokens": 2,
+                "estimated_source_tokens": 0,
+                "estimated_avoided_tokens": 0,
+                "source_files_counted": 0,
+                "source_files_verified": 0,
+                "source_files_estimated": 0,
+                "captured": True,
+                "persistence": "pending",
+                "method": ce.RETRIEVAL_METHOD,
+            },
+            event_id="endings-seed",
+        )
+        return wave_md
+
+    def test_projection_keeps_lf_crlf_and_mixed_records(self):
+        import line_ending_support as les
+
+        wave_id = "1aaaa endings-projector"
+        record_lf = f"{_TITLE}\n\nStatus: implementing\n\n{_ID_KEY}: `{wave_id}`\n"
+        for shape, build in (("lf", lambda t: t), ("crlf", lambda t: les.with_endings(t, les.CRLF)),
+                             ("mixed", les.mixed)):
+            for simulated in (False, True):
+                with self.subTest(shape=shape, windows_simulation=simulated), \
+                        tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    wave_md = self._seed(root, wave_id, build(record_lf))
+                    with (les.windows_text_writes() if simulated else _null()):
+                        result = srv._project_context_efficiency_wave(root, wave_id, automatic=True)
+                    self.assertEqual(result["projection"], "published", result)
+                    data = wave_md.read_bytes()
+                    lf = data.decode("utf-8").replace("\r\n", "\n")
+                    self.assertNotEqual(lf, record_lf, "the projection inserted its block")
+                    self.assertNotIn(b"\r\r\n", data)
+                    self.assertEqual(data, build(lf).encode("utf-8"))
+
+
+@contextmanager
+def _null():
+    yield
+
+
 if __name__ == "__main__":
     unittest.main()

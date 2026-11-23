@@ -208,7 +208,7 @@ def _save_scan_state(scan_dir: Path, state: dict) -> None:
     scan_dir.mkdir(parents=True, exist_ok=True)
     _scan_state_path(scan_dir).write_text(
         json.dumps(state, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
+        encoding="utf-8", newline="\n",
     )
 
 

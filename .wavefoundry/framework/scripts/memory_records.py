@@ -33,6 +33,7 @@ if _scripts_dir not in sys.path:
     sys.path.insert(0, _scripts_dir)
 
 import record_paths  # noqa: E402  record roots (wave 1y0gz)
+import line_endings  # noqa: E402  in-place edits keep each line's ending (wave 244in)
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 
 MEMORY_DIR = "docs/agents/memory"
@@ -640,15 +641,17 @@ def migrate_memory_ids_to_lifecycle_naming(root: Path) -> dict[str, Any]:
                 f"migration collision: {new_id!r} already exists with a "
                 f"different internal id while renaming {old_id!r} — refusing"
             )
-        text = path.read_text(encoding="utf-8")
+        original = line_endings.read(path)
+        text = line_endings.to_lf(original)
         text = text.replace(f"Memory ID: `{old_id}`", f"Memory ID: `{new_id}`")
-        new_path.write_text(text, encoding="utf-8")
+        new_path.write_text(line_endings.merge(original, text), encoding="utf-8", newline="")
         path.unlink()
         mapping[old_id] = new_id
         renamed += 1
 
     def _repair_text_file(path: Path) -> tuple[int, list[str]]:
-        text = original = path.read_text(encoding="utf-8")
+        raw = line_endings.read(path)
+        text = original = line_endings.to_lf(raw)
         repaired = 0
         unresolved: list[str] = []
         for token in sorted(set(_LEGACY_REF_TOKEN_RE.findall(text))):
@@ -659,7 +662,7 @@ def migrate_memory_ids_to_lifecycle_naming(root: Path) -> dict[str, Any]:
             text = text.replace(f"`{token}`", f"`{new_id}`")
             repaired += 1
         if text != original:
-            path.write_text(text, encoding="utf-8")
+            path.write_text(line_endings.merge(raw, text), encoding="utf-8", newline="")
         return repaired, unresolved
 
     references_repaired = 0
@@ -1071,7 +1074,8 @@ def record_memory_validation(
     path = _contained_record_path(root, memory_id)
     if not path.is_file():
         raise FileNotFoundError(f"memory record not found: {memory_id}")
-    text = path.read_text(encoding="utf-8")
+    original = line_endings.read(path)
+    text = line_endings.to_lf(original)
     parsed = parse_memory_record(path, text)
     if parsed is None:
         raise ValueError(f"{memory_id}: malformed memory record")
@@ -1115,7 +1119,7 @@ def record_memory_validation(
         text = _replace_or_insert_metadata(
             text, _SUPERSEDED_BY_RE, f"Superseded by: `{superseded_by}`"
         )
-    path.write_text(text, encoding="utf-8", newline="")
+    path.write_text(line_endings.merge(original, text), encoding="utf-8", newline="")
     return path
 
 
@@ -1138,7 +1142,8 @@ def reconcile_memory_record(
     path = _contained_record_path(root, memory_id)
     if not path.is_file():
         raise FileNotFoundError(f"memory record not found: {memory_id}")
-    text = path.read_text(encoding="utf-8")
+    original = line_endings.read(path)
+    text = line_endings.to_lf(original)
     today = date or time.strftime("%Y-%m-%d")
     text, n = _STATUS_LINE_RE.subn(rf"\g<1>{new_status}", text, count=1)
     if n == 0:
@@ -1149,7 +1154,7 @@ def reconcile_memory_record(
         text = text.replace(
             f"Kind: `", f"Superseded by: `{superseded_by}`\nKind: `", 1
         )
-    path.write_text(text, encoding="utf-8", newline="")
+    path.write_text(line_endings.merge(original, text), encoding="utf-8", newline="")
     return path
 
 
@@ -1374,7 +1379,8 @@ def archive_memory_record(
 
     moved = False
     if archive_path.is_file():
-        text = archive_path.read_text(encoding="utf-8")
+        original = line_endings.read(archive_path)
+        text = line_endings.to_lf(original)
         record = parse_memory_record(archive_path, text)
         if record is None:
             # The first transition deliberately moves the still-retired body
@@ -1384,7 +1390,8 @@ def archive_memory_record(
         if record is None:
             raise ValueError(f"{memory_id}: malformed archived memory body")
     elif active_path.is_file():
-        text = active_path.read_text(encoding="utf-8")
+        original = line_endings.read(active_path)
+        text = line_endings.to_lf(original)
         record = parse_memory_record(active_path, text)
         if record is None:
             raise ValueError(f"{memory_id}: malformed memory record")
@@ -1427,7 +1434,7 @@ def archive_memory_record(
             _ARCHIVE_PATH_RE,
             f"Archive path: `{MEMORY_ARCHIVE_DIR}/{memory_id}.md`",
         )
-        _atomic_replace_text(archive_path, text)
+        _atomic_replace_text(archive_path, line_endings.merge(original, text))
         if _interrupt_after == "status_rewrite":
             raise RuntimeError("injected interruption after status rewrite")
         record = parse_memory_record(archive_path)

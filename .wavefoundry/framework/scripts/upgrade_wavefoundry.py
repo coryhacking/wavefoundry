@@ -72,6 +72,7 @@ from setup_commands import setup_command as _setup_command  # noqa: E402
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
+import line_endings  # the in-place line-ending rule (wave 244in, change 244fj)
 
 # Wave 1p8gv: a native-Windows upgrade crashed printing `⚠` because nothing reconfigured stdout to
 # UTF-8. Reconfigure at import so EVERY entry into this module (CLI, `wf upgrade`, MCP `wf_upgrade`
@@ -815,14 +816,17 @@ def _stamp_manifest_revision(root: Path) -> bool:
     if not manifest.is_file():
         return False
     try:
-        data = json.loads(manifest.read_text(encoding="utf-8"))
+        original = manifest.read_bytes().decode("utf-8")
+        data = json.loads(original)
     except (OSError, ValueError):
         return False
     if not isinstance(data, dict) or data.get("framework_revision") == version:
         return False
     data["framework_revision"] = version
+    # Wave 244in (244fj): the reserialized manifest keeps its own line endings.
+    updated = line_endings.merge(original, json.dumps(data, indent=2) + "\n")
     try:
-        manifest.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        manifest.write_text(updated, encoding="utf-8", newline="")
     except OSError:
         return False
     return True
@@ -4304,7 +4308,7 @@ def _produce_reconciliation_report(root: Path) -> int:
         coordinate = (value["last_path"], value["last_stage"])
         elapsed = value["elapsed"]
         if coordinate != last_coordinate or elapsed - last_persisted_elapsed >= .1:
-            Path(progress_path).write_text(json.dumps(value), encoding="utf-8")
+            Path(progress_path).write_text(json.dumps(value), encoding="utf-8", newline="\n")
             last_coordinate = coordinate
             last_persisted_elapsed = elapsed
     if not hasattr(reconcile_scan, "scan_repo_result"):
@@ -5612,7 +5616,7 @@ def materialize_secrets_policy(root: Path) -> str:
     )
     try:
         proj.parent.mkdir(parents=True, exist_ok=True)
-        proj.write_text(content, encoding="utf-8")
+        proj.write_text(content, encoding="utf-8", newline="\n")
     except OSError as exc:
         return f"scan-rules policy: could not materialize docs/scan-rules.toml: {exc}"
     return (
@@ -5622,8 +5626,12 @@ def materialize_secrets_policy(root: Path) -> str:
     )
 
 
-def _atomic_write_json(path: Path, data: dict) -> None:
+def _atomic_write_json(path: Path, data: "dict | str") -> None:
     """Atomically write ``data`` as JSON via same-directory temp + os.replace.
+
+    ``data`` is a dict, serialized as LF JSON, or the already serialized text
+    an in-place caller merged with ``line_endings.merge`` (wave 244in, change
+    244fj). Either way the text is written with no newline translation.
 
     Same-directory temp (not /tmp) so the rename never crosses devices; bounded
     retry on the replace for Windows sharing violations (WinError 5/32 — the
@@ -5631,7 +5639,8 @@ def _atomic_write_json(path: Path, data: dict) -> None:
     """
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
-        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        text = data if isinstance(data, str) else json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+        tmp.write_text(text, encoding="utf-8", newline="")
         if sys.platform == "win32":
             import time
             for attempt in range(5):
@@ -5671,6 +5680,7 @@ def materialize_lifecycle_policy(root: Path) -> str:
 
     cfg = root / "docs" / "workflow-config.json"
     data: dict = {}
+    original = ""
     # ``os.stat`` rather than ``cfg.is_file()``, which reads any ``OSError``
     # as absent from Python 3.14 (wave 1zrak) and would overwrite a config
     # the upgrade could not inspect. Only not-found and ``NotADirectoryError``
@@ -5688,7 +5698,8 @@ def materialize_lifecycle_policy(root: Path) -> str:
         ) from exc
     if cfg_is_file:
         try:
-            data = json.loads(cfg.read_text(encoding="utf-8"))
+            original = cfg.read_bytes().decode("utf-8")
+            data = json.loads(original)
         except json.JSONDecodeError as exc:
             # Path-free (wave 1zrak): the decoder's position, never ``{cfg}``.
             raise RuntimeError(
@@ -5751,7 +5762,12 @@ def materialize_lifecycle_policy(root: Path) -> str:
 
     try:
         cfg.parent.mkdir(parents=True, exist_ok=True)  # brand-new repo may lack docs/
-        _atomic_write_json(cfg, data)
+        # Wave 244in (244fj): an existing config keeps its own line endings;
+        # a new one is LF.
+        _atomic_write_json(
+            cfg,
+            line_endings.merge(original, json.dumps(data, indent=2, ensure_ascii=False) + "\n"),
+        )
     except OSError as exc:
         # Fail LOUD: a soft return here would report exit 0 while the repo
         # silently keeps minting v1 (idempotence re-attempts on the next run,

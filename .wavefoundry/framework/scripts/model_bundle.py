@@ -433,7 +433,7 @@ def attest_online_cache(manifest_path: Path | None = None) -> bool:
             original = marker.read_bytes() if marker.exists() else None
             with tempfile.NamedTemporaryFile(
                 mode="w",
-                encoding="utf-8",
+                encoding="utf-8", newline="\n",
                 dir=marker.parent,
                 prefix=f".{_MARKER_NAME}.",
                 delete=False,
@@ -638,7 +638,7 @@ def materialize_bundle(
                 if _is_ref_member(rel.as_posix()):
                     payload = _normalized_ref_bytes(payload)
                 output.write_bytes(payload)
-            (staging / _MARKER_NAME).write_text(json.dumps(expected, sort_keys=True) + "\n", encoding="utf-8")
+            (staging / _MARKER_NAME).write_text(json.dumps(expected, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
             pending.append((component, destination, staging_parent, staging))
 
         published: list[tuple[Path, Path, Path]] = []

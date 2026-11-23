@@ -216,7 +216,7 @@ def main(argv: list[str] | None = None) -> int:
         "metric_deltas": deltas,
         "verdict": "pass" if not violations else "fail",
     }
-    args.out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    args.out.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
     print(json.dumps({"out": args.out.as_posix(), "verdict": report["verdict"],
                       "violations": len(violations)}))
     return 0 if not violations else 1

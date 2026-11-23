@@ -53,6 +53,8 @@ import bytecode_cache  # noqa: E402
 if __name__ == "__main__":
     bytecode_cache.configure()
 
+import line_endings  # noqa: E402  the in-place line-ending rule (wave 244in, change 244fj)
+
 
 # --------------------------------------------------------------------------- #
 # Tunables (the load-bearing scaling knobs).
@@ -1602,7 +1604,9 @@ def scaffold_area_contexts(
         if dest.is_file():
             continue  # NEVER overwrite
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(_render_area_stub(area, last_verified=last_verified), encoding="utf-8")
+        dest.write_text(
+            _render_area_stub(area, last_verified=last_verified), encoding="utf-8", newline="\n"
+        )
         created.append(rel)
     return created
 
@@ -1791,7 +1795,7 @@ def generate_codebase_map(
                 markdown = current_text
             else:
                 out.parent.mkdir(parents=True, exist_ok=True)
-                out.write_text(markdown, encoding="utf-8")
+                out.write_text(markdown, encoding="utf-8", newline="\n")
             try:
                 _refresh_repo_index_modules(root, model)
             except Exception:
@@ -1846,9 +1850,12 @@ def _refresh_repo_index_modules(root: Path, model: CodebaseMapModel) -> bool:
     if not path.is_file():
         return False
     try:
-        disk_text = path.read_text(encoding="utf-8")
-    except OSError:
+        original = path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeError):
         return False
+    # Wave 244in (244fj): computed on LF text; published through merge so the
+    # operator-owned document keeps each existing line's ending.
+    disk_text = line_endings.to_lf(original)
     text = disk_text.replace(
         _LEGACY_REPO_INDEX_MARKER_BEGIN, REPO_INDEX_MARKER_BEGIN
     ).replace(_LEGACY_REPO_INDEX_MARKER_END, REPO_INDEX_MARKER_END)
@@ -1862,7 +1869,7 @@ def _refresh_repo_index_modules(root: Path, model: CodebaseMapModel) -> bool:
         return False  # change-only: no structural change → no write
     new_text = text[:inner_start] + new_inner + text[end:]
     try:
-        path.write_text(new_text, encoding="utf-8")
+        path.write_text(line_endings.merge(original, new_text), encoding="utf-8", newline="")
     except OSError:
         return False
     return True

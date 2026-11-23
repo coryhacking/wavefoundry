@@ -30,19 +30,12 @@ def _load_gardener():
 dg = _load_gardener()
 
 
-@contextmanager
-def _windows_default_text_writes():
-    """Real I/O with Windows' default write translation; not native qualification."""
-    original_open = Path.open
-
-    def open_with_windows_default(path, mode="r", buffering=-1, encoding=None,
-                                  errors=None, newline=None):
-        if "w" in mode and "b" not in mode and newline is None:
-            newline = "\r\n"
-        return original_open(path, mode, buffering, encoding, errors, newline)
-
-    with patch.object(Path, "open", open_with_windows_default):
-        yield
+# Wave 244in (244fj): the Windows-write simulation is shared test support.
+sys.path.insert(0, str(TESTS_ROOT))
+from line_ending_support import (  # noqa: E402
+    run_matrix,
+    windows_text_writes as _windows_default_text_writes,
+)
 
 
 class GardenerLineEndingTests(unittest.TestCase):
@@ -1056,3 +1049,25 @@ class DefaultModeStampRuleTests(unittest.TestCase):
         self.assertIn("docs-gardener: stamped 1 doc(s)", summary["output"])
         self.assertEqual(stamped.read_bytes(), self._text(_day(0), "Body, edited."))
         self.assertEqual(skipped.read_bytes(), skipped_before)
+
+
+class ManifestMixedLineEndingTests(unittest.TestCase):
+    """Wave 244in (244fj) AC-1: ``ensure_manifest`` keeps each existing line's
+    ending and gives a reconciled line the file's majority ending."""
+
+    def test_manifest_matrix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = dg.manifest_path(root)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            data = dg.default_manifest_payload(root)
+            data.pop("generated_artifacts")
+            data["project-owned"] = "keep"
+            before = dg.normalize_manifest_json(data)
+            after = dg.normalize_manifest_json(
+                dict(data, generated_artifacts=dg.default_manifest_payload(root)["generated_artifacts"])
+            )
+            run_matrix(
+                self, lambda text: path.write_bytes(text.encode("utf-8")),
+                lambda: dg.ensure_manifest(root), path.read_bytes, before, after,
+            )

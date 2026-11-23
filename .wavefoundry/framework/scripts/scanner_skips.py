@@ -318,7 +318,7 @@ def update_scanner_skips(root: Path, outcomes: dict[str, dict]) -> None:
         temporary = None
         try:
             with tempfile.NamedTemporaryFile(
-                mode="w", encoding="utf-8", dir=path.parent,
+                mode="w", encoding="utf-8", newline="\n", dir=path.parent,
                 prefix=".guard-skips-", suffix=".tmp", delete=False,
             ) as stream:
                 temporary = Path(stream.name)
@@ -445,7 +445,7 @@ def publish_scan_history(root: Path, *, scope: str, requested_files: int,
                  "last_full": row if scope == "full" else previous.get("last_full")}
         temporary = None
         try:
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="\n", dir=path.parent,
                                              prefix=".scan-history-", suffix=".tmp", delete=False) as stream:
                 temporary = Path(stream.name)
                 json.dump(state, stream, sort_keys=True)

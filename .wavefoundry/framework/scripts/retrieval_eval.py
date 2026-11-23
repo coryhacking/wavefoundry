@@ -2833,7 +2833,7 @@ def _append_checkpoint_row(ledger: Path, slot: str, kind: str, out_path: Path,
            "public_calls": calls, "verdict": report.get("verdict"),
            "run_id": report.get("run_id")}
     try:
-        with ledger.open("a", encoding="utf-8") as handle:
+        with ledger.open("a", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(row) + "\n")
     except OSError:
         pass

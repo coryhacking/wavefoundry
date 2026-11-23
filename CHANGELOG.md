@@ -12,6 +12,10 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Review memories now audits a bounded batch of active records in each run, so an over-budget corpus can shrink without waiting for records to retire on their own. The reviewer lists the 15 records reviewed longest ago with `memory_search(status="active", order="least_recently_reviewed", limit=15)` and records one outcome with a reason for each: keep, retire to stale, supersede, rewrite or unresolved. A record retires as encoded elsewhere only when the reviewer names an assertion that would fail on a regression and covers the lesson's whole scope. A keep calls `memory_reconcile(status="active")`, which rewrites only the `Updated:` date and moves the record to the end of the order, so repeated runs advance through the corpus. Records the audit retires are archived in the same run, never purged in it. The order applies only to queryless listings; combining it with `query` is refused. Memory validation, status changes and archives no longer remove the blank line after `Updated:`. Wave 244fi / 244fh.
 
+### Fixed
+
+- Framework tools that edit an existing file now keep that file's line endings, the same way on Windows, macOS, Linux and WSL2. Each existing line keeps its own ending, and an added or replaced line takes the file's majority ending, with a tie going to CRLF. This covers the lifecycle tools, the memory tools, the renderers, setup and the upgrade steps. Prepare and the other lifecycle tools now keep a CRLF wave record CRLF, where Prepare used to publish it as LF. Files the framework generates in full, such as reports, stamps, skills and hooks, are now LF on Windows too. Adding a spec whose `Wave:` line is `TBD` to a wave now fixes that line in a CRLF spec too; before, the fix was skipped. On Windows, adding a spec with mixed line endings could write `\r\r\n` into it; this is fixed. The first upgrade from an older release still runs the old release's upgrade code for some files, so those files keep their line endings only from the next upgrade on. Wave 244in / 244fj.
+
 ## [1.50.1] - 2026-11-22
 
 ### Changed

@@ -108,6 +108,7 @@ for _wll_key in list(sys.modules):
             "index_source_guard",
             "path_containment",
             "contained_files",  # wave 200ey: contained repository reads and writes
+            "line_endings",  # wave 244in: the in-place line-ending rule
             "wave_work",  # disposable work/snapshot helpers follow the loaded framework
             "child_tee",  # wave 20b3a: current canonical child-output sanitization
             "setup_commands",  # stateless recovery formatting follows loaded source
@@ -201,6 +202,7 @@ import setup_readiness
 import index_source_guard
 import path_containment
 import contained_files  # contained repository reads and writes (wave 200ey, change 1zyv2)
+import line_endings  # in-place writers keep each line's ending (wave 244in, change 244fj)
 import marker_namespaces
 import record_paths  # configured wave/plan roots, stdlib-only (wave 1y0gz)
 from history_paths import is_history_path  # shared history components (wave 1zyb2, 1zxnt)
@@ -524,6 +526,7 @@ from lifecycle_gate_support import (
     _read_error_detail,
     _read_project_required_review_lanes,
     _read_wave_council_policy,
+    _read_wave_record_original,
     _read_wave_record_text,
     _read_workflow_config,
     _repo_rel,
@@ -8720,7 +8723,11 @@ def _publish_prepare_policy_state(
         # Revalidate the inspected wave identity and roster shape immediately
         # before the first replacement.
         contained_wave, events_path = _contained_wave_review_paths(root, wave_md)
-        live, live_read_error = _read_wave_record_text(contained_wave)
+        # Wave 244in (244fj): one raw read; ``wave_text`` is LF text (Prepare
+        # reads with ``to_lf``), so the comparison uses the same read form and
+        # the projection keeps each line's ending.
+        live_original, live_read_error = _read_wave_record_original(contained_wave)
+        live = None if live_original is None else line_endings.to_lf(live_original)
         if live is None:
             # Wave 1v0lw: the mid-transaction re-read failure surfaces as the
             # retryable publication error every caller already handles, with
@@ -8779,7 +8786,11 @@ def _publish_prepare_policy_state(
             replacements.append(
                 (events_path, canonical_review_events_bytes(records), "prepare-receipt")
             )
-        replacements.append((contained_wave, final.encode("utf-8"), "prepare-projection"))
+        replacements.append((
+            contained_wave,
+            line_endings.encode(line_endings.merge(live_original, final)),
+            "prepare-projection",
+        ))
         replacements.extend(
             (path, update[-1].encode("utf-8"), "receipt-change")
             for path, _expected, *update in normalized_updates
@@ -9266,7 +9277,10 @@ def wf_add_change_response(
             usage="wf_validate_docs()",
         )
     target_path = _wave_change_doc_path(root, wave_md, canonical_change_id)
-    text, wave_read_error = _read_wave_record_text(wave_md)
+    # Wave 244in (244fj): one raw read; the edit runs on LF text and
+    # publishes through ``line_endings.merge`` so each line keeps its ending.
+    wave_original, wave_read_error = _read_wave_record_original(wave_md)
+    text = None if wave_original is None else line_endings.to_lf(wave_original)
     if text is None:
         # Wave 1v0lw: admission mutates the wave record; refusing here keeps
         # the gate fail-closed for both read-failure causes.
@@ -9424,7 +9438,11 @@ def wf_add_change_response(
                 )
             relocated = True
         try:
-            admitted_text = _read_member_doc_text(wave_md.parent, target_path, root=root)
+            admitted_original = _read_member_doc_text(wave_md.parent, target_path, root=root)
+            # Wave 244in (244fj): the repair matches LF text, so a CRLF spec's
+            # placeholder back-reference is repaired, and publishes the bytes
+            # ``merge`` gives, so no write can produce ``\r\r\n``.
+            admitted_text = line_endings.to_lf(admitted_original)
             repaired_admitted_text = re.sub(
                 # Bracketed placeholders and the bare TBD scaffold only. An
                 # angle-bracket form cannot be a real wave id, so recognizing it
@@ -9435,7 +9453,10 @@ def wf_add_change_response(
                 admitted_text,
             )
             if repaired_admitted_text != admitted_text:
-                target_path.write_text(repaired_admitted_text, encoding="utf-8")
+                target_path.write_text(
+                    line_endings.merge(admitted_original, repaired_admitted_text),
+                    encoding="utf-8", newline="",
+                )
         except (OSError, UnicodeError) as exc:
             return _response(
                 "error",
@@ -9443,7 +9464,7 @@ def wf_add_change_response(
                 diagnostics=[_diagnostic("change_metadata_repair_failed", f"Failed to update admitted change metadata: {_read_error_detail(exc)}")],
             )
         text = _insert_change_block_into_changes_section(text, canonical_change_id)
-        wave_md.write_text(text, encoding="utf-8")
+        wave_md.write_text(line_endings.merge(wave_original, text), encoding="utf-8", newline="")
         if cache:
             cache.invalidate()
         _trigger_background_index_refresh_for_paths(root, [wave_md, target_path])
@@ -9506,7 +9527,9 @@ def wf_remove_change_response(
                 data={"wave_id": wave_id, "change_id": change_id, "mode": mode_s},
             )
         return _response("error", {"wave_id": wave_id, "change_id": change_id, "mode": mode_s}, diagnostics=[_refuse_if_archived(root, wave_id, "wave") or _diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
-    text, wave_read_error = _read_wave_record_text(wave_md)
+    # Wave 244in (244fj): one raw read; edits run on LF text and publish through ``line_endings.merge``.
+    wave_original, wave_read_error = _read_wave_record_original(wave_md)
+    text = None if wave_original is None else line_endings.to_lf(wave_original)
     if text is None:
         # Wave 1v0lw: removal edits the admitted-change roster; a record that
         # cannot be read cannot be edited safely.
@@ -9554,7 +9577,7 @@ def wf_remove_change_response(
                     next_tools=["wf_get_change"],
                     usage=f"wf_get_change(change_id={change_id!r})",
                 )
-        wave_md.write_text(text, encoding="utf-8")
+        wave_md.write_text(line_endings.merge(wave_original, text), encoding="utf-8", newline="")
         if cache:
             cache.invalidate()
         _trigger_background_index_refresh_for_paths(root, [wave_md, location["staged_path"]])
@@ -9613,7 +9636,8 @@ def new_change(root: Path, kind: str, slug: str, change_id: str | None = None) -
 
     # Wave 1zxo0 (1zxns): through the asserting path helper.
     out_path = _plan_change_doc_path(root, change_id)
-    out_path.write_text(content, encoding="utf-8")
+    # A new spec is LF on every platform (wave 244in, change 244fj).
+    out_path.write_text(content, encoding="utf-8", newline="\n")
     return {"id": change_id, "path": str(out_path.relative_to(root)).replace("\\", "/")}
 
 
@@ -12306,7 +12330,11 @@ def wf_review_event_response(
         )
 
     def transact() -> dict[str, Any]:
-        original, original_read_error = _read_wave_record_text(wave_md)
+        # Wave 244in (244fj): one raw read (``raw_record``); the authority
+        # and projection run on its LF text (``original``) and the projection
+        # publishes through ``line_endings.merge``.
+        raw_record, original_read_error = _read_wave_record_original(wave_md)
+        original = None if raw_record is None else line_endings.to_lf(raw_record)
         if original is None:
             # Readable at the gate above, unreadable inside the transaction;
             # refuse before any authority decision or append.
@@ -12699,7 +12727,9 @@ def wf_review_event_response(
                     diagnostics=[_diagnostic("review_event_commit_failed", str(exc))],
                 )
         try:
-            _atomic_replace_text(wave_md, projected, "review-projection")
+            _atomic_replace_text(
+                wave_md, line_endings.merge(raw_record, projected), "review-projection"
+            )
         except OSError as exc:
             payload.update(event_committed=event_committed, projection_stale=True)
             return _response(
@@ -12977,9 +13007,11 @@ def _prepare_fix_heading_spacing(root: Path, wave_md: Path, change_ids: Iterable
     """Insert a missing blank line before headings in a record and its admitted
     documents (change 22y1k); returns the repository-relative paths rewritten.
 
-    Bytes in, bytes out through the contained write, so each document keeps its
-    line endings. A document that cannot be read or written is skipped: the
-    preflight gates that follow report it.
+    Bytes in, bytes out through the contained write; the repair runs on LF
+    text and publishes through ``line_endings.merge`` (wave 244in, change
+    244fj), so each existing line keeps its ending and an inserted blank line
+    takes the document's majority ending. A document that cannot be read or
+    written is skipped: the preflight gates that follow report it.
     """
     targets = [wave_md]
     for change_id in change_ids:
@@ -12990,14 +13022,17 @@ def _prepare_fix_heading_spacing(root: Path, wave_md: Path, change_ids: Iterable
     fixed: list[str] = []
     for path in targets:
         try:
-            text = _read_member_doc_bytes(path.parent, path, root=root).decode("utf-8")
+            original = _read_member_doc_bytes(path.parent, path, root=root).decode("utf-8")
         except (OSError, UnicodeError):
             continue
+        text = line_endings.to_lf(original)
         repaired = markdown_layout.ensure_blank_line_before_headings(text)
         if repaired == text:
             continue
         try:
-            contained_files.write_contained_bytes(root, path, repaired.encode("utf-8"))
+            contained_files.write_contained_bytes(
+                root, path, line_endings.encode(line_endings.merge(original, repaired))
+            )
         except (OSError, contained_files.ContainedFileRefused):
             continue
         fixed.append(_repo_rel(root, path))
@@ -13078,7 +13113,10 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
     # unrelated record must not silently block this wave's readiness. The
     # inspection surfaces (wf_get_change, wf_list_waves, wf_current_wave)
     # surface those siblings.
-    text, wave_read_error = _read_wave_record_text(wave_md)
+    # Wave 244in (244fj): Prepare reads LF text (CRLF pairs only), the read
+    # form its publication compares with the live record.
+    wave_original, wave_read_error = _read_wave_record_original(wave_md)
+    text = None if wave_original is None else line_endings.to_lf(wave_original)
     if text is None:
         # A readiness gate cannot be evaluated over a record it cannot read.
         diagnostics.append(
@@ -13178,7 +13216,8 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
         # A closed or completed record is history: prepare never rewrites it.
         headings_fixed.extend(_prepare_fix_heading_spacing(root, wave_md, change_ids))
         # Gardening may update verification metadata in the inspected packet.
-        text, wave_read_error = _read_wave_record_text(wave_md)
+        wave_original, wave_read_error = _read_wave_record_original(wave_md)
+        text = None if wave_original is None else line_endings.to_lf(wave_original)
         if text is None:
             # Readable at the gate above, unreadable after gardening; the
             # remaining preflight cannot be evaluated blind.
@@ -13431,7 +13470,10 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
                 {"wave_id": wave_id, "mode": mode_s},
                 next_tools=["wf_review_event", "wf_validate_docs"],
             )
-        live_text, live_read_error = _read_wave_record_text(wave_md)
+        # Wave 244in (244fj): the live record is read raw once; the comparison
+        # runs on LF text and the projection keeps each line's ending.
+        live_original, live_read_error = _read_wave_record_original(wave_md)
+        live_text = None if live_original is None else line_endings.to_lf(live_original)
         if live_text is None:
             # Refuse rather than blind-write a projection over a record whose
             # current content cannot be compared.
@@ -13440,7 +13482,9 @@ def wf_prepare_wave_response(root: Path, wave_id: str, mode: str = "dry_run", ca
             )
             return _prepare_envelope("error", {"wave_id": wave_id, "mode": mode_s}, next_tools=["wf_list_waves", "wf_validate_docs"], usage="wf_list_waves()")
         if projected_text != live_text:
-            wave_md.write_text(projected_text, encoding="utf-8", newline="")
+            wave_md.write_text(
+                line_endings.merge(live_original, projected_text), encoding="utf-8", newline=""
+            )
             text = projected_text
             updated = True
     if mode_s == "create":
@@ -13490,7 +13534,9 @@ def wf_pause_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     handoff = root / "docs" / "agents" / "session-handoff.md"
     rel = str(handoff.relative_to(root)).replace("\\", "/")
     # Compute the wave-status transition. Only active → paused writes; other states are no-ops.
-    wave_text, wave_read_error = _read_wave_record_text(wave_md)
+    # Wave 244in (244fj): one raw read; edits run on LF text and publish through ``line_endings.merge``.
+    wave_original, wave_read_error = _read_wave_record_original(wave_md)
+    wave_text = None if wave_original is None else line_endings.to_lf(wave_original)
     if wave_text is None:
         # Wave 1v0lw: the pause transition edits the record's Status field; a
         # record that cannot be read cannot be transitioned.
@@ -13526,7 +13572,7 @@ def wf_pause_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     if mode_s == "create":
         # Transition wave status first, then write the handoff entry.
         if status_transition["from"] in OPEN_CONTAINER_STATUSES and status_transition["to"] == "paused":
-            wave_md.write_text(paused_text, encoding="utf-8")
+            wave_md.write_text(line_endings.merge(wave_original, paused_text), encoding="utf-8", newline="")
         # Wave 1zxnz (1zx02): a handoff that resolves to a runtime lock is
         # never opened; the write is skipped and the transition above stands.
         try:
@@ -13586,7 +13632,10 @@ def _retain_review_escalation(root, wave_md, authority, lane):
     try:
         with project_state_publication_lock(root):
             contained, _ = _contained_wave_review_paths(root, wave_md)
-            live, error = _read_wave_record_text(contained)
+            # Wave 244in (244fj): one raw read; the header edit runs on LF
+            # text and keeps each line's ending.
+            live_original, error = _read_wave_record_original(contained)
+            live = None if live_original is None else line_endings.to_lf(live_original)
             if live is None:
                 raise ValueError(error)
             latest = resolve_review_authority(root, contained, wave_text=live)
@@ -13596,7 +13645,11 @@ def _retain_review_escalation(root, wave_md, authority, lane):
                 encoded = json.dumps(reason, ensure_ascii=True).replace("<", "\\u003c").replace(">", "\\u003e")
                 line = f"{lifecycle_gate_support.SMALL_CHANGE_ESCALATION} {encoded}"
                 updated = small_change_lane.add_header(live, line)
-                _atomic_replace_text(contained, set_reprepare_marker(updated, True), "review-escalation")
+                _atomic_replace_text(
+                    contained,
+                    line_endings.merge(live_original, set_reprepare_marker(updated, True)),
+                    "review-escalation",
+                )
         message = "Review recorded the scope expansion. Run Prepare to establish the ordinary review requirements."
     except (OSError, ValueError, ProjectPublicationUnavailable) as exc:
         return _diagnostic(
@@ -14213,7 +14266,9 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
             )
         return _response("error", {"wave_id": wave_id}, diagnostics=[_refuse_if_archived(root, wave_id, "wave") or _diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
 
-    wave_text, wave_read_error = _read_wave_record_text(wave_md)
+    # Wave 244in (244fj): one raw read; edits run on LF text and publish through ``line_endings.merge``.
+    wave_original, wave_read_error = _read_wave_record_original(wave_md)
+    wave_text = None if wave_original is None else line_endings.to_lf(wave_original)
     if wave_text is None:
         # Wave 1v0lw: the OPEN gate reads status, council verdict, and lane
         # evidence from this record; activation over an unreadable record is
@@ -14463,7 +14518,7 @@ def wf_implement_wave_response(root: Path, wave_id: str, mode: str = "dry_run", 
 
     if mode_s == "create":
         new_text = wave_text[:status_match.start(1)] + "implementing" + wave_text[status_match.end(1):]
-        wave_md.write_text(new_text, encoding="utf-8")
+        wave_md.write_text(line_endings.merge(wave_original, new_text), encoding="utf-8", newline="")
         if cache:
             cache.invalidate()
 
@@ -15309,7 +15364,9 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
     # Wave 1v0lw: the read keeps its post-garden position (gardening may
     # refresh record metadata) and routes through the seam; the close hard
     # gate cannot be evaluated over a record that cannot be read.
-    text, wave_read_error = _read_wave_record_text(wave_md)
+    # Wave 244in (244fj): one raw read; edits run on LF text and publish through ``line_endings.merge``.
+    wave_original, wave_read_error = _read_wave_record_original(wave_md)
+    text = None if wave_original is None else line_endings.to_lf(wave_original)
     if text is None:
         # Change 23p9t: the folder report rides every close return, advisory.
         return _wave_record_unreadable_response(
@@ -15515,7 +15572,7 @@ def wf_close_wave_response(root: Path, wave_id: str, mode: str = "dry_run", cach
                 )
             # Change 22y1k: the closed record has a blank line above every heading.
             text = markdown_layout.ensure_blank_line_before_headings(text)
-            wave_md.write_text(text, encoding="utf-8")
+            wave_md.write_text(line_endings.merge(wave_original, text), encoding="utf-8", newline="")
             updated = True
             transitioned_to_closed = True
             if cache:
@@ -15878,15 +15935,13 @@ def wf_close_change_response(
             )],
             next_tools=["wf_list_waves"], usage="wf_list_waves()",
         )
-    text, wave_read_error = _read_wave_record_text(wave_md)
+    # Wave 244in (244fj): one raw read. Every gate and rewrite runs on its LF
+    # text; each write publishes through ``line_endings.merge``, so existing
+    # lines keep their endings and an inserted line takes the majority ending.
+    wave_raw, wave_read_error = _read_wave_record_original(wave_md)
+    text = None if wave_raw is None else line_endings.to_lf(wave_raw)
     if text is None:
         return _wave_record_unreadable_response(root, wave_md, wave_read_error, data=base)
-    try:
-        # The rewrite works on the record's own line endings; ``text`` (the
-        # seam's universal-newline read) drives every gate.
-        wave_raw = wave_md.read_bytes().decode("utf-8")
-    except (OSError, UnicodeError) as exc:
-        return _wave_record_unreadable_response(root, wave_md, _read_error_detail(exc), data=base)
     canonical_wave_m = _WAVE_ID_PATTERN.search(text)
     canonical_wave_id = canonical_wave_m.group(1) if canonical_wave_m else wave_md.parent.name
     base = {**base, "wave_id": canonical_wave_id}
@@ -16081,8 +16136,8 @@ def wf_close_change_response(
     assert record is not None and doc_path is not None and doc_raw is not None and previous_status is not None
 
     # Plan the writes: the closed change, then each dependent it unblocks.
-    new_wave = _close_change_rewrite_block(wave_raw, change_id, _CLOSE_CHANGE_TARGET_STATUS, previous_status)
-    new_doc = _close_change_rewrite_doc(doc_raw, _CLOSE_CHANGE_TARGET_STATUS)
+    new_wave = _close_change_rewrite_block(text, change_id, _CLOSE_CHANGE_TARGET_STATUS, previous_status)
+    new_doc = _close_change_rewrite_doc(line_endings.to_lf(doc_raw), _CLOSE_CHANGE_TARGET_STATUS)
     if new_wave is None or new_doc is None:
         return _response(
             "error", {**base, "previous_status": previous_status, "written": [], "activated": [], "not_activated": []},
@@ -16130,7 +16185,9 @@ def wf_close_change_response(
             not_activated.append({**entry, "reason": "change_status_drift"})
             continue
         candidate_wave = _close_change_rewrite_block(new_wave, candidate.record_id, _CLOSE_CHANGE_ACTIVATED_STATUS, candidate.status)
-        candidate_doc = _close_change_rewrite_doc(candidate_raw, _CLOSE_CHANGE_ACTIVATED_STATUS)
+        candidate_doc = _close_change_rewrite_doc(
+            line_endings.to_lf(candidate_raw), _CLOSE_CHANGE_ACTIVATED_STATUS
+        )
         if candidate_wave is None or candidate_doc is None:
             not_activated.append({**entry, "reason": "change_status_unreadable"})
             continue
@@ -16213,10 +16270,14 @@ def wf_close_change_response(
     originals = [(path, path.read_bytes()) for path in write_paths]
     written: list[Path] = []
     try:
-        for path, _old, new in doc_updates:
-            _atomic_replace_bytes(path, new.encode("utf-8"), "wf-close-change")
+        for path, old, new in doc_updates:
+            _atomic_replace_bytes(
+                path, line_endings.encode(line_endings.merge(old, new)), "wf-close-change"
+            )
             written.append(path)
-        _atomic_replace_bytes(wave_md, new_wave.encode("utf-8"), "wf-close-change")
+        _atomic_replace_bytes(
+            wave_md, line_endings.encode(line_endings.merge(wave_raw, new_wave)), "wf-close-change"
+        )
         written.append(wave_md)
         after = _close_change_scoped_lint(root, write_paths)
         introduced = [failure for failure in after if failure not in baseline]
@@ -16293,7 +16354,9 @@ def wf_reopen_wave_response(root: Path, wave_id: str) -> dict[str, Any]:
                 wave_id, unreadable_waves, data={"wave_id": wave_id}
             )
         return _response("error", {"wave_id": wave_id}, diagnostics=[_refuse_if_archived(root, wave_id, "wave") or _diagnostic("wave_not_found", f"No wave found matching '{wave_id}'.", recovery_tools=["wf_list_waves"], recovery_usage="wf_list_waves()")], next_tools=["wf_list_waves"], usage="wf_list_waves()")
-    text, wave_read_error = _read_wave_record_text(wave_md)
+    # Wave 244in (244fj): one raw read; edits run on LF text and publish through ``line_endings.merge``.
+    wave_original, wave_read_error = _read_wave_record_original(wave_md)
+    text = None if wave_original is None else line_endings.to_lf(wave_original)
     if text is None:
         # Wave 1v0lw: reopening rewrites the record's Status field; a record
         # that cannot be read cannot be transitioned.
@@ -16330,7 +16393,7 @@ def wf_reopen_wave_response(root: Path, wave_id: str) -> dict[str, Any]:
                          diagnostics=activation_diagnostics, next_tools=["wf_prepare_wave", "wf_review_wave"])
     # Remove any "Completed At: ..." line stamped by wf_close_wave
     text = re.sub(r"^Completed At:.*\n?", "", text, flags=re.MULTILINE)
-    wave_md.write_text(text, encoding="utf-8")
+    wave_md.write_text(line_endings.merge(wave_original, text), encoding="utf-8", newline="")
     _trigger_background_index_refresh_for_paths(root, [wave_md])
     envelope = _response(
         "ok",
@@ -16511,12 +16574,23 @@ def _decode_repo_text(data: bytes) -> str:
 def _write_handoff_text(root: Path, path: Path, text: str) -> None:
     """Write the session handoff through the contained write (wave 200ey).
 
-    Encoded as ``Path.write_text(encoding="utf-8")`` did (``\n`` becomes the
-    platform line separator); content over ``contained_files.DEFAULT_MAX_BYTES``
-    is refused before anything is written. Missing parent directories are
-    created only after each existing ancestor is shown to stay inside the
-    repository."""
-    data = (text if os.linesep == "\n" else text.replace("\n", os.linesep)).encode("utf-8")
+    Wave 244in (244fj): the handoff keeps its own line endings on every
+    platform. The existing file is read raw (``""`` when absent), ``text`` is
+    taken as LF text, and the bytes ``line_endings.merge`` gives are written,
+    never ``os.linesep``: existing lines keep their ending, new lines take the
+    file's majority ending, and a new handoff is LF. Content over
+    ``contained_files.DEFAULT_MAX_BYTES`` is refused before anything is
+    written. Missing parent directories are created only after each existing
+    ancestor is shown to stay inside the repository."""
+    try:
+        original = contained_files.read_contained_bytes(
+            root, path, max_bytes=contained_files.DEFAULT_MAX_BYTES
+        ).decode("utf-8")
+    except FileNotFoundError:
+        original = ""
+    except (UnicodeError, contained_files.ContainedFileRefused):
+        original = ""
+    data = line_endings.encode(line_endings.merge(original, line_endings.to_lf(text)))
     if len(data) > contained_files.DEFAULT_MAX_BYTES:
         raise contained_files.ContainedFileRefused(contained_files.CAUSE_SIZE)
     contained_files.write_contained_bytes(root, path, data)

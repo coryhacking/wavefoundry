@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-18
+Last verified: 2026-11-22
 
 Memory ID: `1sx59-mem subprocess-diagnostics-must-not-fail-utf-8-decoding`
 Kind: `environment_gotcha`
 Confidence: 0.9
 Created: 2026-07-18
-Updated: 2026-07-18
+Updated: 2026-11-22
 Source event: `decision-log:1p9iy-bug dev-test-infra-windows-hardening:6698822b47133610`
 Validation: promote
 Validated by: agent

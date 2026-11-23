@@ -29,6 +29,7 @@ if __name__ == "__main__":
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 import record_paths  # record roots (wave 1y0gz)
+import line_endings  # the in-place line-ending rule (wave 244in, change 244fj)
 import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
 
 # Activate the shared tool venv IN-PROCESS before any heavy work (wave 1p7pl/1p802). No-op when
@@ -448,11 +449,12 @@ def ensure_manifest(root: Path) -> tuple[Path, bool]:
     # installed manifest drops the key once and the change-only write below
     # then leaves it untouched.
     data.pop("last_gardened_at", None)
-    newline = "\r\n" if "\r\n" in old_text else "\n"
-    new_text = normalize_manifest_json(data).replace("\n", newline)
-    if new_text == old_text:
+    # Wave 244in (244fj): compare LF content, then keep each existing line's
+    # ending and give a new line the file's majority ending.
+    new_text = normalize_manifest_json(data)
+    if new_text == line_endings.to_lf(old_text):
         return path, False
-    path.write_text(new_text, encoding="utf-8", newline="")
+    path.write_text(line_endings.merge(old_text, new_text), encoding="utf-8", newline="")
     return path, True
 
 

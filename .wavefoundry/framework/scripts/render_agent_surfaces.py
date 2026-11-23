@@ -35,6 +35,7 @@ if __name__ == "__main__":
     bytecode_cache.configure()
 
 import contained_files  # contained repository reads and writes (wave 200ey, change 1zyv2)
+import line_endings  # the in-place line-ending rule (wave 244in, change 244fj)
 from history_paths import is_history_path  # shared history components (wave 1zyb2)
 import marker_namespaces
 import mcp_tool_extensions  # declared distribution skills, read at call time (wave 1zv8c)
@@ -200,14 +201,6 @@ def _write_repo_bytes(root: Path, path: Path, data: bytes, *, mode: "int | None"
         return contained_files.write_contained_bytes(root, path, data, mode=mode)
     except contained_files.ContainedFileRefused as exc:
         raise RuntimeError(f"refused to write {_rel_label(root, path)} ({exc.cause})") from None
-
-
-def _write_repo_text_platform_newlines(root: Path, path: Path, text: str) -> bool:
-    """Write ``text`` with the bytes ``Path.write_text(encoding="utf-8")`` wrote:
-    each ``\n`` becomes the platform line separator."""
-    if os.linesep != "\n":
-        text = text.replace("\n", os.linesep)
-    return _write_repo_bytes(root, path, text.encode("utf-8"))
 
 
 def _framework_read_text(path: Path, *, translate_newlines: bool = False) -> str:
@@ -2460,7 +2453,10 @@ def patch_thin_pointer(
 ) -> bool:
     if not path.is_file():
         return False
-    disk_text = _read_repo_text(root, path)
+    # Wave 244in (244fj): computed on LF text; existing lines keep their own
+    # ending and inserted lines take the file's majority ending.
+    disk = _read_repo_text(root, path, translate_newlines=False)
+    disk_text = line_endings.to_lf(disk)
     original = strip_legacy_auto_guru_section(
         strip_legacy_auto_guru_lines(_canonicalize_owned_markers(disk_text))
     )
@@ -2469,7 +2465,7 @@ def patch_thin_pointer(
     else:
         updated = upsert_marked_region(original, inner)
     if updated != disk_text:
-        _write_repo_text_platform_newlines(root, path, updated)
+        _write_repo_bytes(root, path, line_endings.encode(line_endings.merge(disk, updated)))
         return True
     return False
 
@@ -2485,8 +2481,7 @@ def patch_root_bridge(path: Path, *, root: Path) -> bool:
     if not path.is_file():
         return False
     disk = _read_repo_text(root, path, translate_newlines=False)
-    newline = "\r\n" if "\r\n" in disk else "\n"
-    original = _universal_newlines(disk)
+    original = line_endings.to_lf(disk)
     text = _canonicalize_owned_markers(original)
 
     # Refresh an existing bridge block in place.
@@ -2513,7 +2508,8 @@ def patch_root_bridge(path: Path, *, root: Path) -> bool:
         text = "".join(new_lines)
 
     if text != original:
-        _write_repo_bytes(root, path, text.replace("\n", newline).encode("utf-8"))
+        # Wave 244in (244fj): only the edited lines change bytes.
+        _write_repo_bytes(root, path, line_endings.encode(line_endings.merge(disk, text)))
         return True
     return False
 
@@ -3347,15 +3343,16 @@ def _repair_change_prompt_manifest(repo_root: Path) -> "list[str]":
     if not changed:
         return []
     data["public_prompt_surface"] = updated
-    newline = "\r\n" if "\r\n" in original else "\n"
     content = json.dumps(data, indent=2, ensure_ascii=False)
     if original.endswith(("\n", "\r")):
         content += "\n"
-    if newline != "\n":
-        content = content.replace("\n", newline)
-    if content == original:
+    if content == line_endings.to_lf(original):
         return []
-    _write_review_carrier_text(path, content, root=repo_root)
+    # Wave 244in (244fj): existing lines keep their ending; new lines take the
+    # file's majority ending.
+    _write_review_carrier_text(
+        path, line_endings.encode(line_endings.merge(original, content)), root=repo_root
+    )
     return [PROMPT_SURFACE_MANIFEST]
 
 
@@ -4316,16 +4313,16 @@ def _prompt_pair_paths(slug: str) -> "tuple[str, str]":
 
 
 def _write_prompt_manifest(path: Path, original: str, data: dict, *, root: Path) -> bool:
-    """Write ``data`` in the manifest's newline style; returns whether it changed."""
-    newline = "\r\n" if "\r\n" in original else "\n"
+    """Write ``data`` keeping each existing line's ending (wave 244in, change
+    244fj); returns whether it changed."""
     content = json.dumps(data, indent=2, ensure_ascii=False)
     if original.endswith(("\n", "\r")):
         content += "\n"
-    if newline != "\n":
-        content = content.replace("\n", newline)
-    if content == original:
+    if content == line_endings.to_lf(original):
         return False
-    _write_review_carrier_text(path, content, root=root)
+    _write_review_carrier_text(
+        path, line_endings.encode(line_endings.merge(original, content)), root=root
+    )
     return True
 
 
@@ -4842,12 +4839,14 @@ def reconcile_review_protocol_surfaces(
         if not path.is_file():
             if carrier.conditional_existing or not carrier.create_if_missing:
                 continue
-            original = _initial_review_carrier_text(repo_root, carrier)
+            disk = ""  # a new carrier is LF (wave 244in, change 244fj)
+            original = line_endings.to_lf(_initial_review_carrier_text(repo_root, carrier))
             # Fresh-only: guarantee a docs/agents/** carrier carries the Role:/Category:
             # frontmatter the pack's own docs-lint requires, even if the seed omits it.
             original = _ensure_agent_frontmatter(original, carrier.destination)
         else:
-            original = _read_repo_text(repo_root, path, translate_newlines=False)
+            disk = _read_repo_text(repo_root, path, translate_newlines=False)
+            original = line_endings.to_lf(disk)
         # Reconciliation runs before AND after tier 3, including without Guru.
         # Refusing only the template write would still alter malformed files.
         if carrier.destination.startswith(".claude/agents/") and _claude_agent_frontmatter(original, Path(carrier.destination)) is None:
@@ -4861,7 +4860,9 @@ def reconcile_review_protocol_surfaces(
             )
             continue
         if updated != original:
-            _write_review_carrier_text(path, updated, root=repo_root)
+            _write_review_carrier_text(
+                path, line_endings.encode(line_endings.merge(disk, updated)), root=repo_root
+            )
             written.append(carrier.destination)
     return written
 
@@ -5506,7 +5507,8 @@ def reconcile_review_policy_surfaces(
             raise RuntimeError(
                 f"missing review-policy lifecycle carrier: {carrier.destination}"
             )
-        original = _read_repo_text(repo_root, path, translate_newlines=False)
+        disk = _read_repo_text(repo_root, path, translate_newlines=False)
+        original = line_endings.to_lf(disk)  # wave 244in (244fj)
         updated = _upsert_review_policy_region(original, block)
         if updated is None:
             print(
@@ -5516,7 +5518,9 @@ def reconcile_review_policy_surfaces(
             )
             continue
         if updated != original:
-            _write_review_carrier_text(path, updated, root=repo_root)
+            _write_review_carrier_text(
+                path, line_endings.encode(line_endings.merge(disk, updated)), root=repo_root
+            )
             written.append(carrier.destination)
     return written
 
@@ -5538,9 +5542,11 @@ def reconcile_context_efficiency_surface(
             for row in REVIEW_PROTOCOL_CARRIER_REGISTRY
             if row.destination == CONTEXT_EFFICIENCY_DESTINATION
         )
-        original = _initial_review_carrier_text(repo_root, carrier)
+        disk = ""  # a new carrier is LF (wave 244in, change 244fj)
+        original = line_endings.to_lf(_initial_review_carrier_text(repo_root, carrier))
     else:
-        original = _read_repo_text(repo_root, path, translate_newlines=False)
+        disk = _read_repo_text(repo_root, path, translate_newlines=False)
+        original = line_endings.to_lf(disk)
     _context_efficiency_carrier_block()
     try:
         updated = _replace_context_efficiency_carrier_block(original)
@@ -5553,7 +5559,9 @@ def reconcile_context_efficiency_surface(
         return []
     if updated == original:
         return []
-    _write_review_carrier_text(path, updated, root=repo_root)
+    _write_review_carrier_text(
+        path, line_endings.encode(line_endings.merge(disk, updated)), root=repo_root
+    )
     return [CONTEXT_EFFICIENCY_DESTINATION]
 
 
@@ -5669,7 +5677,14 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
         except OSError:
             tier3_pre_bytes[path] = None
         tier3_candidates.append(path)
-        write_text(path, content, root=repo_root)
+        # Wave 244in (244fj): ``content`` is LF; an existing file keeps each
+        # unchanged line's ending, a new file is LF.
+        pre = tier3_pre_bytes[path]
+        try:
+            disk = pre.decode("utf-8") if pre is not None else ""
+        except UnicodeDecodeError:
+            disk = ""
+        write_text(path, line_endings.merge(disk, content), root=repo_root)
 
     # Tier 3 — optional native surfaces
     if (repo_root / ".cursor").exists():
@@ -5681,7 +5696,7 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
         claude_content = _guru_shortcuts(_CLAUDE_GURU_TEMPLATE)
         if claude_agent.is_file():
             claude_content = _merge_claude_agent(
-                _read_repo_text(repo_root, claude_agent, translate_newlines=False),
+                line_endings.to_lf(_read_repo_text(repo_root, claude_agent, translate_newlines=False)),
                 claude_content,
                 Path(".claude/agents/guru.md"),
             )
@@ -5701,7 +5716,7 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
         claude_body = CLAUDE_AUTO_GURU_SECTION.strip()
         claude_block = f"{MARKER_BEGIN}\n{claude_body}\n{MARKER_END}"
         claude_disk = _read_repo_text(repo_root, claude_path, translate_newlines=False)
-        disk_text = _universal_newlines(claude_disk)
+        disk_text = line_endings.to_lf(claude_disk)
         text = strip_legacy_auto_guru_lines(disk_text)
         if MARKER_BEGIN in text:
             text = re.sub(
@@ -5722,8 +5737,10 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
             else:
                 text = insert_after_heading(text, "## Startup Order", claude_block)
         if text != disk_text:
-            newline = "\r\n" if "\r\n" in claude_disk else "\n"
-            _write_repo_bytes(repo_root, claude_path, text.replace("\n", newline).encode("utf-8"))
+            # Wave 244in (244fj): only the edited lines change bytes.
+            _write_repo_bytes(
+                repo_root, claude_path, line_endings.encode(line_endings.merge(claude_disk, text))
+            )
             written.append("CLAUDE.md")
 
     pointer_specs: list[tuple[Path, str]] = [
@@ -5737,11 +5754,14 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
 
     cursor_ctx = repo_root / ".cursor" / "rules" / "project-context.mdc"
     if cursor_ctx.is_file():
-        disk_text = _read_repo_text(repo_root, cursor_ctx)
+        cursor_disk = _read_repo_text(repo_root, cursor_ctx, translate_newlines=False)
+        disk_text = line_endings.to_lf(cursor_disk)
         text = strip_legacy_auto_guru_section(strip_legacy_auto_guru_lines(disk_text))
         updated = upsert_marked_region(text, CURSOR_PROJECT_CONTEXT_BLOCK.strip())
         if updated != disk_text:
-            _write_repo_text_platform_newlines(repo_root, cursor_ctx, updated)
+            _write_repo_bytes(
+                repo_root, cursor_ctx, line_endings.encode(line_endings.merge(cursor_disk, updated))
+            )
             written.append(cursor_ctx.relative_to(repo_root).as_posix())  # Wave 1p6dx: forward-slash
 
     # Native Guru wrappers are materialized above, after the initial carrier

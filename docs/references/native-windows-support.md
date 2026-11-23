@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: supported
-Last verified: 2026-11-07
+Last verified: 2026-11-23
 
 ## SQLite conversion qualification (1xjmm)
 
@@ -17,6 +17,10 @@ The launcher recognizes the selected `python3.exe` by a case-insensitive `\Windo
 Native Windows lacks the descriptor-safe operations required by the disposable work area. Work areas and snapshots report unavailable, and focused re-review uses full review. This limitation does not block the lifecycle.
 
 Recovery responses provide argv and label Windows display strings as PowerShell. Git Bash callers must translate the argv for their shell instead of copying the PowerShell `&` invocation.
+
+## Line endings on native Windows (244in)
+
+Native Windows writes the same bytes as macOS, Linux and WSL2. A framework tool that edits an existing file, such as a lifecycle tool updating a wave record, a memory tool, a renderer or an upgrade step, keeps that file's line endings. Each existing line keeps its own ending, and an added or replaced line takes the file's majority ending, with a tie going to CRLF. A new file, and a file the framework generates in full, is LF. No tool that edits or generates a repository file uses `os.linesep` or the default text-mode translation, so a CRLF checkout stays CRLF and an LF checkout stays LF. Three writers still translate, and each is fine: local process logs under `.wavefoundry/` (dashboard, index and setup logs, and child output), which nothing reads as content; child console output, which follows the console's convention; and the graph-quality evaluation's scratch corpus, which is written to a temporary directory for one evaluation run and never committed. On WSL2, a file under `/mnt/c` that Git for Windows checked out with CRLF keeps its CRLF lines. Review-event JSONL ledgers stay LF-only. The tests simulate Windows text-mode translation on any host; that simulation is not native Windows qualification. The first upgrade from an older release still runs the old release's upgrade code for the workflow config and prompt manifest, so those two files keep their line endings from the next upgrade on.
 
 ## Context
 

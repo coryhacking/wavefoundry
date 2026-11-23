@@ -23,6 +23,7 @@ if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 import subprocess_util  # noqa: E402
 import lifecycle_id  # noqa: E402  — wave 1p8l0: lifecycle-backed `<prefix>-sec` finding IDs
+import line_endings  # noqa: E402  the in-place line-ending rule (wave 244in, change 244fj)
 from machine_authority import is_machine_authority_path  # noqa: E402
 from scanner_skips import is_recordable_path, update_scanner_skips  # noqa: E402
 import stat  # noqa: E402
@@ -825,7 +826,16 @@ def save_exceptions(root: Path, exceptions: list[dict]) -> None:
     path = root / SCAN_FINDINGS_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
     cleaned = [_strip_empty_fields(e) for e in exceptions]
-    path.write_text(json.dumps(cleaned, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    # Wave 244in (244fj): the file holds operator confirmations, so an
+    # existing copy keeps each line's own ending; a new one is LF.
+    try:
+        original = path.read_bytes().decode("utf-8")
+    except FileNotFoundError:
+        original = ""
+    updated = json.dumps(cleaned, indent=2, ensure_ascii=False) + "\n"
+    if original and updated == line_endings.to_lf(original):
+        return
+    path.write_text(line_endings.merge(original, updated), encoding="utf-8", newline="")
 
 
 # ---------------------------------------------------------------------------

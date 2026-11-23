@@ -129,6 +129,23 @@ class SmallChangeScopeTests(unittest.TestCase):
         self.first.chmod(0o644)
         self.assertNotEqual(executable["content_digest"], self.observe()["content_digest"])
 
+    def test_content_digest_is_byte_exact_on_line_endings(self):
+        """Wave 244in (244fj) AC-11: the small-change content digest stays
+        byte-exact on purpose. Line endings can be functional (a CRLF ``.sh``
+        breaks; ``.cmd`` needs CRLF) and the lane rechecks in the same working
+        tree, so a line-ending-only edit must lapse a narrow approval."""
+        self.admit()
+        self.first.write_bytes(b"value = 2\nother = 3\n")
+        with patch.object(lane, "_reviewed_file_id", return_value="fixed-identity"):
+            lf = self.observe()
+            self.assertTrue(lf["eligible"], lf)
+            self.first.write_bytes(b"value = 2\r\nother = 3\r\n")
+            crlf = self.observe()
+            self.assertTrue(crlf["eligible"], crlf)
+            self.assertNotEqual(lf["content_digest"], crlf["content_digest"])
+            self.first.write_bytes(b"value = 2\nother = 3\n")
+            self.assertEqual(self.observe()["content_digest"], lf["content_digest"])
+
     def test_file_identity_survives_device_renumbering_and_requires_evidence(self):
         fields = {"st_ino": 19, "st_birthtime_ns": 20, "st_ctime_ns": 42}
         first = lane._reviewed_file_id(SimpleNamespace(st_dev=1, **fields), "src/a.py")

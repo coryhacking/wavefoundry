@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import contained_files
+import line_endings  # the in-place line-ending rule (wave 244in, change 244fj)
 import record_paths  # record roots (wave 1y0gz)
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 import review_evidence
@@ -64,7 +65,7 @@ def refresh_review_status_blocks(root: Path) -> None:
                 root, path, max_bytes=MEMBER_DOC_MAX_BYTES, follow_links=False
             )
             original = raw.decode("utf-8")
-            text = original.replace("\r\n", "\n")
+            text = line_endings.to_lf(original)
             source, errors = review_evidence.parse_review_evidence_source(text)
             if review_evidence.wave_record_historical(text) or errors or source != review_evidence.REVIEW_EVIDENCE_SOURCE:
                 continue
@@ -74,11 +75,12 @@ def refresh_review_status_blocks(root: Path) -> None:
                 continue
             keys = review_evidence.required_review_status_keys(root, text, authority.records)
             updated = review_evidence.render_review_status_projection(
-                original, authority.records, keys, owned_block_only=True
+                text, authority.records, keys, owned_block_only=True
             )
-            if updated != original:
+            if updated != text:
+                # Wave 244in (244fj): every existing line keeps its ending.
                 contained_files.write_contained_bytes(
-                    root, path, updated.encode("utf-8"), no_links=True,
+                    root, path, line_endings.encode(line_endings.merge(original, updated)), no_links=True,
                     expected_identity=(identity.st_dev, identity.st_ino),
                 )
                 print(f"Refreshed review status for {relative}")
@@ -103,16 +105,18 @@ def _read_config_bytes(config_path: Path) -> bytes | None:
 
 
 def plan_review_policy_upgrade(root: Path) -> ReviewPolicyUpgradePlan:
-    """Read and validate the complete migration set before the first write."""
+    """Read and validate the complete migration set before the first write.
+
+    Wave 244in (244fj): the config, carrier and wave payloads are computed on
+    LF text and planned as ``line_endings.merge`` of each file as read, so the
+    apply step publishes bytes that keep every existing line's ending.
+    """
 
     config_path = root / "docs" / "workflow-config.json"
     try:
         config_before = _read_config_bytes(config_path)
-        config = (
-            json.loads(config_before.decode("utf-8"))
-            if config_before is not None
-            else {}
-        )
+        config_original = config_before.decode("utf-8") if config_before is not None else ""
+        config = json.loads(config_original) if config_before is not None else {}
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"cannot preflight workflow config: {exc}") from exc
     if not isinstance(config, dict):
@@ -121,7 +125,9 @@ def plan_review_policy_upgrade(root: Path) -> ReviewPolicyUpgradePlan:
         config["wave_review"] = migrate_wave_review_policy(config.get("wave_review"))
     except ValueError as exc:
         raise ValueError(f"cannot migrate wave_review policy: {exc}") from exc
-    config_after = (json.dumps(config, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    config_after = line_endings.encode(
+        line_endings.merge(config_original, json.dumps(config, indent=2, ensure_ascii=False) + "\n")
+    )
 
     carriers = plan_reconciliation(root)
     # A no-op migration marks nothing. When the migrated config is byte-identical to
@@ -144,8 +150,7 @@ def plan_review_policy_upgrade(root: Path) -> ReviewPolicyUpgradePlan:
         try:
             before = wave_md.read_bytes()
             original = before.decode("utf-8")
-            newline = "\r\n" if "\r\n" in original else "\n"
-            text = original.replace("\r\n", "\n").replace("\r", "\n")
+            text = line_endings.to_lf(original)
         except (OSError, UnicodeError) as exc:
             errors.append(f"{wave_md}: unreadable wave: {exc}")
             continue
@@ -179,8 +184,8 @@ def plan_review_policy_upgrade(root: Path) -> ReviewPolicyUpgradePlan:
             WaveMigration(
                 wave_md,
                 before,
-                marked_text.replace("\n", newline).encode("utf-8"),
-                projected_text.replace("\n", newline).encode("utf-8"),
+                line_endings.encode(line_endings.merge(original, marked_text)),
+                line_endings.encode(line_endings.merge(original, projected_text)),
             )
         )
     if errors:

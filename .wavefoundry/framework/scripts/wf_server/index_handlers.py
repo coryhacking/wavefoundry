@@ -555,7 +555,7 @@ def _write_index_build_stats_file(root: Path, layer: str, stats: dict[str, Any])
     try:
         path = _index_build_stats_path(root, layer)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(stats), encoding="utf-8")
+        path.write_text(json.dumps(stats), encoding="utf-8", newline="\n")
     except Exception:
         pass
 
@@ -923,7 +923,7 @@ def run_index_rebuild(
         log_file.close()
     state_path.write_text(
         json.dumps({"pid": proc.pid, "started_at": time.time(), "content": content, "layer": layer, "full": full, "build_id": build_id}),
-        encoding="utf-8",
+        encoding="utf-8", newline="\n",
     )
 
     _build_stats = _read_index_build_stats_file(root, layer)
@@ -1382,7 +1382,7 @@ def _start_background_index_refresh(root: Path, layer: str = "project") -> bool:
     _register_background_build_pid(proc.pid)
     state_path.write_text(
         json.dumps({"pid": proc.pid, "started_at": time.time(), "layer": layer}),
-        encoding="utf-8",
+        encoding="utf-8", newline="\n",
     )
     return True
 

@@ -2856,5 +2856,29 @@ regex = '[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+'
         self.assertEqual(len(rows), 1, "future JWT must still surface")
 
 
+
+class SaveExceptionsLineEndingTests(unittest.TestCase):
+    """Wave 244in (change 244fj) AC-1: ``docs/scan-findings.json`` holds
+    operator confirmations, so ``save_exceptions`` keeps an existing file's
+    line endings and creates a missing one LF."""
+
+    def test_matrix_and_new_file(self):
+        sys.path.insert(0, str(TESTS_ROOT))
+        import line_ending_support
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / _sv.SCAN_FINDINGS_PATH
+            with line_ending_support.windows_text_writes():
+                _sv.save_exceptions(root, [{"id": "a"}])
+            self.assertNotIn(b"\r", path.read_bytes())
+            before = json.dumps([{"id": "a"}], indent=2, ensure_ascii=False) + "\n"
+            after = json.dumps([{"id": "a"}, {"id": "b"}], indent=2, ensure_ascii=False) + "\n"
+            line_ending_support.run_matrix(
+                self, lambda text: path.write_bytes(text.encode("utf-8")),
+                lambda: _sv.save_exceptions(root, [{"id": "a"}, {"id": "b"}]),
+                path.read_bytes, before, after,
+            )
+
 if __name__ == "__main__":
     unittest.main()

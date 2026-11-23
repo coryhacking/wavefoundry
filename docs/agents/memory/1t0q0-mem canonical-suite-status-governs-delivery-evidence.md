@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-19
+Last verified: 2026-11-22
 
 Memory ID: `1t0q0-mem canonical-suite-status-governs-delivery-evidence`
 Kind: `failed_attempt`
 Confidence: 0.9
 Created: 2026-07-19
-Updated: 2026-07-19
+Updated: 2026-11-22
 Source event: `finding:1sxj7:delivery-evidence-not-green`
 Validation: promote
 Validated by: agent

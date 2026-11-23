@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-18
+Last verified: 2026-11-22
 
 Memory ID: `1swco-mem give-target-code-parser-failures-their-real-filename`
 Kind: `successful_pattern`
 Confidence: 0.9
 Created: 2026-07-18
-Updated: 2026-07-18
+Updated: 2026-11-22
 Source event: `decision-log:1p9p6-bug python-parse-filename-and-invalid-escape:f02ba5f503bd6609`
 Validation: promote
 Validated by: agent

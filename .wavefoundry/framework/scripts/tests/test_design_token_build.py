@@ -300,5 +300,36 @@ class WrapperDispatchTest(unittest.TestCase):
             self.assertIn("npm install", proc.stderr)
 
 
+
+class ManifestParityLineEndingTests(unittest.TestCase):
+    """Wave 244in (change 244fj): ``update_manifest_parity`` keeps the
+    manifest's own line endings (AC-1); built exports are LF under the
+    Windows-write simulation (AC-6)."""
+
+    def test_matrix_and_exports(self):
+        sys.path.insert(0, str(SCRIPTS_ROOT / "tests"))
+        import line_ending_support
+
+        with tempfile.TemporaryDirectory() as tmp:
+            design = _write_design_root(Path(tmp))
+            manifest = design / "manifest.json"
+            if manifest.exists():
+                manifest.unlink()
+            with line_ending_support.windows_text_writes():
+                written = dtb.build(design, update_manifest=False)
+            self.assertTrue(written)
+            for path in written:
+                self.assertNotIn(b"\r", path.read_bytes(), path.name)
+            before = json.dumps({"name": "x", "validationSummary": {}}, indent=2) + "\n"
+            manifest.write_text(before, encoding="utf-8")
+            self.assertTrue(dtb.update_manifest_parity(design, generated=False))
+            after = manifest.read_text(encoding="utf-8")
+            self.assertNotEqual(after, before)
+            line_ending_support.run_matrix(
+                self, lambda text: manifest.write_bytes(text.encode("utf-8")),
+                lambda: dtb.update_manifest_parity(design, generated=False),
+                manifest.read_bytes, before, after,
+            )
+
 if __name__ == "__main__":
     unittest.main()

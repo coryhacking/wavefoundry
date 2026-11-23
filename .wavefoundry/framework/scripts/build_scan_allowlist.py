@@ -62,7 +62,7 @@ def build_allowlist(root: Path) -> None:
     # not just those missing from the previous allowlist build.
     allowlist_path = root / SCAN_ALLOWLIST_PATH
     old_allowlist = allowlist_path.read_text(encoding="utf-8") if allowlist_path.exists() else None
-    allowlist_path.write_text("# (temporarily cleared for rebuild)\n", encoding="utf-8")
+    allowlist_path.write_text("# (temporarily cleared for rebuild)\n", encoding="utf-8", newline="\n")
 
     print("Scanning repository…")
     try:
@@ -70,7 +70,7 @@ def build_allowlist(root: Path) -> None:
     finally:
         if old_allowlist is not None and not allowlist_path.stat().st_size > 50:
             # Restore on unexpected failure before we write the new one
-            allowlist_path.write_text(old_allowlist, encoding="utf-8")
+            allowlist_path.write_text(old_allowlist, encoding="utf-8", newline="\n")
 
     # Read what the scanner appended
     all_exceptions = load_exceptions(root)
@@ -83,7 +83,7 @@ def build_allowlist(root: Path) -> None:
         allowlist_path.write_text(
             "# wavefoundry framework scan allowlist\n"
             "# Format: <sha256>:<rel_path>:<rule_id>:<line_hash>\n",
-            encoding="utf-8",
+            encoding="utf-8", newline="\n",
         )
         save_exceptions(root, non_framework_entries)
         return
@@ -130,7 +130,7 @@ def build_allowlist(root: Path) -> None:
         *allowlist_lines,
         "",
     ]
-    allowlist_path.write_text("\n".join(out), encoding="utf-8")
+    allowlist_path.write_text("\n".join(out), encoding="utf-8", newline="\n")
 
     # Remove framework entries from scan-findings.json — they're now in the allowlist
     save_exceptions(root, non_framework_entries)

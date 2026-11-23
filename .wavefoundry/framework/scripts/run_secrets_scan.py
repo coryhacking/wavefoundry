@@ -110,7 +110,7 @@ def _save_rules_hash(root: Path, rules_hash: str) -> None:
     except Exception:
         state = {}
     state["rules_hash"] = rules_hash
-    path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
 
 
 def _auto_max_workers(file_count: int) -> int:

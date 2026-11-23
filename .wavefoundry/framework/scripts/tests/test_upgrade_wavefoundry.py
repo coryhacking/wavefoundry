@@ -9649,6 +9649,7 @@ _DELEGATE_CHILD_MODULES = (
     "venv_bootstrap.py",
     "subprocess_util.py",
     "cli_stdio.py",
+    "line_endings.py",  # 244fj: the in-place line-ending rule upgrade_wavefoundry imports
     "reconcile_scan.py",
     # Wave 20kfr: the scanner projects mandatory carriers from shipped registries.
     "review_policy.py",
@@ -15981,3 +15982,224 @@ class ScaffoldRepairIsClassATests(unittest.TestCase):
                     "a staged temp file must never be left in the operator's "
                     "docs/plans directory",
                 )
+
+
+# ---------------------------------------------------------------------------
+# Wave 244in (change 244fj): in-place upgrade writers keep each file's own
+# line endings; generated upgrade files are LF on every platform.
+# ---------------------------------------------------------------------------
+
+import line_ending_support as _les  # noqa: E402
+
+
+class UpgradeInPlaceLineEndingTests(unittest.TestCase):
+    """244fj AC-1: every routed upgrade writer over LF, CRLF and mixed inputs,
+    natively and under the Windows-write simulation."""
+
+    def setUp(self):
+        self.ext = _load_upgrade_extensions()
+        self.up = load_upgrade_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+        if str(SCRIPTS_ROOT) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS_ROOT))
+
+    def _file(self, rel):
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def _matrix(self, rel, before_lf, after_lf, run):
+        path = self._file(rel)
+        _les.run_matrix(
+            self, lambda text: path.write_bytes(text.encode("utf-8")), run,
+            path.read_bytes, before_lf, after_lf,
+        )
+
+    def test_rewrite_legacy_config_keys(self):
+        before = json.dumps({"wave_council_policy": {"enabled": True}, "other": 1}, indent=2) + "\n"
+        after = json.dumps({"wave_review": {"enabled": True}, "other": 1}, indent=2) + "\n"
+        self._matrix("docs/workflow-config.json", before, after,
+                     lambda: self.ext._rewrite_legacy_config_keys(self.root))
+
+    def test_backfill_role_field(self):
+        before = "# Agent\n\nOwner: Engineering\nStatus: active\n\nBody.\n"
+        after = "# Agent\n\nOwner: Engineering\nStatus: active\nRole: builder\n\nBody.\n"
+        self._matrix("docs/agents/builder.md", before, after,
+                     lambda: self.ext._backfill_role_field_on_agent_docs(self.root))
+
+    def test_strip_pycache_row(self):
+        keep = {"matcher": "Edit", "hooks": [{"command": "keep"}]}
+        retired = {"matcher": "Bash", "hooks": [{"command": "bin/pycache-cleanup"}]}
+        before = json.dumps({"hooks": {"PostToolUse": [keep, retired]}}, indent=2) + "\n"
+        after = json.dumps({"hooks": {"PostToolUse": [keep]}}, indent=2) + "\n"
+        path = self._file(".claude/settings.json")
+        self._matrix(".claude/settings.json", before, after,
+                     lambda: self.ext._strip_pycache_row_from_settings_file(path, self.root))
+
+    def test_reconcile_docs_scalar_claims(self):
+        indexer = self._file(".wavefoundry/framework/scripts/indexer.py")
+        indexer.write_text('DOCS_MODEL = "new-model"\n', encoding="utf-8")
+        before = "# Budget\n\nThe docs embedding model `old-model` is pinned.\n"
+        after = "# Budget\n\nThe docs embedding model `new-model` is pinned.\n"
+        self._file(".wavefoundry/upgrade-in-progress.json")
+
+        def run():
+            (self.root / ".wavefoundry/upgrade-in-progress.json").write_text("{}\n", encoding="utf-8")
+            ctx = types.SimpleNamespace(
+                root=self.root, zip_path=None,
+                pre_extract_docs_scalar_claims={"docs embedding model": "old-model"},
+            )
+            self.assertTrue(self.ext._reconcile_docs_scalar_claims(ctx))
+
+        self._matrix("docs/architecture/performance-budget.md", before, after, run)
+
+    def test_repair_declaring_scaffold(self):
+        before = ScaffoldRepairIsClassATests.CONTAMINATED
+        path = self._file("docs/plans/plan-template.md")
+        path.write_text(before, encoding="utf-8")
+        self.assertEqual(self.ext.repair_declaring_scaffold(self.root), ["docs/plans/plan-template.md"])
+        after = path.read_text(encoding="utf-8")
+        self.assertNotEqual(after, before)
+        self._matrix("docs/plans/plan-template.md", before, after,
+                     lambda: self.ext.repair_declaring_scaffold(self.root))
+
+    def test_stamp_manifest_revision(self):
+        version = (SCRIPTS_ROOT.parent / "VERSION").read_text(encoding="utf-8").strip()
+        fw = self._file(".wavefoundry/framework/VERSION")
+        fw.write_text(version + "\n", encoding="utf-8")
+        before = json.dumps({"framework_revision": "0.0.1", "schema_version": 1}, indent=2) + "\n"
+        after = json.dumps({"framework_revision": version, "schema_version": 1}, indent=2) + "\n"
+        with patch.object(self.up, "_read_pack_version", return_value=version):
+            self._matrix("docs/prompts/prompt-surface-manifest.json", before, after,
+                         lambda: self.assertTrue(self.up._stamp_manifest_revision(self.root)))
+
+    def test_materialize_lifecycle_policy_keeps_operator_endings(self):
+        fields = {"scheme_version": "v2", "epoch_utc": "2026-01-01T00:00:00Z", "offset": 7}
+        before = json.dumps({"keep": 1, "lifecycle_id_policy": {"scheme_version": "v1"}}, indent=2) + "\n"
+        import lifecycle_id
+        with patch.object(lifecycle_id, "compute_v2_policy_fields", return_value=dict(fields)):
+            path = self._file("docs/workflow-config.json")
+            path.write_text(before, encoding="utf-8")
+            self.up.materialize_lifecycle_policy(self.root)
+            after = path.read_text(encoding="utf-8")
+            self._matrix("docs/workflow-config.json", before, after,
+                         lambda: self.up.materialize_lifecycle_policy(self.root))
+
+    def test_materialize_lifecycle_policy_creates_lf_under_simulation(self):
+        import lifecycle_id
+        fields = {"scheme_version": "v2", "epoch_utc": "2026-01-01T00:00:00Z", "offset": 7}
+        with patch.object(lifecycle_id, "compute_v2_policy_fields", return_value=fields), \
+                _les.windows_text_writes():
+            self.up.materialize_lifecycle_policy(self.root)
+        data = (self.root / "docs/workflow-config.json").read_bytes()
+        self.assertNotIn(b"\r", data)
+
+
+class UpgradeGeneratedLineEndingTests(unittest.TestCase):
+    """244fj AC-6: generated upgrade files are LF bytes under the simulation."""
+
+    def setUp(self):
+        self.ext = _load_upgrade_extensions()
+        self.up = load_upgrade_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+
+    def test_state_reports_and_policy_are_lf(self):
+        state = self.root / ".wavefoundry" / "upgrade-in-progress.json"
+        state.parent.mkdir(parents=True)
+        state.write_text("{}\n", encoding="utf-8")
+        with _les.windows_text_writes():
+            self.ext._update_upgrade_state(self.root, phase="x")
+            migration = self.ext._write_migration_report(self.root, [("Section", ["one", "two"])])
+            convergence = self.ext._write_convergence_report(self.root, [("a", "b", "rename", None)])
+            self.up._atomic_write_json(self.root / "out.json", {"a": [1, 2]})
+        for path in (state, migration, convergence, self.root / "out.json"):
+            data = path.read_bytes()
+            self.assertIn(b"\n", data)
+            self.assertNotIn(b"\r", data, path.name)
+
+
+class IncomingLineEndingsZipLoadTests(unittest.TestCase):
+    """244fj AC-7: the incoming upgrade_extensions.py, exec'd from a pack zip
+    against an old scripts directory without line_endings.py, loads the helper
+    from the zip and keeps a CRLF workflow config CRLF; a copy with a
+    top-level ``import line_endings`` cannot load there."""
+
+    MEMBER = ".wavefoundry/framework/scripts/upgrade_extensions.py"
+
+    _PROBE = r"""
+import json, sys, types, zipfile
+from pathlib import Path
+zip_path, root, old_scripts = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+sys.path.insert(0, old_scripts)
+member = ".wavefoundry/framework/scripts/upgrade_extensions.py"
+with zipfile.ZipFile(zip_path) as zf:
+    source = zf.read(member).decode("utf-8")
+mod = types.ModuleType("upgrade_extensions")
+mod.__file__ = member
+try:
+    exec(compile(source, member, "exec"), mod.__dict__)
+except Exception as exc:
+    print("LOAD_ERROR " + str(exc))
+    raise SystemExit(0)
+assert "line_endings" not in sys.modules
+ctx = types.SimpleNamespace(root=root, zip_path=zip_path, dry_run=False)
+mod._run_convergence_migration(ctx)
+print("RAN")
+"""
+
+    def _pack(self, tmp: Path, source: str) -> Path:
+        zip_path = tmp / "pack.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr(self.MEMBER, source)
+            zf.writestr(
+                ".wavefoundry/framework/scripts/line_endings.py",
+                (SCRIPTS_ROOT / "line_endings.py").read_text(encoding="utf-8"),
+            )
+        return zip_path
+
+    def _run(self, tmp: Path, source: str):
+        root = tmp / "repo"
+        config = root / "docs" / "workflow-config.json"
+        config.parent.mkdir(parents=True)
+        lf = json.dumps({"wave_council_policy": {"enabled": True}, "other": 1}, indent=2) + "\n"
+        config.write_bytes(lf.replace("\n", "\r\n").encode("utf-8"))
+        old_scripts = tmp / "old-scripts"
+        old_scripts.mkdir()
+        (old_scripts / "README.txt").write_text("an old install without line_endings.py\n", encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, "-I", "-B", "-c", self._PROBE,
+             str(self._pack(tmp, source)), str(root), str(old_scripts)],
+            capture_output=True, text=True, timeout=120,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout, config.read_bytes()
+
+    def test_incoming_extension_preserves_crlf_config(self):
+        source = (SCRIPTS_ROOT / "upgrade_extensions.py").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as raw:
+            stdout, data = self._run(Path(raw), source)
+        self.assertIn("RAN", stdout)
+        expected = json.dumps({"wave_review": {"enabled": True}, "other": 1}, indent=2) + "\n"
+        self.assertEqual(data, expected.replace("\n", "\r\n").encode("utf-8"))
+
+    def test_top_level_import_copy_fails_to_load(self):
+        source = (SCRIPTS_ROOT / "upgrade_extensions.py").read_text(encoding="utf-8")
+        bad = source.replace("\nimport ast\n", "\nimport ast\nimport line_endings\n", 1)
+        self.assertNotEqual(bad, source)
+        with tempfile.TemporaryDirectory() as raw:
+            stdout, _data = self._run(Path(raw), bad)
+        self.assertIn("LOAD_ERROR No module named 'line_endings'", stdout)
+
+    def test_module_has_no_top_level_line_endings_import(self):
+        tree = ast.parse((SCRIPTS_ROOT / "upgrade_extensions.py").read_text(encoding="utf-8"))
+        for node in tree.body:
+            names = []
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                names = [node.module or ""]
+            self.assertNotIn("line_endings", names)

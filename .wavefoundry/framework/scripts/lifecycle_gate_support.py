@@ -743,6 +743,26 @@ def _read_wave_record_text(
         return None, _read_error_detail(exc)
 
 
+def _read_wave_record_original(
+    wave_md: Path, *, error_root: Path | None = None,
+) -> tuple[Optional[str], Optional[str]]:
+    """Raw sibling of :func:`_read_wave_record_text` (wave 244in, change 244fj).
+
+    Reads the wave record's bytes once and returns ``(original, None)`` with
+    line endings intact, for a writer that publishes
+    ``line_endings.merge(original, new_lf)``.  Failures return
+    ``(None, read_error)`` exactly as :func:`_read_wave_record_text` does.
+    """
+    try:
+        return wave_md.read_bytes().decode("utf-8"), None
+    except (OSError, UnicodeError) as exc:
+        if error_root is not None:
+            from lifecycle_lock import path_free_exception_text
+
+            return None, path_free_exception_text(exc, error_root)
+        return None, _read_error_detail(exc)
+
+
 def _diagnostic(
     code: str,
     message: str,

@@ -412,7 +412,7 @@ def record_hook_reindex_spawn(index_dir: Path) -> None:
     index_dir.mkdir(parents=True, exist_ok=True)
     (index_dir / HOOK_REINDEX_LAST_SPAWN_NAME).write_text(
         str(time.time()),
-        encoding="utf-8",
+        encoding="utf-8", newline="\n",
     )
 
 
@@ -422,7 +422,7 @@ def mark_reindex_pending(index_dir: Path) -> None:
     reindex — instead of spawning a reindex per edit. Cheap (a single write); never raises."""
     try:
         index_dir.mkdir(parents=True, exist_ok=True)
-        (index_dir / HOOK_REINDEX_PENDING_NAME).write_text(str(time.time()), encoding="utf-8")
+        (index_dir / HOOK_REINDEX_PENDING_NAME).write_text(str(time.time()), encoding="utf-8", newline="\n")
     except OSError:
         pass
 

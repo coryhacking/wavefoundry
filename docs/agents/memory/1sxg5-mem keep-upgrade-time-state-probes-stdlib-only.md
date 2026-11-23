@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-18
+Last verified: 2026-11-22
 
 Memory ID: `1sxg5-mem keep-upgrade-time-state-probes-stdlib-only`
 Kind: `dependency_gotcha`
 Confidence: 0.95
 Created: 2026-07-18
-Updated: 2026-07-18
+Updated: 2026-11-22
 Source event: `decision-log:1rvfx-bug upgrade-graph-version-transition-log:6cbe53f749f757c2`
 Validation: promote
 Validated by: agent

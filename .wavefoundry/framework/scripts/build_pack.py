@@ -68,6 +68,7 @@ if __name__ == "__main__":
     bytecode_cache.configure()
 
 import venv_bootstrap  # the single venv resolver (wave 1p7pl)
+import line_endings  # the in-place line-ending rule (wave 244in, change 244fj)
 from upgrade_protocol import (
     PROTOCOL_METADATA_FILENAME,
     build_protocol_metadata,
@@ -261,14 +262,14 @@ def write_manifest(framework_dir: Path, entries: list[tuple[Path, str]]) -> Path
         "MANIFEST",
     })
     manifest_path = framework_dir / "MANIFEST"
-    manifest_path.write_text("\n".join(rel_paths) + "\n", encoding="utf-8")
+    manifest_path.write_text("\n".join(rel_paths) + "\n", encoding="utf-8", newline="\n")
     return manifest_path
 
 
 def write_pack_version(framework_dir: Path, version: str, build_prefix: str) -> None:
     """Stamp VERSION with MAJOR.MINOR.PATCH+<build_prefix> so the archive is traceable."""
     version_path = framework_dir / "VERSION"
-    version_path.write_text(f"{version}+{build_prefix}\n", encoding="utf-8")
+    version_path.write_text(f"{version}+{build_prefix}\n", encoding="utf-8", newline="\n")
 
 
 def update_manifest_revision(repo_root: Path, full_version: str) -> None:
@@ -285,12 +286,17 @@ def update_manifest_revision(repo_root: Path, full_version: str) -> None:
         print(f"warning: manifest not found at {manifest_path}; skipping update.", file=sys.stderr)
         return
     try:
-        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        original = manifest_path.read_bytes().decode("utf-8")
+        data = json.loads(original)
     except Exception as exc:  # noqa: BLE001
         print(f"warning: could not parse manifest: {exc}; skipping update.", file=sys.stderr)
         return
     data["framework_revision"] = full_version
-    manifest_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    # Wave 244in (244fj): the reserialized manifest keeps its own line endings.
+    updated = json.dumps(data, indent=2) + "\n"
+    if updated == line_endings.to_lf(original):
+        return
+    manifest_path.write_text(line_endings.merge(original, updated), encoding="utf-8", newline="")
 
 
 def check_docs_gate(repo_root: Path) -> None:
@@ -804,14 +810,16 @@ def _stamp_readme_version_badge(repo_root: Path, version: str) -> bool:
     """
     readme = repo_root / "README.md"
     try:
-        text = readme.read_text(encoding="utf-8")
-    except OSError:
+        original = readme.read_bytes().decode("utf-8")
+    except (OSError, UnicodeError):
         return False
+    text = line_endings.to_lf(original)
     new = _README_VERSION_BADGE_RE.sub(rf"\g<1>{version}\g<2>", text)
     if new == text:
         return False
     try:
-        readme.write_text(new, encoding="utf-8")
+        # Wave 244in (244fj): the README keeps its own line endings.
+        readme.write_text(line_endings.merge(original, new), encoding="utf-8", newline="")
     except OSError:
         return False
     return True
@@ -1144,6 +1152,7 @@ def _build_zip_body(
         )
         + "\n",
         encoding="utf-8",
+        newline="\n",
     )
 
     # Remove .DS_Store files from the repo root before collecting files.
@@ -1306,7 +1315,7 @@ def build_protocol_bridge_artifacts(
         "feature_sha256": _file_sha256(feature_zip),
     }
     selection.write_text(
-        json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n"
     )
     return {"bridge": bridge_zip, "bootstrap": bootstrap, "selection": selection}
 

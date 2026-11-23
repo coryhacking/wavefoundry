@@ -2737,3 +2737,51 @@ class ReleaseChecksumTests(unittest.TestCase):
         for line in self.expected_lines():
             self.assertIn(line, buf.getvalue())
         self.assertFalse([c for c in rec.calls if c[:1] == ["gh"]])
+
+
+class BuildPackLineEndingTests(unittest.TestCase):
+    """Wave 244in (change 244fj): the README badge and the prompt-surface
+    manifest keep their own line endings (AC-1); the pack MANIFEST and VERSION
+    are LF under the Windows-write simulation (AC-6)."""
+
+    def setUp(self):
+        import tempfile
+        import line_ending_support
+
+        self.les = line_ending_support
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def _matrix(self, path, before, after, run):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.les.run_matrix(
+            self, lambda text: path.write_bytes(text.encode("utf-8")), run,
+            path.read_bytes, before, after,
+        )
+
+    def test_readme_badge(self):
+        before = "# Project\n\n![v](https://img.shields.io/badge/version-1.0.0-purple)\n\nBody.\n"
+        after = before.replace("version-1.0.0-purple", "version-2.0.0-purple")
+        self._matrix(self.root / "README.md", before, after, lambda: self.assertTrue(
+            build_pack._stamp_readme_version_badge(self.root, "2.0.0")))
+
+    def test_manifest_revision(self):
+        before = json.dumps({"framework_revision": "1.0.0+a", "keep": [1, 2]}, indent=2) + "\n"
+        after = json.dumps({"framework_revision": "2.0.0+b", "keep": [1, 2]}, indent=2) + "\n"
+        path = self.root / "docs" / "prompts" / "prompt-surface-manifest.json"
+        self._matrix(path, before, after,
+                     lambda: build_pack.update_manifest_revision(self.root, "2.0.0+b"))
+
+    def test_pack_manifest_and_version_are_lf_under_simulation(self):
+        fw = self.root / "framework"
+        fw.mkdir()
+        entries = [(None, f"{build_pack.FRAMEWORK_REL}/scripts/a.py"),
+                   (None, f"{build_pack.FRAMEWORK_REL}/seeds/b.md")]
+        with self.les.windows_text_writes():
+            manifest = build_pack.write_manifest(fw, entries)
+            build_pack.write_pack_version(fw, "2.0.0", "abcd")
+        for path in (manifest, fw / "VERSION"):
+            data = path.read_bytes()
+            self.assertIn(b"\n", data)
+            self.assertNotIn(b"\r", data)

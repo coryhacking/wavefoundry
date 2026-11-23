@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-18
+Last verified: 2026-11-22
 
 Memory ID: `1svek-mem separate-generated-file-newline-policy-from-in-place-patchin`
 Kind: `successful_pattern`
 Confidence: 0.95
 Created: 2026-07-18
-Updated: 2026-07-18
+Updated: 2026-11-22
 Source event: `decision-log:1p9ix-bug windows-path-newline-stragglers:4c6909d24b66cfaa`
 Validation: promote
 Validated by: agent

@@ -34,6 +34,8 @@ import json
 import re
 from pathlib import Path
 
+import line_endings  # the in-place line-ending rule (wave 244in, change 244fj)
+
 GENERATED_HEADER = "generated — do not edit directly"
 
 _TOKEN_REF_RE = re.compile(r"\{([^}]+)\}")
@@ -368,8 +370,9 @@ def update_manifest_parity(design_root: Path, *, generated: bool) -> bool:
     if not manifest_path.exists():
         return False
     try:
-        data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+        original = manifest_path.read_bytes().decode("utf-8")
+        data = json.loads(original)
+    except (ValueError, OSError):
         return False
     if not isinstance(data, dict):
         return False
@@ -382,9 +385,12 @@ def update_manifest_parity(design_root: Path, *, generated: bool) -> bool:
             datetime.timezone.utc
         ).replace(microsecond=0).isoformat()
     summary["exportsStale"] = exports_stale(design_root)
-    manifest_path.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
+    # Wave 244in (244fj): the reserialized manifest keeps its own endings.
+    updated = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    if updated != line_endings.to_lf(original):
+        manifest_path.write_text(
+            line_endings.merge(original, updated), encoding="utf-8", newline=""
+        )
     return True
 
 
@@ -424,7 +430,7 @@ def build(
         else:
             out_path = design_root / "exports" / default_rel
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(renderer(rt), encoding="utf-8")
+        out_path.write_text(renderer(rt), encoding="utf-8", newline="\n")
         written.append(out_path)
 
     if update_manifest:

@@ -5444,5 +5444,80 @@ class SameStatusKeepStampTests(_MemoryCase):
             self._assert_stamped(before, self.path.read_text(encoding="utf-8"), "2026-11-22")
 
 
+class MemoryWriterLineEndingTests(_MemoryCase):
+    """Wave 244in (change 244fj) AC-1: memory writers keep each record's own
+    line endings on every platform. Each output must be its LF content in the
+    input's shape (LF, CRLF, or mixed: first line LF, the rest CRLF), with no
+    ``\\r\\r\\n``, natively and under the shared Windows-write simulation."""
+
+    def _shapes(self):
+        import line_ending_support as les
+        return (("lf", lambda t: t), ("crlf", lambda t: les.with_endings(t, les.CRLF)), ("mixed", les.mixed))
+
+    def _assert_shape(self, build, path, step):
+        data = path.read_bytes()
+        with self.subTest(step=step):
+            self.assertNotIn(b"\r\r\n", data)
+            self.assertEqual(data, build(data.decode("utf-8").replace("\r\n", "\n")).encode("utf-8"))
+
+    def _fresh_root(self, name):
+        self.root = Path(self._tmp.name) / name
+        (self.root / "docs" / "agents").mkdir(parents=True)
+
+    def test_validation_reconcile_and_archive_keep_line_endings(self):
+        import line_ending_support as les
+        import contextlib
+        for shape, build in self._shapes():
+            for simulated in (False, True):
+                with self.subTest(shape=shape, windows_simulation=simulated):
+                    self._fresh_root(f"repo-{shape}-{simulated}")
+                    content = self.mem.render_memory_record(
+                        memory_id="mem-endings", kind="failed_attempt", summary="Lesson.",
+                        evidence=["`1abcd-bug some-change` - observed"], targets=["src/locks.py"],
+                        title="Endings", source_event="finding:endings", date="2026-07-13")
+                    path = self.mem.write_memory_record(self.root, build(content), "mem-endings")
+                    before = path.read_bytes()
+                    with les.windows_text_writes() if simulated else contextlib.nullcontext():
+                        self.mem.record_memory_validation(
+                            self.root, "mem-endings", verdict="retain", action_delta="Keep the lock order.",
+                            rationale="Still current.", evidence_verified=True, current_target_verified=True,
+                            canonical_overlap="none")
+                        self.assertNotEqual(path.read_bytes(), before)
+                        self._assert_shape(build, path, "validated")
+                        self.mem.reconcile_memory_record(
+                            self.root, "mem-endings", "superseded", superseded_by="mem-newer")
+                        self._assert_shape(build, path, "reconciled")
+                        self.mem.archive_memory_record(self.root, "mem-endings", reason="Superseded guidance.")
+                    archived = self.root / self.mem.MEMORY_ARCHIVE_DIR / "mem-endings.md"
+                    self._assert_shape(build, archived, "archived")
+                    self.assertIn("Status: archived", archived.read_text(encoding="utf-8"))
+
+    def test_lifecycle_id_migration_keeps_line_endings(self):
+        import line_ending_support as les
+        import contextlib
+        for shape, build in self._shapes():
+            for simulated in (False, True):
+                with self.subTest(shape=shape, windows_simulation=simulated):
+                    self._fresh_root(f"migrate-{shape}-{simulated}")
+                    LifecycleMemoryIdTests._v2_policy(self)
+                    alpha = self._add("mem-alpha-lesson", "decision", created="2026-01-10")
+                    beta = self._add("mem-beta-lesson", "failed_attempt", created="2026-02-20")
+                    for path in (alpha, beta):
+                        text = path.read_text(encoding="utf-8")
+                        if path == beta:
+                            text = text.replace("- observed", "- observed; related: `mem-alpha-lesson`")
+                            text = text.replace("\u2014 observed", "\u2014 observed; related: `mem-alpha-lesson`")
+                        path.write_bytes(build(text).encode("utf-8"))
+                    with les.windows_text_writes() if simulated else contextlib.nullcontext():
+                        result = self.mem.migrate_memory_ids_to_lifecycle_naming(self.root)
+                    self.assertEqual(result["renamed"], 2, result)
+                    records = {r["memory_id"]: r for r in self.mem.load_memory_records(self.root)}
+                    for new_id in result["mapping"].values():
+                        self._assert_shape(build, Path(records[new_id]["path"]), "migrated " + new_id)
+                    migrated_beta = Path(records[result["mapping"]["mem-beta-lesson"]]["path"])
+                    self.assertIn(f"`{result['mapping']['mem-alpha-lesson']}`",
+                                  migrated_beta.read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()

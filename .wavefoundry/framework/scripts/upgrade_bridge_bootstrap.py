@@ -587,7 +587,7 @@ def install(
                     indent=2,
                 )
                 + "\n",
-                encoding="utf-8",
+                encoding="utf-8", newline="\n",
             )
         except BaseException:
             if moved:

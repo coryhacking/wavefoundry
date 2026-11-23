@@ -4844,3 +4844,169 @@ class DeclaredLegacyHookTests(unittest.TestCase):
                     with self.assertRaises(ext.ExtensionDeclarationError):
                         renderer.render_claude_settings(root)
                 self.assertEqual(path.read_bytes(), once)
+
+
+def _first_line_crlf(text: str) -> str:
+    head, sep, rest = text.partition("\n")
+    return head + ("\r\n" if sep else "") + rest
+
+
+class LineEndingPreservationTests(unittest.TestCase):
+    """Wave 244in (change 244fj): every in-place writer in this module keeps
+    each existing line's ending, gives inserted lines the file's majority
+    ending (ties to CRLF), writes a new file LF, writes only when the LF
+    content changes, and never emits ``\\r\\r\\n``, natively and under the
+    shared Windows-write simulation."""
+
+    def setUp(self) -> None:
+        from declaration_support import base_declaration
+        from line_ending_support import mixed, windows_text_writes
+
+        self.mod = _load_render_module()
+        self.mixed = mixed
+        self.windows_text_writes = windows_text_writes
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self._declaration = base_declaration()
+        self._declaration.__enter__()
+
+    def tearDown(self) -> None:
+        self._declaration.__exit__(None, None, None)
+        self._tmp.cleanup()
+
+    @staticmethod
+    def _expected(after_lf: str, input_text: str) -> str:
+        """Independent oracle: an output line equal to an input line keeps that
+        line's ending; any other line takes the input's majority ending (ties
+        to CRLF; no terminated line gives LF). Fixtures use unique, non-blank
+        input lines."""
+        endings: dict[str, str] = {}
+        crlf = lf = 0
+        for line in input_text.splitlines(keepends=True):
+            if line.endswith("\r\n"):
+                endings[line[:-2]] = "\r\n"
+                crlf += 1
+            elif line.endswith("\n"):
+                endings[line[:-1]] = "\n"
+                lf += 1
+        majority = "\r\n" if crlf and crlf >= lf else "\n"
+        out = []
+        for line in after_lf.splitlines(keepends=True):
+            body = line[:-1] if line.endswith("\n") else line
+            if not line.endswith("\n"):
+                out.append(body)
+            else:
+                out.append(body + endings.get(body, majority))
+        return "".join(out)
+
+    def _matrix(self, path: Path, run_writer, before_lf: str, *, expect_in: str) -> str:
+        def write_input(text: str) -> None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(text.encode("utf-8"))
+
+        def read_output() -> bytes:
+            return path.read_bytes()
+
+        def run() -> None:
+            with contextlib.redirect_stderr(io.StringIO()):
+                run_writer()
+
+        write_input(before_lf)
+        run()
+        after = read_output()
+        self.assertNotIn(b"\r", after, "an LF input stays LF")
+        after_lf = after.decode("utf-8")
+        self.assertNotEqual(after_lf, before_lf, "the writer must change the fixture")
+        self.assertIn(expect_in, after_lf)
+        shapes = (
+            ("lf", before_lf),
+            ("crlf", before_lf.replace("\n", "\r\n")),
+            ("mixed", self.mixed(before_lf)),
+            ("lf_majority_one_crlf", _first_line_crlf(before_lf)),
+        )
+        for shape, text in shapes:
+            for simulated in (False, True):
+                with self.subTest(shape=shape, windows_simulation=simulated):
+                    write_input(text)
+                    if simulated:
+                        with self.windows_text_writes():
+                            run()
+                    else:
+                        run()
+                    data = read_output()
+                    self.assertNotIn(b"\r\r\n", data)
+                    self.assertEqual(data, self._expected(after_lf, text).encode("utf-8"))
+        # A new file is LF, natively and under the simulation.
+        for simulated in (False, True):
+            with self.subTest(shape="new_file", windows_simulation=simulated):
+                path.unlink()
+                if simulated:
+                    with self.windows_text_writes():
+                        run()
+                else:
+                    run()
+                if path.exists():
+                    self.assertNotIn(b"\r", read_output())
+        return after_lf
+
+    def test_merge_mcp_server(self) -> None:
+        path = self.root / ".mcp.json"
+        before = '{\n  "mcpServers": {\n    "other": {\n      "command": "x"\n    }\n  }\n}\n'
+        self._matrix(path, lambda: self.mod._merge_mcp_server(path, {"command": "python3"}, root=self.root),
+                     before, expect_in='"wavefoundry"')
+
+    def test_merge_mcp_server_skips_unchanged_mixed_file(self) -> None:
+        """AC-5: unchanged LF content leaves a mixed file's bytes and mtime."""
+        path = self.root / ".mcp.json"
+        self.mod._merge_mcp_server(path, {"command": "python3"}, root=self.root)
+        mixed = self.mixed(path.read_text(encoding="utf-8")).encode("utf-8")
+        self.assertIn(b"\r\n", mixed)
+        path.write_bytes(mixed)
+        os.utime(path, ns=(1_000_000_000_000_000_000, 1_000_000_000_000_000_000))
+        before_stat = path.stat()
+        for simulated in (False, True):
+            with self.subTest(windows_simulation=simulated):
+                if simulated:
+                    with self.windows_text_writes():
+                        self.mod._merge_mcp_server(path, {"command": "python3"}, root=self.root)
+                else:
+                    self.mod._merge_mcp_server(path, {"command": "python3"}, root=self.root)
+                self.assertEqual(path.read_bytes(), mixed)
+                self.assertEqual(path.stat().st_mtime_ns, before_stat.st_mtime_ns)
+
+    def test_render_claude_settings(self) -> None:
+        path = self.root / ".claude" / "settings.json"
+        before = '{\n  "custom": 1\n}\n'
+        self._matrix(path, lambda: self.mod.render_claude_settings(self.root), before,
+                     expect_in='"custom": 1')
+
+    def test_render_claude_permissions(self) -> None:
+        path = self.root / ".claude" / "settings.json"
+        before = '{\n  "custom": 1\n}\n'
+        self._matrix(path, lambda: self.mod.render_claude_permissions(self.root), before,
+                     expect_in=self.mod.PERMISSIONS_PROVENANCE_KEY)
+
+    def test_render_gitignore_block(self) -> None:
+        path = self.root / ".gitignore"
+        before = "node_modules/\n*.log\n/build/\n*.tmp\n"
+        self._matrix(path, lambda: self.mod.render_gitignore_block(self.root), before,
+                     expect_in=self.mod._GITIGNORE_BEGIN)
+
+    def test_render_gitattributes_block(self) -> None:
+        path = self.root / ".gitattributes"
+        before = "*.png binary\n*.sh text eol=lf\n*.jpg binary\n*.ps1 text eol=crlf\n"
+        after = self._matrix(path, lambda: self.mod.render_gitattributes_block(self.root), before,
+                             expect_in=self.mod._GITATTRIBUTES_BEGIN)
+        self.assertTrue(after.startswith(self.mod._DOC_GITATTRIBUTES_BEGIN))
+
+    def test_render_aiignore(self) -> None:
+        path = self.root / ".aiignore"
+        before = "# Project ignores\nsecrets/\nbuild/\ncoverage/\n"
+        self._matrix(path, lambda: self.mod.render_aiignore(self.root), before,
+                     expect_in="secrets/")
+
+    def test_render_codex_mcp_config(self) -> None:
+        path = self.root / ".codex" / "config.toml"
+        before = "# Operator config\nmodel = \"o4\"\napproval_policy = \"never\"\nsandbox = \"workspace-write\"\n"
+        self._matrix(path, lambda: self.mod.render_codex_mcp_config(self.root), before,
+                     expect_in="[mcp_servers.wavefoundry]")

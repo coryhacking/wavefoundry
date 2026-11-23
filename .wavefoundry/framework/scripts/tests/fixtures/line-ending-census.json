@@ -1,0 +1,1694 @@
+{
+  "_comment": "Wave 244in (change 244fj): the authoritative line-ending census table. Read by tests/test_line_ending_census.py; see tests/line_ending_census_engine.py.",
+  "functions": {
+    "accel_embedder:_ensure_ref_main": {
+      "callers": [
+        "accel_embedder:_hf_download_cached_first"
+      ],
+      "class": "exempt",
+      "primitive_calls": 2,
+      "reason": "Writes the pinned Hugging Face revision id to the model cache's refs/main, as bytes with no line ending.",
+      "wrapper_calls": 0
+    },
+    "benchmarks.compare_retrieval_receipts:main": {
+      "callers": [
+        "benchmarks.compare_retrieval_receipts:<module>"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "benchmarks.embed_bench:main": {
+      "callers": [
+        "benchmarks.embed_bench:<module>"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "build_pack:_build_zip_body": {
+      "callers": [
+        "build_pack:build_zip"
+      ],
+      "class": "generated",
+      "primitive_calls": 2,
+      "wrapper_calls": 0
+    },
+    "build_pack:_run_release_orchestration": {
+      "callers": [
+        "build_pack:main"
+      ],
+      "class": "exempt",
+      "primitive_calls": 2,
+      "reason": "Writes the release notes and SHA256SUMS of a release build as UTF-8 and ASCII bytes with LF endings.",
+      "wrapper_calls": 0
+    },
+    "build_pack:_stamp_readme_version_badge": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "build_pack:build_protocol_bridge_artifacts": {
+      "callers": [
+        "build_pack:main"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "build_pack:update_manifest_revision": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "build_pack:write_manifest": {
+      "callers": [
+        "build_pack:_build_zip_body"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0,
+      "writer_callers_reason": "Writes the pack MANIFEST it computes from its own entries; _build_zip_body orchestrates the pack build."
+    },
+    "build_pack:write_pack_version": {
+      "callers": [
+        "build_pack:_build_zip_body"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0,
+      "writer_callers_reason": "Writes the pack VERSION from its own arguments at a fixed path; _build_zip_body orchestrates the pack build."
+    },
+    "build_scan_allowlist:build_allowlist": {
+      "callers": [
+        "build_scan_allowlist:<module>"
+      ],
+      "class": "generated",
+      "primitive_calls": 4,
+      "wrapper_calls": 0
+    },
+    "bytecode_cache:_flush_if_stale": {
+      "callers": [
+        "bytecode_cache:_configure"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "reason": "Writes the bytecode cache version stamp as bytes with no line ending.",
+      "wrapper_calls": 0
+    },
+    "contained_files:_write_all": {
+      "callers": [
+        "contained_files:write_contained_bytes"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "reason": "Implements the contained_files.write_contained_bytes primitive: writes caller bytes to an already opened descriptor.",
+      "wrapper_calls": 0
+    },
+    "contained_files:open_contained_append": {
+      "callers": [
+        "child_tee:_open_child_log",
+        "upgrade_wavefoundry:_open_log"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "process_log": true,
+      "reason": "Implements the contained append primitive for child-process and upgrade logs; returns the open text handle.",
+      "wrapper_calls": 0
+    },
+    "context_efficiency:_spool_event": {
+      "callers": [
+        "context_efficiency:_commit_event"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 2
+    },
+    "context_efficiency:_write_exclusive": {
+      "class": "wrapper",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "context_efficiency:_write_gap_sentinel": {
+      "callers": [
+        "context_efficiency:ProcessTelemetry.flush",
+        "context_efficiency:_commit_event",
+        "context_efficiency:poison_accounting_gap",
+        "context_efficiency:replay_spool"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 2
+    },
+    "dashboard_server:_daemonize": {
+      "callers": [
+        "dashboard_server:main"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "process_log": true,
+      "reason": "Opens the dashboard daemon's process log for the child's output.",
+      "wrapper_calls": 0
+    },
+    "dashboard_server:_dashboard_log": {
+      "callers": [
+        "dashboard_server:DashboardHandler.log_message",
+        "dashboard_server:SnapshotStore.__init__",
+        "dashboard_server:SnapshotStore._check_upgrade_lock",
+        "dashboard_server:SnapshotStore._mark_cycle_stalled",
+        "dashboard_server:SnapshotStore._note_cycle_recovered",
+        "dashboard_server:SnapshotStore._watch_loop",
+        "dashboard_server:main"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "process_log": true,
+      "reason": "Appends a line to the local dashboard process log.",
+      "wrapper_calls": 0
+    },
+    "design_token_build:build": {
+      "callers": [],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "design_token_build:update_manifest_parity": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "docs_gardener:ensure_manifest": {
+      "class": "in_place",
+      "primitive_calls": 2,
+      "wrapper_calls": 0
+    },
+    "docs_gardener:ensure_session_handoff": {
+      "callers": [
+        "docs_gardener:gardener_run"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "docs_gardener:refresh_last_verified": {
+      "class": "in_place_raw",
+      "primitive_calls": 1,
+      "reason": "Replaces the date inside the existing Last verified line of the raw document text (Requirement 4).",
+      "wrapper_calls": 0
+    },
+    "embedded_model_bundle:retain": {
+      "callers": [
+        "upgrade_bundle:_incoming_runner",
+        "upgrade_bundle:run",
+        "upgrade_extensions:post_extract",
+        "upgrade_wavefoundry:main"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "reason": "Copies a model bundle archive verbatim (binary).",
+      "wrapper_calls": 0,
+      "writer_callers_reason": "Retains the bundle archive at its own fixed path from the archive the incoming runner opened; the runner orchestrates the upgrade."
+    },
+    "gen_codebase_map:_refresh_repo_index_modules": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "gen_codebase_map:generate_codebase_map": {
+      "callers": [
+        "gen_codebase_map:generate_safe",
+        "gen_codebase_map:main"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "gen_codebase_map:scaffold_area_contexts": {
+      "callers": [
+        "gen_codebase_map:main"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "graph_cluster:_write_json": {
+      "callers": [
+        "graph_cluster:update_graph_clusters"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "graph_indexer:_write_json": {
+      "callers": [],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "graph_quality_eval:materialize": {
+      "callers": [
+        "graph_quality_eval:build_graph_over_corpus"
+      ],
+      "class": "exempt",
+      "newline_unset_reason": "The shipped baseline and post reports pin this evaluator's source hash and builder provenance; regenerating them would rewrite the historical post report, so the scratch corpus write is left unchanged (wave 244in).",
+      "primitive_calls": 1,
+      "reason": "Materializes the graph-quality evaluation corpus into a scratch root for one evaluation run; nothing is committed or edited in place.",
+      "wrapper_calls": 0
+    },
+    "graph_quality_eval:write_report": {
+      "callers": [
+        "graph_quality_eval:main"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "index_state_store:store_log": {
+      "callers": [
+        "index_state_store:IndexStateStore.meta_all",
+        "index_state_store:reconcile_chunk_index"
+      ],
+      "class": "exempt",
+      "primitive_calls": 2,
+      "process_log": true,
+      "reason": "Local index process log: trims the log tail as bytes and appends a line.",
+      "wrapper_calls": 0
+    },
+    "indexer:mark_reindex_pending": {
+      "callers": [],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "indexer:record_hook_reindex_spawn": {
+      "callers": [],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "install_log_lib:write_install_log": {
+      "class": "wrapper",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "lexical_ranking_eval:write_report": {
+      "callers": [
+        "lexical_ranking_eval:main"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "memory_records:_atomic_replace_text": {
+      "class": "wrapper",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "memory_records:archive_memory_record": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "memory_records:create_memory_record": {
+      "callers": [],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 2
+    },
+    "memory_records:migrate_memory_ids_to_lifecycle_naming": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "memory_records:migrate_memory_ids_to_lifecycle_naming._repair_text_file": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "memory_records:rebuild_archive_manifest": {
+      "callers": [
+        "memory_records:archive_memory_record",
+        "memory_records:migrate_legacy_memory_pointers",
+        "memory_records:purge_memory_record"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 1,
+      "writer_callers_reason": "Regenerates the archive register from the archive bodies at its fixed path after archive_memory_record moves a body."
+    },
+    "memory_records:reconcile_memory_record": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "memory_records:record_memory_validation": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "memory_records:record_purged_source_event": {
+      "callers": [],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "memory_records:write_memory_record": {
+      "class": "wrapper",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "model_bundle:_normalize_refs_in_place": {
+      "callers": [
+        "model_bundle:attest_online_cache",
+        "model_bundle:materialize_bundle"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "reason": "Rewrites a model cache ref to its 40-byte revision id, with no line ending.",
+      "wrapper_calls": 0,
+      "writer_callers_reason": "Normalizes the cache refs under the bundle destination it is given; attest_online_cache and materialize_bundle are the two model-cache steps that own that destination."
+    },
+    "model_bundle:attest_online_cache": {
+      "callers": [
+        "setup_index:main"
+      ],
+      "class": "generated",
+      "primitive_calls": 2,
+      "wrapper_calls": 0,
+      "writer_callers_reason": "Writes its own model-cache marker; setup_index.main orchestrates setup."
+    },
+    "model_bundle:materialize_bundle": {
+      "callers": [
+        "model_bundle:materialize_source"
+      ],
+      "class": "exempt",
+      "primitive_calls": 3,
+      "reason": "Writes model payload files verbatim (binary) and an LF JSON marker with newline set to LF.",
+      "wrapper_calls": 0,
+      "writer_callers_reason": "Materializes the model bundle at the destination materialize_source stages; both are model-cache steps."
+    },
+    "model_bundle:materialize_source": {
+      "callers": [
+        "setup_index:main"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "reason": "Stages a downloaded model archive verbatim (binary).",
+      "wrapper_calls": 0,
+      "writer_callers_reason": "Stages the model archive at its own path; setup_index.main orchestrates setup."
+    },
+    "prune_framework:_prune_meta_json": {
+      "callers": [
+        "prune_framework:prune"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "qualification_report:write_report": {
+      "callers": [
+        "run_tests:_main",
+        "run_tests:_preserve_refused_run",
+        "run_tests:_publish_default_success",
+        "run_tests:_reconcile",
+        "run_tests:_run_profile",
+        "run_tests:_write_qualification_report"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "qualification_worker:_protocol_output": {
+      "callers": [
+        "qualification_worker:main"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "render_agent_surfaces:_move_prompt_pair": {
+      "class": "in_place_raw",
+      "primitive_calls": 0,
+      "reason": "Moves a prompt file to its new name with its own bytes; a replaced line keeps the ending of the line it replaces.",
+      "wrapper_calls": 1
+    },
+    "render_agent_surfaces:_repair_change_prompt_manifest": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_agent_surfaces:_write_bytes_atomic_exclusive": {
+      "class": "wrapper",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_agent_surfaces:_write_bytes_atomic_exclusive_identity": {
+      "class": "wrapper",
+      "primitive_calls": 2,
+      "wrapper_calls": 0
+    },
+    "render_agent_surfaces:_write_move_target": {
+      "class": "wrapper",
+      "primitive_calls": 0,
+      "wrapper_calls": 2
+    },
+    "render_agent_surfaces:_write_prompt_manifest": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_agent_surfaces:_write_repo_bytes": {
+      "class": "wrapper",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "render_agent_surfaces:_write_review_carrier_text": {
+      "class": "wrapper",
+      "primitive_calls": 0,
+      "wrapper_calls": 3
+    },
+    "render_agent_surfaces:_write_text_exclusive": {
+      "class": "wrapper",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_agent_surfaces:_write_text_exclusive_identity": {
+      "class": "wrapper",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "render_agent_surfaces:migrate_change_prompt_renames": {
+      "class": "in_place_raw",
+      "primitive_calls": 0,
+      "reason": "Moves a prompt file to its new name with its own bytes; a replaced line keeps the ending of the line it replaces.",
+      "wrapper_calls": 1
+    },
+    "render_agent_surfaces:migrate_council_role_renames": {
+      "class": "in_place_raw",
+      "primitive_calls": 0,
+      "reason": "Splices link destinations inside existing lines of the raw document text (Requirement 4).",
+      "wrapper_calls": 2
+    },
+    "render_agent_surfaces:migrate_lifecycle_document_renames": {
+      "class": "in_place_raw",
+      "primitive_calls": 0,
+      "reason": "Splices link destinations inside existing lines of the raw document text (Requirement 4).",
+      "wrapper_calls": 2
+    },
+    "render_agent_surfaces:migrate_review_plan_prompt": {
+      "class": "in_place_raw",
+      "primitive_calls": 0,
+      "reason": "Moves a prompt file to its new name with its own bytes; a replaced line keeps the ending of the line it replaces.",
+      "wrapper_calls": 1
+    },
+    "render_agent_surfaces:patch_root_bridge": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_agent_surfaces:patch_thin_pointer": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_agent_surfaces:reconcile_context_efficiency_surface": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_agent_surfaces:reconcile_lifecycle_prompt_baselines": {
+      "callers": [
+        "render_agent_surfaces:render_agent_surfaces"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 1,
+      "writer_callers_reason": "Creates missing prompt baselines from templates; render_agent_surfaces orchestrates the render."
+    },
+    "render_agent_surfaces:reconcile_review_policy_surfaces": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_agent_surfaces:reconcile_review_protocol_surfaces": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_agent_surfaces:reconcile_scaffold_baselines": {
+      "callers": [
+        "render_agent_surfaces:render_agent_surfaces"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 1,
+      "writer_callers_reason": "Creates missing scaffold baselines from templates; render_agent_surfaces orchestrates the render."
+    },
+    "render_agent_surfaces:render_agent_surfaces": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 2
+    },
+    "render_agent_surfaces:render_agent_surfaces._tier3_write": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_agent_surfaces:render_skills": {
+      "callers": [
+        "render_agent_surfaces:render_agent_surfaces"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 3,
+      "writer_callers_reason": "Renders the skill documents it owns; render_agent_surfaces orchestrates the render."
+    },
+    "render_agent_surfaces:render_techdocs_baseline": {
+      "callers": [
+        "techdocs_baseline:main",
+        "wf_server.techdocs_handlers:wf_techdocs_baseline_response"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_agent_surfaces:write_text": {
+      "class": "wrapper",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_platform_surfaces:_merge_mcp_server": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_platform_surfaces:main": {
+      "callers": [
+        "render_platform_surfaces:<module>"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "render_platform_surfaces:render_aiignore": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_platform_surfaces:render_bin_launchers": {
+      "callers": [
+        "render_platform_surfaces:main"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 2,
+      "writer_callers_reason": "Renders the bin launchers it owns; main orchestrates the render."
+    },
+    "render_platform_surfaces:render_claude_permissions": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_platform_surfaces:render_claude_settings": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_platform_surfaces:render_codex_mcp_config": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_platform_surfaces:render_copilot_hooks": {
+      "callers": [
+        "render_platform_surfaces:render_platform_entrypoints"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_platform_surfaces:render_cursor_hooks": {
+      "callers": [
+        "render_platform_surfaces:render_platform_entrypoints"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_platform_surfaces:render_gitattributes_block": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_platform_surfaces:render_gitignore_block": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_platform_surfaces:render_windsurf_hooks": {
+      "callers": [
+        "render_platform_surfaces:render_platform_entrypoints"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_platform_surfaces:write_hook_bundle": {
+      "callers": [
+        "render_platform_surfaces:render_platform_entrypoints"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "render_platform_surfaces:write_text": {
+      "class": "wrapper",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "repair_ppol_memory_staging:apply_repair": {
+      "callers": [
+        "repair_ppol_memory_staging:main"
+      ],
+      "class": "exempt",
+      "primitive_calls": 2,
+      "reason": "Restores staged memory files from a repair kit verbatim as bytes.",
+      "wrapper_calls": 0
+    },
+    "repair_ppol_memory_staging:build_kit": {
+      "callers": [
+        "repair_ppol_memory_staging:main"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "reason": "Writes a zip repair kit (binary).",
+      "wrapper_calls": 0
+    },
+    "retrieval_eval:_append_checkpoint_row": {
+      "callers": [
+        "retrieval_eval:main"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "retrieval_eval:publish_report": {
+      "callers": [
+        "retrieval_eval:main"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "retrieval_eval:write_report": {
+      "callers": [],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "review_policy_reconcile:_atomic_replace": {
+      "class": "wrapper",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "review_policy_reconcile:apply_reconciliation": {
+      "class": "wrapper",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "review_policy_reconcile:reconcile_lifecycle_sections": {
+      "class": "in_place",
+      "merged_by": "review_policy_reconcile:plan_reconciliation",
+      "merged_by_reason": "Publishes the carrier edits plan_reconciliation planned as line_endings.merge of each carrier as read.",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "review_policy_reconcile:reconcile_upgrade_policy_surface": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "review_policy_upgrade:_atomic_replace": {
+      "class": "wrapper",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "review_policy_upgrade:apply_review_policy_upgrade": {
+      "class": "in_place",
+      "merged_by": "review_policy_upgrade:plan_review_policy_upgrade",
+      "merged_by_reason": "Publishes the preflighted plan, whose config, carrier and wave bytes plan_review_policy_upgrade planned as line_endings.merge of each file as read; the byte checks compare those bytes.",
+      "primitive_calls": 0,
+      "wrapper_calls": 4
+    },
+    "review_policy_upgrade:refresh_review_status_blocks": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "run_secrets_scan:_save_rules_hash": {
+      "callers": [
+        "run_secrets_scan:main"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "run_tests:_acquire_run_lock": {
+      "callers": [
+        "run_tests:_execute_files",
+        "run_tests:_publish_default_success",
+        "run_tests:_reconcile"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "reason": "Opens the test runner's lock file; its content is an LF pid line.",
+      "wrapper_calls": 0
+    },
+    "run_tests:_write_cache": {
+      "callers": [
+        "run_tests:_publish_default_success",
+        "run_tests:_reconcile"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "run_tests:_write_timings_manifest": {
+      "callers": [
+        "run_tests:_run_schedule_control"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "runtime_lock:_open_carrier": {
+      "callers": [
+        "runtime_lock:_open_lock_carrier"
+      ],
+      "class": "exempt",
+      "dynamic_mode_reason": "The mode argument is always a+b or r+b (docstring and both callers).",
+      "primitive_calls": 1,
+      "reason": "Opens a binary lock carrier (mode a+b or r+b).",
+      "wrapper_calls": 0
+    },
+    "scan_secrets:_save_scan_state": {
+      "callers": [
+        "scan_secrets:update_secrets_scan"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "scanner_skips:publish_scan_history": {
+      "callers": [
+        "wave_lint_lib.secrets_validators:check_hardcoded_secrets"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "scanner_skips:update_scanner_skips": {
+      "callers": [
+        "wave_lint_lib.secrets_validators:check_hardcoded_secrets"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "scanner_upgrade:_stage.put": {
+      "callers": [],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "reason": "Copies scanner archive members verbatim (binary) into a staging tree.",
+      "wrapper_calls": 0
+    },
+    "scanner_upgrade:inspect_project_rules": {
+      "callers": [
+        "upgrade_wavefoundry:_check_project_scan_rules"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "reason": "Copies the project's scanner rule file bytes verbatim into a scratch tree for inspection.",
+      "wrapper_calls": 0
+    },
+    "setup_index:_install_pinned_uv": {
+      "callers": [
+        "setup_index:_bootstrap_uv",
+        "setup_index:uv_tls_step"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "reason": "Writes a temporary pip requirements file of one LF-terminated line as bytes; deleted after use.",
+      "wrapper_calls": 0
+    },
+    "setup_index:_merged_trust_bundle": {
+      "callers": [
+        "setup_index:_pip_tls_env"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "setup_index:_spawn_background_semantic_build": {
+      "callers": [
+        "setup_index:_spawn_background_code_build",
+        "setup_index:_spawn_background_docs_build"
+      ],
+      "class": "exempt",
+      "primitive_calls": 2,
+      "process_log": true,
+      "reason": "Opens the background build's process log for the child's output and writes its pid file.",
+      "wrapper_calls": 0
+    },
+    "setup_index:main": {
+      "callers": [
+        "setup_index:<module>",
+        "setup_reconciliation:session.prepare"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "setup_readiness:_write_stamp_exclusive": {
+      "class": "wrapper",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "setup_readiness:write_setup_stamp": {
+      "callers": [
+        "setup_readiness:adopt_setup_stamp",
+        "setup_wavefoundry:_run_setup",
+        "upgrade_wavefoundry:_record_setup_baseline"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 1
+    },
+    "setup_wavefoundry:_provision_workflow_defaults_if_absent": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "sqlite_storage_migration:_fsync_file": {
+      "callers": [
+        "sqlite_storage_migration:_migrate_schema8",
+        "sqlite_storage_migration:migrate_legacy"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "reason": "Opens a file r+b only to fsync it; writes nothing.",
+      "wrapper_calls": 0
+    },
+    "sqlite_storage_migration:_write": {
+      "callers": [
+        "sqlite_storage_migration:_begin_chained_kind",
+        "sqlite_storage_migration:_install_kind_fence",
+        "sqlite_storage_migration:_migrate_schema8",
+        "sqlite_storage_migration:_pause_for_restart",
+        "sqlite_storage_migration:_publish_candidate",
+        "sqlite_storage_migration:_refresh_hosts",
+        "sqlite_storage_migration:_resume_schema8_cutover",
+        "sqlite_storage_migration:_select_strategy",
+        "sqlite_storage_migration:begin_upgrade_publication",
+        "sqlite_storage_migration:cleanup_legacy",
+        "sqlite_storage_migration:migrate_legacy",
+        "sqlite_storage_migration:prepare_upgrade",
+        "sqlite_storage_migration:record_upgrade_publication",
+        "sqlite_storage_migration:retire_prestaging_noop",
+        "sqlite_storage_migration:verify_migration"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 1,
+      "writer_callers_reason": "Writes the migration receipt at its fixed path with the receipt its callers build; retire_prestaging_noop is the same module's step."
+    },
+    "sqlite_storage_migration:retire_prestaging_noop": {
+      "callers": [
+        "setup_reconciliation:session.prepare"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "upgrade_bridge_bootstrap:_open_strict_carrier": {
+      "callers": [
+        "upgrade_bridge_bootstrap:_StrictLock.__enter__"
+      ],
+      "class": "exempt",
+      "primitive_calls": 2,
+      "reason": "Opens a binary lock carrier (a+b).",
+      "wrapper_calls": 0
+    },
+    "upgrade_bridge_bootstrap:_retain_feature_archive": {
+      "callers": [
+        "upgrade_bridge_bootstrap:install"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "reason": "Copies the feature pack archive verbatim (binary).",
+      "wrapper_calls": 0,
+      "writer_callers_reason": "Retains the feature pack at its own fixed path; install orchestrates the bridge install."
+    },
+    "upgrade_bridge_bootstrap:install": {
+      "callers": [
+        "upgrade_bridge_bootstrap:main",
+        "upgrade_bundle:run"
+      ],
+      "class": "generated",
+      "primitive_calls": 2,
+      "wrapper_calls": 0
+    },
+    "upgrade_bundle:_incoming_runner": {
+      "callers": [
+        "upgrade_bundle:run"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "reason": "Extracts the incoming runner's pack members verbatim (binary).",
+      "wrapper_calls": 0
+    },
+    "upgrade_bundle:_materializer.materialize": {
+      "callers": [],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "reason": "Extracts pack members verbatim (binary).",
+      "wrapper_calls": 0
+    },
+    "upgrade_extensions:_backfill_role_field_on_agent_docs": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "upgrade_extensions:_extract_preview_scripts": {
+      "callers": [
+        "upgrade_extensions:_incoming_renderer_query"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "reason": "Copies pack zip member bytes verbatim into a preview scratch tree.",
+      "wrapper_calls": 0
+    },
+    "upgrade_extensions:_legacy_lock_is_held": {
+      "callers": [
+        "upgrade_extensions:_cut_over_runtime_locks"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "reason": "Opens a legacy lock r+b only to probe whether it is held; writes nothing.",
+      "wrapper_calls": 0
+    },
+    "upgrade_extensions:_migrate_journal_entries": {
+      "class": "in_place_raw",
+      "primitive_calls": 0,
+      "reason": "Moves a vetted journal entry's bytes verbatim to its new location through _write_journal_exclusive; no line is edited.",
+      "wrapper_calls": 1
+    },
+    "upgrade_extensions:_move_journal_at": {
+      "class": "in_place_raw",
+      "primitive_calls": 0,
+      "reason": "Moves a vetted journal entry's bytes verbatim to its new location through _write_journal_exclusive; no line is edited.",
+      "wrapper_calls": 1
+    },
+    "upgrade_extensions:_preserve_original_manifest": {
+      "callers": [
+        "upgrade_extensions:pre_extract"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "upgrade_extensions:_reconcile_docs_scalar_claims": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "upgrade_extensions:_repair_declaring_scaffold_on_path": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "upgrade_extensions:_rewrite_legacy_config_keys": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "upgrade_extensions:_strip_pycache_row_from_settings_file": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "upgrade_extensions:_update_upgrade_state": {
+      "callers": [
+        "upgrade_extensions:_bridge_index_publisher_grant",
+        "upgrade_extensions:_cut_over_runtime_locks",
+        "upgrade_extensions:_post_docs_gate_on_path",
+        "upgrade_extensions:_reconcile_docs_scalar_claims",
+        "upgrade_extensions:_snapshot_docs_scalar_claims",
+        "upgrade_extensions:lifecycle_baseline_report",
+        "upgrade_extensions:post_index_update",
+        "upgrade_extensions:pre_docs_gate"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0,
+      "writer_callers_reason": "Rewrites the machine-owned upgrade-in-progress.json state file; _reconcile_docs_scalar_claims records its progress there."
+    },
+    "upgrade_extensions:_write_convergence_report": {
+      "callers": [
+        "upgrade_extensions:_run_convergence_migration"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "upgrade_extensions:_write_journal_exclusive": {
+      "class": "wrapper",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "upgrade_extensions:_write_migration_report": {
+      "callers": [
+        "upgrade_extensions:_post_extract"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "upgrade_lib:_durable_json_replace": {
+      "class": "wrapper",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "upgrade_lib:update_upgrade_lock": {
+      "callers": [
+        "setup_reconciliation:session._update",
+        "sqlite_storage_migration:_pause_for_restart",
+        "sqlite_storage_migration:restore_checkpoint",
+        "upgrade_extensions:_capture_index_guard_handoff",
+        "upgrade_extensions:enforce_index_guard_handoff",
+        "upgrade_extensions:post_extract",
+        "upgrade_lib:clear_failed_phase",
+        "upgrade_wavefoundry:_finalize_failed_upgrade",
+        "upgrade_wavefoundry:_index_child_publisher_grant",
+        "upgrade_wavefoundry:_persist_permissions_delta",
+        "upgrade_wavefoundry:_persist_skill_delivery",
+        "upgrade_wavefoundry:_persist_skipped_scan_locations",
+        "upgrade_wavefoundry:_provision_upgrade_dependencies",
+        "upgrade_wavefoundry:_record_index_publication_outcome",
+        "upgrade_wavefoundry:_run_dependency_install",
+        "upgrade_wavefoundry:main",
+        "upgrade_wavefoundry:main._new_code_upgrade_backstop",
+        "upgrade_wavefoundry:main._policy_checkpoint",
+        "upgrade_wavefoundry:main._retain_post_docs_gate_failure",
+        "upgrade_wavefoundry:phase_cleanup"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "upgrade_lib:write_upgrade_lock": {
+      "callers": [
+        "setup_reconciliation:session.__enter__",
+        "sqlite_storage_migration:restore_checkpoint",
+        "upgrade_wavefoundry:main"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "upgrade_protocol:_validate_mandatory_imports_in_subprocess": {
+      "callers": [
+        "upgrade_protocol:validate_feature_pack"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "reason": "Copies pack member bytes verbatim into a validation scratch tree.",
+      "wrapper_calls": 0
+    },
+    "upgrade_wavefoundry:_atomic_write_json": {
+      "class": "wrapper",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "upgrade_wavefoundry:_atomic_write_text": {
+      "class": "wrapper",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "upgrade_wavefoundry:_clear_legacy_memory_checkpoint": {
+      "callers": [
+        "upgrade_wavefoundry:main"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "upgrade_wavefoundry:_print_change_plan": {
+      "callers": [
+        "upgrade_wavefoundry:phase_dry_run",
+        "upgrade_wavefoundry:phase_preflight"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 1,
+      "writer_callers_reason": "Writes the upgrade review log for the plan it prints; phase_dry_run orchestrates the dry run."
+    },
+    "upgrade_wavefoundry:_produce_reconciliation_report.progress": {
+      "callers": [],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "upgrade_wavefoundry:_save_old_manifest_snapshot": {
+      "callers": [
+        "upgrade_wavefoundry:main"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "upgrade_wavefoundry:_stage_pack_for_consumption": {
+      "callers": [
+        "upgrade_wavefoundry:main"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "reason": "Copies the binary pack zip verbatim.",
+      "wrapper_calls": 0
+    },
+    "upgrade_wavefoundry:_stamp_manifest_revision": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "upgrade_wavefoundry:_write_upgrade_review_log": {
+      "class": "wrapper",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "upgrade_wavefoundry:materialize_lifecycle_policy": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "upgrade_wavefoundry:materialize_secrets_policy": {
+      "callers": [
+        "upgrade_wavefoundry:main"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "upgrade_wavefoundry:phase_dry_run": {
+      "callers": [
+        "upgrade_wavefoundry:main"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "upgrade_wavefoundry:phase_pruning": {
+      "callers": [
+        "upgrade_wavefoundry:main"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "reason": "Writes the pre-upgrade MANIFEST snapshot text, already read, back as UTF-8 bytes unchanged to a temporary file.",
+      "wrapper_calls": 0
+    },
+    "wave_gate:_write": {
+      "callers": [
+        "wave_gate:cmd_close",
+        "wave_gate:cmd_open"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "wave_lint_lib.cli:_emit": {
+      "callers": [
+        "wave_lint_lib.cli:main"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "wave_lint_lib.helpers:write_if_changed": {
+      "class": "wrapper",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "wave_lint_lib.secrets_validators:save_exceptions": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "wave_work:_write_owner": {
+      "callers": [
+        "wave_work:cleanup_work",
+        "wave_work:ensure_work"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "reason": "Writes the work-area owner record as compact JSON bytes with no line ending.",
+      "wrapper_calls": 0
+    },
+    "wave_work:publish_snapshot": {
+      "callers": [
+        "wf_server.server_impl:_publish_prepare_policy_state"
+      ],
+      "class": "exempt",
+      "primitive_calls": 1,
+      "reason": "Writes the review snapshot as compact JSON bytes with no line ending.",
+      "wrapper_calls": 0,
+      "writer_callers_reason": "Publishes the review snapshot JSON it builds, at its own work-area path; _publish_prepare_policy_state calls it after the receipt commits."
+    },
+    "wf_server.context_efficiency_handlers:_project_context_efficiency_wave": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "wf_server.context_efficiency_handlers:wf_context_efficiency_eval_response": {
+      "callers": [
+        "wf_server.server_impl:register_mcp_surface.wf_context_efficiency_eval"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "wf_server.edit_gate_handlers:_write_guard_overrides": {
+      "callers": [
+        "wf_server.edit_gate_handlers:_force_gates_closed",
+        "wf_server.edit_gate_handlers:wave_open_gate_response",
+        "wf_server.edit_gate_handlers:wf_close_wave_gate_response"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "wf_server.index_handlers:_start_background_index_refresh": {
+      "callers": [
+        "wf_server.index_handlers:_trigger_background_index_refresh_for_paths",
+        "wf_server.server_impl:_fts_schedule_heal",
+        "wf_server.server_impl:_maybe_refresh_if_stale"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "wf_server.index_handlers:_write_index_build_stats_file": {
+      "callers": [
+        "wf_server.index_handlers:_refresh_index_build_stats_from_finished_log",
+        "wf_server.index_handlers:_refresh_index_build_stats_from_finished_logs"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "wf_server.index_handlers:run_index_rebuild": {
+      "callers": [
+        "wf_server.index_handlers:_index_optimize_response",
+        "wf_server.index_handlers:index_build_response"
+      ],
+      "class": "exempt",
+      "primitive_calls": 2,
+      "process_log": true,
+      "reason": "Opens the rebuild's process log for the child's output and writes its state file.",
+      "wrapper_calls": 0
+    },
+    "wf_server.memory_handlers:memory_consolidate_response": {
+      "callers": [
+        "wf_server.server_impl:register_mcp_surface.memory_consolidate"
+      ],
+      "class": "exempt",
+      "primitive_calls": 2,
+      "reason": "Rollback restores the exact original record and manifest bytes it read before the consolidation.",
+      "wrapper_calls": 0
+    },
+    "wf_server.server_impl:_atomic_replace_bytes": {
+      "class": "wrapper",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "wf_server.server_impl:_atomic_replace_text": {
+      "class": "wrapper",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "wf_server.server_impl:_mark_change_item_response": {
+      "class": "in_place_raw",
+      "primitive_calls": 0,
+      "reason": "Marks a checkbox and appends a status note inside the existing lines of the raw document text; the note takes the document's own ending.",
+      "wrapper_calls": 1
+    },
+    "wf_server.server_impl:_prepare_fix_heading_spacing": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "wf_server.server_impl:_publish_prepare_policy_state": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "wf_server.server_impl:_replace_artifacts_transactionally": {
+      "class": "wrapper",
+      "primitive_calls": 0,
+      "wrapper_calls": 2
+    },
+    "wf_server.server_impl:_retain_review_escalation": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
+    "wf_server.server_impl:_write_handoff_text": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "wf_server.server_impl:create_wave": {
+      "callers": [
+        "wf_server.server_impl:wf_create_wave_response"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 2
+    },
+    "wf_server.server_impl:new_change": {
+      "callers": [
+        "wf_server.server_impl:change_create"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "wf_server.server_impl:wf_add_change_response": {
+      "class": "in_place",
+      "primitive_calls": 2,
+      "wrapper_calls": 0
+    },
+    "wf_server.server_impl:wf_close_change_response": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 3
+    },
+    "wf_server.server_impl:wf_close_wave_response": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "wf_server.server_impl:wf_implement_wave_response": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "wf_server.server_impl:wf_pause_wave_response": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "wf_server.server_impl:wf_prepare_wave_response": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "wf_server.server_impl:wf_remove_change_response": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "wf_server.server_impl:wf_reopen_wave_response": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "wf_server.server_impl:wf_review_event_response.transact": {
+      "class": "in_place",
+      "primitive_calls": 0,
+      "wrapper_calls": 2
+    }
+  },
+  "wrapper_call_sites": {
+    "context_efficiency:_spool_event -> context_efficiency:_write_exclusive #1": {
+      "class": "generated"
+    },
+    "context_efficiency:_spool_event -> context_efficiency:_write_exclusive #2": {
+      "class": "generated"
+    },
+    "context_efficiency:_write_gap_sentinel -> context_efficiency:_write_exclusive #1": {
+      "class": "generated"
+    },
+    "context_efficiency:_write_gap_sentinel -> context_efficiency:_write_exclusive #2": {
+      "class": "generated"
+    },
+    "memory_records:archive_memory_record -> memory_records:_atomic_replace_text #1": {
+      "class": "in_place"
+    },
+    "memory_records:create_memory_record -> memory_records:write_memory_record #1": {
+      "class": "generated"
+    },
+    "memory_records:create_memory_record -> memory_records:write_memory_record #2": {
+      "class": "generated"
+    },
+    "memory_records:rebuild_archive_manifest -> memory_records:_atomic_replace_text #1": {
+      "class": "generated"
+    },
+    "memory_records:record_purged_source_event -> memory_records:_atomic_replace_text #1": {
+      "class": "generated"
+    },
+    "render_agent_surfaces:_move_prompt_pair -> render_agent_surfaces:_write_move_target #1": {
+      "class": "in_place_raw"
+    },
+    "render_agent_surfaces:_repair_change_prompt_manifest -> render_agent_surfaces:_write_review_carrier_text #1": {
+      "class": "in_place"
+    },
+    "render_agent_surfaces:_write_bytes_atomic_exclusive -> render_agent_surfaces:_write_bytes_atomic_exclusive_identity #1": {
+      "class": "wrapper"
+    },
+    "render_agent_surfaces:_write_move_target -> render_agent_surfaces:_write_bytes_atomic_exclusive_identity #1": {
+      "class": "wrapper"
+    },
+    "render_agent_surfaces:_write_move_target -> render_agent_surfaces:_write_text_exclusive_identity #1": {
+      "class": "wrapper"
+    },
+    "render_agent_surfaces:_write_prompt_manifest -> render_agent_surfaces:_write_review_carrier_text #1": {
+      "class": "in_place"
+    },
+    "render_agent_surfaces:_write_review_carrier_text -> render_agent_surfaces:_write_bytes_atomic_exclusive #1": {
+      "class": "wrapper"
+    },
+    "render_agent_surfaces:_write_review_carrier_text -> render_agent_surfaces:_write_repo_bytes #1": {
+      "class": "wrapper"
+    },
+    "render_agent_surfaces:_write_review_carrier_text -> render_agent_surfaces:_write_text_exclusive #1": {
+      "class": "wrapper"
+    },
+    "render_agent_surfaces:_write_text_exclusive -> render_agent_surfaces:_write_text_exclusive_identity #1": {
+      "class": "wrapper"
+    },
+    "render_agent_surfaces:migrate_change_prompt_renames -> render_agent_surfaces:_write_move_target #1": {
+      "class": "in_place_raw"
+    },
+    "render_agent_surfaces:migrate_council_role_renames -> render_agent_surfaces:_write_move_target #1": {
+      "class": "in_place_raw"
+    },
+    "render_agent_surfaces:migrate_council_role_renames -> render_agent_surfaces:_write_review_carrier_text #1": {
+      "class": "in_place_raw"
+    },
+    "render_agent_surfaces:migrate_lifecycle_document_renames -> render_agent_surfaces:_write_move_target #1": {
+      "class": "in_place_raw"
+    },
+    "render_agent_surfaces:migrate_lifecycle_document_renames -> render_agent_surfaces:_write_review_carrier_text #1": {
+      "class": "in_place_raw"
+    },
+    "render_agent_surfaces:migrate_review_plan_prompt -> render_agent_surfaces:_write_move_target #1": {
+      "class": "in_place_raw"
+    },
+    "render_agent_surfaces:patch_root_bridge -> render_agent_surfaces:_write_repo_bytes #1": {
+      "class": "in_place"
+    },
+    "render_agent_surfaces:patch_thin_pointer -> render_agent_surfaces:_write_repo_bytes #1": {
+      "class": "in_place"
+    },
+    "render_agent_surfaces:reconcile_context_efficiency_surface -> render_agent_surfaces:_write_review_carrier_text #1": {
+      "class": "in_place"
+    },
+    "render_agent_surfaces:reconcile_lifecycle_prompt_baselines -> render_agent_surfaces:_write_review_carrier_text #1": {
+      "class": "generated"
+    },
+    "render_agent_surfaces:reconcile_review_policy_surfaces -> render_agent_surfaces:_write_review_carrier_text #1": {
+      "class": "in_place"
+    },
+    "render_agent_surfaces:reconcile_review_protocol_surfaces -> render_agent_surfaces:_write_review_carrier_text #1": {
+      "class": "in_place"
+    },
+    "render_agent_surfaces:reconcile_scaffold_baselines -> render_agent_surfaces:_write_review_carrier_text #1": {
+      "class": "generated"
+    },
+    "render_agent_surfaces:render_agent_surfaces -> render_agent_surfaces:_write_repo_bytes #1": {
+      "class": "in_place"
+    },
+    "render_agent_surfaces:render_agent_surfaces -> render_agent_surfaces:_write_repo_bytes #2": {
+      "class": "in_place"
+    },
+    "render_agent_surfaces:render_agent_surfaces._tier3_write -> render_agent_surfaces:write_text #1": {
+      "class": "in_place"
+    },
+    "render_agent_surfaces:render_skills -> render_agent_surfaces:_write_bytes_atomic_exclusive #1": {
+      "class": "generated"
+    },
+    "render_agent_surfaces:render_skills -> render_agent_surfaces:_write_review_carrier_text #1": {
+      "class": "generated"
+    },
+    "render_agent_surfaces:render_skills -> render_agent_surfaces:write_text #1": {
+      "class": "generated"
+    },
+    "render_agent_surfaces:render_techdocs_baseline -> render_agent_surfaces:_write_review_carrier_text #1": {
+      "class": "generated"
+    },
+    "render_agent_surfaces:write_text -> render_agent_surfaces:_write_repo_bytes #1": {
+      "class": "wrapper"
+    },
+    "render_platform_surfaces:_merge_mcp_server -> render_platform_surfaces:write_text #1": {
+      "class": "in_place"
+    },
+    "render_platform_surfaces:render_aiignore -> render_platform_surfaces:write_text #1": {
+      "class": "in_place"
+    },
+    "render_platform_surfaces:render_bin_launchers -> render_platform_surfaces:write_text #1": {
+      "class": "generated"
+    },
+    "render_platform_surfaces:render_bin_launchers -> render_platform_surfaces:write_text #2": {
+      "class": "generated"
+    },
+    "render_platform_surfaces:render_claude_permissions -> render_platform_surfaces:write_text #1": {
+      "class": "in_place"
+    },
+    "render_platform_surfaces:render_claude_settings -> render_platform_surfaces:write_text #1": {
+      "class": "in_place"
+    },
+    "render_platform_surfaces:render_codex_mcp_config -> render_platform_surfaces:write_text #1": {
+      "class": "in_place"
+    },
+    "render_platform_surfaces:render_copilot_hooks -> render_platform_surfaces:write_text #1": {
+      "class": "generated"
+    },
+    "render_platform_surfaces:render_cursor_hooks -> render_platform_surfaces:write_text #1": {
+      "class": "generated"
+    },
+    "render_platform_surfaces:render_gitattributes_block -> render_platform_surfaces:write_text #1": {
+      "class": "in_place"
+    },
+    "render_platform_surfaces:render_gitignore_block -> render_platform_surfaces:write_text #1": {
+      "class": "in_place"
+    },
+    "render_platform_surfaces:render_windsurf_hooks -> render_platform_surfaces:write_text #1": {
+      "class": "generated"
+    },
+    "render_platform_surfaces:write_hook_bundle -> render_platform_surfaces:write_text #1": {
+      "class": "generated"
+    },
+    "review_policy_reconcile:apply_reconciliation -> review_policy_reconcile:_atomic_replace #1": {
+      "class": "wrapper"
+    },
+    "review_policy_reconcile:reconcile_lifecycle_sections -> review_policy_reconcile:apply_reconciliation #1": {
+      "class": "in_place"
+    },
+    "review_policy_reconcile:reconcile_upgrade_policy_surface -> review_policy_reconcile:_atomic_replace #1": {
+      "class": "in_place"
+    },
+    "review_policy_upgrade:apply_review_policy_upgrade -> review_policy_reconcile:apply_reconciliation #1": {
+      "class": "in_place"
+    },
+    "review_policy_upgrade:apply_review_policy_upgrade -> review_policy_upgrade:_atomic_replace #1": {
+      "class": "in_place"
+    },
+    "review_policy_upgrade:apply_review_policy_upgrade -> review_policy_upgrade:_atomic_replace #2": {
+      "class": "in_place"
+    },
+    "review_policy_upgrade:apply_review_policy_upgrade -> review_policy_upgrade:_atomic_replace #3": {
+      "class": "in_place"
+    },
+    "setup_readiness:write_setup_stamp -> setup_readiness:_write_stamp_exclusive #1": {
+      "class": "generated"
+    },
+    "setup_wavefoundry:_provision_workflow_defaults_if_absent -> upgrade_wavefoundry:_atomic_write_json #1": {
+      "class": "in_place"
+    },
+    "sqlite_storage_migration:_write -> upgrade_lib:_durable_json_replace #1": {
+      "class": "generated"
+    },
+    "sqlite_storage_migration:retire_prestaging_noop -> upgrade_lib:_durable_json_replace #1": {
+      "class": "generated"
+    },
+    "upgrade_extensions:_migrate_journal_entries -> upgrade_extensions:_write_journal_exclusive #1": {
+      "class": "in_place_raw"
+    },
+    "upgrade_extensions:_move_journal_at -> upgrade_extensions:_write_journal_exclusive #1": {
+      "class": "in_place_raw"
+    },
+    "upgrade_lib:update_upgrade_lock -> upgrade_lib:_durable_json_replace #1": {
+      "class": "generated"
+    },
+    "upgrade_lib:write_upgrade_lock -> upgrade_lib:_durable_json_replace #1": {
+      "class": "generated"
+    },
+    "upgrade_wavefoundry:_clear_legacy_memory_checkpoint -> upgrade_lib:_durable_json_replace #1": {
+      "class": "generated"
+    },
+    "upgrade_wavefoundry:_print_change_plan -> upgrade_wavefoundry:_write_upgrade_review_log #1": {
+      "class": "generated"
+    },
+    "upgrade_wavefoundry:materialize_lifecycle_policy -> upgrade_wavefoundry:_atomic_write_json #1": {
+      "class": "in_place"
+    },
+    "upgrade_wavefoundry:phase_dry_run -> upgrade_wavefoundry:_write_upgrade_review_log #1": {
+      "class": "generated"
+    },
+    "wave_lint_lib.cli:_emit -> wave_lint_lib.helpers:write_if_changed #1": {
+      "class": "generated"
+    },
+    "wf_server.context_efficiency_handlers:_project_context_efficiency_wave -> wf_server.server_impl:_atomic_replace_text #1": {
+      "class": "in_place"
+    },
+    "wf_server.server_impl:_atomic_replace_text -> wf_server.server_impl:_atomic_replace_bytes #1": {
+      "class": "wrapper"
+    },
+    "wf_server.server_impl:_mark_change_item_response -> wf_server.server_impl:_atomic_replace_text #1": {
+      "class": "in_place_raw"
+    },
+    "wf_server.server_impl:_publish_prepare_policy_state -> wf_server.server_impl:_replace_artifacts_transactionally #1": {
+      "class": "in_place"
+    },
+    "wf_server.server_impl:_replace_artifacts_transactionally -> wf_server.server_impl:_atomic_replace_bytes #1": {
+      "class": "wrapper"
+    },
+    "wf_server.server_impl:_replace_artifacts_transactionally -> wf_server.server_impl:_atomic_replace_bytes #2": {
+      "class": "wrapper"
+    },
+    "wf_server.server_impl:_retain_review_escalation -> wf_server.server_impl:_atomic_replace_text #1": {
+      "class": "in_place"
+    },
+    "wf_server.server_impl:create_wave -> wf_server.server_impl:_atomic_replace_bytes #1": {
+      "class": "generated"
+    },
+    "wf_server.server_impl:create_wave -> wf_server.server_impl:_atomic_replace_text #1": {
+      "class": "generated"
+    },
+    "wf_server.server_impl:wf_close_change_response -> wf_server.server_impl:_atomic_replace_bytes #1": {
+      "class": "in_place"
+    },
+    "wf_server.server_impl:wf_close_change_response -> wf_server.server_impl:_atomic_replace_bytes #2": {
+      "class": "in_place"
+    },
+    "wf_server.server_impl:wf_close_change_response -> wf_server.server_impl:_atomic_replace_bytes #3": {
+      "class": "in_place"
+    },
+    "wf_server.server_impl:wf_review_event_response.transact -> wf_server.server_impl:_atomic_replace_bytes #1": {
+      "class": "in_place"
+    },
+    "wf_server.server_impl:wf_review_event_response.transact -> wf_server.server_impl:_atomic_replace_text #1": {
+      "class": "in_place"
+    }
+  }
+}

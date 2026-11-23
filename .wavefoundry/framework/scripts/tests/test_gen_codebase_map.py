@@ -1438,3 +1438,41 @@ class AreaContextPathPortabilityTests(unittest.TestCase):
             md = gen.render_markdown(model, root=root)
             self.assertIn("`docs/design-system/AGENTS.md`", md)
             self.assertNotIn("[docs/design-system/AGENTS.md]", md)
+
+
+class RepoIndexLineEndingTests(unittest.TestCase):
+    """Wave 244in (change 244fj): the repo-index marker refresh keeps each
+    existing line's ending (AC-1); the generated map and area stubs are LF
+    under the Windows-write simulation (AC-6)."""
+
+    setUp = RepoIndexFeedTests.setUp
+    tearDown = RepoIndexFeedTests.tearDown
+    _write_repo_index = RepoIndexFeedTests._write_repo_index
+
+    def test_repo_index_matrix(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import line_ending_support
+
+        path = self._write_repo_index()
+        before = path.read_text(encoding="utf-8")
+        self.gen.generate_codebase_map(self.root, force=True)
+        after = path.read_text(encoding="utf-8")
+        self.assertNotEqual(after, before)
+        line_ending_support.run_matrix(
+            self, lambda text: path.write_bytes(text.encode("utf-8")),
+            lambda: self.gen.generate_codebase_map(self.root, force=True),
+            path.read_bytes, before, after,
+        )
+
+    def test_generated_map_and_area_stubs_are_lf_under_simulation(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import line_ending_support
+
+        with line_ending_support.windows_text_writes():
+            self.gen.generate_codebase_map(self.root, force=True)
+            created = self.gen.scaffold_area_contexts(self.root)
+        out = self.gen.output_path(self.root)
+        self.assertNotIn(b"\r", out.read_bytes())
+        self.assertTrue(created)
+        for rel in created:
+            self.assertNotIn(b"\r", (self.root / rel).read_bytes())

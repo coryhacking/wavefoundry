@@ -1483,5 +1483,39 @@ class SetupCurrentIndexOwnerTests(unittest.TestCase):
         self.assertIn("Implicit precision conversion refused", output)
 
 
+
+class WorkflowDefaultsLineEndingTests(unittest.TestCase):
+    """Wave 244in (change 244fj) AC-1 and AC-4: provisioning workflow defaults
+    keeps an existing config's line endings and creates a missing one LF,
+    natively and under the Windows-write simulation."""
+
+    setUp = LifecyclePolicyStepZeroTests.setUp
+
+    def _quiet(self):
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(self.mod._provision_workflow_defaults_if_absent(self.root), 0)
+
+    def test_missing_config_is_created_lf_under_simulation(self):
+        import line_ending_support
+
+        with line_ending_support.windows_text_writes():
+            self._quiet()
+        data = self.cfg.read_bytes()
+        self.assertIn(b"\n", data)
+        self.assertNotIn(b"\r", data)
+
+    def test_existing_config_keeps_its_endings(self):
+        import line_ending_support
+
+        before = json.dumps({"wave_review": {"enabled": False, "custom": "keep"}}, indent=2) + "\n"
+        self.cfg.write_text(before, encoding="utf-8")
+        self._quiet()
+        after = self.cfg.read_text(encoding="utf-8")
+        self.assertNotEqual(after, before)
+        line_ending_support.run_matrix(
+            self, lambda text: self.cfg.write_bytes(text.encode("utf-8")), self._quiet,
+            self.cfg.read_bytes, before, after,
+        )
+
 if __name__ == "__main__":
     unittest.main()

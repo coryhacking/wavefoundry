@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-18
+Last verified: 2026-11-22
 
 Memory ID: `1swci-mem match-static-analysis-origin-checks-to-identifier-distinctiv`
 Kind: `successful_pattern`
 Confidence: 0.95
 Created: 2026-07-18
-Updated: 2026-07-18
+Updated: 2026-11-22
 Source event: `decision-log:1p9q7-enh di-signal-ast-and-language-expansion:01f5decffc4784ba`
 Validation: promote
 Validated by: agent

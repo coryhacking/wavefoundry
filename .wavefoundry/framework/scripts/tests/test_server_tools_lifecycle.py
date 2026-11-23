@@ -27,6 +27,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 import server_tools_support
+import line_ending_support  # wave 244in (244fj): shared Windows-write simulation
 from review_evidence import requires_intent_fit
 from server_tools_support import (  # noqa: F401 — shared server-test fixtures
     SCRIPTS_ROOT,
@@ -9436,6 +9437,10 @@ class WaveRecordReadSeamCensusTests(unittest.TestCase):
     _ALLOWED_READERS = {
         # The seam itself: the sole raw-read boundary for wave records.
         "_read_wave_record_text",
+        # Its raw sibling (wave 244in, change 244fj): the same boundary,
+        # returning the record with its line endings intact for writers that
+        # publish through ``line_endings.merge``.
+        "_read_wave_record_original",
         # MCP resource reader; resource surfaces are out of scope per the
         # 1v0lw spec Scope ("Reads of prompts, seeds, handoff, and MCP
         # resources").  Listed so an in-scope reader can never hide behind
@@ -9519,7 +9524,7 @@ class WaveRecordReadSeamCensusTests(unittest.TestCase):
         for node in ast.walk(module):
             if not (isinstance(node, ast.Call)
                     and isinstance(node.func, ast.Attribute)
-                    and node.func.attr == "read_text"):
+                    and node.func.attr in {"read_text", "read_bytes"}):
                 continue
             if not resolves_to_wave_record(node):
                 continue
@@ -9529,7 +9534,7 @@ class WaveRecordReadSeamCensusTests(unittest.TestCase):
             if fn_name not in self._ALLOWED_READERS:
                 offenders.append(
                     f"line {node.lineno} in {fn_name}: "
-                    f"{ast.unparse(node.func.value)}.read_text(...)")
+                    f"{ast.unparse(node.func.value)}.{node.func.attr}(...)")
         self.assertTrue(
             flagged,
             "the census detector flagged no wave-record reads at all; the "
@@ -17852,7 +17857,10 @@ class SharedDeliveryEvaluatorContractTests(unittest.TestCase):
 
 
 class PrepareCRLFPublicationTests(unittest.TestCase):
-    def test_prepare_publication_keeps_existing_all_lf_policy(self):
+    """Wave 244in (change 244fj) supersedes the 20b39 all-LF publication:
+    Prepare keeps a CRLF wave record CRLF, and an LF record LF."""
+
+    def test_prepare_publication_keeps_the_record_line_endings(self):
         srv = load_server()
         with tempfile.TemporaryDirectory() as tmp:
             root = _make_repo(Path(tmp))
@@ -17864,14 +17872,18 @@ class PrepareCRLFPublicationTests(unittest.TestCase):
             state = {"required_lanes": [], "records": (), "receipt_append_required": False}
             expected = srv._publish_prepare_policy_state(root, path, original, state).encode("utf-8")
             self.assertEqual(path.read_bytes(), expected)
-            path.write_bytes(original.replace("\n", "\r\n").encode("utf-8"))
-            normalized, error = srv._read_wave_record_text(path)
-            self.assertIsNone(error)
-            self.assertEqual(normalized, original)
-            actual = srv._publish_prepare_policy_state(root, path, normalized, state)
-            self.assertEqual(actual.encode("utf-8"), expected)
-            self.assertEqual(path.read_bytes(), expected)
-            self.assertNotIn(b"\r", path.read_bytes())
+            self.assertNotIn(b"\r", expected)
+            for simulated in (False, True):
+                with self.subTest(windows_simulation=simulated):
+                    path.write_bytes(original.replace("\n", "\r\n").encode("utf-8"))
+                    normalized, error = srv._read_wave_record_text(path)
+                    self.assertIsNone(error)
+                    self.assertEqual(normalized, original)
+                    with (line_ending_support.windows_text_writes() if simulated else contextlib.nullcontext()):
+                        actual = srv._publish_prepare_policy_state(root, path, normalized, state)
+                    self.assertEqual(actual.encode("utf-8"), expected)
+                    self.assertEqual(path.read_bytes(), expected.replace(b"\n", b"\r\n"))
+                    self.assertNotIn(b"\r\r\n", path.read_bytes())
 
 
 if __name__ == "__main__":

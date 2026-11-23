@@ -90,7 +90,7 @@ def _write_guard_overrides(root: Path, data: dict[str, Any]) -> None:
     import json as _json
     path = root / ".wavefoundry" / "guard-overrides.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    path.write_text(_json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
 
 
 def _force_gates_closed(root: Path, mode: str) -> list[dict[str, Any]]:

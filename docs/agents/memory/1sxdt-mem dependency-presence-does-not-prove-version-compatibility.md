@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-18
+Last verified: 2026-11-22
 
 Memory ID: `1sxdt-mem dependency-presence-does-not-prove-version-compatibility`
 Kind: `dependency_gotcha`
 Confidence: 0.95
 Created: 2026-07-18
-Updated: 2026-07-18
+Updated: 2026-11-22
 Source event: `decision-log:1p95u-enh version-aware-dependency-sync:623f3716a49f605a`
 Validation: promote
 Validated by: agent

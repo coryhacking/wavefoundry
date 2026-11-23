@@ -520,11 +520,17 @@ Same checks whether you run **`wf_validate_docs`** / **`wf_garden_docs`** over M
 
 `wf docs-gardener` refreshes stale metadata timestamps.
 
-The gardener preserves consistent LF or CRLF endings in existing documents and
-manifests, creates new manifests/handoffs with LF, and leaves unchanged files'
-bytes and modification times intact. Its explicit writes do not depend on Git's
-`core.autocrlf` setting. Managed review-policy/protocol regions accept either
-consistent convention; review-event JSONL ledgers retain their LF-only contract.
+Every framework writer that edits an existing file in place, the gardener
+included, keeps that file's line endings on every platform (wave 244in). Each
+existing line keeps its own ending byte for byte, and an inserted or replaced
+line takes the file's majority ending, with a tie going to CRLF; a file with no
+line ending yet gets LF. The rule lives in `line_endings.py`, and the census in
+`tests/test_line_ending_census.py` keeps every writer on it. A writer leaves an
+unchanged file's bytes and modification time intact. New files and files the
+framework generates in full are LF on every platform. The explicit writes do not
+depend on Git's `core.autocrlf` setting or on `os.linesep`. Managed
+review-policy/protocol regions accept either convention; review-event JSONL
+ledgers retain their LF-only contract.
 
 Install/setup/render/upgrade put LF checkout defaults for `docs/**/*.md` and
 `docs/**/*.json*` in a leading managed `.gitattributes` region. Project-authored

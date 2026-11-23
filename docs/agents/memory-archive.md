@@ -9,6 +9,15 @@ Last verified: 2026-11-22
 Searchable compact register for history-worthy retired memory. Full bodies remain under
 `docs/agents/memory/archive/` and are excluded from ordinary indexing; this register remains indexed.
 
+## 1sxln-mem mid-file-unittest-main-hides-later-tests
+
+- Title: `Mid-file unittest.main hides later tests`
+- Kind: `failed_attempt`
+- Targets: `.wavefoundry/framework/scripts/tests/test_build_pack.py`
+- Archived: `2026-11-22`
+- Successor: `1t018-mem place-unittest-main-at-eof-in-per-file-test-modules`
+- Archive path: `docs/agents/memory/archive/1sxln-mem mid-file-unittest-main-hides-later-tests.md`
+
 ## 1t1wx-mem fragile-server-impl-py-context-efficiency-instrumentation
 
 - Title: `Fragile: server_impl.py context-efficiency instrumentation`

@@ -912,7 +912,7 @@ def write_setup_stamp(root: Path, *, provenance: str = 'setup', identity: dict |
     fd, raw = tempfile.mkstemp(prefix='.setup-state-', dir=path.parent)
     temporary = Path(raw)
     try:
-        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+        with os.fdopen(fd, 'w', encoding='utf-8', newline='\n') as stream:
             json.dump(payload, stream, sort_keys=True); stream.write('\n')
             stream.flush(); os.fsync(stream.fileno())
         if exclusive:

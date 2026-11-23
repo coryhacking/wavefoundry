@@ -1240,8 +1240,10 @@ class WaveWorkLifecycleTests(unittest.TestCase):
         self.write(wave_md.parent / "evidence/probe.json", 64)
         ledger = wave_md.parent / "events.jsonl"
         spec = wave_md.parent / f"{cid}.md"
+        # Wave 244in (244fj): Close reads the record raw through the sibling
+        # seam ``_read_wave_record_original``, so that is the read denied here.
         with self.subTest(input="record"), \
-                patch.object(self.srv, "_read_wave_record_text", return_value=(None, "PermissionError")) as denied:
+                patch.object(self.srv, "_read_wave_record_original", return_value=(None, "PermissionError")) as denied:
             result = close_container(self.call, self.root, wid, mode="dry_run")
             denied.assert_called()
             self.assertEqual(result["status"], "error")

@@ -8,6 +8,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+import line_endings  # the in-place line-ending rule (wave 244in, change 244fj)
 import record_paths  # record roots (wave 1y0gz)
 import vocabulary_profile  # lifecycle prompt names (wave 1zyb4)
 from review_policy import (
@@ -352,7 +353,12 @@ def _reconcile_upgrade_policy_region(text: str) -> str:
 
 
 def plan_reconciliation(root: Path) -> tuple[CarrierEdit, ...]:
-    """Preflight every carrier and return a complete atomic-write plan."""
+    """Preflight every carrier and return a complete atomic-write plan.
+
+    Wave 244in (244fj): each edit is computed on LF text, and its ``after``
+    bytes are ``line_endings.merge`` of the carrier as read, so every existing
+    line keeps its own ending and an inserted block takes the majority ending.
+    """
 
     edits: list[CarrierEdit] = []
     errors: list[str] = []
@@ -366,10 +372,11 @@ def plan_reconciliation(root: Path) -> tuple[CarrierEdit, ...]:
             continue
         try:
             before = path.read_bytes()
-            text = before.decode("utf-8")
+            original = before.decode("utf-8")
         except (OSError, UnicodeError) as exc:
             errors.append(f"{relative}: unreadable carrier: {exc}")
             continue
+        text = line_endings.to_lf(original)
         try:
             managed = _managed_region(text)
         except ValueError as exc:
@@ -426,7 +433,9 @@ def plan_reconciliation(root: Path) -> tuple[CarrierEdit, ...]:
             )
             continue
         if after != text:
-            edits.append(CarrierEdit(relative, before, after.encode("utf-8")))
+            edits.append(
+                CarrierEdit(relative, before, line_endings.encode(line_endings.merge(original, after)))
+            )
     errors.extend(_live_markdown_retired_errors(root))
     if errors:
         raise ValueError("lifecycle carrier preflight failed: " + "; ".join(errors))
@@ -476,15 +485,17 @@ def reconcile_upgrade_policy_surface(root: Path) -> tuple[str, ...]:
         return ()
     try:
         before = path.read_bytes()
-        text = before.decode("utf-8")
-        after = _reconcile_upgrade_policy_region(text).encode("utf-8")
+        original = before.decode("utf-8")
+        text = line_endings.to_lf(original)
+        updated = _reconcile_upgrade_policy_region(text)
     except (OSError, UnicodeError, ValueError) as exc:
         raise ValueError(
             f"{UPGRADE_POLICY_DESTINATION}: upgrade-policy reconciliation failed: {exc}"
         ) from exc
-    if after == before:
+    if updated == text:
         return ()
-    _atomic_replace(path, after)
+    # Wave 244in (244fj): the marker region takes the file's own endings.
+    _atomic_replace(path, line_endings.encode(line_endings.merge(original, updated)))
     return (UPGRADE_POLICY_DESTINATION,)
 
 

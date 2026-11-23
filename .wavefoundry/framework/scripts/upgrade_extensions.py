@@ -633,13 +633,33 @@ def _read_json_object(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _load_line_endings(zip_path, label: str):
+    """Return the incoming ``line_endings`` module, or None with a warning.
+
+    Wave 244in (244fj): the in-place writers below keep each file's own line
+    endings through the incoming helper, loaded privately by
+    :func:`_incoming_framework_module` (never a top-level import: an old
+    install's scripts directory has no ``line_endings.py``). When it cannot be
+    loaded, only the writer for ``label`` is skipped."""
+    try:
+        return _incoming_framework_module("line_endings", zip_path)
+    except _IncomingModuleUnavailable as exc:
+        print(
+            f"  WARNING: skipped the in-place update of {label}: the line-ending "
+            f"helper could not be loaded ({exc}).",
+            file=sys.stderr,
+            flush=True,
+        )
+        return None
+
+
 def _update_upgrade_state(root: Path, **fields) -> None:
     path = root / ".wavefoundry" / "upgrade-in-progress.json"
     data = _read_json_object(path)
     if not path.exists():
         raise RuntimeError("upgrade-in-progress.json is missing during lock cutover")
     data.update(fields)
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8", newline="\n")
 
 
 def _legacy_lock_is_held(path: Path, offset: int) -> bool:
@@ -849,8 +869,13 @@ def _snapshot_docs_scalar_claims(ctx) -> None:
     )
 
 
-def _reconcile_docs_scalar_claims(ctx) -> bool:
-    """Advance only exact code-matched scalar claims captured before extraction."""
+def _reconcile_docs_scalar_claims(ctx, line_endings=None) -> bool:
+    """Advance only exact code-matched scalar claims captured before extraction.
+
+    Wave 244in (244fj): the claim line is replaced on LF text and published
+    through ``line_endings.merge``, so the document keeps its own endings."""
+    if line_endings is None:
+        line_endings = _incoming_framework_module("line_endings", getattr(ctx, "zip_path", None))
 
     snapshots = getattr(ctx, "pre_extract_docs_scalar_claims", None)
     state = _read_json_object(ctx.root / ".wavefoundry" / "upgrade-in-progress.json")
@@ -877,9 +902,10 @@ def _reconcile_docs_scalar_claims(ctx) -> bool:
             continue
         path = ctx.root / relative_doc
         try:
-            text = path.read_text(encoding="utf-8")
-        except OSError:
+            original = path.read_bytes().decode("utf-8")
+        except (OSError, UnicodeError):
             continue
+        text = line_endings.to_lf(original)
         claims = list(pattern.finditer(text))
         if len(claims) == 1 and claims[0].group(1) == new:
             remaining.pop(label, None)
@@ -887,7 +913,8 @@ def _reconcile_docs_scalar_claims(ctx) -> bool:
         if len(claims) != 1 or claims[0].group(1) != old:
             continue
         claim = claims[0]
-        path.write_text(text[: claim.start(1)] + new + text[claim.end(1) :], encoding="utf-8")
+        updated = text[: claim.start(1)] + new + text[claim.end(1) :]
+        path.write_text(line_endings.merge(original, updated), encoding="utf-8", newline="")
         remaining.pop(label, None)
         changed = True
         print(f"upgrade docs reconciliation: {label} {old} -> {new}", flush=True)
@@ -919,7 +946,10 @@ def _snapshot_graph_builder_doc_claim(ctx) -> None:
 def _reconcile_graph_builder_doc_claim(ctx) -> bool:
     """Backward-compatible wrapper for the generalized scalar reconcile."""
 
-    return _reconcile_docs_scalar_claims(ctx)
+    line_endings = _load_line_endings(getattr(ctx, "zip_path", None), "the docs scalar claims")
+    if line_endings is None:
+        return False
+    return _reconcile_docs_scalar_claims(ctx, line_endings)
 
 
 def _preserve_original_manifest(ctx) -> None:
@@ -1730,6 +1760,7 @@ def pre_extract(ctx):
 # The v1.27.0 runner also imports ``memory_backfill`` itself after this hook,
 # so the refresh happens in this process rather than in a subprocess.
 _MEMORY_BOOTSTRAP_MODULES = (
+    "line_endings",  # stdlib-only; memory_records' in-place rule (wave 244in, change 244fj)
     "vocabulary_profile",
     "path_containment",
     "repo_root",
@@ -3100,7 +3131,7 @@ def _run_journal_pre_migration_hook(root: Path, hook_name: str, hook, *,
     return True
 
 
-def repair_declaring_scaffold(root) -> list[str]:
+def repair_declaring_scaffold(root, line_endings=None) -> list[str]:
     """Fence a scaffold's example block so it stops declaring review targets.
 
     1.15.6 ships a docs-lint ERROR for a scaffold that declares review
@@ -3128,13 +3159,18 @@ def repair_declaring_scaffold(root) -> list[str]:
     root = _Path(root)
     scripts = root / ".wavefoundry" / "framework" / "scripts"
     # Wave 200ey (200ev): held on the path only for the repair.
+    if line_endings is None:
+        line_endings = _load_line_endings(None, "the scaffold templates")
+        if line_endings is None:
+            return []
     with _scripts_on_sys_path(scripts):
-        return _repair_declaring_scaffold_on_path(root)
+        return _repair_declaring_scaffold_on_path(root, line_endings)
 
 
-def _repair_declaring_scaffold_on_path(root: Path) -> list[str]:
+def _repair_declaring_scaffold_on_path(root: Path, line_endings) -> list[str]:
     """The body of :func:`repair_declaring_scaffold`, run while the extracted
-    scripts directory is on ``sys.path``."""
+    scripts directory is on ``sys.path``. Wave 244in (244fj): the fence is
+    computed on LF text and published through ``line_endings.merge``."""
     try:
         # Resolve against the EXTRACTED tree: a pre-upgrade runner's cached
         # module would be the old parser, which is the version that did not
@@ -3182,7 +3218,8 @@ def _repair_declaring_scaffold_on_path(root: Path) -> list[str]:
             # checkout to LF in memory, so writing it back rewrites every line
             # in the operator's repo even though the repair touched one block.
             with path.open("r", encoding="utf-8", newline="") as handle:
-                text = handle.read()
+                original = handle.read()
+            text = line_endings.to_lf(original)
             if not review_policy.serialization_point_paths(text):
                 continue
             fenced = _fence_serialization_examples(
@@ -3216,7 +3253,7 @@ def _repair_declaring_scaffold_on_path(root: Path) -> list[str]:
             staged = path.with_name(path.name + ".wf-scaffold-repair")
             try:
                 with staged.open("w", encoding="utf-8", newline="") as handle:
-                    handle.write(fenced)
+                    handle.write(line_endings.merge(original, fenced))
                 # The staged file gets the process umask, not the template's
                 # mode; carry the original across so a group-writable checkout
                 # stays group-writable.
@@ -3390,7 +3427,9 @@ def pre_docs_gate(ctx):
     # declares would halt at the docs gate on the very upgrade that installs
     # the rule. Repair first, from this pack-loaded module, so it clears on the
     # same run rather than one upgrade later.
-    repair_declaring_scaffold(ctx.root)
+    line_endings = _load_line_endings(getattr(ctx, "zip_path", None), "the scaffold templates")
+    if line_endings is not None:
+        repair_declaring_scaffold(ctx.root, line_endings)
     _refresh_incoming_review_status(ctx)
 
     # A graph extraction change may advance the framework-owned version while
@@ -3606,7 +3645,7 @@ _STATUS_LINE_RE = re.compile(r"^(Status:\s+.*)$", re.MULTILINE)
 _OWNER_LINE_RE = re.compile(r"^(Owner:\s+.*)$", re.MULTILINE)
 
 
-def _backfill_role_field_on_agent_docs(root: Path) -> list[str]:
+def _backfill_role_field_on_agent_docs(root: Path, line_endings=None) -> list[str]:
     """Insert ``Role: <slug>`` into agent docs missing the field.
 
     Returns the list of repository-relative paths modified. Empty list when
@@ -3625,6 +3664,8 @@ def _backfill_role_field_on_agent_docs(root: Path) -> list[str]:
     agents_root = root / "docs" / "agents"
     if not agents_root.is_dir():
         return modified
+    if line_endings is None:
+        line_endings = _incoming_framework_module("line_endings")
 
     # Wave 1p3b9 (1p3b7 F6): recursive walk replaces the previous fixed-subdir
     # iteration so enterprise nested layouts (e.g.,
@@ -3656,9 +3697,10 @@ def _backfill_role_field_on_agent_docs(root: Path) -> list[str]:
         if is_history_path(path.relative_to(root)):
             continue
         try:
-            text = path.read_text(encoding="utf-8")
-        except OSError:
+            original = path.read_bytes().decode("utf-8")
+        except (OSError, UnicodeError):
             continue
+        text = line_endings.to_lf(original)
         if _ROLE_LINE_RE.search(text):
             continue  # already has Role:, no work needed
         stem = path.stem
@@ -3670,7 +3712,7 @@ def _backfill_role_field_on_agent_docs(root: Path) -> list[str]:
             # No anchor line — skip rather than corrupt the file
             continue
         try:
-            path.write_text(new_text, encoding="utf-8")
+            path.write_text(line_endings.merge(original, new_text), encoding="utf-8", newline="")
         except OSError:
             continue
         try:
@@ -3732,7 +3774,7 @@ def _is_retired_pycache_row(entry) -> bool:
             or normalized.endswith("pycache-cleanup.cmd"))
 
 
-def _strip_pycache_row_from_settings_file(settings_path: Path, root: Path) -> str | None:
+def _strip_pycache_row_from_settings_file(settings_path: Path, root: Path, line_endings=None) -> str | None:
     """Strip the retired pycache row from a single settings.json-shaped file.
 
     Returns the repo-relative path when modified, else None. Used to handle
@@ -3741,8 +3783,11 @@ def _strip_pycache_row_from_settings_file(settings_path: Path, root: Path) -> st
     """
     if not settings_path.is_file():
         return None
+    if line_endings is None:
+        line_endings = _incoming_framework_module("line_endings")
     try:
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        original = settings_path.read_bytes().decode("utf-8")
+        data = json.loads(original)
     except (OSError, ValueError):
         return None
     if not isinstance(data, dict):
@@ -3760,7 +3805,9 @@ def _strip_pycache_row_from_settings_file(settings_path: Path, root: Path) -> st
     hooks_block["PostToolUse"] = post_tool_filtered
     try:
         settings_path.write_text(
-            json.dumps(data, indent=2) + "\n", encoding="utf-8"
+            line_endings.merge(original, json.dumps(data, indent=2) + "\n"),
+            encoding="utf-8",
+            newline="",
         )
     except OSError:
         return None
@@ -3770,7 +3817,7 @@ def _strip_pycache_row_from_settings_file(settings_path: Path, root: Path) -> st
         return str(settings_path)
 
 
-def _strip_pycache_row_from_claude_settings(root: Path) -> list[str]:
+def _strip_pycache_row_from_claude_settings(root: Path, line_endings=None) -> list[str]:
     """Remove the retired ``PostToolUse`` Bash → pycache-cleanup hook row from
     both ``.claude/settings.json`` AND ``.claude/settings.local.json``.
 
@@ -3790,7 +3837,7 @@ def _strip_pycache_row_from_claude_settings(root: Path) -> list[str]:
     modified: list[str] = []
     for fname in ("settings.json", "settings.local.json"):
         result = _strip_pycache_row_from_settings_file(
-            root / ".claude" / fname, root
+            root / ".claude" / fname, root, line_endings
         )
         if result:
             modified.append(result)
@@ -3845,7 +3892,7 @@ def _write_migration_report(root: Path, sections: list[tuple[str, list[str]]]) -
             lines.append(f"- {rec}")
         lines.append("")
     try:
-        report_path.write_text("\n".join(lines), encoding="utf-8")
+        report_path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     except OSError:
         return None
     return report_path
@@ -4146,7 +4193,7 @@ def _preview_legacy_config_key_rewrite(repo_root):
     return planned
 
 
-def _rewrite_legacy_config_keys(repo_root):
+def _rewrite_legacy_config_keys(repo_root, line_endings=None):
     """Rewrite legacy keys to canonical in workflow-config.json. Returns a
     list of (legacy, canonical, action, dropped_value) tuples for the renames
     performed. `action` is ``"rename"`` (legacy → canonical) or ``"drop"``
@@ -4158,9 +4205,12 @@ def _rewrite_legacy_config_keys(repo_root):
     workflow_config = repo_root / "docs/workflow-config.json"
     if not workflow_config.exists():
         return []
+    if line_endings is None:
+        line_endings = _incoming_framework_module("line_endings")
     try:
-        data = json.loads(workflow_config.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
+        original = workflow_config.read_bytes().decode("utf-8")
+        data = json.loads(original)
+    except (json.JSONDecodeError, OSError, UnicodeError) as exc:
         # 1p5do: do not no-op silently — a malformed config that can't be rewritten will later fail
         # the docs gate with no migration-side signal, making the gate failure baffling. Warn here so
         # the operator can connect the gate failure to the un-migrated config.
@@ -4197,9 +4247,11 @@ def _rewrite_legacy_config_keys(repo_root):
             new_data[key] = value
     if not performed:
         return []
+    # Wave 244in (244fj): the reserialized config keeps its own line endings.
     workflow_config.write_text(
-        json.dumps(new_data, indent=2) + "\n",
+        line_endings.merge(original, json.dumps(new_data, indent=2) + "\n"),
         encoding="utf-8",
+        newline="",
     )
     return performed
 
@@ -4259,7 +4311,7 @@ def _write_convergence_report(root, performed):
             )
     lines.append("")
     try:
-        report_path.write_text("\n".join(lines), encoding="utf-8")
+        report_path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     except OSError:
         return None
     return report_path
@@ -4290,7 +4342,13 @@ def _run_convergence_migration(ctx):
                 for record in planned:
                     print(f"  - {record}", file=sys.stderr)
         else:
-            performed = _rewrite_legacy_config_keys(ctx.root)
+            line_endings = _load_line_endings(
+                getattr(ctx, "zip_path", None), "docs/workflow-config.json"
+            )
+            performed = (
+                _rewrite_legacy_config_keys(ctx.root, line_endings)
+                if line_endings is not None else []
+            )
             if performed:
                 # Build a compact summary that distinguishes rename from drop
                 # so the stderr line isn't misleading on the both-present case.
@@ -4658,7 +4716,11 @@ def _post_extract(ctx):
 
     # Migration 1: Role: backfill
     try:
-        modified = _backfill_role_field_on_agent_docs(ctx.root)
+        line_endings = _load_line_endings(getattr(ctx, "zip_path", None), "docs/agents/*.md")
+        modified = (
+            _backfill_role_field_on_agent_docs(ctx.root, line_endings)
+            if line_endings is not None else []
+        )
         sections.append((
             "Role: backfill on docs/agents/*.md "
             "(C4 / 1p35l: docs-lint now enforces Role: on every agent doc)",
@@ -4688,7 +4750,11 @@ def _post_extract(ctx):
     # `.claude/settings.json` AND personal-override `.claude/settings.local.json`
     # per wave 1p3b9 / 1p3b7 F4).
     try:
-        modified_settings = _strip_pycache_row_from_claude_settings(ctx.root)
+        line_endings = _load_line_endings(getattr(ctx, "zip_path", None), ".claude/settings.json")
+        modified_settings = (
+            _strip_pycache_row_from_claude_settings(ctx.root, line_endings)
+            if line_endings is not None else []
+        )
         sections.append((
             "Claude Code settings.json pycache row removal "
             "(C5 / 1p35n: PostToolUse Bash → pycache-cleanup row retired; "

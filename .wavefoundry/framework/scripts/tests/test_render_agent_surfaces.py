@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import os
 import stat
@@ -6520,6 +6521,250 @@ class StaleDefaultSkillNameTests(unittest.TestCase):
             "lifecycle commands (Plan change, Implement batch, Close batch, Prepare batch, etc.)."
         )
         self.assertTrue(ras._is_managed_guru_description(shipped, names.__getitem__))
+
+
+
+def _first_line_crlf(text: str) -> str:
+    head, sep, rest = text.partition("\n")
+    return head + ("\r\n" if sep else "") + rest
+
+
+class LineEndingPreservationTests(unittest.TestCase):
+    """Wave 244in (change 244fj): every in-place writer in this module keeps
+    each existing line's ending, gives inserted lines the file's majority
+    ending (ties to CRLF), writes a new file LF, and never emits ``\r\r\n``,
+    natively and under the shared Windows-write simulation."""
+
+    def setUp(self) -> None:
+        from line_ending_support import (
+            assert_no_double_cr, mixed, run_matrix, windows_text_writes, with_endings,
+        )
+        self.run_matrix = run_matrix
+        self.mixed = mixed
+        self.with_endings = with_endings
+        self.windows_text_writes = windows_text_writes
+        self.assert_no_double_cr = assert_no_double_cr
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _lf_output(self, write_input, run_writer, read_output, before_lf: str) -> str:
+        write_input(before_lf)
+        run_writer()
+        data = read_output()
+        self.assertNotIn(b"\r", data, "an LF input stays LF")
+        return data.decode("utf-8")
+
+    def _matrix(self, path: Path, run_writer, before_lf: str, *, expect_in: str) -> str:
+        def write_input(text: str) -> None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(text.encode("utf-8"))
+
+        def read_output() -> bytes:
+            return path.read_bytes()
+
+        after_lf = self._lf_output(write_input, run_writer, read_output, before_lf)
+        self.assertNotEqual(after_lf, before_lf, "the writer must change the fixture")
+        self.assertIn(expect_in, after_lf)
+        self.run_matrix(self, write_input, run_writer, read_output, before_lf, after_lf)
+        # A majority-LF file with one CRLF line (the first): inserted lines are
+        # LF and the stray CRLF line survives ("any CRLF" would flip them).
+        for simulated in (False, True):
+            with self.subTest(shape="lf_majority_one_crlf", windows_simulation=simulated):
+                write_input(_first_line_crlf(before_lf))
+                if simulated:
+                    with self.windows_text_writes():
+                        run_writer()
+                else:
+                    run_writer()
+                self.assertEqual(read_output(), _first_line_crlf(after_lf).encode("utf-8"))
+        return after_lf
+
+    # -- direct writers ----------------------------------------------------
+    def test_patch_thin_pointer(self) -> None:
+        path = self.root / "WARP.md"
+        before = "# Warp\n\n## Key Rules\n\n- Existing rule.\n\nTrailing prose.\n"
+        self._matrix(
+            path,
+            lambda: ras.patch_thin_pointer(path, "- New bullet.", after_heading="## Key Rules", root=self.root),
+            before,
+            expect_in="- New bullet.",
+        )
+
+    def test_patch_root_bridge(self) -> None:
+        path = self.root / "CLAUDE.md"
+        before = "# Claude Code\n\nProject notes.\n\nMore notes.\n"
+        self._matrix(path, lambda: ras.patch_root_bridge(path, root=self.root), before,
+                     expect_in=ras.ROOT_BRIDGE_BLOCK)
+
+    def _manifest(self) -> Path:
+        return self.root / ras.PROMPT_SURFACE_MANIFEST
+
+    def test_write_prompt_manifest(self) -> None:
+        path = self._manifest()
+        before = '{\n  "public_prompt_surface": [\n    {\n      "doc": "docs/prompts/a.prompt.md"\n    }\n  ]\n}\n'
+
+        def run() -> None:
+            original = path.read_bytes().decode("utf-8")
+            data = json.loads(original)
+            data["public_prompt_surface"][0]["shortcut"] = "A"
+            ras._write_prompt_manifest(path, original, data, root=self.root)
+
+        self._matrix(path, run, before, expect_in='"shortcut": "A"')
+
+    def test_repair_change_prompt_manifest(self) -> None:
+        path = self._manifest()
+        before = '{\n  "public_prompt_surface": [\n    {\n      "doc": "docs/prompts/plan-spec.prompt.md",\n      "shortcut": "Plan spec"\n    }\n  ]\n}\n'
+        self._matrix(path, lambda: ras._repair_change_prompt_manifest(self.root), before,
+                     expect_in='"shortcut": "Plan spec"')
+
+    def _carrier(self, destination: str):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            destination=destination, conditional_existing=False, create_if_missing=True,
+            source_seed="", owner="renderer",
+        )
+
+    def test_reconcile_review_protocol_surfaces(self) -> None:
+        destination = "docs/agents/sample-reviewer.md"
+        path = self.root / destination
+        carrier = self._carrier(destination)
+        before = "# Sample Reviewer\n\nRole: sample\n\nProject prose.\n"
+
+        def run() -> None:
+            with patch.object(ras, "review_protocol_carriers", return_value=(carrier,)), \
+                    patch.object(ras, "preflight_agent_surface_paths", return_value=None):
+                ras.reconcile_review_protocol_surfaces(self.root)
+
+        self._matrix(path, run, before, expect_in=ras.REVIEW_PROTOCOL_MARKER_BEGIN)
+
+    def test_reconcile_review_policy_surfaces(self) -> None:
+        destination = "docs/agents/sample-policy.md"
+        path = self.root / destination
+        carrier = self._carrier(destination)
+        before = "# Sample Policy\n\nProject prose.\n"
+
+        def run() -> None:
+            with patch.object(ras, "REVIEW_POLICY_CARRIER_REGISTRY", (carrier,)), \
+                    patch.object(ras, "REVIEW_POLICY_SURFACE_BLOCKS", {destination: "Policy block line."}):
+                ras.reconcile_review_policy_surfaces(self.root)
+
+        self._matrix(path, run, before, expect_in="Policy block line.")
+
+    def test_reconcile_context_efficiency_surface(self) -> None:
+        if not callable(getattr(ras, "_replace_context_efficiency_carrier_block", None)):
+            self.skipTest("context_efficiency is not importable")
+        path = self.root / ras.CONTEXT_EFFICIENCY_DESTINATION
+        before = "# Create Wave\n\nProject prose.\n"
+        self._matrix(path, lambda: ras.reconcile_context_efficiency_surface(self.root), before,
+                     expect_in="Project prose.")
+
+    # -- render_agent_surfaces writers -------------------------------------
+    def _guru(self) -> None:
+        role = self.root / "docs/agents/guru.md"
+        role.parent.mkdir(parents=True, exist_ok=True)
+        role.write_text(GURU_STUB, encoding="utf-8")
+
+    def _render(self) -> None:
+        with patch("sys.stderr", new_callable=io.StringIO):
+            ras.render_agent_surfaces(self.root)
+
+    def test_render_claude_md_block(self) -> None:
+        self._guru()
+        path = self.root / "CLAUDE.md"
+        before = "# Claude Code\n\n@AGENTS.md\n\n## Startup Order\n\n1. Read AGENTS.md.\n"
+        self._matrix(path, self._render, before, expect_in=ras.MARKER_BEGIN)
+
+    def test_render_cursor_project_context(self) -> None:
+        self._guru()
+        (self.root / ".cursor" / "rules").mkdir(parents=True)
+        path = self.root / ".cursor" / "rules" / "project-context.mdc"
+        before = "---\ndescription: context\n---\n\n# Project context\n\nProse.\n"
+        self._matrix(path, self._render, before, expect_in=ras.MARKER_BEGIN)
+
+    def test_render_tier3_claude_guru_wrapper(self) -> None:
+        role = self.root / "docs/agents/guru.md"
+        role.parent.mkdir(parents=True)
+        role.write_text(GURU_STUB, encoding="utf-8")
+        path = self.root / ".claude/agents/guru.md"
+        before = "---\nname: guru\ndescription: custom description\n---\n\nOld generated body\n"
+        after = self._matrix(path, self._render, before, expect_in="## Your job")
+        self.assertTrue(after.startswith("---\nname: guru\ndescription: custom description\n---\n"))
+
+    def test_new_carrier_and_new_wrapper_are_lf_under_simulation(self) -> None:
+        role = self.root / "docs/agents/guru.md"
+        role.parent.mkdir(parents=True)
+        role.write_text(GURU_STUB, encoding="utf-8")
+        (self.root / ".claude").mkdir()
+        with self.windows_text_writes():
+            self._render()
+        data = (self.root / ".claude/agents/guru.md").read_bytes()
+        self.assertNotIn(b"\r", data)
+
+    # -- AC-2: one stray CRLF line in a 200-line LF file -------------------
+    def _assert_one_line_edit(self, path: Path, before: bytes, run_writer) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(before)
+        run_writer()
+        after = path.read_bytes()
+        self.assert_no_double_cr(self, after)
+        old_lines = before.splitlines(keepends=True)
+        new_lines = after.splitlines(keepends=True)
+        import difflib
+
+        changed = [
+            op for op in difflib.SequenceMatcher(None, old_lines, new_lines, autojunk=False).get_opcodes()
+            if op[0] != "equal"
+        ]
+        self.assertEqual(len(changed), 1, changed)
+        _tag, i1, i2, j1, j2 = changed[0]
+        self.assertLessEqual(i2 - i1, 1, "at most one existing line changes")
+        for line in new_lines[j1:j2]:
+            self.assertTrue(line.endswith(b"\n") and not line.endswith(b"\r\n"),
+                            "an inserted line takes the LF majority")
+        self.assertEqual(after.count(b"\r\n"), 1, "the stray CRLF line is kept")
+
+    def test_patch_root_bridge_mixed_200_line_file_changes_one_line(self) -> None:
+        path = self.root / "CLAUDE.md"
+        lines = [f"line {index}\n" for index in range(200)]
+        lines[50] = "stray line\r\n"
+        lines[100] = "<!-- wave:claude-bridge begin -->\n"
+        lines[101] = "old bridge\n"
+        lines[102] = "<!-- wave:claude-bridge end -->\n"
+        before = "".join(lines)
+        if ras.ROOT_BRIDGE_MARKER_BEGIN not in before:
+            before = before.replace("<!-- wave:claude-bridge begin -->", ras.ROOT_BRIDGE_MARKER_BEGIN)
+            before = before.replace("<!-- wave:claude-bridge end -->", ras.ROOT_BRIDGE_MARKER_END)
+        bridge = ras.ROOT_BRIDGE_BLOCK
+        # The fresh bridge block replaces only the old three-line block.
+        old_block = ras.ROOT_BRIDGE_MARKER_BEGIN + "\nold bridge\n" + ras.ROOT_BRIDGE_MARKER_END
+        self.assertIn(old_block, before)
+        path.write_bytes(before.encode())
+        ras.patch_root_bridge(path, root=self.root)
+        after = path.read_bytes()
+        self.assert_no_double_cr(self, after)
+        self.assertEqual(after.count(b"\r\n"), 1, "the stray CRLF line is kept")
+        self.assertEqual(after, before.replace(old_block, bridge).encode())
+
+    def test_write_prompt_manifest_mixed_200_line_file_changes_one_line(self) -> None:
+        path = self._manifest()
+        data = {"public_prompt_surface": [{"doc": f"docs/prompts/p{index}.prompt.md"} for index in range(66)]}
+        lf = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+        lines = lf.splitlines(keepends=True)
+        self.assertGreaterEqual(len(lines), 200)
+        lines[1] = lines[1].replace("\n", "\r\n")
+        before = "".join(lines)
+
+        def run() -> None:
+            original = path.read_bytes().decode("utf-8")
+            loaded = json.loads(original)
+            loaded["public_prompt_surface"][30]["doc"] = "docs/prompts/edited.prompt.md"
+            ras._write_prompt_manifest(path, original, loaded, root=self.root)
+
+        self._assert_one_line_edit(path, before.encode(), run)
 
 
 if __name__ == "__main__":
