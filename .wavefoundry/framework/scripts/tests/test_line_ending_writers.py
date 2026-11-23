@@ -101,7 +101,7 @@ class LifecycleLineEndingTests(unittest.TestCase):
         return (
             f"# Line ending fixture\n\n{vp.MEMBER_ID_LABEL}: `{cid}`\n"
             f"{vp.MEMBER_STATUS_LABEL}: `planned`\nOwner: Engineering\nStatus: planned\n"
-            "Last verified: 2026-11-22\nWave: TBD\n\n## Rationale\n\nLifecycle fixture.\n\n"
+            f"Last verified: 2026-11-22\n{vp.BACKREF_LABEL}: TBD\n\n## Rationale\n\nLifecycle fixture.\n\n"
             "## Requirements\n\n1. Keep line endings.\n\n## Scope\n\nTemporary repository.\n\n"
             "## Acceptance Criteria\n\n- [x] AC-1: Fixture is complete.\n"
             "## Tasks\n\n- [x] Complete fixture.\n\n## AC Priority\n\n"
@@ -127,7 +127,7 @@ class LifecycleLineEndingTests(unittest.TestCase):
         spec = wave_md.parent / spec.name
         self.assert_shape(shape, wave_md, "add_change")
         self.assert_shape(shape, spec, "add_change")
-        self.assertIn(f"Wave: {wid}\n", _to_lf(spec.read_bytes()), "AC-3: the back-reference is repaired")
+        self.assertIn(f"{vp.BACKREF_LABEL}: {wid}\n", _to_lf(spec.read_bytes()), "AC-3: the back-reference is repaired")
 
         prepared = srv.wf_prepare_wave_response(root, wid, mode="ready")
         self.assertIn(prepared["status"], {"ok", "error"}, prepared)
@@ -232,7 +232,7 @@ class AdmissionBackReferenceTests(unittest.TestCase):
         made = srv._change_create_response(root, "bug", "backref", mode="create")["data"]
         spec = root / made["path"]
         lf = spec.read_text(encoding="utf-8")
-        self.assertIn("\nWave: TBD\n", lf)
+        self.assertIn(f"\n{vp.BACKREF_LABEL}: TBD\n", lf)
         spec.write_bytes(spec_bytes(lf))
         wave = srv.wf_create_wave_response(root, "backref", mode="create")["data"]
         with patch.object(srv, "_trigger_background_index_refresh_for_paths", lambda *a, **k: None), \
@@ -245,7 +245,7 @@ class AdmissionBackReferenceTests(unittest.TestCase):
         for simulated in (False, True):
             with self.subTest(windows_simulation=simulated):
                 wid, spec, lf = self._admit(lambda t: t.replace(LF, CRLF).encode(), simulated=simulated)
-                expected = lf.replace("\nWave: TBD\n", f"\nWave: {wid}\n").replace(LF, CRLF).encode()
+                expected = lf.replace(f"\n{vp.BACKREF_LABEL}: TBD\n", f"\n{vp.BACKREF_LABEL}: {wid}\n").replace(LF, CRLF).encode()
                 self.assertEqual(spec.read_bytes(), expected)
 
     def test_mixed_spec_gains_no_double_carriage_return(self):
@@ -255,7 +255,7 @@ class AdmissionBackReferenceTests(unittest.TestCase):
                 data = spec.read_bytes()
                 self.assertNotIn(b"\r\r\n", data)
                 self.assertEqual(
-                    data, mixed(lf.replace("\nWave: TBD\n", f"\nWave: {wid}\n")).encode())
+                    data, mixed(lf.replace(f"\n{vp.BACKREF_LABEL}: TBD\n", f"\n{vp.BACKREF_LABEL}: {wid}\n")).encode())
 
 
 class HandoffAndEscalationWriterTests(unittest.TestCase):

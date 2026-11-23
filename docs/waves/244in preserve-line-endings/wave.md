@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: closed
-Last verified: 2026-11-22
+Last verified: 2026-11-23
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -24,6 +24,7 @@ Change Status: `implemented`
 - Write-owning roles: implementer
 - Requested review lanes: none
 - Required review lanes: code-reviewer, qa-reviewer, architecture-reviewer, release-reviewer
+
 
 Completed At: 2026-11-23
 
@@ -93,11 +94,11 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 | Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
 | plan | 90 | 1,289,641 |
-| implement | 71 | 0 |
-| review | 80 | 1,372,746 |
-| **Total** | **241** | **2,662,387** |
+| implement | 74 | 0 |
+| review | 84 | 1,436,297 |
+| **Total** | **248** | **2,725,938** |
 
-<!-- wave:context-efficiency-state {"generation":222,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":71,"content_source_credit":3543,"derived_artifact_credit":0,"direct_net":-11703,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3214,"response_debit":18772,"source_credit_count":2,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6740},"plan":{"calls":90,"content_source_credit":1629350,"derived_artifact_credit":1773,"direct_net":1289641,"estimated_tokens_saved":1289641,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":60574,"response_debit":291703,"source_credit_count":74,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":10795},"review":{"calls":80,"content_source_credit":1590401,"derived_artifact_credit":2998,"direct_net":1372746,"estimated_tokens_saved":1372746,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":19629,"response_debit":207802,"source_credit_count":36,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6778}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":241,"content_source_credit":3223294,"derived_artifact_credit":4771,"direct_net":2650684,"estimated_tokens_saved":2662387,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":83417,"response_debit":518277,"source_credit_count":112,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":24313},"wave_id":"244in preserve-line-endings"} -->
+<!-- wave:context-efficiency-state {"generation":229,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":74,"content_source_credit":3543,"derived_artifact_credit":0,"direct_net":-12217,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3243,"response_debit":19257,"source_credit_count":2,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6740},"plan":{"calls":90,"content_source_credit":1629350,"derived_artifact_credit":1773,"direct_net":1289641,"estimated_tokens_saved":1289641,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":60574,"response_debit":291703,"source_credit_count":74,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":10795},"review":{"calls":84,"content_source_credit":1653807,"derived_artifact_credit":3251,"direct_net":1436297,"estimated_tokens_saved":1436297,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":20331,"response_debit":213986,"source_credit_count":38,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":13556}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":248,"content_source_credit":3286700,"derived_artifact_credit":5024,"direct_net":2713721,"estimated_tokens_saved":2725938,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":84148,"response_debit":524946,"source_credit_count":114,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":31091},"wave_id":"244in preserve-line-endings"} -->
 <!-- wave:context-efficiency end -->
 
 <!-- wave:exploration-avoided begin -->

@@ -4,7 +4,7 @@ Change ID: `244fj-bug preserve-line-endings-on-in-place-writes`
 Change Status: `implemented`
 Owner: Engineering
 Status: implemented
-Last verified: 2026-11-22
+Last verified: 2026-11-23
 Wave: 244in preserve-line-endings
 
 ## Rationale
@@ -303,6 +303,7 @@ This change must be implemented after wave 244fi (memory review audit) closes. 2
 | 2026-11-23 | Delivery repair for `244in-arch-exempt-wrapper-blindspot` (repair_start, cycle 2, context `244in-implementer-delivery-repair-1`). `setup_readiness:_write_stamp_exclusive` and `upgrade_extensions:_write_journal_exclusive` are now `wrapper`; their new writer callers are `write_setup_stamp` (`generated`) and `_migrate_journal_entries` and `_move_journal_at` (`in_place_raw`, journal bytes moved verbatim). `exempt` entries now pin their callers like `generated` entries, and a caller that is itself a writer needs a `writer_callers_reason` (6 recorded). A text write in an `in_place` or `in_place_raw` function may pass only `newline=""` (`IN_PLACE_NEWLINE`). Every exempt reason now states what is written. `native-windows-support.md` names the writers that still translate (process logs, child console output, the graph-quality scratch corpus) and why each is fine. Census: functions 53 `in_place`, 9 `in_place_raw`, 71 `generated`, 26 `wrapper`, 35 `exempt`; sites 34 `in_place`, 10 `in_place_raw`, 31 `generated`, 12 `wrapper`. | Known-bad tests `test_bad_in_place_caller_of_exempt_or_wrapper_shaped_writer` and `test_bad_in_place_writer_with_translating_newline`; `run_tests.py --file` on 9 files: 942 tests OK; no `__pycache__` under `.wavefoundry/framework/` |
 | 2026-11-22 | Gapfill: some focused runs used `python3 -B -m unittest` from `tests/` with `PYTHONPATH=..` because parallel implementer forks held the `run_tests.py` lock; every touched file was then rerun through `run_tests.py`. `test_extension_tool_modules.py` needs the runner's interpreter (`mcp`). | `run_tests.py` reruns above |
 | 2026-11-23 | Delivery reviewed and closed. The full suite passed after the delivery repair (13,404 tests OK). Code, qa, architecture and release approved delivery, and council-delivery passed with intent_fit establishes. The review notes from `.wavefoundry/work/244in/review/` are archived in `evidence/review-notes.tar.gz` (28 files), because close removes the work folder. | `evidence/review-notes.tar.gz` |
+| 2026-11-23 | Reopened after close, by operator approval, because the 1.51.0 release preflight's second-profile qualification run failed 10 of 11 tests in `test_line_ending_writers.py`. The tests hard-coded the `Wave:` back-reference label, and the second profile's vocabulary writes `Set:`. Test-only fix: the fixture and assertions use `vocabulary_profile.BACKREF_LABEL`. No product code changed. The writer, census and helper tests pass under the default and second profiles. Lesson: run the second profile on new record-shaped tests before delivery. | `run_tests.py --profile second --file test_line_ending_writers.py`: 0 of 1 files failed |
 
 ## Decision Log
 
