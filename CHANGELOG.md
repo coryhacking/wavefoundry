@@ -8,6 +8,14 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `wf_memory_eval` now scores a frozen set of situation-language queries, with null and stale cases, against no-memory, grep, BM25-only, dense-only, hybrid, production and full-context baselines over one corpus. The report leads with recall@5 and MRR, then precision of the shown set, false-show rate and stale-shown rate, each with a bootstrap interval that resamples records. It also reports memory vector coverage, separating stale from missing sources, and records that their own target path cannot reach. Maintainers freeze a query set with `memory_eval.py --freeze-query-set <root>`, which writes the lock the evaluation checks. Wave 245na / 245sp.
+
+### Changed
+
+- `wf_memory_eval` labels are renamed: `production_variant` is now `memory_search_hybrid_rrf`, because the old `memory_rrf_summary5` named a path the pass never ran, and `experimental_variant` is now `policy_ordered_rrf_shortlist5`. The self-summary sample fields move under `sanity_floor`, which is never the headline. Wave 245na / 245sp.
+
 ## [1.51.0] - 2026-11-23
 
 ### Added

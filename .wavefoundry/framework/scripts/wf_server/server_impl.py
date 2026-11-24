@@ -25802,23 +25802,28 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def wf_memory_eval(**kwargs: Any) -> dict[str, Any]:
         """Inspect this repository's memory-retrieval diagnostics (aggregate only).
 
-        Runs the curated live-corpus pass over the configured repository's
-        memory records: it freezes a bounded sample before scoring, then
-        reports aggregate metrics, kind/status counts and a content fingerprint.
-        These self-summary probes are diagnostic, not independent quality
-        qualification. Adoption remains false without separately frozen,
-        independently judged holdout evidence. Read-only: no records are
-        written and no index is built.
+        Scores the repository's frozen situation-language query set
+        (``docs/evals/memory-query-set.json`` and its lock) against no-memory,
+        grep, BM25-only, dense-only, hybrid, production and full-context arms
+        over one corpus, per held-out and dev split, with record-level
+        bootstrap intervals and memory index signals. The self-summary sample
+        is only a labeled sanity floor. The report states no verdict and is
+        not adoption qualification. Read-only: no records are written and no
+        index is built.
 
         Privacy boundary: the report NEVER contains record bodies, summaries,
-        or memory ids. When the semantic backend or corpus is unavailable the
-        report returns ``available: false`` with a reason instead of failing.
+        memory ids, query text or case ids. An absent query set is not an
+        error: only the sanity floor runs, and ``available`` reflects it. When
+        the semantic backend or corpus is unavailable, the query set is
+        invalid, unfrozen or changed, or an arm fails, the report returns
+        ``available: false`` with a reason instead of failing.
         """
 
         bad = _ensure_no_extra_args("wf_memory_eval", kwargs)
         if bad is not None:
             return bad
-        return wf_memory_eval_response(get_handler().root)
+        handler = get_handler()
+        return wf_memory_eval_response(handler.root, index=handler.index)
 
     @mcp.tool(annotations=_MUTATING_TOOL)
     def wf_review_event(

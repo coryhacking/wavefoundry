@@ -2,16 +2,18 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-14
+Last verified: 2026-11-23
 
 ## Purpose
 
 Memory-ranking changes require independent evidence. The ordinary `wf_memory_eval`
-call is a bounded **self-summary diagnostic**, not release qualification: it uses
-up to 12 sampled records to report policy and retrieval observations. Its report
-explicitly returns `qualifying: false` and `adoption_gate.adopt: false`. A healthy
-sampled pass cannot select a replacement ranking. Unavailable measurements remain
-unavailable; lexical recovery is not counted as semantic success.
+call scores a frozen situation-language query set against baseline arms (wave
+245na). It is measurement, not release qualification: the report returns
+`qualifying: false` and `adoption_gate.adopt: false`, and it states no pause,
+adoption or "beats" verdict. The maintainer reads the held-out metrics and
+decides. The old 12-record self-summary probe survives only as a labeled
+`sanity_floor`. Unavailable measurements remain unavailable; lexical recovery is
+not counted as semantic success.
 
 Qualification is a separate, explicitly generated local evaluation with a frozen
 full corpus, independently authored disjoint holdout labels, fixed parameters,
@@ -43,13 +45,72 @@ The eval is two distinct things, and they live in two places on purpose:
   every invariant, deterministic RRF, aggregate privacy, reproducibility, and
   the registered 1,000-record lexical budget.
 - Curated observation (agents): call **`wf_memory_eval`**. It runs the curated
-  pass over the configured repository and returns the aggregate report in a
-  structured envelope; when the semantic backend or corpus is unavailable it
-  returns `available: false` with a `curated_pass_unavailable` diagnostic
-  rather than failing. CLI fallback: add `--curated-root <repo>`. The sample is selected and
-  fingerprinted before any candidate is scored. Output contains sample size,
-  aggregate kind/status counts, metrics, and fingerprint only — never memory
-  bodies, summaries, or record ids.
+  pass over the configured repository with the shared server index and returns
+  the aggregate report in a structured envelope. Without a query set only the
+  sanity floor runs (`query_set.reason: "query_set_absent"`). When the semantic
+  backend or corpus is unavailable, or the query set is invalid, unfrozen or
+  changed, it returns `available: false` with a `curated_pass_unavailable`
+  diagnostic rather than failing. CLI fallback: add
+  `--curated-root <repo>`. Output contains aggregate metrics and counts only,
+  never memory bodies, summaries, record ids, query text or case ids.
+
+## Situation-language query set (wave 245na)
+
+The curated pass reads `docs/evals/memory-query-set.json` and its freeze record
+`docs/evals/memory-query-set.lock.json`. Each case has an `id`, a `query`, a
+`case_type` (`answerable`, `null` or `stale`), a `source_id`, `relevant_ids`,
+`stale_ids`, 1 to 3 `grep_terms` and an `author`. A null case's `source_id` is
+its own id.
+
+- **Freeze.** `python3 -B .wavefoundry/framework/scripts/memory_eval.py
+  --freeze-query-set <root>` applies the sequence filter and embeds each query and
+  relevant summary with the docs model. Cases at cosine 0.95 or higher are listed
+  in the lock's `cosine_rejected` and excluded at run time; the query file is not
+  rewritten. Without the model the command exits 2 and writes nothing. The lock's
+  `query_set_sha256` hashes the parsed JSON, so CRLF checkouts match; a changed
+  set reports `query_set_hash_mismatch` and no metrics. Any edit to the set
+  needs a new freeze with the reason recorded.
+- **Leakage.** At every run a case is excluded when its query has a
+  `difflib` sequence ratio of 0.9 or higher against a relevant record's summary
+  (`query_set.leakage_rejected`).
+- **Split.** The cluster key is `source_id`; a cluster is held out when
+  `int(sha256(source_id)[:8], 16) % 10 >= 3`. All cases of one record share a
+  split, and a case-level `split` field is ignored. Only `dev` may guide tuning.
+- **Arms.** Every arm ranks production's corpus: the surfaced records plus the
+  archive register entries. `no_memory` shows nothing. `grep` shows every item
+  containing all `grep_terms`. `bm25_only`, `dense_only` (production's
+  `_memory_candidate_scores` stream, ties by `(-score, memory_id)`) and
+  `hybrid_no_rerank` (production's fusion before the reranker screen) show their
+  top 5. `production` runs `memory_search_response` with the shared index.
+  `full_context` shows everything ranked by memory id. `dense_summary_only` and
+  `dense_compact` are informational one-vector ablations of the embedded text.
+- **Metrics.** Per split and arm: `recall_at_5`, `mrr`, pooled
+  `precision_shown`, `false_show_rate` on null cases, `stale_shown_rate` on stale
+  cases and `mean_shown`, each except `mean_shown` with a 95% cluster bootstrap
+  interval (1000 resamples, `random.Random(0)`, percentile indexes
+  `floor(0.025n)` and `ceil(0.975n) - 1`, `null` below 100 defined resamples).
+  `arm_order` sorts by recall then MRR. An arm whose recall interval upper bound
+  is below BM25's point recall carries `recall_below_bm25`.
+- **Not measured.** A production arm with any fallback probe is omitted with
+  `production_measured: false`. The dense arms on a stale or incomplete index are
+  omitted the same way (`dense_measured: false`).
+
+### Limits of this measurement
+
+- All available authoring models are from one family. Authors never saw record
+  text, a separate labeler set `relevant_ids`, both leakage filters ran and the
+  operator spot-checked a sample, but the queries may still favor the dense and
+  production arms over grep and BM25.
+- The labeler pooled only the top 10 BM25 and top 10 dense records per query, so
+  a record only grep finds may be labeled irrelevant, which biases against grep.
+- Path-style queries come close to a target lookup.
+- `full_context` reports `recall_all` instead of `recall_at_5`: it ranks by memory
+  id, so recall@5 would measure id order. Its effective recall is bounded only by
+  labeling, at a `mean_shown` equal to the corpus size.
+- `index_signals.target_retrievable.retrievable` is a sanity check, not a quality
+  signal: the uncapped `match_targets` predicate matches almost every record by
+  its own target. `crowded_past_search_cap` is the signal.
+- Held-out null and stale clusters are few, so their intervals are wide.
 
 ## Categories and invariants
 

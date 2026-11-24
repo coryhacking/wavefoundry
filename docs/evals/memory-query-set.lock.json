@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "query_set_sha256": "34afd084cbbda7569b9052a390245ce1e0f19ad1807f73ffd59631adf77a3d86",
+  "docs_model": "Snowflake/snowflake-arctic-embed-s",
+  "sequence_ratio_threshold": 0.9,
+  "cosine_threshold": 0.95,
+  "case_count": 606,
+  "sequence_rejected": [],
+  "cosine_rejected": []
+}

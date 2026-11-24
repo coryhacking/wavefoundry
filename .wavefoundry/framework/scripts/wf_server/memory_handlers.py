@@ -2315,7 +2315,7 @@ def memory_consolidate_response(
         usage="memory_search(include_history=True)")
 
 
-def wf_memory_eval_response(root: Path) -> dict[str, Any]:
+def wf_memory_eval_response(root: Path, index: Optional[server_impl.WaveIndex] = None) -> dict[str, Any]:
     """Curated memory-retrieval measurement for the configured repository.
 
     Wave 1tgws: the curated pass is a cross-project capability, so it is
@@ -2325,11 +2325,15 @@ def wf_memory_eval_response(root: Path) -> dict[str, Any]:
     Aggregate-only by construction: the engine's report carries metrics,
     kind/status counts, a fingerprint, and a non-qualification notice, never
     record bodies or ids. Self-summary probes cannot authorize adoption.
+
+    Wave 245na: ``index`` is the shared handler index, the same object the
+    ``memory_search`` handler passes, so the production arm measures the
+    production path. ``None`` lets the engine construct ``WaveIndex(root)``.
     """
     from wf_server import server_impl
     target = root
     evaluator = server_impl._load_script("memory_eval")
-    report = evaluator.run_curated(target)
+    report = evaluator.run_curated(target, index=index)
     available = bool(report.get("available"))
     diagnostics: list[dict[str, Any]] = []
     if not available:

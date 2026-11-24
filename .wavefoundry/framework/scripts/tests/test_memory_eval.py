@@ -191,8 +191,9 @@ class MemoryEvalTests(unittest.TestCase):
             def _ensure_loaded(self):
                 return None
 
-            def search_docs(self, query, top_n=20):
-                return ([], False)
+            def _memory_candidate_scores(self, query, paths, *, expected_hashes):
+                return {"scores": {path: 1.0 for path in paths}, "complete": True,
+                        "source_current": True}
 
         real_index = srv.WaveIndex
         srv.WaveIndex = _DeterministicIndex
@@ -228,8 +229,8 @@ class MemoryEvalTests(unittest.TestCase):
                 report["available"],
                 f"curated pass must do real work: {report.get('unavailable_reason')}",
             )
-            self.assertGreater(report["sample_size"], 0)
-            self.assertIn("metrics", report)
+            self.assertGreater(report["sanity_floor"]["sample_size"], 0)
+            self.assertIn("metrics", report["sanity_floor"])
 
         self.assertTrue(samples, "watcher must have sampled the global")
         self.assertTrue(
@@ -311,7 +312,7 @@ class MemoryEvalTests(unittest.TestCase):
         self.assertEqual(report["status"], "ok")
         data = report["data"]
         self.assertIn("available", data)
-        self.assertIn("fingerprint", data)
+        self.assertIn("query_set", data)
         self.assertIn("counts_by_kind", data)
 
         # Structural privacy check: walk the envelope and assert no key that
@@ -381,7 +382,7 @@ class MemoryEvalTests(unittest.TestCase):
     def test_curated_unavailable_report_is_aggregate_only(self):
         report = evalh.run_curated(self.root)
         self.assertFalse(report["available"])
-        self.assertIn("fingerprint", report)
+        self.assertIn("query_set", report)
         self.assertIn("counts_by_kind", report)
         self.assertNotIn("memory_id", report)
         self.assertNotIn("summary", report)
@@ -459,7 +460,7 @@ class QualificationTests(unittest.TestCase):
                     self._docs_vector_layer = "docs"
                 def _ensure_loaded(self):
                     pass
-                def search_docs(self, *args, **kwargs):
+                def _memory_candidate_scores(self, *args, **kwargs):
                     raise RuntimeError("private-query-unique private-record-unique")
             with patch.object(srv._memory_mod(), "load_memory_records", return_value=[record]), patch.object(srv, "WaveIndex", BrokenIndex):
                 report = srv.wf_memory_eval_response(root)
@@ -657,6 +658,738 @@ class QualificationTests(unittest.TestCase):
                     dict(baseline, **change), dict(candidate, **change),
                     dict(latencies, candidate_p95_ms=80), validity,
                 )["adopt"])
+
+
+# --- Wave 245na (change 245sp): situation-language queries and baselines ----
+
+_R1_SUMMARY = ("After an upgrade restart the MCP server so newly installed package code "
+               "loads; the old process keeps stale modules imported.")
+_FIXTURE_RECORDS = [
+    {"memory_id": "r1", "kind": "environment_gotcha", "confidence": 0.8, "status": "active",
+     "summary": _R1_SUMMARY, "evidence": ["1abcd-bug upgrade-stale-modules"],
+     "targets": ["src/setup.py"], "created": "2026-07-10"},
+    {"memory_id": "r2", "kind": "decision", "confidence": 0.8, "status": "active",
+     "summary": "Ledger writes go through the single event writer with an fsync fence.",
+     "evidence": ["1abce-enh ledger-writer"], "targets": ["src/ledger.py"], "created": "2026-07-10"},
+    {"memory_id": "r3", "kind": "failed_attempt", "confidence": 0.8, "status": "active",
+     "summary": "Patching the chunker regex for nested braces broke string literal spans.",
+     "evidence": ["1abcf-bug chunker-braces"], "targets": ["src/chunker.py"], "created": "2026-07-10"},
+    {"memory_id": "r4", "kind": "fragile_file", "confidence": 0.8, "status": "active",
+     "summary": "The dashboard renderer caches templates per process; edits need a restart.",
+     "evidence": ["1abcg-bug dashboard-cache"], "targets": ["src/dashboard.py"], "created": "2026-07-10"},
+    {"memory_id": "r5", "kind": "successful_pattern", "confidence": 0.8, "status": "active",
+     "summary": "Pin release notes to the owning release section, never the latest one.",
+     "evidence": ["1abch-doc release-notes"], "targets": ["CHANGELOG.md"], "created": "2026-07-10"},
+    {"memory_id": "r9", "kind": "failed_attempt", "confidence": 0.6, "status": "superseded",
+     "superseded_by": "r2", "archive": True,
+     "summary": "Legacy ledger lockfile ritual before every write.",
+     "evidence": ["1abci-bug ledger-lockfile"], "targets": ["src/ledgerlock.py"], "created": "2024-01-01"},
+]
+
+
+def _case(cid, case_type, source, relevant=(), stale=(), query=None, terms=("zzzz",)):
+    return {"id": cid, "query": query or f"situation text for {cid} with distinct words",
+            "case_type": case_type, "source_id": source, "relevant_ids": list(relevant),
+            "stale_ids": list(stale), "grep_terms": list(terms), "author": "fixture author"}
+
+
+def _ac1_cases():
+    return [
+        _case("q-001", "answerable", "r1", ["r1"]),
+        _case("q-002", "answerable", "r2", ["r2"]),
+        _case("q-003", "answerable", "r4", ["r4"]),
+        _case("q-004", "null", "q-004"),
+        _case("q-005", "null", "q-005"),
+        _case("q-006", "stale", "r2", ["r2"], ["r9"]),
+    ]
+
+
+_AC1_SHOWN = [["r1", "r2"], ["r3", "r2"], ["r1"], [], ["r5"], ["r9", "r2"]]
+_AC1_CORPUS = ["r1", "r2", "r3", "r4", "r5", "r9"]
+
+
+def _pairs(rows):
+    return [(list(row), list(row)) for row in rows]
+
+
+def _vec(text):
+    out = [0.0] * 16
+    for token in str(text).lower().split():
+        out[int(hashlib.sha256(token.encode()).hexdigest()[:4], 16) % 16] += 1.0
+    out[0] += 0.01
+    return out
+
+
+class _VecEmbedder:
+    def embed(self, texts):
+        return [_vec(text) for text in texts]
+
+
+class _ArmIndex:
+    """Stand-in index: production's dense call shape, recorded; no model."""
+
+    def __init__(self, root, order=(), *, source_current=True, complete=True):
+        self.root = root
+        self.index_dir = root / ".wavefoundry" / "index"
+        self._docs_vector_layer = "docs"
+        self.order = list(order)
+        self.source_current = source_current
+        self.complete = complete
+        self.dense_calls = []
+        self.search_docs_calls = 0
+
+    def _ensure_loaded(self):
+        return None
+
+    def search_docs(self, *args, **kwargs):
+        self.search_docs_calls += 1
+        return ([], False)
+
+    def _memory_candidate_scores(self, query, paths, *, expected_hashes):
+        self.dense_calls.append((query, sorted(paths), dict(expected_hashes)))
+        if not self.source_current:
+            return {"scores": {}, "complete": False, "source_current": False}
+        ranks = {mid: i for i, mid in enumerate(self.order)}
+        return {"scores": {p: 1.0 / (1 + ranks[Path(p).stem]) for p in paths
+                           if Path(p).stem in ranks},
+                "complete": self.complete, "source_current": True}
+
+    def _indexer_constant(self, name):
+        return "stub-docs-model"
+
+    def _get_embedder(self, model):
+        return _VecEmbedder()
+
+    def _embed_query(self, text, model):
+        return _vec(text)
+
+    def _get_memory_reranker(self):
+        return None
+
+
+def _stub_freeze_embedder(high=()):
+    """Queries in ``high`` embed identically to their summaries (cosine 1)."""
+    def queries(texts):
+        return [[1.0, 0.0] if text in high else [0.0, 1.0] for text in texts]
+
+    def documents(texts):
+        return [[1.0, 0.0] for _ in texts]
+    return ("stub-docs-model", queries, documents)
+
+
+class SituationQueryEvalTests(unittest.TestCase):
+    def setUp(self):
+        import server_impl as srv
+        import wf_server.memory_handlers as memory_handlers
+        self.srv = srv
+        self.mh = memory_handlers
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name) / "repo"
+        (self.root / "docs" / "agents").mkdir(parents=True)
+        (self.root / "docs" / "evals").mkdir(parents=True)
+        evalh.build_corpus(self.root, _FIXTURE_RECORDS, srv._memory_mod())
+
+    def write_set(self, cases, *, freeze=True, high=()):
+        (self.root / evalh.QUERY_SET_PATH).write_text(
+            json.dumps({"schema_version": 1, "cases": cases}, indent=2), encoding="utf-8")
+        if freeze:
+            return evalh.freeze_query_set(self.root, embedder=_stub_freeze_embedder(high))
+        return None
+
+    def production_stub(self, shown_by_query, *, fallback=None, raises=None):
+        real = self.mh.memory_search_response
+        calls = []
+
+        def stub(root, query="", index=None, limit=10, **kwargs):
+            if not query:
+                return real(root, query=query, index=index, limit=limit, **kwargs)
+            calls.append({"query": query, "index": index, "limit": limit})
+            if raises is not None:
+                raise raises
+            reason = (fallback or {}).get(query)
+            return {"data": {"records": [{"memory_id": mid} for mid in shown_by_query.get(query, [])],
+                             "retrieval": {"qualification": "unavailable" if reason else "model_relevance",
+                                           "fallback_reason": reason}}}
+        return stub, calls
+
+    # AC-1 -----------------------------------------------------------------
+    def test_ac1_metrics_and_fixed_baselines(self):
+        for key in ("r1", "r2", "r4", "q-004", "q-005"):
+            self.assertEqual(evalh.split_for(key), "heldout", key)
+        cases = _ac1_cases()
+        scored = evalh.score_arms(cases, {
+            "scored": _pairs(_AC1_SHOWN),
+            "full_context": _pairs([_AC1_CORPUS] * 6),
+            "no_memory": _pairs([[]] * 6),
+        }, ordered_arms=("scored", "full_context", "no_memory"))
+        held = scored["metrics"]["heldout"]
+        self.assertEqual(scored["split_counts"]["dev"]["cases"], 0)
+        row = held["scored"]
+        self.assertEqual([row[k] for k in evalh.METRIC_KEYS], [0.75, 0.5, 0.4286, 0.5, 1.0])
+        full = held["full_context"]
+        self.assertEqual([full["recall_all"], full["mrr"], full["precision_shown"],
+                          full["false_show_rate"], full["stale_shown_rate"], full["mean_shown"]],
+                         [1.0, 0.5625, 0.1667, 1.0, 1.0, 6.0])
+        self.assertNotIn("recall_at_5", full)
+        empty = held["no_memory"]
+        self.assertEqual([empty[k] for k in evalh.METRIC_KEYS], [0.0, 0.0, None, 0.0, 0.0])
+
+        texts = {"r1": "lockfile then LOCKFILE", "r2": "ledger", "r3": "one lockfile", "r9": ""}
+        self.assertEqual(evalh.grep_order(texts, ["lockfile"]), ["r1", "r3"])
+        grep_case = dict(cases[3], grep_terms=["lockfile"])
+        matched = evalh.grep_order(texts, grep_case["grep_terms"])
+        only = evalh.score_arms([grep_case], {"grep": [(matched, matched)]},
+                                ordered_arms=("grep",))
+        self.assertEqual(only["metrics"]["heldout"]["grep"]["false_show_rate"], 1.0)
+
+    # AC-2 -----------------------------------------------------------------
+    def test_ac2_cluster_bootstrap_is_pinned(self):
+        cases = _ac1_cases()
+        outcomes = {"scored": _pairs(_AC1_SHOWN)}
+        first = evalh.score_arms(cases, outcomes, ordered_arms=("scored",))
+        second = evalh.score_arms(cases, outcomes, ordered_arms=("scored",))
+        self.assertEqual(first, second)
+        low, high = first["metrics"]["heldout"]["scored"]["intervals"]["mrr"]
+        self.assertLess(low, 0.5)
+        self.assertLess(0.5, high)
+
+        perfect = [_case(f"p-{i}", "answerable", f"src-{i}", [f"m{i}"]) for i in range(8)]
+        perfect_rows = _pairs([[f"m{i}"] for i in range(8)])
+        result = evalh.score_arms(perfect, {"a": perfect_rows}, ordered_arms=("a",))
+        for split, counts in result["split_counts"].items():
+            if counts["cases"]:
+                self.assertEqual(result["metrics"][split]["a"]["intervals"]["mrr"], [1.0, 1.0])
+
+        key_a = next(k for k in (f"k{i}" for i in range(100)) if evalh.split_for(k) == "heldout")
+        key_n = next(k for k in (f"n{i}" for i in range(100)) if evalh.split_for(k) == "heldout")
+        mixed = [_case("x-1", "answerable", key_a, ["m"]), _case(key_n, "null", key_n)]
+        result = evalh.score_arms(mixed, {"a": _pairs([["m"], []])}, ordered_arms=("a",))
+        self.assertGreater(result["metrics"]["heldout"]["a"]["undefined_resamples"]["recall_at_5"], 0)
+
+    # AC-3 -----------------------------------------------------------------
+    def test_ac3_sequence_leakage_filter(self):
+        copy_case = _case("a-1", "answerable", "r1", ["r1"], query=_R1_SUMMARY)
+        honest = _case("a-2", "answerable", "r1", ["r1"],
+                       query="setup reports the package installed but the new API import fails after upgrade")
+        self.write_set([copy_case, honest])
+        stub, calls = self.production_stub({})
+        with patch.object(self.mh, "memory_search_response", stub):
+            report = evalh.run_curated(self.root, index=_ArmIndex(self.root, ["r1"]))
+        self.assertTrue(report["available"], report.get("unavailable_reason"))
+        self.assertEqual(report["query_set"]["leakage_rejected"], 1)
+        self.assertEqual(report["query_set"]["scored"], 1)
+        self.assertEqual([c["query"] for c in calls], [honest["query"]])
+
+    # AC-4 -----------------------------------------------------------------
+    def test_ac4_freeze_binds_the_scored_set(self):
+        cases = [_case("a-1", "answerable", "r1", ["r1"], query="restart after upgrade please"),
+                 _case("a-2", "answerable", "r2", ["r2"], query="ledger writes are slow"),
+                 _case("n-1", "null", "n-1")]
+        lock = self.write_set(cases, high={"ledger writes are slow"})
+        self.assertEqual(lock["cosine_rejected"], ["a-2"])
+        self.assertEqual(lock["cosine_threshold"], 0.95)
+        self.assertEqual(lock["sequence_ratio_threshold"], 0.9)
+        self.assertEqual(lock["docs_model"], "stub-docs-model")
+        stub, calls = self.production_stub({})
+        with patch.object(self.mh, "memory_search_response", stub):
+            report = evalh.run_curated(self.root, index=_ArmIndex(self.root, ["r1"]))
+        self.assertTrue(report["available"], report.get("unavailable_reason"))
+        self.assertEqual(report["query_set"]["cosine_rejected"], 1)
+        self.assertNotIn("ledger writes are slow", [c["query"] for c in calls])
+
+        path = self.root / evalh.QUERY_SET_PATH
+        original = path.read_text(encoding="utf-8")
+        path.write_bytes(original.replace("\n", "\r\n").encode("utf-8"))
+        self.assertEqual(evalh.load_query_set(self.root)["sha256"], lock["query_set_sha256"])
+        path.write_text(original.replace("restart after upgrade please", "restart now"), encoding="utf-8")
+        report = evalh.run_curated(self.root, index=_ArmIndex(self.root))
+        self.assertFalse(report["available"])
+        self.assertEqual(report["unavailable_reason"], "query_set_hash_mismatch")
+        self.assertNotIn("metrics", report)
+
+        lock_path = self.root / evalh.QUERY_SET_LOCK_PATH
+        lock_path.unlink()
+        path.write_text(original, encoding="utf-8")
+        with patch.object(evalh, "_default_freeze_embedder", side_effect=RuntimeError("no model")):
+            import io
+            import contextlib
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                code = evalh.main(["--freeze-query-set", str(self.root)])
+        self.assertEqual(code, 2)
+        self.assertIn("freeze requires the docs embedding model", err.getvalue())
+        self.assertFalse(lock_path.exists())
+
+        broken = [dict(cases[0])]
+        del broken[0]["grep_terms"]
+        self.write_set(broken, freeze=False)
+        report = evalh.run_curated(self.root, index=_ArmIndex(self.root))
+        self.assertEqual(report["unavailable_reason"], "query_set_invalid")
+        for case_type in ("null", "stale"):
+            bad = [_case("c-1", case_type, "c-1" if case_type == "null" else "r2",
+                         [] if case_type == "null" else ["r2"],
+                         ["r9"] if case_type == "stale" else [])]
+            del bad[0]["grep_terms"]
+            self.assertEqual(evalh.validate_query_set({"cases": bad}), (None, "query_set_invalid"))
+
+    # AC-5 -----------------------------------------------------------------
+    def test_ac5_split_keeps_each_record_together(self):
+        for key in ("q-001", "q-002", "n-005"):
+            self.assertEqual(evalh.split_for(key), "heldout", key)
+        self.assertEqual(evalh.split_for("r3"), "dev")
+        self.assertEqual(evalh.split_for("n-001"), "dev")
+        cases = [dict(_case("q-001", "answerable", "r3", ["r3"]), split="heldout"),
+                 dict(_case("q-002", "answerable", "r3", ["r3"]), split="heldout"),
+                 _case("n-001", "null", "n-001"), _case("n-005", "null", "n-005")]
+        result = evalh.score_arms(cases, {"a": _pairs([["r3"], [], [], []])}, ordered_arms=("a",))
+        self.assertEqual(result["split_counts"]["dev"]["answerable"], 2)
+        self.assertEqual(result["split_counts"]["dev"]["null"], 1)
+        self.assertEqual(result["split_counts"]["heldout"]["null"], 1)
+        self.assertEqual(result["split_counts"]["heldout"]["answerable"], 0)
+        self.assertEqual(set(result["metrics"]), {"heldout", "dev"})
+        self.write_set([_case("a-1", "answerable", "r1", ["r1"], query="restart after upgrade")])
+        stub, _calls = self.production_stub({})
+        with patch.object(self.mh, "memory_search_response", stub):
+            report = evalh.run_curated(self.root, index=_ArmIndex(self.root))
+        self.assertEqual(set(report["metrics"]), {"heldout", "dev"})
+        self.assertEqual(report["headline_split"], "heldout")
+
+    # AC-6 -----------------------------------------------------------------
+    def test_ac6_production_arm_runs_the_production_path_with_the_shared_index(self):
+        cases = [_case(f"a-{i}", "answerable", "r1", ["r1"], query=f"upgrade restart problem number {i}")
+                 for i in range(4)]
+        self.write_set(cases)
+        index = _ArmIndex(self.root, ["r1"])
+        stub, calls = self.production_stub({c["query"]: ["r1"] for c in cases})
+        with patch.object(self.mh, "memory_search_response", stub):
+            report = evalh.run_curated(self.root, index=index)
+        self.assertTrue(report["production_measured"])
+        self.assertEqual(len(calls), 4)
+        self.assertEqual([c["query"] for c in calls], [c["query"] for c in cases])
+        for call in calls:
+            self.assertIs(call["index"], index)
+            self.assertEqual(call["limit"], self.mh.MEMORY_QUERY_CHECK_CAP)
+
+        from declaration_support import RecordingFastMCP
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+        sentinel = object()
+        telemetry = MagicMock()
+        telemetry.focus = SimpleNamespace(wave_id="", stage="general")
+        telemetry.record_workflow.return_value = {}
+        handler = SimpleNamespace(root=self.root, cache=None, telemetry=telemetry, index=sentinel)
+        surface = RecordingFastMCP()
+        self.srv.register_mcp_surface(surface, lambda: handler)
+        seen = []
+        engine = self.srv._load_script("memory_eval")
+        with patch.object(engine, "run_curated",
+                          side_effect=lambda root, **kw: seen.append(kw.get("index")) or {"available": False}):
+            surface._tool_manager._tools["wf_memory_eval"].fn()
+        self.assertEqual(len(seen), 1)
+        self.assertIs(seen[0], sentinel)
+
+        built = []
+
+        class _Recorder(_ArmIndex):
+            def __init__(self, root):
+                built.append(root)
+                super().__init__(root)
+        with patch.object(self.srv, "WaveIndex", _Recorder), \
+                patch.object(self.mh, "memory_search_response", stub):
+            evalh.run_curated(self.root, index=None)
+        self.assertEqual(built, [self.root])
+
+    # AC-7 -----------------------------------------------------------------
+    def test_ac7_fallen_back_production_arm_is_not_measured(self):
+        cases = [_case(f"a-{i}", "answerable", "r1", ["r1"], query=f"upgrade restart problem number {i}")
+                 for i in range(4)]
+        self.write_set(cases)
+        stub, _calls = self.production_stub(
+            {}, fallback={cases[2]["query"]: "memory_vector_coverage_incomplete"})
+        with patch.object(self.mh, "memory_search_response", stub):
+            report = evalh.run_curated(self.root, index=_ArmIndex(self.root, ["r1"]))
+        self.assertTrue(report["available"])
+        for split in report["metrics"].values():
+            self.assertNotIn("production", split)
+        for order in report["arm_order"].values():
+            self.assertNotIn("production", order)
+        self.assertFalse(report["production_measured"])
+        self.assertEqual(report["production_unavailable_reason"], "production_path_fell_back")
+        self.assertEqual(report["production_retrieval"], {
+            "model_screened_probes": 3, "fallback_probes": 1,
+            "fallback_reasons": {"memory_vector_coverage_incomplete": 1}})
+
+    # AC-8 -----------------------------------------------------------------
+    def test_ac8_arms_share_production_corpus_and_dense_stream(self):
+        query = "editing src ledgerlock py before a legacy write"
+        self.write_set([_case("a-1", "answerable", "r2", ["r2"], query=query, terms=["ledgerlock"])])
+        index = _ArmIndex(self.root, ["r2", "r1"])
+        stub, _calls = self.production_stub({query: ["r2"]})
+        with patch.object(self.mh, "memory_search_response", stub):
+            report = evalh.run_curated(self.root, index=index)
+        self.assertTrue(report["available"], report.get("unavailable_reason"))
+        self.assertEqual(index.search_docs_calls, 0)
+        arm_calls = [call for call in index.dense_calls if call[0] == query]
+        self.assertEqual(len(arm_calls), 1)
+        production_index = _ArmIndex(self.root, ["r2", "r1"])
+        self.mh.memory_search_response(self.root, query=query, index=production_index, limit=5)
+        production_calls = [call for call in production_index.dense_calls if call[0] == query]
+        self.assertEqual(production_calls, arm_calls)
+
+        mem = self.srv._memory_mod()
+        corpus = (mem.load_memory_records(self.root, statuses=list(mem.DEFAULT_SURFACED_STATUSES))
+                  + mem.load_archive_register_entries(self.root))
+        self.assertIn("r9", [r["memory_id"] for r in corpus])
+        texts = evalh._corpus_texts(self.root, corpus)
+        self.assertEqual(evalh.grep_order(texts, ["ledgerlock"]), ["r9"])
+        self.assertIn("r9", evalh.lexical_bm25_order(corpus, query)[:5])
+        held = report["metrics"][evalh.split_for("r2")]
+        self.assertEqual(held["full_context"]["mean_shown"], len(corpus))
+        # The register entry r9 is the only item naming ledgerlock, so grep's
+        # shown set holds it and its precision against relevant r2 is 0.
+        self.assertEqual(held["grep"]["precision_shown"], 0.0)
+        self.assertEqual(held["grep"]["mean_shown"], 1.0)
+
+    def test_dense_arms_on_a_stale_index_are_not_measured(self):
+        self.write_set([_case("a-1", "answerable", "r1", ["r1"], query="restart after upgrade")])
+        stub, _calls = self.production_stub({})
+        with patch.object(self.mh, "memory_search_response", stub):
+            report = evalh.run_curated(self.root, index=_ArmIndex(self.root, source_current=False))
+        self.assertFalse(report["dense_measured"])
+        self.assertEqual(report["dense_unavailable_reason"], "memory_source_state_stale")
+        for split in report["metrics"].values():
+            self.assertNotIn("dense_only", split)
+            self.assertNotIn("hybrid_no_rerank", split)
+
+    def test_dense_ties_use_production_sort_order(self):
+        class _Tied:
+            def _memory_candidate_scores(self, query, paths, *, expected_hashes):
+                return {"scores": {"docs/agents/memory/zz.md": 0.5, "docs/agents/memory/aa.md": 0.5},
+                        "complete": True, "source_current": True}
+        body = {"docs/agents/memory/zz.md": "b-mem", "docs/agents/memory/aa.md": "c-mem"}
+        stream, _ = evalh.dense_stream(_Tied(), "q", body, {})
+        self.assertEqual(stream, ["b-mem", "c-mem"])
+
+    # AC-9 -----------------------------------------------------------------
+    def test_ac9_bounded_experimental_row_measures_relevance(self):
+        import server_impl as srv
+        records = [{"memory_id": "probe", "kind": "successful_pattern", "confidence": 0.6,
+                    "status": "active", "summary": "zeta alpha zeta alpha zeta alpha",
+                    "evidence": ["1abcd-bug probe"], "targets": ["src/probe.py"], "created": "2026-07-10"}]
+        records += [{"memory_id": f"filler-{i}", "kind": "successful_pattern", "confidence": 0.3,
+                     "status": "active", "summary": f"zeta alpha zeta filler words {i}",
+                     "evidence": ["1abcd-bug filler"], "targets": [f"src/f{i}.py"], "created": "2026-07-10"}
+                    for i in range(4)]
+        records += [{"memory_id": f"decoy-{i}", "kind": "successful_pattern", "confidence": 0.95,
+                     "status": "active",
+                     "summary": f"zeta among many other unrelated decoy words padding text here {i}",
+                     "evidence": ["1abcd-bug decoy"], "targets": [f"src/d{i}.py"], "created": "2026-07-10"}
+                    for i in range(5)]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            (root / "docs" / "agents").mkdir(parents=True)
+            mem = srv._memory_mod()
+            evalh.build_corpus(root, records, mem)
+            loaded = mem.load_memory_records(root, statuses=list(mem.DEFAULT_SURFACED_STATUSES))
+            query = "zeta alpha"
+            lexical = evalh.lexical_bm25_order(loaded, query)
+            self.assertEqual(lexical[0], "probe")
+            self.assertTrue(all(mid.startswith("filler") for mid in lexical[1:5]), lexical)
+            self.assertTrue(all(mid.startswith("decoy") for mid in lexical[5:]), lexical)
+            bounded = evalh._candidate_and_controls(
+                srv, root, {"query": query}, semantic_order=[], records_override=loaded,
+                commit_times={}, bounded=True)
+            self.assertEqual(bounded["candidate"][0], "probe")
+            self.assertEqual(bounded["lexical_only"][0], "probe")
+            unbounded = evalh._candidate_and_controls(
+                srv, root, {"query": query}, semantic_order=[], records_override=loaded,
+                commit_times={})
+            self.assertGreaterEqual(unbounded["lexical_only"].index("probe"), 4)
+            self.assertGreaterEqual(unbounded["candidate"].index("probe"), 4)
+
+    # AC-10 ----------------------------------------------------------------
+    def test_ac10_index_signals_separate_stale_from_missing_and_need_no_model(self):
+        import sqlite_vector_store as store
+
+        def raising(*args, **kwargs):
+            raise AssertionError("coverage must not embed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "fixture.sqlite"
+            paths = [f"docs/agents/memory/m{i}.md" for i in range(4)]
+            hashes = {path: hashlib.sha256(path.encode()).hexdigest() for path in paths}
+
+            def build(chunked, state):
+                if database.exists():
+                    database.unlink()
+                conn = sqlite3.connect(database)
+                conn.executescript(
+                    "CREATE TABLE chunks_docs(id INTEGER PRIMARY KEY,path TEXT);"
+                    "CREATE TABLE vectors_docs(chunk_id INTEGER PRIMARY KEY,embedding BLOB);"
+                    "CREATE TABLE layer_path_state(layer TEXT,path TEXT,hash TEXT);")
+                for i, path in enumerate(chunked):
+                    conn.execute("INSERT INTO chunks_docs VALUES(?,?)", (i, path))
+                    conn.execute("INSERT INTO vectors_docs VALUES(?,?)", (i, b"\0"))
+                # A chunk with no vector never counts as covered.
+                conn.execute("INSERT INTO chunks_docs VALUES(?,?)", (99, "docs/agents/memory/novec.md"))
+                for path, digest in state.items():
+                    conn.execute("INSERT INTO layer_path_state VALUES('docs',?,?)", (path, digest))
+                conn.commit()
+                conn.close()
+
+            def readonly(_):
+                return sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)
+
+            with patch.object(store, "_open", side_effect=readonly), \
+                    patch.object(store, "pack_vector", side_effect=raising):
+                build(paths, hashes)
+                self.assertEqual(store.memory_vector_coverage(Path(tmp), "docs", hashes), {
+                    "requested_paths": 4, "covered_paths": 4, "stale_paths": 0, "missing_paths": 0})
+                changed = dict(hashes, **{paths[0]: "0" * 64})
+                self.assertEqual(store.memory_vector_coverage(Path(tmp), "docs", changed), {
+                    "requested_paths": 4, "covered_paths": 3, "stale_paths": 1, "missing_paths": 0})
+                build(paths[1:], hashes)
+                self.assertEqual(store.memory_vector_coverage(Path(tmp), "docs", hashes), {
+                    "requested_paths": 4, "covered_paths": 3, "stale_paths": 0, "missing_paths": 1})
+                # Vector-backed chunks with no published state row are stale,
+                # never covered; a code-layer row for the same path is ignored.
+                build(paths, {path: digest for path, digest in hashes.items() if path != paths[0]})
+                conn = sqlite3.connect(database)
+                conn.execute("INSERT INTO layer_path_state VALUES('code',?,?)", (paths[0], hashes[paths[0]]))
+                conn.commit()
+                conn.close()
+                self.assertEqual(store.memory_vector_coverage(Path(tmp), "docs", hashes), {
+                    "requested_paths": 4, "covered_paths": 3, "stale_paths": 1, "missing_paths": 0})
+                novec = {"docs/agents/memory/novec.md": "0" * 64}
+                self.assertEqual(store.memory_vector_coverage(Path(tmp), "docs", novec)["missing_paths"], 1)
+
+        import server_impl as srv
+        shared = [{"memory_id": f"t-{i:02d}", "kind": "fragile_file", "confidence": 0.8,
+                   "status": "active", "summary": f"shared target note {i}",
+                   "evidence": ["1abcd-bug shared"], "targets": ["src/shared.py"], "created": "2026-07-10"}
+                  for i in range(21)]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            (root / "docs" / "agents").mkdir(parents=True)
+            mem = srv._memory_mod()
+            evalh.build_corpus(root, shared, mem)
+            loaded = mem.load_memory_records(root, statuses=list(mem.DEFAULT_SURFACED_STATUSES))
+            self.assertEqual(evalh.target_retrievable(root, loaded, None, mem), {
+                "records_with_file_targets": 21, "retrievable": 21, "crowded_past_search_cap": 1})
+
+    # AC-11 ----------------------------------------------------------------
+    def test_ac11_abstaining_arm_cannot_read_as_better_than_bm25(self):
+        keys = [k for k in (f"h{i}" for i in range(200)) if evalh.split_for(k) == "heldout"][:10]
+        cases = [_case(f"c-{i}", "answerable", key, [key]) for i, key in enumerate(keys)]
+        production = [[keys[0]]] + [[] for _ in keys[1:]]
+        bm25 = [[key, "x1", "x2", "x3", "x4"] if i < 6 else ["x1", "x2", "x3", "x4", "x5"]
+                for i, key in enumerate(keys)]
+        result = evalh.score_arms(cases, {"production": _pairs(production), "bm25_only": _pairs(bm25)})
+        held = result["metrics"]["heldout"]
+        self.assertEqual(held["production"]["recall_at_5"], 0.1)
+        self.assertEqual(held["production"]["precision_shown"], 1.0)
+        self.assertEqual(held["bm25_only"]["recall_at_5"], 0.6)
+        self.assertEqual(held["bm25_only"]["precision_shown"], 0.12)
+        order = result["arm_order"]["heldout"]
+        self.assertLess(order.index("bm25_only"), order.index("production"))
+        self.assertEqual(held["production"]["flags"], ["recall_below_bm25"])
+        self.assertEqual(held["bm25_only"]["flags"], [])
+
+        self.write_set([_case("a-1", "answerable", "r1", ["r1"], query="restart after upgrade")])
+        stub, _calls = self.production_stub({})
+        with patch.object(self.mh, "memory_search_response", stub):
+            report = evalh.run_curated(self.root, index=_ArmIndex(self.root, ["r1"]))
+
+        def keys_of(node):
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    yield key
+                    yield from keys_of(value)
+            elif isinstance(node, list):
+                for value in node:
+                    yield from keys_of(value)
+        for key in keys_of(report):
+            self.assertNotIn("beats", key)
+            self.assertNotIn("pause", key)
+            if key != "adoption_gate":
+                self.assertNotIn("gate", key)
+
+    # AC-12 ----------------------------------------------------------------
+    def test_ac12_labels_sanity_floor_and_privacy(self):
+        cases = [_case("priv-case-a", "answerable", "r1", ["r1"], query="private query alpha restart"),
+                 _case("priv-case-b", "null", "priv-case-b", query="private query beta unrelated")]
+        self.write_set(cases)
+        stub, _calls = self.production_stub({"private query alpha restart": ["r1"]})
+        with patch.object(self.mh, "memory_search_response", stub):
+            response = self.srv.wf_memory_eval_response(self.root, index=_ArmIndex(self.root, ["r1"]))
+        data = response["data"]
+        self.assertTrue(data["available"], data.get("unavailable_reason"))
+        self.assertEqual({key: data[key] for key in (
+            "production_variant", "experimental_variant", "baseline_variant",
+            "headline_variant", "headline_split")}, {
+            "production_variant": "memory_search_hybrid_rrf",
+            "experimental_variant": "policy_ordered_rrf_shortlist5",
+            "baseline_variant": "legacy_policy_ordering",
+            "headline_variant": "production", "headline_split": "heldout"})
+        self.assertEqual(data["sanity_floor"]["label"], "self_summary_sanity_floor")
+        self.assertIs(data["sanity_floor"]["headline"], False)
+        self.assertNotIn("memory_rrf_summary5", Path(evalh.__file__).read_text(encoding="utf-8"))
+        self.assertNotIn("memory_rrf_summary5", json.dumps(response))
+        forbidden = {"memory_id", "summary", "records", "target_refs", "body", "query", "case_id"}
+        secrets = {c["query"] for c in cases} | {c["id"] for c in cases} | {
+            r["summary"] for r in _FIXTURE_RECORDS}
+
+        def walk(node, path="data"):
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    self.assertNotIn(key, forbidden, f"{key!r} leaked at {path}")
+                    walk(value, f"{path}.{key}")
+            elif isinstance(node, list):
+                for i, value in enumerate(node):
+                    walk(value, f"{path}[{i}]")
+            elif isinstance(node, str):
+                self.assertNotIn(node, secrets, f"value leaked at {path}")
+        walk(data)
+
+        leaky, _ = self.production_stub({}, raises=RuntimeError(_R1_SUMMARY))
+        with patch.object(self.mh, "memory_search_response", leaky):
+            response = self.srv.wf_memory_eval_response(self.root, index=_ArmIndex(self.root, ["r1"]))
+        self.assertFalse(response["data"]["available"])
+        self.assertEqual(response["data"]["unavailable_reason"],
+                         "production query measurement unavailable")
+        self.assertNotIn(_R1_SUMMARY, json.dumps(response))
+
+    def test_absent_query_set_computes_only_the_sanity_floor(self):
+        report = evalh.run_curated(self.root, index=_ArmIndex(self.root, ["r1"]))
+        self.assertEqual(report["query_set"]["reason"], "query_set_absent")
+        self.assertFalse(report["query_set"]["available"])
+        self.assertNotIn("metrics", report)
+        self.assertIn("sanity_floor", report)
+        # Requirement 1: an absent set is not an unavailable report; the
+        # sanity floor alone decides top-level availability.
+        self.assertTrue(report["sanity_floor"]["available"])
+        self.assertTrue(report["available"])
+        self.assertNotIn("unavailable_reason", report)
+        self.assertFalse(report["production_measured"])
+        self.assertEqual(report["production_unavailable_reason"], "query_set_unavailable")
+
+    # Delivery repair (wave 245na, cycle 2) ------------------------------
+    def test_bootstrap_pools_cases_across_unequal_clusters(self):
+        """Requirement 9.2: a resample pools every case of the drawn clusters."""
+        # Cluster 0 holds 2 cases (both hit), cluster 1 holds 1 case (miss).
+        clusters = [(2.0, 2), (0.0, 1)]
+        boot = evalh._bootstrap(clusters, [[0, 1]] * 100)
+        self.assertEqual(boot["interval"], [0.6667, 0.6667])  # 2 / 3, not 2 / 2
+        boot = evalh._bootstrap(clusters, [[0, 0]] * 100)
+        self.assertEqual(boot["interval"], [1.0, 1.0])  # 4 / 4, not 4 / 2
+        key_a = next(k for k in (f"pa{i}" for i in range(200)) if evalh.split_for(k) == "heldout")
+        key_b = next(k for k in (f"pb{i}" for i in range(200)) if evalh.split_for(k) == "heldout")
+        cases = [_case("c-1", "answerable", key_a, ["m"]), _case("c-2", "answerable", key_a, ["m"]),
+                 _case("c-3", "answerable", key_b, ["m"])]
+        result = evalh.score_arms(cases, {"a": _pairs([["m"], ["m"], []])}, ordered_arms=("a",))
+        row = result["metrics"]["heldout"]["a"]
+        self.assertEqual(row["recall_at_5"], 0.6667)
+        self.assertEqual(row["intervals"]["recall_at_5"], [0.0, 1.0])
+
+    def test_curated_pass_wires_the_bounded_experimental_rows(self):
+        self.write_set([_case("a-1", "answerable", "r1", ["r1"], query="restart after upgrade")])
+        stub, _calls = self.production_stub({})
+        real = evalh._candidate_and_controls
+        seen = []
+
+        def spy(*args, **kwargs):
+            seen.append(kwargs.get("bounded", False))
+            return real(*args, **kwargs)
+        with patch.object(self.mh, "memory_search_response", stub), \
+                patch.object(evalh, "_candidate_and_controls", side_effect=spy):
+            report = evalh.run_curated(self.root, index=_ArmIndex(self.root, ["r1"]))
+        self.assertTrue(report["sanity_floor"]["available"])
+        self.assertTrue(seen)
+        self.assertTrue(all(seen), seen)
+
+    def test_dense_stream_reports_incomplete_coverage(self):
+        index = _ArmIndex(self.root, ["r1"], complete=False)
+        body, hashes = evalh.memory_body_paths(self.root, [
+            r for r in self.srv._memory_mod().load_memory_records(
+                self.root, statuses=["active"])])
+        self.assertEqual(evalh.dense_stream(index, "q", body, hashes),
+                         (None, "memory_vector_coverage_incomplete"))
+        self.write_set([_case("a-1", "answerable", "r1", ["r1"], query="restart after upgrade")])
+        stub, _calls = self.production_stub({})
+        with patch.object(self.mh, "memory_search_response", stub):
+            report = evalh.run_curated(self.root, index=_ArmIndex(self.root, ["r1"], complete=False))
+        self.assertFalse(report["dense_measured"])
+        self.assertEqual(report["dense_unavailable_reason"], "memory_vector_coverage_incomplete")
+
+    def test_dense_only_scores_follow_the_dense_stream(self):
+        query = "restart after upgrade please"
+        self.write_set([_case("a-1", "answerable", "r1", ["r1"], query=query)])
+        stub, _calls = self.production_stub({})
+        with patch.object(self.mh, "memory_search_response", stub):
+            report = evalh.run_curated(self.root, index=_ArmIndex(self.root, ["r2", "r1"]))
+        row = report["metrics"][evalh.split_for("r1")]["dense_only"]
+        self.assertEqual(row["recall_at_5"], 1.0)
+        self.assertEqual(row["mrr"], 0.5)
+        self.assertEqual(row["mean_shown"], 2.0)
+        self.assertEqual(row["precision_shown"], 0.5)
+
+    def test_hybrid_caps_the_lexical_stream_like_production(self):
+        import server_impl as srv
+        records = [{"memory_id": f"lex-{i:02d}", "kind": "successful_pattern", "confidence": 0.8,
+                    "status": "active", "summary": f"zeta zeta zeta note {i}",
+                    "evidence": ["1abcd-bug lex"], "targets": [f"src/l{i}.py"], "created": "2026-07-10"}
+                   for i in range(20)]
+        records += [{"memory_id": f"sem-{i}", "kind": "successful_pattern", "confidence": 0.8,
+                     "status": "active", "summary": f"unrelated semantic neighbour {i}",
+                     "evidence": ["1abcd-bug sem"], "targets": [f"src/s{i}.py"], "created": "2026-07-10"}
+                    for i in range(5)]
+        records.append({"memory_id": "probe", "kind": "successful_pattern", "confidence": 0.8,
+                        "status": "active",
+                        "summary": "zeta appears once among many other longer padding words here today",
+                        "evidence": ["1abcd-bug probe"], "targets": ["src/probe.py"], "created": "2026-07-10"})
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            (root / "docs" / "evals").mkdir(parents=True)
+            mem = srv._memory_mod()
+            evalh.build_corpus(root, records, mem)
+            loaded = mem.load_memory_records(root, statuses=list(mem.DEFAULT_SURFACED_STATUSES))
+            lexical = evalh.lexical_bm25_order(loaded, "zeta")
+            self.assertEqual(lexical.index("probe"), 20)
+            (root / evalh.QUERY_SET_PATH).write_text(json.dumps({"cases": [
+                _case("a-1", "answerable", "probe", ["probe"], query="zeta")]}), encoding="utf-8")
+            evalh.freeze_query_set(root, embedder=_stub_freeze_embedder())
+            stub, _calls = self.production_stub({})
+            order = [f"sem-{i}" for i in range(5)] + ["probe"]
+            with patch.object(self.mh, "memory_search_response", stub):
+                report = evalh.run_curated(root, index=_ArmIndex(root, order))
+        row = report["metrics"][evalh.split_for("probe")]["hybrid_no_rerank"]
+        # Capped at MEMORY_SEARCH_CAP the probe's lexical rank 21 adds nothing,
+        # so it stays at semantic rank 6, outside the top 5.
+        self.assertEqual(row["recall_at_5"], 0.0)
+
+    def test_embedded_text_preferred_rule(self):
+        heldout = {"dense_only": {"recall_at_5": 0.5}, "dense_summary_only": {"recall_at_5": 0.5},
+                   "dense_compact": {"recall_at_5": 0.4}}
+        chars = {"dense_only": 900.0, "dense_summary_only": 120.0, "dense_compact": 300.0}
+        self.assertEqual(evalh.embedded_text_preferred(heldout, chars), "dense_summary_only")
+        heldout["dense_compact"]["recall_at_5"] = 0.6
+        self.assertEqual(evalh.embedded_text_preferred(heldout, chars), "dense_compact")
+
+    # AC-14 ----------------------------------------------------------------
+    def test_ac14_hermetic_run_is_unchanged(self):
+        """Sorted-JSON digest of run() on the golden fixture, captured from the
+        scripts before wave 245na; the curated changes must not move it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "repo"
+            (root / "docs" / "agents").mkdir(parents=True)
+            report = evalh.run(root)
+        payload = {key: report[key] for key in (
+            "overall", "comparison", "adoption_gate", "fixture_fingerprint", "cases")}
+        digest = hashlib.sha256(
+            (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")).hexdigest()
+        self.assertEqual(
+            digest, "b3997599471a9b372b96c8442ba073059df038c763260b1fd0f4496e17daf02a")
 
 
 if __name__ == "__main__":

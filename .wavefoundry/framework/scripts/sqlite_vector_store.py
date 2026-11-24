@@ -379,6 +379,52 @@ def dense_path_scores(index_dir: Path, layer: str, vector, paths,
         conn.close()
 
 
+def memory_vector_coverage(index_dir: Path, layer: str,
+                           expected_hashes: dict[str, str]) -> dict[str, int]:
+    """Model-free coverage of memory body paths, read with two SELECTs.
+
+    Inside ``read_snapshot`` both SELECTs share one snapshot. Outside it the
+    read-only connection runs them as separate autocommit reads, so a publish
+    landing between them can misclassify a path for that one call; the result
+    is an advisory signal, the same posture as ``dense_path_scores``.
+
+    A path is covered when it has vector-backed chunks and its published
+    ``layer_path_state`` hash equals the expected source hash, stale when it
+    has vector-backed chunks and the hash differs (or no state row exists),
+    and missing when it has no vector-backed chunk. Nothing is embedded or
+    written, so ``index_health`` can reuse it (wave 245na).
+    """
+    layer = _layer(layer)
+    wanted = sorted(set(expected_hashes))
+    report = {"requested_paths": len(wanted), "covered_paths": 0,
+              "stale_paths": 0, "missing_paths": 0}
+    if not wanted:
+        return report
+    encoded = json.dumps(wanted, ensure_ascii=False)
+    conn = _open(index_dir)
+    try:
+        with conn:
+            chunked = {row[0] for row in conn.execute(
+                f"SELECT DISTINCT c.path FROM chunks_{layer} c JOIN vectors_{layer} v "
+                "ON v.chunk_id=c.id WHERE c.path IN (SELECT value FROM json_each(?))",
+                [encoded],
+            ).fetchall()}
+            stored = dict(conn.execute(
+                "SELECT path,hash FROM layer_path_state WHERE layer=? "
+                "AND path IN (SELECT value FROM json_each(?))", [layer, encoded],
+            ).fetchall())
+    finally:
+        conn.close()
+    for path in wanted:
+        if path not in chunked:
+            report["missing_paths"] += 1
+        elif stored.get(path) == expected_hashes[path]:
+            report["covered_paths"] += 1
+        else:
+            report["stale_paths"] += 1
+    return report
+
+
 def payload_rows(index_dir: Path, layer: str, predicate: str | None = None,
                  limit: int | None = None, include_vector: bool = False) -> list[dict]:
     layer = _layer(layer)

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-23
 
 Behavioral contract for the Wavefoundry local MCP server. This behavior contract covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -1391,24 +1391,66 @@ report_path="", applicability=null)` is the typed authority:
 
 ### `wf_memory_eval`
 
-`wf_memory_eval()` runs a sampled self-summary memory-retrieval diagnostic
-(waves 1tgws/1yad2), not independent quality qualification. It is read-only:
-no records are written and no index is built. It takes no target-directory
-argument — like every other tool it operates on the configured root, per the
-allowed-roots safety rule.
+`wf_memory_eval()` runs the memory-retrieval measurement (waves 1tgws/1yad2/245na),
+not independent quality qualification. It scores the repository's frozen
+situation-language query set, `docs/evals/memory-query-set.json` with its lock
+`docs/evals/memory-query-set.lock.json`, against baseline arms over one corpus.
+It is read-only: no records are written and no index is built. It takes no
+target-directory argument; like every other tool it operates on the configured
+root, per the allowed-roots safety rule. The handler passes the shared server
+index, the same object `memory_search` uses.
 
-The response `data` carries the engine's aggregate report only: `available`,
-`sample_size`/`sample_cap`, `sample_strategy`, `fingerprint`, `counts_by_kind`,
-`counts_by_status`, metrics, and the adoption gate. The report names
-`evaluation_kind`, `production_variant` and `experimental_variant`, with
-`qualifying: false` and `adoption_gate.adopt: false`; a sampled self-query cannot
-qualify new production ranking. Frozen full-corpus qualification is an explicit
-local workflow, never automatically discovered by this tool. It NEVER carries record
-bodies, summaries, or memory ids — the privacy boundary is structural, pinned
-by `test_memory_eval_tool_reports_aggregate_only`. When the semantic backend or
-corpus is unavailable (including a code-only index without docs vectors), or a semantic query fails, the report returns `available: false` with
+The response `data` carries the engine's aggregate report only:
+
+- `available`, `unavailable_reason`, `evaluation_kind`, `qualifying: false` and
+  the unchanged `adoption_gate` (`adopt: false`).
+- Labels: `production_variant` (`memory_search_hybrid_rrf`),
+  `experimental_variant` (`policy_ordered_rrf_shortlist5`), `baseline_variant`,
+  `headline_variant` (`production`) and `headline_split` (`heldout`).
+- `query_set`: `available`, `reason` (`query_set_absent`, `query_set_invalid`,
+  `query_set_unfrozen`, `query_set_lock_invalid` or `query_set_hash_mismatch`),
+  `sha256`, and case counts: `cases`, `scored`, `leakage_rejected`,
+  `cosine_rejected` and per case type.
+- `metrics` per split (`heldout`, `dev`) and arm (`no_memory`, `grep`,
+  `bm25_only`, `dense_only`, `hybrid_no_rerank`, `production`, `full_context`,
+  plus the informational `dense_summary_only` and `dense_compact`): `recall_at_5`
+  (`recall_all` for `full_context`, which ranks by memory id), `mrr`,
+  `precision_shown`, `false_show_rate`, `stale_shown_rate`, `mean_shown`,
+  `intervals` (95% record-level cluster bootstrap), `undefined_resamples` and
+  `flags` (`recall_below_bm25`). `split_counts` and `recall_key` accompany them.
+- `arm_order` per split, by recall then MRR. No field states that one arm beats
+  another.
+- `production_retrieval` (`model_screened_probes`, `fallback_probes`,
+  `fallback_reasons`), `production_measured` and, when false,
+  `production_unavailable_reason`. A fallen-back production arm is omitted.
+  `dense_measured` and `dense_unavailable_reason` apply the same rule to the dense
+  arms on a stale or incomplete index.
+- `index_signals`: `memory_vector_coverage` (`requested_paths`, `covered_paths`,
+  `stale_paths`, `missing_paths`), `coverage_unavailable_reason` when the index
+  store cannot be read (coverage is then `null`), `target_retrievable`
+  (`records_with_file_targets`, `retrievable`, `crowded_past_search_cap`) and
+  `target_retrievable_note`, which labels `retrievable` a sanity check.
+- `embedded_text`, `embedded_text_mean_chars`, `embedded_text_preferred` and
+  `embedded_text_note`, which describe and compare the embedded text without
+  changing it.
+- `sanity_floor`: the old 12-record self-summary sample, labeled
+  `self_summary_sanity_floor` with `headline: false`, with its sample size, cap,
+  strategy, fingerprint, metrics and `dense_measured`.
+- `counts_by_kind` and `counts_by_status`.
+
+Frozen full-corpus qualification is an explicit local workflow, never
+automatically discovered by this tool. The report NEVER carries record bodies,
+summaries, memory ids, target refs, query text or case ids. The privacy
+boundary is structural, pinned by `test_memory_eval_tool_reports_aggregate_only`
+and `test_ac12_labels_sanity_floor_and_privacy`. An absent query set is not an
+error: `query_set.available` is `false` with `query_set_absent`, only the
+sanity floor runs, and the top-level `available` reflects the sanity floor.
+When the semantic backend or corpus is unavailable (including a code-only index
+without docs vectors), the query set is invalid, unfrozen or changed, or an
+arm's measurement fails, the report returns `available: false` with
 `unavailable_reason`, surfaced as a `curated_pass_unavailable` diagnostic
-rather than an error. The hermetic invariant pass remains a test
+rather than an error. The CLI freezes a query set with
+`memory_eval.py --freeze-query-set <root>`. The hermetic invariant pass remains a test
 (`tests/test_memory_eval.py`); its golden fixture is test scaffolding and is
 not packaged.
 

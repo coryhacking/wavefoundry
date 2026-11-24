@@ -299,6 +299,14 @@
       "primitive_calls": 1,
       "wrapper_calls": 0
     },
+    "memory_eval:freeze_query_set": {
+      "callers": [
+        "memory_eval:main"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
     "memory_records:_atomic_replace_text": {
       "class": "wrapper",
       "primitive_calls": 1,

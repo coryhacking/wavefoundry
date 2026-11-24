@@ -1,7 +1,7 @@
 # Wave Record
 
 Owner: Engineering
-Status: planned
+Status: closed
 Last verified: 2026-11-23
 review-evidence-source: events.jsonl
 
@@ -16,7 +16,7 @@ Maintainers and agents get a memory evaluation that scores independently authore
 ## Changes
 
 Change ID: `245sp-enh memory-eval-situation-queries-and-baselines`
-Change Status: `planned`
+Change Status: `implemented`
 
 ## Participants
 
@@ -25,9 +25,15 @@ Change Status: `planned`
 - Requested review lanes: none
 - Required review lanes: code-reviewer, qa-reviewer, architecture-reviewer, docs-contract-reviewer
 
+Completed At: 2026-11-23
+
 ## Wave Summary
 
-First wave of arc `244cm-arc memory-quality` (track 1, evaluation). It makes the later indexing, admission and maintenance waves measurable, and its retrieval-stack gate decides whether retrieval investment stays paused. Spec `243hz-bug memory-eval-measures-production-path` was removed on 2026-11-23 with disposition `superseded` by `245sp-enh memory-eval-situation-queries-and-baselines`, which carries its production-path row and bounded experimental row; the superseded spec is kept, withdrawn, at `docs/plans/`.
+Wave `245na` (Memory Eval Production Path) delivered one change: Memory eval scores situation-language queries against baselines.
+
+**Changes delivered:**
+
+- **Memory eval scores situation-language queries against baselines** (`245sp-enh memory-eval-situation-queries-and-baselines`) — AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8, AC-9, AC-10, AC-11, AC-12 and AC-14 completed. AC-13 deferred: Status: Met except two parts, by operator decision 2026-11-23: 4 active records (1t78a, 1vo1a, 1ydvk, 21rnt) have fewer than 2 answerable cases because their lessons state no retrievable situation, and go to arc track 4 for rewrite or retirement and a versioned re-freeze; the production measurement is the CLI run (0 of 606 fallbacks), because `wf_memory_eval` through the MCP server lost 7 to 15 probes to a transient lexical fallback during docs index publishes, recorded as arc track 2 evidence. Key decisions: Hash the parsed JSON, not the file bytes; Run the cosine filter only at freeze; run the sequence filter at every run.
 
 ## Watchpoints
 
@@ -43,11 +49,13 @@ First wave of arc `244cm-arc memory-quality` (track 1, evaluation). It makes the
 | 245na-cr-arm-corpus-and-signals | do_now | no | completed | code-reviewer |
 | 245na-cr-grep-null-gate | do_now | no | completed | code-reviewer |
 | 245na-qa-ac18-vacuous-live-check | do_now | no | completed | — |
+| 245na-qa-bootstrap-pooling-untested | do_now | no | completed | — |
 | 245na-qa-bootstrap-untested | do_now | no | completed | — |
+| 245na-qa-curated-bound-wiring-untested | do_now | no | completed | — |
 | 245na-rt-gate-rewards-abstention | do_now | no | completed | — |
 | 245na-rt-split-and-resample-unit-is-case | do_now | no | completed | — |
 
-*Machine review state — 7 findings; current: do_now 7, maybe_later 0, dont_do_later 0, not_issue 0*
+*Machine review state — 9 findings; current: do_now 9, maybe_later 0, dont_do_later 0, not_issue 0*
 <!-- wave:finding-synthesis end -->
 
 ## Review Evidence
@@ -56,16 +64,16 @@ First wave of arc `244cm-arc memory-quality` (track 1, evaluation). It makes the
 | Signoff | Phase | State | Why | Next action |
 | --- | --- | --- | --- | --- |
 | council-readiness | readiness | approved | current executed approval by coryhacking follows every affected repair (local account: coryhacking) | none |
-| council-delivery | delivery | pending | no current executed approval | record approval evidence for council-delivery |
+| council-delivery | delivery | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | code-reviewer | readiness | approved | current executed approval by coryhacking follows every affected repair (local account: coryhacking) | none |
-| code-reviewer | delivery | withheld | repaired findings require fresh approval: 245na-cr-grep-null-gate, 245na-cr-arm-corpus-and-signals | record a fresh independent approval for code-reviewer |
+| code-reviewer | delivery | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | qa-reviewer | readiness | approved | current executed approval by coryhacking follows every affected repair (local account: coryhacking) | none |
-| qa-reviewer | delivery | pending | no current executed approval | record approval evidence for qa-reviewer |
+| qa-reviewer | delivery | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | architecture-reviewer | readiness | approved | current executed approval by coryhacking follows every affected repair (local account: coryhacking) | none |
-| architecture-reviewer | delivery | pending | no current executed approval | record approval evidence for architecture-reviewer |
+| architecture-reviewer | delivery | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | docs-contract-reviewer | readiness | approved | current executed approval by coryhacking follows every affected repair (local account: coryhacking); known-bad control not applicable: Docs-only lane: inspected the spec, arc, withdrawn 243hz header and planned CHANGELOG and tool-reference lines; no code surface in this lane is affected, so no known-bad control was run. | none |
-| docs-contract-reviewer | delivery | pending | no current executed approval | record approval evidence for docs-contract-reviewer |
-| operator-signoff | delivery | withheld | repaired findings require fresh approval: 245na-rt-gate-rewards-abstention, 245na-rt-split-and-resample-unit-is-case, 245na-cr-grep-null-gate, 245na-cr-arm-corpus-and-signals, 245na-qa-bootstrap-untested, 245na-arch-dense-stream-unspecified, 245na-qa-ac18-vacuous-live-check | record a fresh independent approval for operator-signoff |
+| docs-contract-reviewer | delivery | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
+| operator-signoff | delivery | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 <!-- wave:review-status end -->
 
 - operator-signoff: <approved when operator confirms closure>
@@ -85,10 +93,11 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 | Stage | Tool calls | Estimated context avoided |
 | --- | ---: | ---: |
 | plan | 98 | 1,831,239 |
-| review | 9 | 0 |
-| **Total** | **107** | **1,831,239** |
+| implement | 68 | 0 |
+| review | 64 | 518,594 |
+| **Total** | **230** | **2,349,833** |
 
-<!-- wave:context-efficiency-state {"generation":102,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"plan":{"calls":98,"content_source_credit":2137979,"derived_artifact_credit":4330,"direct_net":1831239,"estimated_tokens_saved":1831239,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":51960,"response_debit":265408,"source_credit_count":89,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6298},"review":{"calls":9,"content_source_credit":27654,"derived_artifact_credit":0,"direct_net":-14565,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":153,"response_debit":42066,"source_credit_count":1,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":107,"content_source_credit":2165633,"derived_artifact_credit":4330,"direct_net":1816674,"estimated_tokens_saved":1831239,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":52113,"response_debit":307474,"source_credit_count":90,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6298},"wave_id":"245na memory-eval-production-path"} -->
+<!-- wave:context-efficiency-state {"generation":224,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":68,"content_source_credit":1874,"derived_artifact_credit":0,"direct_net":-11635,"estimated_tokens_saved":0,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3562,"response_debit":19101,"source_credit_count":1,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":9154},"plan":{"calls":98,"content_source_credit":2137979,"derived_artifact_credit":4330,"direct_net":1831239,"estimated_tokens_saved":1831239,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":51960,"response_debit":265408,"source_credit_count":89,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6298},"review":{"calls":64,"content_source_credit":666541,"derived_artifact_credit":1734,"direct_net":518594,"estimated_tokens_saved":518594,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":19458,"response_debit":137001,"source_credit_count":29,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6778}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":230,"content_source_credit":2806394,"derived_artifact_credit":6064,"direct_net":2338198,"estimated_tokens_saved":2349833,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":74980,"response_debit":421510,"source_credit_count":119,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":22230},"wave_id":"245na memory-eval-production-path"} -->
 <!-- wave:context-efficiency end -->
 
 <!-- wave:exploration-avoided begin -->

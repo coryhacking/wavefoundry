@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-23
 
 ## The Problem
 
@@ -609,8 +609,10 @@ from degraded retrieval. If CPU model loading failed, check the reranker-disable
 setting and local runtime/model availability, run `wf setup` if provisioning is
 needed, then restart MCP to clear the cached load failure. Index refresh alone
 does not clear that failure. Ordinary code/docs search is unchanged. The memory
-evaluator's sampled self-summary output remains nonqualifying; detailed independent
-qualification is an explicit local run. See `docs/references/memory-retrieval-eval.md`.
+evaluator scores a frozen, independently authored situation-language query set
+against baseline arms; its self-summary probe is only a labeled sanity floor, and
+the report remains nonqualifying. Detailed independent qualification is an
+explicit local run. See `docs/references/memory-retrieval-eval.md`.
 Physical archive bodies under `docs/agents/memory/archive/` are a historical
 storage class and are excluded by both repository walking and explicit-file
 index seams; graph extraction applies the same boundary. The compact register at

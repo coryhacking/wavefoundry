@@ -4,9 +4,11 @@
 Builds a synthetic memory corpus (memory_golden.json) in a throwaway repo, runs
 the current ``memory_search`` path against golden fixtures, and compares it
 with the legacy confidence-first lexical+semantic RRF control. The optional
-curated diagnostic freezes a bounded sample of the live
-corpus before scoring and emits aggregate metrics, counts, and a fingerprint
-only — never memory bodies, summaries, or record ids.
+curated pass scores a frozen situation-language query set
+(``docs/evals/memory-query-set.json`` and its lock) against baseline arms over
+one corpus, and keeps the old self-summary sample only as a labeled sanity
+floor. It emits aggregate metrics and counts only, never memory bodies,
+summaries, record ids, query text or case ids (wave 245na).
 
 The shared BM25/RRF primitives also serve production memory search; comparison
 variants and sampled diagnostics remain measurement-only. Deterministic
@@ -27,14 +29,17 @@ this CLI. Two distinct surfaces live here:
   ``FileNotFoundError`` rather than degrading silently.
 
 Usage:  python memory_eval.py [--json] [--curated-root PATH]
+        python memory_eval.py --freeze-query-set ROOT
 Exit 0 iff every policy invariant passes.
 """
 from __future__ import annotations
 
 import argparse
+import difflib
 import hashlib
 import json
 import math
+import random
 import re
 import sys
 import tempfile
@@ -686,7 +691,15 @@ def _candidate_and_controls(
     semantic_order: list[str] | None = None,
     records_override: list[dict[str, Any]] | None = None,
     commit_times: dict[str, list[int]] | None = None,
+    bounded: bool = False,
 ) -> dict[str, list[str]]:
+    """Candidate and stream-only controls under the shipped policy order.
+
+    ``bounded=True`` is the curated pass (wave 245na): each stream is cut to
+    production's caps before ``_policy_order``, so the policy sort orders a
+    shortlist the size of production's instead of every lexical match. The
+    hermetic ``run()`` keeps the unbounded streams.
+    """
     records = (
         list(records_override)
         if records_override is not None
@@ -705,6 +718,16 @@ def _candidate_and_controls(
         semantic_order if semantic_order is not None
         else case.get("semantic_order") or []
     )
+    if bounded:
+        search_cap, check_cap = _production_caps()
+        fused = reciprocal_rank_fusion([lexical[:search_cap], semantic])[:check_cap]
+        return {
+            "candidate": _policy_order(srv, root, records, fused, commit_times=commit_times),
+            "lexical_only": _policy_order(
+                srv, root, records, lexical[:check_cap], commit_times=commit_times),
+            "semantic_only": _policy_order(
+                srv, root, records, semantic[:check_cap], commit_times=commit_times),
+        }
     fused = reciprocal_rank_fusion([lexical, semantic])
     return {
         "candidate": _policy_order(srv, root, records, fused, commit_times=commit_times),
@@ -854,149 +877,777 @@ def evaluate_adoption(
     }
 
 
-def _semantic_order(index: Any, query: str, memory_dir: str) -> list[str]:
-    hits, _reranked = index.search_docs(query, top_n=20)
-    order = []
-    for hit in hits:
-        path = str(hit.get("path") or "")
-        if path.startswith(memory_dir):
-            memory_id = Path(path).stem
-            if memory_id not in order:
-                order.append(memory_id)
-    return order
+def _production_caps() -> tuple[int, int]:
+    """Production's search and screen caps, read from ``memory_handlers``."""
+    import wf_server.memory_handlers as memory_handlers
+    return memory_handlers.MEMORY_SEARCH_CAP, memory_handlers.MEMORY_QUERY_CHECK_CAP
 
 
-def run_curated(root: Path, k: int = DEFAULT_K) -> dict[str, Any]:
-    """Run a nonqualifying self-summary diagnostic with aggregate-only output."""
-    import server_impl as srv
-    mem = srv._memory_mod()
-    records = [
-        record for record in mem.load_memory_records(
-            root, statuses=list(mem.DEFAULT_SURFACED_STATUSES)
-        )
-        if record.get("target_refs") and record.get("summary")
-    ]
-    counts_by_kind = Counter(record["kind"] for record in records)
-    counts_by_status = Counter(record["status"] for record in records)
-    selected = sorted(
-        records,
-        key=lambda record: (
-            hashlib.sha256(record["memory_id"].encode("utf-8")).hexdigest(),
-            record["memory_id"],
-        ),
-    )[:CURATED_SAMPLE_CAP]
-    frozen_payload = [
-        {
-            "memory_id": record["memory_id"],
-            "kind": record["kind"],
-            "status": record["status"],
-            "summary": record["summary"],
-            "targets": record["target_refs"],
-            "evidence": record["evidence_refs"],
-            "confidence": record["confidence"],
+# --- Situation-language query set (wave 245na, change 245sp) ---------------
+
+QUERY_SET_PATH = Path("docs") / "evals" / "memory-query-set.json"
+QUERY_SET_LOCK_PATH = Path("docs") / "evals" / "memory-query-set.lock.json"
+SEQUENCE_RATIO_THRESHOLD = 0.9
+COSINE_THRESHOLD = 0.95
+BOOTSTRAP_RESAMPLES = 1000
+BOOTSTRAP_MIN_DEFINED = 100
+HELDOUT_MODULUS_FLOOR = 3
+CASE_TYPES = ("answerable", "null", "stale")
+SPLITS = ("heldout", "dev")
+ARMS = ("no_memory", "grep", "bm25_only", "dense_only", "hybrid_no_rerank",
+        "production", "full_context")
+ABLATION_ARMS = ("dense_summary_only", "dense_compact")
+METRIC_KEYS = ("recall_at_5", "mrr", "precision_shown", "false_show_rate",
+               "stale_shown_rate")
+# ``full_context`` ranks by memory id, so recall@5 measures id order, not
+# retrieval. It reports recall over every shown record instead (council
+# carry-forward 1, wave 245na).
+FULL_CONTEXT_RECALL_KEY = "recall_all"
+EMBEDDED_TEXT = {"dense": "record_markdown_chunks",
+                 "lexical": "summary_title_evidence_targets_keywords",
+                 "screen": "summary"}
+EMBEDDED_TEXT_NOTE = (
+    "dense_summary_only and dense_compact embed one vector per record in "
+    "process; dense_only uses the best stored chunk per record, so the "
+    "comparison mixes the text choice with chunking."
+)
+FREEZE_MODEL_MESSAGE = "freeze requires the docs embedding model"
+
+
+class FreezeModelUnavailable(RuntimeError):
+    """The docs embedding model could not embed the freeze probes."""
+
+
+def query_set_sha256(payload: Any) -> str:
+    """SHA-256 of the canonical JSON of the parsed query set, not its bytes."""
+    return hashlib.sha256(json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    ).encode("utf-8")).hexdigest()
+
+
+def split_for(cluster_key: str) -> str:
+    """Record-level split: ``heldout`` when sha256(key)[:8] mod 10 is 3 or more."""
+    digest = hashlib.sha256(str(cluster_key).encode("utf-8")).hexdigest()
+    return "heldout" if int(digest[:8], 16) % 10 >= HELDOUT_MODULUS_FLOOR else "dev"
+
+
+def _string_list(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) and item for item in value)
+
+
+def validate_query_set(payload: Any) -> tuple[list[dict[str, Any]] | None, str | None]:
+    """Return the cases, or ``(None, "query_set_invalid")``. A ``split`` field is ignored."""
+    cases = payload.get("cases") if isinstance(payload, dict) else None
+    if not isinstance(cases, list) or not cases:
+        return None, "query_set_invalid"
+    seen: set[str] = set()
+    for case in cases:
+        if not isinstance(case, dict):
+            return None, "query_set_invalid"
+        case_id, query, case_type = case.get("id"), case.get("query"), case.get("case_type")
+        relevant, stale, terms = case.get("relevant_ids"), case.get("stale_ids"), case.get("grep_terms")
+        if (not isinstance(case_id, str) or not case_id or case_id in seen
+                or not isinstance(query, str) or not query.strip()
+                or case_type not in CASE_TYPES
+                or not isinstance(case.get("source_id"), str) or not case["source_id"]
+                or not _string_list(relevant) or not _string_list(stale)
+                or not _string_list(terms) or not 1 <= len(terms) <= 3
+                or not isinstance(case.get("author"), str) or not case["author"].strip()):
+            return None, "query_set_invalid"
+        if case_type == "null" and (relevant or case["source_id"] != case_id):
+            return None, "query_set_invalid"
+        if case_type != "null" and not relevant:
+            return None, "query_set_invalid"
+        if (case_type == "stale") != bool(stale):
+            return None, "query_set_invalid"
+        seen.add(case_id)
+    return cases, None
+
+
+def sequence_leaks(case: dict[str, Any], summaries: dict[str, str]) -> bool:
+    """True when the query is a near copy of any relevant record's summary."""
+    query = case["query"].lower()
+    return any(
+        difflib.SequenceMatcher(None, query, summary.lower()).ratio() >= SEQUENCE_RATIO_THRESHOLD
+        for summary in (summaries.get(mid) or "" for mid in case["relevant_ids"])
+        if summary
+    )
+
+
+def load_query_set(root: Path) -> dict[str, Any]:
+    """Load, validate and hash-check the frozen query set.
+
+    Returns ``{"available": bool, "reason": str|None, "cases": [...],
+    "sha256": str|None, "lock": dict|None}``. An absent set is not an error:
+    only the sanity floor runs.
+    """
+    state: dict[str, Any] = {"available": False, "reason": None, "cases": [],
+                             "sha256": None, "lock": None}
+    path = root / QUERY_SET_PATH
+    if not path.is_file():
+        state["reason"] = "query_set_absent"
+        return state
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        state["reason"] = "query_set_invalid"
+        return state
+    cases, reason = validate_query_set(payload)
+    if cases is None:
+        state["reason"] = reason
+        return state
+    state["sha256"] = query_set_sha256(payload)
+    lock_path = root / QUERY_SET_LOCK_PATH
+    if not lock_path.is_file():
+        state["reason"] = "query_set_unfrozen"
+        return state
+    try:
+        lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        lock = None
+    if (not isinstance(lock, dict) or not isinstance(lock.get("query_set_sha256"), str)
+            or not _string_list(lock.get("cosine_rejected", []))):
+        state["reason"] = "query_set_lock_invalid"
+        return state
+    if lock["query_set_sha256"] != state["sha256"]:
+        state["reason"] = "query_set_hash_mismatch"
+        return state
+    state.update(available=True, cases=cases, lock=lock)
+    return state
+
+
+def _case_contributions(case: dict[str, Any], ranked: list[str], shown: list[str],
+                        *, recall_all: bool = False) -> dict[str, tuple[float, int]]:
+    """Per-case (numerator, denominator) for each metric; den 0 means not eligible."""
+    relevant, stale = set(case["relevant_ids"]), set(case["stale_ids"])
+    shown_set = set(shown)
+    out = {key: (0.0, 0) for key in METRIC_KEYS}
+    if case["case_type"] in ("answerable", "stale"):
+        window = ranked if recall_all else ranked[:5]
+        out["recall_at_5"] = (len(relevant & set(window)) / len(relevant), 1)
+        out["mrr"] = (_reciprocal_rank(ranked, sorted(relevant)), 1)
+        out["precision_shown"] = (float(len(relevant & shown_set)), len(shown_set))
+    if case["case_type"] == "null":
+        out["false_show_rate"] = (1.0 if shown_set else 0.0, 1)
+    if case["case_type"] == "stale":
+        out["stale_shown_rate"] = (1.0 if shown_set & stale else 0.0, 1)
+    out["mean_shown"] = (float(len(shown_set)), 1)
+    return out
+
+
+def _ratio(num: float, den: int) -> float | None:
+    return round(num / den, 4) if den else None
+
+
+def _bootstrap(clusters: list[tuple[float, int]], draws: list[list[int]]) -> dict[str, Any]:
+    """Percentile interval over cluster resamples; undefined resamples are skipped."""
+    values: list[float] = []
+    undefined = 0
+    for draw in draws:
+        den = sum(clusters[i][1] for i in draw)
+        if not den:
+            undefined += 1
+            continue
+        values.append(sum(clusters[i][0] for i in draw) / den)
+    values.sort()
+    n = len(values)
+    interval = None
+    if n >= BOOTSTRAP_MIN_DEFINED:
+        interval = [round(values[math.floor(0.025 * n)], 4),
+                    round(values[math.ceil(0.975 * n) - 1], 4)]
+    return {"interval": interval, "undefined_resamples": undefined}
+
+
+def _cluster_draws(cluster_count: int) -> list[list[int]]:
+    """The draws of one ``random.Random(0)``; identical for every split metric."""
+    rng = random.Random(0)
+    if not cluster_count:
+        return [[] for _ in range(BOOTSTRAP_RESAMPLES)]
+    return [[rng.randrange(cluster_count) for _ in range(cluster_count)]
+            for _ in range(BOOTSTRAP_RESAMPLES)]
+
+
+def score_arms(cases: list[dict[str, Any]],
+               outcomes: dict[str, list[tuple[list[str], list[str]]]],
+               *, ordered_arms: tuple[str, ...] = ARMS) -> dict[str, Any]:
+    """Score every arm per split with cluster bootstrap intervals.
+
+    ``outcomes[arm][i]`` is ``(ranked, shown)`` for ``cases[i]``. Each case's
+    cluster is its ``source_id``; a case-level ``split`` field is ignored.
+    """
+    by_split: dict[str, list[int]] = {split: [] for split in SPLITS}
+    for i, case in enumerate(cases):
+        by_split[split_for(case["source_id"])].append(i)
+    metrics: dict[str, dict[str, Any]] = {}
+    arm_order: dict[str, list[str]] = {}
+    split_counts: dict[str, dict[str, int]] = {}
+    for split in SPLITS:
+        members = by_split[split]
+        cluster_keys = sorted({cases[i]["source_id"] for i in members})
+        position = {key: n for n, key in enumerate(cluster_keys)}
+        draws = _cluster_draws(len(cluster_keys))
+        split_counts[split] = {
+            "cases": len(members), "clusters": len(cluster_keys),
+            **{case_type: sum(1 for i in members if cases[i]["case_type"] == case_type)
+               for case_type in CASE_TYPES},
         }
+        split_metrics: dict[str, Any] = {}
+        for arm, rows in outcomes.items():
+            recall_all = arm == "full_context"
+            recall_key = FULL_CONTEXT_RECALL_KEY if recall_all else "recall_at_5"
+            per_cluster = {key: [[0.0, 0] for _ in cluster_keys]
+                           for key in (*METRIC_KEYS, "mean_shown")}
+            for i in members:
+                ranked, shown = rows[i]
+                slot = position[cases[i]["source_id"]]
+                for key, (num, den) in _case_contributions(
+                        cases[i], ranked, shown, recall_all=recall_all).items():
+                    per_cluster[key][slot][0] += num
+                    per_cluster[key][slot][1] += den
+            row: dict[str, Any] = {}
+            intervals: dict[str, Any] = {}
+            undefined: dict[str, int] = {}
+            for key in METRIC_KEYS:
+                clusters = [(num, den) for num, den in per_cluster[key]]
+                name = recall_key if key == "recall_at_5" else key
+                row[name] = _ratio(sum(c[0] for c in clusters), sum(c[1] for c in clusters))
+                boot = _bootstrap(clusters, draws)
+                intervals[name] = boot["interval"]
+                undefined[name] = boot["undefined_resamples"]
+            shown_clusters = per_cluster["mean_shown"]
+            row["mean_shown"] = _ratio(sum(c[0] for c in shown_clusters),
+                                       sum(c[1] for c in shown_clusters))
+            row["intervals"] = intervals
+            row["undefined_resamples"] = undefined
+            row["flags"] = []
+            split_metrics[arm] = row
+        bm25 = split_metrics.get("bm25_only", {}).get("recall_at_5")
+        for arm, row in split_metrics.items():
+            key = FULL_CONTEXT_RECALL_KEY if arm == "full_context" else "recall_at_5"
+            interval = row["intervals"].get(key)
+            if (arm != "bm25_only" and bm25 is not None and interval is not None
+                    and interval[1] < bm25):
+                row["flags"].append("recall_below_bm25")
+
+        def order_key(arm: str) -> tuple[float, float, str]:
+            row = split_metrics[arm]
+            recall = row.get(FULL_CONTEXT_RECALL_KEY if arm == "full_context" else "recall_at_5")
+            mrr = row.get("mrr")
+            return (-(recall if recall is not None else -1.0),
+                    -(mrr if mrr is not None else -1.0), arm)
+
+        arm_order[split] = sorted((arm for arm in split_metrics if arm in ordered_arms),
+                                  key=order_key)
+        metrics[split] = split_metrics
+    return {"metrics": metrics, "arm_order": arm_order, "split_counts": split_counts}
+
+
+def _register_sections(root: Path) -> dict[str, str]:
+    """Each archive register entry's section text, keyed by memory id."""
+    mem_path = root / "docs" / "agents" / "memory-archive.md"
+    try:
+        import memory_records
+        mem_path = root / memory_records.MEMORY_ARCHIVE_MANIFEST
+        text = mem_path.read_text(encoding="utf-8")
+    except (OSError, ImportError, AttributeError):
+        return {}
+    sections: dict[str, str] = {}
+    for block in re.split(r"(?m)^## ", text)[1:]:
+        lines = block.splitlines()
+        if lines:
+            sections[lines[0].strip()] = "## " + block
+    return sections
+
+
+def _corpus_texts(root: Path, corpus: list[dict[str, Any]]) -> dict[str, str]:
+    """Grep text per corpus item: a record's file, a register entry's section."""
+    sections = _register_sections(root)
+    texts: dict[str, str] = {}
+    for record in corpus:
+        mid = record["memory_id"]
+        if record.get("record_type") == "archive_register_entry":
+            texts[mid] = sections.get(mid, "")
+            continue
+        source = Path(record["path"])
+        if not source.is_absolute():
+            source = root / source
+        try:
+            texts[mid] = source.read_text(encoding="utf-8")
+        except OSError:
+            texts[mid] = ""
+    return texts
+
+
+def grep_order(texts: dict[str, str], terms: list[str]) -> list[str]:
+    """Items containing every term (case-insensitive), by total count, then id."""
+    lowered = [term.lower() for term in terms if term]
+    if not lowered:
+        return []
+    scored = []
+    for mid, text in texts.items():
+        haystack = text.lower()
+        counts = [haystack.count(term) for term in lowered]
+        if all(counts):
+            scored.append((-sum(counts), mid))
+    return [mid for _count, mid in sorted(scored)]
+
+
+def memory_body_paths(root: Path, records: list[dict[str, Any]]
+                      ) -> tuple[dict[str, str], dict[str, str]]:
+    """Body paths and source hashes exactly as ``_memory_query_records`` builds them."""
+    body_paths: dict[str, str] = {}
+    expected_hashes: dict[str, str] = {}
+    canonical_root = root.resolve()
+    for record in records:
+        if record.get("record_type") == "archive_register_entry":
+            continue
+        source_path = Path(record["path"])
+        if not source_path.is_absolute():
+            source_path = canonical_root / source_path
+        path = source_path.resolve().relative_to(canonical_root).as_posix()
+        body_paths[path] = record["memory_id"]
+        expected_hashes[path] = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    return body_paths, expected_hashes
+
+
+def dense_stream(index: Any, query: str, body_paths: dict[str, str],
+                 expected_hashes: dict[str, str]) -> tuple[list[str] | None, str | None]:
+    """Production's semantic stream, ties by ``(-score, memory_id)``; None when not current."""
+    dense = index._memory_candidate_scores(
+        query, list(body_paths), expected_hashes=expected_hashes)
+    if dense.get("source_current") is False:
+        return None, "memory_source_state_stale"
+    if not dense.get("complete"):
+        return None, "memory_vector_coverage_incomplete"
+    scores = dense["scores"]
+    return [body_paths[path] for path in sorted(
+        scores, key=lambda path: (-scores[path], body_paths[path]))], None
+
+
+def _compact_text(record: dict[str, Any]) -> str:
+    return "\n".join([
+        str(record.get("title") or ""), str(record.get("summary") or ""),
+        *[ref for ref in record.get("target_refs") or []
+          if not ref.startswith(("symbol:", "community:"))],
+        *[str(word) for word in record.get("keywords") or []],
+    ])
+
+
+class _Ablation:
+    """In-process one-vector-per-record arms; never writes the index."""
+
+    def __init__(self, index: Any, records: list[dict[str, Any]], texts: list[str]):
+        import numpy as np
+        self._np = np
+        self._ids = [record["memory_id"] for record in records]
+        self._model = index._indexer_constant("DOCS_MODEL")
+        self._index = index
+        embedder = index._get_embedder(self._model)
+        matrix = np.asarray([np.asarray(v, dtype=np.float32) for v in embedder.embed(texts)])
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        self._matrix = matrix / norms
+        self.mean_chars = round(sum(len(text) for text in texts) / max(len(texts), 1), 1)
+
+    def order(self, query: str, cap: int) -> list[str]:
+        np = self._np
+        vector = np.asarray(self._index._embed_query(query, self._model), dtype=np.float32)
+        norm = float(np.linalg.norm(vector)) or 1.0
+        scores = self._matrix @ (vector / norm)
+        ranked = sorted(range(len(self._ids)), key=lambda i: (-float(scores[i]), self._ids[i]))
+        return [self._ids[i] for i in ranked[:cap]]
+
+
+def target_retrievable(root: Path, records: list[dict[str, Any]], index: Any,
+                       mem: Any) -> dict[str, int]:
+    """Reachability of each record by its own file targets.
+
+    ``retrievable`` uses the uncapped ``match_targets`` predicate, so it is a
+    sanity check (near-tautological), not a quality signal;
+    ``crowded_past_search_cap`` is the signal: a capped target search returns
+    the record for none of its file targets.
+    """
+    import wf_server.memory_handlers as memory_handlers
+    cap = memory_handlers.MEMORY_SEARCH_CAP
+    returned: dict[str, set[str]] = {}
+    with_targets = retrievable = crowded = 0
+    for record in records:
+        targets = [ref for ref in record.get("target_refs") or []
+                   if not ref.startswith(("symbol:", "community:"))]
+        if not targets:
+            continue
+        with_targets += 1
+        retrievable += any(mem.match_targets(record, path=target) for target in targets)
+        found = False
+        for target in targets:
+            if target not in returned:
+                response = memory_handlers.memory_search_response(
+                    root, target=target, index=index, limit=cap)
+                returned[target] = {
+                    row["memory_id"] for row in response["data"].get("records") or []}
+            if record["memory_id"] in returned[target]:
+                found = True
+                break
+        crowded += not found
+    return {"records_with_file_targets": with_targets, "retrievable": retrievable,
+            "crowded_past_search_cap": crowded}
+
+
+def _sanity_floor(srv, root: Path, index: Any, selected: list[dict[str, Any]],
+                  k: int) -> dict[str, Any]:
+    """The old self-summary sample: a labeled floor, never the headline."""
+    frozen_payload = [
+        {"memory_id": record["memory_id"], "kind": record["kind"],
+         "status": record["status"], "summary": record["summary"],
+         "targets": record["target_refs"], "evidence": record["evidence_refs"],
+         "confidence": record["confidence"]}
         for record in selected
     ]
-    fingerprint = hashlib.sha256(
-        json.dumps(frozen_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
+    floor: dict[str, Any] = {
+        "label": "self_summary_sanity_floor", "headline": False,
+        "available": False,
+        "sample_size": len(selected), "sample_cap": CURATED_SAMPLE_CAP,
+        "sample_strategy": "stable identity hash, frozen before scoring",
+        "fingerprint": hashlib.sha256(json.dumps(
+            frozen_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest(),
+    }
+    if not selected:
+        floor["unavailable_reason"] = "no surfaced records with targets and summaries"
+        return floor
+    index_store = srv._load_script("index_state_store")
+    all_targets = {target for record in selected for target in record.get("target_refs") or []
+                   if not target.startswith(("symbol:", "community:"))}
+    frozen_histories = index_store.file_commit_times(root / ".wavefoundry" / "index", all_targets)
+    rankings: dict[str, list[list[str]]] = {
+        name: [] for name in ("baseline", "candidate", "lexical_only", "semantic_only")}
+    expected_sets: list[list[str]] = []
+    dense_measured = True
+    try:
+        body_paths, expected_hashes = memory_body_paths(root, selected)
+        for record in selected:
+            query = record["summary"]
+            semantic, reason = dense_stream(index, query, body_paths, expected_hashes)
+            if semantic is None:
+                dense_measured = False
+                semantic = []
+            rankings["baseline"].append(_shipped_baseline_order(
+                srv, root, selected, query, semantic, commit_times=frozen_histories))
+            controls = _candidate_and_controls(
+                srv, root, {"query": query}, semantic_order=semantic,
+                records_override=selected, commit_times=frozen_histories, bounded=True)
+            for name, ranked in controls.items():
+                rankings[name].append(ranked)
+            expected_sets.append([record["memory_id"]])
+    except Exception:
+        # Exception text can carry private query or record text.
+        floor["unavailable_reason"] = "semantic query measurement unavailable"
+        return floor
+    floor["available"] = True
+    floor["dense_measured"] = dense_measured
+    floor["metrics"] = {name: _aggregate_rankings(ranked, expected_sets, k)
+                        for name, ranked in rankings.items()}
+    return floor
+
+
+def _unavailable(report: dict[str, Any], reason: str) -> dict[str, Any]:
+    report["available"] = False
+    report["unavailable_reason"] = reason
+    return report
+
+
+def run_curated(root: Path, k: int = DEFAULT_K, *, index: Any = None) -> dict[str, Any]:
+    """Score the frozen situation-language query set against baseline arms.
+
+    Aggregate-only: no query text, record bodies, summaries, memory ids,
+    target refs or case ids enter the report. Nonqualifying by contract; the
+    report states no verdict. ``index`` is the shared handler index; with
+    ``None`` a ``WaveIndex(root)`` is constructed (CLI path).
+    """
+    import server_impl as srv
+    import wf_server.memory_handlers as memory_handlers
+    mem = srv._memory_mod()
+    surfaced = mem.load_memory_records(root, statuses=list(mem.DEFAULT_SURFACED_STATUSES))
+    register = mem.load_archive_register_entries(root)
+    corpus = surfaced + register
+    sample_pool = [record for record in surfaced
+                   if record.get("target_refs") and record.get("summary")]
+    selected = sorted(sample_pool, key=lambda record: (
+        hashlib.sha256(record["memory_id"].encode("utf-8")).hexdigest(),
+        record["memory_id"]))[:CURATED_SAMPLE_CAP]
     report: dict[str, Any] = {
         "available": False,
-        "evaluation_kind": "sampled_self_summary_diagnostic",
+        "evaluation_kind": "situation_query_baselines",
         "qualifying": False,
-        "production_variant": "memory_rrf_summary5",
+        "production_variant": "memory_search_hybrid_rrf",
+        "experimental_variant": "policy_ordered_rrf_shortlist5",
         "baseline_variant": "legacy_policy_ordering",
-        "experimental_variant": "policy_ordered_rrf",
+        "headline_variant": "production",
+        "headline_split": "heldout",
         "adoption_gate": {
             "adopt": False, "product_path_changed": False,
             "reasons": ["independent_full_corpus_holdout_required"],
         },
-        "sample_size": len(selected),
-        "sample_cap": CURATED_SAMPLE_CAP,
-        "sample_strategy": "stable identity hash, frozen before scoring",
-        "fingerprint": fingerprint,
-        "counts_by_kind": dict(sorted(counts_by_kind.items())),
-        "counts_by_status": dict(sorted(counts_by_status.items())),
+        "counts_by_kind": dict(sorted(Counter(r["kind"] for r in sample_pool).items())),
+        "counts_by_status": dict(sorted(Counter(r["status"] for r in sample_pool).items())),
+        "embedded_text": dict(EMBEDDED_TEXT),
     }
-    if not selected:
-        report["unavailable_reason"] = "no surfaced records with targets and summaries"
-        return report
+    state = load_query_set(root)
+    report["query_set"] = {"available": state["available"], "reason": state["reason"],
+                           "sha256": state["sha256"]}
+    if state["reason"] in ("query_set_invalid", "query_set_hash_mismatch",
+                           "query_set_unfrozen", "query_set_lock_invalid"):
+        return _unavailable(report, state["reason"])
+    if not selected and not state["available"]:
+        return _unavailable(report, "no surfaced records with targets and summaries")
     try:
-        index = srv.WaveIndex(root)
+        if index is None:
+            index = srv.WaveIndex(root)
         index._ensure_loaded()
         if getattr(index, "_docs_vector_layer", None) is None:
-            report["unavailable_reason"] = "semantic docs layer unavailable"
-            return report
+            return _unavailable(report, "semantic docs layer unavailable")
     except Exception as exc:
-        report["unavailable_reason"] = f"semantic index unavailable: {type(exc).__name__}"
+        return _unavailable(report, f"semantic index unavailable: {type(exc).__name__}")
+
+    report["sanity_floor"] = _sanity_floor(srv, root, index, selected, k)
+
+    try:
+        body_paths, expected_hashes = memory_body_paths(root, surfaced)
+    except Exception:
+        return _unavailable(report, "dense query measurement unavailable")
+    signals: dict[str, Any] = {"memory_vector_coverage": None}
+    try:
+        store = srv._load_script("sqlite_vector_store")
+        signals["memory_vector_coverage"] = store.memory_vector_coverage(
+            index.index_dir, "docs", expected_hashes)
+    except Exception:
+        signals["coverage_unavailable_reason"] = "index store unreadable"
+    try:
+        signals["target_retrievable"] = target_retrievable(root, surfaced, index, mem)
+    except Exception:
+        return _unavailable(report, "target retrievability measurement unavailable")
+    signals["target_retrievable_note"] = (
+        "retrievable is a sanity check (the uncapped predicate matches nearly "
+        "every record); crowded_past_search_cap is the signal")
+    report["index_signals"] = signals
+
+    if not state["available"]:
+        report["production_measured"] = False
+        report["production_unavailable_reason"] = "query_set_unavailable"
+        report["available"] = bool(report["sanity_floor"].get("available"))
+        if not report["available"]:
+            report["unavailable_reason"] = report["sanity_floor"].get("unavailable_reason")
         return report
 
-    rankings = {
-        name: [] for name in (
-            "baseline", "candidate", "lexical_only", "semantic_only"
-        )
-    }
-    expected_sets: list[list[str]] = []
-    index_store = srv._load_script("index_state_store")
-    all_targets = {
-        target
-        for record in selected
-        for target in record.get("target_refs") or []
-        if not target.startswith(("symbol:", "community:"))
-    }
-    frozen_histories = index_store.file_commit_times(
-        root / ".wavefoundry" / "index", all_targets
-    )
-    # Wave 1tis8: the frozen snapshot is passed EXPLICITLY into the ranking
-    # path. Rebinding the shared `index_state_store.file_commit_times` global
-    # here corrupted a long-lived server: two overlapping calls restore out of
-    # order, leaving one call's frozen subset installed for every later reader,
-    # and concurrent memory_search callers observed the replacement meanwhile.
-    selected_ids = {record["memory_id"] for record in selected}
-    for selected_record in selected:
-        query = selected_record["summary"]
-        try:
-            semantic = [
-                memory_id
-                for memory_id in _semantic_order(index, query, mem.MEMORY_DIR)
-                if memory_id in selected_ids
-            ]
-        except Exception:
-            # Model/query failures are unavailable observations, not successful
-            # abstention; exception messages can contain private query text.
-            report["unavailable_reason"] = "semantic query measurement unavailable"
-            return report
-        case = {"query": query}
-        baseline = _shipped_baseline_order(
-            srv, root, selected, query, semantic,
-            commit_times=frozen_histories,
-        )
-        controls = _candidate_and_controls(
-            srv,
-            root,
-            case,
-            semantic_order=semantic,
-            records_override=selected,
-            commit_times=frozen_histories,
-        )
-        rankings["baseline"].append(baseline)
-        for name, ranked in controls.items():
-            rankings[name].append(ranked)
-        expected_sets.append([selected_record["memory_id"]])
+    summaries = {record["memory_id"]: str(record.get("summary") or "") for record in corpus}
+    cosine_rejected = set(state["lock"].get("cosine_rejected") or [])
+    scored: list[dict[str, Any]] = []
+    leakage = cosine = 0
+    for case in state["cases"]:
+        if case["id"] in cosine_rejected:
+            cosine += 1
+        elif sequence_leaks(case, summaries):
+            leakage += 1
+        else:
+            scored.append(case)
+    report["query_set"].update(
+        cases=len(state["cases"]), scored=len(scored),
+        leakage_rejected=leakage, cosine_rejected=cosine,
+        **{f"{case_type}_cases": sum(1 for c in scored if c["case_type"] == case_type)
+           for case_type in CASE_TYPES})
+    if not scored:
+        return _unavailable(report, "query set has no scored cases")
 
+    search_cap, check_cap = _production_caps()
+    texts = _corpus_texts(root, corpus)
+    full = sorted(record["memory_id"] for record in corpus)
+    outcomes: dict[str, list[tuple[list[str], list[str]]]] = {
+        arm: [] for arm in (*ARMS, *ABLATION_ARMS)}
+    production = {"model_screened_probes": 0, "fallback_probes": 0}
+    fallback_reasons: Counter = Counter()
+    dense_reason: str | None = None
+    try:
+        ablations = {
+            "dense_summary_only": _Ablation(index, surfaced,
+                                            [str(r.get("summary") or "") for r in surfaced]),
+            "dense_compact": _Ablation(index, surfaced, [_compact_text(r) for r in surfaced]),
+        }
+    except Exception:
+        return _unavailable(report, "dense_summary_only query measurement unavailable")
+    for case in scored:
+        query = case["query"]
+        lexical = lexical_bm25_order(corpus, query)
+        outcomes["no_memory"].append(([], []))
+        outcomes["full_context"].append((full, full))
+        try:
+            matched = grep_order(texts, case["grep_terms"])
+        except Exception:
+            return _unavailable(report, "grep query measurement unavailable")
+        outcomes["grep"].append((matched, matched))
+        bm25 = lexical[:check_cap]
+        outcomes["bm25_only"].append((bm25, bm25))
+        try:
+            semantic, reason = dense_stream(index, query, body_paths, expected_hashes)
+        except Exception:
+            return _unavailable(report, "dense query measurement unavailable")
+        if semantic is None:
+            dense_reason = dense_reason or reason
+            semantic = []
+        dense = semantic[:check_cap]
+        hybrid = reciprocal_rank_fusion([semantic, lexical[:search_cap]])[:check_cap]
+        outcomes["dense_only"].append((dense, dense))
+        outcomes["hybrid_no_rerank"].append((hybrid, hybrid))
+        try:
+            response = memory_handlers.memory_search_response(
+                root, query=query, index=index, limit=check_cap)
+            data = response["data"]
+            shown = [row["memory_id"] for row in data.get("records") or []]
+            retrieval = data.get("retrieval") or {}
+        except Exception:
+            return _unavailable(report, "production query measurement unavailable")
+        if retrieval.get("qualification") == "model_relevance":
+            production["model_screened_probes"] += 1
+        else:
+            production["fallback_probes"] += 1
+            fallback_reasons[str(retrieval.get("fallback_reason"))] += 1
+        outcomes["production"].append((shown, shown))
+        for arm, ablation in ablations.items():
+            try:
+                ranked = ablation.order(query, check_cap)
+            except Exception:
+                return _unavailable(report, f"{arm} query measurement unavailable")
+            outcomes[arm].append((ranked, ranked))
+
+    production["fallback_reasons"] = dict(sorted(fallback_reasons.items()))
+    report["production_retrieval"] = production
+    report["production_measured"] = production["fallback_probes"] == 0
+    if not report["production_measured"]:
+        del outcomes["production"]
+        report["production_unavailable_reason"] = "production_path_fell_back"
+    report["dense_measured"] = dense_reason is None
+    if dense_reason is not None:
+        # Council carry-forward 2: a stale or incomplete index is not a measured
+        # dense result, the same rule as the production arm.
+        for arm in ("dense_only", "hybrid_no_rerank"):
+            del outcomes[arm]
+        report["dense_unavailable_reason"] = dense_reason
+    scoring = score_arms(scored, outcomes)
+    report["metrics"] = scoring["metrics"]
+    report["arm_order"] = scoring["arm_order"]
+    report["split_counts"] = scoring["split_counts"]
+    report["recall_key"] = {"default": "recall_at_5", "full_context": FULL_CONTEXT_RECALL_KEY}
+    mean_chars = {"dense_only": round(
+        sum(len(t) for mid, t in texts.items() if mid in set(body_paths.values()))
+        / max(len(body_paths), 1), 1)}
+    mean_chars.update({arm: ablation.mean_chars for arm, ablation in ablations.items()})
+    report["embedded_text_mean_chars"] = mean_chars
+    report["embedded_text_preferred"] = embedded_text_preferred(
+        scoring["metrics"].get("heldout", {}), mean_chars)
+    report["embedded_text_note"] = EMBEDDED_TEXT_NOTE
     report["available"] = True
-    report["metrics"] = {
-        name: _aggregate_rankings(ranked, expected_sets, k)
-        for name, ranked in rankings.items()
-    }
     return report
 
 
-def main() -> int:
+def embedded_text_preferred(heldout: dict[str, Any], mean_chars: dict[str, float]) -> str | None:
+    """Highest held-out recall@5 among the dense text arms; ties to the shortest text."""
+    candidates = [(heldout[arm]["recall_at_5"], arm)
+                  for arm in ("dense_only", *ABLATION_ARMS)
+                  if arm in heldout and heldout[arm].get("recall_at_5") is not None]
+    if not candidates:
+        return None
+    best = max(value for value, _arm in candidates)
+    tied = [arm for value, arm in candidates if round(value, 4) == round(best, 4)]
+    return min(tied, key=lambda arm: (mean_chars.get(arm, float("inf")), arm))
+
+
+def _default_freeze_embedder(root: Path):
+    """Return ``(docs_model, embed_queries, embed_documents)`` from the docs model."""
+    import server_impl as srv
+    index = srv.WaveIndex(root)
+    model = index._indexer_constant("DOCS_MODEL")
+    embedder = index._get_embedder(model)
+
+    def queries(texts: list[str]) -> list[Any]:
+        return [index._embed_query(text, model) for text in texts]
+
+    def documents(texts: list[str]) -> list[Any]:
+        return list(embedder.embed(texts))
+
+    return model, queries, documents
+
+
+def _cosine(a: Any, b: Any) -> float:
+    a, b = [float(x) for x in a], [float(x) for x in b]
+    na = math.sqrt(sum(x * x for x in a)) or 1.0
+    nb = math.sqrt(sum(x * x for x in b)) or 1.0
+    return sum(x * y for x, y in zip(a, b)) / (na * nb)
+
+
+def freeze_query_set(root: Path, *, embedder: Any = None) -> dict[str, Any]:
+    """Apply both leakage filters and write the lock; the query file is unchanged.
+
+    ``embedder`` is ``(docs_model, embed_queries, embed_documents)``. Any
+    embedding failure raises ``FreezeModelUnavailable`` before a lock exists.
+    """
+    import server_impl as srv
+    mem = srv._memory_mod()
+    payload = json.loads((root / QUERY_SET_PATH).read_text(encoding="utf-8"))
+    cases, reason = validate_query_set(payload)
+    if cases is None:
+        raise ValueError(reason)
+    corpus = (mem.load_memory_records(root, statuses=list(mem.DEFAULT_SURFACED_STATUSES))
+              + mem.load_archive_register_entries(root))
+    summaries = {record["memory_id"]: str(record.get("summary") or "") for record in corpus}
+    sequence_rejected = sorted(case["id"] for case in cases if sequence_leaks(case, summaries))
+    probes = [(case, [summaries[mid] for mid in case["relevant_ids"] if summaries.get(mid)])
+              for case in cases]
+    probes = [(case, texts) for case, texts in probes if texts]
+    try:
+        model, embed_queries, embed_documents = (
+            embedder if embedder is not None else _default_freeze_embedder(root))
+        query_vectors = embed_queries([case["query"] for case, _texts in probes])
+        unique = sorted({text for _case, texts in probes for text in texts})
+        document_vectors = dict(zip(unique, embed_documents(unique)))
+    except Exception as exc:
+        raise FreezeModelUnavailable(FREEZE_MODEL_MESSAGE) from exc
+    cosine_rejected = sorted(
+        case["id"] for (case, texts), vector in zip(probes, query_vectors)
+        if max(_cosine(vector, document_vectors[text]) for text in texts) >= COSINE_THRESHOLD
+    )
+    lock = {
+        "schema_version": 1,
+        "query_set_sha256": query_set_sha256(payload),
+        "docs_model": model,
+        "sequence_ratio_threshold": SEQUENCE_RATIO_THRESHOLD,
+        "cosine_threshold": COSINE_THRESHOLD,
+        "case_count": len(cases),
+        "sequence_rejected": sequence_rejected,
+        "cosine_rejected": cosine_rejected,
+    }
+    import line_endings
+    (root / QUERY_SET_LOCK_PATH).write_bytes(
+        line_endings.encode(json.dumps(lock, indent=2, ensure_ascii=False) + "\n"))
+    return lock
+
+
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--curated-root", type=Path)
-    args = ap.parse_args()
+    ap.add_argument("--freeze-query-set", type=Path, metavar="ROOT",
+                    help="apply both leakage filters and write the query-set lock")
+    args = ap.parse_args(argv)
+    if args.freeze_query_set:
+        try:
+            lock = freeze_query_set(args.freeze_query_set.resolve())
+        except FreezeModelUnavailable:
+            print(FREEZE_MODEL_MESSAGE, file=sys.stderr)
+            return 2
+        except (OSError, ValueError) as exc:
+            print(f"freeze failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
+        print(json.dumps({key: (len(value) if isinstance(value, list) else value)
+                          for key, value in lock.items()}, indent=2))
+        return 0
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "repo"
         (root / "docs" / "agents").mkdir(parents=True)
@@ -1026,10 +1677,12 @@ def main() -> int:
               ))
         if report.get("curated"):
             curated = report["curated"]
+            floor = curated.get("sanity_floor") or {}
             print(
                 "curated:",
                 "available" if curated["available"] else curated["unavailable_reason"],
-                f"sample={curated['sample_size']} fingerprint={curated['fingerprint']}",
+                f"arm_order={curated.get('arm_order', {}).get('heldout')}",
+                f"sanity_floor_sample={floor.get('sample_size')}",
             )
     ov = report["overall"]
     return 0 if ov["invariants_passed"] == ov["invariants_total"] else 1
