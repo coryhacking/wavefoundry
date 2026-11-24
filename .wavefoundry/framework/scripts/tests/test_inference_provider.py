@@ -60,6 +60,18 @@ def create_provider(*, deadline):
 '''
 
 
+
+def _null_read_snapshot(testcase):
+    """Wave 248lb fixture rule: a mock index with no store reads through a null
+    snapshot. Patches the module instance the handlers load, not the public
+    import; production code never makes the snapshot optional."""
+    import contextlib
+    import wf_server.server_impl as server_impl
+    patcher = patch.object(server_impl._load_script("sqlite_vector_store"), "read_snapshot",
+                           lambda index_dir: contextlib.nullcontext())
+    patcher.start()
+    testcase.addCleanup(patcher.stop)
+
 class ProviderTests(unittest.TestCase):
     def setUp(self):
         self.srv = support.load_server()
@@ -158,7 +170,10 @@ class ProviderTests(unittest.TestCase):
         paths = [case._add(f'mem-{i}', 'review_finding') for i in range(4)]
         obj = self.index(); obj.root = case.root
         obj._ensure_loaded = lambda: None; obj._docs_vector_layer = 'docs'
-        obj._memory_candidate_scores = lambda *a, **kw: {'complete': True, 'scores': {p.relative_to(case.root).as_posix(): 1-i/100 for i,p in enumerate(paths)}}
+        _null_read_snapshot(self)
+        obj.index_dir = case.root / '.wavefoundry' / 'index'
+        obj._memory_query_vector = lambda query: None
+        obj._memory_dense_scores = lambda *a, **kw: {'complete': True, 'scores': {p.relative_to(case.root).as_posix(): 1-i/100 for i,p in enumerate(paths)}}
         result = self.srv.memory_search_response(case.root, query='semantic-only', index=obj)
         self.assertEqual(result['data']['retrieval']['qualification'], 'model_relevance')
         self.assertEqual(result['data']['retrieval']['checked_candidates'], 4)

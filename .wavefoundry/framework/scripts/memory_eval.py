@@ -84,15 +84,20 @@ class _StubIndex:
     """Deterministic stand-in for the semantic index: search_docs returns a
     fixed memory-record order, modeling semantic retrieval without embeddings."""
 
-    def __init__(self, order: list[str]) -> None:
+    def __init__(self, order: list[str], index_dir: Path | None = None) -> None:
         self._order = order
         self._docs_vector_layer = "docs"
+        self.index_dir = index_dir
+        self._meta = {"project": {}}
 
     def _ensure_loaded(self):
         return None
 
-    def _memory_candidate_scores(self, query: str, paths: list[str], *,
-                                 expected_hashes: dict[str, str]) -> dict[str, Any]:
+    def _memory_query_vector(self, query: str):
+        return query
+
+    def _memory_dense_scores(self, vector, paths: list[str], *,
+                             expected_hashes: dict[str, str]) -> dict[str, Any]:
         ranks = {mid: i for i, mid in enumerate(self._order)}
         return {"scores": {path: 1.0 / (1 + ranks[Path(path).stem])
                            for path in paths if Path(path).stem in ranks},
@@ -183,7 +188,8 @@ def _reciprocal_rank(ranked: list[str], expected: list[str]) -> float:
 
 def _search_result(srv, root: Path, case: dict) -> dict[str, Any]:
     index = None if case.get("no_index") else (
-        _StubIndex(case["semantic_order"]) if case.get("semantic_order") else None)
+        _StubIndex(case["semantic_order"], root / ".wavefoundry" / "index")
+        if case.get("semantic_order") else None)
     return srv.memory_search_response(
         root, query=case.get("query", ""), target=case.get("target", ""),
         include_history=bool(case.get("include_history")),
@@ -1192,29 +1198,12 @@ def grep_order(texts: dict[str, str], terms: list[str]) -> list[str]:
     return [mid for _count, mid in sorted(scored)]
 
 
-def memory_body_paths(root: Path, records: list[dict[str, Any]]
-                      ) -> tuple[dict[str, str], dict[str, str]]:
-    """Body paths and source hashes exactly as ``_memory_query_records`` builds them."""
-    body_paths: dict[str, str] = {}
-    expected_hashes: dict[str, str] = {}
-    canonical_root = root.resolve()
-    for record in records:
-        if record.get("record_type") == "archive_register_entry":
-            continue
-        source_path = Path(record["path"])
-        if not source_path.is_absolute():
-            source_path = canonical_root / source_path
-        path = source_path.resolve().relative_to(canonical_root).as_posix()
-        body_paths[path] = record["memory_id"]
-        expected_hashes[path] = hashlib.sha256(source_path.read_bytes()).hexdigest()
-    return body_paths, expected_hashes
-
-
 def dense_stream(index: Any, query: str, body_paths: dict[str, str],
                  expected_hashes: dict[str, str]) -> tuple[list[str] | None, str | None]:
     """Production's semantic stream, ties by ``(-score, memory_id)``; None when not current."""
-    dense = index._memory_candidate_scores(
-        query, list(body_paths), expected_hashes=expected_hashes)
+    vector = index._memory_query_vector(query)
+    dense = index._memory_dense_scores(
+        vector, list(body_paths), expected_hashes=expected_hashes)
     if dense.get("source_current") is False:
         return None, "memory_source_state_stale"
     if not dense.get("complete"):
@@ -1323,7 +1312,7 @@ def _sanity_floor(srv, root: Path, index: Any, selected: list[dict[str, Any]],
     expected_sets: list[list[str]] = []
     dense_measured = True
     try:
-        body_paths, expected_hashes = memory_body_paths(root, selected)
+        body_paths, expected_hashes = srv._memory_mod().memory_body_paths(root, selected)
         for record in selected:
             query = record["summary"]
             semantic, reason = dense_stream(index, query, body_paths, expected_hashes)
@@ -1402,7 +1391,10 @@ def run_curated(root: Path, k: int = DEFAULT_K, *, index: Any = None) -> dict[st
     try:
         if index is None:
             index = srv.WaveIndex(root)
-        index._ensure_loaded()
+        # Wave 248lb: load inside a read snapshot, so an eval that starts
+        # during an index build serves the last published rows.
+        with srv._load_script("sqlite_vector_store").read_snapshot(index.index_dir):
+            index._ensure_loaded()
         if getattr(index, "_docs_vector_layer", None) is None:
             return _unavailable(report, "semantic docs layer unavailable")
     except Exception as exc:
@@ -1411,7 +1403,7 @@ def run_curated(root: Path, k: int = DEFAULT_K, *, index: Any = None) -> dict[st
     report["sanity_floor"] = _sanity_floor(srv, root, index, selected, k)
 
     try:
-        body_paths, expected_hashes = memory_body_paths(root, surfaced)
+        body_paths, expected_hashes = mem.memory_body_paths(root, surfaced)
     except Exception:
         return _unavailable(report, "dense query measurement unavailable")
     signals: dict[str, Any] = {"memory_vector_coverage": None}

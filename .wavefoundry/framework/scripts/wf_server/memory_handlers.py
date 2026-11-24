@@ -4,7 +4,6 @@ from __future__ import annotations
 from wave_lint_lib.constants import OPEN_CONTAINER_STATUSES
 
 import contextlib
-import hashlib
 import json
 import math
 import os
@@ -1626,13 +1625,48 @@ def memory_validate_response(
             usage="memory_search(include_history=True)")
 
 
+def _docs_model_identity(index: Any) -> Any:
+    """The docs ``model_versions`` entry the index loaded, or None."""
+    meta = getattr(index, "_meta", None) or {}
+    return ((meta.get("project") or {}).get("model_versions") or {}).get("docs")
+
+
+def _record_epoch(index: Any, epoch_out: Optional[dict[str, Any]], *, loaded: bool) -> None:
+    """Store the epoch signature this snapshot read in ``epoch_out["token"]``.
+
+    After a load it is the loaded signature. When the load raised, it is the
+    partial signature of the epoch the snapshot sees, or None, so a fallback
+    read during a build still reports the advisory (wave 248lb).
+    """
+    if epoch_out is None:
+        return
+    if loaded:
+        epoch_out["token"] = (getattr(index, "_loaded_meta_signature", None) or {}).get("project")
+        return
+    from wf_server import server_impl
+    try:
+        partial = server_impl._partial_epoch_state(index.index_dir)
+    except Exception:  # noqa: BLE001 - advisory only; the caller is already falling back
+        partial = None
+    epoch_out["token"] = ("partial",) + tuple(partial) if partial is not None else None
+
+
 def _memory_query_records(
     root: Path, records: list[dict[str, Any]], query: str, index: Optional[server_impl.WaveIndex],
+    epoch_out: Optional[dict[str, Any]] = None,
 ) -> tuple[Optional[list[dict[str, Any]]], dict[str, Any]]:
     """Return screened RRF candidates, or None for explicit lexical recovery.
 
     The calling agent still decides relevance and applicability. A model logit
     is not proof that a memory answers the question or establishes authority.
+
+    Wave 248lb: the index is read in two short ``read_snapshot`` transactions,
+    so a build in progress serves the last published docs rows. The first
+    loads the index (filling ``_meta``, which sets the query precision); the
+    query is embedded with no snapshot held; the second reloads, checks that
+    the docs model identity still equals the first load's, and runs the one
+    dense read. The reranker runs after both. ``epoch_out["token"]`` receives
+    the epoch signature the last snapshot read, including one whose load raised.
     """
     from wf_server import server_impl
     import tensorwell_client
@@ -1646,33 +1680,46 @@ def _memory_query_records(
     if index is None:
         return None, retrieval
     try:
-        index._ensure_loaded()
-        if index._docs_vector_layer is None:
-            return None, retrieval
+        vectors = server_impl._load_script("sqlite_vector_store")
+        with vectors.read_snapshot(index.index_dir):
+            try:
+                index._ensure_loaded()
+            except Exception:
+                _record_epoch(index, epoch_out, loaded=False)
+                raise
+            _record_epoch(index, epoch_out, loaded=True)
+            if index._docs_vector_layer is None:
+                return None, retrieval
+            first_model = _docs_model_identity(index)
         retrieval["fallback_reason"] = "memory_candidate_state_unavailable"
         ranking = server_impl._load_script("memory_eval")
         by_id = {r["memory_id"]: r for r in records}
         if len(by_id) != len(records):
             return None, retrieval
-        body_paths = {}
-        expected_hashes = {}
-        canonical_root = root.resolve()
-        for record in records:
-            if record.get("record_type") == "archive_register_entry":
-                continue  # compact entries share a manifest; their identity is lexical
-            source_path = Path(record["path"])
-            if not source_path.is_absolute():
-                source_path = canonical_root / source_path
-            path = source_path.resolve().relative_to(canonical_root).as_posix()
-            if path in body_paths:
-                return None, retrieval
-            body_paths[path] = record["memory_id"]
+        try:
+            body_paths, expected_hashes = _memory_mod().memory_body_paths(root, records)
+        except ValueError:
+            return None, retrieval
+        except OSError:
             retrieval["fallback_reason"] = "memory_source_state_stale"
-            expected_hashes[path] = hashlib.sha256(source_path.read_bytes()).hexdigest()
-        retrieval["fallback_reason"] = "memory_candidate_state_unavailable"
-        dense = index._memory_candidate_scores(
-            query, list(body_paths), expected_hashes=expected_hashes,
-        )
+            return None, retrieval
+        vector = index._memory_query_vector(query)
+        retrieval["fallback_reason"] = "semantic_index_unavailable"
+        with vectors.read_snapshot(index.index_dir):
+            try:
+                index._ensure_loaded()
+            except Exception:
+                _record_epoch(index, epoch_out, loaded=False)
+                raise
+            _record_epoch(index, epoch_out, loaded=True)
+            if index._docs_vector_layer is None or _docs_model_identity(index) != first_model:
+                # A model-change rebuild completed between the snapshots: the
+                # vector and the rows would come from different models.
+                return None, retrieval
+            retrieval["fallback_reason"] = "memory_candidate_state_unavailable"
+            dense = index._memory_dense_scores(
+                vector, list(body_paths), expected_hashes=expected_hashes,
+            )
         if dense.get("source_current") is False:
             retrieval["fallback_reason"] = "memory_source_state_stale"
             return None, retrieval
@@ -1783,9 +1830,10 @@ def memory_search_response(
                  "checked_candidate_cap": MEMORY_QUERY_CHECK_CAP, "checked_candidates": 0,
                  "support_verified": False, "fallback_reason": None}
     query_order: Optional[dict[str, int]] = None
+    epoch: dict[str, Any] = {}
     if query:
         n = min(n, MEMORY_QUERY_CHECK_CAP)
-        selected, retrieval = _memory_query_records(root, records, query, index)
+        selected, retrieval = _memory_query_records(root, records, query, index, epoch_out=epoch)
         if selected is not None:
             records = selected
             query_order = {r["memory_id"]: i for i, r in enumerate(records)}
@@ -1848,7 +1896,7 @@ def memory_search_response(
             recovery_tools=["memory_add"],
             recovery_usage="memory_add(kind=..., summary=..., evidence=[...], targets=[...])",
         ))
-    return server_impl._response(
+    result = server_impl._response(
         "ok",
         {"records": views, "count": len(views),
          "statuses_searched": statuses or list(mem.MEMORY_STATUSES),
@@ -1866,6 +1914,16 @@ def memory_search_response(
         next_tools=["memory_brief", "memory_reconcile"],
         usage="memory_brief(context='pre_implementation')",
     )
+    signature = epoch.get("token")
+    if isinstance(signature, tuple) and signature[:1] == ("partial",) \
+            and server_impl._is_partial_epoch(signature[1:]):
+        # Wave 248lb: the shared partial-read advisory, not a fallback. A
+        # ranked result came from stored rows; a fallback's records came from
+        # the memory files themselves, like docs_search's live walk.
+        result = server_impl._attach_partial_index_coverage(
+            result, root, signature[1:], "memory_search",
+            source="stored_rows" if retrieval.get("method") == "hybrid_rrf" else "live_filesystem")
+    return result
 
 
 def memory_brief_response(

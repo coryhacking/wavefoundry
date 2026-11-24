@@ -411,6 +411,35 @@ def load_memory_records(
     return records
 
 
+def memory_body_paths(root: Path, records: list[dict[str, Any]]
+                      ) -> tuple[dict[str, str], dict[str, str]]:
+    """Body paths and source hashes for the records that have their own file.
+
+    Returns ``(body_paths, expected_hashes)``, both keyed by the POSIX
+    repo-relative path: ``body_paths`` maps it to the memory id and
+    ``expected_hashes`` to the SHA-256 of the file bytes. Compact archive
+    register entries share a manifest and are skipped; their identity is
+    lexical. Raises ``ValueError`` for a path outside the root or for two
+    records resolving to one path; an ``OSError`` from an unreadable body
+    propagates. Read-only (wave 248lb).
+    """
+    body_paths: dict[str, str] = {}
+    expected_hashes: dict[str, str] = {}
+    canonical_root = Path(root).resolve()
+    for record in records:
+        if record.get("record_type") == "archive_register_entry":
+            continue
+        source_path = Path(record["path"])
+        if not source_path.is_absolute():
+            source_path = canonical_root / source_path
+        path = source_path.resolve().relative_to(canonical_root).as_posix()
+        if path in body_paths:
+            raise ValueError("two memory records resolve to one body path")
+        body_paths[path] = record["memory_id"]
+        expected_hashes[path] = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    return body_paths, expected_hashes
+
+
 def load_archive_register_entries(root: Path) -> list[dict[str, Any]]:
     """Load the compact archive register without scanning archived bodies."""
     manifest = root / MEMORY_ARCHIVE_MANIFEST

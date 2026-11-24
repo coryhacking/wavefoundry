@@ -96,6 +96,18 @@ def load_independent_server():
     return mod
 
 
+
+def _null_read_snapshot(testcase):
+    """Wave 248lb fixture rule: a mock index with no store reads through a null
+    snapshot. Patches the module instance the handlers load, not the public
+    import; production code never makes the snapshot optional."""
+    import contextlib
+    import wf_server.server_impl as server_impl
+    patcher = patch.object(server_impl._load_script("sqlite_vector_store"), "read_snapshot",
+                           lambda index_dir: contextlib.nullcontext())
+    patcher.start()
+    testcase.addCleanup(patcher.stop)
+
 class _MemoryCase(unittest.TestCase):
     def _selected_sources(self, wave_id):
         supply = getattr(self, "supply", None) or self.srv._load_script("memory_supply")
@@ -4423,12 +4435,16 @@ class MemorySearchOrderingTests(_MemoryCase):
     def setUp(self):
         super().setUp()
         self.srv = load_server()
+        _null_read_snapshot(self)
 
     def _semantic_index(self, *memory_ids):
         """Controlled semantic candidates and passing raw summary scores."""
         idx = MagicMock()
         idx._docs_vector_layer = "docs"
-        idx._memory_candidate_scores.side_effect = lambda query, paths, **kwargs: {
+        idx._meta = {"project": {"model_versions": {"docs": "stub-docs-model@full"}}}
+        idx._loaded_meta_signature = {"project": ("attempt", "complete", 1)}
+        idx._memory_query_vector.side_effect = lambda query: query
+        idx._memory_dense_scores.side_effect = lambda vector, paths, **kwargs: {
             "scores": {path: 1.0 / (1 + memory_ids.index(Path(path).stem))
                        for path in paths if Path(path).stem in memory_ids},
             "complete": True,
@@ -4516,6 +4532,7 @@ class MemoryQueryQualificationTests(_MemoryCase):
     def setUp(self):
         super().setUp()
         self.srv = load_server()
+        _null_read_snapshot(self)
 
     def test_source_hashes_guard_current_vectors_without_global_freshness_scan(self):
         import hashlib
@@ -4549,9 +4566,10 @@ class MemoryQueryQualificationTests(_MemoryCase):
 
         index = self._semantic_index("mem-a")
         index.index_dir = self.index_dir
-        index._embed_query.return_value = [1.0] * store.DIMENSIONS
-        index._memory_candidate_scores.side_effect = lambda query, paths, **kwargs: (
-            self.srv.WaveIndex._memory_candidate_scores(index, query, paths, **kwargs)
+        index._memory_query_vector.side_effect = None
+        index._memory_query_vector.return_value = [1.0] * store.DIMENSIONS
+        index._memory_dense_scores.side_effect = lambda vector, paths, **kwargs: (
+            self.srv.WaveIndex._memory_dense_scores(index, vector, paths, **kwargs)
         )
         with patch.object(store, "_open", side_effect=readonly):
             fresh = self.srv.memory_search_response(self.root, query="lesson", index=index)
@@ -4649,11 +4667,11 @@ class MemoryQueryQualificationTests(_MemoryCase):
                 elif failure == "code_only":
                     index._docs_vector_layer = None
                 elif failure == "incomplete":
-                    index._memory_candidate_scores.side_effect = lambda query, paths, **kwargs: {"complete": False, "scores": {}}
+                    index._memory_dense_scores.side_effect = lambda vector, paths, **kwargs: {"complete": False, "scores": {}}
                 elif failure == "model":
                     index._get_memory_reranker.return_value = None
                 else:
-                    index._memory_candidate_scores.side_effect = lambda query, paths, **kwargs: {"complete": True, "scores": {paths[0]: float("nan")}}
+                    index._memory_dense_scores.side_effect = lambda vector, paths, **kwargs: {"complete": True, "scores": {paths[0]: float("nan")}}
                 response = self.srv.memory_search_response(self.root, query="lesson", index=index)
                 self.assertEqual([r["memory_id"] for r in response["data"]["records"]], ["mem-a"])
                 self.assertEqual(response["data"]["retrieval"]["method"], "lexical_policy")
@@ -4668,7 +4686,7 @@ class MemoryQueryQualificationTests(_MemoryCase):
         response = self.srv.memory_search_response(
             self.root, query="semantic-only", target="src/a.py", symbol="Alpha", kind="decision", index=index)
         self.assertEqual([r["memory_id"] for r in response["data"]["records"]], ["mem-a"])
-        self.assertEqual(index._memory_candidate_scores.call_args.args[1], ["docs/agents/memory/mem-a.md"])
+        self.assertEqual(index._memory_dense_scores.call_args.args[1], ["docs/agents/memory/mem-a.md"])
         explicit = self.srv.memory_search_response(
             self.root, query="semantic-only", target="src/a.py", status="stale", index=index)
         self.assertEqual([r["memory_id"] for r in explicit["data"]["records"]], ["mem-stale"])
@@ -4682,8 +4700,8 @@ class MemoryQueryQualificationTests(_MemoryCase):
         response = self.srv.memory_search_response(self.root, query="lesson", index=index)
         self.assertEqual(response["data"]["archive_register_entry_count"], 2)
         self.assertEqual(len({r["memory_id"] for r in response["data"]["records"]}), 2)
-        self.assertEqual(index._memory_candidate_scores.call_args.args[1], [])
-        index._memory_candidate_scores.side_effect = lambda query, paths, **kwargs: {"complete": False, "scores": {}}
+        self.assertEqual(index._memory_dense_scores.call_args.args[1], [])
+        index._memory_dense_scores.side_effect = lambda vector, paths, **kwargs: {"complete": False, "scores": {}}
         history = self.srv.memory_search_response(self.root, query="lesson", include_history=True, index=index)
         self.assertEqual(history["data"]["archived_body_count"], 2)
         self.assertEqual(history["data"]["retrieval"]["fallback_reason"], "memory_vector_coverage_incomplete")
@@ -5517,6 +5535,429 @@ class MemoryWriterLineEndingTests(_MemoryCase):
                     migrated_beta = Path(records[result["mapping"]["mem-beta-lesson"]]["path"])
                     self.assertIn(f"`{result['mapping']['mem-alpha-lesson']}`",
                                   migrated_beta.read_text(encoding="utf-8"))
+
+
+class MemorySearchDuringBuildTests(unittest.TestCase):
+    """Wave 248lb: memory search reads the published docs layer during a build.
+
+    A real store is built by the real indexer (only the document embedder is
+    synthetic), and the real ``read_snapshot`` and ``WaveIndex`` are used. Only
+    the query embedder and the reranker are stubbed; each records whether a
+    read snapshot was active when it ran.
+    """
+
+    def setUp(self):
+        import contextlib
+        import io
+        import numpy as np
+        import sqlite_runtime as runtime
+        if runtime.apsw is None:
+            self.skipTest("qualified APSW runtime unavailable")
+        import wf_server.server_impl as server_impl
+        import wf_server.memory_handlers as memory_handlers
+        import wf_server.index_handlers as index_handlers
+        from server_tools_support import _make_repo
+        self.np = np
+        self.runtime = runtime
+        self.si = server_impl
+        self.mh = memory_handlers
+        self.ih = index_handlers
+        self.vs = server_impl._load_script("sqlite_vector_store")
+        self.iss = server_impl._load_script("index_state_store")
+        self.indexer = server_impl._load_script("indexer")
+        self.mem = server_impl._load_script("memory_records")
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name) / "repo"
+        self.root.mkdir()
+        self.index_dir = self.root / ".wavefoundry" / "index"
+        _make_repo(self.root, {"docs/plain.md": "# Plain\n\nAn ordinary document.\n"})
+        for mid in ("r1", "r2"):
+            self._write_record(mid)
+        server_impl._fts_invalidate_serving_state()
+        self.addCleanup(server_impl._fts_invalidate_serving_state)
+        server_impl._FRESHNESS_CACHE.clear()
+        self.addCleanup(server_impl._FRESHNESS_CACHE.clear)
+        self._quiet = (contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()))
+        self._build()
+        self.assertEqual(self.iss.read_build_state(self.index_dir)["status"], "complete")
+        self.records = self.mem.load_memory_records(
+            self.root, statuses=list(self.mem.DEFAULT_SURFACED_STATUSES))
+        self.assertEqual(sorted(r["memory_id"] for r in self.records), ["r1", "r2"])
+        self.index = server_impl.WaveIndex(self.root)
+        self.embed_calls = []
+        self.rerank_calls = []
+        self.between_hook = None
+        test = self
+
+        def embed(text, model):
+            test.embed_calls.append({
+                "snapshot_active": test.vs.snapshot_active(test.index_dir),
+                "meta_filled": bool(((getattr(test.index, "_meta", None) or {}).get("project") or {})
+                                    .get("model_versions")),
+            })
+            if test.between_hook is not None:
+                hook, test.between_hook = test.between_hook, None
+                hook()
+            vector = np.zeros(384, dtype=np.float32)
+            vector[0] = 1
+            vector[1] = .3
+            return vector
+
+        class _Reranker:
+            provider = "stub"
+            model_name = "stub"
+
+            def rerank(self, query, texts):
+                test.rerank_calls.append(test.vs.snapshot_active(test.index_dir))
+                return [0.0] * len(texts)
+
+        self.index._embed_query = embed
+        self.index._get_memory_reranker = lambda: _Reranker()
+
+    def _write_record(self, memory_id):
+        content = self.mem.render_memory_record(
+            memory_id=memory_id, kind="review_finding", summary=f"Lesson from {memory_id}.",
+            evidence=["`1abcd-bug some-change` - observed"], targets=["src/a.py"],
+            title=f"Lesson {memory_id}", confidence=0.8, status="active", supersedes="",
+            date="2026-07-13")
+        return self.mem.write_memory_record(self.root, content, memory_id)
+
+    def _build(self):
+        from test_partial_index_question_answering import _embedder
+        with patch.object(self.indexer, "_get_embedder", return_value=_embedder()), \
+                self._quiet[0], self._quiet[1]:
+            self.indexer.build_index(self.root, content="docs", verbose=False)
+
+    def _record_path(self, memory_id):
+        record = next(r for r in self.records if r["memory_id"] == memory_id)
+        path = Path(record["path"])
+        return path if path.is_absolute() else self.root / path
+
+    def _rw(self):
+        return self.runtime.connect(self.iss.state_store_path(self.index_dir))
+
+    def _query(self, records=None):
+        return self.mh._memory_query_records(self.root, records or self.records, "lesson", self.index)
+
+    # AC-1 -------------------------------------------------------------------
+    def test_ac1_building_store_ranks_from_published_layer(self):
+        self.iss.begin_build_epoch(self.index_dir, "test-248lb")
+        self.assertEqual(self.iss.read_build_state(self.index_dir)["status"], "building")
+        results, retrieval = self._query()
+        self.assertIsNotNone(results, retrieval)
+        self.assertEqual(sorted(r["memory_id"] for r in results), ["r1", "r2"])
+        self.assertEqual(retrieval["method"], "hybrid_rrf")
+        self.assertIsNone(retrieval["fallback_reason"])
+
+    # AC-2 -------------------------------------------------------------------
+    def test_ac2_publication_during_dense_read_keeps_the_result(self):
+        captured = []
+        real_dense = self.vs.dense_path_scores
+
+        def capture(*args, **kwargs):
+            out = real_dense(*args, **kwargs)
+            captured.append(dict(out["scores"]))
+            return out
+
+        with patch.object(self.vs, "dense_path_scores", side_effect=capture):
+            _, undisturbed = self._query()
+        self.assertIsNone(undisturbed["fallback_reason"])
+        test = self
+        state = {"published": False}
+        real_open = self.vs._open
+
+        class _Rows(list):
+            def fetchall(self):
+                return list(self)
+
+            def fetchone(self):
+                return self[0] if self else None
+
+        class _Proxy:
+            def __init__(self, conn):
+                self._conn = conn
+
+            def __getattr__(self, name):
+                return getattr(self._conn, name)
+
+            def __enter__(self):
+                self._conn.__enter__()
+                return self
+
+            def __exit__(self, *exc):
+                return self._conn.__exit__(*exc)
+
+            def execute(self, sql, *args):
+                cursor = self._conn.execute(sql, *args)
+                if "layer_path_state" in sql and not state["published"]:
+                    rows = cursor.fetchall()
+                    state["published"] = True
+                    # A second connection begins an epoch and commits a
+                    # publication rewriting r1's vector; finalize stays pending.
+                    test.iss.begin_build_epoch(test.index_dir, "test-248lb-pub")
+                    conn = test._rw()
+                    try:
+                        with conn:
+                            vector = test.np.zeros(384, dtype=test.np.float32)
+                            vector[5] = 1
+                            conn.execute(
+                                "UPDATE vectors_docs SET embedding=? WHERE chunk_id IN "
+                                "(SELECT id FROM chunks_docs WHERE path=?)",
+                                (test.vs.pack_vector(vector), "docs/agents/memory/r1.md"))
+                    finally:
+                        conn.close()
+                    return _Rows(rows)
+                return cursor
+
+        with patch.object(self.vs, "_open", side_effect=lambda d: _Proxy(real_open(d))), \
+                patch.object(self.vs, "dense_path_scores", side_effect=capture):
+            _, disturbed = self._query()
+        self.assertTrue(state["published"])
+        self.assertIsNone(disturbed["fallback_reason"], disturbed)
+        self.assertEqual(captured[-1], captured[0])
+        # Non-vacuous: the committed rewrite is visible to a fresh read.
+        _, hashes = self.mem.memory_body_paths(self.root, self.records)
+        vector = self.np.zeros(384, dtype=self.np.float32)
+        vector[0] = 1
+        vector[1] = .3
+        after = real_dense(self.index_dir, "docs", vector, sorted(hashes), limit=20,
+                           expected_hashes=hashes)
+        self.assertNotEqual(after["scores"]["docs/agents/memory/r1.md"],
+                            captured[0]["docs/agents/memory/r1.md"])
+
+    # AC-3 -------------------------------------------------------------------
+    def test_ac3_stale_record_during_build_falls_back(self):
+        self.iss.begin_build_epoch(self.index_dir, "test-248lb")
+        path = self._record_path("r1")
+        path.write_bytes(path.read_bytes() + b"\nedited\n")
+        results, retrieval = self._query()
+        self.assertIsNone(results)
+        self.assertEqual(retrieval["fallback_reason"], "memory_source_state_stale")
+
+    def test_ac3_building_store_without_docs_model_identity_falls_back(self):
+        self.iss.begin_build_epoch(self.index_dir, "test-248lb")
+        conn = self._rw()
+        try:
+            with conn:
+                conn.execute("UPDATE build_layer_meta SET value='{}' WHERE key='model_versions'")
+        finally:
+            conn.close()
+        results, retrieval = self._query()
+        self.assertIsNone(results)
+        self.assertEqual(retrieval["fallback_reason"], "semantic_index_unavailable")
+
+    def test_ac3_model_change_between_snapshots_falls_back(self):
+        import json as _json
+        test = self
+        seen = {}
+
+        def publish_other_model():
+            meta = test.iss.export_meta_snapshot(test.index_dir) or {}
+            versions = dict(meta.get("model_versions") or {})
+            seen["old"] = versions.get("docs")
+            versions["docs"] = str(versions.get("docs")) + "-other"
+            attempt = test.iss.begin_build_epoch(test.index_dir, "test-248lb-model")
+            conn = test._rw()
+            try:
+                with conn:
+                    conn.execute("UPDATE build_layer_meta SET value=? WHERE key='model_versions'",
+                                 (_json.dumps(versions),))
+            finally:
+                conn.close()
+            self.assertTrue(test.iss.finalize_build_epoch(test.index_dir, attempt))
+
+        self.between_hook = publish_other_model
+        results, retrieval = self._query()
+        self.assertTrue(seen.get("old"))
+        self.assertIsNone(results, retrieval)
+        self.assertEqual(retrieval["fallback_reason"], "semantic_index_unavailable")
+
+    # AC-4 -------------------------------------------------------------------
+    def test_ac4_inference_runs_outside_both_snapshots_after_the_load(self):
+        self.iss.begin_build_epoch(self.index_dir, "test-248lb")
+        results, retrieval = self._query()
+        self.assertIsNotNone(results, retrieval)
+        self.assertTrue(self.embed_calls)
+        self.assertEqual([call["snapshot_active"] for call in self.embed_calls],
+                         [False] * len(self.embed_calls))
+        self.assertEqual([call["meta_filled"] for call in self.embed_calls],
+                         [True] * len(self.embed_calls))
+        self.assertTrue(self.rerank_calls)
+        self.assertEqual(self.rerank_calls, [False] * len(self.rerank_calls))
+
+    # AC-5 / AC-12 -----------------------------------------------------------
+    def test_ac5_complete_epoch_result_has_no_partial_advisory(self):
+        response = self.mh.memory_search_response(self.root, query="lesson", index=self.index)
+        self.assertEqual(response["data"]["retrieval"]["method"], "hybrid_rrf")
+        self.assertNotIn("index_coverage", response["data"])
+        self.assertNotIn("index_coverage_incomplete", [d["code"] for d in response["diagnostics"]])
+
+    def test_ac12_result_read_during_build_carries_partial_advisory(self):
+        self.iss.begin_build_epoch(self.index_dir, "test-248lb")
+        response = self.mh.memory_search_response(self.root, query="lesson", index=self.index)
+        self.assertEqual(response["status"], "ok")
+        self.assertIs(response["data"]["index_coverage"]["complete"], False)
+        self.assertEqual(response["data"]["index_coverage"]["source"], "stored_rows")
+        self.assertEqual([d["code"] for d in response["diagnostics"]].count("index_coverage_incomplete"), 1)
+        self.assertEqual(response["data"]["retrieval"]["method"], "hybrid_rrf")
+        self.assertIsNone(response["data"]["retrieval"]["fallback_reason"])
+        self.assertEqual(response["data"]["count"], 2)
+
+    # AC-6 -------------------------------------------------------------------
+    def test_ac6_one_builder_owns_body_paths_and_hashes(self):
+        import hashlib
+        register = {"memory_id": "mem-register", "record_type": "archive_register_entry",
+                    "path": "docs/agents/memory/archive/register.md"}
+        body_paths, hashes = self.mem.memory_body_paths(self.root, self.records + [register])
+        self.assertEqual(sorted(body_paths.values()), ["r1", "r2"])
+        self.assertEqual(len(hashes), 2)
+        for path, digest in hashes.items():
+            self.assertEqual(digest, hashlib.sha256((self.root / path).read_bytes()).hexdigest())
+        alias = dict(self.records[0], memory_id="r1-alias")
+        with self.assertRaises(ValueError):
+            self.mem.memory_body_paths(self.root, self.records + [alias])
+        with self.assertRaises(ValueError):
+            self.mem.memory_body_paths(self.root, [dict(self.records[0], path=str(Path(self._tmp.name) / "x.md"))])
+        results, retrieval = self._query(self.records + [alias])
+        self.assertIsNone(results)
+        self.assertEqual(retrieval["fallback_reason"], "memory_candidate_state_unavailable")
+        missing = dict(self.records[0], memory_id="r-missing", path="docs/agents/memory/r-missing.md")
+        results, retrieval = self._query(self.records + [missing])
+        self.assertIsNone(results)
+        self.assertEqual(retrieval["fallback_reason"], "memory_source_state_stale")
+
+    # AC-7 -------------------------------------------------------------------
+    def _health_memory(self):
+        response = self.ih.index_health_response(self.si.WaveIndex(self.root))
+        self.assertEqual(response["status"], "ok")
+        codes = [d["code"] for d in response["diagnostics"]]
+        return response["data"]["memory"], codes
+
+    def test_ac7_index_health_reports_memory_coverage_stale_apart_from_missing(self):
+        import contextlib
+        self._write_record("r3")
+        path = self._record_path("r2")
+        path.write_bytes(path.read_bytes() + b"\nedited\n")
+        real_load = self.si._load_script
+
+        def no_eval(name, *args, **kwargs):
+            if name == "memory_eval":
+                raise RuntimeError("memory_eval must not load")
+            return real_load(name, *args, **kwargs)
+
+        for patched in (False, True):
+            with self.subTest(memory_eval_blocked=patched):
+                ctx = patch.object(self.si, "_load_script", side_effect=no_eval) if patched \
+                    else contextlib.nullcontext()
+                with ctx:
+                    memory, codes = self._health_memory()
+                self.assertEqual(memory["memory_vector_coverage"], {
+                    "requested_paths": 3, "covered_paths": 1, "stale_paths": 1, "missing_paths": 1})
+                self.assertIs(memory["complete"], False)
+                self.assertEqual(codes.count("memory_vector_coverage_incomplete"), 1)
+        self._build()
+        for patched in (False, True):
+            with self.subTest(memory_eval_blocked=patched, republished=True):
+                ctx = patch.object(self.si, "_load_script", side_effect=no_eval) if patched \
+                    else contextlib.nullcontext()
+                with ctx:
+                    memory, codes = self._health_memory()
+                self.assertEqual(memory["memory_vector_coverage"], {
+                    "requested_paths": 3, "covered_paths": 3, "stale_paths": 0, "missing_paths": 0})
+                self.assertIs(memory["complete"], True)
+                self.assertNotIn("memory_vector_coverage_incomplete", codes)
+
+    def test_ac7_unreadable_store_reports_a_fixed_reason(self):
+        with patch.object(self.vs, "read_snapshot", side_effect=RuntimeError("private detail")):
+            memory, _codes = self._health_memory()
+        self.assertIsNone(memory["memory_vector_coverage"])
+        self.assertIsNone(memory["complete"])
+        self.assertEqual(memory["coverage_unavailable_reason"], "store_unreadable")
+
+    # Delivery repair, cycle 2 ------------------------------------------------
+    def test_build_starting_between_snapshots_reports_the_second_snapshot_epoch(self):
+        test = self
+        self.between_hook = lambda: test.iss.begin_build_epoch(test.index_dir, "test-248lb-between")
+        response = self.mh.memory_search_response(self.root, query="lesson", index=self.index)
+        self.assertEqual(response["data"]["retrieval"]["method"], "hybrid_rrf")
+        self.assertEqual(response["data"]["index_coverage"]["source"], "stored_rows")
+        self.assertEqual([d["code"] for d in response["diagnostics"]].count("index_coverage_incomplete"), 1)
+
+    def test_second_load_that_raises_during_a_build_still_reports_the_advisory(self):
+        test = self
+
+        def begin_with_another_model():
+            # The building epoch records a docs model this host does not run,
+            # so the second load raises IndexNotReadyError inside its snapshot.
+            import json as _json
+            versions = dict((test.iss.export_meta_snapshot(test.index_dir) or {}).get("model_versions") or {})
+            versions["docs"] = "other/model@full"
+            test.iss.begin_build_epoch(test.index_dir, "test-248lb-other-model")
+            conn = test._rw()
+            try:
+                with conn:
+                    conn.execute("UPDATE build_layer_meta SET value=? WHERE key='model_versions'",
+                                 (_json.dumps(versions),))
+            finally:
+                conn.close()
+
+        self.between_hook = begin_with_another_model
+        response = self.mh.memory_search_response(self.root, query="lesson", index=self.index)
+        self.assertEqual(response["data"]["retrieval"]["fallback_reason"], "semantic_index_unavailable")
+        self.assertEqual(response["data"]["index_coverage"]["source"], "live_filesystem")
+        self.assertEqual([d["code"] for d in response["diagnostics"]].count("index_coverage_incomplete"), 1)
+
+    def test_fallback_read_during_build_labels_its_records_as_live_files(self):
+        self.iss.begin_build_epoch(self.index_dir, "test-248lb")
+        path = self._record_path("r1")
+        path.write_bytes(path.read_bytes() + b"\nedited\n")
+        response = self.mh.memory_search_response(self.root, query="lesson", index=self.index)
+        self.assertEqual(response["data"]["retrieval"]["method"], "lexical_policy")
+        self.assertEqual(response["data"]["retrieval"]["fallback_reason"], "memory_source_state_stale")
+        self.assertIs(response["data"]["index_coverage"]["complete"], False)
+        self.assertEqual(response["data"]["index_coverage"]["source"], "live_filesystem")
+        self.assertIn("live filesystem", response["data"]["index_coverage"]["message"])
+        self.assertEqual([d["code"] for d in response["diagnostics"]].count("index_coverage_incomplete"), 1)
+
+    def test_ac7_stale_only_coverage_is_incomplete(self):
+        path = self._record_path("r2")
+        path.write_bytes(path.read_bytes() + b"\nedited\n")
+        memory, codes = self._health_memory()
+        self.assertEqual(memory["memory_vector_coverage"], {
+            "requested_paths": 2, "covered_paths": 1, "stale_paths": 1, "missing_paths": 0})
+        self.assertIs(memory["complete"], False)
+        self.assertEqual(codes.count("memory_vector_coverage_incomplete"), 1)
+
+    def test_ac7_unreadable_record_reports_a_fixed_reason(self):
+        with patch.object(self.mem, "memory_body_paths", side_effect=OSError("private detail")):
+            memory, _codes = self._health_memory()
+        self.assertIsNone(memory["memory_vector_coverage"])
+        self.assertIsNone(memory["complete"])
+        self.assertEqual(memory["coverage_unavailable_reason"], "record_unreadable")
+
+    def test_run_curated_starting_during_a_build_loads_the_published_layer(self):
+        self.iss.begin_build_epoch(self.index_dir, "test-248lb")
+        evaluator = self.si._load_script("memory_eval")
+        report = evaluator.run_curated(self.root, index=self.index)
+        self.assertNotRegex(str(report.get("unavailable_reason") or ""), "semantic")
+        self.assertIn("sanity_floor", report)
+        self.assertEqual(self.index._docs_vector_layer is not None, True)
+
+    # AC-8 -------------------------------------------------------------------
+    def test_ac8_monitor_sees_a_memory_record_edited_outside_the_tools(self):
+        self.assertFalse(self.indexer.project_index_inputs_stale(self.root))
+        path = self.root / "docs" / "agents" / "memory" / "r1.md"
+        self.assertTrue(path.is_file())
+        path.write_bytes(path.read_bytes() + b"\nedited outside the tools\n")
+        self.assertTrue(self.indexer.project_index_inputs_stale(self.root))
+        started = []
+        with patch.object(self.si, "_read_monitor_config", return_value={"quiet_period_seconds": 0}), \
+                patch.object(self.si, "_background_refresh_active", return_value=False), \
+                patch.object(self.si, "_start_background_index_refresh",
+                             side_effect=lambda root, layer="project": started.append((root, layer)) or True):
+            self.assertTrue(self.si._maybe_refresh_if_stale(self.root))
+        self.assertEqual(started, [(self.root, "project")])
 
 
 if __name__ == "__main__":

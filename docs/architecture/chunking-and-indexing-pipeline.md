@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-23
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -928,7 +928,8 @@ Publication is one transaction and finalize is a later compare-and-set, so a sto
 epoch is `building` holds either the previous generation's rows intact or, after a crash
 between the publication commit and finalize, the complete new rows; half-written rows
 never exist. Since wave `215sy` the question tools (`code_ask`, `code_search`,
-`docs_search`) read such a store instead of refusing. That read is advisory: it does not
+`docs_search`) read such a store instead of refusing, and since wave `248lb` so does
+free-text `memory_search`. That read is advisory: it does not
 complete the epoch, repair storage, schedule healing or start a build, and every
 response carries an incomplete-coverage warning (see the MCP tool surface behavior contract).
 
@@ -939,7 +940,13 @@ connection inside one read transaction (`sqlite_vector_store.read_snapshot`). Re
 same file join that transaction rather than reading a newer generation. Inside it the
 reader token also carries the `build_layer_state` rows, which publication writes in its
 own transaction, so the loaded index, FTS verdicts and freshness cache turn over at the
-publication commit. Before any complete build the published-identity rule does not
+publication commit. `memory_search` uses two read transactions instead of one: the
+first loads the index, the query embedding runs with no transaction held, and the
+second reloads and runs the dense read of published hashes and vectors. It falls back
+when the recorded docs model identity differs between the two, and every record body
+is still checked against its published hash in the second. Its advisory reports
+`source: stored_rows` for a ranked result and `source: live_filesystem` for a fallback,
+whose records come from the memory files. Before any complete build the published-identity rule does not
 apply, so each layer proves its recorded embedding model identity in the same
 transaction or stays unusable. A completed publication remains the only readiness
 authority.

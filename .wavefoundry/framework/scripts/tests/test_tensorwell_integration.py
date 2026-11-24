@@ -102,6 +102,18 @@ print(json.dumps({'registered_reload': 'ok', 'fresh_source_and_pin': True,
 """
 
 
+
+def _null_read_snapshot(testcase):
+    """Wave 248lb fixture rule: a mock index with no store reads through a null
+    snapshot. Patches the module instance the handlers load, not the public
+    import; production code never makes the snapshot optional."""
+    import contextlib
+    import wf_server.server_impl as server_impl
+    patcher = patch.object(server_impl._load_script("sqlite_vector_store"), "read_snapshot",
+                           lambda index_dir: contextlib.nullcontext())
+    patcher.start()
+    testcase.addCleanup(patcher.stop)
+
 class MemoryQualityOracleTests(unittest.TestCase):
     def test_quality_gate_rejects_losses_false_matches_precision_loss_and_unjudged_returns(self):
         from oracle.tensorwell_memory_parity import evaluate_quality
@@ -175,7 +187,10 @@ class IntegrationTests(unittest.TestCase):
         # adapter, score validation and public response consume these candidates.
         scores = {path.relative_to(memory.root).as_posix(): 1 - i / 100
                   for i, path in enumerate(paths)}
-        obj._memory_candidate_scores = lambda *args, **kwargs: {"complete": True, "scores": scores}
+        _null_read_snapshot(self)
+        obj.index_dir = memory.root / ".wavefoundry" / "index"
+        obj._memory_query_vector = lambda query: None
+        obj._memory_dense_scores = lambda *args, **kwargs: {"complete": True, "scores": scores}
         return obj
 
     def test_status_records_all_service_roles_and_selected_without_execution(self):

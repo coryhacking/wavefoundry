@@ -1561,6 +1561,33 @@ def _maybe_optimize_index_on_close(root: Path) -> Optional[dict[str, Any]]:
         return None
 
 
+def _memory_coverage_block(root: Path) -> dict[str, Any]:
+    """Memory vector coverage for ``index_health`` (wave 248lb).
+
+    Model-free and read-only: the surfaced records' body hashes against the
+    published docs layer, read inside one ``read_snapshot``. Does not load
+    ``memory_eval``. A failure yields a fixed reason token, never exception
+    text, so the rest of the health report is unaffected.
+    """
+    import wf_server.server_impl as server_impl
+    unavailable = {"memory_vector_coverage": None, "complete": None}
+    try:
+        mem = server_impl._load_script("memory_records")
+        records = mem.load_memory_records(root, statuses=list(mem.DEFAULT_SURFACED_STATUSES))
+        _body_paths, expected_hashes = mem.memory_body_paths(root, records)
+    except Exception:  # noqa: BLE001 - a fixed token, never exception text
+        return {**unavailable, "coverage_unavailable_reason": "record_unreadable"}
+    try:
+        vectors = server_impl._load_script("sqlite_vector_store")
+        index_dir = root / ".wavefoundry" / "index"
+        with vectors.read_snapshot(index_dir):
+            coverage = vectors.memory_vector_coverage(index_dir, "docs", expected_hashes)
+    except Exception:  # noqa: BLE001 - a fixed token, never exception text
+        return {**unavailable, "coverage_unavailable_reason": "store_unreadable"}
+    return {"memory_vector_coverage": coverage,
+            "complete": coverage["covered_paths"] == coverage["requested_paths"]}
+
+
 def index_health_response(
     index: server_impl.WaveIndex,
     *,
@@ -1756,6 +1783,17 @@ def index_health_response(
             ))
     except Exception:
         pass  # Store absence/corruption has its own health diagnostics.
+    health["memory"] = _memory_coverage_block(index.root)
+    _memory_coverage = health["memory"].get("memory_vector_coverage")
+    if _memory_coverage and (_memory_coverage["stale_paths"] or _memory_coverage["missing_paths"]):
+        diagnostics.append(_diagnostic(
+            "memory_vector_coverage_incomplete",
+            f"Memory search cannot rank every surfaced memory record from vectors: "
+            f"{_memory_coverage['stale_paths']} stale (edited since the docs layer was published) and "
+            f"{_memory_coverage['missing_paths']} missing (no vectors). Until the docs layer is "
+            "updated, memory_search reports a fallback for queries over those records.",
+            recovery_tools=["index_build"], recovery_usage="index_build(content='docs', mode='update')",
+        ))
     vector_defects = {
         layer: {key: details.get(key, 0) for key in ("missing_vectors", "orphan_vectors")}
         for layer, details in (health["state_store"].get("chunk_index") or {}).items()

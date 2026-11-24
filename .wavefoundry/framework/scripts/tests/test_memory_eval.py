@@ -28,6 +28,18 @@ import memory_eval as evalh  # noqa: E402
 from perf_budget_policy import assert_operation_within_budget  # noqa: E402
 
 
+
+def _null_read_snapshot(testcase):
+    """Wave 248lb fixture rule: a mock index with no store reads through a null
+    snapshot. Patches the module instance the handlers load, not the public
+    import; production code never makes the snapshot optional."""
+    import contextlib
+    import wf_server.server_impl as server_impl
+    patcher = patch.object(server_impl._load_script("sqlite_vector_store"), "read_snapshot",
+                           lambda index_dir: contextlib.nullcontext())
+    patcher.start()
+    testcase.addCleanup(patcher.stop)
+
 class MemoryEvalTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -186,12 +198,17 @@ class MemoryEvalTests(unittest.TestCase):
 
             def __init__(self, root):
                 self.root = root
+                self.index_dir = root / ".wavefoundry" / "index"
                 self._docs_vector_layer = "docs"
+                self._meta = {"project": {}}
 
             def _ensure_loaded(self):
                 return None
 
-            def _memory_candidate_scores(self, query, paths, *, expected_hashes):
+            def _memory_query_vector(self, query):
+                return query
+
+            def _memory_dense_scores(self, query, paths, *, expected_hashes):
                 return {"scores": {path: 1.0 for path in paths}, "complete": True,
                         "source_current": True}
 
@@ -293,6 +310,9 @@ class MemoryEvalTests(unittest.TestCase):
         from wf_server import server_impl as srv
 
         evalh.run(self.root)  # Populate historical records before measuring the read.
+        # The hermetic run above reads through the real snapshot; only the
+        # storeless _StubIndex([]) below needs the null snapshot.
+        _null_read_snapshot(self)
         def snapshot():
             return {p.relative_to(self.root): p.read_bytes()
                     for p in self.root.rglob("*") if p.is_file()}
@@ -457,10 +477,14 @@ class QualificationTests(unittest.TestCase):
                       "evidence_refs": [], "confidence": .8}
             class BrokenIndex:
                 def __init__(self, root):
+                    self.index_dir = root / ".wavefoundry" / "index"
                     self._docs_vector_layer = "docs"
+                    self._meta = {"project": {}}
                 def _ensure_loaded(self):
                     pass
-                def _memory_candidate_scores(self, *args, **kwargs):
+                def _memory_query_vector(self, query):
+                    return query
+                def _memory_dense_scores(self, *args, **kwargs):
                     raise RuntimeError("private-query-unique private-record-unique")
             with patch.object(srv._memory_mod(), "load_memory_records", return_value=[record]), patch.object(srv, "WaveIndex", BrokenIndex):
                 report = srv.wf_memory_eval_response(root)
@@ -474,6 +498,7 @@ class QualificationTests(unittest.TestCase):
 
     def test_curated_code_only_index_is_unavailable_not_empty_semantic_success(self):
         import server_impl as srv
+        _null_read_snapshot(self)
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -732,6 +757,7 @@ class _ArmIndex:
         self.root = root
         self.index_dir = root / ".wavefoundry" / "index"
         self._docs_vector_layer = "docs"
+        self._meta = {"project": {}}
         self.order = list(order)
         self.source_current = source_current
         self.complete = complete
@@ -745,7 +771,10 @@ class _ArmIndex:
         self.search_docs_calls += 1
         return ([], False)
 
-    def _memory_candidate_scores(self, query, paths, *, expected_hashes):
+    def _memory_query_vector(self, query):
+        return query
+
+    def _memory_dense_scores(self, query, paths, *, expected_hashes):
         self.dense_calls.append((query, sorted(paths), dict(expected_hashes)))
         if not self.source_current:
             return {"scores": {}, "complete": False, "source_current": False}
@@ -869,6 +898,7 @@ class SituationQueryEvalTests(unittest.TestCase):
 
     # AC-3 -----------------------------------------------------------------
     def test_ac3_sequence_leakage_filter(self):
+        _null_read_snapshot(self)  # storeless stub index
         copy_case = _case("a-1", "answerable", "r1", ["r1"], query=_R1_SUMMARY)
         honest = _case("a-2", "answerable", "r1", ["r1"],
                        query="setup reports the package installed but the new API import fails after upgrade")
@@ -883,6 +913,7 @@ class SituationQueryEvalTests(unittest.TestCase):
 
     # AC-4 -----------------------------------------------------------------
     def test_ac4_freeze_binds_the_scored_set(self):
+        _null_read_snapshot(self)  # storeless stub index
         cases = [_case("a-1", "answerable", "r1", ["r1"], query="restart after upgrade please"),
                  _case("a-2", "answerable", "r2", ["r2"], query="ledger writes are slow"),
                  _case("n-1", "null", "n-1")]
@@ -935,6 +966,7 @@ class SituationQueryEvalTests(unittest.TestCase):
 
     # AC-5 -----------------------------------------------------------------
     def test_ac5_split_keeps_each_record_together(self):
+        _null_read_snapshot(self)  # storeless stub index
         for key in ("q-001", "q-002", "n-005"):
             self.assertEqual(evalh.split_for(key), "heldout", key)
         self.assertEqual(evalh.split_for("r3"), "dev")
@@ -957,6 +989,7 @@ class SituationQueryEvalTests(unittest.TestCase):
 
     # AC-6 -----------------------------------------------------------------
     def test_ac6_production_arm_runs_the_production_path_with_the_shared_index(self):
+        _null_read_snapshot(self)  # storeless stub index
         cases = [_case(f"a-{i}", "answerable", "r1", ["r1"], query=f"upgrade restart problem number {i}")
                  for i in range(4)]
         self.write_set(cases)
@@ -1002,6 +1035,7 @@ class SituationQueryEvalTests(unittest.TestCase):
 
     # AC-7 -----------------------------------------------------------------
     def test_ac7_fallen_back_production_arm_is_not_measured(self):
+        _null_read_snapshot(self)  # storeless stub index
         cases = [_case(f"a-{i}", "answerable", "r1", ["r1"], query=f"upgrade restart problem number {i}")
                  for i in range(4)]
         self.write_set(cases)
@@ -1022,6 +1056,7 @@ class SituationQueryEvalTests(unittest.TestCase):
 
     # AC-8 -----------------------------------------------------------------
     def test_ac8_arms_share_production_corpus_and_dense_stream(self):
+        _null_read_snapshot(self)  # storeless stub index
         query = "editing src ledgerlock py before a legacy write"
         self.write_set([_case("a-1", "answerable", "r2", ["r2"], query=query, terms=["ledgerlock"])])
         index = _ArmIndex(self.root, ["r2", "r1"])
@@ -1052,6 +1087,7 @@ class SituationQueryEvalTests(unittest.TestCase):
         self.assertEqual(held["grep"]["mean_shown"], 1.0)
 
     def test_dense_arms_on_a_stale_index_are_not_measured(self):
+        _null_read_snapshot(self)  # storeless stub index
         self.write_set([_case("a-1", "answerable", "r1", ["r1"], query="restart after upgrade")])
         stub, _calls = self.production_stub({})
         with patch.object(self.mh, "memory_search_response", stub):
@@ -1064,7 +1100,10 @@ class SituationQueryEvalTests(unittest.TestCase):
 
     def test_dense_ties_use_production_sort_order(self):
         class _Tied:
-            def _memory_candidate_scores(self, query, paths, *, expected_hashes):
+            def _memory_query_vector(self, query):
+                return query
+
+            def _memory_dense_scores(self, query, paths, *, expected_hashes):
                 return {"scores": {"docs/agents/memory/zz.md": 0.5, "docs/agents/memory/aa.md": 0.5},
                         "complete": True, "source_current": True}
         body = {"docs/agents/memory/zz.md": "b-mem", "docs/agents/memory/aa.md": "c-mem"}
@@ -1217,6 +1256,7 @@ class SituationQueryEvalTests(unittest.TestCase):
 
     # AC-12 ----------------------------------------------------------------
     def test_ac12_labels_sanity_floor_and_privacy(self):
+        _null_read_snapshot(self)  # storeless stub index
         cases = [_case("priv-case-a", "answerable", "r1", ["r1"], query="private query alpha restart"),
                  _case("priv-case-b", "null", "priv-case-b", query="private query beta unrelated")]
         self.write_set(cases)
@@ -1261,6 +1301,7 @@ class SituationQueryEvalTests(unittest.TestCase):
         self.assertNotIn(_R1_SUMMARY, json.dumps(response))
 
     def test_absent_query_set_computes_only_the_sanity_floor(self):
+        _null_read_snapshot(self)  # storeless stub index
         report = evalh.run_curated(self.root, index=_ArmIndex(self.root, ["r1"]))
         self.assertEqual(report["query_set"]["reason"], "query_set_absent")
         self.assertFalse(report["query_set"]["available"])
@@ -1293,6 +1334,7 @@ class SituationQueryEvalTests(unittest.TestCase):
         self.assertEqual(row["intervals"]["recall_at_5"], [0.0, 1.0])
 
     def test_curated_pass_wires_the_bounded_experimental_rows(self):
+        _null_read_snapshot(self)  # storeless stub index
         self.write_set([_case("a-1", "answerable", "r1", ["r1"], query="restart after upgrade")])
         stub, _calls = self.production_stub({})
         real = evalh._candidate_and_controls
@@ -1309,8 +1351,9 @@ class SituationQueryEvalTests(unittest.TestCase):
         self.assertTrue(all(seen), seen)
 
     def test_dense_stream_reports_incomplete_coverage(self):
+        _null_read_snapshot(self)  # storeless stub index
         index = _ArmIndex(self.root, ["r1"], complete=False)
-        body, hashes = evalh.memory_body_paths(self.root, [
+        body, hashes = self.srv._memory_mod().memory_body_paths(self.root, [
             r for r in self.srv._memory_mod().load_memory_records(
                 self.root, statuses=["active"])])
         self.assertEqual(evalh.dense_stream(index, "q", body, hashes),
@@ -1323,6 +1366,7 @@ class SituationQueryEvalTests(unittest.TestCase):
         self.assertEqual(report["dense_unavailable_reason"], "memory_vector_coverage_incomplete")
 
     def test_dense_only_scores_follow_the_dense_stream(self):
+        _null_read_snapshot(self)  # storeless stub index
         query = "restart after upgrade please"
         self.write_set([_case("a-1", "answerable", "r1", ["r1"], query=query)])
         stub, _calls = self.production_stub({})
@@ -1335,6 +1379,7 @@ class SituationQueryEvalTests(unittest.TestCase):
         self.assertEqual(row["precision_shown"], 0.5)
 
     def test_hybrid_caps_the_lexical_stream_like_production(self):
+        _null_read_snapshot(self)  # storeless stub index
         import server_impl as srv
         records = [{"memory_id": f"lex-{i:02d}", "kind": "successful_pattern", "confidence": 0.8,
                     "status": "active", "summary": f"zeta zeta zeta note {i}",

@@ -2152,10 +2152,20 @@ class WaveIndex:
             )
             return self._inference_selection("search_reranking", self._reranker, selection_reason)
 
-    def _memory_candidate_scores(self, query: str, paths: list[str], *,
-                                 expected_hashes: dict[str, str]) -> dict[str, Any]:
-        """Bound materialized memory records without routing through docs reranking."""
-        vector = self._embed_query(query, self._indexer_constant("DOCS_MODEL"))
+    def _memory_query_vector(self, query: str):
+        """Embed a memory query with the docs model (wave 248lb).
+
+        Model inference: callers run it with no read snapshot held, after a
+        load has filled ``_meta`` so the query precision matches the index.
+        """
+        return self._embed_query(query, self._indexer_constant("DOCS_MODEL"))
+
+    def _memory_dense_scores(self, vector, paths: list[str], *,
+                             expected_hashes: dict[str, str]) -> dict[str, Any]:
+        """Bound materialized memory records without routing through docs reranking.
+
+        One read transaction over published hashes and vectors; no inference.
+        """
         return _load_script("sqlite_vector_store").dense_path_scores(
             self.index_dir, "docs", vector, paths, limit=MEMORY_SEARCH_CAP,
             expected_hashes=expected_hashes,
@@ -5721,7 +5731,8 @@ def _partial_epoch_state(index_dir: Path) -> "tuple | None":
 _PARTIAL_INDEX_COVERAGE_CODE = "index_coverage_incomplete"
 
 
-def _attach_partial_index_coverage(result: dict[str, Any], root: Path, epoch_state: Any, tool: str) -> dict[str, Any]:
+def _attach_partial_index_coverage(result: dict[str, Any], root: Path, epoch_state: Any, tool: str,
+                                   source: "str | None" = None) -> dict[str, Any]:
     """Mark a response served from an unfinished epoch (wave 215sy).
 
     Every such envelope, including zero matches and refusals, carries the
@@ -5740,8 +5751,11 @@ def _attach_partial_index_coverage(result: dict[str, Any], root: Path, epoch_sta
     search_mode = data.get("search_mode")
     unavailable = result.get("status") == "error" or data.get("fallback_reason") in (
         _REASON_INDEX_NOT_READY, _REASON_STORE_ABSENT, _REASON_QUERY_FAILED)
-    source = ("live_filesystem" if search_mode == _MODE_LIVE_FALLBACK and result.get("status") != "error"
-              else "none" if unavailable else "stored_rows")
+    if source not in ("live_filesystem", "none", "stored_rows"):
+        # Callers that report their own fallback shape (memory_search, wave
+        # 248lb) pass ``source``; the others derive it from the envelope.
+        source = ("live_filesystem" if search_mode == _MODE_LIVE_FALLBACK and result.get("status") != "error"
+                  else "none" if unavailable else "stored_rows")
     message = (
         f"Index coverage is incomplete: the index build has not completed (build state: {build_state}). "
         + {"none": "No usable stored rows could answer this request. ",

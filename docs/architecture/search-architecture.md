@@ -447,7 +447,7 @@ The search fallback chain (wave `1seav`, with partial reads added by `215sy`):
    + a token-semantics note on WORKING-lexical zero-hits + recovery diagnostics
 ```
 
-`code_search` and `code_ask`, like `docs_search`, can read compatible stored rows during a building or interrupted epoch from one SQLite read transaction. Each such response carries `index_coverage.complete: false` and an `index_coverage_incomplete` warning; it does not prove current source coverage or mark the build ready. No copied database or retained generation is created. With no usable rows the code tools remain unavailable, while `docs_search` retains its existing live-filesystem fallback. `code_lexical` retains its complete-epoch requirement. See [partial retrieval versus completed publication](chunking-and-indexing-pipeline.md#advisory-partial-retrieval-versus-completed-publication). `code_ask` classifies the weak generated-symbol/config/tool artifact exact-first short circuit as `search_mode: "exact"` (healthy); direct file/path artifact questions remain `hybrid`. It caps confidence in lexical fallback. The legacy `mode: "semantic" | "lexical"` field remains for back-compat; `search_mode` is the authoritative signal.
+`code_search` and `code_ask`, like `docs_search`, can read compatible stored rows during a building or interrupted epoch from one SQLite read transaction. Free-text `memory_search` is the fourth partial-read tool (wave `248lb`); it uses two read transactions, one for the index load and one for the dense read, described under Agent memory retrieval. Each such response carries `index_coverage.complete: false` and an `index_coverage_incomplete` warning; it does not prove current source coverage or mark the build ready. No copied database or retained generation is created. With no usable rows the code tools remain unavailable, while `docs_search` retains its existing live-filesystem fallback. `code_lexical` retains its complete-epoch requirement. See [partial retrieval versus completed publication](chunking-and-indexing-pipeline.md#advisory-partial-retrieval-versus-completed-publication). `code_ask` classifies the weak generated-symbol/config/tool artifact exact-first short circuit as `search_mode: "exact"` (healthy); direct file/path artifact questions remain `hybrid`. It caps confidence in lexical fallback. The legacy `mode: "semantic" | "lexical"` field remains for back-compat; `search_mode` is the authoritative signal.
 
 For code navigation (Layer 2 and 3), there is no fallback: the tools either return results or return a clear empty/unsupported response. This is intentional — exact and symbol navigation are not degraded by missing infrastructure, only by missing language support.
 
@@ -579,7 +579,18 @@ records under `docs/agents/memory/` remain the source of truth. Explicit free-te
 before retrieving at most 20 semantic identities and 20 lexical identities.
 Eligible body files are SHA-256 checked against their published docs-layer
 source hashes inside the vector read transaction. Missing or changed source
-provenance takes the explicit fallback path. The SQLite query groups eligible
+provenance takes the explicit fallback path. Since wave `248lb` the path reads
+the index in two short `read_snapshot` transactions, so a build in progress
+serves the last published docs rows: the first loads the index, which sets the
+query precision; the query is embedded with no transaction held; the second
+reloads, falls back with `semantic_index_unavailable` if the recorded docs model
+identity changed since the first load, and runs the one dense read of hashes and
+vectors. The cross-encoder runs after both. A response read from a `building`
+epoch carries the shared `index_coverage` advisory: a ranked result has
+`source: stored_rows`, and a fallback has `source: live_filesystem`, because its
+records come from the memory files themselves. A load that raises inside either
+snapshot still records the epoch that snapshot saw, so such a fallback carries
+the advisory too. The SQLite query groups eligible
 chunk distances by canonical path before its limit; compact archive entries remain individual lexical identities. Equal-weight
 RRF (k=60) orders the union. Only the first five candidates receive cross-encoder
 checks through the qualified local Tensorwell service, or the CPU INT8 singleton

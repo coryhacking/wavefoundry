@@ -11,10 +11,15 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - `wf_memory_eval` now scores a frozen set of situation-language queries, with null and stale cases, against no-memory, grep, BM25-only, dense-only, hybrid, production and full-context baselines over one corpus. The report leads with recall@5 and MRR, then precision of the shown set, false-show rate and stale-shown rate, each with a bootstrap interval that resamples records. It also reports memory vector coverage, separating stale from missing sources, and records that their own target path cannot reach. Maintainers freeze a query set with `memory_eval.py --freeze-query-set <root>`, which writes the lock the evaluation checks. Wave 245na / 245sp.
+- `index_health` reports memory vector coverage in a new `memory` object: how many surfaced memory records the published docs layer covers, with stale and missing sources counted separately, and a `memory_vector_coverage_incomplete` diagnostic that names both counts and recommends `index_build(content='docs', mode='update')`. A memory record edited outside the tools reads as stale until the index monitor's refresh publishes it. Wave 248lb / 2475t.
 
 ### Changed
 
 - `wf_memory_eval` labels are renamed: `production_variant` is now `memory_search_hybrid_rrf`, because the old `memory_rrf_summary5` named a path the pass never ran, and `experimental_variant` is now `policy_ordered_rrf_shortlist5`. The self-summary sample fields move under `sanity_floor`, which is never the headline. Wave 245na / 245sp.
+
+### Fixed
+
+- Free-text `memory_search` no longer falls back to lexical results while an index build runs. It now ranks from the last published docs layer, as `docs_search`, `code_search` and `code_ask` already did, and carries the same `index_coverage_incomplete` advisory. It still falls back when a record's file differs from its published hash, or when a model-change rebuild completes during the query. `wf_memory_eval` started during a build also runs instead of reporting the semantic index unavailable. The query embedding and the reranker run with no database read transaction held. Wave 248lb / 2475t.
 
 ## [1.51.0] - 2026-11-23
 
