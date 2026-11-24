@@ -1782,6 +1782,11 @@ _MEMORY_BOOTSTRAP_EXCLUDED = {
         "process-wide bytecode policy (change 1zyv1); memory_backfill calls "
         "configure() only when run as __main__, so a reload never needs new code"
     ),
+    "contained_files": (
+        "memory_records imports it lazily only inside resolve_memory_refs (change "
+        "249aq), the admission ref check of the memory tools; the bootstrap never "
+        "resolves refs, so an old cached copy is never reached"
+    ),
 }
 
 

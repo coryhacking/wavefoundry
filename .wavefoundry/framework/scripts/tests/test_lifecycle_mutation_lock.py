@@ -1465,6 +1465,9 @@ class MemoryToolPublicationRefusalTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         _repo(self.root)
         (self.root / "docs" / "agents").mkdir(parents=True, exist_ok=True)
+        # Change 249aq: consolidation admits a new record, so its target exists.
+        (self.root / "src").mkdir(exist_ok=True)
+        (self.root / "src" / "a.py").write_text("fixture = 1\n", encoding="utf-8")
         review_evidence = sys.modules[srv.ProjectPublicationUnavailable.__module__]
         self.LOCK_REL = review_evidence.PROJECT_STATE_PUBLICATION_LOCK_REL.as_posix()
         self.ll = srv._lifecycle_lock_authority

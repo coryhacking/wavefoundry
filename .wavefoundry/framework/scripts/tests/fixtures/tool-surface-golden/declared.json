@@ -1092,6 +1092,11 @@
             "title": "Memory Id",
             "type": "string"
           },
+          "retarget_reason": {
+            "default": "",
+            "title": "Retarget Reason",
+            "type": "string"
+          },
           "status": {
             "default": "candidate",
             "title": "Status",
@@ -1477,6 +1482,11 @@
           },
           "rationale": {
             "title": "Rationale",
+            "type": "string"
+          },
+          "retarget_reason": {
+            "default": "",
+            "title": "Retarget Reason",
             "type": "string"
           },
           "rewrite_confidence": {

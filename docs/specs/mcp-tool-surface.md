@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-23
+Last verified: 2026-11-24
 
 Behavioral contract for the Wavefoundry local MCP server. This behavior contract covers the
 tool names, response conventions, safety rules, and compatibility expectations that
@@ -2289,7 +2289,7 @@ verbose: bool = False, operator_handle: str | None = None, attested_by: str | No
 
 `memory_add(kind: str, summary: str, evidence: list, targets: list, title: str = "",
 confidence: float = 0.6, status: str = "candidate", supersedes: str = "", memory_id: str = "",
-abort_if_duplicate: bool = False)`
+abort_if_duplicate: bool = False, retarget_reason: str = "")`
 
 - Creates one typed, evidence-backed memory record as repo-visible markdown under
   `docs/agents/memory/`. There is no `mode`: a call that passes validation writes.
@@ -2301,9 +2301,11 @@ abort_if_duplicate: bool = False)`
   or `active`, since other statuses are reconciliation outcomes.
 - Validation runs before any write and refuses with `invalid_memory_record`: caller-supplied
   `memory_id` and `supersedes` values must match the memory-id grammar, and `title`,
-  `summary`, `evidence` and `targets` are scanned for forbidden content (secrets, raw
-  transcripts, personal facts). The diagnostic names the offending field and never echoes
-  the rejected text. An explicit `memory_id` that already exists is refused with
+  `summary`, `evidence`, `targets` and `retarget_reason` are scanned for forbidden content.
+  The diagnostic and `data.content_reasons` name each offending field with its reason codes
+  (`secret`, `model_control_token`, `transcript_or_personal`; `data.rejected_reasons` lists
+  the codes) and never echo the rejected text. See **Memory admission floor (change 249aq)**
+  below for the patterns, the ref rule and the refusal order. An explicit `memory_id` that already exists is refused with
   `memory_record_exists`, and the write is refused with `memory_state_unwritable` when the
   memory-state fence cannot be established.
 - The duplicate scan and write run under the project-state publication lock. A possible
@@ -2311,7 +2313,14 @@ abort_if_duplicate: bool = False)`
   advisory by default; `abort_if_duplicate=true` refuses instead and writes nothing.
   Detection never supersedes or merges a record.
 - `supersedes` names a record the new one replaces: after the write, the old record is
-  marked `superseded` with the new id as its successor, preserving history.
+  marked `superseded` with the new id as its successor, preserving history. The new
+  targets must keep at least one original target that still resolves
+  (`memory_rewrite_anchor_dropped`); when none still resolves, a single-line
+  `retarget_reason` is required (`memory_retarget_reason_required`) and stored on the new
+  record as `Retarget reason:`.
+- After the content check, every target and checkable evidence ref must resolve
+  (`memory_ref_unresolved`, `written: false`). A successful write returns `untrusted_refs`
+  and, when it is non-empty, a `memory_untrusted_evidence` advisory.
 - Without `memory_id`, the id is minted from `title` (or `summary` when there is no title)
   in the lifecycle naming described under **Memory record identity** below, and a
   collision with a generated id is retried rather than refused.
@@ -2338,7 +2347,9 @@ status: str = "", include_history: bool = False, limit: int = 10, order: str = "
   with `invalid_arguments`. Without `order` the ordering is unchanged.
 - Results are ranked evidence, not verified answers: the calling agent judges each
   record's relevance, support and applicability. An empty result adds a
-  `no_memory_matches` diagnostic; absence of a record is not absence of risk.
+  `no_memory_matches` diagnostic; absence of a record is not absence of risk. The
+  diagnostic names no recovery tool (change 249aq): an empty result is not a prompt to
+  write a memory.
 - Response `data`: `records`, `count`, `statuses_searched`, `archive_register_entry_count`,
   `archived_body_count`, `semantic_assist` and `retrieval`.
 
@@ -2348,7 +2359,9 @@ status: str = "", include_history: bool = False, limit: int = 10, order: str = "
   for an action `context`: `session_start`, `pre_implementation` (default), `review`,
   `close`, `setup` or `file_edit`. An unknown context is refused with `invalid_arguments`.
 - `limit` defaults to `5` and is capped at `5`. When `targets` (file paths the upcoming
-  action touches) is given, records targeting those files rank first. Community-scoped
+  action touches) is given, only records targeting those files are returned (change
+  249aq); no match is a normal result with `status: "ok"`, `advisories: []`, `count: 0`
+  and no diagnostic. A brief without targets keeps the policy order. Community-scoped
   advisories are returned separately from file and symbol advisories.
 - Decay affects inclusion: churn-decayed kinds can drop below the confidence floor, while
   `fragile_file` never drops from churn alone and reports `needs_reverification` instead.
@@ -2499,6 +2512,13 @@ or hosted model; optional Tensorwell inference uses authenticated local loopback
   in wave.md. The existing bounded historical backfill remains a separate path.
 - Re-running suppresses any source already represented by active, candidate,
   rejected, stale, superseded, or archived history.
+- A draft whose title, summary, evidence or targets match a forbidden content pattern
+  is withheld in both modes (change 249aq). `rejected_by_reason` maps each reason code to
+  the number of drafts withheld, and `withheld` lists each one's `source_event` and
+  `reasons` without its title or summary. `dry_run` drafts carry `resolution` (one entry
+  per target and evidence ref), `blocking_refs` and `untrusted_refs`, so the validating
+  agent sees them before judging. `create` writes candidates even when a ref blocks; the
+  ref is checked when the candidate is validated.
 
 `memory_backfill(mode: str = "dry_run", limit: int = 20, entry_path: str = "manual")`
 
@@ -2521,12 +2541,23 @@ or hosted model; optional Tensorwell inference uses authenticated local loopback
 - Candidate and validation writes request normal background memory-index refresh. Both tools refuse while any retained upgrade checkpoint exists; corrupt manual state is an error, never an empty census.
 - Terminal runs use `indexed`; retired states read terminal without a bulk rewrite. There is no memory publication receipt or index-store-to-backfill authority.
 
-`memory_validate(memory_id, verdict, action_delta, rationale, evidence_verified, current_target_verified, canonical_overlap, rewrite_*=...)`
+`memory_validate(memory_id, verdict, action_delta, rationale, evidence_verified, current_target_verified, canonical_overlap, rewrite_*=..., retarget_reason="")`
 
 - Captures a focused agent judgment; Python never guesses semantic usefulness.
 - `verdict` is `promote`, `retain`, `reject`, or `rewrite`.
 - Promote/retain/rewrite require verified evidence and current target and refuse
-  `canonical_overlap=duplicates`.
+  `canonical_overlap=duplicates`. `duplicates` includes a lesson that the code at the
+  target already shows, in a comment, docstring, assertion or the code itself.
+- Promote/retain/rewrite refuse in the order of **Memory admission floor** below:
+  content, then `memory_ref_unresolved` on the record being admitted (the candidate's own
+  targets and evidence for promote and retain, whose stored refs are content-checked first
+  so no refusal names a stored secret; only `rewrite_targets` and `rewrite_evidence` for
+  rewrite, so a candidate whose target is gone can still be rewritten), then for rewrite
+  the anchor (`memory_rewrite_anchor_dropped`, or `memory_retarget_reason_required` when no
+  original target still resolves and `retarget_reason` is empty). `reject` is always
+  allowed. A rewrite keeps the path, command, error string or finding it was drawn from.
+  This refusal replaces the former `memory_target_not_current`. A successful response
+  carries `untrusted_refs` and, when non-empty, `memory_untrusted_evidence`.
 - Rewrite creates the corrected active record and supersedes the generated
   candidate under the project-global lock. Multi-file crash atomicity is not
   claimed; partial failures return explicit recovery diagnostics.
@@ -2534,6 +2565,51 @@ or hosted model; optional Tensorwell inference uses authenticated local loopback
   this tool, including repeatable evidence and target arguments.
 - The durable source disposition prevents rejection, supersession, or archival
   from being regenerated.
+
+**Memory admission floor (change 249aq):** every memory write path refuses in this
+order, and a refusal at one step runs no later step: (1) the content check over every
+caller field, refs included; (2) ref resolution of the record that would be admitted;
+(3) the anchor check of a rewrite or supersession. Existing records are not re-checked.
+
+- Content reasons: `secret` (a keyword assignment such as `token:`, or a credential shape:
+  a PEM private-key header, AWS `AKIA`/`ASIA` key id, GitHub `ghp_`-family or
+  `github_pat_` token, Slack `xox?-` token, three-part JWT, `sk-ant-`, `sk-proj-`, Google
+  `AIza`, GitLab `glpat-`, npm `npm_` and a case-insensitive bearer token);
+  `model_control_token` (ChatML `<|...|>` tokens, `[INST]`, `<<SYS>>`, Gemma turn markers,
+  `system-reminder` tags, tool-call markup with or without a namespace prefix, and a line
+  starting `Human:`, `Assistant:` or `System:`); `transcript_or_personal` (raw-transcript,
+  routine-log and personal-fact phrasing). A record that only documents a control token is
+  refused too; such a lesson names the token in words. The record lint uses the same line
+  checker, names the record and reason, and does not print the line.
+- Ref resolution (`memory_records.resolve_memory_refs`) reads only the working tree and the
+  record roots, never Git, the index or the network, so a target in an uncommitted new file
+  resolves. Each ref, backticks stripped, takes the first rule that applies: a URI scheme
+  is `unchecked`; `symbol:NAME` is `resolved` when the name occurs as a whole identifier
+  in one of the call's resolved file targets (`unchecked` without one) and `community:` is
+  `unchecked`; the longest whitespace-joined prefix that is an exact file once its suffix
+  is stripped is the path, the rest annotation; for evidence, a wave id (`[0-9a-z]{5,6}`
+  holding a digit), a change id or a memory id (`<id>-<kind> <slug>`, the slug being the
+  second token and anything after it annotation) resolves when that folder, change
+  document or memory record exists; otherwise the first token is a path when it holds a
+  `/` or ends in a listed source or document extension, and every target is a path. A
+  suffix is a line `:N`, a range `:N-M`, a comma list `:N,M`, or a `:name`/`::name` chain.
+  Only the line, range and list forms check line numbers against the file; `:L999`,
+  `line 32` and a second line ref inside one entry are not checked, and a `:name` suffix
+  checks only that the file exists. A path is `resolved` when its exact repo-relative
+  spelling, case-exact in every component, is a contained regular file; `suffix_only` when
+  exactly one walked file ends with `/<ref>`; `ambiguous` when several do; else
+  `unresolved`. The walk skips `.git/`, `.wavefoundry/` except `.wavefoundry/framework/`,
+  dependency and cache directories, nested checkouts, symlinks and junctions.
+- Blocking: every `unresolved` or `ambiguous` ref and every `suffix_only` target; the
+  `memory_ref_unresolved` diagnostic names each with its state and suggests the full path
+  for a `suffix_only` target. A `suffix_only` evidence ref and an `unchecked` ref never
+  block.
+- Untrusted evidence: a URI, a path through `node_modules`, `vendor`, `third_party`,
+  `site-packages`, a virtual environment or a similar dependency directory, or a path under
+  `.wavefoundry/work/` or `.wavefoundry/cache/`. The flag never blocks.
+- Anchor: an original target still resolves when it is `resolved` or `suffix_only`, compared
+  by resolved path. The new targets keep one, or, when none resolves, the caller passes a
+  single-line `retarget_reason`.
 
 ### Change Creation
 

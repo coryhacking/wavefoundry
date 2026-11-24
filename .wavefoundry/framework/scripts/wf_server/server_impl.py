@@ -27249,14 +27249,22 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     def memory_add(kind: str, summary: str, evidence: list, targets: list,
                         title: str = "", confidence: float = 0.6, status: str = "candidate",
                         supersedes: str = "", memory_id: str = "",
-                        abort_if_duplicate: bool = False, **kwargs: Any) -> dict[str, Any]:
+                        abort_if_duplicate: bool = False, retarget_reason: str = "",
+                        **kwargs: Any) -> dict[str, Any]:
         """Create an agent memory record (typed, evidence-backed, repo-visible markdown).
 
         Memory records surface prior learning at action time: failed attempts,
         operator preferences, fragile files, review findings, environment
         gotchas, decisions. Records live under docs/agents/memory/ and are
-        lint-validated; secrets, raw transcripts, and personal facts are
-        refused before write.
+        lint-validated. Refusal order: content (``secret``,
+        ``model_control_token``, ``transcript_or_personal``; never echoed),
+        then refs (``memory_ref_unresolved``: every target and checkable
+        evidence ref must resolve in the working tree; a bare-name target
+        that matches one file is refused with the full path suggested), then
+        the anchor of a ``supersedes`` write (``memory_rewrite_anchor_dropped``,
+        ``memory_retarget_reason_required``). Evidence from a URL, dependency
+        tree or scratch path is written with ``memory_untrusted_evidence``
+        and ``untrusted_refs``.
 
         Args:
             kind: One of failed_attempt, successful_pattern, review_finding,
@@ -27272,7 +27280,11 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             status: "candidate" (default) or "active"; other statuses are
                 reconciliation outcomes, never starting states.
             supersedes: Optional memory id this record replaces (the old
-                record is marked superseded, preserving history).
+                record is marked superseded, preserving history). The new
+                targets keep at least one original target that still resolves.
+            retarget_reason: Single line, required with ``supersedes`` when
+                no original target still resolves; stored as
+                ``Retarget reason:``.
             memory_id: Optional explicit id; defaults to a slug of the title.
             abort_if_duplicate: When True, refuse the write (no mutation) if the
                 record possibly duplicates an existing active/candidate record.
@@ -27285,7 +27297,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         return memory_add_response(
             get_handler().root, kind, summary, evidence, targets, title=title,
             confidence=confidence, status=status, supersedes=supersedes, memory_id=memory_id,
-            abort_if_duplicate=abort_if_duplicate,
+            abort_if_duplicate=abort_if_duplicate, retarget_reason=retarget_reason,
         )
 
     @mcp.tool(annotations=_MUTATING_TOOL)
@@ -27319,6 +27331,10 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 Unknown/ineligible IDs refuse the entire batch before writes.
 
         Review concrete future action and canonical overlap before selection.
+        Drafts with forbidden content are withheld by reason (``withheld``
+        shows source event and reasons only; ``rejected_by_reason`` counts
+        them). dry_run drafts carry each ref's ``resolution`` and
+        ``untrusted_refs``.
         Reconnect after upgrade if the client caches the old tool schema.
         """
         bad = _ensure_no_extra_args("memory_propose", kwargs)
@@ -27360,6 +27376,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         canonical_overlap: str, rewrite_kind: str = "", rewrite_title: str = "",
         rewrite_summary: str = "", rewrite_evidence: Optional[list] = None,
         rewrite_targets: Optional[list] = None, rewrite_confidence: float = 0.8,
+        retarget_reason: str = "",
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Validate one evidence-derived memory candidate with focused agent judgment.
@@ -27370,6 +27387,15 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         active record and supersedes the generated candidate in one serialized
         operation; partial failures are surfaced with explicit recovery.
 
+        promote, retain and rewrite refuse in order: content, then refs of the
+        record being admitted (the candidate's own for promote and retain,
+        only rewrite_targets and rewrite_evidence for rewrite) with
+        ``memory_ref_unresolved``, then the rewrite anchor
+        (``memory_rewrite_anchor_dropped``, ``memory_retarget_reason_required``).
+        reject is always allowed. A ref is a path when, after a trailing
+        ``:N``, ``:N-M``, ``:N,M`` or ``:name``/``::name`` suffix is removed, it
+        has a ``/`` or a listed extension; only line suffixes check lines.
+
         Args:
             memory_id: Generated candidate memory id.
             verdict: promote | retain | reject | rewrite.
@@ -27378,8 +27404,14 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             rationale: Concise validation rationale grounded in evidence/current tree.
             evidence_verified: True only after following the evidence references.
             current_target_verified: True only after checking the current target.
-            canonical_overlap: none | supplements | duplicates.
+            canonical_overlap: none | supplements | duplicates. ``duplicates``
+                includes a lesson the code at the target already shows, in a
+                comment, docstring, assertion or the code itself; reject it.
             rewrite_*: Required corrected record fields when verdict is rewrite.
+                A rewrite keeps a still-resolving original target and the
+                path, command, error string or finding it was drawn from.
+            retarget_reason: Single line, required for a rewrite when no
+                original target still resolves; stored as ``Retarget reason:``.
         """
         bad = _ensure_no_extra_args("memory_validate", kwargs)
         if bad is not None:
@@ -27390,6 +27422,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             rewrite_kind=rewrite_kind, rewrite_title=rewrite_title,
             rewrite_summary=rewrite_summary, rewrite_evidence=rewrite_evidence,
             rewrite_targets=rewrite_targets, rewrite_confidence=rewrite_confidence,
+            retarget_reason=retarget_reason,
         )
 
     @mcp.tool(annotations=_READONLY_TOOL)
@@ -27439,8 +27472,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         """Assemble a short, capped, cited memory briefing for an action context.
 
         Contexts: session_start, pre_implementation, review, close, setup,
-        file_edit. When ``targets`` is given, records targeting those files
-        rank first. Community-scoped advisories are grouped separately.
+        file_edit. When ``targets`` is given, only records targeting those
+        files are returned; no match is an empty, normal result.
+        Community-scoped advisories are grouped separately.
         Decay affects inclusion: churn-decayed kinds can drop out below the
         confidence floor; ``fragile_file`` never drops from churn alone — it
         gains ``needs_reverification`` instead.

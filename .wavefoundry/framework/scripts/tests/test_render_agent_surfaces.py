@@ -1053,6 +1053,36 @@ class DistributionCarrierBoundaryTests(unittest.TestCase):
             # controls; the custom local prompt is deliberately not copied prose.
 
 
+class MemoryAdmissionGuidanceTests(unittest.TestCase):
+    """Change 249aq: seeds 240 and 190 and both prompt copies of each define
+    code-derivable lessons as duplicates and keep a rewrite's anchor."""
+
+    CARRIERS = (
+        ".wavefoundry/framework/seeds/240-memory-review.prompt.md",
+        ".wavefoundry/framework/install/lifecycle-prompts/memory-review.prompt.md",
+        "docs/prompts/memory-review.prompt.md",
+        ".wavefoundry/framework/seeds/190-close-wave.prompt.md",
+        ".wavefoundry/framework/install/lifecycle-prompts/close-wave.prompt.md",
+        "docs/prompts/close-wave.prompt.md",
+    )
+    SENTENCES = (
+        '`canonical_overlap="duplicates"` also covers a lesson the code at the target '
+        "already shows, in a comment, docstring, assertion or the code itself, so reject it.",
+        "A rewrite keeps its concrete anchor: at least one original target that still "
+        "resolves, and the path, command, error string or finding it was drawn from, not "
+        "condensed into a general lesson.",
+    )
+
+    def test_every_copy_carries_both_sentences(self) -> None:
+        repo = PROJECT_ROOT.parent
+        for rel in self.CARRIERS:
+            # Templates wrap prose and bullets split it; compare collapsed text.
+            text = " ".join((repo / rel).read_text(encoding="utf-8").replace("\n- ", " ").split())
+            for sentence in self.SENTENCES:
+                with self.subTest(carrier=rel, sentence=sentence[:30]):
+                    self.assertIn(sentence, text)
+
+
 class MemoryReviewPromptTests(unittest.TestCase):
     def test_prompt_contract_and_known_bad_controls(self) -> None:
         prompt = (

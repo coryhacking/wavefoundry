@@ -43,7 +43,12 @@ briefed subagent.
    `memory_validate` on every evidence-derived candidate. The validating
    agent follows the linked evidence and current target, states the future
    action delta, checks canonical overlap and confidence, and records
-   `promote`, `retain`, `reject`, or `rewrite`. A wave may correctly produce
+   `promote`, `retain`, `reject`, or `rewrite`. `canonical_overlap="duplicates"`
+   also covers a lesson the code at the target already shows, in a comment,
+   docstring, assertion or the code itself, so reject it. A rewrite keeps its
+   concrete anchor: at least one original target that still resolves, and the
+   path, command, error string or finding it was drawn from, not condensed into
+   a general lesson. A wave may correctly produce
    zero memories; a missing or pending eligible candidate blocks close.
 6. The canonical test suite, docs gate, and relevant packaging checks pass.
 7. The context-efficiency checkpoint has been projected from durable telemetry

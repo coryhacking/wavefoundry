@@ -241,9 +241,70 @@ MEMORY_REQUIRED_SECTIONS = ("## Summary", "## Evidence", "## Targets")
 # Memory records reuse the journal forbidden-content posture (secrets, raw
 # transcripts, routine noise) plus personal-fact phrasing — memory is scoped
 # to software-delivery behavior, never to people.
-MEMORY_DISALLOWED_PATTERNS = JOURNAL_DISALLOWED_PATTERNS + (
+MEMORY_PERSONAL_FACT_PATTERNS = (
     re.compile(r"\b(the\s+)?(user|operator)('s)?\s+(personal|private|home|family|health)\b", re.IGNORECASE),
 )
+# Change 249aq: credential values that carry no keyword. Each shape is a
+# prefix plus a length floor, so prose that names the prefix does not match.
+MEMORY_CREDENTIAL_PATTERNS = (
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+    re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b"),
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{60,}\b"),
+    re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}"),
+    re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
+    re.compile(r"\bsk-ant-[A-Za-z0-9_-]{20,}"),
+    re.compile(r"\bsk-proj-[A-Za-z0-9_-]{20,}"),
+    re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b"),
+    re.compile(r"\bglpat-[A-Za-z0-9_-]{20,}"),
+    re.compile(r"\bnpm_[A-Za-z0-9]{36}\b"),
+    re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/-]{20,}=*"),
+)
+# Change 249aq: chat-template and harness control tokens. A record that only
+# documents one of these is refused too; such a lesson names the token in words.
+MEMORY_CONTROL_TOKEN_PATTERNS = (
+    re.compile(r"<\|[A-Za-z0-9_]{1,32}\|>"),
+    re.compile(r"\[/?INST\]"),
+    re.compile(r"<</?SYS>>"),
+    re.compile(r"<(?:start|end)_of_turn>"),
+    re.compile(r"</?system-reminder>"),
+    re.compile(
+        r"</?(?:[A-Za-z][A-Za-z0-9_-]*:)?"
+        # Only the tag opening is matched, which is linear and catches any
+        # attribute length or content.
+        r"(?:function_calls|invoke|tool_call|tool_use|tool_result|parameter)\b"
+    ),
+    re.compile(r"^(?:Human|Assistant|System):\s"),
+)
+# Reason code -> pattern group. The keyword-assignment pattern is the
+# journal's first pattern; the remaining journal and personal-fact patterns
+# keep their shared reason.
+MEMORY_CONTENT_REASON_PATTERNS = (
+    ("secret", (JOURNAL_DISALLOWED_PATTERNS[0],) + MEMORY_CREDENTIAL_PATTERNS),
+    ("model_control_token", MEMORY_CONTROL_TOKEN_PATTERNS),
+    ("transcript_or_personal", JOURNAL_DISALLOWED_PATTERNS[1:] + MEMORY_PERSONAL_FACT_PATTERNS),
+)
+MEMORY_DISALLOWED_PATTERNS = tuple(
+    pattern for _reason, group in MEMORY_CONTENT_REASON_PATTERNS for pattern in group
+)
+
+
+def memory_line_reasons(line: str, exempt_end: "int | None" = None) -> set[str]:
+    """Reason codes whose memory content patterns match ``line``.
+
+    A match whose end offset equals ``exempt_end`` is skipped; the record lint
+    passes the end of a recognized decision-log source event, handlers pass
+    ``None``. Returns codes only, never the matched text.
+    """
+    reasons: set[str] = set()
+    for reason, group in MEMORY_CONTENT_REASON_PATTERNS:
+        if any(
+            match.end() != exempt_end
+            for pattern in group
+            for match in pattern.finditer(line)
+        ):
+            reasons.add(reason)
+    return reasons
 WAVE_WATCHPOINT_MARKERS = ("watchpoint", "follow-up", "block", "retry", "defer", "move")
 
 # Container metadata, distinct from member item/change status. `ready` and

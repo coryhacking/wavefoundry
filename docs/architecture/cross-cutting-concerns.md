@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-21
+Last verified: 2026-11-24
 
 ## Configuration
 
@@ -233,6 +233,39 @@ The active memory corpus has a fixed budget of 50 active records. `memory_brief`
 reports the budget and, only at the cap, same-file `fragile_file` consolidation
 candidates. It is a review signal, not an eviction mechanism: supersession and
 archival stay explicit, retention-checked operations.
+
+## Memory admission
+
+Change 249aq gives every memory write a mechanical floor before the agent's
+judgment is accepted. Each write path refuses in a fixed order: the content
+check over every caller field, refs included; then resolution of the refs of
+the record that would be admitted; then the anchor check of a rewrite or
+supersession. A refusal at one step runs no later step, so a diagnostic that
+names a ref never names text that failed the content check.
+
+- **Content reasons.** One line checker, `memory_line_reasons`, serves the write
+  paths and the record lint, so reason codes agree everywhere: `secret` (keyword
+  assignments and keyless credential shapes), `model_control_token`
+  (chat-template, harness and tool-call markup) and `transcript_or_personal`.
+  Neither path echoes the matched text; the lint names the record and reason.
+  `memory_propose` withholds such drafts and counts them in `rejected_by_reason`.
+- **Ref resolution.** `memory_records.resolve_memory_refs` is deterministic and
+  model-free. It reads only the working tree and the record roots, never Git,
+  the index or the network. "At HEAD" in the memory arc means the working tree
+  of the current checkout, so a target in an uncommitted new file resolves. An
+  `unresolved` or `ambiguous` ref, and a `suffix_only` target, blocks a new
+  admission with `memory_ref_unresolved`; the refusal suggests the full path
+  for a target that matches one file. A `suffix_only` evidence ref and an
+  `unchecked` ref (free-form slugs, test ids, URLs) pass. `memory_ref_tree` walks
+  the repository once for a batch caller such as the track 4 maintenance check.
+- **Untrusted evidence.** A URL, a dependency-tree path or a scratch or cache
+  path is flagged with `memory_untrusted_evidence`; the flag never blocks.
+- **Anchors.** A rewrite or supersession keeps at least one original target that
+  still resolves; when none does, it names resolving replacements and a
+  `retarget_reason` stored on the new record.
+- **Scope.** Admission applies to new writes only; existing records are not
+  re-judged. A targeted `memory_brief` returns only matching records, so an
+  empty briefing is a normal result.
 MCP server and dashboard server may both want richer stderr request logging later; current behavior stays intentionally minimal.
 
 ## Persisted storage continuity

@@ -50,6 +50,7 @@ from .constants import (
     MEMORY_CONFIDENCE_PATTERN,
     MEMORY_CREATED_PATTERN,
     MEMORY_DISALLOWED_PATTERNS,
+    memory_line_reasons,
     MEMORY_ID_PATTERN,
     MEMORY_ARCHIVE_ELIGIBLE_STATUSES,
     MEMORY_KIND_PATTERN,
@@ -148,21 +149,19 @@ def _undeclared_change_kind_failure(rel: str, change_id: str, kind: str) -> str:
     )
 
 
-def _memory_forbidden_match(raw_line: str) -> bool:
-    """True when ``raw_line`` matches a memory forbidden-content pattern.
+def _memory_forbidden_match(raw_line: str) -> set[str]:
+    """Reason codes for the memory forbidden-content patterns ``raw_line`` matches.
 
-    Every match of every pattern is checked. The only match ignored is one that
-    ends exactly at the decision-log hash separator of a fully recognized
-    generated source event; finding and repeated-repairs events get no
-    exemption.
+    Every match of every pattern is checked through the shared
+    ``memory_line_reasons`` (change 249aq), so the lint and the write paths
+    agree on reason codes. The only match ignored is one that ends exactly at
+    the decision-log hash separator of a fully recognized generated source
+    event; finding and repeated-repairs events get no exemption. An empty set
+    means the line is clean.
     """
     event = _DECISION_LOG_SOURCE_EVENT_RE.match(raw_line)
     exempt_end = event.end(1) if event else None
-    return any(
-        match.end() != exempt_end
-        for pattern in MEMORY_DISALLOWED_PATTERNS
-        for match in pattern.finditer(raw_line)
-    )
+    return memory_line_reasons(raw_line, exempt_end)
 
 _CHANGE_DOC_REQUIRED_SECTIONS = (
     "## Rationale",
@@ -2516,10 +2515,14 @@ def check_memory_docs(root: Path, only: set[Path] | None = None, skip: set[Path]
         for raw_line in text.splitlines():
             if _line_forbids_content(raw_line):
                 continue
-            if _memory_forbidden_match(raw_line):
+            reasons = _memory_forbidden_match(raw_line)
+            if reasons:
+                # Change 249aq: name the reason, never the line, so a credential
+                # is not printed into terminal or CI output.
                 failures.append(
                     f"{rel}: memory record appears to capture secrets, raw transcript content, "
-                    f"or personal facts (forbidden by schema): {raw_line.strip()[:80]!r}"
+                    f"or personal facts (forbidden by schema; reason: {', '.join(sorted(reasons))}); "
+                    "the matched line is not shown"
                 )
                 break
     return failures

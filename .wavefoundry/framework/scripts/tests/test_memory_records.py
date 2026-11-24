@@ -108,6 +108,16 @@ def _null_read_snapshot(testcase):
     patcher.start()
     testcase.addCleanup(patcher.stop)
 
+# Change 249aq: files and plan stems the shared memory fixtures cite.
+_ADMISSION_FIXTURE_FILES = (
+    "src/a.py", "src/b.py", "src/core.py", "src/other.py", "src/chunker.py",
+    "src/server.py", "src/shared.py", "src/retry.py", "tests/test_server.py",
+    "docs/plans/1abcd-bug some-change.md", "docs/plans/1abcd-bug chunker-regression.md",
+    "docs/plans/1abcd-enh some-change.md", "docs/plans/1abcd-enh the-change.md",
+    "docs/plans/1abce-enh longer-change.md", "docs/plans/1zzzz-enh other.md",
+)
+
+
 class _MemoryCase(unittest.TestCase):
     def _selected_sources(self, wave_id):
         supply = getattr(self, "supply", None) or self.srv._load_script("memory_supply")
@@ -126,6 +136,16 @@ class _MemoryCase(unittest.TestCase):
         self.root = Path(self._tmp.name) / "repo"
         (self.root / "docs" / "agents").mkdir(parents=True)
         self.index_dir = self.root / ".wavefoundry" / "index"
+        # Change 249aq: admission resolves refs, so the files, plan stems and
+        # wave folders the fixtures cite exist in the temporary tree.
+        for rel in _ADMISSION_FIXTURE_FILES:
+            fixture = self.root / rel
+            fixture.parent.mkdir(parents=True, exist_ok=True)
+            fixture.write_text("# fixture\n", encoding="utf-8")
+        for wave_name in ("1abcd fixture", "1ro43 fixture"):
+            wave = waves_dir(self.root) / wave_name
+            wave.mkdir(parents=True, exist_ok=True)
+            (wave / RECORD).write_text(f"# Wave\n\n{ID_KEY}: `{wave_name}`\n", encoding="utf-8")
 
     def _add(self, memory_id: str, kind: str, *, status="active", confidence=0.8,
              targets=("src/a.py",), created="2026-07-13", supersedes="") -> Path:
@@ -3241,6 +3261,12 @@ class MemoryProposeTests(_MemoryCase):
         from server_tools_support import load_server as load_registered_server, load_thin_runner
 
         self._wave("1aaaa", "manual", decision_rows=[("Use `src/a.py`", "current source")])
+        # Change 249aq: the unrelated record's wave id names a real folder at
+        # admission; the folder is removed after the adds so the close gate's
+        # "1aaaa" prefix stays unique.
+        unrelated = waves_dir(self.root) / "1aaaax unrelated"
+        unrelated.mkdir(parents=True)
+        (unrelated / RECORD).write_text(f"# Wave\n\n{ID_KEY}: `1aaaax unrelated`\n", encoding="utf-8")
         self.srv = load_registered_server()
         with patch.object(self.srv, "_trigger_background_index_refresh_for_paths"), \
              patch.object(self.srv, "_attach_lint_to_response", side_effect=lambda response, *args: response):
@@ -3257,6 +3283,7 @@ class MemoryProposeTests(_MemoryCase):
                     "status": status, "memory_id": memory_id,
                 }))
                 self.assertEqual(response["status"], "ok", response)
+            shutil.rmtree(unrelated)
             active_path = self.root / self.mem.MEMORY_DIR / "mem-active.md"
             original_active = active_path.read_bytes()
             manual = next(record for record in self.mem.load_memory_records(self.root)
@@ -3901,7 +3928,10 @@ class MemoryProposeTests(_MemoryCase):
         r = self.srv.memory_propose_response(self.root, "1aabh", "create", source_events=self._selected_sources("1aabh"))
         self.assertEqual(r["data"]["records_written"], 0, r)
         self.assertIn("memory_draft_skipped_forbidden", [d["code"] for d in r["diagnostics"]])
-        event = r["data"]["proposed"][0]["source_event"]
+        # Change 249aq: a withheld draft shows its source event and reasons only.
+        self.assertEqual(r["data"]["proposed"], [])
+        self.assertEqual(r["data"]["rejected_by_reason"], {"secret": 1})
+        event = r["data"]["withheld"][0]["source_event"]
         self.assertEqual(event, "finding:1aabh:leaked-token:hunter2")
         path = self.mem.write_memory_record(self.root, self.mem.render_memory_record(
             memory_id="mem-leaky", kind="failed_attempt", summary="A lesson.",
@@ -4522,7 +4552,7 @@ class MemorySearchOrderingTests(_MemoryCase):
         )
         self.assertEqual(
             [record["memory_id"] for record in response["data"]["advisories"]],
-            ["mem-target", "mem-unmatched"],
+            ["mem-target"],
         )
 
 
@@ -4863,11 +4893,16 @@ class MemoryAgentValidationTests(_MemoryCase):
     def setUp(self):
         super().setUp()
         self.srv = load_server()
-        (self.root / "src").mkdir(parents=True)
+        (self.root / "src").mkdir(parents=True, exist_ok=True)
 
     def _candidate(self, memory_id: str, source_event: str, target: str = "src/a.py"):
         (self.root / target).parent.mkdir(parents=True, exist_ok=True)
         (self.root / target).write_text("value = 1\n", encoding="utf-8")
+        # Change 249aq: the cited wave id resolves to a wave folder.
+        wave = waves_dir(self.root) / "1aaaa demo"
+        if not (wave / RECORD).exists():
+            wave.mkdir(parents=True, exist_ok=True)
+            (wave / RECORD).write_text(f"# Wave\n\n{ID_KEY}: `1aaaa demo`\n", encoding="utf-8")
         content = self.mem.render_memory_record(
             memory_id=memory_id, kind="failed_attempt",
             title=f"Candidate {memory_id}",
@@ -5958,6 +5993,647 @@ class MemorySearchDuringBuildTests(unittest.TestCase):
                              side_effect=lambda root, layer="project": started.append((root, layer)) or True):
             self.assertTrue(self.si._maybe_refresh_if_stale(self.root))
         self.assertEqual(started, [(self.root, "project")])
+
+
+# ---------------------------------------------------------------------------
+# Change 249aq (wave 249as): memory admission hardening.
+# ---------------------------------------------------------------------------
+
+
+def _generated(prefix: str, count: int, alphabet: str = "A1b2C3d4") -> str:
+    """A credential-shaped value built at run time, so no literal is committed."""
+    return prefix + (alphabet * (count // len(alphabet) + 1))[:count]
+
+
+class _AdmissionCase(_MemoryCase):
+    """The AC-1 to AC-7 fixture tree inside a temporary repository."""
+
+    def setUp(self):
+        super().setUp()
+        self.srv = load_server()
+        files = {
+            "src/a.py": "def alpha():\n    value = 1\n    return value\n",
+            "pkg/one/util.py": "one = 1\n",
+            "pkg/two/util.py": "two = 2\n",
+            "node_modules/dep/index.js": "module.exports = 1;\n",
+            "docs/plans/1abce-bug fixture-plan.md": "# Fixture plan\n",
+        }
+        for rel, text in files.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+        # setUp of _MemoryCase already wrote docs/waves/1abcd fixture/wave.md;
+        # src/b.py is the AC-1 missing file.
+        (self.root / "src" / "b.py").unlink()
+
+    def _memory_bytes(self) -> dict[str, bytes]:
+        memory = self.root / self.mem.MEMORY_DIR
+        if not memory.is_dir():
+            return {}
+        return {p.relative_to(memory).as_posix(): p.read_bytes()
+                for p in sorted(memory.rglob("*")) if p.is_file()}
+
+    def _pending(self, memory_id: str, targets, evidence=("1abcd",)):
+        content = self.mem.render_memory_record(
+            memory_id=memory_id, kind="failed_attempt", title=f"Candidate {memory_id}",
+            summary=f"Generated lesson for {memory_id} that needs validation.",
+            evidence=list(evidence), targets=list(targets),
+            source_event=f"finding:{memory_id}", validation="pending",
+        )
+        return self.mem.write_memory_record(self.root, content, memory_id)
+
+    def _active(self, memory_id: str, targets):
+        content = self.mem.render_memory_record(
+            memory_id=memory_id, kind="decision", title=f"Active {memory_id}",
+            summary=f"Active lesson for {memory_id}.", evidence=["1abcd"],
+            targets=list(targets), status="active", confidence=0.8,
+        )
+        return self.mem.write_memory_record(self.root, content, memory_id)
+
+    def _validate(self, memory_id: str, verdict: str, **kwargs):
+        return self.srv.memory_validate_response(
+            self.root, memory_id, verdict,
+            "Run the targeted regression before editing.",
+            "Evidence and current target support the lesson.",
+            verdict != "reject", verdict != "reject",
+            "duplicates" if verdict == "reject" else "none", **kwargs)
+
+    def _rewrite(self, memory_id: str, targets, **kwargs):
+        return self._validate(
+            memory_id, "rewrite", rewrite_kind="decision",
+            rewrite_summary=f"Corrected lesson for {memory_id} naming its file.",
+            rewrite_evidence=["1abcd"], rewrite_targets=list(targets), **kwargs)
+
+    @staticmethod
+    def _codes(response) -> list[str]:
+        return [d["code"] for d in response["diagnostics"]]
+
+
+class MemoryRefResolutionTests(_AdmissionCase):
+    """AC-1 and AC-10: the shared, model-free resolution primitive."""
+
+    def setUp(self):
+        super().setUp()
+        # The record filename and waves root follow the active profile.
+        wave = waves_dir(self.root) / "1abcd fixture"
+        self.wave_rel = (wave / RECORD).relative_to(self.root).as_posix()
+        self.wave_missing = (wave / "missing.md").relative_to(self.root).as_posix()
+
+    def _states(self, *, targets=(), evidence=()):
+        result = self.mem.resolve_memory_refs(self.root, targets=targets, evidence=evidence)
+        return result, {(e["role"], e["ref"]): e for e in result["refs"]}
+
+    def test_target_states(self):
+        self.assertFalse(self.index_dir.exists())
+        with patch.dict(sys.modules, {"accel_embedder": None, "sqlite_vector_store": None}):
+            _result, by = self._states(targets=[
+                "src/a.py", "src/a.py:3", "src/a.py:4", "a.py", "util.py", "src/missing.py",
+                "src", "Src/A.py", "src/a.py.", "symbol:alpha", "symbol:beta", "community:x",
+            ])
+        expected = {
+            "src/a.py": "resolved", "src/a.py:3": "resolved", "src/a.py:4": "unresolved",
+            "a.py": "suffix_only", "util.py": "ambiguous", "src/missing.py": "unresolved",
+            "src": "unresolved", "Src/A.py": "unresolved", "src/a.py.": "unresolved",
+            "symbol:alpha": "resolved", "symbol:beta": "unresolved", "community:x": "unchecked",
+        }
+        for ref, state in expected.items():
+            self.assertEqual(by[("target", ref)]["state"], state, ref)
+        self.assertEqual(by[("target", "a.py")]["resolved_path"], "src/a.py")
+        _result, alone = self._states(targets=["symbol:alpha"])
+        self.assertEqual(alone[("target", "symbol:alpha")]["state"], "unchecked")
+
+    def test_evidence_states_and_order(self):
+        result, by = self._states(targets=["src/a.py"], evidence=[
+            "1abcd", "1abce-bug fixture-plan", "1abce-bug fixture-plan with notes", "a.py",
+            "1zzzz", "finding-slug-text", "https://example.com/x",
+            "https://example.com/src/a.py", "tests", "fixed", "node_modules/dep/index.js",
+            "src/a.py:4", "src/a.py::AlphaTests::test_alpha", "src/a.py:alpha",
+            "src/a.py::test_alpha", "src/b.py:alpha", "src/a.py:1,3", "src/a.py:1,4",
+            "test_a.AlphaTests.test_alpha", "qa-249as-some-finding", "a.py:2",
+        ])
+        expected = {
+            "1abcd": "resolved", "1abce-bug fixture-plan": "resolved",
+            "1abce-bug fixture-plan with notes": "resolved", "a.py": "suffix_only",
+            "1zzzz": "unresolved", "finding-slug-text": "unchecked",
+            "https://example.com/x": "unchecked", "https://example.com/src/a.py": "unchecked",
+            "tests": "unchecked", "fixed": "unchecked", "node_modules/dep/index.js": "resolved",
+            "src/a.py:4": "unresolved", "src/a.py::AlphaTests::test_alpha": "resolved",
+            "src/a.py:alpha": "resolved", "src/a.py::test_alpha": "resolved",
+            "src/b.py:alpha": "unresolved", "src/a.py:1,3": "resolved",
+            "src/a.py:1,4": "unresolved", "test_a.AlphaTests.test_alpha": "unchecked",
+            "qa-249as-some-finding": "unchecked", "a.py:2": "suffix_only",
+        }
+        for ref, state in expected.items():
+            self.assertEqual(by[("evidence", ref)]["state"], state, ref)
+        self.assertIn("https://example.com/src/a.py", result["untrusted"])
+        self.assertIn("node_modules/dep/index.js", result["untrusted"])
+        blocking = {(e["role"], e["ref"]) for e in result["blocking"]}
+        self.assertNotIn(("evidence", "a.py"), blocking)
+        self.assertNotIn(("evidence", "a.py:2"), blocking)
+
+    def test_spaced_and_annotated_paths(self):
+        _result, by = self._states(
+            targets=[self.wave_rel, self.wave_missing,
+                     "index.js"],
+            evidence=[f"{self.wave_rel}:1 first line",
+                      "src/a.py begin_alpha notes", "a.py begin_alpha notes"])
+        self.assertEqual(by[("target", self.wave_rel)]["state"], "resolved")
+        self.assertEqual(by[("target", self.wave_missing)]["state"], "unresolved")
+        self.assertEqual(by[("target", "index.js")]["state"], "unresolved")
+        line = by[("evidence", f"{self.wave_rel}:1 first line")]
+        self.assertEqual((line["state"], line["resolved_path"]),
+                         ("resolved", self.wave_rel))
+        annotated = by[("evidence", "src/a.py begin_alpha notes")]
+        self.assertEqual((annotated["state"], annotated["resolved_path"]), ("resolved", "src/a.py"))
+        bare = by[("evidence", "a.py begin_alpha notes")]
+        self.assertEqual((bare["state"], bare["resolved_path"]), ("suffix_only", "src/a.py"))
+
+    def test_blocking_set_is_exact(self):
+        result = self.mem.resolve_memory_refs(
+            self.root,
+            targets=["src/a.py", "src/a.py:3", "src/a.py:4", "a.py", "util.py", "src/missing.py",
+                     "src", "Src/A.py", "symbol:alpha", "symbol:beta", "community:x",
+                     self.wave_rel, self.wave_missing,
+                     "index.js"],
+            evidence=["1abcd", "1abce-bug fixture-plan", "a.py", "1zzzz", "finding-slug-text",
+                      "https://example.com/x", "src/a.py:4", "src/b.py:alpha", "src/a.py:1,3",
+                      "src/a.py:1,4", "a.py:2", "tests"])
+        self.assertEqual(
+            sorted((e["role"], e["ref"]) for e in result["blocking"]),
+            sorted([("target", r) for r in (
+                "src/a.py:4", "a.py", "util.py", "src/missing.py", "src", "Src/A.py",
+                "symbol:beta", self.wave_missing, "index.js")]
+                + [("evidence", r) for r in ("1zzzz", "src/a.py:4", "src/b.py:alpha", "src/a.py:1,4")]))
+
+    def test_known_bad_suffix_target_no_longer_passes(self):
+        # The pre-249aq suffix check accepted these; the delegate refuses them.
+        for ref in ("util.py", "a.py", "Src/A.py"):
+            self.assertFalse(self.srv._memory_file_target_exists(self.root, ref), ref)
+        self.assertTrue(self.srv._memory_file_target_exists(self.root, "src/a.py"))
+        self.assertTrue(self.srv._memory_file_target_exists(self.root, "symbol:alpha"))
+
+    def test_line_counts_use_universal_newlines(self):
+        (self.root / "src" / "crlf.py").write_bytes(b"a\r\nb\r\nc\r\n")
+        _result, by = self._states(evidence=["src/crlf.py:3", "src/crlf.py:4"])
+        self.assertEqual(by[("evidence", "src/crlf.py:3")]["state"], "resolved")
+        self.assertEqual(by[("evidence", "src/crlf.py:4")]["state"], "unresolved")
+
+    def test_backslash_refs_normalize(self):
+        _result, by = self._states(targets=["src\\a.py"])
+        self.assertEqual(by[("target", "src\\a.py")]["state"], "resolved")
+
+    def test_long_refs_are_bounded(self):
+        started = time.perf_counter()
+        long_chain = "src/a.py" + ":a" * 20000
+        result = self.mem.resolve_memory_refs(
+            self.root, targets=[long_chain], evidence=[long_chain, "x " * 5000])
+        self.assertLess(time.perf_counter() - started, 2.0)
+        self.assertEqual(result["refs"][0]["state"], "unresolved")
+        # Delivery advisory: padding past the cap must not skip the floor.
+        self.assertEqual(result["refs"][1]["state"], "unresolved")
+        self.assertEqual(result["refs"][2]["state"], "unresolved")
+        self.assertEqual(len(result["blocking"]), 3)
+        padded = self.mem.resolve_memory_refs(
+            self.root, evidence=["1zzzz " + "x" * 1100, "src/missing.py " + "y" * 1100])
+        self.assertEqual([e["state"] for e in padded["refs"]], ["unresolved", "unresolved"])
+
+    def test_walk_prunes_nested_checkouts_and_runtime_dirs(self):
+        for rel in (".wavefoundry/framework/scripts/tool.py", ".wavefoundry/work/x/tool.py",
+                    "nested/.git", "nested/inner/tool.py", "venv/lib/tool.py", "keep/tool.py"):
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("x = 1\n", encoding="utf-8")
+        files = set(self.mem.memory_ref_tree(self.root).files)
+        self.assertIn(".wavefoundry/framework/scripts/tool.py", files)
+        self.assertIn("keep/tool.py", files)
+        for rel in (".wavefoundry/work/x/tool.py", "nested/inner/tool.py", "venv/lib/tool.py"):
+            self.assertNotIn(rel, files)
+        result = self.mem.resolve_memory_refs(self.root, targets=["tool.py"])
+        self.assertEqual(result["refs"][0]["state"], "ambiguous")
+
+    def test_tool_markup_pattern_is_linear(self):
+        import wave_lint_lib.constants as lint_constants
+        started = time.perf_counter()
+        # Unclosed tags match on their opening; namespace-like and long runs
+        # that are not tool tags stay clean; every shape is linear.
+        self.assertEqual(lint_constants.memory_line_reasons("<invoke " * 56000),
+                         {"model_control_token"})
+        self.assertEqual(lint_constants.memory_line_reasons("<a:" * 150000), set())
+        self.assertEqual(lint_constants.memory_line_reasons("<" + "a" * 450000), set())
+        self.assertLess(time.perf_counter() - started, 2.0)
+        self.assertEqual(lint_constants.memory_line_reasons("<in" + "voke name=\"x\">"),
+                         {"model_control_token"})
+        # Long attributes and a nested "<" still match.
+        for tag in ("<in" + "voke name=\"" + "a" * 600 + "\">", "<in" + "voke name=\"a<b\">"):
+            self.assertEqual(lint_constants.memory_line_reasons(tag), {"model_control_token"})
+
+    def test_batch_evidence_ids_load_once_per_tree(self):
+        calls = {"n": 0}
+        real = self.mem.load_memory_records
+
+        def counting(*args, **kwargs):
+            calls["n"] += 1
+            return real(*args, **kwargs)
+
+        tree = self.mem.memory_ref_tree(self.root)
+        with patch.object(self.mem, "load_memory_records", side_effect=counting):
+            results = [
+                self.mem.resolve_memory_refs(
+                    self.root, targets=["src/a.py"],
+                    evidence=["1abcd", "1zzzz", "1abce-bug fixture-plan"], tree=tree)
+                for _ in range(50)
+            ]
+        self.assertEqual(calls["n"], 1)
+        self.assertTrue(all([e["state"] for e in r["refs"][1:]] == ["resolved", "unresolved", "resolved"]
+                            for r in results))
+        untreed = self.mem.resolve_memory_refs(
+            self.root, targets=["src/a.py"], evidence=["1abcd", "1zzzz", "1abce-bug fixture-plan"])
+        self.assertEqual(untreed, results[0])
+
+    def test_batch_of_fifty_records_walks_once(self):
+        calls = {"n": 0}
+        real = self.mem._walk_memory_ref_files
+
+        def counting(root):
+            calls["n"] += 1
+            return real(root)
+
+        with patch.object(self.mem, "_walk_memory_ref_files", side_effect=counting):
+            tree = self.mem.memory_ref_tree(self.root)
+            results = [
+                self.mem.resolve_memory_refs(
+                    self.root, targets=["a.py", f"src/a.py:{1 + i % 3}"],
+                    evidence=["util.py", "1abcd"], tree=tree)
+                for i in range(50)
+            ]
+        self.assertEqual(calls["n"], 1)
+        self.assertTrue(all(r["refs"][0]["state"] == "suffix_only" for r in results))
+        self.assertTrue(all(r["refs"][2]["state"] == "ambiguous" for r in results))
+
+
+class MemoryAdmissionEnforcementTests(_AdmissionCase):
+    """AC-2, AC-3, AC-6 and the content-before-resolution order."""
+
+    def test_unresolved_evidence_blocks_promotion(self):
+        path = self._pending("mem-gone-wave", ["src/a.py"], evidence=["1zzzz"])
+        before = path.read_bytes()
+        result = self._validate("mem-gone-wave", "promote")
+        self.assertEqual(self._codes(result), ["memory_ref_unresolved"], result)
+        self.assertIn("'1zzzz' is unresolved", result["diagnostics"][0]["message"])
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(self._validate("mem-gone-wave", "reject")["status"], "ok")
+
+    def test_ambiguous_rewrite_target_is_refused(self):
+        self._pending("mem-ambiguous", ["src/a.py"])
+        before = self._memory_bytes()
+        result = self._rewrite("mem-ambiguous", ["util.py"])
+        self.assertEqual(self._codes(result), ["memory_ref_unresolved"], result)
+        self.assertIn("'util.py' is ambiguous", result["diagnostics"][0]["message"])
+        self.assertEqual(self._memory_bytes(), before)
+
+    def test_content_is_checked_before_refs_and_never_echoed(self):
+        token = _generated("gh" + "p_", 36)
+        result = self.srv.memory_add_response(
+            self.root, "decision", "A lesson.", [f"seen in {token}"], ["src/missing.py"])
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["data"]["rejected_reasons"], ["secret"])
+        blob = json.dumps(result)
+        self.assertNotIn(token[4:], blob)
+        self.assertNotIn("src/missing.py", blob)
+        self.assertNotIn("memory_ref_unresolved", blob)
+
+    def test_add_refuses_blocking_refs_and_writes_resolving_ones(self):
+        missing = self.srv.memory_add_response(
+            self.root, "decision", "Missing target lesson.", ["1abcd"], ["src/missing.py"])
+        self.assertEqual(self._codes(missing), ["memory_ref_unresolved"])
+        self.assertFalse(missing["data"]["written"])
+        self.assertEqual(self._memory_bytes(), {})
+        bare = self.srv.memory_add_response(
+            self.root, "decision", "Bare target lesson.", ["1abcd"], ["a.py"])
+        self.assertEqual(self._codes(bare), ["memory_ref_unresolved"])
+        self.assertIn("'a.py' is suffix_only (use src/a.py)", bare["diagnostics"][0]["message"])
+        self.assertEqual(self._memory_bytes(), {})
+        exact = self.srv.memory_add_response(
+            self.root, "decision", "Exact target lesson.", ["1abcd"], ["src/a.py"])
+        self.assertEqual(exact["status"], "ok", exact)
+        self.assertTrue(exact["data"]["written"])
+
+    def test_uncommitted_new_file_resolves_without_git(self):
+        self.assertFalse((self.root / ".git").exists())
+        (self.root / "src" / "new.py").write_text("fresh = 1\n", encoding="utf-8")
+        result = self.srv.memory_add_response(
+            self.root, "decision", "New file lesson.", ["1abcd"], ["src/new.py"])
+        self.assertEqual(result["status"], "ok", result)
+
+    def test_stored_secret_ref_is_not_echoed_on_promote(self):
+        token = _generated("AK" + "IA", 16, "ABCD2345")
+        path = self._pending("mem-stored-secret", [f"src/{token}.py"])
+        before = path.read_bytes()
+        result = self._validate("mem-stored-secret", "promote")
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["data"]["rejected_reasons"], ["secret"])
+        self.assertNotIn(token, json.dumps(result))
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_stored_secret_summary_is_not_echoed_on_promote_or_retain(self):
+        token = _generated("gh" + "p_", 36)
+        for verdict in ("promote", "retain"):
+            with self.subTest(verdict=verdict):
+                memory_id = f"mem-summary-secret-{verdict}"
+                content = self.mem.render_memory_record(
+                    memory_id=memory_id, kind="failed_attempt", title="Candidate",
+                    summary=f"Rotated {token} after the leak.", evidence=["1abcd"],
+                    targets=["src/a.py"], source_event=f"finding:{memory_id}",
+                    validation="pending")
+                path = self.mem.write_memory_record(self.root, content, memory_id)
+                before = path.read_bytes()
+                result = self._validate(memory_id, verdict)
+                self.assertEqual(result["status"], "error", result)
+                self.assertEqual(result["data"]["rejected_reasons"], ["secret"])
+                self.assertNotIn(token, json.dumps(result))
+                self.assertEqual(path.read_bytes(), before)
+
+    def test_reject_and_rewrite_withhold_a_stored_secret(self):
+        token = _generated("gh" + "p_", 36)
+        for verdict in ("reject", "rewrite"):
+            with self.subTest(verdict=verdict):
+                memory_id = f"mem-stored-{verdict}"
+                content = self.mem.render_memory_record(
+                    memory_id=memory_id, kind="failed_attempt", title=f"Title {token}",
+                    summary=f"Rotated {token} after the leak.", evidence=["1abcd"],
+                    targets=["src/a.py"], source_event=f"finding:{memory_id}",
+                    validation="pending")
+                self.mem.write_memory_record(self.root, content, memory_id)
+                promote = self._validate(memory_id, "promote")
+                self.assertEqual(promote["status"], "error")
+                if verdict == "reject":
+                    result = self._validate(memory_id, "reject")
+                else:
+                    result = self._rewrite(memory_id, ["src/a.py"])
+                self.assertEqual(result["status"], "ok", result)
+                self.assertNotIn(token, json.dumps(result))
+                self.assertEqual(result["data"]["withheld_reasons"], ["secret"])
+
+    def test_unterminated_backtick_ref_is_refused(self):
+        for evidence, targets in ((["`1zzzz"], ["src/a.py"]), (["1abcd"], ["`src/a.py"]),
+                                  (["1abcd"], ["`src/a.py` and `src/missing.py"]),
+                                  (["`1abcd` then `1zzzz"], ["src/a.py"]),
+                                  (["1abcd"], ["src/a.py` tail"])):
+            with self.subTest(evidence=evidence, targets=targets):
+                result = self.srv.memory_add_response(
+                    self.root, "decision", "Unterminated ref lesson.", evidence, targets)
+                self.assertEqual(self._codes(result), ["memory_ref_unresolved"], result)
+                self.assertFalse(result["data"]["written"])
+        self.assertEqual(self._memory_bytes(), {})
+
+    def test_retarget_reason_must_be_one_clean_line(self):
+        self._active("mem-old-sep", ["src/gone.py"])
+        self._pending("mem-pending-sep", ["src/gone.py"])
+        token = _generated("gh" + "p_", 36)
+        for reason in ("first\u2028second", "first\nsecond", "first\u2029second",
+                       "first\x85second", "first\x0bsecond", f"rotated {token}"):
+            with self.subTest(reason=reason[:12]):
+                before = self._memory_bytes()
+                added = self.srv.memory_add_response(
+                    self.root, "decision", "Separator lesson.", ["1abcd"], ["pkg/one/util.py"],
+                    status="active", supersedes="mem-old-sep", retarget_reason=reason)
+                self.assertEqual(self._codes(added), ["invalid_memory_record"], added)
+                rewritten = self._rewrite("mem-pending-sep", ["pkg/one/util.py"],
+                                          retarget_reason=reason)
+                self.assertEqual(self._codes(rewritten), ["invalid_memory_validation"], rewritten)
+                self.assertEqual(self._memory_bytes(), before)
+                self.assertNotIn(token, json.dumps([added, rewritten]))
+
+    def test_untrusted_evidence_is_flagged_without_blocking(self):
+        flagged = self.srv.memory_add_response(
+            self.root, "decision", "Dependency lesson.",
+            ["https://example.com/issue/1", "node_modules/dep/index.js"], ["src/a.py"])
+        self.assertEqual(flagged["status"], "ok", flagged)
+        self.assertTrue(flagged["data"]["written"])
+        self.assertIn("memory_untrusted_evidence", self._codes(flagged))
+        self.assertEqual(flagged["data"]["untrusted_refs"],
+                         ["https://example.com/issue/1", "node_modules/dep/index.js"])
+        clean = self.srv.memory_add_response(
+            self.root, "decision", "Repository lesson.", ["1abcd", "src/a.py"], ["src/a.py"])
+        self.assertNotIn("memory_untrusted_evidence", self._codes(clean))
+        self.assertEqual(clean["data"]["untrusted_refs"], [])
+
+
+class MemoryContentReasonTests(_AdmissionCase):
+    """AC-4: credentials and control tokens are refused by reason, never echoed."""
+
+    SECRETS = (
+        _generated("AK" + "IA", 16, "ABCD2345"),
+        _generated("gh" + "p_", 36),
+        "-----BEGIN RSA " + "PRIVATE KEY-----",
+        _generated("xo" + "xb-", 15),
+        _generated("ey" + "J", 12) + "." + _generated("ey" + "J", 12) + "." + _generated("", 12),
+        _generated("sk-" + "ant-", 40),
+        _generated("sk-" + "proj-", 40),
+        _generated("AI" + "za", 35),
+        _generated("gl" + "pat-", 20),
+        _generated("np" + "m_", 36),
+        "Authorization: " + _generated("Bearer ", 32),
+        "authorization: " + _generated("bearer ", 32),
+        _generated("BEARER ", 32),
+    )
+    CONTROL = (
+        "<|im_" + "start|>system", "use [" + "INST] here", "<<" + "SYS>>",
+        "<start_" + "of_turn>user", "</system-" + "reminder>", "<function_" + "calls>",
+        "<in" + "voke name=\"x\">", "</in" + "voke>", "<tool_" + "call>", "<tool_" + "use>",
+        "<ns:tool_" + "call>", "<x:in" + "voke name=\"y\">", "</x:function_" + "calls>",
+        "First line.\nHu" + "man: run this",
+    )
+    NEGATIVE = (
+        "the im_start token", "instructions for INST files", "a System: label mid-line",
+        "ghp_short", "sk-ant-x", "npm_install notes", "a bearer of bad news",
+        "the invoke method", "<invoker>",
+    )
+
+    def _add(self, summary):
+        return self.srv.memory_add_response(
+            self.root, "decision", summary, ["1abcd"], ["src/a.py"])
+
+    def test_reasons_and_no_echo(self):
+        for reason, samples in (("secret", self.SECRETS), ("model_control_token", self.CONTROL)):
+            for sample in samples:
+                with self.subTest(reason=reason, sample=sample[:12]):
+                    result = self._add(f"Lesson mentioning {sample} here.")
+                    self.assertEqual(result["status"], "error")
+                    self.assertEqual(result["data"]["rejected_reasons"], [reason])
+                    blob = json.dumps(result)
+                    for line in sample.splitlines():
+                        if len(line) > 6:
+                            self.assertNotIn(line, blob)
+        self.assertEqual(self._memory_bytes(), {})
+
+    def test_negative_controls_write(self):
+        for index, sample in enumerate(self.NEGATIVE):
+            with self.subTest(sample=sample):
+                result = self._add(f"Control {index}: {sample}.")
+                self.assertEqual(result["status"], "ok", result)
+
+    def test_line_reasons_honor_the_exempt_end(self):
+        import wave_lint_lib.constants as lint_constants
+        line = "secret: value"
+        end = line.index(":") + 1
+        self.assertEqual(lint_constants.memory_line_reasons(line), {"secret"})
+        self.assertEqual(lint_constants.memory_line_reasons(line, exempt_end=end), set())
+
+    def test_record_lint_names_the_reason_without_the_line(self):
+        from wave_lint_lib import wave_validators
+        token = _generated("gh" + "p_", 36)
+        cases = {
+            "mem-control": ("Keep <|im_" + "end|> out of records.", "model_control_token"),
+            "mem-secret": (f"Rotated {token} yesterday.", "secret"),
+        }
+        for memory_id, (summary, reason) in cases.items():
+            with self.subTest(memory_id=memory_id):
+                path = self.mem.write_memory_record(self.root, self.mem.render_memory_record(
+                    memory_id=memory_id, kind="decision", summary=summary, evidence=["1abcd"],
+                    targets=["src/a.py"], status="active", date="2026-11-24"), memory_id)
+                failures = wave_validators.check_memory_docs(self.root, only={path})
+                self.assertEqual(len(failures), 1, failures)
+                self.assertIn(f"reason: {reason}", failures[0])
+                self.assertNotIn("<|im_" + "end|>", failures[0])
+                self.assertNotIn(token, failures[0])
+        for index, sample in enumerate(self.NEGATIVE):
+            memory_id = f"mem-negative-{index}"
+            path = self.mem.write_memory_record(self.root, self.mem.render_memory_record(
+                memory_id=memory_id, kind="decision", summary=f"Control: {sample}.",
+                evidence=["1abcd"], targets=["src/a.py"], status="active",
+                date="2026-11-24"), memory_id)
+            self.assertEqual(wave_validators.check_memory_docs(self.root, only={path}), [], sample)
+
+
+class MemoryProposeReasonTests(_AdmissionCase):
+    """AC-5 and the AC-3 dry-run resolution."""
+
+    _wave = MemoryProposeTests._wave
+
+    def setUp(self):
+        super().setUp()
+        self.supply = _load("memory_supply")
+
+    def test_rejections_are_counted_by_reason(self):
+        self._wave("1aaba", "reasons", decision_rows=[
+            ("Use `src/a.py` with token: abc123", "keyword assignment"),
+            # A table cell cannot hold an unescaped pipe, so the Decision Log
+            # row carries a pipe-free control token.
+            ("Use `src/a.py` around <start_" + "of_turn>", "control token"),
+            ("Use `src/a.py` for the clean lesson", "grounded"),
+        ])
+        dry = self.srv.memory_propose_response(self.root, "1aaba", "dry_run")
+        data = dry["data"]
+        self.assertEqual(len(data["proposed"]), 1, data)
+        self.assertEqual(data["rejected_by_reason"], {"model_control_token": 1, "secret": 1})
+        for item in data["withheld"]:
+            self.assertEqual(sorted(item), ["reasons", "source_event"])
+        draft = data["proposed"][0]
+        refs = {(e["role"], e["ref"]) for e in draft["resolution"]}
+        expected = {("target", t) for t in draft["targets"]} | {("evidence", e) for e in draft["evidence"]}
+        self.assertEqual(refs, expected)
+        self.assertIn("untrusted_refs", draft)
+        sources = self._selected_sources("1aaba")
+        self.assertEqual(len(sources), 3)
+        created = self.srv.memory_propose_response(self.root, "1aaba", "create", source_events=sources)
+        self.assertEqual(created["data"]["records_written"], 1, created)
+        self.assertEqual(created["data"]["rejected_by_reason"], {"model_control_token": 1, "secret": 1})
+
+
+class MemoryRewriteAnchorTests(_AdmissionCase):
+    """AC-7: a rewrite keeps a resolving anchor, or retargets with a reason."""
+
+    def test_validate_rewrite_cases(self):
+        self._pending("mem-two", ["src/a.py", "src/missing.py"])
+        before = self._memory_bytes()
+        dropped = self._rewrite("mem-two", ["pkg/one/util.py"])
+        self.assertEqual(self._codes(dropped), ["memory_rewrite_anchor_dropped"], dropped)
+        self.assertEqual(self._memory_bytes(), before)
+        kept = self._rewrite("mem-two", ["src/a.py", "pkg/one/util.py"])
+        self.assertEqual(kept["status"], "ok", kept)
+
+        self._pending("mem-gone", ["src/gone.py"])
+        before = self._memory_bytes()
+        no_reason = self._rewrite("mem-gone", ["pkg/one/util.py"])
+        self.assertEqual(self._codes(no_reason), ["memory_retarget_reason_required"], no_reason)
+        self.assertEqual(self._memory_bytes(), before)
+        also_gone = self._rewrite("mem-gone", ["src/also-gone.py"],
+                                  retarget_reason="src/gone.py moved")
+        self.assertEqual(self._codes(also_gone), ["memory_ref_unresolved"])
+        self.assertIn("src/also-gone.py", also_gone["diagnostics"][0]["message"])
+        promote = self._validate("mem-gone", "promote")
+        self.assertEqual(self._codes(promote), ["memory_ref_unresolved"])
+        self.assertIn("src/gone.py", promote["diagnostics"][0]["message"])
+        reason = "src/gone.py was split into pkg/one/util.py"
+        retargeted = self._rewrite("mem-gone", ["pkg/one/util.py"], retarget_reason=reason)
+        self.assertEqual(retargeted["status"], "ok", retargeted)
+        new_path = self.root / retargeted["data"]["rewrite_record"]["path"]
+        self.assertIn(f"Retarget reason: {reason}\n", new_path.read_text(encoding="utf-8"))
+
+        self._pending("mem-bare", ["a.py"])
+        bare = self._rewrite("mem-bare", ["src/a.py"])
+        self.assertEqual(bare["status"], "ok", bare)
+
+    def _supersede(self, old_id, targets, summary, **kwargs):
+        return self.srv.memory_add_response(
+            self.root, "decision", summary, ["1abcd"], list(targets),
+            status="active", supersedes=old_id, **kwargs)
+
+    def test_supersede_cases(self):
+        self._active("mem-old-two", ["src/a.py", "src/missing.py"])
+        before = self._memory_bytes()
+        dropped = self._supersede("mem-old-two", ["pkg/one/util.py"], "Dropped anchor.")
+        self.assertEqual(self._codes(dropped), ["memory_rewrite_anchor_dropped"])
+        self.assertEqual(self._memory_bytes(), before)
+        kept = self._supersede("mem-old-two", ["src/a.py", "pkg/one/util.py"], "Kept anchor.")
+        self.assertEqual(kept["status"], "ok", kept)
+
+        self._active("mem-old-gone", ["src/gone.py"])
+        before = self._memory_bytes()
+        no_reason = self._supersede("mem-old-gone", ["pkg/one/util.py"], "No reason.")
+        self.assertEqual(self._codes(no_reason), ["memory_retarget_reason_required"])
+        self.assertEqual(self._memory_bytes(), before)
+        also_gone = self._supersede("mem-old-gone", ["src/also-gone.py"], "Also gone.",
+                                    retarget_reason="moved")
+        self.assertEqual(self._codes(also_gone), ["memory_ref_unresolved"])
+        self.assertIn("src/also-gone.py", also_gone["diagnostics"][0]["message"])
+        reason = "src/gone.py was split into pkg/one/util.py"
+        retargeted = self._supersede("mem-old-gone", ["pkg/one/util.py"], "Retargeted.",
+                                     retarget_reason=reason)
+        self.assertEqual(retargeted["status"], "ok", retargeted)
+        text = (self.root / retargeted["data"]["record"]["path"]).read_text(encoding="utf-8")
+        self.assertIn(f"Retarget reason: {reason}\n", text)
+
+        self._active("mem-old-bare", ["a.py"])
+        bare = self._supersede("mem-old-bare", ["src/a.py"], "Bare anchor kept.")
+        self.assertEqual(bare["status"], "ok", bare)
+
+
+class MemoryTargetedBriefTests(_AdmissionCase):
+    """AC-8: a targeted briefing with no match is empty and normal."""
+
+    def test_targeted_brief_returns_only_matches(self):
+        for memory_id, target in (("mem-a", "src/a.py"), ("mem-one", "pkg/one/util.py"),
+                                  ("mem-two", "pkg/two/util.py")):
+            self._add(memory_id, "decision", targets=(target,))
+        empty = self.srv.memory_brief_response(self.root, targets=["src/none.py"])
+        self.assertEqual(empty["status"], "ok")
+        self.assertEqual(empty["data"]["advisories"], [])
+        self.assertEqual(empty["data"]["count"], 0)
+        self.assertEqual(empty["diagnostics"], [])
+        one = self.srv.memory_brief_response(self.root, targets=["src/a.py"])
+        self.assertEqual([a["memory_id"] for a in one["data"]["advisories"]], ["mem-a"])
+        records = self.mem.load_memory_records(self.root, statuses=self.mem.DEFAULT_SURFACED_STATUSES)
+        policy = [r["memory_id"] for r, _ in self.srv._memory_ranked(self.root, records)]
+        everything = self.srv.memory_brief_response(self.root)
+        self.assertEqual([a["memory_id"] for a in everything["data"]["advisories"]], policy)
+        self.assertEqual(sorted(policy), ["mem-a", "mem-one", "mem-two"])
+
+    def test_empty_search_does_not_suggest_writing(self):
+        result = self.srv.memory_search_response(self.root, target="src/none.py")
+        diagnostic = next(d for d in result["diagnostics"] if d["code"] == "no_memory_matches")
+        self.assertNotIn("memory_add", diagnostic.get("recovery_tools") or [])
 
 
 if __name__ == "__main__":

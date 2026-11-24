@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-24
 
 Shortcut: **`Close wave`**
 
@@ -110,6 +110,11 @@ Before closure, inspect `memory_propose(wave_id, mode='dry_run')`. Review concre
 - Check durability, canonical overlap, target accuracy, existing
   duplicates/contradictions, and confidence.
 - Choose **promote**, **retain**, **reject**, or **rewrite**.
+- `canonical_overlap="duplicates"` also covers a lesson the code at the target
+  already shows, in a comment, docstring, assertion or the code itself, so reject it.
+- A rewrite keeps its concrete anchor: at least one original target that still
+  resolves, and the path, command, error string or finding it was drawn from, not
+  condensed into a general lesson.
 
 This is a bounded focused curation pass, not a new council. A wave may correctly
 yield no memories. A pending candidate blocks close; rejected and superseded

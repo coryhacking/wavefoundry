@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-24
 
 ## Runtime advisory boundary
 
@@ -766,7 +766,9 @@ patches subprocess and asserts zero spawns.
 state-store query (`freshness_for_paths`); the drift partition (default-off) and the `wf_audit` drift
 worklist consume the same rows. See `search-architecture.md` → Temporal Decay.
 
-**Agent memory flows:** `memory_add` validates (forbidden content refused pre-write) → **fences the memory
+**Agent memory flows:** `memory_add` validates (forbidden content refused pre-write by
+reason) → resolves the new record's refs against the working tree and, for a supersession,
+checks that an original target that still resolves is kept (change 249aq) → **fences the memory
 seqlock** → writes the record markdown under `docs/agents/memory/` → **finalizes the seqlock** → triggers the
 background index refresh (docs embedding + graph per-file delta).
 `memory_search`/`memory_brief` read the record files directly (source of truth),
@@ -776,7 +778,9 @@ clamped adaptive churn/time half-lives in memory (most conservative target;
 fixed fallback for sparse/unreadable histories). The shared sort keeps exact
 target, base confidence, status, and kind-family policy ahead of adaptive
 freshness, optional semantic query rank, persisted-betweenness, and id.
-`memory_brief` is queryless and consumes the same policy/freshness order.
+`memory_brief` is queryless and consumes the same policy/freshness order. With
+`targets` it returns only records that match a target, so an empty briefing is a
+normal result (change 249aq).
 It also exposes the fixed 50-record active-corpus budget and, only when that
 budget is reached, read-only same-file `fragile_file` consolidation candidates;
 it never archives, merges, or deletes memory automatically.
@@ -820,9 +824,12 @@ fails proposal closed.
 Evidence-derived supply adds a semantic checkpoint without adding another event
 store: `memory_supply.draft_candidates` assigns each source a stable identity →
 `memory_propose(create)` writes a repo-visible `candidate` with
-`Validation: pending` → the active agent follows the evidence and current target
-→ `memory_validate` records promote/retain/reject/rewrite plus the action
-delta and compact judgment. Rewrites create the corrected record and supersede
+`Validation: pending` (dry-run drafts carry each ref's resolution, and drafts with
+forbidden content are withheld by reason) → the active agent follows the evidence
+and current target → `memory_validate` checks content, then resolves the refs of the
+record being admitted (the candidate's own for promote and retain, the rewrite's for
+rewrite), then the rewrite anchor, and records promote/retain/reject/rewrite plus the
+action delta and compact judgment. Rewrites create the corrected record and supersede
 the generated candidate under the shared cross-process lock; multi-file crash
 atomicity is not claimed and partial failures return explicit recovery.
 Proposal scans every status by source identity, including archived bodies, so

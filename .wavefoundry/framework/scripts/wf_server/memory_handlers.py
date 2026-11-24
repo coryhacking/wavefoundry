@@ -60,7 +60,7 @@ MEMORY_BRIEF_CONTEXTS = (
 
 
 def _memory_mod():
-    from wf_server import server_impl
+    import wf_server.server_impl as server_impl
     return server_impl._load_script("memory_records")
 
 
@@ -70,7 +70,7 @@ def _memory_fence(root: Path) -> Optional[str]:
     (an unfenced write could leave another process serving stale). The token
     must be passed to ``_memory_finalize`` so this writer clears ONLY its own
     fence (a concurrent writer's fence must survive)."""
-    from wf_server import server_impl
+    import wf_server.server_impl as server_impl
     try:
         tok = server_impl._load_script("index_state_store").memory_fence(
             root / ".wavefoundry" / "index"
@@ -85,7 +85,7 @@ def _memory_finalize(root: Path, token: Optional[str] = None) -> None:
     mutation, and evict the local cache. Best-effort: if the durable finalize
     fails, the token remains so every process keeps bypassing the cache (no
     stale serve) until the next successful mutation or the TTL self-heals it."""
-    from wf_server import server_impl
+    import wf_server.server_impl as server_impl
     _MEMORY_RECORDS_CACHE.pop(str(root), None)
     try:
         server_impl._load_script("index_state_store").memory_finalize(
@@ -131,7 +131,7 @@ def _memory_cache_key(root: Path):
       every mutation/invalidate across processes; the dir mtime additionally
       catches add/delete/rename.
     """
-    from wf_server import server_impl
+    import wf_server.server_impl as server_impl
     mem = _memory_mod()
     mem_dir = mem.canonical_memory_root(root)
     if mem_dir is None or not mem_dir.is_dir():
@@ -189,7 +189,7 @@ def _memory_betweenness_by_file(root: Path) -> dict[str, float]:
     when no communities are published — ranking falls back to decayed
     confidence alone (AC-12 degrade path).
     """
-    from wf_server import server_impl
+    import wf_server.server_impl as server_impl
     try:
         gs = server_impl._graph_snapshot_module()
         snapshot = gs.acquire(root, "project")
@@ -272,7 +272,7 @@ def _memory_ranked(
     is computed in memory — no per-target store open, no per-call cluster
     decompress (betweenness is cached).
     """
-    from wf_server import server_impl
+    import wf_server.server_impl as server_impl
     mem = _memory_mod()
     index_dir = root / ".wavefoundry" / "index"
     betweenness = _memory_betweenness_by_file(root)
@@ -441,7 +441,7 @@ def _credit_exploration_avoided_surface(
     attribution). Never raises, never changes the advisory output, and never
     touches the measured Context Efficiency total.
     """
-    from wf_server import server_impl
+    import wf_server.server_impl as server_impl
     try:
         # Attribute to the OPEN (active/implementing) wave specifically — not
         # `current_wave`, which returns the first open wave in lifecycle order
@@ -498,6 +498,159 @@ def _credit_exploration_avoided_surface(
         return
 
 
+# ---------------------------------------------------------------------------
+# Admission floor (change 249aq). Every write path refuses in this order:
+# the content check over every caller field (refs included), then ref
+# resolution of the record that would be admitted, then the anchor check of a
+# rewrite or supersession. A refusal at one step never runs the next, so a
+# diagnostic that names a ref never names one that failed the content check.
+# ---------------------------------------------------------------------------
+
+
+def _content_problem(reasons: dict[str, list[str]]) -> str:
+    """A refusal sentence naming fields and reason codes, never the text."""
+    parts = [f"{field} ({', '.join(codes)})" for field, codes in reasons.items()]
+    return (
+        "content matched a forbidden memory pattern in " + "; ".join(parts)
+        + "; forbidden by the memory schema, and the offending text is not echoed back"
+    )
+
+
+def _content_reason_codes(reasons: dict[str, list[str]]) -> list[str]:
+    return sorted({code for codes in reasons.values() for code in codes})
+
+
+def _ref_unresolved_response(blocking: list[dict[str, Any]], data: dict[str, Any],
+                             recovery_tool: str) -> dict[str, Any]:
+    """The ``memory_ref_unresolved`` refusal naming each blocking ref and state."""
+    import wf_server.server_impl as server_impl
+    named = []
+    for entry in blocking:
+        text = f"{entry['role']} {entry['ref']!r} is {entry['state']}"
+        if entry["state"] == "suffix_only" and entry.get("resolved_path"):
+            text += f" (use {entry['resolved_path']})"
+        named.append(text)
+    view = [
+        {key: entry[key] for key in ("ref", "role", "form", "state", "resolved_path") if key in entry}
+        for entry in blocking
+    ]
+    return server_impl._response(
+        "error", {**data, "unresolved_refs": view},
+        diagnostics=[_diagnostic(
+            "memory_ref_unresolved",
+            "Refused: every target and checkable evidence ref must resolve in the "
+            "current working tree; " + "; ".join(named) + ". Nothing was written.",
+            recovery_tools=[recovery_tool],
+            recovery_usage="name each file by its full repo-relative path, or drop the ref")],
+        next_tools=[recovery_tool], usage="")
+
+
+def _persisted_refs(mem: Any, values: Iterable[str]) -> list[str]:
+    """The refs a rendered record will carry: a value that starts with a
+    backtick is written as given, so only its backticked spans are refs."""
+    out: list[str] = []
+    for value in values:
+        text = str(value)
+        if text.lstrip().startswith("`"):
+            out.extend(mem._BACKTICK_RE.findall(text))
+        else:
+            out.append(text)
+    return out
+
+
+def _unterminated_refs(mem: Any, role: str, values: Iterable[str]) -> list[dict[str, Any]]:
+    """Blocking entries for values with an unbalanced backtick, or backtick-led
+    values with no closed span. Their unclosed text would be written but never
+    read back as a ref, so it is refused as ``unresolved`` under its own text."""
+    out: list[dict[str, Any]] = []
+    for value in values:
+        text = str(value)
+        # An odd backtick count leaves a dangling tail the reader never sees.
+        if text.count("`") % 2 or (
+                text.lstrip().startswith("`") and not mem._BACKTICK_RE.findall(text)):
+            out.append({"ref": text.strip().strip("`").strip(), "role": role,
+                        "form": "other", "state": "unresolved"})
+    return out
+
+
+_WITHHELD_VIEW_KEYS = {
+    "record_title": "title", "record_summary": "summary",
+    "record_evidence": "evidence_refs", "record_targets": "target_refs",
+}
+
+
+def _withhold_view(view: Optional[dict[str, Any]],
+                   reasons: dict[str, list[str]]) -> Optional[dict[str, Any]]:
+    """A record view with each stored field that failed the content check
+    withheld, so no response echoes stored forbidden text (change 249aq)."""
+    if not view or not reasons:
+        return view
+    out = dict(view)
+    for field, codes in reasons.items():
+        key = _WITHHELD_VIEW_KEYS.get(field)
+        if key in ("evidence_refs", "target_refs"):
+            out[key] = []
+        elif key:
+            out[key] = f"[withheld: {', '.join(codes)}]"
+    out["withheld_reasons"] = _content_reason_codes(reasons)
+    return out
+
+
+def _untrusted_diagnostic(untrusted: list[str]) -> dict[str, Any]:
+    return _diagnostic(
+        "memory_untrusted_evidence",
+        "Evidence comes from text this repository's reviewers did not write (a URL, "
+        "a dependency tree or a scratch or cache path): " + ", ".join(repr(r) for r in untrusted)
+        + ". Confirm the lesson against a source in the repository before relying on it.",
+        recovery_tools=["code_read"], recovery_usage="")
+
+
+def _anchor_refusal(mem: Any, root: Path, original_targets: list[str], new_refs: dict[str, Any],
+                    retarget_reason: str, tree: Any, data: dict[str, Any],
+                    recovery_tool: str) -> Optional[dict[str, Any]]:
+    """Refusal when a rewrite or supersession drops its concrete anchor.
+
+    An original target still resolves when its state is ``resolved`` or
+    ``suffix_only``; targets compare by resolved path (a ``symbol:`` target by
+    its text). When none still resolves, a ``retarget_reason`` is required.
+    """
+    import wf_server.server_impl as server_impl
+
+    def _anchors(entries: list[dict[str, Any]]) -> set[str]:
+        out: set[str] = set()
+        for entry in entries:
+            if entry["role"] != "target" or entry["state"] not in ("resolved", "suffix_only"):
+                continue
+            out.add(entry.get("resolved_path") or entry["ref"])
+        return out
+
+    original = _anchors(mem.resolve_memory_refs(root, targets=original_targets, tree=tree)["refs"])
+    new = _anchors(new_refs["refs"])
+    if original:
+        if original & new:
+            return None
+        return server_impl._response(
+            "error", {**data, "original_anchors": sorted(original)},
+            diagnostics=[_diagnostic(
+                "memory_rewrite_anchor_dropped",
+                "Refused: the new targets must keep at least one original target that "
+                "still resolves (" + ", ".join(sorted(original)) + "). Nothing changed.",
+                recovery_tools=[recovery_tool],
+                recovery_usage="include a still-resolving original target in the new targets")],
+            next_tools=[recovery_tool], usage="")
+    if str(retarget_reason or "").strip():
+        return None
+    return server_impl._response(
+        "error", data,
+        diagnostics=[_diagnostic(
+            "memory_retarget_reason_required",
+            "Refused: no original target still resolves, so the new targets need a "
+            "single-line retarget_reason saying why they replace the old ones. Nothing changed.",
+            recovery_tools=[recovery_tool],
+            recovery_usage="pass retarget_reason='<old target> was split into <new target>'")],
+        next_tools=[recovery_tool], usage="")
+
+
 def memory_add_response(
     root: Path,
     kind: str,
@@ -510,12 +663,14 @@ def memory_add_response(
     supersedes: str = "",
     memory_id: str = "",
     abort_if_duplicate: bool = False,
+    retarget_reason: str = "",
 ) -> dict[str, Any]:
     """Validate without mutation, then serialize duplicate scan + write."""
     return _memory_add_response_locked(
         root, kind, summary, evidence, targets, title=title,
         confidence=confidence, status=status, supersedes=supersedes,
         memory_id=memory_id, abort_if_duplicate=abort_if_duplicate,
+        retarget_reason=retarget_reason,
     )
 
 
@@ -542,9 +697,12 @@ def _memory_add_response_locked(
     _canonical_overlap: str = "",
     _defer_index_refresh: bool = False,
     _source_exploration_cost: Optional[int] = None,
+    retarget_reason: str = "",
+    _anchor_targets: Optional[list] = None,
 ) -> dict[str, Any]:
-    from wf_server import server_impl
+    import wf_server.server_impl as server_impl
     mem = _memory_mod()
+    retarget_reason = str(retarget_reason or "")
     problems: list[str] = []
     kind = (kind or "").strip()
     status = (status or "candidate").strip()
@@ -575,43 +733,28 @@ def _memory_add_response_locked(
                 mem.validate_memory_id(value)
             except ValueError as exc:
                 problems.append(f"{label}: {exc}")
-    # Forbidden-content pre-write scan (1p8gy Req 8). Delivery-review finding:
-    # scan EVERY caller-controlled field that gets persisted (title + summary +
-    # evidence + targets), and NEVER echo the rejected line — the diagnostic
-    # names the offending field only, so a secret is not repeated back into
-    # logs/responses.
-    try:
-        from wave_lint_lib.constants import MEMORY_DISALLOWED_PATTERNS as _FORBIDDEN
-    except ImportError:
-        _FORBIDDEN = ()
-    _scanned_fields = (
-        ("title", [title or ""]),
-        ("summary", [summary or ""]),
-        ("evidence", list(evidence)),
-        ("targets", list(targets)),
-    )
-    _forbidden_fields: list[str] = []
-    for field_name, chunks in _scanned_fields:
-        hit = False
-        for chunk in chunks:
-            for line in str(chunk).splitlines():
-                if any(p.search(line) for p in _FORBIDDEN):
-                    hit = True
-                    break
-            if hit:
-                break
-        if hit:
-            _forbidden_fields.append(field_name)
-    if _forbidden_fields:
-        problems.append(
-            "content looks like a secret, raw transcript, or personal fact in "
-            f"{', '.join(_forbidden_fields)} — forbidden by the memory schema "
-            "(the offending text is not echoed back)"
-        )
+    if not mem.memory_single_line(retarget_reason):
+        problems.append("retarget_reason must be a single line")
+    # Forbidden-content pre-write scan (1p8gy Req 8; reasons by change 249aq).
+    # Scan EVERY caller-controlled field that gets persisted, refs included,
+    # BEFORE any ref is resolved, and NEVER echo the rejected text: the
+    # refusal names fields and reason codes only.
+    content_reasons = mem.forbidden_content_reasons({
+        "title": [title or ""],
+        "summary": [summary or ""],
+        "evidence": list(evidence),
+        "targets": list(targets),
+        "retarget_reason": [retarget_reason],
+    })
+    if content_reasons:
+        problems.append(_content_problem(content_reasons))
     if problems:
         return server_impl._response(
             "error",
-            {"written": False, "problems": problems},
+            {"written": False, "problems": problems,
+             **({"content_reasons": content_reasons,
+                 "rejected_reasons": _content_reason_codes(content_reasons)}
+                if content_reasons else {})},
             diagnostics=[_diagnostic(
                 "invalid_memory_record", "; ".join(problems),
                 recovery_tools=["memory_add"],
@@ -635,7 +778,34 @@ def _memory_add_response_locked(
                 _canonical_overlap=_canonical_overlap,
                 _defer_index_refresh=_defer_index_refresh,
                 _source_exploration_cost=_source_exploration_cost,
+                retarget_reason=retarget_reason,
+                _anchor_targets=_anchor_targets,
             )
+    # Change 249aq: resolve the new record's refs, then check the anchor of a
+    # rewrite or supersession, before any filesystem write.
+    # No tree is passed: the walk runs only when a bare-name ref needs it.
+    ref_tree = None
+    resolution = mem.resolve_memory_refs(
+        root, evidence=_persisted_refs(mem, evidence), targets=_persisted_refs(mem, targets),
+        tree=ref_tree)
+    resolution["blocking"] = (_unterminated_refs(mem, "target", targets)
+                              + _unterminated_refs(mem, "evidence", evidence)
+                              + resolution["blocking"])
+    if resolution["blocking"]:
+        return _ref_unresolved_response(resolution["blocking"], {"written": False}, "memory_add")
+    anchor_source = _anchor_targets
+    if anchor_source is None and supersedes:
+        try:
+            _prior_anchor = mem.parse_memory_record(mem._contained_record_path(root, supersedes))
+        except (OSError, ValueError):
+            _prior_anchor = None
+        if _prior_anchor:
+            anchor_source = list(_prior_anchor.get("target_refs") or [])
+    if anchor_source is not None:
+        refusal = _anchor_refusal(mem, root, list(anchor_source), resolution, retarget_reason,
+                                  ref_tree, {"written": False}, "memory_add")
+        if refusal is not None:
+            return refusal
     explicit = bool(memory_id)
     base_id = memory_id or mem.mint_memory_id(root, title or summary)
 
@@ -703,6 +873,7 @@ def _memory_add_response_locked(
             current_target_verified=_current_target_verified,
             canonical_overlap=_canonical_overlap,
             source_exploration_cost=_inherited_cost,
+            retarget_reason=retarget_reason.strip(),
         )
 
     # Fence the durable seqlock BEFORE any filesystem write (delivery-review
@@ -721,6 +892,8 @@ def _memory_add_response_locked(
             next_tools=["memory_add"], usage="",
         )
     diagnostics: list[dict[str, Any]] = []
+    if resolution["untrusted"]:
+        diagnostics.append(_untrusted_diagnostic(resolution["untrusted"]))
     if _dup_matches:
         diagnostics.append(_diagnostic(
             "possible_duplicate",
@@ -770,20 +943,40 @@ def _memory_add_response_locked(
     decay = mem.apply_decay(record, index_dir=root / ".wavefoundry" / "index") if record else {}
     return server_impl._response(
         "ok",
-        {"written": True, "record": _memory_view(record, decay) if record else {"memory_id": memory_id}},
+        {"written": True, "record": _memory_view(record, decay) if record else {"memory_id": memory_id},
+         "untrusted_refs": list(resolution["untrusted"])},
         diagnostics=diagnostics,
         next_tools=["memory_search", "memory_brief"],
         usage=f"memory_search(target={targets[0]!r})",
     )
 
 
-def _draft_view(d: dict[str, Any]) -> dict[str, Any]:
-    return {
+def _draft_view(d: dict[str, Any], resolution: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    view = {
         "kind": d["kind"], "title": d["title"], "summary": d["summary"],
         "evidence": list(d["evidence"]), "targets": list(d["targets"]),
         "source_event": d["source_event"],
         "source_exploration_cost": d["source_exploration_cost"],
     }
+    if resolution is not None:
+        # Change 249aq: the agent sees each ref's resolution before judging.
+        view["resolution"] = [
+            {key: entry[key] for key in ("ref", "role", "form", "state", "resolved_path") if key in entry}
+            for entry in resolution["refs"]
+        ]
+        view["blocking_refs"] = [entry["ref"] for entry in resolution["blocking"]]
+        view["untrusted_refs"] = list(resolution["untrusted"])
+    return view
+
+
+def _draft_content_reasons(mem: Any, d: dict[str, Any]) -> list[str]:
+    """Reason codes for a draft's persisted fields (change 249aq)."""
+    return _content_reason_codes(mem.forbidden_content_reasons({
+        "title": [d.get("title") or ""],
+        "summary": [d.get("summary") or ""],
+        "evidence": list(d.get("evidence") or []),
+        "targets": list(d.get("targets") or []),
+    }))
 
 
 def memory_propose_response(
@@ -796,7 +989,7 @@ def memory_propose_response(
     source_events: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """Serialize create-mode duplicate scan + batch write as one operation."""
-    from wf_server import server_impl
+    import wf_server.server_impl as server_impl
     lock = (
         server_impl.project_state_publication_lock(root)
         if (mode or "").strip() == "create"
@@ -831,7 +1024,7 @@ def _memory_propose_response_locked(
     source-event selection, skipping exact/normalized duplicates so
     re-runs are idempotent (1stwl detector). Local-only, read-then-draft.
     """
-    from wf_server import server_impl
+    import wf_server.server_impl as server_impl
     mem = _memory_mod()
     supply = server_impl._load_script("memory_supply")
     wave_id = (wave_id or "").strip()
@@ -934,12 +1127,22 @@ def _memory_propose_response_locked(
     eligible_count = 0
     skipped_duplicates = 0
     skipped_dispositions = 0
+    # Change 249aq: a draft whose content matches a forbidden pattern is
+    # withheld by reason; its title and summary are never returned.
+    withheld: list[dict[str, Any]] = []
+    rejected_by_reason: dict[str, int] = {}
     for d in drafts:
         if (
             d["source_event"] in disposition_sources
             or mem.source_event_digest(d["source_event"]) in purged_source_digests
         ):
             skipped_dispositions += 1
+            continue
+        reasons = _draft_content_reasons(mem, d)
+        if reasons:
+            withheld.append({"source_event": d["source_event"], "reasons": reasons})
+            for code in reasons:
+                rejected_by_reason[code] = rejected_by_reason.get(code, 0) + 1
             continue
         pseudo = {"memory_id": "", "kind": d["kind"], "summary": d["summary"],
                   "evidence_refs": list(d["evidence"]), "target_refs": list(d["targets"]),
@@ -964,7 +1167,7 @@ def _memory_propose_response_locked(
             {"proposed": [], "records_proposed": 0, "records_promoted": 0,
              "records_written": 0,
              "skipped_duplicates": 0, "skipped_dispositions": 0, "mode": mode,
-             "omitted_sources": omitted_sources},
+             "omitted_sources": omitted_sources, "rejected_by_reason": {}, "withheld": []},
             diagnostics=[_diagnostic(
                 "no_material_evidence",
                 "No durable-shaped evidence to draft from this wave (Decision Logs "
@@ -973,9 +1176,15 @@ def _memory_propose_response_locked(
             next_tools=["memory_search"], usage="")
 
     if mode == "dry_run":
+        ref_tree = mem.memory_ref_tree(root) if unique else None
         return server_impl._response(
             "ok",
-            {"proposed": [_draft_view(d) for d in unique],
+            {"proposed": [
+                _draft_view(d, mem.resolve_memory_refs(
+                    root, evidence=d["evidence"], targets=d["targets"], tree=ref_tree))
+                for d in unique],
+             "rejected_by_reason": dict(sorted(rejected_by_reason.items())),
+             "withheld": withheld,
              "records_proposed": len(unique), "records_promoted": 0,
              "records_written": 0, "omitted_sources": omitted_sources,
              "records_remaining": max(0, eligible_count - len(unique)),
@@ -986,14 +1195,19 @@ def _memory_propose_response_locked(
             usage=f"memory_propose(wave_id={wave_id!r}, mode='create', source_events=[<reviewed source IDs>])")
 
     # create: fence the seqlock, then write each unique draft as a candidate.
-    try:
-        from wave_lint_lib.constants import MEMORY_DISALLOWED_PATTERNS as _FORBIDDEN
-    except ImportError:
-        _FORBIDDEN = ()
+    # Withheld drafts were removed above; each still gets its skip diagnostic.
+    withheld_diagnostics = [
+        _diagnostic(
+            "memory_draft_skipped_forbidden",
+            f"A draft from {item['source_event']} was skipped: content matched a "
+            f"forbidden pattern ({', '.join(item['reasons'])}; not echoed).",
+            recovery_tools=[], recovery_usage="")
+        for item in withheld
+    ]
     if any(supply.eligible_repository_targets(root, d["targets"]) != d["targets"] for d in unique):
         return server_impl._response("error", {"records_written": 0}, diagnostics=[_diagnostic("memory_target_changed", "A selected target became ineligible; nothing written.", recovery_tools=["memory_propose"], recovery_usage="")], next_tools=["memory_propose"], usage="")
     if not unique:
-        return server_impl._response("ok", {"records_written": 0, "records_promoted": 0, "records_proposed": 0, "records_remaining": 0, "exhausted": True, "written": [], "skipped_dispositions": skipped_dispositions, "skipped_duplicates": skipped_duplicates, "mode": mode}, diagnostics=[], next_tools=[], usage="")
+        return server_impl._response("ok", {"records_written": 0, "records_promoted": 0, "records_proposed": 0, "records_remaining": 0, "exhausted": True, "written": [], "proposed": [], "skipped_dispositions": skipped_dispositions, "skipped_duplicates": skipped_duplicates, "rejected_by_reason": dict(sorted(rejected_by_reason.items())), "withheld": withheld, "mode": mode}, diagnostics=withheld_diagnostics, next_tools=[], usage="")
     _fence_token = _memory_fence(root)
     if _fence_token is None:
         return server_impl._response(
@@ -1004,18 +1218,9 @@ def _memory_propose_response_locked(
                 recovery_tools=["memory_propose"], recovery_usage="")],
             next_tools=["memory_propose"], usage="")
     written: list[dict[str, Any]] = []
-    diagnostics: list[dict[str, Any]] = []
+    diagnostics: list[dict[str, Any]] = list(withheld_diagnostics)
     try:
         for d in unique:
-            fields = [d["summary"], d["title"], *d["evidence"], *d["targets"]]
-            if any(p.search(line) for f in fields
-                   for line in str(f).splitlines() for p in _FORBIDDEN):
-                diagnostics.append(_diagnostic(
-                    "memory_draft_skipped_forbidden",
-                    f"A draft from {d['source_event']} was skipped: content matched a "
-                    "forbidden pattern (not echoed).",
-                    recovery_tools=[], recovery_usage=""))
-                continue
             base_id = mem.mint_memory_id(root, d["title"] or d["summary"])
 
             def _render(mid: str, _d: dict[str, Any] = d) -> str:
@@ -1044,6 +1249,8 @@ def _memory_propose_response_locked(
     return server_impl._response(
         "ok",
         {"proposed": [_draft_view(d) for d in unique], "written": written,
+         "rejected_by_reason": dict(sorted(rejected_by_reason.items())),
+         "withheld": withheld,
          "records_proposed": len(unique), "records_promoted": 0,
          "records_written": len(written),
          "records_remaining": max(0, eligible_count - len(unique)),
@@ -1063,7 +1270,7 @@ def memory_backfill_response(
     entry_path: str = "manual",
 ) -> dict[str, Any]:
     """Inventory and mechanically draft one bounded historical-memory batch."""
-    from wf_server import server_impl
+    import wf_server.server_impl as server_impl
     backfill = server_impl._load_script("memory_backfill")
     import publication_control
     reason = publication_control.publication_block_reason(root, "memory_backfill")
@@ -1224,7 +1431,7 @@ def _memory_backfill_batch_locked(
     This is the on-demand memory producer; setup and upgrade only inventory.
     An empty validation page does not prove all waves have been processed.
     """
-    from wf_server import server_impl
+    import wf_server.server_impl as server_impl
     processed: list[dict[str, Any]] = []
     remaining_budget = max(
         1,
@@ -1348,24 +1555,16 @@ def _memory_backfill_batch_locked(
 
 
 def _memory_file_target_exists(root: Path, target: str) -> bool:
-    """Best-effort current-tree proof for a file target; symbols are agent-verified."""
-    target = str(target or "").strip().strip("`")
-    if not target or target.startswith(("symbol:", "community:")):
+    """Whether a new admission may name ``target`` (change 249aq delegates).
+
+    True unless ``resolve_memory_refs`` puts the target in ``blocking``, so a
+    ``suffix_only``, ``ambiguous`` or ``unresolved`` target fails; a lone
+    ``symbol:`` or ``community:`` target is ``unchecked`` and passes.
+    """
+    target = str(target or "").strip()
+    if not target:
         return True
-    direct = root / target
-    if direct.is_file():
-        return True
-    name = Path(target).name
-    if not name:
-        return False
-    try:
-        return any(
-            path.is_file()
-            and str(path.relative_to(root)).replace("\\", "/").endswith(target)
-            for path in root.rglob(name)
-        )
-    except OSError:
-        return False
+    return not _memory_mod().resolve_memory_refs(root, targets=[target])["blocking"]
 
 
 def memory_validate_response(
@@ -1384,9 +1583,19 @@ def memory_validate_response(
     rewrite_evidence: Optional[list] = None,
     rewrite_targets: Optional[list] = None,
     rewrite_confidence: float = 0.8,
+    retarget_reason: str = "",
 ) -> dict[str, Any]:
-    """Record a focused agent judgment over one evidence-derived candidate."""
-    from wf_server import server_impl
+    """Record a focused agent judgment over one evidence-derived candidate.
+
+    Change 249aq refuses ``promote``, ``retain`` and ``rewrite`` in this order:
+    the content check over every caller field and, for promote and retain,
+    the pending record's own refs; then ref resolution of the record that
+    would be admitted (the pending record's refs for promote and retain, only
+    ``rewrite_targets`` and ``rewrite_evidence`` for rewrite); then, for
+    rewrite, the anchor check against the pending record's targets.
+    ``reject`` is always allowed.
+    """
+    import wf_server.server_impl as server_impl
     import publication_control
     reason = publication_control.publication_block_reason(root, "memory_validate")
     if reason is not None:
@@ -1439,39 +1648,29 @@ def memory_validate_response(
                 raise ValueError
         except (TypeError, ValueError):
             problems.append("rewrite_confidence must be a number in [0.0, 1.0]")
+    retarget_reason = str(retarget_reason or "")
+    if not mem.memory_single_line(retarget_reason):
+        problems.append("retarget_reason must be a single line")
     # Every caller-controlled field that can reach the record must pass the
     # same pre-write forbidden-content boundary as memory_add. Report only
-    # field names so rejected secrets never echo into responses or logs.
-    try:
-        from wave_lint_lib.constants import MEMORY_DISALLOWED_PATTERNS as _FORBIDDEN
-    except ImportError:
-        _FORBIDDEN = ()
-    validation_fields = (
-        ("action_delta", [action_delta]),
-        ("rationale", [rationale]),
-        ("rewrite_title", [rewrite_title]),
-        ("rewrite_summary", [rewrite_summary]),
-        ("rewrite_evidence", rewrite_evidence),
-        ("rewrite_targets", rewrite_targets),
-    )
-    forbidden_fields: list[str] = []
-    for field_name, chunks in validation_fields:
-        if any(
-            pattern.search(line)
-            for chunk in chunks
-            for line in str(chunk).splitlines()
-            for pattern in _FORBIDDEN
-        ):
-            forbidden_fields.append(field_name)
-    if forbidden_fields:
-        problems.append(
-            "content looks like a secret, raw transcript, or personal fact in "
-            f"{', '.join(forbidden_fields)} — forbidden by the memory schema "
-            "(the offending text is not echoed back)"
-        )
+    # field names and reason codes so rejected secrets never echo.
+    content_reasons = mem.forbidden_content_reasons({
+        "action_delta": [action_delta],
+        "rationale": [rationale],
+        "rewrite_title": [rewrite_title],
+        "rewrite_summary": [rewrite_summary],
+        "rewrite_evidence": rewrite_evidence,
+        "rewrite_targets": rewrite_targets,
+        "retarget_reason": [retarget_reason],
+    })
+    if content_reasons:
+        problems.append(_content_problem(content_reasons))
     if problems:
         return server_impl._response(
-            "error", {"validated": False, "problems": problems},
+            "error", {"validated": False, "problems": problems,
+                      **({"content_reasons": content_reasons,
+                          "rejected_reasons": _content_reason_codes(content_reasons)}
+                         if content_reasons else {})},
             diagnostics=[_diagnostic(
                 "invalid_memory_validation", "; ".join(problems),
                 recovery_tools=["memory_validate"], recovery_usage="")],
@@ -1487,6 +1686,15 @@ def memory_validate_response(
                     "memory_record_not_found", f"Memory record {memory_id!r} was not found.",
                     recovery_tools=["memory_search"], recovery_usage="memory_search()")],
                 next_tools=["memory_search"], usage="")
+        # The stored record's fields are checked for content before anything
+        # names them: promote and retain refuse, and every response withholds
+        # a field that matched (reject is the recovery, so it must not echo).
+        stored_reasons = mem.forbidden_content_reasons({
+            "record_title": [record.get("title") or ""],
+            "record_summary": [record.get("summary") or ""],
+            "record_evidence": list(record.get("evidence_refs") or []),
+            "record_targets": list(record.get("target_refs") or []),
+        })
         if not record.get("source_event"):
             return server_impl._response(
                 "error", {"validated": False},
@@ -1497,7 +1705,8 @@ def memory_validate_response(
                 next_tools=["memory_reconcile"], usage="")
         if record.get("validation") != "pending":
             return server_impl._response(
-                "error", {"validated": False, "record": _memory_view(record, {})},
+                "error", {"validated": False,
+                          "record": _withhold_view(_memory_view(record, {}), stored_reasons)},
                 diagnostics=[_diagnostic(
                     "memory_validation_not_pending",
                     "Agent validation requires an evidence-derived candidate with "
@@ -1506,18 +1715,41 @@ def memory_validate_response(
                     recovery_tools=["memory_search"],
                     recovery_usage="memory_search(include_history=True)")],
                 next_tools=["memory_search"], usage="")
-        missing_targets = [
-            target for target in record.get("target_refs") or []
-            if not _memory_file_target_exists(root, target)
-        ]
-        if verdict in ("promote", "retain", "rewrite") and missing_targets:
-            return server_impl._response(
-                "error", {"validated": False, "missing_targets": missing_targets},
-                diagnostics=[_diagnostic(
-                    "memory_target_not_current",
-                    "One or more file targets are not present in the current tree.",
-                    recovery_tools=["memory_validate"], recovery_usage="")],
-                next_tools=["memory_validate"], usage="")
+        untrusted_refs: list[str] = []
+        if verdict in ("promote", "retain"):
+            if stored_reasons:
+                return server_impl._response(
+                    "error", {"validated": False, "content_reasons": stored_reasons,
+                              "rejected_reasons": _content_reason_codes(stored_reasons)},
+                    diagnostics=[_diagnostic(
+                        "invalid_memory_validation", _content_problem(stored_reasons)
+                        + "; reject the candidate",
+                        recovery_tools=["memory_validate"], recovery_usage="")],
+                    next_tools=["memory_validate"], usage="")
+            resolution = mem.resolve_memory_refs(
+                root, evidence=record.get("evidence_refs") or [],
+                targets=record.get("target_refs") or [])
+            if resolution["blocking"]:
+                return _ref_unresolved_response(
+                    resolution["blocking"], {"validated": False}, "memory_validate")
+            untrusted_refs = list(resolution["untrusted"])
+        elif verdict == "rewrite":
+            ref_tree = mem.memory_ref_tree(root)
+            resolution = mem.resolve_memory_refs(
+                root, evidence=_persisted_refs(mem, rewrite_evidence),
+                targets=_persisted_refs(mem, rewrite_targets), tree=ref_tree)
+            resolution["blocking"] = (_unterminated_refs(mem, "target", rewrite_targets)
+                                      + _unterminated_refs(mem, "evidence", rewrite_evidence)
+                                      + resolution["blocking"])
+            if resolution["blocking"]:
+                return _ref_unresolved_response(
+                    resolution["blocking"], {"validated": False}, "memory_validate")
+            refusal = _anchor_refusal(
+                mem, root, list(record.get("target_refs") or []), resolution,
+                retarget_reason, ref_tree, {"validated": False}, "memory_validate")
+            if refusal is not None:
+                return refusal
+            untrusted_refs = list(resolution["untrusted"])
 
         rewritten: Optional[dict[str, Any]] = None
         if verdict == "rewrite":
@@ -1555,6 +1787,8 @@ def memory_validate_response(
                     _validation_rationale=str(rationale).strip(),
                     _evidence_verified=True, _current_target_verified=True,
                     _canonical_overlap=canonical_overlap,
+                    retarget_reason=retarget_reason,
+                    _anchor_targets=list(record.get("target_refs") or []),
                     _source_exploration_cost=(
                         int(_prior_cost)
                         if _prior_cost is not None and int(_prior_cost) > 0
@@ -1618,9 +1852,12 @@ def memory_validate_response(
         return server_impl._response(
             "ok",
             {"validated": True, "verdict": verdict,
-             "record": _memory_view(updated, {}) if updated else {"memory_id": memory_id},
-             "rewrite_record": rewritten},
-            diagnostics=[],
+             "record": (_withhold_view(_memory_view(updated, {}), stored_reasons)
+                        if updated else {"memory_id": memory_id}),
+             "rewrite_record": rewritten, "untrusted_refs": untrusted_refs,
+             **({"withheld_reasons": _content_reason_codes(stored_reasons)}
+                if stored_reasons else {})},
+            diagnostics=[_untrusted_diagnostic(untrusted_refs)] if untrusted_refs else [],
             next_tools=["memory_search", "memory_brief"],
             usage="memory_search(include_history=True)")
 
@@ -1643,7 +1880,7 @@ def _record_epoch(index: Any, epoch_out: Optional[dict[str, Any]], *, loaded: bo
     if loaded:
         epoch_out["token"] = (getattr(index, "_loaded_meta_signature", None) or {}).get("project")
         return
-    from wf_server import server_impl
+    import wf_server.server_impl as server_impl
     try:
         partial = server_impl._partial_epoch_state(index.index_dir)
     except Exception:  # noqa: BLE001 - advisory only; the caller is already falling back
@@ -1668,7 +1905,7 @@ def _memory_query_records(
     dense read. The reranker runs after both. ``epoch_out["token"]`` receives
     the epoch signature the last snapshot read, including one whose load raised.
     """
-    from wf_server import server_impl
+    import wf_server.server_impl as server_impl
     import tensorwell_client
     token = None
     returned = False
@@ -1781,7 +2018,7 @@ def memory_search_response(
     index: Optional[server_impl.WaveIndex] = None,
     order: str = "",
 ) -> dict[str, Any]:
-    from wf_server import server_impl
+    import wf_server.server_impl as server_impl
     mem = _memory_mod()
     n = max(1, min(int(limit), MEMORY_SEARCH_CAP))
     order = (order or "").strip()
@@ -1893,8 +2130,8 @@ def memory_search_response(
             "no_memory_matches",
             "No memory records matched. Memory is evidence-backed and sparse by design — "
             "absence of a record is not absence of risk.",
-            recovery_tools=["memory_add"],
-            recovery_usage="memory_add(kind=..., summary=..., evidence=[...], targets=[...])",
+            recovery_tools=[],
+            recovery_usage="",
         ))
     result = server_impl._response(
         "ok",
@@ -1932,7 +2169,7 @@ def memory_brief_response(
     targets: Optional[list] = None,
     limit: int = MEMORY_BRIEF_CAP,
 ) -> dict[str, Any]:
-    from wf_server import server_impl
+    import wf_server.server_impl as server_impl
     mem = _memory_mod()
     context = (context or "pre_implementation").strip()
     if context not in MEMORY_BRIEF_CONTEXTS:
@@ -1949,10 +2186,10 @@ def memory_brief_response(
     ranked = _memory_ranked(root, records)
     ranked = [(r, d) for r, d in ranked if d.get("briefing_included", True)]
     if target_list:
-        matched = [(r, d) for r, d in ranked
-                   if any(mem.match_targets(r, path=t) for t in target_list)]
-        unmatched = [(r, d) for r, d in ranked if (r, d) not in matched]
-        ranked = matched + unmatched
+        # Change 249aq: a targeted briefing shows only records that match a
+        # target; an empty result is normal and carries no diagnostic.
+        ranked = [(r, d) for r, d in ranked
+                  if any(mem.match_targets(r, path=t) for t in target_list)]
     advisories = []
     community_scoped = []
     for record, decay in ranked[:n]:
@@ -2019,7 +2256,7 @@ def memory_reconcile_response(
     retain_for_history: bool = False,
 ) -> dict[str, Any]:
     """Serialize status/archive reconciliation across server processes."""
-    from wf_server import server_impl
+    import wf_server.server_impl as server_impl
     with server_impl.project_state_publication_lock(root):
         return _memory_reconcile_response_locked(
             root,
@@ -2041,7 +2278,7 @@ def _memory_reconcile_response_locked(
     eligibility_confirmed: bool = False,
     retain_for_history: bool = False,
 ) -> dict[str, Any]:
-    from wf_server import server_impl
+    import wf_server.server_impl as server_impl
     mem = _memory_mod()
     # Fence BEFORE the status rewrite (delivery-review round 4): refuse if the
     # durable fence cannot be established. Token is writer-owned.
@@ -2121,7 +2358,7 @@ def _memory_reconcile_response_locked(
 def memory_purge_response(root: Path, memory_id: str, reviewed: bool = False,
                           eligibility_confirmed: bool = False) -> dict[str, Any]:
     """Permanently purge one reviewed, non-historic retired memory record."""
-    from wf_server import server_impl
+    import wf_server.server_impl as server_impl
     if not reviewed:
         return server_impl._response("error", {"purged": False}, diagnostics=[_diagnostic(
             "memory_purge_requires_review", "Purge is irreversible. Review the record and call again with reviewed=true.",
@@ -2183,7 +2420,7 @@ def memory_consolidate_response(
     limit: int = 10,
 ) -> dict[str, Any]:
     """Preview or apply one small, explicitly reviewed memory consolidation."""
-    from wf_server import server_impl
+    import wf_server.server_impl as server_impl
     mem = _memory_mod()
     mode = str(mode or "dry_run").strip().lower()
     if mode not in {"dry_run", "create"}:
@@ -2388,7 +2625,7 @@ def wf_memory_eval_response(root: Path, index: Optional[server_impl.WaveIndex] =
     ``memory_search`` handler passes, so the production arm measures the
     production path. ``None`` lets the engine construct ``WaveIndex(root)``.
     """
-    from wf_server import server_impl
+    import wf_server.server_impl as server_impl
     target = root
     evaluator = server_impl._load_script("memory_eval")
     report = evaluator.run_curated(target, index=index)

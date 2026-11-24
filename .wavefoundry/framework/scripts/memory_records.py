@@ -944,6 +944,7 @@ def render_memory_record(
     current_target_verified: Optional[bool] = None,
     canonical_overlap: str = "",
     date: Optional[str] = None,
+    retarget_reason: str = "",
 ) -> str:
     """Render the canonical record markdown (the README template shape).
 
@@ -951,6 +952,8 @@ def render_memory_record(
     consumed-token cost of the wave/repair-cycle that produced this record. It
     is the grounding unit the 1svuk estimated-exploration-avoided category
     reads; it is optional metadata, absent on manually-authored records.
+    ``retarget_reason`` (change 249aq) is written as a ``Retarget reason:``
+    line when a rewrite replaces targets that no longer resolve.
     """
     today = date or time.strftime("%Y-%m-%d")
     lines = [
@@ -989,6 +992,12 @@ def render_memory_record(
         lines.append(f"Canonical overlap: {canonical_overlap}")
     if supersedes:
         lines.append(f"Supersedes: `{supersedes}`")
+    if retarget_reason:
+        # Change 249aq: a rewrite whose original targets are all gone records
+        # why it names new ones.
+        if not memory_single_line(retarget_reason):
+            raise ValueError("retarget_reason must be a single line")
+        lines.append(f"Retarget reason: {retarget_reason.strip()}")
     lines += ["", "## Summary", "", summary.strip(), "", "## Evidence", ""]
     lines += [f"- {e}" if e.lstrip().startswith("`") else f"- `{e}`" for e in evidence]
     lines += ["", "## Targets", ""]
@@ -1874,3 +1883,452 @@ def find_duplicates(
                 "shared_evidence": shared,
             })
     return matches
+
+
+# --- Admission floor: ref resolution and content reasons (change 249aq) ---
+# Deterministic and model-free. Resolution reads only the working tree and the
+# record roots: never Git, the index or the network. "At HEAD" in the memory
+# arc means the working tree of the current checkout, so a target in an
+# uncommitted new file resolves. Admission applies these to new writes only;
+# a caller that judges existing records reads each ref's ``state`` instead of
+# ``blocking``.
+
+MEMORY_REF_PATH_EXTENSIONS = (
+    ".py", ".pyi", ".md", ".json", ".jsonl", ".toml", ".yaml", ".yml", ".txt",
+    ".ini", ".cfg", ".lock", ".ps1", ".sh", ".cmd", ".bat", ".js", ".mjs",
+    ".cjs", ".ts", ".tsx", ".jsx", ".css", ".html", ".sql", ".java", ".kt",
+    ".go", ".rs", ".c", ".h", ".cpp", ".hpp", ".cs", ".swift", ".rb", ".php",
+)
+MEMORY_REF_STATES = ("resolved", "suffix_only", "ambiguous", "unresolved", "unchecked")
+# Directories the ``memory_ref_tree`` walk never enters, at any depth.
+MEMORY_REF_PRUNED_DIRS = frozenset({
+    ".git", "node_modules", "bower_components", "vendor", "third_party",
+    "site-packages", "dist-packages", ".venv", "venv", "__pycache__", ".tox",
+    ".mypy_cache", ".pytest_cache",
+})
+# Path components that mark text this repository's reviewers did not write.
+MEMORY_UNTRUSTED_COMPONENTS = frozenset({
+    "node_modules", "bower_components", "vendor", "third_party",
+    "site-packages", "dist-packages", ".venv", "venv",
+})
+MEMORY_UNTRUSTED_PREFIXES = (".wavefoundry/work/", ".wavefoundry/cache/")
+# Bounds on one ref (red-team probe: a 40k-character ``:a`` chain). A longer
+# ref is not probed and is ``unresolved``, so padding cannot skip the floor.
+MEMORY_REF_MAX_CHARS = 1024
+MEMORY_REF_MAX_PREFIX_TOKENS = 32
+
+_URI_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+_REF_LINES_RE = re.compile(r"\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*")
+_REF_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
+_REF_WAVE_ID_RE = re.compile(r"(?=[0-9a-z]*[0-9])[0-9a-z]{5,6}")
+_REF_LIFECYCLE_ID_RE = re.compile(r"([0-9a-z]{5,6})-([a-z][a-z0-9]*) (\S+)(?:\s.*)?", re.S)
+_REF_TOKEN_RE = re.compile(r"\S+")
+
+
+class MemoryRefTree:
+    """One walk of the repository: the files a bare-name ref may match.
+
+    ``files`` holds POSIX repo-relative paths; ``by_name`` indexes them by
+    final component so a suffix match reads only same-named files.
+    """
+
+    def __init__(self, files: Iterable[str]) -> None:
+        # The record-root id sets are cached here on first use, so a batch
+        # loads the records once; build a new tree after a write.
+        self.ids: Optional[tuple[set[str], set[str], set[str]]] = None
+        self.files = tuple(sorted(files))
+        self.by_name: dict[str, list[str]] = {}
+        for rel in self.files:
+            self.by_name.setdefault(rel.rsplit("/", 1)[-1], []).append(rel)
+
+
+def _walk_memory_ref_files(root: Path) -> list[str]:
+    """Regular files under ``root``, pruned as ``memory_ref_tree`` documents."""
+    root = Path(root)
+    out: list[str] = []
+    stack: list[tuple[Path, str]] = [(root, "")]
+    while stack:
+        directory, rel = stack.pop()
+        try:
+            entries = list(os.scandir(directory))
+        except OSError:
+            continue
+        if rel and any(entry.name == ".git" for entry in entries):
+            # A nested checkout (worktree, submodule or clone) is not this
+            # repository's tree.
+            continue
+        for entry in entries:
+            name = entry.name
+            child_rel = f"{rel}/{name}" if rel else name
+            try:
+                if entry.is_symlink():
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    if name in MEMORY_REF_PRUNED_DIRS:
+                        continue
+                    if not rel and name == ".wavefoundry":
+                        stack.append((Path(entry.path), child_rel))
+                        continue
+                    if rel == ".wavefoundry" and name != "framework":
+                        continue
+                    if _ref_entry_is_link(entry):
+                        continue
+                    stack.append((Path(entry.path), child_rel))
+                elif entry.is_file(follow_symlinks=False):
+                    if not rel and name == ".wavefoundry":
+                        continue
+                    if rel == ".wavefoundry":
+                        continue
+                    out.append(child_rel)
+            except OSError:
+                continue
+    return out
+
+
+def _ref_entry_is_link(entry: "os.DirEntry[str]") -> bool:
+    """A Windows junction or other name-surrogate directory entry."""
+    if os.name != "nt":
+        return False
+    import contained_files
+    try:
+        return contained_files._is_link_metadata(entry.stat(follow_symlinks=False))
+    except OSError:
+        return True
+
+
+def memory_ref_tree(root: Path) -> MemoryRefTree:
+    """Walk the repository once; pass the result to ``resolve_memory_refs``.
+
+    The walk skips ``.git/``, ``.wavefoundry/`` except ``.wavefoundry/framework/``
+    (at the root only), every directory named in ``MEMORY_REF_PRUNED_DIRS``,
+    any non-root directory holding a ``.git`` entry (a worktree, submodule or
+    nested clone), symlinks and Windows junctions. A batch caller reuses one
+    tree for many records; exact-path resolution always reads the disk, so
+    results are the same with and without a supplied tree.
+    """
+    return MemoryRefTree(_walk_memory_ref_files(root))
+
+
+def memory_ref_untrusted(ref: str) -> bool:
+    """Whether evidence ``ref`` points at text this repository did not write."""
+    text = str(ref or "").strip().strip("`").strip().replace("\\", "/")
+    if _URI_SCHEME_RE.match(text):
+        return True
+    first = text.split(None, 1)[0] if text.split() else ""
+    if any(first.startswith(prefix) for prefix in MEMORY_UNTRUSTED_PREFIXES):
+        return True
+    return any(part in MEMORY_UNTRUSTED_COMPONENTS for part in first.split("/"))
+
+
+def _split_ref_suffix(text: str) -> tuple[str, Optional[list[tuple[int, int]]]]:
+    """``(path, lines)`` with the whole trailing suffix removed.
+
+    Parsed from the right without backtracking: a line, range or comma list
+    after the last ``:`` gives ``lines``; otherwise a chain of ``:name`` and
+    ``::name`` segments is removed and ``lines`` is None.
+    """
+    colon = text.rfind(":")
+    if colon > 0:
+        tail = text[colon + 1:]
+        if _REF_LINES_RE.fullmatch(tail):
+            spans: list[tuple[int, int]] = []
+            for item in tail.split(","):
+                start, _, end = item.partition("-")
+                spans.append((int(start), int(end or start)))
+            return text[:colon], spans
+    end = len(text)
+    while True:
+        colon = text.rfind(":", 0, end)
+        if colon <= 0 or not _REF_NAME_RE.fullmatch(text, colon + 1, end):
+            break
+        end = colon - 1 if text[colon - 1] == ":" and colon > 1 else colon
+    return text[:end], None
+
+
+class _RefContext:
+    def __init__(self, root: Path, tree: Optional[MemoryRefTree]) -> None:
+        self.root = Path(root)
+        self._tree = tree
+        self._listings: dict[str, Optional[set[str]]] = {}
+        self._files: dict[str, Optional[Path]] = {}
+        self._lines: dict[str, int] = {}
+        self._ids: Optional[tuple[set[str], set[str], set[str]]] = None
+
+    @property
+    def tree(self) -> MemoryRefTree:
+        if self._tree is None:
+            self._tree = memory_ref_tree(self.root)
+        return self._tree
+
+    def _listing(self, rel_dir: str) -> Optional[set[str]]:
+        if rel_dir not in self._listings:
+            try:
+                self._listings[rel_dir] = set(os.listdir(self.root / rel_dir if rel_dir else self.root))
+            except OSError:
+                self._listings[rel_dir] = None
+        return self._listings[rel_dir]
+
+    def exact_file(self, rel: str) -> Optional[Path]:
+        """The judged path when ``rel`` is a contained regular file spelled
+        case-exactly in every component; None otherwise."""
+        if rel in self._files:
+            return self._files[rel]
+        found: Optional[Path] = None
+        parts = rel.split("/")
+        if rel and not rel.startswith("/") and ":" not in parts[0] and all(
+            part not in ("", ".", "..") for part in parts
+        ):
+            spelled = True
+            for index, part in enumerate(parts):
+                listing = self._listing("/".join(parts[:index]))
+                if listing is None or part not in listing:
+                    spelled = False
+                    break
+            if spelled:
+                import contained_files
+                try:
+                    found, _identity = contained_files.judge_contained_file(self.root, rel)
+                except (OSError, ValueError):
+                    found = None
+        self._files[rel] = found
+        return found
+
+    def line_count(self, path: Path) -> int:
+        key = str(path)
+        if key not in self._lines:
+            try:
+                with open(path, encoding="utf-8", errors="replace", newline=None) as handle:
+                    self._lines[key] = sum(1 for _ in handle)
+            except OSError:
+                self._lines[key] = -1
+        return self._lines[key]
+
+    def lines_ok(self, path: Path, lines: Optional[list[tuple[int, int]]]) -> bool:
+        if lines is None:
+            return True
+        count = self.line_count(path)
+        return count >= 0 and all(1 <= start <= end <= count for start, end in lines)
+
+    def ids(self) -> tuple[set[str], set[str], set[str]]:
+        """``(wave ids, change stems, memory ids)`` known to the record roots."""
+        if self._ids is not None:
+            return self._ids
+        if self._tree is not None and self._tree.ids is not None:
+            self._ids = self._tree.ids
+            return self._ids
+        waves: set[str] = set()
+        changes: set[str] = set()
+        memories: set[str] = set()
+        try:
+            roots = record_paths.load_record_roots(self.root)
+            dirs = list(record_paths.discover_wave_dirs(self.root, roots))
+            dirs += list(record_paths.discover_archive_dirs(self.root, roots))
+            for wave_dir in dirs:
+                waves.add(wave_dir.name.split(" ", 1)[0])
+                changes.update(path.stem for path in wave_dir.glob("*.md"))
+            if roots.plans.is_dir():
+                changes.update(path.stem for path in roots.plans.rglob("*.md"))
+        except Exception:
+            pass
+        try:
+            memories.update(r["memory_id"] for r in load_memory_records(self.root))
+            memories.update(r["memory_id"] for r in load_archive_register_entries(self.root))
+        except Exception:
+            pass
+        self._ids = (waves, changes, memories)
+        if self._tree is not None:
+            self._tree.ids = self._ids
+        return self._ids
+
+    def suffix_match(self, candidate: str) -> list[str]:
+        name = candidate.rsplit("/", 1)[-1]
+        if not name:
+            return []
+        tail = "/" + candidate
+        return [rel for rel in self.tree.by_name.get(name, ()) if rel.endswith(tail)]
+
+
+def _resolve_path_ref(ctx: _RefContext, candidate: str,
+                      lines: Optional[list[tuple[int, int]]]) -> tuple[str, Optional[str]]:
+    exact = ctx.exact_file(candidate)
+    if exact is not None:
+        return ("resolved" if ctx.lines_ok(exact, lines) else "unresolved"), candidate
+    matches = ctx.suffix_match(candidate)
+    if len(matches) == 1:
+        path = ctx.root / matches[0]
+        if ctx.lines_ok(path, lines):
+            return "suffix_only", matches[0]
+        return "unresolved", None
+    if len(matches) > 1:
+        return "ambiguous", None
+    return "unresolved", None
+
+
+def _resolve_one_ref(ctx: _RefContext, ref: str, role: str) -> dict[str, Any]:
+    text = str(ref or "").strip().strip("`").strip()
+    entry: dict[str, Any] = {"ref": text, "role": role, "form": "other", "state": "unchecked"}
+    if not text:
+        return entry
+    if _URI_SCHEME_RE.match(text):
+        entry["form"] = "uri"
+        return entry
+    if text.startswith("symbol:"):
+        entry["form"] = "symbol"
+        return entry
+    if text.startswith("community:"):
+        entry["form"] = "community"
+        return entry
+    if len(text) > MEMORY_REF_MAX_CHARS:
+        entry["state"] = "unresolved"
+        return entry
+    normalized = text.replace("\\", "/")
+    # (c) Longest exact-file prefix, joined with the ref's own whitespace.
+    ends = [match.end() for match in _REF_TOKEN_RE.finditer(normalized)]
+    for end in reversed(ends[:MEMORY_REF_MAX_PREFIX_TOKENS]):
+        candidate, lines = _split_ref_suffix(normalized[:end])
+        exact = ctx.exact_file(candidate)
+        if exact is not None:
+            entry["form"] = "path"
+            entry["state"] = "resolved" if ctx.lines_ok(exact, lines) else "unresolved"
+            if entry["state"] == "resolved":
+                entry["resolved_path"] = candidate
+            return entry
+    # (d) Evidence id forms.
+    if role == "evidence":
+        if _REF_WAVE_ID_RE.fullmatch(text):
+            entry["form"] = "wave_id"
+            entry["state"] = "resolved" if text in ctx.ids()[0] else "unresolved"
+            return entry
+        lifecycle = _REF_LIFECYCLE_ID_RE.fullmatch(text)
+        if lifecycle and (lifecycle.group(2) in _vocab.CHANGE_KINDS or lifecycle.group(2) == "mem"):
+            stem = f"{lifecycle.group(1)}-{lifecycle.group(2)} {lifecycle.group(3)}"
+            if lifecycle.group(2) == "mem":
+                entry["form"] = "memory_id"
+                known = ctx.ids()[2]
+            else:
+                entry["form"] = "change_id"
+                known = ctx.ids()[1]
+            entry["state"] = "resolved" if stem in known else "unresolved"
+            return entry
+    # (e) First-token path form.
+    first = normalized.split(None, 1)[0]
+    candidate, lines = _split_ref_suffix(first)
+    if role == "target" or "/" in candidate or candidate.endswith(MEMORY_REF_PATH_EXTENSIONS):
+        entry["form"] = "path"
+        state, resolved = _resolve_path_ref(ctx, candidate, lines)
+        entry["state"] = state
+        if resolved:
+            entry["resolved_path"] = resolved
+        return entry
+    return entry
+
+
+def resolve_memory_refs(
+    root: Path,
+    *,
+    evidence: Iterable[str] = (),
+    targets: Iterable[str] = (),
+    tree: Optional[MemoryRefTree] = None,
+) -> dict[str, Any]:
+    """Resolve memory evidence and target refs against the working tree.
+
+    Deterministic and model-free: reads only the working tree and the record
+    roots, never Git, the index or the network. "At HEAD" means the working
+    tree of the current checkout, so a target in an uncommitted new file
+    resolves. ``tree`` is an optional ``memory_ref_tree(root)`` a batch caller
+    reuses; without it the walk runs at most once, and only when a bare-name
+    ref needs it.
+
+    Each ref, backticks stripped, is classified by the first rule that
+    applies: a URI scheme (``unchecked`` and untrusted); ``symbol:`` and
+    ``community:``; the longest whitespace-joined prefix that is an exact file
+    once its suffix (``:N``, ``:N-M``, ``:N,M`` or a ``:name``/``::name`` chain)
+    is stripped, the rest being annotation; for evidence, a wave id
+    (``[0-9a-z]{5,6}`` holding a digit), change id or memory id, whose slug is
+    the second token and anything after it annotation; the first-token path
+    form (a ``/`` or a listed extension, and every target); anything else is
+    ``unchecked``. Only line, range and comma-list suffixes check line numbers.
+    A ref over ``MEMORY_REF_MAX_CHARS`` is ``unresolved`` without probing. A
+    supplied ``tree`` also caches the record-root id sets for its batch.
+
+    Returns ``{"refs": [...], "blocking": [...], "untrusted": [...]}``. Each
+    entry has ``ref``, ``role`` (``target`` or ``evidence``), ``form``,
+    ``state`` (one of ``MEMORY_REF_STATES``) and, when found,
+    ``resolved_path``. ``blocking`` is the admission rule: every ``unresolved``
+    or ``ambiguous`` ref and every ``suffix_only`` target. ``untrusted`` lists
+    evidence refs from a URI, a dependency tree or a scratch or cache path.
+    """
+    ctx = _RefContext(root, tree)
+    target_list = [str(t) for t in targets or ()]
+    evidence_list = [str(e) for e in evidence or ()]
+    entries: list[dict[str, Any]] = []
+    symbols: list[dict[str, Any]] = []
+    for ref in target_list:
+        entry = _resolve_one_ref(ctx, ref, "target")
+        entries.append(entry)
+        if entry["form"] == "symbol":
+            symbols.append(entry)
+    resolved_files = [
+        ctx.root / entry["resolved_path"] for entry in entries
+        if entry["role"] == "target" and entry["form"] == "path"
+        and entry["state"] == "resolved" and entry.get("resolved_path")
+    ]
+    for entry in symbols:
+        name = entry["ref"][len("symbol:"):].strip()
+        if not resolved_files:
+            continue
+        pattern = re.compile(rf"\b{re.escape(name)}\b") if name else None
+        hit = False
+        for path in resolved_files:
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if pattern is not None and pattern.search(text):
+                hit = True
+                break
+        entry["state"] = "resolved" if hit else "unresolved"
+    for ref in evidence_list:
+        entries.append(_resolve_one_ref(ctx, ref, "evidence"))
+    blocking = [
+        entry for entry in entries
+        if entry["state"] in ("unresolved", "ambiguous")
+        or (entry["role"] == "target" and entry["state"] == "suffix_only")
+    ]
+    untrusted = [
+        entry["ref"] for entry in entries
+        if entry["role"] == "evidence" and memory_ref_untrusted(entry["ref"])
+    ]
+    return {"refs": entries, "blocking": blocking, "untrusted": untrusted}
+
+
+def memory_single_line(value: str) -> bool:
+    """True when ``value`` holds no line break by ``str.splitlines`` (CR, LF,
+    U+2028, U+2029, U+0085, vertical tab, form feed and the other separators)."""
+    text = str(value or "")
+    return len(text.splitlines()) <= 1 and "".join(text.splitlines()) == text
+
+
+def forbidden_content_reasons(fields: Any) -> dict[str, list[str]]:
+    """Per field name, the sorted content reason codes its text matched.
+
+    ``fields`` maps a field name to a string or a list of strings (a sequence
+    of ``(name, chunks)`` pairs is accepted too). Every line is checked with
+    ``wave_lint_lib.constants.memory_line_reasons``, the checker the record
+    lint uses, so reason codes agree everywhere. Clean fields are omitted, and
+    the matched text is never returned.
+    """
+    import wave_lint_lib.constants as lint_constants
+
+    items = fields.items() if isinstance(fields, dict) else fields
+    out: dict[str, list[str]] = {}
+    for name, chunks in items:
+        if isinstance(chunks, str) or chunks is None:
+            chunks = [chunks or ""]
+        reasons: set[str] = set()
+        for chunk in chunks:
+            for line in str(chunk or "").splitlines():
+                reasons |= lint_constants.memory_line_reasons(line)
+        if reasons:
+            out[str(name)] = sorted(reasons)
+    return out

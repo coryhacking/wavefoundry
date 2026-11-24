@@ -44,6 +44,11 @@ Review `memory_propose(wave_id, mode="dry_run")` before creating a file. Select 
      rewrite_kind=..., rewrite_title=..., rewrite_summary=..., rewrite_evidence=...,
      rewrite_targets=..., rewrite_confidence=...)`. Supply every `rewrite_*` value only when
      `verdict="rewrite"`.
+     `canonical_overlap="duplicates"` also covers a lesson the code at the target already
+     shows, in a comment, docstring, assertion or the code itself, so reject it. A rewrite
+     keeps its concrete anchor: at least one original target that still resolves, and the
+     path, command, error string or finding it was drawn from, not condensed into a general
+     lesson. When no original target still resolves, pass a single-line `retarget_reason`.
    - Never send a hand-authored or already-finalized candidate to `memory_validate`. When
      justified, disposition it with `memory_reconcile(memory_id=...,
      status="active"|"rejected")`; otherwise leave it unchanged and report it unresolved.
@@ -66,8 +71,8 @@ Review `memory_propose(wave_id, mode="dry_run")` before creating a file. Select 
    - **supersede:** another active record carries the knowledge at equal or wider scope. Call
      `memory_reconcile(memory_id=..., status="superseded", superseded_by=...)`.
    - **rewrite:** the knowledge is still operational but the record is wrong or outdated. Call
-     `memory_add(..., status="active", supersedes=<original id>)`; it also marks the original
-     superseded. Only when it reports `supersedes_target_not_updated`, finish with
+     `memory_add(..., status="active", supersedes=<original id>)`, keeping the concrete anchor
+     as in step 2; it also marks the original superseded. Only when it reports `supersedes_target_not_updated`, finish with
      `memory_reconcile(memory_id=<original id>, status="superseded", superseded_by=<new id>)`.
      Never send an active record to `memory_validate`.
    - **unresolved:** leave the record unchanged and report it.
