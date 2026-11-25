@@ -19,6 +19,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The upgrade workflow includes project-owned guides and scripts that use retired spec tool names in the file-level approval plan and verifies corrected examples after the upgrade. Follow-up to wave 24buu.
 - Wave 24buu, spec 24bn9. The CLI and release-zip entry run cleanup after successful index publication. A CLI upgrade from 1.51.0 still needs one manual `--cleanup`. MCP and retained recovery follow their separate cleanup steps.
 
 - Upgrade now installs updated lifecycle prompts and the plan template when the project copy still matches its previous baseline. It preserves the verification date, reports each replacement and names the incoming template for a hand merge when the local copy differs. Wave 24buu / 24bn8.
