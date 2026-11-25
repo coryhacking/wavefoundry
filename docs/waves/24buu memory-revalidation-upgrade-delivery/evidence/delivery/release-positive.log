@@ -1,0 +1,10 @@
+test_direct_zip_entry_resolves_framework_imports_from_the_zip (test_upgrade_protocol.UpgradeProtocolTests.test_direct_zip_entry_resolves_framework_imports_from_the_zip) ... ok
+test_protocol_two_entry_reports_observed_cleanup_without_a_second_command (test_upgrade_protocol.UpgradeProtocolTests.test_protocol_two_entry_reports_observed_cleanup_without_a_second_command) ... ok
+test_cli_primary_runs_extracted_cleanup_and_emits_one_terminal_result (test_upgrade_wavefoundry.UpgradeManifestRecoveryTests.test_cli_primary_runs_extracted_cleanup_and_emits_one_terminal_result) ... ok
+test_edited_unknown_late_changed_and_linked_paths_keep_bytes_and_findings (test_lifecycle_baseline_drift.BaselineDriftTests.test_edited_unknown_late_changed_and_linked_paths_keep_bytes_and_findings) ... ok
+test_v151_upgrade_renderer_installs_proven_baselines_and_summary (test_lifecycle_baseline_drift.BaselineDriftTests.test_v151_upgrade_renderer_installs_proven_baselines_and_summary) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 17.595s
+
+OK

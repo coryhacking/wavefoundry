@@ -1,0 +1,56 @@
+{
+  "wave_id": "24buu",
+  "event": "finding",
+  "actor": "architecture-reviewer",
+  "context_id": "24buu-delivery-architecture-independent-1124",
+  "finding_id": "ARCH-D1",
+  "run_kind": "initial_delivery",
+  "cycle": 0,
+  "source_lanes": [
+    "architecture-reviewer"
+  ],
+  "blocking_required_lanes": [
+    "architecture-reviewer"
+  ],
+  "approval_recheck_lanes": [
+    "architecture-reviewer"
+  ],
+  "fresh_context": true,
+  "independent": true,
+  "judgment": {
+    "validation_status": "real",
+    "scope_relation": "admitted",
+    "introduced_or_worsened_by_wave": true,
+    "contract_relevance": "public_contract",
+    "supported_reachability": true,
+    "attacker_reachability": false,
+    "authority_domain": "none",
+    "authority_delta": "none",
+    "observable_impact": "material",
+    "containment": "none",
+    "disposition": "do_now",
+    "repair_execution_state": "pending"
+  },
+  "evidence": {
+    "execution_status": "executed",
+    "proposition": "The normative dependency-direction rule and write footprints describe the Phase 1 renderer's authority over a previously installed lifecycle baseline.",
+    "failure_condition": "A documented unconditional prohibition on rewriting a materialized baseline contradicts a successful upgrade replacement of a proven prior template.",
+    "public_path": "render_platform_surfaces.py --repo-root <fixture> --platform codex --include-permissions --manifest <fixture manifest>, with and without the upgrade comparison checkpoint.",
+    "command_or_fixture": "From .wavefoundry/framework/scripts use PYTHONPATH=.:tests ~/.wavefoundry/venv/bin/python -B -m unittest -v test_lifecycle_baseline_drift.BaselineDriftTests.test_v151_upgrade_renderer_installs_proven_baselines_and_summary test_render_agent_surfaces.TechdocsBaselineStateMatrixTests.test_every_state_writes_absent_members_only_and_warns_iff_mixed. Inspect docs/architecture/domain-map.md rule 2, data-and-control-flow.md Path 3 State written and telemetry step 10 against Upgrade lifecycle baseline drift.",
+    "expected": "Document the sole upgrade exception for the registered plan template and lifecycle prompts. Keep ordinary setup, unproven project files and the missing-only TechDocs trio outside that exception.",
+    "observed": "The renderer left the prior templates intact without a checkpoint, then replaced six registered destinations after capturing the comparison. The public renderer retry also changed an existing prompt on both sides of CR-D1. Domain-map rule 2 states that a materialized baseline is never regenerated as a whole file. Path 3 says never rewritten afterwards, and telemetry step 10 says never replaced by a baseline. The dedicated upgrade section correctly describes replacement.",
+    "artifact_or_test_id": "test_v151_upgrade_renderer_installs_proven_baselines_and_summary, test_every_state_writes_absent_members_only_and_warns_iff_mixed, test_edited_unknown_late_changed_and_linked_paths_keep_bytes_and_findings. Architecture source anchors are domain-map.md rule 2 and data-and-control-flow.md Path 3, telemetry step 10 and Upgrade lifecycle baseline drift.",
+    "known_bad_detection_method": "Compared the documented absolute prohibition with a real subprocess rewriting prior installed copies and the same subprocess preserving every copy with no captured checkpoint. A successful six-file replacement disproves the unconditional rule.",
+    "limitations": "Fixtures run on macOS. Rehearsal evidence and fresh stdio inventories belong to the coordinator. This finding concerns architecture documentation. CR-D1 fixes a different fault during checkpoint publication.",
+    "safety_and_authorization": "Only disposable local targets and host-settings fixtures were used.",
+    "disposition_rationale": "Update the architecture authority and both stale restatements in the same change. Maintainers use rule 2 to decide whether modifying project-owned files is permitted."
+  },
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "The archived 1.51 template fixture reaches the actual Phase 1 renderer and requires replacement of existing bytes after proof. Its before-checkpoint control asserts each original byte remains. This executable counterexample falsifies the known-bad blanket prohibition."
+  }
+}

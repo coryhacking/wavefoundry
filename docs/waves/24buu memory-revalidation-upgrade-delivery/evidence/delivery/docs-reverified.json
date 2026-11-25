@@ -1,0 +1,55 @@
+{
+  "wave_id": "24buu",
+  "event": "finding",
+  "mode": "dry_run",
+  "actor": "docs-contract-reviewer",
+  "context_id": "24buu-docs-cycle2-independent-1124",
+  "finding_id": "DOC-D1",
+  "run_kind": "reverification",
+  "cycle": 2,
+  "source_lanes": [
+    "docs-contract-reviewer"
+  ],
+  "blocking_required_lanes": [],
+  "approval_recheck_lanes": [
+    "docs-contract-reviewer"
+  ],
+  "fresh_context": true,
+  "independent": true,
+  "judgment": {
+    "validation_status": "real",
+    "scope_relation": "admitted",
+    "introduced_or_worsened_by_wave": true,
+    "contract_relevance": "public_contract",
+    "supported_reachability": true,
+    "attacker_reachability": false,
+    "authority_domain": "none",
+    "authority_delta": "none",
+    "observable_impact": "material",
+    "containment": "none",
+    "disposition": "do_now",
+    "repair_execution_state": "verified"
+  },
+  "evidence": {
+    "execution_status": "executed",
+    "proposition": "Both upgrade prompts distinguish observed holds from operator responsibility for an undisclosed old-name restriction.",
+    "failure_condition": "The docs claim the renderer automatically withholds a tool for a policy location it cannot inspect.",
+    "public_path": "Upgrade Phase 1 and setup's shared render_platform_surfaces.main --repo-root <fixture> --include-permissions, followed by the runtime roster's spec_permission_holds.",
+    "command_or_fixture": "PYTHONPATH=.wavefoundry/framework/scripts:.wavefoundry/framework/scripts/tests ~/.wavefoundry/venv/bin/python -B .wavefoundry/work/24buu/delivery/docs-opaque.py",
+    "expected": "Both copies identify the possibly visible replacement and tell the operator to update and verify host policy; runtime controls preserve independent policy bytes.",
+    "observed": "Fresh paired public render: undisclosed old-name managed deny yielded no roster holds and a wf_get_spec receipt; disclosing the identical rule yielded only the wf_get_spec hold and no receipt. Files unchanged. Both revised prompts now explicitly cover the invisible case. The guidance and two cleanup controls passed. The frozen pre-repair phrase failed the revised guidance test on both destinations. Reviewed q5u0/q5u1 primary checkpoints and terminal reports: direct archive auto-cleaned twice; installed 1.51 runner retained index_complete once, then its successor auto-cleaned; MCP retained both primary checkpoints. Each completed route/hop had one cleanup_complete summary.",
+    "artifact_or_test_id": ".wavefoundry/work/24buu/delivery/docs-reverified.log, docs-opaque.py; SpecPermissionGuidanceTests; UpgradeManifestRecoveryTests.test_cli_primary_runs_extracted_cleanup_and_emits_one_terminal_result and test_auto_cleanup_checks_required_and_malformed_guard; rehearsal/final-{cli,installed,mcp} primary checkpoints and terminal summary JSON.",
+    "known_bad_detection_method": "Executed the current guidance test against two fixture destinations containing the q5tz archive's pre-repair wording: two failed subtests, zero errors/skips. Same test passed on both repaired destinations. Actual public render yielded opposite holds for disclosed and undisclosed policy.",
+    "limitations": "Host-side MDM, native Windows and client filters were outside the probe. Archive conclusions draw on the recorded macOS CLI and stdio runs with an explicit CPU provider. I ran the renderer, roster, documentation check and two CLI cleanup tests independently.",
+    "safety_and_authorization": "Temporary repository and host fixtures only. No host settings, release, or ledger mutation.",
+    "disposition_rationale": "DOC-D1 is resolved. The archived q5u0 and q5u1 seeds also contain the repair. ARCH-D1 belongs to architecture review."
+  },
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "Executed the current guidance test against two fixture destinations containing the q5tz archive's pre-repair wording: two failed subtests, zero errors/skips. Same test passed on both repaired destinations. Actual public render yielded opposite holds for disclosed and undisclosed policy."
+  }
+}

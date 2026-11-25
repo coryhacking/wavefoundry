@@ -1,0 +1,2 @@
+pass 1 fresh-process holds ["wf_get_spec"] outside bytes stable True receipt False
+pass 2 fresh-process holds ["wf_get_spec"] outside bytes stable True receipt False

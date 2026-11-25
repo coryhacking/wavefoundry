@@ -1,0 +1,28 @@
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.local.json allow mcp__wavefoundry__wf_new_spec
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.local.json allow mcp__wavefoundry__wf_get_spec
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.local.json allow mcp__wavefoundry__wf_add_spec
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.local.json allow mcp__wavefoundry__wf_remove_spec
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.local.json allow mcp__wavefoundry__wf_close_spec
+render_platform_surfaces: Spec-tool verified: wf_new_spec
+render_platform_surfaces: Spec-tool verified: wf_get_spec
+render_platform_surfaces: Spec-tool verified: wf_add_spec
+render_platform_surfaces: Spec-tool verified: wf_remove_spec
+render_platform_surfaces: Spec-tool verified: wf_close_spec
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmpjsdljci6/claude/settings.json (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmpjsdljci6/codex/config.toml (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmpjsdljci6/managed/managed-settings.json (absent)
+{"disclosed": false, "held": [], "receipt": true, "outside_bytes_preserved": true}
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.local.json allow mcp__wavefoundry__wf_new_spec
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.local.json allow mcp__wavefoundry__wf_get_spec
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.local.json allow mcp__wavefoundry__wf_add_spec
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.local.json allow mcp__wavefoundry__wf_remove_spec
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.local.json allow mcp__wavefoundry__wf_close_spec
+render_platform_surfaces: Spec-tool verified: wf_new_spec
+render_platform_surfaces: Spec-tool verified: wf_add_spec
+render_platform_surfaces: Spec-tool verified: wf_remove_spec
+render_platform_surfaces: Spec-tool verified: wf_close_spec
+render_platform_surfaces: Spec-tool still withheld: wf_get_spec: Add the deny rule mcp__wavefoundry__wf_get_spec to <temp>/tmpb04alb2y/policy.json to match mcp__wavefoundry__wf_get_change, then restart the host.
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmpb04alb2y/claude/settings.json (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmpb04alb2y/codex/config.toml (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmpb04alb2y/policy.json (read)
+{"disclosed": true, "held": ["wf_get_spec"], "receipt": false, "outside_bytes_preserved": true}

@@ -2125,8 +2125,8 @@ class ResumeAfterGateTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _resume(self, *, auto_cleanup=False):
-        with patch.object(self.mod, "phase_index_update", return_value=True), patch.object(self.mod, "_load_extension_module", return_value=None), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+    def _resume(self, *, auto_cleanup=False, output=None):
+        with patch.object(self.mod, "phase_index_update", return_value=True), patch.object(self.mod, "_load_extension_module", return_value=None), contextlib.redirect_stdout(output if output is not None else io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             return self.mod.main(["--resume-after-gate", "--root", str(self.root)]
                                  + ([] if auto_cleanup else ["--no-auto-cleanup"]))
 
@@ -2136,7 +2136,10 @@ class ResumeAfterGateTests(unittest.TestCase):
         self._failed_gate_lock()
         _install_cleanup_runner(self.root)
         with patch.object(self.mod, "phase_docs_gate", return_value=None):
-            self.assertEqual(self._resume(auto_cleanup=True), 0)
+            output = io.StringIO()
+            self.assertEqual(self._resume(auto_cleanup=True, output=output), 0)
+        _assert_auto_cleanup_summaries(self, output.getvalue(), self.mod, "1.5.0", "1.6.0")
+        self.assertIn("Primary upgrade complete.", self.mod.upgrade_log_path(self.root).read_text())
         self.assertFalse(self.lib.upgrade_lock_path(self.root).exists())
 
     def _failed_gate_lock(self):
@@ -2331,6 +2334,19 @@ class ResumeAfterGateTests(unittest.TestCase):
         self.assertEqual(self._resume(), 1)
 
 
+def _assert_auto_cleanup_summaries(test, output, mod, previous, target):
+    primary = output.index("Primary upgrade complete.")
+    cleanup = output.index("\nUpgrade complete\n", primary)
+    body = output[primary:cleanup]
+    summary, _ = json.JSONDecoder().raw_decode(body[body.index("{"):])
+    test.assertEqual(summary["from_version"], previous)
+    test.assertEqual(summary["to_version"], target)
+    test.assertIn("reconciliation", summary)
+    test.assertEqual(summary["index_update"], "docs and code layers complete")
+    test.assertEqual(output.count(mod.WAVE_UPGRADE_SUMMARY_SENTINEL), 1)
+    test.assertGreater(output.index(mod.WAVE_UPGRADE_SUMMARY_SENTINEL), cleanup)
+
+
 def _install_cleanup_runner(root):
     framework = root / ".wavefoundry/framework"
     shutil.copytree(SCRIPTS_ROOT, framework / "scripts", dirs_exist_ok=True,
@@ -2418,13 +2434,14 @@ class UpgradeManifestRecoveryTests(unittest.TestCase):
                 "materialize_lifecycle_policy": {"return_value": "ok"},
                 "phase_docs_gate": {},
                 "phase_index_update": {"return_value": failure != "index_publication"},
-                "_emit_primary_summary_via_delegate_or_fallback": {},
             }.items():
                 stack.enter_context(patch.object(mod, name, **kwargs))
             stack.enter_context(patch.object(upgrade_protocol, "read_pack_protocol",
                                             return_value={"upgrade_protocol_version": 2}))
             stack.enter_context(patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"))
             stack.enter_context(patch.dict(os.environ, {"WAVEFOUNDRY_SKIP_PYTHON_HEAL": "1"}))
+            if not auto_cleanup:
+                stack.enter_context(patch.object(mod, "_emit_primary_summary_via_delegate_or_fallback"))
             if failure == "bootstrap":
                 import memory_backfill
 
@@ -2461,15 +2478,15 @@ class UpgradeManifestRecoveryTests(unittest.TestCase):
             runner.write_text("raise SystemExit(97)\n")
             mod = load_upgrade_module()
             output = io.StringIO()
-            with patch.object(mod, "_run_upgrade_child", wraps=mod._run_upgrade_child) as child:
+            with patch.object(mod, "_PACK_SCAN_SKIPPED", ["fixture-unreadable-location"]), patch.object(mod, "_run_upgrade_child", wraps=mod._run_upgrade_child) as child:
                 result, _ = self._attempt(root, pack, mod=mod, auto_cleanup=True, output=output, guard_hooks=True)
             self.assertEqual(result, 0, output.getvalue()[-12000:])
             self.assertFalse(upgrade_lib.upgrade_lock_path(root).exists())
             self.assertIn(str(runner), child.call_args.args[0])
             self.assertEqual(child.call_args.args[2], "cleanup")
-            self.assertIn("Primary upgrade complete.", output.getvalue())
+            _assert_auto_cleanup_summaries(self, output.getvalue(), mod, "1.21.0+old", self.TARGET)
+            self.assertIn("fixture-unreadable-location", output.getvalue().split("Index publication succeeded. Running cleanup.")[0])
             self.assertIn("Agent editing pass", output.getvalue())
-            self.assertEqual(output.getvalue().count(mod.WAVE_UPGRADE_SUMMARY_SENTINEL), 1)
 
     def test_cli_cleanup_guidance_explains_installed_version_and_opt_out(self):
         for doc in (UPGRADE_PATH, SCRIPTS_ROOT.parent / "seeds/160-upgrade-wavefoundry.prompt.md"):

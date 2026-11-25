@@ -1,0 +1,43 @@
+test_ac1_counts_active_records_before_the_briefing_filters (test_memory_records.BriefRevalidationCountsTests.test_ac1_counts_active_records_before_the_briefing_filters) ... ok
+test_ac2_counts_match_maintenance_signals_and_carry_no_ids (test_memory_records.BriefRevalidationCountsTests.test_ac2_counts_match_maintenance_signals_and_carry_no_ids) ... ok
+test_ac7_an_unavailable_churn_source_is_never_reported_clean (test_memory_records.BriefRevalidationCountsTests.test_ac7_an_unavailable_churn_source_is_never_reported_clean) ... ok
+test_no_file_target_reads_nothing_and_counts_churn_available (test_memory_records.BriefRevalidationCountsTests.test_no_file_target_reads_nothing_and_counts_churn_available) ... ok
+test_other_ranker_callers_keep_their_results (test_memory_records.BriefRevalidationCountsTests.test_other_ranker_callers_keep_their_results) ... ok
+test_ac1_ac2_ac7_render_child_migrates_verifies_and_is_idempotent (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac1_ac2_ac7_render_child_migrates_verifies_and_is_idempotent) ... render_platform_surfaces: Spec-tool rule migrated: .claude/settings.json ask mcp__wavefoundry__wf_close_spec(mode=dry_run)
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.json deny mcp__wavefoundry__wf_remove_spec
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.local.json allow mcp__wavefoundry__wf_add_spec
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.local.json allow mcp__wavefoundry__wf_get_spec
+render_platform_surfaces: Spec-tool rule migrated: .codex/config.toml disabled_tools wf_new_spec
+render_platform_surfaces: Spec-tool verified: wf_new_spec
+render_platform_surfaces: Spec-tool verified: wf_get_spec
+render_platform_surfaces: Spec-tool verified: wf_add_spec
+render_platform_surfaces: Spec-tool verified: wf_remove_spec
+render_platform_surfaces: Spec-tool verified: wf_close_spec
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmp7y9u75a8/claude/settings.json (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmp7y9u75a8/codex/config.toml (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmp7y9u75a8/managed/managed-settings.json (absent)
+ok
+test_ac4_outside_restrictions_hold_routes_and_are_never_written (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac4_outside_restrictions_hold_routes_and_are_never_written) ... ok
+test_ac10_installing_hop_argv_and_teammate_setup_path (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac10_installing_hop_argv_and_teammate_setup_path) ... render_platform_surfaces: Spec-tool verified: wf_new_spec
+render_platform_surfaces: Spec-tool verified: wf_get_spec
+render_platform_surfaces: Spec-tool verified: wf_add_spec
+render_platform_surfaces: Spec-tool verified: wf_remove_spec
+render_platform_surfaces: Spec-tool verified: wf_close_spec
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmprcu629io/claude/settings.json (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmprcu629io/codex/config.toml (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmprcu629io/managed/managed-settings.json (absent)
+ok
+test_v151_upgrade_renderer_installs_proven_baselines_and_summary (test_lifecycle_baseline_drift.BaselineDriftTests.test_v151_upgrade_renderer_installs_proven_baselines_and_summary) ... ok
+test_edited_unknown_late_changed_and_linked_paths_keep_bytes_and_findings (test_lifecycle_baseline_drift.BaselineDriftTests.test_edited_unknown_late_changed_and_linked_paths_keep_bytes_and_findings) ... ok
+test_direct_zip_entry_resolves_framework_imports_from_the_zip (test_upgrade_protocol.UpgradeProtocolTests.test_direct_zip_entry_resolves_framework_imports_from_the_zip) ... ok
+test_direct_zip_entry_resolves_a_future_function_level_import (test_upgrade_protocol.UpgradeProtocolTests.test_direct_zip_entry_resolves_a_future_function_level_import) ... ok
+test_cli_primary_runs_extracted_cleanup_and_emits_one_terminal_result (test_upgrade_wavefoundry.UpgradeManifestRecoveryTests.test_cli_primary_runs_extracted_cleanup_and_emits_one_terminal_result) ... ok
+test_auto_cleanup_checks_required_and_malformed_guard (test_upgrade_wavefoundry.UpgradeManifestRecoveryTests.test_auto_cleanup_checks_required_and_malformed_guard) ... ERROR: Could not verify the index guard for automatic cleanup: index_guard_checkpoint_invalid: preserve checkpoint and original package
+ERROR: Could not verify the index guard for automatic cleanup: index_guard_checkpoint_invalid: preserve checkpoint and original package
+ok
+test_primary_preserves_continuations_after_publication (test_upgrade_wavefoundry.UpgradeManifestRecoveryTests.test_primary_preserves_continuations_after_publication) ... ok
+
+----------------------------------------------------------------------
+Ran 15 tests in 21.721s
+
+OK

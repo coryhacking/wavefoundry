@@ -1,0 +1,10 @@
+test_cli_primary_runs_extracted_cleanup_and_emits_one_terminal_result (test_upgrade_wavefoundry.UpgradeManifestRecoveryTests.test_cli_primary_runs_extracted_cleanup_and_emits_one_terminal_result) ... ok
+test_opt_outs_preserve_primary_continuation (test_upgrade_wavefoundry.UpgradeManifestRecoveryTests.test_opt_outs_preserve_primary_continuation) ... ok
+test_primary_preserves_continuations_after_publication (test_upgrade_wavefoundry.UpgradeManifestRecoveryTests.test_primary_preserves_continuations_after_publication) ... ok
+test_direct_zip_entry_resolves_framework_imports_from_the_zip (test_upgrade_protocol.UpgradeProtocolTests.test_direct_zip_entry_resolves_framework_imports_from_the_zip) ... ok
+test_edited_unknown_late_changed_and_linked_paths_keep_bytes_and_findings (test_lifecycle_baseline_drift.BaselineDriftTests.test_edited_unknown_late_changed_and_linked_paths_keep_bytes_and_findings) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 9.923s
+
+OK

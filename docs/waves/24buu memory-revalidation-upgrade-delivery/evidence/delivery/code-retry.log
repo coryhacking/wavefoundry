@@ -1,0 +1,6 @@
+first result: 1 retry: 0 incoming prose: True review-policy marker present: False reported: upstream_changed_local_matches_previous
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/../../work/24buu/delivery/code-retry.py", line 37, in <module>
+    assert marker in prompt.read_text() and row == 'replaced', 'Retry must restore the policy region and record the replacement'
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Retry must restore the policy region and record the replacement

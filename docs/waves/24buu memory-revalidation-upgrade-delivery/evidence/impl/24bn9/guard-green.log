@@ -1,0 +1,7 @@
+.ERROR: Could not verify the index guard for automatic cleanup: index_guard_checkpoint_invalid: preserve checkpoint and original package
+ERROR: Could not verify the index guard for automatic cleanup: index_guard_checkpoint_invalid: preserve checkpoint and original package
+..
+----------------------------------------------------------------------
+Ran 3 tests in 3.071s
+
+OK

@@ -8,6 +8,8 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.53.0] - 2026-11-25
+
 ### Added
 
 - `wf_memory_eval` now scores a frozen set of situation-language queries, with null and stale cases, against no-memory, grep, BM25-only, dense-only, hybrid, production and full-context baselines over one corpus. The report leads with recall@5 and MRR, then precision of the shown set, false-show rate and stale-shown rate, each with a bootstrap interval that resamples records. It also reports memory vector coverage, separating stale from missing sources, and records that their own target path cannot reach. Maintainers freeze a query set with `memory_eval.py --freeze-query-set <root>`, which writes the lock the evaluation checks. Wave 245na / 245sp.
@@ -19,6 +21,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- New bootstraps use the tested uv 0.13.6 pin and wheel hashes. The operator chose to retain this pin for 1.53.0 after reviewing 0.13.7.
 - The upgrade workflow includes project-owned guides and scripts that use retired spec tool names in the file-level approval plan and verifies corrected examples after the upgrade. Follow-up to wave 24buu.
 - Wave 24buu, spec 24bn9. The CLI and release-zip entry run cleanup after successful index publication. A CLI upgrade from 1.51.0 still needs one manual `--cleanup`. MCP and retained recovery follow their separate cleanup steps.
 
@@ -33,6 +36,7 @@ This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The CLI prints the complete primary upgrade summary before automatic cleanup on both normal and resumed upgrades. The cleanup child emits the only terminal result. Wave 24buu / 24bn9.
 - Running the release zip directly (`python3 <zip> --root <repo> --confirm-hosts-stopped`) no longer stops with `ModuleNotFoundError: No module named 'contained_files'`. The zip's entry now resolves framework modules from its own `.wavefoundry/framework/scripts/` through zipimport, placed right after the zip root on `sys.path`, so imports made inside functions resolve from the same zip. The zip's top-level members are unchanged, so existing runners still accept it. Wave 24buu / 24bn7.
 - `memory_validate` no longer repeats a stored credential or control token from any field of the record it answers about. It now also checks the stored `action_delta`, `validation_rationale`, `source_event`, memory id and file path, withholds each matching field as `[withheld: <codes>]` in every record view, including a reused rewrite record, and leaves a matching stored target out of the anchor refusal. Promote, retain and rewrite refuse a record whose stored `action_delta`, `validation_rationale` or `source_event` matches; reject still proceeds. Tool-call markup tag names now match in any case, so `<INVOKE ...>` and `<Function_Calls>` are refused by `memory_add` and the record lint like their lower-case forms. Wave 249ar / 24885.
 - Free-text `memory_search` no longer falls back to lexical results while an index build runs. It now ranks from the last published docs layer, as `docs_search`, `code_search` and `code_ask` already did, and carries the same `index_coverage_incomplete` advisory. It still falls back when a record's file differs from its published hash, or when a model-change rebuild completes during the query. `wf_memory_eval` started during a build also runs instead of reporting the semantic index unavailable. The query embedding and the reranker run with no database read transaction held. Wave 248lb / 2475t.

@@ -1,0 +1,140 @@
+--- a/.wavefoundry/framework/scripts/render_agent_surfaces.py
++++ b/.wavefoundry/framework/scripts/render_agent_surfaces.py
+@@ -5074,16 +5074,28 @@
+     return findings
+ 
+ 
++def _save_baseline_checkpoint(repo_root: Path, findings: list[dict], destination: str) -> None:
++    import upgrade_lib
++
++    if not upgrade_lib.update_upgrade_lock(repo_root, lifecycle_baseline_drift=findings):
++        raise RuntimeError("could not record lifecycle baseline replacement: " + destination)
++
++
+ def _replace_upgrade_baseline(repo_root: Path, registered: str, destination: str, template: str,
+-                              expected_digest: str) -> bool:
++                              row: dict, findings: list[dict]) -> bool:
+     """Publish only a matching, still-owned destination using its existing line endings."""
+     path = repo_root / destination
+     try:
+         data, identity, _ = contained_files.read_contained_identity(
+             repo_root, path, max_bytes=contained_files.DEFAULT_MAX_BYTES, follow_links=False)
++        pending = row.get("pending_replacement_sha256")
++        if pending and hashlib.sha256(data).hexdigest() == pending:
++            # The previous render published these exact bytes, then stopped
++            # before it could record completion or regenerate the owned regions.
++            return True
+         disk = data.decode("utf-8")
+         local = _comparable_baseline(disk, tuple(_baseline_marker_pairs(registered)))
+-        if hashlib.sha256(local.encode("utf-8")).hexdigest() != expected_digest:
++        if hashlib.sha256(local.encode("utf-8")).hexdigest() != row["local_sha256"]:
+             return False
+         source = _read_repo_text(repo_root, repo_root / ".wavefoundry/framework/install" / template)
+         date = re.search(r"(?m)^Last verified: (\d{4}-\d{2}-\d{2})[ \t]*$", _universal_newlines(disk))
+@@ -5093,8 +5105,13 @@
+             # A few historical assets carried a literal date.
+             rendered = re.sub(r"(?m)^(Last verified: )\d{4}-\d{2}-\d{2}(?=[ \t]*$)",
+                               r"\g<1>" + date[1], rendered)
++        replacement = line_endings.encode(line_endings.merge(disk, rendered))
++        digest = hashlib.sha256(replacement).hexdigest()
++        if pending != digest:
++            row["pending_replacement_sha256"] = digest
++            _save_baseline_checkpoint(repo_root, findings, destination)
+         contained_files.write_contained_bytes(
+-            repo_root, path, line_endings.encode(line_endings.merge(disk, rendered)),
++            repo_root, path, replacement,
+             no_links=True, expected_identity=(identity.st_dev, identity.st_ino))
+     except (FileNotFoundError, contained_files.ContainedFileRefused, UnicodeError):
+         return False
+@@ -5123,14 +5140,14 @@
+             protected.update((registered, destination))
+             if state != "upstream_changed_local_matches_previous" or not row.get("local_sha256"):
+                 continue
+-            if not _replace_upgrade_baseline(repo_root, registered, destination, template, row["local_sha256"]):
++            if not _replace_upgrade_baseline(repo_root, registered, destination, template, row, findings):
+                 continue
+             written.append(destination)
+             protected.difference_update((registered, destination))
++            row.pop("pending_replacement_sha256", None)
+             row.update(detail="replaced: local copy matched the previous template",
+                        action="replaced: Installed the incoming template.")
+-            if not upgrade_lib.update_upgrade_lock(repo_root, lifecycle_baseline_drift=findings):
+-                raise RuntimeError("could not record lifecycle baseline replacement: " + destination)
++            _save_baseline_checkpoint(repo_root, findings, destination)
+     return written, protected
+ 
+ 
+--- a/.wavefoundry/framework/scripts/tests/test_lifecycle_baseline_drift.py
++++ b/.wavefoundry/framework/scripts/tests/test_lifecycle_baseline_drift.py
+@@ -551,6 +551,60 @@
+         self.assertEqual(self.states(upgrade._lifecycle_baseline_findings(self.root))[IMPLEMENT],
+                          "upstream_changed_local_differs_from_previous")
+ 
++    def _interrupted_upgrade(self):
++        for part in ("install", "seeds"):
++            shutil.copytree(SCRIPTS.parent / part, self.install.parent / part)
++        self.put("docs/prompts/prompt-surface-manifest.json", json.dumps({"prompt_names": {
++            key: renderer.vocabulary_profile.prompt_slug(key) for key in renderer.vocabulary_profile.DEFAULT_PROMPT_NAMES
++        }}))
++        renderer.render_agent_surfaces(self.root)
++        template = "lifecycle-prompts/implement-wave.prompt.md"
++        prompt = self.root / IMPLEMENT
++        before = prompt.read_bytes()
++        incoming = (self.install / template).read_text() + "\nIncoming baseline change.\n"
++        capture = renderer.lifecycle_baseline_drift(self.root, {template: incoming})
++        self.save_comparison(capture)
++        (self.install / template).write_bytes(incoming.encode())
++
++        # A denied intent checkpoint must leave the old file intact.
++        with patch.object(upgrade_lib, "update_upgrade_lock", return_value=False):
++            with self.assertRaisesRegex(RuntimeError, "could not record"):
++                renderer.render_agent_surfaces(self.root, upgrade_baselines=True)
++        self.assertEqual(prompt.read_bytes(), before)
++        update = upgrade_lib.update_upgrade_lock
++
++        def stop_after_publish(root, **fields):
++            if prompt.read_bytes() != before:
++                return False
++            return update(root, **fields)
++
++        with patch.object(upgrade_lib, "update_upgrade_lock", side_effect=stop_after_publish):
++            with self.assertRaisesRegex(RuntimeError, "could not record"):
++                renderer.render_agent_surfaces(self.root, upgrade_baselines=True)
++        self.assertIn(b"Incoming baseline change.", prompt.read_bytes())
++        self.assertNotIn(renderer.REVIEW_POLICY_SURFACE_MARKER_BEGIN.encode(), prompt.read_bytes())
++        return prompt
++
++    def test_retry_finishes_recording_and_rendering_after_publish(self):
++        prompt = self._interrupted_upgrade()
++        renderer.render_agent_surfaces(self.root, upgrade_baselines=True)
++        self.assertIn(renderer.REVIEW_POLICY_SURFACE_MARKER_BEGIN.encode(), prompt.read_bytes())
++        row = next(row for row in upgrade._lifecycle_baseline_findings(self.root) if row["file"] == IMPLEMENT)
++        self.assertTrue(row["detail"].startswith("replaced:"))
++        self.assertNotIn("pending_replacement_sha256", row)
++
++    def test_retry_preserves_edit_after_incomplete_receipt(self):
++        prompt = self._interrupted_upgrade()
++        # Even an edit ignored by the semantic baseline comparison must
++        # invalidate the exact-byte publication receipt.
++        data = re.sub(rb"(?m)^Last verified: .*", b"Last verified: 2000-01-01", prompt.read_bytes())
++        self.assertNotEqual(data, prompt.read_bytes())
++        prompt.write_bytes(data)
++        renderer.render_agent_surfaces(self.root, upgrade_baselines=True)
++        self.assertEqual(prompt.read_bytes(), data)
++        self.assertEqual(self.states(upgrade._lifecycle_baseline_findings(self.root))[IMPLEMENT],
++                         "upstream_changed_local_matches_previous")
++
+     def test_phase_one_keeps_crlf_for_new_template_lines(self):
+         incoming = self.fixture()
+         findings = renderer.lifecycle_baseline_drift(self.root, incoming)
+--- a/.wavefoundry/framework/scripts/tests/fixtures/line-ending-census.json
++++ b/.wavefoundry/framework/scripts/tests/fixtures/line-ending-census.json
+@@ -1133,7 +1133,7 @@
+     },
+     "upgrade_lib:update_upgrade_lock": {
+       "callers": [
+-        "render_agent_surfaces:replace_upgrade_baselines",
++        "render_agent_surfaces:_save_baseline_checkpoint",
+         "setup_reconciliation:session._update",
+         "sqlite_storage_migration:_pause_for_restart",
+         "sqlite_storage_migration:restore_checkpoint",

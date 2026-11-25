@@ -1,0 +1,43 @@
+F
+======================================================================
+FAIL: test_cli_cleanup_failure_keeps_checkpoint_and_reports_retry (test_upgrade_wavefoundry.UpgradeManifestRecoveryTests.test_cli_cleanup_failure_keeps_checkpoint_and_reports_retry)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/work/24buu/impl/24bn9/tree/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 2496, in test_cli_cleanup_failure_keeps_checkpoint_and_reports_retry
+    self.assertEqual(result, 19, output.getvalue()[-3000:])
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 0 != 19 : 
+Wavefoundry Upgrade — 2026-11-24 22:06
+Repository root: <temp>/tmp9z04cgen
+  Upgrade log: <temp>/tmp9z04cgen/.wavefoundry/logs/upgrade.log
+  Watch:       tail -f <temp>/tmp9z04cgen/.wavefoundry/logs/upgrade.log
+  Upgrade lock written — dashboard will pause indexing.
+
+── Phase 0b: Applying zip tmp9z04cgen-pack.zip ──
+  Extracted tmp9z04cgen-pack.zip
+
+── Phase 0c: Review-policy migration ──
+  {"carriers_reconciled": [], "delivery_mode": "targeted", "waves_marked_for_reprepare": []}
+
+── Phase 2: Pruning ──
+deleted: .wavefoundry/framework/seeds/retired.md
+prune: deleted 1 item(s)
+deleted: .wavefoundry/framework/seeds/retired.md
+  Pruning complete — 1 item(s) pruned.
+
+── Phase 2b: Secrets policy ──
+  ok
+
+── Phase 2c: Lifecycle-ID policy ──
+  ok
+
+── Phase 2d: Retired review-evidence sidecar cleanup ──
+  {"removed_sidecars": 0, "removed_stale_root_lock": 0, "restart_required": false}
+Primary upgrade complete. Index publication succeeded. Running cleanup.
+ERROR: Cleanup did not finish. Retained checkpoint phase: index_complete. Inspect wf_upgrade_status and retry: <home>/.wavefoundry/venv/bin/python <temp>/tmp9z04cgen/.wavefoundry/framework/scripts/upgrade_wavefoundry.py --root <temp>/tmp9z04cgen --cleanup --yes
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.284s
+
+FAILED (failures=1)

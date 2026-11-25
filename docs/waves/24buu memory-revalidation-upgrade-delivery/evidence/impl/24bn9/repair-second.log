@@ -1,0 +1,37 @@
+.
+Wavefoundry Upgrade — 2026-11-24 22:11
+Repository root: <temp>/tmpn800uxxz
+  Upgrade log: <temp>/tmpn800uxxz/.wavefoundry/logs/upgrade.log
+  Watch:       tail -f <temp>/tmpn800uxxz/.wavefoundry/logs/upgrade.log
+  No pre-upgrade MANIFEST; diff-based pruning cannot be proven.
+  Upgrade lock written — dashboard will pause indexing.
+
+── Phase 0b: Applying zip wavefoundry-upgrade.zip ──
+  Extracted wavefoundry-upgrade.zip
+
+── Phase 0c: Review-policy migration ──
+  {"carriers_reconciled": [], "delivery_mode": "targeted", "waves_marked_for_reprepare": []}
+
+── Phase 2b: Secrets policy ──
+  ok
+
+── Phase 2c: Lifecycle-ID policy ──
+  ok
+
+── Phase 2d: Retired review-evidence sidecar cleanup ──
+  {"removed_sidecars": 0, "removed_stale_root_lock": 0, "restart_required": true}
+  Full restart of every attached MCP/agent host (including this one) is required before lifecycle mutation resumes.
+
+✓ Phases 0–4 complete. Proceed with agent editing pass, then run:
+    upgrade-wavefoundry --cleanup
+
+(Re-run upgrade-wavefoundry --update-index manually only if you edit additional files post-upgrade and want the index refreshed.)
+..
+── Resume: re-running the docs gate against the already-extracted tree ──
+scaffold repair: fenced the example block in docs/plans/plan-template.md.
+Docs gate and index publication complete. Run --cleanup to finish the upgrade.
+.
+----------------------------------------------------------------------
+Ran 4 tests in 1.163s
+
+OK

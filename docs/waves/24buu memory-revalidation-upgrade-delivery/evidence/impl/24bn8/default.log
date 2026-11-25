@@ -1,0 +1,17 @@
+Bytecode cache warm (2.1s).
+FOCUSED diagnostic run (1 of 261 test files) — not delivery evidence; the full-suite cache is untouched.
+Running 1 test files across 1 workers …
+  [1/1] test_lifecycle_baseline_drift.py — 23 tests ok (6.7s)
+
+REPOSITORY CHANGED DURING THE TEST RUN: tests must write only under temporary roots, but these tracked, non-ignored or edit-gate paths were created, modified or deleted:
+  .wavefoundry/framework/scripts/tests/test_upgrade_protocol.py
+  .wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py
+  CHANGELOG.md
+A concurrent edit by an operator or agent during the run also trips this guard when it touches the framework tree, the edit gate (including opening or closing an edit gate), the folder of a wave that was open when the run started (unless it is validated canonical bookkeeping), a policy file under docs/, or any path outside docs/. Other changes under docs/ are tolerated and listed. Re-run after material inputs settle. Otherwise fix the offending test to write under a temporary root.
+
+----------------------------------------------------------------------
+Slowest files (top 1 of 1):
+  test_lifecycle_baseline_drift.py                 6.669s  (23 tests)
+Worker service time: 6.669s across 1 files; skipped 0 tests
+Ran 23 tests across 1 files in 6.670s
+FAILED (stray test artifacts or repository changes)

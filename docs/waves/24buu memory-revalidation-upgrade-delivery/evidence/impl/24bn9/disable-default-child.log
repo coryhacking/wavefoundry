@@ -1,0 +1,14 @@
+F
+======================================================================
+FAIL: test_cli_primary_runs_extracted_cleanup_and_emits_one_terminal_result (test_upgrade_wavefoundry.UpgradeManifestRecoveryTests.test_cli_primary_runs_extracted_cleanup_and_emits_one_terminal_result)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/work/24buu/impl/24bn9/tree/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 2461, in test_cli_primary_runs_extracted_cleanup_and_emits_one_terminal_result
+    self.assertFalse(upgrade_lib.upgrade_lock_path(root).exists())
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True is not false
+
+----------------------------------------------------------------------
+Ran 1 test in 0.421s
+
+FAILED (failures=1)

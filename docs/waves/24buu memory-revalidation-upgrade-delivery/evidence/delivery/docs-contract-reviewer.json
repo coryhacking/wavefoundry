@@ -1,0 +1,57 @@
+{
+  "wave_id": "24buu",
+  "event": "finding",
+  "mode": "dry_run",
+  "actor": "docs-contract-reviewer",
+  "context_id": "24buu-independent-delivery-docs-opaque-policy-1124",
+  "finding_id": "DOC-D1",
+  "run_kind": "initial_delivery",
+  "cycle": 0,
+  "source_lanes": [
+    "docs-contract-reviewer"
+  ],
+  "blocking_required_lanes": [
+    "docs-contract-reviewer"
+  ],
+  "approval_recheck_lanes": [
+    "docs-contract-reviewer"
+  ],
+  "fresh_context": true,
+  "independent": true,
+  "judgment": {
+    "validation_status": "real",
+    "scope_relation": "admitted",
+    "introduced_or_worsened_by_wave": true,
+    "contract_relevance": "public_contract",
+    "supported_reachability": true,
+    "attacker_reachability": false,
+    "authority_domain": "none",
+    "authority_delta": "none",
+    "observable_impact": "material",
+    "containment": "none",
+    "disposition": "do_now",
+    "repair_execution_state": "pending"
+  },
+  "evidence": {
+    "execution_status": "executed",
+    "proposition": "The two upgrade prompts promise a replacement stays withheld even when the restriction lives in a policy layer the upgrade cannot inspect.",
+    "failure_condition": "An undisclosed old-name deny exists and the permissions render verifies the renamed route with no hold.",
+    "public_path": "Upgrade Phase 1 and setup's shared render_platform_surfaces.main --repo-root <fixture> --include-permissions, followed by the runtime roster's spec_permission_holds.",
+    "command_or_fixture": "PYTHONPATH=.wavefoundry/framework/scripts:.wavefoundry/framework/scripts/tests ~/.wavefoundry/venv/bin/python -B .wavefoundry/work/24buu/delivery/docs-opaque.py",
+    "expected": "The guide should scope automatic holds to observable restrictions and tell operators with independently managed policies to update and verify their effective rules in the owning host.",
+    "observed": "With identical external files denying wf_get_change, an undisclosed policy path produced no holds and a wf_get_spec receipt. Providing the policy through WAVEFOUNDRY_MANAGED_SETTINGS_PATH held exactly wf_get_spec and omitted its receipt. Both files retained their bytes. Seed 160 line 45 and the local prompt line 48 promise the replacement stays withheld for uninspectable policies. Spec 24ax3 explicitly identifies nonstandard managed paths and host launch flags as invisible to the program.",
+    "artifact_or_test_id": ".wavefoundry/work/24buu/delivery/docs-opaque.py and docs-opaque.log; seed 160 line 45 and docs/prompts/upgrade-wavefoundry.prompt.md line 48.",
+    "known_bad_detection_method": "Compared the prose's unconditional hold against a nonstandard external policy and then pointed the same fixture at the supported managed path. Verified initial holds, exact final hold sets, route receipts, and policy bytes.",
+    "limitations": "The fixture establishes Wavefoundry's roster decision. It does not test host-side enforcement, real MDM, native Windows or live Claude/Codex launch flags. ARCH-D1 covers the distinct architecture statements. Earlier q5ts/q5tt rehearsals on macOS used manual CLI cleanup and explicit CPU provider for stored INT8. Updated archive confirmation belongs to the coordinator.",
+    "safety_and_authorization": "Temporary repository and host fixtures only. No host settings, release, or ledger mutation.",
+    "disposition_rationale": "Correct both copies of the user-facing guidance. A reader relying on automatic withholding could omit checking an independently administered host rule. The admitted policy checks support an accurate documentation-only repair."
+  },
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "The proposed universal hold failed on the real renderer and runtime roster in the undisclosed case and correctly appeared when the identical restriction was disclosed."
+  }
+}

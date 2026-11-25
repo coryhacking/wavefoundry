@@ -1,0 +1,45 @@
+{
+  "<repo>/.wavefoundry/work/24buu/package/dist/wavefoundry-1.53.0.q5u0.zip": {
+    "version": "1.53.0+q5u0",
+    "archive_sha256": "81ed6d2cc28b3e78d912b63514197addb55951ca8daea5e02583c8843006ab1d",
+    "embedded_feature_sha256": "d75e6f66390017211b8622318ee0d180ec0881dac139c52d87cfb1713a0c1573",
+    "bad_crc_outer": null,
+    "bad_crc_inner": null,
+    "framework_members": 285,
+    "shipped_script_and_seed_members": 238,
+    "embedded_vs_outer_mismatches": [],
+    "staged_source_differences": [
+      ".wavefoundry/framework/BUILD-PROVENANCE.json",
+      ".wavefoundry/framework/UPGRADE-PROTOCOL.json",
+      ".wavefoundry/framework/VERSION",
+      ".wavefoundry/framework/MANIFEST"
+    ],
+    "live_source_differences": [
+      ".wavefoundry/framework/BUILD-PROVENANCE.json",
+      ".wavefoundry/framework/UPGRADE-PROTOCOL.json",
+      ".wavefoundry/framework/VERSION",
+      ".wavefoundry/framework/MANIFEST"
+    ]
+  },
+  "<repo>/.wavefoundry/work/24buu/package/dist/wavefoundry-1.53.0.q5u1.zip": {
+    "version": "1.53.0+q5u1",
+    "archive_sha256": "c0b771482678830533d6660c11c40f391b537a417c19bb319a083fa2cd1b0043",
+    "embedded_feature_sha256": "457976eebb0008f5cd263667c2979e639afdb2f6a1fd38080969c8d568b80465",
+    "bad_crc_outer": null,
+    "bad_crc_inner": null,
+    "framework_members": 285,
+    "shipped_script_and_seed_members": 238,
+    "embedded_vs_outer_mismatches": [],
+    "staged_source_differences": [
+      ".wavefoundry/framework/BUILD-PROVENANCE.json",
+      ".wavefoundry/framework/UPGRADE-PROTOCOL.json",
+      ".wavefoundry/framework/MANIFEST"
+    ],
+    "live_source_differences": [
+      ".wavefoundry/framework/BUILD-PROVENANCE.json",
+      ".wavefoundry/framework/UPGRADE-PROTOCOL.json",
+      ".wavefoundry/framework/VERSION",
+      ".wavefoundry/framework/MANIFEST"
+    ]
+  }
+}

@@ -1,8 +1,8 @@
 # Wave Record
 
 Owner: Engineering
-Status: implementing
-Last verified: 2026-11-24
+Status: closed
+Last verified: 2026-11-25
 review-evidence-source: events.jsonl
 
 review-policy-reprepare-required: false
@@ -37,9 +37,21 @@ Spec Status: `implemented`
 - Requested review lanes: security-reviewer
 - Required review lanes: code-reviewer, qa-reviewer, architecture-reviewer, docs-contract-reviewer, release-reviewer, security-reviewer
 
+Completed At: 2026-11-25
+
 ## Wave Summary
 
-Deliver the 249ar keep rule and revalidation signals through upgrade: read-only revalidation counts in `memory_brief`, and seed 160 guidance that merges the keep rule into existing prompts and recommends Review memories on unresolved or churned targets. Also migrate spec-tool permission rules inside the checkout during upgrade, recommend user-level changes without making them, and record the review so the five spec tools stay available. Fix the release zip's direct entry (`24bn7`) and have upgrade replace unedited lifecycle prompts and templates (`24bn8`), and have the CLI upgrade run cleanup itself (`24bn9`), from the 1.51.0 to 1.52.0 upgrade rehearsal.
+Wave `24buu` (Memory Revalidation Upgrade Delivery) delivered 5 changes: Deliver memory revalidation guidance and signals through upgrade, Migrate spec-tool permissions during upgrade, Release zip entry fails on a missing module, Replace unedited lifecycle prompts during upgrade, and CLI upgrade runs cleanup itself.
+
+Intent outcome: Achieved on the offline Apple Silicon upgrade fixture. The 1.53.0 test build requested by the operator delivers the behavior originally planned for 1.52.0. A fresh MCP session reported the existing active memory and its revalidation counts after upgrade. The prompt renderer delivered the keep rule, preserved the verification date and removed retired tool references. All five stock spec routes appeared and the fixture retained its local grants and deny rule. The original memory and review ledger kept their bytes. The tests also cover edited prompts and unreadable or externally constrained policies.
+
+**Changes delivered:**
+
+- **Deliver memory revalidation guidance and signals through upgrade** (`24but-enh deliver-memory-revalidation-through-upgrade`) — AC-1, AC-2, AC-3, AC-4, AC-5, AC-6 and AC-7 completed. Key decisions: Plan this as its own change in arc 244cm and release 1.52.0 after it; Selected: read-only counts in `memory_brief` plus seed 160 guidance. Efficacy: replaying this repository, the brief would report 7 unresolved and 98 churned, and the new rule would recommend Review memories where today's rule (174 active, cap 50) also fires; for a project under the cap the old rule stays silent and the new one fires. It advises only: the upgrade summary is what a maintainer acts on. It can over-fire in an old project where most records churn on first read; that backlog is real and the recommendation is one line. Most of the value comes from data `_memory_ranked` already computes. Measured after release by whether upgraded projects run Review memories (Risks).
+- **Migrate spec-tool permissions during upgrade** (`24ax3-enh migrate-spec-tool-permissions-during-upgrade`) — AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8, AC-9, AC-10, AC-11 and AC-12 completed. Key decisions: Upgrade migrates permissions and records the verification; Write only repository settings; read user-level settings and recommend.
+- **Release zip entry fails on a missing module** (`24bn7-bug release-zip-entry-missing-contained-files`) — AC-1, AC-2, AC-3 and AC-4 completed. Key decisions: Plan this in wave 24buu; Selected: resolve framework imports from the zip's own framework scripts, keeping the member set. Efficacy: replaying the rehearsal, `contained_files` imports from the zip and the materializer still sees today's members, so the documented command proceeds; it also covers future imports.
+- **Replace unedited lifecycle prompts during upgrade** (`24bn8-enh replace-unedited-lifecycle-prompts-during-upgrade`) — AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7 and AC-8 completed. Key decisions: Plan this in wave 24buu; Selected: perform the prescribed overwrite in the Phase 1 render child for copies whose recorded digest still matches, rendering the owned regions. Efficacy: replaying the rehearsal, all five prompts and the plan template would be replaced before the docs gate and index, removing every retired-tool reference and adding the keep rule with no agent step. It controls the outcome; it cannot help an edited copy, which keeps the agent merge.
+- **CLI upgrade runs cleanup itself** (`24bn9-enh cli-upgrade-runs-cleanup`) — AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8, AC-9 and AC-10 completed. Key decisions: The CLI runs cleanup itself; Selected: a fresh cleanup child after a clean primary phase, skipped for retained continuations and when the MCP handler passes `--no-auto-cleanup`. Efficacy: replaying the rehearsal shape on a 1.52.0-to-later hop, the primary published the index with no continuation, so cleanup would run and the manual step disappears; on the 1.51.0 hop the old primary prints today's message, which the release notes cover. It controls the outcome on the CLI and leaves MCP sequencing intact.
 
 ## Watchpoints
 
@@ -95,7 +107,7 @@ Deliver the 249ar keep rule and revalidation signals through upgrade: read-only 
 | release-reviewer | delivery | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 | security-reviewer | readiness | approved | current executed approval by coryhacking follows every affected repair (local account: coryhacking) | none |
 | security-reviewer | delivery | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
-| operator-signoff | delivery | withheld | repaired findings require fresh approval: DC-1, DC-2, SEC-1, DC-3, CR-1, QA-1, AR-1, CR-2 (+10 more; see events.jsonl) | record a fresh independent approval for operator-signoff |
+| operator-signoff | delivery | approved | current executed approval by coryhacking, not receipt-bound, follows every affected repair (local account: coryhacking) | none |
 <!-- wave:review-status end -->
 
 - operator-signoff: <approved when operator confirms closure>
@@ -105,6 +117,10 @@ Deliver the 249ar keep rule and revalidation signals through upgrade: read-only 
 - No external wave dependencies. Declare intra-wave dependencies with a `Depends On:` line containing full backticked change ids in each change's block under `## Changes`.
 
 ## Review Checkpoints
+
+- Retained [review and rehearsal evidence](evidence/README.md) maps the ledger’s temporary paths to the durable reports, probes, implementation logs and six route results. On the final repair, an independent reviewer demonstrated that the preliminary progress message omitted a parent-only skipped scan location. Both CLI paths now print the complete primary payload before cleanup. The real-child regression retains the observed location and requires exactly one terminal sentinel.
+
+- Release watchpoint. The operator selected 1.53.0. Before building the official release, move the local q5u1 and q5u9 preview ZIPs out of the upgrade discovery directory and verify the official artifact by its published checksum. The Waveforge preview letter is an unsent operator draft.
 
 2026-11-24: Intent outcome: Achieved on the offline Apple Silicon upgrade fixture. The 1.53.0 test build requested by the operator delivers the behavior originally planned for 1.52.0. A fresh MCP session reported the existing active memory and its revalidation counts after upgrade. The prompt renderer delivered the keep rule, preserved the verification date and removed retired tool references. All five stock spec routes appeared and the fixture retained its local grants and deny rule. The original memory and review ledger kept their bytes. The tests also cover edited prompts and unreadable or externally constrained policies.
 
@@ -122,10 +138,10 @@ Estimated context avoided uses whole eligible text-file, workflow-prompt and der
 | --- | ---: | ---: |
 | plan | 74 | 1,409,046 |
 | implement | 104 | 251,367 |
-| review | 227 | 4,309,746 |
-| **Total** | **405** | **5,970,159** |
+| review | 259 | 5,428,909 |
+| **Total** | **437** | **7,089,322** |
 
-<!-- wave:context-efficiency-state {"generation":400,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":104,"content_source_credit":267906,"derived_artifact_credit":0,"direct_net":251367,"estimated_tokens_saved":251367,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3033,"response_debit":24341,"source_credit_count":18,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":10835},"plan":{"calls":74,"content_source_credit":1911547,"derived_artifact_credit":2169,"direct_net":1409046,"estimated_tokens_saved":1409046,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":43502,"response_debit":467466,"source_credit_count":106,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6298},"review":{"calls":227,"content_source_credit":4788108,"derived_artifact_credit":6626,"direct_net":4309746,"estimated_tokens_saved":4309746,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":36277,"response_debit":448711,"source_credit_count":132,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":0}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":405,"content_source_credit":6967561,"derived_artifact_credit":8795,"direct_net":5970159,"estimated_tokens_saved":5970159,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":82812,"response_debit":940518,"source_credit_count":256,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":17133},"wave_id":"24buu memory-revalidation-upgrade-delivery"} -->
+<!-- wave:context-efficiency-state {"generation":432,"measurement_status":"healthy","pending":false,"schema_version":1,"stages":{"implement":{"calls":104,"content_source_credit":267906,"derived_artifact_credit":0,"direct_net":251367,"estimated_tokens_saved":251367,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":3033,"response_debit":24341,"source_credit_count":18,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":10835},"plan":{"calls":74,"content_source_credit":1911547,"derived_artifact_credit":2169,"direct_net":1409046,"estimated_tokens_saved":1409046,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":43502,"response_debit":467466,"source_credit_count":106,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6298},"review":{"calls":259,"content_source_credit":5954256,"derived_artifact_credit":7306,"direct_net":5428909,"estimated_tokens_saved":5428909,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":38023,"response_debit":501559,"source_credit_count":142,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":6929}},"store_instance_id":"f294635fbf24489a9a50af63451b2532","totals":{"calls":437,"content_source_credit":8133709,"derived_artifact_credit":9475,"direct_net":7089322,"estimated_tokens_saved":7089322,"matched_pair_residual":0,"paired_evaluation_count":0,"request_debit":84558,"response_debit":993366,"source_credit_count":266,"source_credit_drop_count":0,"structural_source_credit":0,"workflow_prompt_credit":24062},"wave_id":"24buu memory-revalidation-upgrade-delivery"} -->
 <!-- wave:context-efficiency end -->
 
 ## Estimated Exploration Avoided

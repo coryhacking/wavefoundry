@@ -106,6 +106,8 @@ AC-1 and AC-2 establish the intent.
 
 ## Progress Log
 
+- Requirement 4 follow-up. Both automatic CLI paths now print the delegated primary payload (or its marked fallback) before starting cleanup. The real-child regressions parse the primary payload and require the cleanup child to emit the only terminal sentinel. The normal-upgrade test also checks that the parent’s skipped scan location reaches the primary summary.
+
 | Date | Update | Evidence |
 | --- | --- | --- |
 | 2026-11-24 | Planned from the 24buu upgrade rehearsal. | `.wavefoundry/work/24buu/upgrade-rehearsal.md` item 7 |
@@ -114,6 +116,7 @@ AC-1 and AC-2 establish the intent.
 | 2026-11-24 | Readback: after confirmed publication, a CLI primary or gate resume runs the target's installed cleanup in a fresh process. MCP and retained recovery keep their continuation. | Runner, MCP handler, bundle, seed 160, project prompt, architecture, Windows guidance and changelog. Gapfill: used exact source and fixture reads after MCP retrieval to trace both transaction-release points and the final bundle report. |
 | 2026-11-24 | The CLI delegates only after releasing its lifecycle transaction. Cleanup emits the terminal result, and the bundle confirms that result against checkpoint removal. | Ten focused tests passed on macOS, including extraction followed by a real cleanup child, gate resume, the protocol-2 release entry, retained recovery and both MCP opt-outs. The direct-entry fixture supplies the primary publication checkpoint. The separate primary fixture exercises extraction with bounded index work. Native Windows, Linux and WSL2 share the child runner and were not exercised here. |
 | 2026-11-24 | Seven mutations failed their specific tests: disabling the primary child kept the lock, bypassing the old-host opt-out or restart receipt started cleanup prematurely, swallowing the child exit lost status 19, dropping the MCP flag changed its argv, skipping resumed cleanup left the lock, and misclassifying ZIP cleanup returned the wrong recovery. | CLI primary, opt-out, retained-continuation, failure and gate-resume tests in test_upgrade_wavefoundry, storage-pause handler test in test_server_tools, protocol-two cleanup test in test_upgrade_protocol. |
+| 2026-11-24 | Corrected requirement 4 on both automatic cleanup paths. Before starting the child, the CLI records the primary version transition, available pruning count, docs gate result and successful index publication in the console and upgrade log. The cleanup child prints the terminal summary. | Both real-child tests failed on the prior runner because the primary version transition was absent. The repaired runner passed all 42 tests in `ResumeAfterGateTests` and `UpgradeManifestRecoveryTests`, including output order, one terminal sentinel, gate-resume logging, child failure and MCP opt-outs. |
 
 ## Decision Log
 

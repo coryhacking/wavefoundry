@@ -1,0 +1,9 @@
+test_retry_finishes_recording_and_rendering_after_publish (test_lifecycle_baseline_drift.BaselineDriftTests.test_retry_finishes_recording_and_rendering_after_publish) ... ok
+test_retry_preserves_edit_after_incomplete_receipt (test_lifecycle_baseline_drift.BaselineDriftTests.test_retry_preserves_edit_after_incomplete_receipt) ... ok
+test_v151_upgrade_renderer_installs_proven_baselines_and_summary (test_lifecycle_baseline_drift.BaselineDriftTests.test_v151_upgrade_renderer_installs_proven_baselines_and_summary) ... ok
+test_edited_unknown_late_changed_and_linked_paths_keep_bytes_and_findings (test_lifecycle_baseline_drift.BaselineDriftTests.test_edited_unknown_late_changed_and_linked_paths_keep_bytes_and_findings) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 2.144s
+
+OK

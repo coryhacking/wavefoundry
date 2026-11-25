@@ -1,0 +1,51 @@
+errors 0 skips 0 failed subtests 5
+test_ac4_outside_restrictions_hold_routes_and_are_never_written (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac4_outside_restrictions_hold_routes_and_are_never_written) [user deny] Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_spec_tool_permissions.py", line 307, in test_ac4_outside_restrictions_hold_routes_and_are_never_written
+    self.assertEqual(set(report["held"]), held)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Items in the first set but not the second:
+'wf_new_spec'
+'wf_remove_spec'
+'wf_get_spec'
+'wf_add_spec'
+
+test_ac4_outside_restrictions_hold_routes_and_are_never_written (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac4_outside_restrictions_hold_routes_and_are_never_written) [codex disabled] Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_spec_tool_permissions.py", line 307, in test_ac4_outside_restrictions_hold_routes_and_are_never_written
+    self.assertEqual(set(report["held"]), held)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Items in the first set but not the second:
+'wf_close_spec'
+'wf_new_spec'
+'wf_get_spec'
+'wf_add_spec'
+
+test_ac4_outside_restrictions_hold_routes_and_are_never_written (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac4_outside_restrictions_hold_routes_and_are_never_written) [symlinked user file] Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_spec_tool_permissions.py", line 307, in test_ac4_outside_restrictions_hold_routes_and_are_never_written
+    self.assertEqual(set(report["held"]), held)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Items in the first set but not the second:
+'wf_new_spec'
+'wf_remove_spec'
+'wf_get_spec'
+'wf_add_spec'
+
+test_ac4_outside_restrictions_hold_routes_and_are_never_written (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac4_outside_restrictions_hold_routes_and_are_never_written) [unparseable user file] Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_spec_tool_permissions.py", line 307, in test_ac4_outside_restrictions_hold_routes_and_are_never_written
+    self.assertEqual(set(report["held"]), held)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Items in the first set but not the second:
+'wf_close_spec'
+'wf_new_spec'
+'wf_remove_spec'
+'wf_add_spec'
+
+test_ac4_outside_restrictions_hold_routes_and_are_never_written (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac4_outside_restrictions_hold_routes_and_are_never_written) [enterprise ask] Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_spec_tool_permissions.py", line 307, in test_ac4_outside_restrictions_hold_routes_and_are_never_written
+    self.assertEqual(set(report["held"]), held)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Items in the first set but not the second:
+'wf_close_spec'
+'wf_new_spec'
+'wf_remove_spec'
+'wf_get_spec'
+

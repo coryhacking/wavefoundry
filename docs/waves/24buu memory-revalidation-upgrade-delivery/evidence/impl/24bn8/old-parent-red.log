@@ -1,0 +1,107 @@
+......FFF
+======================================================================
+FAIL: test_new_main_corrupt_store_is_advisory (test_old_parent_publication.OldParentPublicationTests.test_new_main_corrupt_store_is_advisory)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_old_parent_publication.py", line 181, in test_new_main_corrupt_store_is_advisory
+    self.assertEqual(result, 0, output)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+AssertionError: 2 != 0 : 
+Wavefoundry Upgrade — 2026-11-24 22:12
+Repository root: <temp>/tmp93wuwr5n
+  Upgrade log: <temp>/tmp93wuwr5n/.wavefoundry/logs/upgrade.log
+  Watch:       tail -f <temp>/tmp93wuwr5n/.wavefoundry/logs/upgrade.log
+  No pre-upgrade MANIFEST; diff-based pruning cannot be proven.
+  Upgrade lock written — dashboard will pause indexing.
+
+── Phase 0c: Review-policy migration ──
+  {}
+
+── Phase 2b: Secrets policy ──
+  <MagicMock name='materialize_secrets_policy()' id='4448144416'>
+
+── Phase 2c: Lifecycle-ID policy ──
+  <MagicMock name='materialize_lifecycle_policy()' id='4448144080'>
+
+── Phase 2d: Retired review-evidence sidecar cleanup ──
+  {}
+Historical memory report unavailable: DatabaseError
+Historical memory report unavailable: DatabaseError
+Primary upgrade complete. Index publication succeeded. Running cleanup.
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python: can't open file '<temp>/tmp93wuwr5n/.wavefoundry/framework/scripts/upgrade_wavefoundry.py': [Errno 2] No such file or directory
+  Child failure tail (stream order is best-effort):
+[stderr] /opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python: can't open file '<temp>/tmp93wuwr5n/.wavefoundry/framework/scripts/upgrade_wavefoundry.py': [Errno 2] No such file or directory
+ERROR: Cleanup did not finish. Retained checkpoint phase: index_complete. Inspect wf_upgrade_status and retry: <home>/.wavefoundry/venv/bin/python <temp>/tmp93wuwr5n/.wavefoundry/framework/scripts/upgrade_wavefoundry.py --root <temp>/tmp93wuwr5n --cleanup --yes
+
+
+======================================================================
+FAIL: test_new_main_has_no_memory_gate_fields (test_old_parent_publication.OldParentPublicationTests.test_new_main_has_no_memory_gate_fields)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_old_parent_publication.py", line 133, in test_new_main_has_no_memory_gate_fields
+    self.assertEqual(result, 0, output)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+AssertionError: 2 != 0 : 
+Wavefoundry Upgrade — 2026-11-24 22:12
+Repository root: <temp>/tmpxbuq6bzc
+  Upgrade log: <temp>/tmpxbuq6bzc/.wavefoundry/logs/upgrade.log
+  Watch:       tail -f <temp>/tmpxbuq6bzc/.wavefoundry/logs/upgrade.log
+  No pre-upgrade MANIFEST; diff-based pruning cannot be proven.
+  Upgrade lock written — dashboard will pause indexing.
+
+── Phase 0c: Review-policy migration ──
+  {}
+
+── Phase 2b: Secrets policy ──
+  <MagicMock name='materialize_secrets_policy()' id='4459144800'>
+
+── Phase 2c: Lifecycle-ID policy ──
+  <MagicMock name='materialize_lifecycle_policy()' id='4459145136'>
+
+── Phase 2d: Retired review-evidence sidecar cleanup ──
+  {}
+Primary upgrade complete. Index publication succeeded. Running cleanup.
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python: can't open file '<temp>/tmpxbuq6bzc/.wavefoundry/framework/scripts/upgrade_wavefoundry.py': [Errno 2] No such file or directory
+  Child failure tail (stream order is best-effort):
+[stderr] /opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python: can't open file '<temp>/tmpxbuq6bzc/.wavefoundry/framework/scripts/upgrade_wavefoundry.py': [Errno 2] No such file or directory
+ERROR: Cleanup did not finish. Retained checkpoint phase: index_complete. Inspect wf_upgrade_status and retry: <home>/.wavefoundry/venv/bin/python <temp>/tmpxbuq6bzc/.wavefoundry/framework/scripts/upgrade_wavefoundry.py --root <temp>/tmpxbuq6bzc --cleanup --yes
+
+
+======================================================================
+FAIL: test_new_main_unreadable_inventory_is_advisory (test_old_parent_publication.OldParentPublicationTests.test_new_main_unreadable_inventory_is_advisory)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_old_parent_publication.py", line 172, in test_new_main_unreadable_inventory_is_advisory
+    self.assertEqual(result, 0, output)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+AssertionError: 2 != 0 : 
+Wavefoundry Upgrade — 2026-11-24 22:12
+Repository root: <temp>/tmp4yzp7ka6
+  Upgrade log: <temp>/tmp4yzp7ka6/.wavefoundry/logs/upgrade.log
+  Watch:       tail -f <temp>/tmp4yzp7ka6/.wavefoundry/logs/upgrade.log
+  No pre-upgrade MANIFEST; diff-based pruning cannot be proven.
+  Upgrade lock written — dashboard will pause indexing.
+
+── Phase 0c: Review-policy migration ──
+  {}
+
+── Phase 2b: Secrets policy ──
+  <MagicMock name='materialize_secrets_policy()' id='4448155840'>
+
+── Phase 2c: Lifecycle-ID policy ──
+  <MagicMock name='materialize_lifecycle_policy()' id='4448155504'>
+
+── Phase 2d: Retired review-evidence sidecar cleanup ──
+  {}
+Historical memory report unavailable: OSError
+Primary upgrade complete. Index publication succeeded. Running cleanup.
+/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python: can't open file '<temp>/tmp4yzp7ka6/.wavefoundry/framework/scripts/upgrade_wavefoundry.py': [Errno 2] No such file or directory
+  Child failure tail (stream order is best-effort):
+[stderr] /opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python: can't open file '<temp>/tmp4yzp7ka6/.wavefoundry/framework/scripts/upgrade_wavefoundry.py': [Errno 2] No such file or directory
+ERROR: Cleanup did not finish. Retained checkpoint phase: index_complete. Inspect wf_upgrade_status and retry: <home>/.wavefoundry/venv/bin/python <temp>/tmp4yzp7ka6/.wavefoundry/framework/scripts/upgrade_wavefoundry.py --root <temp>/tmp4yzp7ka6 --cleanup --yes
+
+
+----------------------------------------------------------------------
+Ran 9 tests in 2.577s
+
+FAILED (failures=3)

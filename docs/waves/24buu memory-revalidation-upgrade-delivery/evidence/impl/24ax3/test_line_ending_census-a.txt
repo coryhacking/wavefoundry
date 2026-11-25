@@ -1,0 +1,67 @@
+Bytecode cache warm (1.6s).
+FOCUSED diagnostic run (1 of 261 test files) — not delivery evidence; the full-suite cache is untouched.
+Running 1 test files across 1 workers …
+  [1/1] test_line_ending_census.py — 16 tests FAIL (56.9s)
+
+======================================================================
+FAILED: test_line_ending_census.py
+======================================================================
+test_bad_carrier_caller_without_merge (test_line_ending_census.LineEndingCensusTests.test_bad_carrier_caller_without_merge) ... ok
+test_bad_from_import_callers_of_durable_json_replace (test_line_ending_census.LineEndingCensusTests.test_bad_from_import_callers_of_durable_json_replace) ... ok
+test_bad_generated_write_without_newline (test_line_ending_census.LineEndingCensusTests.test_bad_generated_write_without_newline) ... ok
+test_bad_in_place_caller_of_exempt_or_wrapper_shaped_writer (test_line_ending_census.LineEndingCensusTests.test_bad_in_place_caller_of_exempt_or_wrapper_shaped_writer)
+Finding 244in-arch-exempt-wrapper-blindspot: a new in-place caller ... ok
+test_bad_in_place_without_merge (test_line_ending_census.LineEndingCensusTests.test_bad_in_place_without_merge) ... ok
+test_bad_in_place_writer_with_translating_newline (test_line_ending_census.LineEndingCensusTests.test_bad_in_place_writer_with_translating_newline)
+An ``in_place`` writer that passes ``newline="\r\n"`` rewrites every ... ok
+test_bad_new_caller_of_atomic_write_json (test_line_ending_census.LineEndingCensusTests.test_bad_new_caller_of_atomic_write_json) ... ok
+test_bad_second_write_in_classified_function (test_line_ending_census.LineEndingCensusTests.test_bad_second_write_in_classified_function) ... ok
+test_bad_stale_entry (test_line_ending_census.LineEndingCensusTests.test_bad_stale_entry) ... ok
+test_bad_unclassified_write_text (test_line_ending_census.LineEndingCensusTests.test_bad_unclassified_write_text) ... ok
+test_bad_wrapper_relabelled_generated (test_line_ending_census.LineEndingCensusTests.test_bad_wrapper_relabelled_generated)
+Council advisory: a wrapper relabelled ``generated`` stops ... ok
+test_delivered_tree_has_no_census_failure (test_line_ending_census.LineEndingCensusTests.test_delivered_tree_has_no_census_failure)
+AC-14: zero unclassified writers and wrapper call sites, no stale ... FAIL
+test_generated_text_writes_are_lf (test_line_ending_census.LineEndingCensusTests.test_generated_text_writes_are_lf)
+AC-6, statically for every ``generated`` entry: each text-mode ... ok
+test_known_writers_are_classified (test_line_ending_census.LineEndingCensusTests.test_known_writers_are_classified)
+AC-10. ... ok
+test_scope_is_every_non_test_script_including_benchmarks (test_line_ending_census.LineEndingCensusTests.test_scope_is_every_non_test_script_including_benchmarks) ... ok
+test_table_lives_in_the_fixture (test_line_ending_census.LineEndingCensusTests.test_table_lives_in_the_fixture) ... ok
+
+======================================================================
+FAIL: test_delivered_tree_has_no_census_failure (test_line_ending_census.LineEndingCensusTests.test_delivered_tree_has_no_census_failure)
+AC-14: zero unclassified writers and wrapper call sites, no stale
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_line_ending_census.py", line 69, in test_delivered_tree_has_no_census_failure
+    self.assertEqual(report["failures"], [], "\n".join(report["failures"]))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Lists differ: ['STALE spec_tool_permissions:acknowledge:[268 chars] #1'] != []
+
+First list contains 4 additional elements.
+First extra element 0:
+'STALE spec_tool_permissions:acknowledge: no longer writes'
+
++ []
+- ['STALE spec_tool_permissions:acknowledge: no longer writes',
+-  'UNCLASSIFIED render_platform_surfaces:migrate_spec_tool_permissions.write',
+-  'UNCLASSIFIED spec_tool_permissions:_write_receipt',
+-  'UNCLASSIFIED_SITE '
+-  'render_platform_surfaces:migrate_spec_tool_permissions.write -> '
+-  'render_platform_surfaces:write_text #1'] : STALE spec_tool_permissions:acknowledge: no longer writes
+UNCLASSIFIED render_platform_surfaces:migrate_spec_tool_permissions.write
+UNCLASSIFIED spec_tool_permissions:_write_receipt
+UNCLASSIFIED_SITE render_platform_surfaces:migrate_spec_tool_permissions.write -> render_platform_surfaces:write_text #1
+
+----------------------------------------------------------------------
+Ran 16 tests in 55.278s
+
+FAILED (failures=1)
+
+----------------------------------------------------------------------
+Slowest files (top 1 of 1):
+  test_line_ending_census.py                      56.868s  (16 tests)
+Worker service time: 56.868s across 1 files; skipped 0 tests
+FAILED (test_line_ending_census.py)
+Ran 16 tests across 1 files in 56.869s

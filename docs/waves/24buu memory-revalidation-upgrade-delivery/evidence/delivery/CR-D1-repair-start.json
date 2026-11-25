@@ -1,0 +1,57 @@
+{
+  "wave_id": "24buu",
+  "event": "finding",
+  "actor": "implementer",
+  "context_id": "24buu-code-repair-cr-d1",
+  "finding_id": "CR-D1",
+  "run_kind": "repair_start",
+  "cycle": 2,
+  "source_lanes": [
+    "code-reviewer"
+  ],
+  "blocking_required_lanes": [
+    "code-reviewer"
+  ],
+  "approval_recheck_lanes": [
+    "code-reviewer"
+  ],
+  "fresh_context": false,
+  "independent": false,
+  "judgment": {
+    "validation_status": "real",
+    "scope_relation": "admitted",
+    "introduced_or_worsened_by_wave": true,
+    "contract_relevance": "required_ac",
+    "supported_reachability": true,
+    "attacker_reachability": false,
+    "authority_domain": "none",
+    "authority_delta": "none",
+    "observable_impact": "material",
+    "containment": "none",
+    "disposition": "do_now",
+    "repair_execution_state": "pending"
+  },
+  "evidence": {
+    "execution_status": "executed",
+    "proposition": "An interrupted lifecycle prompt replacement can resume from a checkpoint of its exact intended bytes without overwriting a subsequent local edit.",
+    "failure_condition": "Retry loses the generated region or the replaced finding, or changes a later operator edit.",
+    "public_path": "render_platform_surfaces.main --include-permissions --manifest, and its run of render_agent_surfaces in an isolated target",
+    "command_or_fixture": "Replayed delivery/code-retry.py against live code and a disposable repaired tree. Two regression cases injected intent and completion checkpoint failures, then ran the actual renderer again.",
+    "expected": "A failed intent leaves the original intact. After a failed completion, retry completes only the exact published image, restores the policy region and records replacement. A later operator date edit stays byte-identical.",
+    "observed": "The original retry left the policy marker absent and the old finding present. The scratch retry restored the marker and recorded replaced. Both new regression tests passed, including preservation of the altered verification date. The line-ending census passed.",
+    "artifact_or_test_id": ".wavefoundry/work/24buu/impl/24bn8/retry-repair/{red.log,reviewer-replay.log,green.log,census.log,repair.patch}",
+    "known_bad_detection_method": "The live renderer failed the original probe on its missing marker and stale finding, while the repaired renderer passed the identical probe. The regression also checks the exact preserved bytes after a subsequent date edit.",
+    "limitations": "The probe injects checkpoint failure via the writer return value on macOS. Scratch execution precedes live integration and independent delivery reverification.",
+    "safety_and_authorization": "Temporary local target and settings, plus an isolated source copy in the open wave work folder.",
+    "disposition_rationale": "AC-1 requires both a fresh generated region and an accurate completion finding. A pending exact-output digest in the existing checkpoint distinguishes the recoverable postwrite state from an edited local file."
+  },
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "The live renderer failed the original probe on its missing marker and stale finding, while the repaired renderer passed the identical probe. The regression also checks the exact preserved bytes after a subsequent date edit."
+  },
+  "mode": "dry_run"
+}

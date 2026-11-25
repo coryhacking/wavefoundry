@@ -1,0 +1,94 @@
+Bytecode cache warm (2.0s).
+FOCUSED diagnostic run (1 of 261 test files) — not delivery evidence; the full-suite cache is untouched.
+Running 1 test files across 1 workers …
+  [1/1] test_spec_tool_permissions.py — 29 tests FAIL (1.7s)
+
+======================================================================
+FAILED: test_spec_tool_permissions.py
+======================================================================
+render_platform_surfaces: Spec-tool verified: wf_new_spec
+render_platform_surfaces: Spec-tool verified: wf_get_spec
+render_platform_surfaces: Spec-tool verified: wf_add_spec
+render_platform_surfaces: Spec-tool verified: wf_remove_spec
+render_platform_surfaces: Spec-tool verified: wf_close_spec
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmp0uaz8gwh/claude/settings.json (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmp0uaz8gwh/codex/config.toml (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmp0uaz8gwh/managed/managed-settings.json (absent)
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.json ask mcp__wavefoundry__wf_close_spec(mode=dry_run)
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.json deny mcp__wavefoundry__wf_remove_spec
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.local.json allow mcp__wavefoundry__wf_add_spec
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.local.json allow mcp__wavefoundry__wf_get_spec
+render_platform_surfaces: Spec-tool rule migrated: .codex/config.toml disabled_tools wf_new_spec
+render_platform_surfaces: Spec-tool verified: wf_new_spec
+render_platform_surfaces: Spec-tool verified: wf_get_spec
+render_platform_surfaces: Spec-tool verified: wf_add_spec
+render_platform_surfaces: Spec-tool verified: wf_remove_spec
+render_platform_surfaces: Spec-tool verified: wf_close_spec
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmpos16kno1/claude/settings.json (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmpos16kno1/codex/config.toml (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmpos16kno1/managed/managed-settings.json (absent)
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.json ask mcp__wavefoundry__wf_close_spec(mode=dry_run)
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.json deny mcp__wavefoundry__wf_remove_spec
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.local.json allow mcp__wavefoundry__wf_add_spec
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.local.json allow mcp__wavefoundry__wf_get_spec
+render_platform_surfaces: Spec-tool rule migrated: .codex/config.toml disabled_tools wf_new_spec
+render_platform_surfaces: Spec-tool verified: wf_new_spec
+render_platform_surfaces: Spec-tool verified: wf_get_spec
+render_platform_surfaces: Spec-tool verified: wf_add_spec
+render_platform_surfaces: Spec-tool verified: wf_remove_spec
+render_platform_surfaces: Spec-tool verified: wf_close_spec
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmp1eeqqd3n/claude/settings.json (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmp1eeqqd3n/codex/config.toml (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmp1eeqqd3n/managed/managed-settings.json (absent)
+Recorded operator review for wf_get_spec. Restart the host. Project policy still applies.
+Recorded operator review for wf_get_spec. Restart the host. Project policy still applies.
+test_runner_isolates_host_policy_locations (test_spec_tool_permissions.RunnerHostPolicyIsolationTests.test_runner_isolates_host_policy_locations) ... FAIL
+test_seed_and_self_hosted_copy_state_the_migration (test_spec_tool_permissions.SpecPermissionGuidanceTests.test_seed_and_self_hosted_copy_state_the_migration) ... ok
+test_ac10_installing_hop_argv_and_teammate_setup_path (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac10_installing_hop_argv_and_teammate_setup_path) ... ok
+test_ac12_codex_tool_table_is_copied_and_comments_survive (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac12_codex_tool_table_is_copied_and_comments_survive) ... ok
+test_ac1_ac2_ac7_render_child_migrates_verifies_and_is_idempotent (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac1_ac2_ac7_render_child_migrates_verifies_and_is_idempotent) ... ok
+test_ac3_malformed_repository_file_is_left_and_held (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac3_malformed_repository_file_is_left_and_held) ... ok
+test_ac4_outside_restrictions_hold_routes_and_are_never_written (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac4_outside_restrictions_hold_routes_and_are_never_written) ... ok
+test_ac5_repository_pattern_rule_is_not_rewritten_and_holds (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac5_repository_pattern_rule_is_not_rewritten_and_holds) ... ok
+test_ac9_symlinked_or_outside_repository_settings_are_not_written (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac9_symlinked_or_outside_repository_settings_are_not_written) ... ok
+test_codex_insertion_is_reparsed_and_never_edits_another_server (test_spec_tool_permissions.SpecPermissionMigrationTests.test_codex_insertion_is_reparsed_and_never_edits_another_server) ... ok
+test_constraint_equivalence_and_separated_holds (test_spec_tool_permissions.SpecPermissionMigrationTests.test_constraint_equivalence_and_separated_holds) ... ok
+test_existing_operator_receipt_is_left_unchanged (test_spec_tool_permissions.SpecPermissionMigrationTests.test_existing_operator_receipt_is_left_unchanged) ... ok
+test_fresh_install_writes_no_receipt (test_spec_tool_permissions.SpecPermissionMigrationTests.test_fresh_install_writes_no_receipt) ... ok
+test_json_rewrite_keeps_order_indentation_and_line_endings (test_spec_tool_permissions.SpecPermissionMigrationTests.test_json_rewrite_keeps_order_indentation_and_line_endings) ... ok
+test_outside_allow_only_recommends_and_receipt_records_the_files_read (test_spec_tool_permissions.SpecPermissionMigrationTests.test_outside_allow_only_recommends_and_receipt_records_the_files_read) ... ok
+test_outside_file_over_the_size_cap_holds_every_route (test_spec_tool_permissions.SpecPermissionMigrationTests.test_outside_file_over_the_size_cap_holds_every_route) ... ok
+test_outside_paths_resolve_per_platform_and_honor_overrides (test_spec_tool_permissions.SpecPermissionMigrationTests.test_outside_paths_resolve_per_platform_and_honor_overrides) ... ok
+test_outside_special_file_is_refused_without_blocking_and_holds_every_route (test_spec_tool_permissions.SpecPermissionMigrationTests.test_outside_special_file_is_refused_without_blocking_and_holds_every_route) ... ok
+test_permissions_only_backstop_runs_the_same_steps_without_the_claude_platform (test_spec_tool_permissions.SpecPermissionMigrationTests.test_permissions_only_backstop_runs_the_same_steps_without_the_claude_platform) ... ok
+test_setup_pending_reports_until_migration_and_verification_ran (test_spec_tool_permissions.SpecPermissionMigrationTests.test_setup_pending_reports_until_migration_and_verification_ran) ... ok
+test_codex_controls_withhold_only_affected_routes_and_need_matching_values (test_spec_tool_permissions.SpecPermissionTests.test_codex_controls_withhold_only_affected_routes_and_need_matching_values) ... ok
+test_external_policy_confirmation_is_scoped_and_never_overrides_deny (test_spec_tool_permissions.SpecPermissionTests.test_external_policy_confirmation_is_scoped_and_never_overrides_deny) ... ok
+test_fresh_install_uses_only_live_template_and_unknown_upgrade_stays_withheld (test_spec_tool_permissions.SpecPermissionTests.test_fresh_install_uses_only_live_template_and_unknown_upgrade_stays_withheld) ... ok
+test_new_low_risk_tier_membership_is_limited_to_creation (test_spec_tool_permissions.SpecPermissionTests.test_new_low_risk_tier_membership_is_limited_to_creation) ... ok
+test_private_allow_stays_private (test_spec_tool_permissions.SpecPermissionTests.test_private_allow_stays_private) ... ok
+test_project_ask_and_personal_deny_must_each_match (test_spec_tool_permissions.SpecPermissionTests.test_project_ask_and_personal_deny_must_each_match) ... ok
+test_renderer_migrates_only_its_existing_grant_and_preserves_pending_provenance (test_spec_tool_permissions.SpecPermissionTests.test_renderer_migrates_only_its_existing_grant_and_preserves_pending_provenance) ... ok
+test_unreadable_policy_and_opaque_host (test_spec_tool_permissions.SpecPermissionTests.test_unreadable_policy_and_opaque_host) ... ok
+test_wildcard_and_argument_controls_do_not_grant_a_new_route (test_spec_tool_permissions.SpecPermissionTests.test_wildcard_and_argument_controls_do_not_grant_a_new_route) ... ok
+
+======================================================================
+FAIL: test_runner_isolates_host_policy_locations (test_spec_tool_permissions.RunnerHostPolicyIsolationTests.test_runner_isolates_host_policy_locations)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_spec_tool_permissions.py", line 549, in test_runner_isolates_host_policy_locations
+    self.assertIn(key, _WORKER_ENV)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+AssertionError: 'CLAUDE_CONFIG_DIR' not found in {'ALACRITTY_WINDOW_ID': '4294967344', 'COLORTERM': 'truecolor', 'COMMAND_MODE': 'unix2003', 'FPATH': '<home>/.zsh/completions:/opt/homebrew/share/zsh/site-functions:<home>/.zsh/completions:/opt/homebrew/share/zsh/site-functions:<home>/.zsh/completions:/opt/homebrew/share/zsh/site-functions:/usr/local/share/zsh/site-functions:/usr/share/zsh/site-functions:/usr/share/zsh/5.9/functions', 'GRADLE_HOME': '<home>/.sdkman/candidates/gradle/current', 'GROOVY_HOME': '/opt/homebrew/opt/groovy/libexec', 'HOME': '<home>', 'HOMEBREW_CELLAR': '/opt/homebrew/Cellar', 'HOMEBREW_PREFIX': '/opt/homebrew', 'HOMEBREW_REPOSITORY': '/opt/homebrew', 'INFOPATH': '/opt/homebrew/share/info:/opt/homebrew/share/info:/opt/homebrew/share/info:', 'JAVA_HOME': '<home>/.sdkman/candidates/java/current', 'LANG': 'C.UTF-8', 'LOGNAME': 'coryhacking', 'LaunchInstanceID': '9B66969A-49F4-4B82-BF7A-C296834D1330', 'MODULAR_HOME': '<home>/.modular', 'OLDPWD': '<repo>', 'OSLogRateLimit': '64', 'PATH': '<home>/.local/bin:<home>/.local/bin:<home>/.codeium/windsurf/bin:<home>/.mint/bin:<home>/.modular/pkg/packages.modular.com_mojo/bin:<home>/.local/bin:<home>/.local/bin:/Applications/Sublime Text.app/Contents/SharedSupport/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Library/Apple/usr/bin:<home>/.local/bin:<home>/.codeium/windsurf/bin:<home>/.mint/bin:<home>/.modular/pkg/packages.modular.com_mojo/bin:/Applications/Sublime Text.app/Contents/SharedSupport/bin:/opt/homebrew/bin:/opt/homebrew/sbin:<home>/.sdkman/candidates/java/current/bin:<home>/.sdkman/candidates/gradle/current/bin:<home>/.cargo/bin:<home>/Library/Application Support/JetBrains/Toolbox/scripts:<home>/Library/Application Support/JetBrains/Toolbox/scripts', 'PWD': '<repo>', 'SDKMAN_CANDIDATES_API': 'https://api.sdkman.io/2', 'SDKMAN_CANDIDATES_DIR': '<home>/.sdkman/candidates', 'SDKMAN_DIR': '<home>/.sdkman', 'SDKMAN_PLATFORM': 'darwinarm64', 'SECURITYSESSIONID': '186b0', 'SHELL': '/bin/zsh', 'SSH_AUTH_SOCK': '/var/run/com.apple.launchd.0s0DnvMFLJ/Listeners', 'TERM': 'xterm-256color', 'TERM_PROGRAM': 'zed', 'TERM_PROGRAM_VERSION': '1.29.2+stable.393.2de9e435a5d98657f35c260b5f4dd0979df659e6', 'TMPDIR': '<temp>/', 'USER': 'coryhacking', 'WINDOWID': '4294967344', 'XPC_FLAGS': '0x0', 'XPC_SERVICE_NAME': '0', 'ZED_ENVIRONMENT': 'worktree-shell', 'ZED_TERM': 'true', '__CFBundleIdentifier': 'dev.zed.Zed', '__CF_USER_TEXT_ENCODING': '0x1F6:0x0:0x0', 'SHLVL': '2', 'NoDefaultCurrentDirectoryInExePath': '1', 'COREPACK_ENABLE_AUTO_PIN': '0', 'AI_AGENT': 'claude-code_2-1-330_agent', 'CLAUDE_CODE_ENTRYPOINT': 'cli', 'CLAUDE_CODE_MESSAGING_SOCKET': '/tmp/cc-socks/13836.sock', 'CLAUDE_CODE_MESSAGING_TOKEN': '014d49eb2acf6ee4b65860f45497fea6', 'GIT_EDITOR': 'true', 'CLAUDE_CODE_EXECPATH': '<home>/.local/share/claude/versions/2.1.330', 'CLAUDECODE': '1', 'CLAUDE_CODE_SESSION_ID': 'c49d4915-53cc-460a-9250-80578e2c9abc', 'CLAUDE_CODE_CHILD_SESSION': '1', 'CLAUDE_CODE_SESSION_ATTENDED': '1', 'CLAUDE_PID': '13836', 'CLAUDE_CODE_CHILD_NOTES_DIR': '/private/tmp/claude-502/-Users-coryhacking-Developer-wavefoundry/c49d4915-53cc-460a-9250-80578e2c9abc/started', 'CLAUDE_EFFORT': 'medium', '_': '/opt/homebrew/bin/python3', 'WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER': '1', 'HF_HUB_DISABLE_XET': '1', 'ORT_DISABLE_TELEMETRY': '1', 'FASTEMBED_CACHE_PATH': '<home>/.wavefoundry/cache/fastembed', 'WAVEFOUNDRY_DISABLE_TENSORWELL': '1', 'WAVEFOUNDRY_EMBED_PROVIDER': 'cpu', 'WAVEFOUNDRY_DISABLE_RERANKER': '1', 'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8', 'PYTHONDONTWRITEBYTECODE': '1', 'WAVEFOUNDRY_TEST_WORKER_PROTECTED_ROOTS': '[{"root":"<repo>","record_dirs":["docs/waves","docs/plans","docs"]}]', 'PYTHONPATH': '<repo>/.wavefoundry/framework/scripts/test_worker_bootstrap'}
+
+----------------------------------------------------------------------
+Ran 29 tests in 1.533s
+
+FAILED (failures=1)
+
+----------------------------------------------------------------------
+Slowest files (top 1 of 1):
+  test_spec_tool_permissions.py                    1.675s  (29 tests)
+Worker service time: 1.675s across 1 files; skipped 0 tests
+FAILED (test_spec_tool_permissions.py)
+Ran 29 tests across 1 files in 1.676s

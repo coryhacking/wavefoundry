@@ -1,0 +1,11 @@
+Bytecode cache warm (1.5s).
+FOCUSED diagnostic run (1 of 261 test files) — not delivery evidence; the full-suite cache is untouched.
+Running 1 test files across 1 workers …
+  [1/1] test_setup_readiness.py — 59 tests ok (7.4s)
+
+----------------------------------------------------------------------
+Slowest files (top 1 of 1):
+  test_setup_readiness.py                          7.378s  (59 tests)
+Worker service time: 7.378s across 1 files; skipped 0 tests
+Ran 59 tests across 1 files in 7.379s
+OK

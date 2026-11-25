@@ -1,0 +1,26 @@
+{
+  "wave_id": "24buu",
+  "event": "approval",
+  "mode": "dry_run",
+  "actor": "security-reviewer",
+  "signoff_key": "security-reviewer",
+  "approval_phase": "delivery",
+  "context_id": "24buu-delivery-security-independent-20261124",
+  "fresh_context": true,
+  "independent": true,
+  "evidence": {
+    "execution_status": "executed",
+    "observed": "Approved the security boundaries. Four fresh local stdio sessions on a copy of the q5tt installation observed zero spec routes after relocation, five after the permission render, and four on both restarts after adding an old-name user deny. The held route was wf_get_spec despite a repository grant. All sessions omitted the five retired routes, returned aggregate counts, and preserved the original memory, wave and ledger bytes. Both restricted sessions preserved the user file. Fourteen focused tests on the review tree passed without skips. They cover all six outside-policy cases, two-pass permission migration, linked and special files, prompts with local changes, unavailable churn, malformed and required guards, retained continuations and ordinary extracted cleanup.",
+    "artifact_or_test_id": ".wavefoundry/work/24buu/delivery/security-probe.py, security-probe-final.log, security-positive.log, security-control.py, security-mutant.log and security-seat.md",
+    "known_bad_detection_method": "In a temporary test process I changed any outside hold to withhold all renamed tools while preserving the original cause. The production migration test failed its exact held-set assertion in five of six subcases, with zero errors or skips. The wildcard remained correct. Unmodified code passed all six.",
+    "limitations": "The installed route probe used local macOS test package 1.53.0+q5tt. Its spec permission module and memory handler match the reviewed tree by SHA-256. It does not qualify subsequent archives, host launch arguments, MDM, opaque managed policy, live client prompting or native Windows. CR-D1 remains a delivery correctness issue owned by code review. I found no host-permission or runtime authority change in that report and did not verify its repair. Memory and wave records were checked, not telemetry or SQLite coordination files."
+  },
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "In a temporary test process I changed any outside hold to withhold all renamed tools while preserving the original cause. The production migration test failed its exact held-set assertion in five of six subcases, with zero errors or skips. The wildcard remained correct. Unmodified code passed all six."
+  }
+}

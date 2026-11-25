@@ -1,0 +1,141 @@
+{
+  "started_at": "2026-11-25T06:12:10.734428+00:00",
+  "from_version": "1.51.0+q5hc",
+  "to_version": "1.53.0+q5u0",
+  "pid": 63493,
+  "zip_path": "<temp>/wf-verified-pack-j7imvlwy.zip",
+  "pruned_count": 0,
+  "failed_phase": null,
+  "failed_at": null,
+  "current_phase": "index_complete",
+  "runner_protocol": 2,
+  "pack_protocol": 2,
+  "retired_model_cleanup_status": "not_applicable",
+  "retired_model_cleanup_removed": [],
+  "retired_model_cleanup_absent": [],
+  "retired_model_cleanup_unowned": [],
+  "retired_model_cleanup_failed": [],
+  "verified_pack_identity": {
+    "path": "<temp>/wf-verified-pack-j7imvlwy.zip",
+    "identity": [
+      16777233,
+      1158972759,
+      14715786,
+      1795587128364560223,
+      1795587128364560223
+    ],
+    "parent": {
+      "kind": "temporary",
+      "path": "<temp>",
+      "identity": [
+        16777233,
+        783987
+      ]
+    }
+  },
+  "model_bundle_path": "<repo>/.wavefoundry/work/24buu/rehearsal/confirmed/cli/home/.wavefoundry/dist/wavefoundry-models-3.zip",
+  "model_bundle_model_set_version": "3",
+  "index_guard_handoff": {
+    "version": 1,
+    "token": "65f7e5df8c02427fa6dfbdd7d096350d",
+    "required": false,
+    "root": "<repo>/.wavefoundry/work/24buu/rehearsal/confirmed/cli/target",
+    "root_identity": {
+      "device": 16777233,
+      "inode": 1158970810
+    },
+    "target_version": "1.53.0+q5u0",
+    "pack_sha256": "81ed6d2cc28b3e78d912b63514197addb55951ca8daea5e02583c8843006ab1d",
+    "pack_path": "<repo>/.wavefoundry/work/24buu/rehearsal/confirmed/cli/home/.wavefoundry/dist/wavefoundry-1.53.0.q5u0.zip",
+    "prior_capability": true,
+    "prior_runtime_present": true,
+    "prior_coordinator_capable": true
+  },
+  "lifecycle_baseline_drift": [
+    {
+      "channel": "lifecycle_baseline_drift",
+      "file": "docs/prompts/implement-wave.prompt.md",
+      "detail": "replaced: local copy matched the previous template",
+      "action": "replaced: Installed the incoming template.",
+      "local_sha256": "33ad07240dc3642e98efeb181773be2ead659f4f659564704ce0b95c2be327ba"
+    },
+    {
+      "channel": "lifecycle_baseline_drift",
+      "file": "docs/prompts/memory-review.prompt.md",
+      "detail": "replaced: local copy matched the previous template",
+      "action": "replaced: Installed the incoming template.",
+      "local_sha256": "1110c8a7db6e51e76a0318caf4358a08bf4bc14a4b1c36800a2182e079b8a5a2"
+    },
+    {
+      "channel": "lifecycle_baseline_drift",
+      "file": "docs/prompts/close-wave.prompt.md",
+      "detail": "replaced: local copy matched the previous template",
+      "action": "replaced: Installed the incoming template.",
+      "local_sha256": "895c5d4700b83b1bb4dcfd9ce3ab0c8dec6e51ea6077d98576486c0bda70325d"
+    },
+    {
+      "channel": "lifecycle_baseline_drift",
+      "file": "docs/prompts/close-spec.prompt.md",
+      "detail": "replaced: local copy matched the previous template",
+      "action": "replaced: Installed the incoming template.",
+      "local_sha256": "d95ae98255ec8f12d65c890fd0d44cb18a55d53a4e484070e472db60be2d3788"
+    },
+    {
+      "channel": "lifecycle_baseline_drift",
+      "file": "docs/prompts/explain.prompt.md",
+      "detail": "replaced: local copy matched the previous template",
+      "action": "replaced: Installed the incoming template.",
+      "local_sha256": "8221d7a03f4bcb3a467cf34f4cee545070d8f54d9f3569c60f66064e6853073e"
+    },
+    {
+      "channel": "lifecycle_baseline_drift",
+      "file": "docs/plans/plan-template.md",
+      "detail": "replaced: local copy matched the previous template",
+      "action": "replaced: Installed the incoming template.",
+      "local_sha256": "12a1e92235d457591f68d4167cce9586a217a5a7dfb9cdfcd69323a592b1a843"
+    }
+  ],
+  "lifecycle_baseline_drift_pack_sha256": "81ed6d2cc28b3e78d912b63514197addb55951ca8daea5e02583c8843006ab1d",
+  "docs_scalar_claims_pre_extract": {},
+  "docs_scalar_claims_pack_sha256": "",
+  "graph_builder_doc_claim_pre_extract": "",
+  "graph_builder_doc_claim_pack_sha256": "",
+  "dashboard_restart_pending": false,
+  "dashboard_restart_port": null,
+  "runtime_lock_cutover_complete": true,
+  "last_completed_path": "docs/workflow-config.json",
+  "review_policy_migration": {
+    "delivery_mode": "targeted",
+    "carriers_reconciled": [],
+    "waves_marked_for_reprepare": []
+  },
+  "skill_delivery": {
+    "partial_skill_delivery": false,
+    "skill_collisions": []
+  },
+  "permissions_delta": {
+    "file": ".claude/settings.json",
+    "added": [
+      "mcp__wavefoundry__wf_get_spec"
+    ],
+    "removed": [
+      "mcp__wavefoundry__wf_get_change"
+    ],
+    "unmanaged_present": null
+  },
+  "review_sidecar_cleanup": {
+    "removed_sidecars": 0,
+    "removed_stale_root_lock": 0,
+    "restart_required": false
+  },
+  "historical_memory_report": {
+    "closed_waves_without_memory": 0,
+    "candidates_awaiting_validation": 0,
+    "next_step": "Run Review memories: memory_backfill(mode='create') then memory_validate."
+  },
+  "publisher_grant": "315d7f902bde470fa9ed96e73233e3d3",
+  "dependency_provisioning_failed": false,
+  "index_rebuilt_at": "2026-11-25T06:12:49.706700+00:00",
+  "index_publication_failed": false,
+  "skipped_scan_locations": []
+}

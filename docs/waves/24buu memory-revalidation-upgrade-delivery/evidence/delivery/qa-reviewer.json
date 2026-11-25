@@ -1,0 +1,24 @@
+{
+  "wave_id": "24buu",
+  "event": "approval",
+  "actor": "qa-reviewer",
+  "signoff_key": "qa-reviewer",
+  "approval_phase": "delivery",
+  "context_id": "24buu-qa-1124-focused",
+  "fresh_context": true,
+  "independent": true,
+  "mode": "dry_run",
+  "evidence": {
+    "observed": "On fingerprint 7cb3a371, twelve selected fixture tests passed in 16.580 seconds, with zero skips. Four active memories yielded one unresolved, churned and noncanonical target even for an empty result. The extracted cleanup child emitted one completion, retained continuations survived, an isolated direct archive resolved a function-local import, and installed-render, teammate-setup and outside-policy controls passed. This preview covers the initial frozen paths and the listed controls.",
+    "artifact_or_test_id": ".wavefoundry/work/24buu/delivery/qa-probe.py and qa-probe.log",
+    "limitations": "Final packaged successor roll-forward and the repair fingerprint need separate verification. The second-profile full-file attempt reached its timeout. Native Windows, undisclosed host policy, edited-prompt merge by a human and post-release operator response were outside the fixture."
+  },
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "In-process mutation passed only the first ranked record to the production revalidation counter. The expected four active records fell to one and two reason counts fell from one to zero. Removing the mutation restored all assertions."
+  }
+}

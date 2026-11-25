@@ -1,0 +1,573 @@
+Bytecode cache warm (3.5s).
+SECOND-PROFILE run (second): not delivery evidence; this tree's framework test receipt is never written.
+Expected profile: the shipped defaults, then 'second' from WAVEFOUNDRY_TEST_PROFILE.
+Copied 4827 files into a temporary git repository; applied profile 'second'; waves root docs/delivery/sets (README docs/delivery/sets/README.md).
+FOCUSED diagnostic run (1 of 261 test files) — not delivery evidence; the full-suite cache is untouched.
+Running 1 test files across 1 workers …
+  [1/1] test_upgrade_wavefoundry.py — 0 tests FAIL (600.0s)
+
+======================================================================
+FAILED: test_upgrade_wavefoundry.py
+======================================================================
+  Verified private pack retained (legacy/unproven parent "T", archive "wf-verified-pack-9qrnqj_0.zip"): ownership proof is unproven. Preserve the recorded proof and retry cleanup after resolving it.
+  Verified private pack retained (temporary parent "T", archive "wf-verified-pack-u4us4vwq.zip"): verified file identity changed or is unproven. Preserve the recorded proof and retry cleanup after resolving it.
+  ⚠  Could not read seeds from zip: File is not a zip file
+
+── Phase 3: Docs gate ──
+docs-gardener: ok (nothing to report)
+docs-lint: scope full
+docs-lint: ok
+  Docs gate: PASSED
+  Extension module loaded from zip (.wavefoundry/framework/scripts/upgrade_extensions.py).
+
+── Dry Run ── (no changes will be made) ─────────────────────────────────
+
+── Dry Run ── (no changes will be made) ─────────────────────────────────
+
+Wavefoundry Upgrade Plan
+========================================
+Pack version:       unknown
+Installed revision: (none)
+Zip to apply:       none (using current tree)
+Surfaces to render: hooks, MCP config, bin launchers, agent surfaces
+Prune mode:         legacy removal list (no prior MANIFEST)
+Docs gate:          .wavefoundry/bin/wf docs-gardener && .wavefoundry/bin/wf docs-lint
+Dashboard:          not running
+Prompt files:       none (all already use .prompt.md extension)
+Seeds changed:      n/a (no zip — current tree already applied)
+
+── Hook Inventory ──────────────────────────────────────────────────────
+
+Extension module:   n/a (no zip)
+
+Convention hooks:   none (.wavefoundry/hooks/<name> scripts absent)
+
+── End Dry Run ──────────────────────────────────────────────────────────
+No changes were made. Run without --dry-run to execute the upgrade.
+WAVE_UPGRADE_SUMMARY_JSON:{"partial_skill_delivery": null, "skill_collisions": [], "spec_tool_permission_holds": ["Review wf_new_change and wf_new_spec in all effective host permission layers. Preserve their restrictions and grant scope. From the target checkout's root, run `python3 .wavefoundry/framework/scripts/upgrade_wavefoundry.py spec-permissions --root . --tool wf_new_spec --confirm-effective-host-rules`, then restart the host.", "Review wf_get_change and wf_get_spec in all effective host permission layers. Preserve their restrictions and grant scope. From the target checkout's root, run `python3 .wavefoundry/framework/scripts/upgrade_wavefoundry.py spec-permissions --root . --tool wf_get_spec --confirm-effective-host-rules`, then restart the host.", "Review wf_add_change and wf_add_spec in all effective host permission layers. Preserve their restrictions and grant scope. From the target checkout's root, run `python3 .wavefoundry/framework/scripts/upgrade_wavefoundry.py spec-permissions --root . --tool wf_add_spec --confirm-effective-host-rules`, then restart the host.", "Review wf_remove_change and wf_remove_spec in all effective host permission layers. Preserve their restrictions and grant scope. From the target checkout's root, run `python3 .wavefoundry/framework/scripts/upgrade_wavefoundry.py spec-permissions --root . --tool wf_remove_spec --confirm-effective-host-rules`, then restart the host.", "Review wf_close_change and wf_close_spec in all effective host permission layers. Preserve their restrictions and grant scope. From the target checkout's root, run `python3 .wavefoundry/framework/scripts/upgrade_wavefoundry.py spec-permissions --root . --tool wf_close_spec --confirm-effective-host-rules`, then restart the host."], "spec_tool_permission_recommendations": [], "spec_tool_outside_layers": ["/wavefoundry-tests-no-host-policy-124201a30bd64497a57ddb1c32085ad7/claude/settings.json (absent)", "/wavefoundry-tests-no-host-policy-124201a30bd64497a57ddb1c32085ad7/codex/config.toml (absent)", "/wavefoundry-tests-no-host-policy-124201a30bd64497a57ddb1c32085ad7/managed-settings.json (absent)"], "historical_memory": null, "review_sidecar_cleanup": null, "from_version": null, "to_version": "unknown", "zip_applied": null, "pruned_count": 0, "cleanup_complete": false, "docs_gate": "PASSED", "index_update": "not run — call with --update-index after editing pass", "dependency_provisioning_failed": false, "setup_status": "not_assessed", "setup_reasons": [], "setup_command": null, "failed_phase": null, "is_major_or_minor": false, "reconciliation": [], "reconciliation_disposition_diagnostics": [], "host_permission_flags": [], "renderer_provenance_flags": [], "renderer_warnings": [], "lifecycle_baseline_drift": [], "permissions_file": null, "permissions_added": [], "permissions_removed": [], "permissions_changed": null, "permissions_unmanaged_present": null, "skipped_scan_locations": [], "retired_model_cleanup_status": "dry_run", "retired_model_cleanup_removed": [], "retired_model_cleanup_absent": [], "retired_model_cleanup_unowned": [], "retired_model_cleanup_failed": [], "summary_schema_version": 1, "preview_logs": []}
+
+── Dry Run ── (no changes will be made) ─────────────────────────────────
+
+Wavefoundry Upgrade Plan
+========================================
+Pack version:       unknown
+Installed revision: (none)
+Zip to apply:       none (using current tree)
+Surfaces to render: hooks, MCP config, bin launchers, agent surfaces
+Prune mode:         legacy removal list (no prior MANIFEST)
+Docs gate:          .wavefoundry/bin/wf docs-gardener && .wavefoundry/bin/wf docs-lint
+Dashboard:          not running
+Prompt files:       none (all already use .prompt.md extension)
+Seeds changed:      n/a (no zip — current tree already applied)
+
+── Hook Inventory ──────────────────────────────────────────────────────
+
+Extension module:   n/a (no zip)
+
+Convention hooks:   none (.wavefoundry/hooks/<name> scripts absent)
+
+── End Dry Run ──────────────────────────────────────────────────────────
+No changes were made. Run without --dry-run to execute the upgrade.
+WAVE_UPGRADE_SUMMARY_JSON:{"partial_skill_delivery": null, "skill_collisions": [], "spec_tool_permission_holds": ["Review wf_new_change and wf_new_spec in all effective host permission layers. Preserve their restrictions and grant scope. From the target checkout's root, run `python3 .wavefoundry/framework/scripts/upgrade_wavefoundry.py spec-permissions --root . --tool wf_new_spec --confirm-effective-host-rules`, then restart the host.", "Review wf_get_change and wf_get_spec in all effective host permission layers. Preserve their restrictions and grant scope. From the target checkout's root, run `python3 .wavefoundry/framework/scripts/upgrade_wavefoundry.py spec-permissions --root . --tool wf_get_spec --confirm-effective-host-rules`, then restart the host.", "Review wf_add_change and wf_add_spec in all effective host permission layers. Preserve their restrictions and grant scope. From the target checkout's root, run `python3 .wavefoundry/framework/scripts/upgrade_wavefoundry.py spec-permissions --root . --tool wf_add_spec --confirm-effective-host-rules`, then restart the host.", "Review wf_remove_change and wf_remove_spec in all effective host permission layers. Preserve their restrictions and grant scope. From the target checkout's root, run `python3 .wavefoundry/framework/scripts/upgrade_wavefoundry.py spec-permissions --root . --tool wf_remove_spec --confirm-effective-host-rules`, then restart the host.", "Review wf_close_change and wf_close_spec in all effective host permission layers. Preserve their restrictions and grant scope. From the target checkout's root, run `python3 .wavefoundry/framework/scripts/upgrade_wavefoundry.py spec-permissions --root . --tool wf_close_spec --confirm-effective-host-rules`, then restart the host."], "spec_tool_permission_recommendations": [], "spec_tool_outside_layers": ["/wavefoundry-tests-no-host-policy-124201a30bd64497a57ddb1c32085ad7/claude/settings.json (absent)", "/wavefoundry-tests-no-host-policy-124201a30bd64497a57ddb1c32085ad7/codex/config.toml (absent)", "/wavefoundry-tests-no-host-policy-124201a30bd64497a57ddb1c32085ad7/managed-settings.json (absent)"], "historical_memory": null, "review_sidecar_cleanup": null, "from_version": null, "to_version": "unknown", "zip_applied": null, "pruned_count": 0, "cleanup_complete": false, "docs_gate": "PASSED", "index_update": "not run — call with --update-index after editing pass", "dependency_provisioning_failed": false, "setup_status": "not_assessed", "setup_reasons": [], "setup_command": null, "failed_phase": null, "is_major_or_minor": false, "reconciliation": [], "reconciliation_disposition_diagnostics": [], "host_permission_flags": [], "renderer_provenance_flags": [], "renderer_warnings": [], "lifecycle_baseline_drift": [], "permissions_file": null, "permissions_added": [], "permissions_removed": [], "permissions_changed": null, "permissions_unmanaged_present": null, "skipped_scan_locations": [], "retired_model_cleanup_status": "dry_run", "retired_model_cleanup_removed": [], "retired_model_cleanup_absent": [], "retired_model_cleanup_unowned": [], "retired_model_cleanup_failed": [], "summary_schema_version": 1, "preview_logs": []}
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+⚠  Stale upgrade lock contains pre-extract reconciliation evidence — preserving it until the requested target is known.
+Review status refresh unavailable: extracted upgrade scripts missing.
+upgrade docs reconciliation: graph builder version 44 -> 45
+Review status refresh unavailable: extracted upgrade scripts missing.
+upgrade docs reconciliation: graph builder version 44 -> 45
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+upgrade docs reconciliation: docs embedding model docs-v1 -> docs-v2
+upgrade docs reconciliation: code embedding model code-v1 -> code-v2
+upgrade docs reconciliation: reranker model reranker-v1 -> reranker-v2
+upgrade docs reconciliation: state-store schema version 6 -> 7
+upgrade docs reconciliation: chunker version 32 -> 33
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+Review status refresh unavailable: extracted upgrade scripts missing.
+  Extension module loaded from zip (framework/scripts/upgrade_extensions.py).
+  Extension module loaded from zip (.wavefoundry/framework/scripts/upgrade_extensions.py).
+  ⚠  Could not open zip to load upgrade_extensions: File is not a zip file
+  ⚠  upgrade_extensions.py syntax error — skipping: invalid syntax (upgrade_extensions.py, line 1)
+test_silent_when_meta_absent (test_upgrade_wavefoundry.BackgroundCodeIncompleteWarningTests.test_silent_when_meta_absent) ... ok
+test_silent_when_versions_match (test_upgrade_wavefoundry.BackgroundCodeIncompleteWarningTests.test_silent_when_versions_match) ... ok
+test_warns_on_chunker_mismatch (test_upgrade_wavefoundry.BackgroundCodeIncompleteWarningTests.test_warns_on_chunker_mismatch) ... ok
+test_actual_decompression_excess_is_bounded (test_upgrade_wavefoundry.BoundedMigrationPreviewTests.test_actual_decompression_excess_is_bounded) ... ok
+test_actual_preview_invalid_member_never_spawns_or_writes_target (test_upgrade_wavefoundry.BoundedMigrationPreviewTests.test_actual_preview_invalid_member_never_spawns_or_writes_target) ... ok
+test_actual_upgrade_hook_fails_before_framework_extraction (test_upgrade_wavefoundry.BoundedMigrationPreviewTests.test_actual_upgrade_hook_fails_before_framework_extraction) ... ok
+test_caps_complete_preflight_and_exact_boundary_control (test_upgrade_wavefoundry.BoundedMigrationPreviewTests.test_caps_complete_preflight_and_exact_boundary_control) ... ok
+test_incoming_child_lifecycle_preview_and_conflict_preserve_target (test_upgrade_wavefoundry.BoundedMigrationPreviewTests.test_incoming_child_lifecycle_preview_and_conflict_preserve_target) ... ok
+test_incoming_preview_is_quiet_for_already_moved_unmanaged_lifecycle_target (test_upgrade_wavefoundry.BoundedMigrationPreviewTests.test_incoming_preview_is_quiet_for_already_moved_unmanaged_lifecycle_target) ... ok
+test_portable_names_and_aliases_are_preflighted_before_any_read (test_upgrade_wavefoundry.BoundedMigrationPreviewTests.test_portable_names_and_aliases_are_preflighted_before_any_read) ... ok
+test_pre_extract_refusal_precedes_every_other_hook_mutation (test_upgrade_wavefoundry.BoundedMigrationPreviewTests.test_pre_extract_refusal_precedes_every_other_hook_mutation) ... ok
+test_actual_worker_preserves_partial_live_findings (test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_actual_worker_preserves_partial_live_findings) ... ok
+test_actual_worker_shares_pruned_scope_and_all_finding_channels (test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_actual_worker_shares_pruned_scope_and_all_finding_channels) ... ok
+test_cleanup_attempts_verified_pack_even_when_optional_emitter_raises (test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_cleanup_attempts_verified_pack_even_when_optional_emitter_raises) ... ok
+test_contradictory_publication_and_consent_facts_degrade (test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_contradictory_publication_and_consent_facts_degrade) ... ok
+test_delegate_failure_never_scans_or_runs_diagnostics_again (test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_delegate_failure_never_scans_or_runs_diagnostics_again) ... ok
+test_owned_worker_timeout_retains_progress_and_cleans_temporary (test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_owned_worker_timeout_retains_progress_and_cleans_temporary) ... ok
+test_progress_persistence_is_bounded_without_losing_coordinates (test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_progress_persistence_is_bounded_without_losing_coordinates) ... ok
+test_scan_error_is_never_empty_success (test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_scan_error_is_never_empty_success) ... ok
+test_verified_pack_cleanup_refuses_unproven_prefix_and_changed_identity (test_upgrade_wavefoundry.BoundedUpgradeReportingTests.test_verified_pack_cleanup_refuses_unproven_prefix_and_changed_identity) ... ok
+test_installing_upgrade_moves_prompts_rewrites_manifest_and_replaces_skills (test_upgrade_wavefoundry.ChangePromptRenameInstallingUpgradeTests.test_installing_upgrade_moves_prompts_rewrites_manifest_and_replaces_skills) ... ok
+test_detect_bump_when_versions_differ (test_upgrade_wavefoundry.ChunkerVersionBumpDetectionTests.test_detect_bump_when_versions_differ)
+AC-4: bump detected when old != new and both are non-empty. ... ok
+test_legacy_meta_json_is_ignored_entirely (test_upgrade_wavefoundry.ChunkerVersionBumpDetectionTests.test_legacy_meta_json_is_ignored_entirely)
+1sed6 review-hardened: a legacy meta.json is NEVER read — not even ... ok
+test_no_bump_on_fresh_install (test_upgrade_wavefoundry.ChunkerVersionBumpDetectionTests.test_no_bump_on_fresh_install)
+AC-9: empty pre-extract dict → no bump (no comparison baseline). ... ok
+test_no_bump_when_new_version_unreadable (test_upgrade_wavefoundry.ChunkerVersionBumpDetectionTests.test_no_bump_when_new_version_unreadable)
+Defensive: empty new version (chunker.py couldn't be read) → no bump. ... ok
+test_no_bump_when_versions_match (test_upgrade_wavefoundry.ChunkerVersionBumpDetectionTests.test_no_bump_when_versions_match)
+AC-12: bump NOT detected when old == new (regression guard for the ... ok
+test_read_chunker_version_empty_when_chunker_missing (test_upgrade_wavefoundry.ChunkerVersionBumpDetectionTests.test_read_chunker_version_empty_when_chunker_missing)
+Defensive: missing chunker.py → empty string → no bump detection. ... ok
+test_read_chunker_version_from_pack (test_upgrade_wavefoundry.ChunkerVersionBumpDetectionTests.test_read_chunker_version_from_pack)
+AC-3: post-extract version read via regex (no Python import). ... ok
+test_snapshot_empty_when_meta_absent (test_upgrade_wavefoundry.ChunkerVersionBumpDetectionTests.test_snapshot_empty_when_meta_absent)
+Fresh install with no prior meta.json → empty snapshot, no bump detection. ... ok
+test_snapshot_reads_per_layer_dict (test_upgrade_wavefoundry.ChunkerVersionBumpDetectionTests.test_snapshot_reads_per_layer_dict)
+AC-2: pre-extract snapshot reads `chunker_versions` per-layer dict. ... ok
+test_store_recorded_bump_detected (test_upgrade_wavefoundry.ChunkerVersionBumpDetectionTests.test_store_recorded_bump_detected)
+Bump detection reads the store's per-layer versions (the only ... ok
+test_verify_conservative_when_no_meta (test_upgrade_wavefoundry.ChunkerVersionBumpDetectionTests.test_verify_conservative_when_no_meta)
+When meta.json doesn't exist post-rebuild, verification returns True ... ok
+test_verify_fails_when_meta_still_stale (test_upgrade_wavefoundry.ChunkerVersionBumpDetectionTests.test_verify_fails_when_meta_still_stale)
+AC-8: post-rebuild verification detects stale meta.json — the ... ok
+test_verify_succeeds_when_meta_matches_new_version (test_upgrade_wavefoundry.ChunkerVersionBumpDetectionTests.test_verify_succeeds_when_meta_matches_new_version)
+AC-7: post-rebuild verification confirms the new chunker version is ... ok
+test_added_seed_status_is_added (test_upgrade_wavefoundry.ComputeSeedDiffsTests.test_added_seed_status_is_added) ... ok
+test_alt_zip_prefix_is_recognised (test_upgrade_wavefoundry.ComputeSeedDiffsTests.test_alt_zip_prefix_is_recognised) ... ok
+test_bad_zip_returns_empty_list (test_upgrade_wavefoundry.ComputeSeedDiffsTests.test_bad_zip_returns_empty_list) ... ok
+test_modified_seed_returns_diff (test_upgrade_wavefoundry.ComputeSeedDiffsTests.test_modified_seed_returns_diff) ... ok
+test_multiple_seeds_mixed_statuses (test_upgrade_wavefoundry.ComputeSeedDiffsTests.test_multiple_seeds_mixed_statuses) ... ok
+test_removed_seed_status_is_removed (test_upgrade_wavefoundry.ComputeSeedDiffsTests.test_removed_seed_status_is_removed) ... ok
+test_unchanged_seed_not_in_results (test_upgrade_wavefoundry.ComputeSeedDiffsTests.test_unchanged_seed_not_in_results) ... ok
+test_build_suffix_stripped_minor_recommends (test_upgrade_wavefoundry.ConfigReviewRecommendationTests.test_build_suffix_stripped_minor_recommends) ... ok
+test_downgrade_silent (test_upgrade_wavefoundry.ConfigReviewRecommendationTests.test_downgrade_silent) ... ok
+test_is_major_or_minor_classification (test_upgrade_wavefoundry.ConfigReviewRecommendationTests.test_is_major_or_minor_classification) ... ok
+test_major_bump_recommends (test_upgrade_wavefoundry.ConfigReviewRecommendationTests.test_major_bump_recommends) ... ok
+test_minor_bump_recommends (test_upgrade_wavefoundry.ConfigReviewRecommendationTests.test_minor_bump_recommends) ... ok
+test_missing_version_silent (test_upgrade_wavefoundry.ConfigReviewRecommendationTests.test_missing_version_silent) ... ok
+test_patch_bump_silent (test_upgrade_wavefoundry.ConfigReviewRecommendationTests.test_patch_bump_silent) ... ok
+test_same_version_silent (test_upgrade_wavefoundry.ConfigReviewRecommendationTests.test_same_version_silent) ... ok
+test_unparseable_is_silent_not_fatal (test_upgrade_wavefoundry.ConfigReviewRecommendationTests.test_unparseable_is_silent_not_fatal) ... ok
+test_dry_run_writes_convergence_preview_log_file (test_upgrade_wavefoundry.ConvergenceMigrationTests.test_dry_run_writes_convergence_preview_log_file)
+Dry-run with planned actions → writes ... upgrade-convergence preview: 1 legacy config-key rewrite(s) planned in docs/workflow-config.json; wrote preview log .wavefoundry/logs/upgrade-convergence-migration.preview.log
+  - would rename `wave_council_policy` → `wave_review` in docs/workflow-config.json
+ok
+test_no_log_files_when_no_renames_apply (test_upgrade_wavefoundry.ConvergenceMigrationTests.test_no_log_files_when_no_renames_apply)
+No legacy keys → no log files written (silent no-op). ... ok
+test_preview_distinguishes_rename_vs_drop_when_both_present (test_upgrade_wavefoundry.ConvergenceMigrationTests.test_preview_distinguishes_rename_vs_drop_when_both_present)
+When both legacy and canonical exist, preview wording reflects the ... ok
+test_preview_plans_renames_without_touching_disk (test_upgrade_wavefoundry.ConvergenceMigrationTests.test_preview_plans_renames_without_touching_disk)
+Preview returns the planned-action strings; file is unchanged. ... ok
+test_real_run_log_records_dropped_value_for_drop_case (test_upgrade_wavefoundry.ConvergenceMigrationTests.test_real_run_log_records_dropped_value_for_drop_case)
+Real-run with a drop → log records the dropped value as JSON so ... upgrade-convergence: dropped 1 (`wave_council_policy` (canonical `wave_review` already present)) in docs/workflow-config.json — see <temp>/tmpgrsels54/.wavefoundry/logs/upgrade-convergence-migration.log for the dropped values
+ok
+test_real_run_writes_convergence_log_file (test_upgrade_wavefoundry.ConvergenceMigrationTests.test_real_run_writes_convergence_log_file)
+Real-run with renames performed → writes ... upgrade-convergence: renamed 1 (`wave_council_policy`→`wave_review`) in docs/workflow-config.json — see <temp>/tmpjtgkx84i/.wavefoundry/logs/upgrade-convergence-migration.log for the dropped values
+ok
+test_rewrite_captures_dropped_value_for_complex_legacy_state (test_upgrade_wavefoundry.ConvergenceMigrationTests.test_rewrite_captures_dropped_value_for_complex_legacy_state)
+When the legacy entry holds a non-trivial dict, the dropped value ... ok
+test_rewrite_drops_legacy_when_canonical_already_present (test_upgrade_wavefoundry.ConvergenceMigrationTests.test_rewrite_drops_legacy_when_canonical_already_present)
+Both legacy AND canonical → canonical wins (operator-explicit), ... ok
+test_rewrite_handles_multiple_legacy_keys_in_one_pass (test_upgrade_wavefoundry.ConvergenceMigrationTests.test_rewrite_handles_multiple_legacy_keys_in_one_pass)
+Both legacy spellings present → both renamed in one call. ... ok
+test_rewrite_is_idempotent (test_upgrade_wavefoundry.ConvergenceMigrationTests.test_rewrite_is_idempotent)
+Running the rewrite twice yields no work on the second invocation. ... ok
+test_rewrite_is_noop_when_canonical_only (test_upgrade_wavefoundry.ConvergenceMigrationTests.test_rewrite_is_noop_when_canonical_only)
+No legacy keys present → no work; performed list is empty. ... ok
+test_rewrite_is_noop_when_workflow_config_malformed (test_upgrade_wavefoundry.ConvergenceMigrationTests.test_rewrite_is_noop_when_workflow_config_malformed)
+Malformed JSON → no error, empty result (degraded mode). ...   WARNING: convergence migration could not read/parse <temp>/tmpwq5rjl9e/docs/workflow-config.json (Expecting property name enclosed in double quotes: line 1 column 2 (char 1)); legacy config keys were NOT rewritten — the docs gate may fail until this is fixed.
+ok
+test_rewrite_is_noop_when_workflow_config_missing (test_upgrade_wavefoundry.ConvergenceMigrationTests.test_rewrite_is_noop_when_workflow_config_missing)
+No workflow-config.json → no error, empty result. ... ok
+test_rewrite_renames_legacy_to_canonical (test_upgrade_wavefoundry.ConvergenceMigrationTests.test_rewrite_renames_legacy_to_canonical)
+Legacy-only key → renamed in-place; performed tuple carries ... ok
+test_malformed_config_warns_and_noops (test_upgrade_wavefoundry.ConvergenceParseWarningTests.test_malformed_config_warns_and_noops) ... ok
+test_valid_config_no_warning (test_upgrade_wavefoundry.ConvergenceParseWarningTests.test_valid_config_no_warning) ... ok
+test_actual_upgrade_renderer_reports_unreadable_doc_after_extraction (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_actual_upgrade_renderer_reports_unreadable_doc_after_extraction) ... ok
+test_all_pairs_preflight_before_any_role_move (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_all_pairs_preflight_before_any_role_move) ... ok
+test_destinations_preserve_suffixes_encoding_titles_and_history (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_destinations_preserve_suffixes_encoding_titles_and_history) ... ok
+test_driver_collision_preserves_old_new_and_peer (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_driver_collision_preserves_old_new_and_peer) ... ok
+test_installing_upgrade_classifies_quote_and_list_code_columns (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_classifies_quote_and_list_code_columns) ... ok
+test_installing_upgrade_consumes_link_metadata_before_code_ticks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_consumes_link_metadata_before_code_ticks) ... ok
+test_installing_upgrade_customized_specialist_passes_real_docs_gate (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_customized_specialist_passes_real_docs_gate) ... WARNING: docs/delivery/sets/change-2026-03/set.md: change `00058-bug fixture-core` status drift: the wave record says `complete` but `docs/delivery/sets/change-2026-03/00058-bug fixture-core.md` says no readable status; update whichever is wrong
+WARNING: docs/delivery/sets/change-2026-03/set.md: change `00059-enh fixture-follow-up` status drift: the wave record says `ready` but `docs/delivery/sets/change-2026-03/00059-enh fixture-follow-up.md` says no readable status; update whichever is wrong
+ok
+test_installing_upgrade_distinguishes_backtick_and_tilde_info (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_distinguishes_backtick_and_tilde_info) ... ok
+test_installing_upgrade_preserves_autolink_atoms_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_autolink_atoms_and_code_precedence) ... ok
+test_installing_upgrade_preserves_html_literal_blocks (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_html_literal_blocks) ... ok
+test_installing_upgrade_preserves_indented_code_and_live_links (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_indented_code_and_live_links) ... ok
+test_installing_upgrade_preserves_inline_html_and_code_precedence (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_preserves_inline_html_and_code_precedence) ... ok
+test_installing_upgrade_repairs_container_reference_definitions (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_container_reference_definitions) ... ok
+test_installing_upgrade_repairs_native_skill_directory_destinations (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_repairs_native_skill_directory_destinations) ... ok
+test_installing_upgrade_reports_encoded_unsupported_image_destinations (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_reports_encoded_unsupported_image_destinations) ... ok
+test_installing_upgrade_respects_inline_block_boundaries_and_escapes (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_inline_block_boundaries_and_escapes) ... ok
+test_installing_upgrade_respects_link_and_image_escape_parity (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_link_and_image_escape_parity) ... ok
+test_installing_upgrade_respects_reference_definition_context (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_installing_upgrade_respects_reference_definition_context) ... ok
+test_interrupted_driver_after_move_retries_remaining_links (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_interrupted_driver_after_move_retries_remaining_links) ... ok
+test_linked_peer_refusal_preserves_role_and_outside_content (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_linked_peer_refusal_preserves_role_and_outside_content) ... ok
+test_percent_case_and_escaped_opening_are_preserved (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_percent_case_and_escaped_opening_are_preserved) ... ok
+test_preview_child_uses_incoming_isolation_and_utf8_environment (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_preview_child_uses_incoming_isolation_and_utf8_environment) ... ok
+test_preview_does_not_hide_unrelated_loader_failures (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_preview_does_not_hide_unrelated_loader_failures) ... ok
+test_preview_unavailable_helper_reports_without_child_or_target_writes (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_preview_unavailable_helper_reports_without_child_or_target_writes) ... ok
+test_retry_requires_new_document_role_identity (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_retry_requires_new_document_role_identity) ... ok
+test_role_self_link_moves_without_recreating_legacy_document (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_role_self_link_moves_without_recreating_legacy_document) ... ok
+test_unsupported_and_image_reference_syntax_is_reported_unchanged (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_unsupported_and_image_reference_syntax_is_reported_unchanged) ... ok
+test_upgrade_driver_dry_run_only_writes_extension_preview (test_upgrade_wavefoundry.CouncilRoleLinkRepairUpgradeTests.test_upgrade_driver_dry_run_only_writes_extension_preview) ... ok
+test_declared_profile_shared_by_checker_renderer_and_incoming_hook (test_upgrade_wavefoundry.DeclaredLegacyReviewPlanTests.test_declared_profile_shared_by_checker_renderer_and_incoming_hook) ... ok
+test_fixture_declaration_precedes_entry_for_nonempty_and_reformatted_sources (test_upgrade_wavefoundry.DeclaredLegacyReviewPlanTests.test_fixture_declaration_precedes_entry_for_nonempty_and_reformatted_sources) ... ok
+test_malformed_duplicate_ambiguous_and_customized_contracts_refuse (test_upgrade_wavefoundry.DeclaredLegacyReviewPlanTests.test_malformed_duplicate_ambiguous_and_customized_contracts_refuse) ... ok
+test_checkpoint_pause_recovery_cleanup_carries_the_schema_token (test_upgrade_wavefoundry.DelegatedSummaryContractTests.test_checkpoint_pause_recovery_cleanup_carries_the_schema_token)
+Wave 1uf68 requirement 6(a) / AC-1: the FAILURE branch of ... ok
+test_cleanup_reports_a_recorded_dependency_failure (test_upgrade_wavefoundry.DelegatedSummaryContractTests.test_cleanup_reports_a_recorded_dependency_failure)
+Wave 1zfd9: the --cleanup branch reads dependency_provisioning_failed from the lock. ... ok
+test_contract_constants_are_frozen (test_upgrade_wavefoundry.DelegatedSummaryContractTests.test_contract_constants_are_frozen) ... ok
+test_nominal_cleanup_carries_the_schema_token_on_both_lock_shapes (test_upgrade_wavefoundry.DelegatedSummaryContractTests.test_nominal_cleanup_carries_the_schema_token_on_both_lock_shapes)
+Wave 1uf68 requirement 6(b) / AC-1: the ordinary success branch ... ok
+test_real_child_envelope_and_old_schema_lock_tolerance (test_upgrade_wavefoundry.DelegatedSummaryContractTests.test_real_child_envelope_and_old_schema_lock_tolerance) ... ok
+test_real_child_reads_nonempty_skipped_scan_locations_from_lock (test_upgrade_wavefoundry.DelegatedSummaryContractTests.test_real_child_reads_nonempty_skipped_scan_locations_from_lock) ... ok
+test_sentinel_prefix_value_is_frozen (test_upgrade_wavefoundry.DelegatedSummaryContractTests.test_sentinel_prefix_value_is_frozen) ... ok
+test_shared_builder_never_carries_the_schema_token (test_upgrade_wavefoundry.DelegatedSummaryContractTests.test_shared_builder_never_carries_the_schema_token)
+Wave 1uf68 requirement 6(c) / AC-2: the token lives at the EMIT site, ... ok
+test_spawned_argv_shape_is_frozen_and_payload_reemitted_verbatim (test_upgrade_wavefoundry.DelegatedSummaryContractTests.test_spawned_argv_shape_is_frozen_and_payload_reemitted_verbatim) ... ok
+test_unrecognized_version_token_routes_to_degradation (test_upgrade_wavefoundry.DelegatedSummaryContractTests.test_unrecognized_version_token_routes_to_degradation) ... ok
+test_entry_point_absent_is_marker_carrying_degradation (test_upgrade_wavefoundry.DelegatedSummaryDegradationTests.test_entry_point_absent_is_marker_carrying_degradation) ... ok
+test_malformed_or_absent_sentinel_degrades (test_upgrade_wavefoundry.DelegatedSummaryDegradationTests.test_malformed_or_absent_sentinel_degrades) ... ok
+test_nonzero_child_exit_degrades (test_upgrade_wavefoundry.DelegatedSummaryDegradationTests.test_nonzero_child_exit_degrades) ... ok
+test_old_key_parent_against_new_key_payload_degrades_marked (test_upgrade_wavefoundry.DelegatedSummaryDegradationTests.test_old_key_parent_against_new_key_payload_degrades_marked) ... ok
+test_old_pack_rejecting_the_flag_degrades_with_exit_status (test_upgrade_wavefoundry.DelegatedSummaryDegradationTests.test_old_pack_rejecting_the_flag_degrades_with_exit_status) ... ok
+test_successful_delegate_forbids_the_fallback (test_upgrade_wavefoundry.DelegatedSummaryDegradationTests.test_successful_delegate_forbids_the_fallback) ... ok
+test_timeout_degrades_with_injected_deadline (test_upgrade_wavefoundry.DelegatedSummaryDegradationTests.test_timeout_degrades_with_injected_deadline) ... ok
+test_delegated_path_repairs_the_empty_channel (test_upgrade_wavefoundry.DelegatedSummaryPg1aReproductionTests.test_delegated_path_repairs_the_empty_channel) ... ok
+test_mismatched_scan_shape_is_explicit_in_process (test_upgrade_wavefoundry.DelegatedSummaryPg1aReproductionTests.test_mismatched_scan_shape_is_explicit_in_process) ... ok
+test_probe_field_transports_through_the_parents_real_emit_path (test_upgrade_wavefoundry.DelegatedSummarySchemaDivergentTests.test_probe_field_transports_through_the_parents_real_emit_path) ... ok
+test_held_canonical_lifetime_lock_overrides_missing_metadata (test_upgrade_wavefoundry.DetectDashboardLivenessTests.test_held_canonical_lifetime_lock_overrides_missing_metadata) ... ok
+test_matched_live_pid_detected (test_upgrade_wavefoundry.DetectDashboardLivenessTests.test_matched_live_pid_detected) ... ok
+test_recycled_pid_rejected_by_cmdline_scan (test_upgrade_wavefoundry.DetectDashboardLivenessTests.test_recycled_pid_rejected_by_cmdline_scan) ... ok
+test_scan_unavailable_falls_back_to_pid_liveness_helper (test_upgrade_wavefoundry.DetectDashboardLivenessTests.test_scan_unavailable_falls_back_to_pid_liveness_helper) ... ok
+test_gate_children_receive_the_target_root (test_upgrade_wavefoundry.DocsGateProjectRootPinTests.test_gate_children_receive_the_target_root) ... ok
+test_inherited_project_root_cannot_redirect_the_gate (test_upgrade_wavefoundry.DocsGateProjectRootPinTests.test_inherited_project_root_cannot_redirect_the_gate) ... ok
+test_rendered_post_edit_hook_pins_project_root_to_repo_root (test_upgrade_wavefoundry.DocsGateProjectRootPinTests.test_rendered_post_edit_hook_pins_project_root_to_repo_root) ... ok
+test_archive_discovery_searches_only_fixture_roots (test_upgrade_wavefoundry.DryRunTests.test_archive_discovery_searches_only_fixture_roots) ... ok
+test_convention_hook_source_surfaced (test_upgrade_wavefoundry.DryRunTests.test_convention_hook_source_surfaced)
+Convention hook scripts found on disk appear in dry-run output. ... ok
+test_extension_bytes_are_logged_and_summarized_without_echoing (test_upgrade_wavefoundry.DryRunTests.test_extension_bytes_are_logged_and_summarized_without_echoing) ... ok
+test_final_line_names_each_preview_log_written_this_run (test_upgrade_wavefoundry.DryRunTests.test_final_line_names_each_preview_log_written_this_run) ... ok
+test_missing_explicit_pack_refuses_without_ambient_discovery (test_upgrade_wavefoundry.DryRunTests.test_missing_explicit_pack_refuses_without_ambient_discovery) ... ERROR: Explicit pack does not exist: <temp>/tmpk0jihpjm/missing.zip
+ok
+test_missing_module_preserves_previous_source_log (test_upgrade_wavefoundry.DryRunTests.test_missing_module_preserves_previous_source_log) ... ok
+test_no_convention_hooks_message (test_upgrade_wavefoundry.DryRunTests.test_no_convention_hooks_message) ... ok
+test_no_disk_writes (test_upgrade_wavefoundry.DryRunTests.test_no_disk_writes)
+Dry-run must not create the upgrade lock or any other files. ... ok
+test_no_extension_module_when_no_zip (test_upgrade_wavefoundry.DryRunTests.test_no_extension_module_when_no_zip) ... ok
+test_only_extension_log_is_reported_when_hook_writes_no_log (test_upgrade_wavefoundry.DryRunTests.test_only_extension_log_is_reported_when_hook_writes_no_log) ... ok
+test_output_contains_dry_run_header (test_upgrade_wavefoundry.DryRunTests.test_output_contains_dry_run_header) ... ok
+test_output_contains_hook_inventory_section (test_upgrade_wavefoundry.DryRunTests.test_output_contains_hook_inventory_section) ... ok
+test_preview_logs_is_absent_from_the_shared_summary_builder (test_upgrade_wavefoundry.DryRunTests.test_preview_logs_is_absent_from_the_shared_summary_builder)
+AC-9: the field is set by the dry run only, so the primary-phase and ... ok
+test_refused_extension_log_names_archive_entry_and_stays_advisory (test_upgrade_wavefoundry.DryRunTests.test_refused_extension_log_names_archive_entry_and_stays_advisory) ... ok
+test_refused_preview_lists_diff_log_without_printing_or_inviting_apply (test_upgrade_wavefoundry.DryRunTests.test_refused_preview_lists_diff_log_without_printing_or_inviting_apply) ... ok
+test_returns_zero (test_upgrade_wavefoundry.DryRunTests.test_returns_zero) ... ok
+test_editing_pass_does_not_instruct_the_retired_journal_step (test_upgrade_wavefoundry.EditingPassStepsAreCurrentTests.test_editing_pass_does_not_instruct_the_retired_journal_step) ... ok
+test_editing_pass_steps_are_contiguously_numbered (test_upgrade_wavefoundry.EditingPassStepsAreCurrentTests.test_editing_pass_steps_are_contiguously_numbered)
+Removing a step must renumber, not leave a gap. ... ok
+test_allowlist_pins_bundle_layout_constants (test_upgrade_wavefoundry.ExtractFeatureMembersTests.test_allowlist_pins_bundle_layout_constants) ... ok
+test_backslash_separator_member_is_skipped (test_upgrade_wavefoundry.ExtractFeatureMembersTests.test_backslash_separator_member_is_skipped) ... ok
+test_feature_members_extract_without_fresh_install_bootstrap (test_upgrade_wavefoundry.ExtractFeatureMembersTests.test_feature_members_extract_without_fresh_install_bootstrap) ... ok
+test_feature_only_archive_still_withholds_bootstrap (test_upgrade_wavefoundry.ExtractFeatureMembersTests.test_feature_only_archive_still_withholds_bootstrap) ... ok
+test_no_unfiltered_extractall_remains (test_upgrade_wavefoundry.ExtractFeatureMembersTests.test_no_unfiltered_extractall_remains) ... ok
+test_preexisting_collision_files_are_byte_identical (test_upgrade_wavefoundry.ExtractFeatureMembersTests.test_preexisting_collision_files_are_byte_identical) ... ok
+test_runner_members_and_payload_are_skipped (test_upgrade_wavefoundry.ExtractFeatureMembersTests.test_runner_members_and_payload_are_skipped) ... ok
+test_traversal_inside_allowed_prefix_stays_contained (test_upgrade_wavefoundry.ExtractFeatureMembersTests.test_traversal_inside_allowed_prefix_stays_contained) ... ok
+test_withheld_members_are_named_and_match_the_count (test_upgrade_wavefoundry.ExtractFeatureMembersTests.test_withheld_members_are_named_and_match_the_count) ... ok
+test_failure_markers_persist_via_update (test_upgrade_wavefoundry.FailureMarkerLockTests.test_failure_markers_persist_via_update) ... ok
+test_failure_markers_seeded_none (test_upgrade_wavefoundry.FailureMarkerLockTests.test_failure_markers_seeded_none)
+write_upgrade_lock seeds failed_phase/failed_at None for schema clarity. ... ok
+test_old_lock_without_markers_still_parses (test_upgrade_wavefoundry.FailureMarkerLockTests.test_old_lock_without_markers_still_parses)
+read_upgrade_lock tolerates older locks lacking the new fields. ... ok
+test_non_gate_failure_never_suggests_cleanup_can_acknowledge_it (test_upgrade_wavefoundry.FinalizeFailedUpgradeTests.test_non_gate_failure_never_suggests_cleanup_can_acknowledge_it) ... ok
+test_post_mutation_retains_lock_with_marker (test_upgrade_wavefoundry.FinalizeFailedUpgradeTests.test_post_mutation_retains_lock_with_marker) ... ok
+test_pre_mutation_removes_lock (test_upgrade_wavefoundry.FinalizeFailedUpgradeTests.test_pre_mutation_removes_lock) ... ok
+test_downloads_competes_on_semver (test_upgrade_wavefoundry.FindLatestReleaseZipTests.test_downloads_competes_on_semver) ... ok
+test_finds_zip_in_downloads (test_upgrade_wavefoundry.FindLatestReleaseZipTests.test_finds_zip_in_downloads) ... ok
+test_finds_zip_in_user_home (test_upgrade_wavefoundry.FindLatestReleaseZipTests.test_finds_zip_in_user_home) ... ok
+test_multi_digit_minor_beats_single_digit (test_upgrade_wavefoundry.FindLatestReleaseZipTests.test_multi_digit_minor_beats_single_digit)
+1.10.0 must rank above 1.9.0 — not lexicographic comparison. ... ok
+test_prefers_root_over_home_only_when_root_has_higher_version (test_upgrade_wavefoundry.FindLatestReleaseZipTests.test_prefers_root_over_home_only_when_root_has_higher_version) ... ok
+test_returns_highest_semver_zip (test_upgrade_wavefoundry.FindLatestReleaseZipTests.test_returns_highest_semver_zip) ... ok
+test_returns_none_when_dir_absent (test_upgrade_wavefoundry.FindLatestReleaseZipTests.test_returns_none_when_dir_absent) ... ok
+test_returns_none_when_dir_empty (test_upgrade_wavefoundry.FindLatestReleaseZipTests.test_returns_none_when_dir_empty) ... ok
+test_same_version_returns_lexicographically_greatest_build (test_upgrade_wavefoundry.FindLatestReleaseZipTests.test_same_version_returns_lexicographically_greatest_build)
+When MAJOR.MINOR.PATCH is tied, pick greatest build prefix (most recent build). ... ok
+test_skips_non_matching_filenames (test_upgrade_wavefoundry.FindLatestReleaseZipTests.test_skips_non_matching_filenames) ... ok
+test_at_or_after_1_5_0_returns_false (test_upgrade_wavefoundry.FromVersionPredatesTests.test_at_or_after_1_5_0_returns_false) ... ok
+test_pre_1_5_0_semver_strings_return_true (test_upgrade_wavefoundry.FromVersionPredatesTests.test_pre_1_5_0_semver_strings_return_true) ... ok
+test_unknown_or_unparseable_returns_true_safe_default (test_upgrade_wavefoundry.FromVersionPredatesTests.test_unknown_or_unparseable_returns_true_safe_default)
+Idempotent migrations are safe to re-run; treating unknown as 'old' ... ok
+test_every_framework_import_of_the_bootstrap_modules_is_reloaded_or_excluded (test_upgrade_wavefoundry.HistoricalMemoryUpgradeExtensionBootstrapTests.test_every_framework_import_of_the_bootstrap_modules_is_reloaded_or_excluded) ... ok
+test_every_other_installed_reload_refreshes_a_v1_27_record_paths_first (test_upgrade_wavefoundry.HistoricalMemoryUpgradeExtensionBootstrapTests.test_every_other_installed_reload_refreshes_a_v1_27_record_paths_first) ... ok
+test_graph_builder_doc_reconciliation_preserves_mid_upgrade_customization (test_upgrade_wavefoundry.HistoricalMemoryUpgradeExtensionBootstrapTests.test_graph_builder_doc_reconciliation_preserves_mid_upgrade_customization) ... ok
+test_graph_builder_doc_reconciliation_requires_pre_extract_code_doc_match (test_upgrade_wavefoundry.HistoricalMemoryUpgradeExtensionBootstrapTests.test_graph_builder_doc_reconciliation_requires_pre_extract_code_doc_match) ... ok
+test_graph_builder_doc_reconciliation_survives_interruption_after_extract (test_upgrade_wavefoundry.HistoricalMemoryUpgradeExtensionBootstrapTests.test_graph_builder_doc_reconciliation_survives_interruption_after_extract) ... ok
+test_installed_memory_backfill_reloads_stale_cached_module_in_place (test_upgrade_wavefoundry.HistoricalMemoryUpgradeExtensionBootstrapTests.test_installed_memory_backfill_reloads_stale_cached_module_in_place)
+Sibling of the review_evidence seam: a pre-upgrade runner's cached ... ok
+test_installing_upgrade_reconciles_exact_graph_builder_doc_claim (test_upgrade_wavefoundry.HistoricalMemoryUpgradeExtensionBootstrapTests.test_installing_upgrade_reconciles_exact_graph_builder_doc_claim) ... ok
+test_memory_bootstrap_on_current_modules_is_unchanged (test_upgrade_wavefoundry.HistoricalMemoryUpgradeExtensionBootstrapTests.test_memory_bootstrap_on_current_modules_is_unchanged) ... ok
+test_memory_bootstrap_runs_with_a_v1_27_record_paths_loaded (test_upgrade_wavefoundry.HistoricalMemoryUpgradeExtensionBootstrapTests.test_memory_bootstrap_runs_with_a_v1_27_record_paths_loaded) ... ok
+test_names_imported_from_the_old_record_paths_still_catch_what_it_raises (test_upgrade_wavefoundry.HistoricalMemoryUpgradeExtensionBootstrapTests.test_names_imported_from_the_old_record_paths_still_catch_what_it_raises) ... ok
+test_pre_docs_gate_loads_new_module_and_runs_sidecar_cleanup_for_old_runner (test_upgrade_wavefoundry.HistoricalMemoryUpgradeExtensionBootstrapTests.test_pre_docs_gate_loads_new_module_and_runs_sidecar_cleanup_for_old_runner)
+An old loaded runner reaches the new cutover only through this hook. ... ok
+test_pre_docs_gate_migrates_memory_naming_for_pre_1_15_runner (test_upgrade_wavefoundry.HistoricalMemoryUpgradeExtensionBootstrapTests.test_pre_docs_gate_migrates_memory_naming_for_pre_1_15_runner)
+1t9w7: upgrades from pre-1.15 rename legacy memory records to the ... ok
+test_pre_docs_gate_reloads_stale_review_evidence_module_in_place (test_upgrade_wavefoundry.HistoricalMemoryUpgradeExtensionBootstrapTests.test_pre_docs_gate_reloads_stale_review_evidence_module_in_place)
+1t49m field report: the installed upgrader resolves its function-local ... ok
+test_pre_docs_gate_threads_known_from_version_into_restart_scope (test_upgrade_wavefoundry.HistoricalMemoryUpgradeExtensionBootstrapTests.test_pre_docs_gate_threads_known_from_version_into_restart_scope)
+Wave 1to78 AC-3 (call path 2): the extension seam passes ... ok
+test_review_module_reloads_refresh_a_v1_27_record_paths_first (test_upgrade_wavefoundry.HistoricalMemoryUpgradeExtensionBootstrapTests.test_review_module_reloads_refresh_a_v1_27_record_paths_first) ... ok
+test_scalar_doc_reconciliation_advances_models_chunker_and_state_store (test_upgrade_wavefoundry.HistoricalMemoryUpgradeExtensionBootstrapTests.test_scalar_doc_reconciliation_advances_models_chunker_and_state_store) ... ok
+test_scalar_snapshot_survives_retry_lock_without_graph_claim (test_upgrade_wavefoundry.HistoricalMemoryUpgradeExtensionBootstrapTests.test_scalar_snapshot_survives_retry_lock_without_graph_claim) ... ok
+test_the_old_runners_own_post_hook_import_runs_consistent_code (test_upgrade_wavefoundry.HistoricalMemoryUpgradeExtensionBootstrapTests.test_the_old_runners_own_post_hook_import_runs_consistent_code) ... ok
+test_incoming_extension_preserves_crlf_config (test_upgrade_wavefoundry.IncomingLineEndingsZipLoadTests.test_incoming_extension_preserves_crlf_config) ... ok
+test_module_has_no_top_level_line_endings_import (test_upgrade_wavefoundry.IncomingLineEndingsZipLoadTests.test_module_has_no_top_level_line_endings_import) ... ok
+test_top_level_import_copy_fails_to_load (test_upgrade_wavefoundry.IncomingLineEndingsZipLoadTests.test_top_level_import_copy_fails_to_load) ... ok
+test_built_in_scaffold_with_non_ascii_date_is_kept (test_upgrade_wavefoundry.JournalAsciiDateTests.test_built_in_scaffold_with_non_ascii_date_is_kept) ... ok
+test_declared_template_with_non_ascii_date_is_kept (test_upgrade_wavefoundry.JournalAsciiDateTests.test_declared_template_with_non_ascii_date_is_kept) ... ok
+test_built_in_scaffold_is_still_deleted_beside_declared_templates (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_built_in_scaffold_is_still_deleted_beside_declared_templates) ... ok
+test_checkout_spec_is_not_a_hook_contract_input (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_checkout_spec_is_not_a_hook_contract_input) ... ok
+test_date_placeholder_needs_a_date (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_date_placeholder_needs_a_date) ... ok
+test_declaration_module_is_executed_once_per_gate (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_declaration_module_is_executed_once_per_gate)
+DEL-4d: the loaded templates are always passed on, so the ... ok
+test_declared_template_journal_is_deleted_and_previewed (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_declared_template_journal_is_deleted_and_previewed)
+AC-1. ... ok
+test_fixture_resets_ambient_trigger_and_unrelated_declarations (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_fixture_resets_ambient_trigger_and_unrelated_declarations) ... ok
+test_free_text_placeholders_use_bounded_quantifiers (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_free_text_placeholders_use_bounded_quantifiers)
+DEL-2: two free-text placeholders on one line never backtrack ... ok
+test_helper_junction_is_refused_on_windows (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_helper_junction_is_refused_on_windows) ... skipped 'directory junctions exist only on native Windows'
+test_helper_link_to_a_sibling_script_is_refused (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_helper_link_to_a_sibling_script_is_refused)
+DEL-3: a same-directory link whose target carries another name is ... ok
+test_helper_symlink_outside_the_scripts_directory_is_refused (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_helper_symlink_outside_the_scripts_directory_is_refused) ... ok
+test_hook_contract_documents_the_1_15_0_limit (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_hook_contract_documents_the_1_15_0_limit)
+The shipped seed owns this contract, not a consuming checkout spec. ... ok
+test_hook_contract_refuses_a_missing_limit (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_hook_contract_refuses_a_missing_limit) ... ok
+test_hook_failure_warning_names_the_prompt_and_promises_no_retry (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_hook_failure_warning_names_the_prompt_and_promises_no_retry)
+Wave 200ey (200ev) AC-4: the journal steps run only on an upgrade ... ok
+test_hook_is_not_called_after_1_15_or_by_the_preview (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_hook_is_not_called_after_1_15_or_by_the_preview)
+AC-4. ... ok
+test_hook_runs_once_before_the_migration (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_hook_runs_once_before_the_migration)
+AC-3: the hook's own pristine scaffold is deleted by the same call. ... ok
+test_hook_that_raises_skips_the_migration_with_a_path_free_warning (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_hook_that_raises_skips_the_migration_with_a_path_free_warning)
+AC-5. ... ok
+test_invalid_declaration_leaves_the_memory_naming_migration_unapplied (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_invalid_declaration_leaves_the_memory_naming_migration_unapplied)
+DEL-4d: the declaration is validated first inside the 1.15.0 gate. ... ok
+test_invalid_declaration_refuses_before_any_journal_is_touched (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_invalid_declaration_refuses_before_any_journal_is_touched)
+AC-2: refused on a pre-1.15.0 upgrade, ignored on a later one. ... ok
+test_journal_longer_than_the_template_bound_is_never_pattern_matched (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_journal_longer_than_the_template_bound_is_never_pattern_matched)
+DEL-2: a journal longer than the template can match is left ... ok
+test_old_or_missing_declaration_module_migrates_as_before (test_upgrade_wavefoundry.JournalDeclarationMigrationTests.test_old_or_missing_declaration_module_migrates_as_before)
+AC-7: no extracted module, then one that predates the constants. ... ok
+test_each_rule_is_reported (test_upgrade_wavefoundry.JournalDeclarationProblemTests.test_each_rule_is_reported) ... ok
+test_shipped_declaration_is_valid_and_not_declared (test_upgrade_wavefoundry.JournalDeclarationProblemTests.test_shipped_declaration_is_valid_and_not_declared) ... ok
+test_valid_declarations_pass (test_upgrade_wavefoundry.JournalDeclarationProblemTests.test_valid_declarations_pass) ... ok
+test_create_and_remove_go_through_directory_handles (test_upgrade_wavefoundry.JournalMigrationDescriptorTests.test_create_and_remove_go_through_directory_handles) ... ok
+test_destination_folder_swapped_before_the_write_is_refused (test_upgrade_wavefoundry.JournalMigrationDescriptorTests.test_destination_folder_swapped_before_the_write_is_refused) ... ok
+test_journals_folder_swapped_before_enumeration_is_refused (test_upgrade_wavefoundry.JournalMigrationDescriptorTests.test_journals_folder_swapped_before_enumeration_is_refused) ... ok
+test_journals_folder_swapped_before_the_write_is_refused (test_upgrade_wavefoundry.JournalMigrationDescriptorTests.test_journals_folder_swapped_before_the_write_is_refused) ... ok
+test_walk_refuses_a_link_component (test_upgrade_wavefoundry.JournalMigrationDescriptorTests.test_walk_refuses_a_link_component) ... ok
+test_crlf_scaffold_deleted_and_crlf_content_moves_byte_exact (test_upgrade_wavefoundry.JournalMigrationLinkSafetyTests.test_crlf_scaffold_deleted_and_crlf_content_moves_byte_exact) ... ok
+test_dangling_link_destination_is_not_followed (test_upgrade_wavefoundry.JournalMigrationLinkSafetyTests.test_dangling_link_destination_is_not_followed) ... ok
+test_existing_destination_is_left_alone (test_upgrade_wavefoundry.JournalMigrationLinkSafetyTests.test_existing_destination_is_left_alone) ... ok
+test_fifo_named_md_is_left_unopened (test_upgrade_wavefoundry.JournalMigrationLinkSafetyTests.test_fifo_named_md_is_left_unopened) ... ok
+test_hard_linked_journal_is_refused (test_upgrade_wavefoundry.JournalMigrationLinkSafetyTests.test_hard_linked_journal_is_refused) ... ok
+test_linked_journal_is_refused (test_upgrade_wavefoundry.JournalMigrationLinkSafetyTests.test_linked_journal_is_refused) ... ok
+test_linked_journals_ancestor_is_refused (test_upgrade_wavefoundry.JournalMigrationLinkSafetyTests.test_linked_journals_ancestor_is_refused)
+A link above the journals folder (``docs/agents``) is a link ... ok
+test_linked_journals_folder_is_refused (test_upgrade_wavefoundry.JournalMigrationLinkSafetyTests.test_linked_journals_folder_is_refused) ... ok
+test_linked_wave_folder_is_refused (test_upgrade_wavefoundry.JournalMigrationLinkSafetyTests.test_linked_wave_folder_is_refused) ... ok
+test_source_hard_linked_after_the_read_is_not_removed (test_upgrade_wavefoundry.JournalMigrationLinkSafetyTests.test_source_hard_linked_after_the_read_is_not_removed) ... ok
+test_source_swapped_for_a_link_is_not_removed (test_upgrade_wavefoundry.JournalMigrationLinkSafetyTests.test_source_swapped_for_a_link_is_not_removed) ... ok
+test_source_swapped_for_another_regular_file_is_not_removed (test_upgrade_wavefoundry.JournalMigrationLinkSafetyTests.test_source_swapped_for_another_regular_file_is_not_removed) ... ok
+test_capability_check_reports_the_path_branch (test_upgrade_wavefoundry.JournalMigrationPathBranchLinkSafetyTests.test_capability_check_reports_the_path_branch) ... ok
+test_crlf_scaffold_deleted_and_crlf_content_moves_byte_exact (test_upgrade_wavefoundry.JournalMigrationPathBranchLinkSafetyTests.test_crlf_scaffold_deleted_and_crlf_content_moves_byte_exact) ... ok
+test_dangling_link_destination_is_not_followed (test_upgrade_wavefoundry.JournalMigrationPathBranchLinkSafetyTests.test_dangling_link_destination_is_not_followed) ... ok
+test_existing_destination_is_left_alone (test_upgrade_wavefoundry.JournalMigrationPathBranchLinkSafetyTests.test_existing_destination_is_left_alone) ... ok
+test_fifo_named_md_is_left_unopened (test_upgrade_wavefoundry.JournalMigrationPathBranchLinkSafetyTests.test_fifo_named_md_is_left_unopened) ... ok
+test_hard_linked_journal_is_refused (test_upgrade_wavefoundry.JournalMigrationPathBranchLinkSafetyTests.test_hard_linked_journal_is_refused) ... ok
+test_linked_journal_is_refused (test_upgrade_wavefoundry.JournalMigrationPathBranchLinkSafetyTests.test_linked_journal_is_refused) ... ok
+test_linked_journals_ancestor_is_refused (test_upgrade_wavefoundry.JournalMigrationPathBranchLinkSafetyTests.test_linked_journals_ancestor_is_refused)
+A link above the journals folder (``docs/agents``) is a link ... ok
+test_linked_journals_folder_is_refused (test_upgrade_wavefoundry.JournalMigrationPathBranchLinkSafetyTests.test_linked_journals_folder_is_refused) ... ok
+test_linked_wave_folder_is_refused (test_upgrade_wavefoundry.JournalMigrationPathBranchLinkSafetyTests.test_linked_wave_folder_is_refused) ... ok
+test_source_hard_linked_after_the_read_is_not_removed (test_upgrade_wavefoundry.JournalMigrationPathBranchLinkSafetyTests.test_source_hard_linked_after_the_read_is_not_removed) ... ok
+test_source_swapped_for_a_link_is_not_removed (test_upgrade_wavefoundry.JournalMigrationPathBranchLinkSafetyTests.test_source_swapped_for_a_link_is_not_removed) ... ok
+test_source_swapped_for_another_regular_file_is_not_removed (test_upgrade_wavefoundry.JournalMigrationPathBranchLinkSafetyTests.test_source_swapped_for_another_regular_file_is_not_removed) ... ok
+test_capability_check_reports_the_path_branch (test_upgrade_wavefoundry.JournalMigrationPathBranchTests.test_capability_check_reports_the_path_branch) ... ok
+test_content_bearing_wave_journal_relocates_into_wave_dir (test_upgrade_wavefoundry.JournalMigrationPathBranchTests.test_content_bearing_wave_journal_relocates_into_wave_dir)
+Destination carries the lifecycle type suffix (wave 1t76w): ... ok
+test_missing_journals_dir_is_noop (test_upgrade_wavefoundry.JournalMigrationPathBranchTests.test_missing_journals_dir_is_noop) ... ok
+test_old_journal_without_template_fields_still_relocates (test_upgrade_wavefoundry.JournalMigrationPathBranchTests.test_old_journal_without_template_fields_still_relocates)
+Live-caught: relocation must need only the wave identity — older ... ok
+test_one_content_line_prevents_deletion (test_upgrade_wavefoundry.JournalMigrationPathBranchTests.test_one_content_line_prevents_deletion) ... ok
+test_pre_docs_gate_version_gates_journal_migration (test_upgrade_wavefoundry.JournalMigrationPathBranchTests.test_pre_docs_gate_version_gates_journal_migration) ... ok
+test_pristine_oracle_bytes_are_frozen (test_upgrade_wavefoundry.JournalMigrationPathBranchTests.test_pristine_oracle_bytes_are_frozen) ... ok
+test_pristine_scaffold_is_deleted (test_upgrade_wavefoundry.JournalMigrationPathBranchTests.test_pristine_scaffold_is_deleted) ... ok
+test_readme_untouched_and_rerun_is_silent_noop (test_upgrade_wavefoundry.JournalMigrationPathBranchTests.test_readme_untouched_and_rerun_is_silent_noop) ... ok
+test_role_journal_referencing_wave_id_stays_in_place (test_upgrade_wavefoundry.JournalMigrationPathBranchTests.test_role_journal_referencing_wave_id_stays_in_place)
+Live-caught: a ROLE journal that merely references a wave id must ... ok
+test_exception_text_falls_back_to_the_class_name (test_upgrade_wavefoundry.JournalMigrationPathFreeMessageTests.test_exception_text_falls_back_to_the_class_name) ... ok
+test_path_containment_import_failure_is_path_free (test_upgrade_wavefoundry.JournalMigrationPathFreeMessageTests.test_path_containment_import_failure_is_path_free) ... ok
+test_record_discovery_failure_is_path_free (test_upgrade_wavefoundry.JournalMigrationPathFreeMessageTests.test_record_discovery_failure_is_path_free) ... ok
+test_rel_fallback_is_parent_and_name (test_upgrade_wavefoundry.JournalMigrationPathFreeMessageTests.test_rel_fallback_is_parent_and_name) ... ok
+test_archived_wave_is_recognised_under_a_divergent_archive_vocabulary (test_upgrade_wavefoundry.JournalMigrationProfileTests.test_archived_wave_is_recognised_under_a_divergent_archive_vocabulary)
+Wave 1zyb2 (1zxnt) AC-7: the archive vocabulary names the record file ... ok
+test_id_found_in_two_folders_is_left (test_upgrade_wavefoundry.JournalMigrationProfileTests.test_id_found_in_two_folders_is_left) ... ok
+test_linked_nested_wave_folder_is_refused (test_upgrade_wavefoundry.JournalMigrationProfileTests.test_linked_nested_wave_folder_is_refused) ... ok
+test_preview_changes_nothing_and_apply_performs (test_upgrade_wavefoundry.JournalMigrationProfileTests.test_preview_changes_nothing_and_apply_performs) ... ok
+test_profile_key_nested_waves_relocate_and_archived_wave_is_left (test_upgrade_wavefoundry.JournalMigrationProfileTests.test_profile_key_nested_waves_relocate_and_archived_wave_is_left)
+Only folders under the waves root are targets: the archive root is ... ok
+test_content_bearing_wave_journal_relocates_into_wave_dir (test_upgrade_wavefoundry.JournalMigrationTests.test_content_bearing_wave_journal_relocates_into_wave_dir)
+Destination carries the lifecycle type suffix (wave 1t76w): ... ok
+test_missing_journals_dir_is_noop (test_upgrade_wavefoundry.JournalMigrationTests.test_missing_journals_dir_is_noop) ... ok
+test_old_journal_without_template_fields_still_relocates (test_upgrade_wavefoundry.JournalMigrationTests.test_old_journal_without_template_fields_still_relocates)
+Live-caught: relocation must need only the wave identity — older ... ok
+test_one_content_line_prevents_deletion (test_upgrade_wavefoundry.JournalMigrationTests.test_one_content_line_prevents_deletion) ... ok
+test_pre_docs_gate_version_gates_journal_migration (test_upgrade_wavefoundry.JournalMigrationTests.test_pre_docs_gate_version_gates_journal_migration) ... ok
+test_pristine_oracle_bytes_are_frozen (test_upgrade_wavefoundry.JournalMigrationTests.test_pristine_oracle_bytes_are_frozen) ... ok
+test_pristine_scaffold_is_deleted (test_upgrade_wavefoundry.JournalMigrationTests.test_pristine_scaffold_is_deleted) ... ok
+test_readme_untouched_and_rerun_is_silent_noop (test_upgrade_wavefoundry.JournalMigrationTests.test_readme_untouched_and_rerun_is_silent_noop) ... ok
+test_role_journal_referencing_wave_id_stays_in_place (test_upgrade_wavefoundry.JournalMigrationTests.test_role_journal_referencing_wave_id_stays_in_place)
+Live-caught: a ROLE journal that merely references a wave id must ... ok
+test_apply_keeps_executing_the_declaration (test_upgrade_wavefoundry.JournalStaticPreviewTests.test_apply_keeps_executing_the_declaration) ... ok
+test_missing_or_old_declaration_module_previews_without_a_warning (test_upgrade_wavefoundry.JournalStaticPreviewTests.test_missing_or_old_declaration_module_previews_without_a_warning) ... ok
+test_preview_applies_a_literal_template_without_executing_the_module (test_upgrade_wavefoundry.JournalStaticPreviewTests.test_preview_applies_a_literal_template_without_executing_the_module) ... ok
+test_refused_declaration_read_is_the_same_warning (test_upgrade_wavefoundry.JournalStaticPreviewTests.test_refused_declaration_read_is_the_same_warning) ... ok
+test_unreadable_declaration_warns_once_and_leaves_template_journals (test_upgrade_wavefoundry.JournalStaticPreviewTests.test_unreadable_declaration_warns_once_and_leaves_template_journals) ... ok
+test_annotated_literal_and_missing_module_static_controls (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_annotated_literal_and_missing_module_static_controls) ... ok
+test_fifo_named_markdown_is_not_opened_or_selected (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_fifo_named_markdown_is_not_opened_or_selected) ... ok
+test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_function_class_exception_and_pattern_trigger_bindings_are_invalid_before_execution) ... ok
+test_legacy_absent_and_explicit_defaults_keep_no_source_cutover (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_legacy_absent_and_explicit_defaults_keep_no_source_cutover) ... ok
+test_linked_source_ancestor_is_not_followed (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_linked_source_ancestor_is_not_followed) ... ok
+test_loaded_invalid_trigger_is_refused_by_framework_policy_guard (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_invalid_trigger_is_refused_by_framework_policy_guard) ... ok
+test_loaded_trigger_must_match_static_selection_before_dependents (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_loaded_trigger_must_match_static_selection_before_dependents) ... ok
+test_nonqualifying_direct_sources_never_call_opted_in_hook (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_nonqualifying_direct_sources_never_call_opted_in_hook) ... ok
+test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_failure_preserves_partial_effects_and_prevents_dependent_migration) ... ok
+test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_opt_in_versions_and_multiple_sources_call_once_without_permission_expansion) ... ok
+test_presence_does_not_read_content_or_use_public_preview_left_entries (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_presence_does_not_read_content_or_use_public_preview_left_entries) ... ok
+test_refused_static_source_is_unknown_without_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_refused_static_source_is_unknown_without_execution) ... ok
+test_registry_base_profiles_positional_validator_and_activation_are_compatible (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_registry_base_profiles_positional_validator_and_activation_are_compatible) ... ok
+test_static_preview_decision_table_and_apply_invalid_refusal_before_execution (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_static_preview_decision_table_and_apply_invalid_refusal_before_execution) ... ok
+test_zip_preview_uses_incoming_policy_and_writes_no_report (test_upgrade_wavefoundry.JournalTriggerPolicyTests.test_zip_preview_uses_incoming_policy_and_writes_no_report) ... ok
+test_installing_upgrade_and_unwired_migration_control (test_upgrade_wavefoundry.LifecycleDocumentInstallingUpgradeTests.test_installing_upgrade_and_unwired_migration_control) ... ok
+test_loads_module_from_alt_prefix (test_upgrade_wavefoundry.LoadExtensionModuleTests.test_loads_module_from_alt_prefix) ... ok
+test_loads_module_from_primary_prefix (test_upgrade_wavefoundry.LoadExtensionModuleTests.test_loads_module_from_primary_prefix) ... ok
+test_returns_none_on_bad_zip (test_upgrade_wavefoundry.LoadExtensionModuleTests.test_returns_none_on_bad_zip) ... ok
+test_returns_none_on_syntax_error (test_upgrade_wavefoundry.LoadExtensionModuleTests.test_returns_none_on_syntax_error) ... ok
+test_returns_none_when_no_zip (test_upgrade_wavefoundry.LoadExtensionModuleTests.test_returns_none_when_no_zip) ... ok
+test_returns_none_when_zip_has_no_extension_module (test_upgrade_wavefoundry.LoadExtensionModuleTests.test_returns_none_when_zip_has_no_extension_module) ... ok
+test_below_threshold_scanned_max_stays_silent (test_upgrade_wavefoundry.MaterializeLifecyclePolicyTests.test_below_threshold_scanned_max_stays_silent)
+Just under the 5-year threshold from the other side: a large-but-legal ... ok
+test_cleanup_backstop_heals_unprovisioned_repo (test_upgrade_wavefoundry.MaterializeLifecyclePolicyTests.test_cleanup_backstop_heals_unprovisioned_repo)
+End-of-upgrade reconciliation check (operator directive): an ... ok
+test_cleanup_backstop_never_raises_on_corrupt_config (test_upgrade_wavefoundry.MaterializeLifecyclePolicyTests.test_cleanup_backstop_never_raises_on_corrupt_config)
+Fail-safe: a backstop error degrades to a loud recovery pointer — ... ok
+test_cleanup_backstop_noop_when_already_v2 (test_upgrade_wavefoundry.MaterializeLifecyclePolicyTests.test_cleanup_backstop_noop_when_already_v2) ... ok
+test_cli_flag_propagates_corrupt_config_as_error (test_upgrade_wavefoundry.MaterializeLifecyclePolicyTests.test_cli_flag_propagates_corrupt_config_as_error) ... ok
+test_cli_flag_runs_only_provisioning_and_exits_zero (test_upgrade_wavefoundry.MaterializeLifecyclePolicyTests.test_cli_flag_runs_only_provisioning_and_exits_zero) ... ok
+test_crash_mid_write_leaves_original_valid_and_reattempts (test_upgrade_wavefoundry.MaterializeLifecyclePolicyTests.test_crash_mid_write_leaves_original_valid_and_reattempts)
+AC-7 crash-window clause at the mechanism level: a failure inside the ... ok
+test_fresh_repo_gets_scattered_band_and_project_seed (test_upgrade_wavefoundry.MaterializeLifecyclePolicyTests.test_fresh_repo_gets_scattered_band_and_project_seed) ... ok
+test_idempotence_keyed_on_scheme_version_not_epoch (test_upgrade_wavefoundry.MaterializeLifecyclePolicyTests.test_idempotence_keyed_on_scheme_version_not_epoch)
+A partial prior write (epoch present, scheme_version absent) is ... ok
+test_low_horizon_warning_names_the_scanned_max (test_upgrade_wavefoundry.MaterializeLifecyclePolicyTests.test_low_horizon_warning_names_the_scanned_max)
+A scanned max that leaves under ~5 years of 5-char space triggers the ... ok
+test_missing_config_file_is_created (test_upgrade_wavefoundry.MaterializeLifecyclePolicyTests.test_missing_config_file_is_created) ... ok
+test_no_temp_file_left_behind (test_upgrade_wavefoundry.MaterializeLifecyclePolicyTests.test_no_temp_file_left_behind) ... ok
+test_normal_migration_emits_no_horizon_warning (test_upgrade_wavefoundry.MaterializeLifecyclePolicyTests.test_normal_migration_emits_no_horizon_warning) ... ok
+test_second_run_is_a_noop (test_upgrade_wavefoundry.MaterializeLifecyclePolicyTests.test_second_run_is_a_noop) ... ok
+test_stale_v1_descriptor_keys_removed (test_upgrade_wavefoundry.MaterializeLifecyclePolicyTests.test_stale_v1_descriptor_keys_removed) ... ok
+test_unparseable_config_fails_loudly_with_no_write (test_upgrade_wavefoundry.MaterializeLifecyclePolicyTests.test_unparseable_config_fails_loudly_with_no_write) ... ok
+test_unrelated_top_level_keys_preserved_value_and_order_equal (test_upgrade_wavefoundry.MaterializeLifecyclePolicyTests.test_unrelated_top_level_keys_preserved_value_and_order_equal) ... ok
+test_update_index_phase_wires_the_lifecycle_backstop (test_upgrade_wavefoundry.MaterializeLifecyclePolicyTests.test_update_index_phase_wires_the_lifecycle_backstop) ... ok
+test_v1_repo_migrates_to_v2_with_scanned_offset (test_upgrade_wavefoundry.MaterializeLifecyclePolicyTests.test_v1_repo_migrates_to_v2_with_scanned_offset) ... ok
+test_word_like_six_char_filename_does_not_poison_migration (test_upgrade_wavefoundry.MaterializeLifecyclePolicyTests.test_word_like_six_char_filename_does_not_poison_migration)
+Delivery red-team F2: `review-notes.md` decodes above 36^5 as a ... ok
+test_written_config_is_valid_json_and_loader_accepts_it (test_upgrade_wavefoundry.MaterializeLifecyclePolicyTests.test_written_config_is_valid_json_and_loader_accepts_it)
+End-to-end: the written policy round-trips through the strict loader ... ok
+test_existing_file_not_overwritten (test_upgrade_wavefoundry.MaterializeSecretsPolicyTests.test_existing_file_not_overwritten) ... ok
+test_materialize_emits_confirmation_valid_days (test_upgrade_wavefoundry.MaterializeSecretsPolicyTests.test_materialize_emits_confirmation_valid_days) ... ok
+test_no_git_repo_defaults_to_one (test_upgrade_wavefoundry.MaterializeSecretsPolicyTests.test_no_git_repo_defaults_to_one) ... ok
+test_single_committer_threshold_one (test_upgrade_wavefoundry.MaterializeSecretsPolicyTests.test_single_committer_threshold_one) ... ok
+test_small_team_threshold_two (test_upgrade_wavefoundry.MaterializeSecretsPolicyTests.test_small_team_threshold_two) ... ok
+test_threshold_mapping (test_upgrade_wavefoundry.MaterializeSecretsPolicyTests.test_threshold_mapping) ... ok
+test_detect_chunker_transition (test_upgrade_wavefoundry.MultiVersionTransitionDetectionTests.test_detect_chunker_transition) ... ok
+test_detect_graph_builder_transition (test_upgrade_wavefoundry.MultiVersionTransitionDetectionTests.test_detect_graph_builder_transition) ... ok
+test_detect_walker_transition (test_upgrade_wavefoundry.MultiVersionTransitionDetectionTests.test_detect_walker_transition) ... ok
+test_identity_probe_discards_planted_prefix_before_startup_and_changes_no_cache (test_upgrade_wavefoundry.MultiVersionTransitionDetectionTests.test_identity_probe_discards_planted_prefix_before_startup_and_changes_no_cache) ... ok
+test_no_transitions_on_fresh_install (test_upgrade_wavefoundry.MultiVersionTransitionDetectionTests.test_no_transitions_on_fresh_install)
+No pre-existing meta or graph state → no transitions detected. ... ok
+test_no_transitions_when_everything_matches (test_upgrade_wavefoundry.MultiVersionTransitionDetectionTests.test_no_transitions_when_everything_matches) ... ok
+test_probe_returns_empty_without_a_tool_venv (test_upgrade_wavefoundry.MultiVersionTransitionDetectionTests.test_probe_returns_empty_without_a_tool_venv) ... ok
+test_read_graph_builder_version (test_upgrade_wavefoundry.MultiVersionTransitionDetectionTests.test_read_graph_builder_version) ... ok
+test_read_walker_version (test_upgrade_wavefoundry.MultiVersionTransitionDetectionTests.test_read_walker_version) ... ok
+test_shared_database_takes_precedence_over_the_retired_graph_json (test_upgrade_wavefoundry.MultiVersionTransitionDetectionTests.test_shared_database_takes_precedence_over_the_retired_graph_json) ... ok
+test_snapshot_collects_all_version_constants (test_upgrade_wavefoundry.MultiVersionTransitionDetectionTests.test_snapshot_collects_all_version_constants) ... ok
+test_snapshot_graph_builder_absent_is_fail_safe (test_upgrade_wavefoundry.MultiVersionTransitionDetectionTests.test_snapshot_graph_builder_absent_is_fail_safe) ... ok
+test_snapshot_graph_builder_corrupt_store_is_fail_safe (test_upgrade_wavefoundry.MultiVersionTransitionDetectionTests.test_snapshot_graph_builder_corrupt_store_is_fail_safe) ... ok
+test_snapshot_reads_the_shared_index_database (test_upgrade_wavefoundry.MultiVersionTransitionDetectionTests.test_snapshot_reads_the_shared_index_database) ... 
+TIMEOUT: test_upgrade_wavefoundry.py exceeded 600 s per-file limit.
+
+----------------------------------------------------------------------
+Slowest files (top 1 of 1):
+  test_upgrade_wavefoundry.py                    600.012s  (0 tests)
+Worker service time: 600.012s across 1 files; skipped 0 tests
+FAILED (test_upgrade_wavefoundry.py)
+Ran 0 tests across 1 files in 600.019s
+
+----------------------------------------------------------------------
+Second-profile per-file result (profile 'second'; expected profile: the shipped defaults, then 'second' from WAVEFOUNDRY_TEST_PROFILE): 1 of 1 files failed
+  test_upgrade_wavefoundry.py                              0 tests  no unittest summary
+Total failures and errors: 0 in 1 files; 0 files passed
+SECOND-PROFILE run (second): not delivery evidence; this tree's framework test receipt is never written.

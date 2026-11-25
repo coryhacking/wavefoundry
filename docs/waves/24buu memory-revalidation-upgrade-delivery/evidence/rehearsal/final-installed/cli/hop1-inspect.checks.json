@@ -1,0 +1,62 @@
+{
+  "track": "cli",
+  "label": "hop1-inspect",
+  "version": "1.53.0+q5u0",
+  "checks": {
+    "old_install": true,
+    "upgraded": true,
+    "lock_removed": true,
+    "revalidation_available": true,
+    "all_five_new_routes_discoverable": true,
+    "retired_routes_absent": true,
+    "local_grants_preserved": true,
+    "project_deny_preserved": true,
+    "managed_get_updated": true,
+    "memory_unchanged": true,
+    "wave_ledger_unchanged": true,
+    "five_prompts_updated": true,
+    "retired_tool_refs_absent": true,
+    "keep_rule_delivered": true,
+    "spec_id_in_template": true,
+    "original_template_date_preserved": true,
+    "docs_lint_passed": true,
+    "setup_ready": true
+  },
+  "source_byte_differences": [],
+  "residual_retired_tools": {
+    "implement-wave": [],
+    "memory-review": [],
+    "close-wave": [],
+    "close-spec": [],
+    "explain": []
+  },
+  "setup": {
+    "actions": [],
+    "advisories": [],
+    "limitations": [
+      "Setup readiness is not an integrity, search-quality, model-execution or source-freshness audit.",
+      "Dependency metadata does not prove native package imports or accelerator availability.",
+      "Python interpreter startup customization precedes this check; package .pth files are not executed by it.",
+      "SQLite may create or update coordination WAL/SHM files; application data and recovery records are read-only.",
+      "The child deadline bounds database probing; parent filesystem calls have no hard wall-clock deadline."
+    ],
+    "reasons": [],
+    "schema_version": 1,
+    "signature": "5a07f4d27a236f2b18d542bdd7b250f0a2ce306af0aab38ea7a138dfb9ed562b",
+    "startup_blocked": false,
+    "status": "ready",
+    "storage_identity": {},
+    "timings_ms": {
+      "database": 55.976,
+      "environment": 7.358,
+      "total": 108.525
+    }
+  },
+  "revalidation": {
+    "active_records": 1,
+    "target_unresolved": 0,
+    "target_churn": 0,
+    "target_not_canonical": 0,
+    "churn_available": true
+  }
+}

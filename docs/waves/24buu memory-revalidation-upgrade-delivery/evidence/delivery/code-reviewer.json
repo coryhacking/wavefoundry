@@ -1,0 +1,56 @@
+{
+  "wave_id": "24buu",
+  "event": "finding",
+  "actor": "code-reviewer",
+  "context_id": "24buu-delivery-code-review-20261124-independent",
+  "finding_id": "CR-D1",
+  "run_kind": "initial_delivery",
+  "cycle": 0,
+  "source_lanes": [
+    "code-reviewer"
+  ],
+  "blocking_required_lanes": [
+    "code-reviewer"
+  ],
+  "approval_recheck_lanes": [
+    "code-reviewer"
+  ],
+  "fresh_context": true,
+  "independent": true,
+  "judgment": {
+    "validation_status": "real",
+    "scope_relation": "admitted",
+    "introduced_or_worsened_by_wave": true,
+    "contract_relevance": "required_ac",
+    "supported_reachability": true,
+    "attacker_reachability": false,
+    "authority_domain": "none",
+    "authority_delta": "none",
+    "observable_impact": "material",
+    "containment": "none",
+    "disposition": "do_now",
+    "repair_execution_state": "pending"
+  },
+  "evidence": {
+    "execution_status": "executed",
+    "proposition": "Retrying an interrupted Phase 1 render converges on the incoming implement-wave prompt, its generated review-policy region and the replaced finding required by 24bn8 AC-1.",
+    "failure_condition": "The renderer returns success on retry with a missing policy region or a stale comparison finding.",
+    "public_path": "render_platform_surfaces.main --repo-root <fixture> --platform codex --include-permissions --manifest <fixture manifest>",
+    "command_or_fixture": "From .wavefoundry/framework/scripts run PYTHONPATH=.:tests python3 -B ../../work/24buu/delivery/code-retry.py. An isolated temporary target uses the shipped prompt templates, one incoming prose addition and one injected false return from upgrade_lib.update_upgrade_lock on the first render.",
+    "expected": "Either preserve the previous complete copy on error, or complete the proven replacement and record it when retried. A successful retry includes the incoming text and the review-policy region.",
+    "observed": "First render returned 1 after publishing the incoming body. Second render returned 0. Incoming prose was present, the review-policy marker was absent and the current finding still read upstream_changed_local_matches_previous. Sixteen focused tests passed on the frozen tree. A separate mutation refusing the valid no-handoff branch failed the extracted-child test because its lock survived.",
+    "artifact_or_test_id": ".wavefoundry/work/24buu/delivery/code-retry.py and code-retry.log; code-positive.log and code-mutant.log",
+    "known_bad_detection_method": "Read the prompt and retained finding after fault injection and a retry of the public renderer. A missing review-policy marker and stale finding distinguish the observed result from the required fresh render.",
+    "limitations": "The fixture injects checkpoint publication failure at the function boundary and replays the production render child. It does not simulate an OS process crash or repeat the complete upgrade. The independent scratch guard mutant checks ordinary cleanup separately.",
+    "safety_and_authorization": "Disposable local target and isolated host settings. No installed workspace or external service is mutated by the probes.",
+    "disposition_rationale": "24bn8 requires the resulting prompt to equal a fresh render and the checkpoint to report its replacement. The retry accepts incomplete project guidance. Persist sufficient progress to distinguish a partially installed template from a late project edit, and preserve the edit on retry."
+  },
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "An injected failed checkpoint update followed by an actual retry left a missing policy marker. Separately, the targeted scratch cleanup mutant failed at the retained-lock assertion."
+  }
+}

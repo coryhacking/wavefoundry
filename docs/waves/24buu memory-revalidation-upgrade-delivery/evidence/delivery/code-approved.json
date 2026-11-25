@@ -1,0 +1,34 @@
+{
+  "wave_id": "24buu",
+  "event": "approval",
+  "actor": "code-reviewer",
+  "context_id": "24buu-independent-code-delivery-after-cr-d1",
+  "mode": "dry_run",
+  "signoff_key": "code-reviewer",
+  "approval_phase": "delivery",
+  "run_kind": "initial_delivery",
+  "fresh_context": true,
+  "independent": true,
+  "evidence": {
+    "execution_status": "executed",
+    "proposition": "The five delivered changes satisfy the reviewed code contracts across the archive entry point, CLI cleanup, permission migration, baseline rendering and memory briefing.",
+    "failure_condition": "The renderer returns success on retry with a missing policy region or a stale comparison finding.",
+    "public_path": "render_platform_surfaces.main --repo-root <fixture> --platform codex --include-permissions --manifest <fixture manifest>",
+    "command_or_fixture": "From .wavefoundry/framework/scripts run PYTHONPATH=.:tests python3 -B ../../work/24buu/delivery/code-retry.py. Run python3 -B -m unittest with PYTHONPATH=.:tests for the four BaselineDriftTests listed in delivery/code-repair-controls.log.",
+    "expected": "After a rejected intent checkpoint the original bytes remain intact. Retry of a partially published target finishes recording and regenerates the policy region only for the exact published bytes. An intervening local date edit remains byte-identical.",
+    "observed": "The public retry returned 0 after the original injected exit 1 and retained the incoming prose, restored the policy marker and recorded replaced. All four focused tests passed with zero skips. The post-publication checkpoint failure recovered and cleared the pending digest. Editing only the date before retry preserved all local bytes and kept the original finding. The in-memory mutant that ignored the pending digest failed the byte-preservation assertion. The earlier 16 positive tests exercised archive dispatch, cleanup success/failure and retention, migration idempotence, baseline preservation, and active-memory revalidation. A cleanup guard mutant kept the lock and failed its dedicated test. The repaired tree's frozen fingerprint matched.",
+    "artifact_or_test_id": "delivery/code-retry-confirmed.log, delivery/code-repair-controls.log, delivery/code-repair-mutant.log and the original delivery/code-retry.log under .wavefoundry/work/24buu; frozen file fingerprint 8d729920b9f45b89c354f519637d64e36d6e2d64afd487f0f8a3754ba4174b2e; delivery/code-positive.log and delivery/code-mutant.log from the initial delivery review.",
+    "known_bad_detection_method": "The identical public replay previously returned success with a missing policy region and stale finding. It now passes both assertions. Removing the exact-byte comparison from the pending-replacement path in an isolated Python process failed test_retry_preserves_edit_after_incomplete_receipt at the byte-preservation assertion.",
+    "limitations": "Checkpoint failures were injected at the writer boundary in isolated local targets. The reviewer ran the public render entry and focused tests. Coordinator-owned packaged two-hop verification is separate.",
+    "safety_and_authorization": "Disposable local target and isolated host settings. No installed workspace or external service is mutated by the probes.",
+    "disposition_rationale": "The exact-byte pending receipt allows the ordinary retry to complete the publication and preserves later edits. The repaired renderer satisfies the disputed 24bn8 AC-1 property."
+  },
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "The identical public replay previously returned success with a missing policy region and stale finding. It now passes both assertions. Removing the exact-byte comparison from the pending-replacement path in an isolated Python process failed test_retry_preserves_edit_after_incomplete_receipt at the byte-preservation assertion."
+  }
+}

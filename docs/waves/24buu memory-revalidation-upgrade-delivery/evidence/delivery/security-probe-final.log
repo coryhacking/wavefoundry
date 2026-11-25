@@ -1,0 +1,8 @@
+<repo>/.wavefoundry/work/24buu/delivery/security-relocated.json ok
+relocated [] memory, ledger and wave bytes identical
+<repo>/.wavefoundry/work/24buu/delivery/security-baseline.json ok
+baseline ['wf_add_spec', 'wf_close_spec', 'wf_get_spec', 'wf_new_spec', 'wf_remove_spec'] memory, ledger and wave bytes identical
+<repo>/.wavefoundry/work/24buu/delivery/security-restricted.json ok
+restricted ['wf_add_spec', 'wf_close_spec', 'wf_new_spec', 'wf_remove_spec'] memory, ledger and wave bytes identical
+<repo>/.wavefoundry/work/24buu/delivery/security-restart.json ok
+restart ['wf_add_spec', 'wf_close_spec', 'wf_new_spec', 'wf_remove_spec'] memory, ledger and wave bytes identical

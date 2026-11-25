@@ -1,0 +1,93 @@
+Bytecode cache warm (1.5s).
+FOCUSED diagnostic run (1 of 261 test files) — not delivery evidence; the full-suite cache is untouched.
+Running 1 test files across 1 workers …
+  [1/1] test_spec_tool_permissions.py — 27 tests FAIL (1.6s)
+
+======================================================================
+FAILED: test_spec_tool_permissions.py
+======================================================================
+render_platform_surfaces: Spec-tool verified: wf_new_spec
+render_platform_surfaces: Spec-tool verified: wf_get_spec
+render_platform_surfaces: Spec-tool verified: wf_add_spec
+render_platform_surfaces: Spec-tool verified: wf_remove_spec
+render_platform_surfaces: Spec-tool verified: wf_close_spec
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmpm3_00ayf/claude/settings.json (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmpm3_00ayf/codex/config.toml (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmpm3_00ayf/managed/managed-settings.json (absent)
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.json ask mcp__wavefoundry__wf_close_spec(mode=dry_run)
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.json deny mcp__wavefoundry__wf_remove_spec
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.local.json allow mcp__wavefoundry__wf_add_spec
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.local.json allow mcp__wavefoundry__wf_get_spec
+render_platform_surfaces: Spec-tool rule migrated: .codex/config.toml disabled_tools wf_new_spec
+render_platform_surfaces: Spec-tool verified: wf_new_spec
+render_platform_surfaces: Spec-tool verified: wf_get_spec
+render_platform_surfaces: Spec-tool verified: wf_add_spec
+render_platform_surfaces: Spec-tool verified: wf_remove_spec
+render_platform_surfaces: Spec-tool verified: wf_close_spec
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmpsxz0xab3/claude/settings.json (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmpsxz0xab3/codex/config.toml (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmpsxz0xab3/managed/managed-settings.json (absent)
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.json ask mcp__wavefoundry__wf_close_spec(mode=dry_run)
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.json deny mcp__wavefoundry__wf_remove_spec
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.local.json allow mcp__wavefoundry__wf_add_spec
+render_platform_surfaces: Spec-tool rule migrated: .claude/settings.local.json allow mcp__wavefoundry__wf_get_spec
+render_platform_surfaces: Spec-tool rule migrated: .codex/config.toml disabled_tools wf_new_spec
+render_platform_surfaces: Spec-tool verified: wf_new_spec
+render_platform_surfaces: Spec-tool verified: wf_get_spec
+render_platform_surfaces: Spec-tool verified: wf_add_spec
+render_platform_surfaces: Spec-tool verified: wf_remove_spec
+render_platform_surfaces: Spec-tool verified: wf_close_spec
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmpzi9tr83l/claude/settings.json (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmpzi9tr83l/codex/config.toml (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmpzi9tr83l/managed/managed-settings.json (absent)
+Recorded operator review for wf_get_spec. Restart the host. Project policy still applies.
+Recorded operator review for wf_get_spec. Restart the host. Project policy still applies.
+test_ac10_installing_hop_argv_and_teammate_setup_path (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac10_installing_hop_argv_and_teammate_setup_path) ... ok
+test_ac12_codex_tool_table_is_copied_and_comments_survive (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac12_codex_tool_table_is_copied_and_comments_survive) ... ok
+test_ac1_ac2_ac7_render_child_migrates_verifies_and_is_idempotent (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac1_ac2_ac7_render_child_migrates_verifies_and_is_idempotent) ... ok
+test_ac3_malformed_repository_file_is_left_and_held (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac3_malformed_repository_file_is_left_and_held) ... ok
+test_ac4_outside_restrictions_hold_routes_and_are_never_written (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac4_outside_restrictions_hold_routes_and_are_never_written) ... 
+  test_ac4_outside_restrictions_hold_routes_and_are_never_written (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac4_outside_restrictions_hold_routes_and_are_never_written) [symlinked user file] ... ERROR
+test_ac5_repository_pattern_rule_is_not_rewritten_and_holds (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac5_repository_pattern_rule_is_not_rewritten_and_holds) ... ok
+test_ac9_symlinked_or_outside_repository_settings_are_not_written (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac9_symlinked_or_outside_repository_settings_are_not_written) ... ok
+test_codex_insertion_is_reparsed_and_never_edits_another_server (test_spec_tool_permissions.SpecPermissionMigrationTests.test_codex_insertion_is_reparsed_and_never_edits_another_server) ... ok
+test_constraint_equivalence_and_separated_holds (test_spec_tool_permissions.SpecPermissionMigrationTests.test_constraint_equivalence_and_separated_holds) ... ok
+test_existing_operator_receipt_is_left_unchanged (test_spec_tool_permissions.SpecPermissionMigrationTests.test_existing_operator_receipt_is_left_unchanged) ... ok
+test_fresh_install_writes_no_receipt (test_spec_tool_permissions.SpecPermissionMigrationTests.test_fresh_install_writes_no_receipt) ... ok
+test_json_rewrite_keeps_order_indentation_and_line_endings (test_spec_tool_permissions.SpecPermissionMigrationTests.test_json_rewrite_keeps_order_indentation_and_line_endings) ... ok
+test_outside_allow_only_recommends_and_receipt_records_the_files_read (test_spec_tool_permissions.SpecPermissionMigrationTests.test_outside_allow_only_recommends_and_receipt_records_the_files_read) ... ok
+test_outside_file_over_the_size_cap_holds_every_route (test_spec_tool_permissions.SpecPermissionMigrationTests.test_outside_file_over_the_size_cap_holds_every_route) ... ok
+test_outside_paths_resolve_per_platform_and_honor_overrides (test_spec_tool_permissions.SpecPermissionMigrationTests.test_outside_paths_resolve_per_platform_and_honor_overrides) ... ok
+test_outside_special_file_is_refused_without_blocking_and_holds_every_route (test_spec_tool_permissions.SpecPermissionMigrationTests.test_outside_special_file_is_refused_without_blocking_and_holds_every_route) ... ok
+test_permissions_only_backstop_runs_the_same_steps_without_the_claude_platform (test_spec_tool_permissions.SpecPermissionMigrationTests.test_permissions_only_backstop_runs_the_same_steps_without_the_claude_platform) ... ok
+test_setup_pending_reports_until_migration_and_verification_ran (test_spec_tool_permissions.SpecPermissionMigrationTests.test_setup_pending_reports_until_migration_and_verification_ran) ... ok
+test_codex_controls_withhold_only_affected_routes_and_need_matching_values (test_spec_tool_permissions.SpecPermissionTests.test_codex_controls_withhold_only_affected_routes_and_need_matching_values) ... ok
+test_external_policy_confirmation_is_scoped_and_never_overrides_deny (test_spec_tool_permissions.SpecPermissionTests.test_external_policy_confirmation_is_scoped_and_never_overrides_deny) ... ok
+test_fresh_install_uses_only_live_template_and_unknown_upgrade_stays_withheld (test_spec_tool_permissions.SpecPermissionTests.test_fresh_install_uses_only_live_template_and_unknown_upgrade_stays_withheld) ... ok
+test_new_low_risk_tier_membership_is_limited_to_creation (test_spec_tool_permissions.SpecPermissionTests.test_new_low_risk_tier_membership_is_limited_to_creation) ... ok
+test_private_allow_stays_private (test_spec_tool_permissions.SpecPermissionTests.test_private_allow_stays_private) ... ok
+test_project_ask_and_personal_deny_must_each_match (test_spec_tool_permissions.SpecPermissionTests.test_project_ask_and_personal_deny_must_each_match) ... ok
+test_renderer_migrates_only_its_existing_grant_and_preserves_pending_provenance (test_spec_tool_permissions.SpecPermissionTests.test_renderer_migrates_only_its_existing_grant_and_preserves_pending_provenance) ... ok
+test_unreadable_policy_and_opaque_host (test_spec_tool_permissions.SpecPermissionTests.test_unreadable_policy_and_opaque_host) ... ok
+test_wildcard_and_argument_controls_do_not_grant_a_new_route (test_spec_tool_permissions.SpecPermissionTests.test_wildcard_and_argument_controls_do_not_grant_a_new_route) ... ok
+
+======================================================================
+ERROR: test_ac4_outside_restrictions_hold_routes_and_are_never_written (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac4_outside_restrictions_hold_routes_and_are_never_written) [symlinked user file]
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_spec_tool_permissions.py", line 314, in test_ac4_outside_restrictions_hold_routes_and_are_never_written
+    self.assertTrue(os.path.islink(user) if name == "symlinked user file" else True)
+                                   ^^^^
+NameError: name 'user' is not defined. Did you mean: 'super'?
+
+----------------------------------------------------------------------
+Ran 27 tests in 1.517s
+
+FAILED (errors=1)
+
+----------------------------------------------------------------------
+Slowest files (top 1 of 1):
+  test_spec_tool_permissions.py                    1.646s  (27 tests)
+Worker service time: 1.646s across 1 files; skipped 0 tests
+FAILED (test_spec_tool_permissions.py)
+Ran 27 tests across 1 files in 1.647s

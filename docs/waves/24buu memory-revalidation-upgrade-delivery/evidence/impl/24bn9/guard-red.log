@@ -1,0 +1,41 @@
+FFFF
+======================================================================
+FAIL: test_cli_primary_runs_extracted_cleanup_and_emits_one_terminal_result (test_upgrade_wavefoundry.UpgradeManifestRecoveryTests.test_cli_primary_runs_extracted_cleanup_and_emits_one_terminal_result)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/work/24buu/impl/24bn9/tree/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 2467, in test_cli_primary_runs_extracted_cleanup_and_emits_one_terminal_result
+    self.assertFalse(upgrade_lib.upgrade_lock_path(root).exists())
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True is not false
+
+======================================================================
+FAIL: test_auto_cleanup_checks_required_and_malformed_guard (test_upgrade_wavefoundry.UpgradeManifestRecoveryTests.test_auto_cleanup_checks_required_and_malformed_guard) (label='legacy or malformed confirmation')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/work/24buu/impl/24bn9/tree/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 2544, in test_auto_cleanup_checks_required_and_malformed_guard
+    self.assertIs(mod._auto_cleanup_ready(root, False), expected)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True is not False
+
+======================================================================
+FAIL: test_auto_cleanup_checks_required_and_malformed_guard (test_upgrade_wavefoundry.UpgradeManifestRecoveryTests.test_auto_cleanup_checks_required_and_malformed_guard) (label='pending action')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/work/24buu/impl/24bn9/tree/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 2544, in test_auto_cleanup_checks_required_and_malformed_guard
+    self.assertIs(mod._auto_cleanup_ready(root, False), expected)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True is not False
+
+======================================================================
+FAIL: test_auto_cleanup_checks_required_and_malformed_guard (test_upgrade_wavefoundry.UpgradeManifestRecoveryTests.test_auto_cleanup_checks_required_and_malformed_guard) (label='invalid guard')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/work/24buu/impl/24bn9/tree/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 2544, in test_auto_cleanup_checks_required_and_malformed_guard
+    self.assertIs(mod._auto_cleanup_ready(root, False), expected)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True is not False
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.502s
+
+FAILED (failures=4)

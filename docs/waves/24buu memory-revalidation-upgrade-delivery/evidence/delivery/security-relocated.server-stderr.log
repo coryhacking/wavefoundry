@@ -1,0 +1,8 @@
+Setup readiness: action_required
+Renamed spec tools are withheld until setup migrates host rules and records its verification: wf_add_spec, wf_close_spec, wf_get_spec, wf_new_spec, wf_remove_spec.
+<temp>/tmp1824u09o/target/.wavefoundry/bin/wf setup --root <temp>/tmp1824u09o/target
+Scope: metadata readiness only; no full integrity, model or source-freshness audit.
+[11/24/26 22:58:18] INFO     Processing request of type            server.py:733
+                             ListToolsRequest                                   
+                    INFO     Processing request of type            server.py:733
+                             CallToolRequest                                    

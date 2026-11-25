@@ -1,0 +1,19 @@
+Bytecode cache warm (1.9s).
+SECOND-PROFILE run (second): not delivery evidence; this tree's framework test receipt is never written.
+Expected profile: the shipped defaults, then 'second' from WAVEFOUNDRY_TEST_PROFILE.
+Copied 4827 files into a temporary git repository; applied profile 'second'; waves root docs/delivery/sets (README docs/delivery/sets/README.md).
+FOCUSED diagnostic run (1 of 261 test files) — not delivery evidence; the full-suite cache is untouched.
+Running 1 test files across 1 workers …
+  [1/1] test_lifecycle_baseline_drift.py — 23 tests ok (6.5s)
+
+----------------------------------------------------------------------
+Slowest files (top 1 of 1):
+  test_lifecycle_baseline_drift.py                 6.529s  (23 tests)
+Worker service time: 6.529s across 1 files; skipped 0 tests
+Ran 23 tests across 1 files in 6.532s
+OK
+
+----------------------------------------------------------------------
+Second-profile per-file result (profile 'second'; expected profile: the shipped defaults, then 'second' from WAVEFOUNDRY_TEST_PROFILE): 0 of 1 files failed
+Total failures and errors: 0 in 0 files; 1 files passed
+SECOND-PROFILE run (second): not delivery evidence; this tree's framework test receipt is never written.

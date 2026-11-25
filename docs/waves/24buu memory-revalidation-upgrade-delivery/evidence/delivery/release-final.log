@@ -1,0 +1,8 @@
+1.53.0+q5u0 81ed6d2cc28b3e78d912b63514197addb55951ca8daea5e02583c8843006ab1d 285 238
+1.53.0+q5u1 c0b771482678830533d6660c11c40f391b537a417c19bb319a083fa2cd1b0043 285 238
+cli 1 primary retained False terminal summaries 1 passing checks 18
+cli 2 primary retained False terminal summaries 1 passing checks 18
+installed 1 primary retained True terminal summaries 1 passing checks 18
+installed 2 primary retained False terminal summaries 1 passing checks 18
+mcp 1 primary retained True terminal summaries 1 passing checks 18
+mcp 2 primary retained True terminal summaries 1 passing checks 18

@@ -1,0 +1,13 @@
+Bytecode cache warm (1.5s).
+FOCUSED diagnostic run (2 of 261 test files) — not delivery evidence; the full-suite cache is untouched.
+Running 2 test files across 2 workers …
+  [1/2] test_review_policy.py — 133 tests ok (4.8s)
+  [2/2] test_memory_records.py — 323 tests ok (21.6s)
+
+----------------------------------------------------------------------
+Slowest files (top 2 of 2):
+  test_memory_records.py                          21.579s  (323 tests)
+  test_review_policy.py                            4.784s  (133 tests)
+Worker service time: 26.363s across 2 files; skipped 0 tests
+Ran 456 tests across 2 files in 21.581s
+OK

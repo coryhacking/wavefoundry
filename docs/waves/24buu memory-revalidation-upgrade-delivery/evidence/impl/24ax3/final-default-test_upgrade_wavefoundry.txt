@@ -1,0 +1,11 @@
+Bytecode cache warm (1.6s).
+FOCUSED diagnostic run (1 of 261 test files) — not delivery evidence; the full-suite cache is untouched.
+Running 1 test files across 1 workers …
+  [1/1] test_upgrade_wavefoundry.py — 768 tests ok (214.3s)
+
+----------------------------------------------------------------------
+Slowest files (top 1 of 1):
+  test_upgrade_wavefoundry.py                    214.334s  (768 tests)
+Worker service time: 214.334s across 1 files; skipped 2 tests
+Ran 768 tests across 1 files in 214.336s
+OK

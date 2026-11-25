@@ -24,7 +24,7 @@ import record_paths
 import vocabulary_profile
 from upstream_fixture_support import tool_contract_rel, upstream_fixture
 from record_layout_support import (
-    SHIPPED_DEFAULTS,
+    localize_record_text as _v,
     RecordTreeBuilder,
     default_profile_only,
     localized_docs_lint_fixture,
@@ -39,29 +39,6 @@ from review_evidence import (
     review_status_signoff_keys,
 )
 from wave_lint_lib.wave_validators import check_wave_docs
-
-
-_SHIPPED_VOCAB = SHIPPED_DEFAULTS["vocabulary_profile"]
-
-
-def _v(text: str) -> str:
-    """``text``, written with the shipped record markers and labels, in the
-    loaded profile's: the id key, record title, summary and member headings,
-    the member id and status labels (``Previous ...`` included), and a
-    line-leading back-reference label. The identity under the default
-    profile."""
-    pairs = (
-        (_SHIPPED_VOCAB["ID_KEY"] + ":", vocabulary_profile.ID_KEY + ":"),
-        (_SHIPPED_VOCAB["RECORD_TITLE"], vocabulary_profile.RECORD_TITLE),
-        (_SHIPPED_VOCAB["SUMMARY_HEADING"], vocabulary_profile.SUMMARY_HEADING),
-        (_SHIPPED_VOCAB["MEMBER_HEADING"] + "\n", vocabulary_profile.MEMBER_HEADING + "\n"),
-        (_SHIPPED_VOCAB["MEMBER_ID_LABEL"] + ":", vocabulary_profile.MEMBER_ID_LABEL + ":"),
-        (_SHIPPED_VOCAB["MEMBER_STATUS_LABEL"] + ":", vocabulary_profile.MEMBER_STATUS_LABEL + ":"),
-    )
-    for old, new in pairs:
-        text = text.replace(old, new)
-    backref = re.compile(rf"(?m)^{re.escape(_SHIPPED_VOCAB['BACKREF_LABEL'])}:")
-    return backref.sub(lambda _m: vocabulary_profile.BACKREF_LABEL + ":", text)
 
 
 # Fixture documents outside the waves root that carry record references

@@ -1,0 +1,32 @@
+{
+  "wave_id": "24buu",
+  "event": "approval",
+  "actor": "architecture-reviewer",
+  "signoff_key": "architecture-reviewer",
+  "approval_phase": "delivery",
+  "context_id": "24buu-architecture-delivery-final-independent",
+  "fresh_context": true,
+  "independent": true,
+  "evidence": {
+    "execution_status": "executed",
+    "proposition": "The normative dependency-direction rule and write footprints describe the Phase 1 renderer's authority over a previously installed lifecycle baseline.",
+    "failure_condition": "A documented unconditional prohibition on rewriting a materialized baseline contradicts a successful upgrade replacement of a proven prior template.",
+    "public_path": "render_platform_surfaces.py --repo-root <fixture> --platform codex --include-permissions --manifest <fixture manifest>, with and without the upgrade comparison checkpoint.",
+    "command_or_fixture": "From .wavefoundry/framework/scripts use PYTHONPATH=.:tests ~/.wavefoundry/venv/bin/python -B -m unittest -v test_lifecycle_baseline_drift.BaselineDriftTests.test_v151_upgrade_renderer_installs_proven_baselines_and_summary test_render_agent_surfaces.TechdocsBaselineStateMatrixTests.test_every_state_writes_absent_members_only_and_warns_iff_mixed. Inspect docs/architecture/domain-map.md rule 2, data-and-control-flow.md Path 3 State written and telemetry step 10 against Upgrade lifecycle baseline drift. Independently rechecked five live-tree cases in delivery/arch-integrated.log, searched git HEAD and current documents for the three former unconditional assertions, and asserted all six final route checkpoints, check sets and terminal summary arrays.",
+    "expected": "Document the sole upgrade exception for the registered plan template and lifecycle prompts. Keep ordinary setup, unproven project files and the missing-only TechDocs trio outside that exception.",
+    "observed": "Domain-map rule 2 grants the contained, verified Phase 1 exception and preserves edited, unverified and linked destinations, TechDocs missing-only behavior, date and marker regeneration. Path 3 State written and telemetry step 10 now agree. All five live-tree regression tests passed without skips. All six real package hops passed 18 checks with precisely one terminal cleanup result per hop. The installed legacy primary retained its checkpoint, both MCP primaries retained theirs, and both direct archives and the installed successor removed theirs.",
+    "artifact_or_test_id": "docs/architecture/domain-map.md rule 2; docs/architecture/data-and-control-flow.md Path 3 State written, telemetry step 10 and Upgrade lifecycle baseline drift; delivery/arch-integrated.log; rehearsal/final-{cli,installed,mcp} route hop{1,2}-{primary-checkpoint,terminal.summary,inspect.checks}.json.",
+    "known_bad_detection_method": "The same literal check detected all three blanket prohibitions in git HEAD and none in the integrated docs. The real Phase 1 subprocess contradicts the older text by replacing six proven templates while preserving their bytes before a checkpoint exists.",
+    "limitations": "Individual tests ran locally on macOS. I independently checked the recorded final rehearsal artifacts from the coordinator's CPU-pinned Phase 1 installation. No fresh native Windows or full Phase 2 rehearsal.",
+    "safety_and_authorization": "Only disposable local targets and host-settings fixtures were used.",
+    "disposition_rationale": "All three contradictory ownership statements are corrected and their neighbors retain their previous scope. The original defect was real and the bounded documentation repair is complete."
+  },
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "The same literal check detected all three blanket prohibitions in git HEAD and none in the integrated docs. The real Phase 1 subprocess contradicts the older text by replacing six proven templates while preserving their bytes before a checkpoint exists."
+  }
+}

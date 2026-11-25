@@ -1,0 +1,26 @@
+{
+  "wave_id": "24buu",
+  "event": "approval",
+  "mode": "dry_run",
+  "actor": "docs-contract-reviewer",
+  "context_id": "24buu-docs-delivery-independent-postrepair-1124",
+  "signoff_key": "docs-contract-reviewer",
+  "approval_phase": "delivery",
+  "fresh_context": true,
+  "independent": true,
+  "evidence": {
+    "execution_status": "executed",
+    "observed": "Fresh paired public render: undisclosed old-name managed deny yielded no roster holds and a wf_get_spec receipt; disclosing the identical rule yielded only the wf_get_spec hold and no receipt. Files unchanged. Both revised prompts now explicitly cover the invisible case. The guidance and two cleanup controls passed. The frozen pre-repair phrase failed the revised guidance test on both destinations. Reviewed q5u0/q5u1 primary checkpoints and terminal reports: direct archive auto-cleaned twice; installed 1.51 runner retained index_complete once, then its successor auto-cleaned; MCP retained both primary checkpoints. Each completed route/hop had one cleanup_complete summary.",
+    "artifact_or_test_id": ".wavefoundry/work/24buu/delivery/docs-reverified.log, docs-opaque.py; SpecPermissionGuidanceTests; UpgradeManifestRecoveryTests.test_cli_primary_runs_extracted_cleanup_and_emits_one_terminal_result and test_auto_cleanup_checks_required_and_malformed_guard; rehearsal/final-{cli,installed,mcp} primary checkpoints and terminal summary JSON.",
+    "known_bad_detection_method": "Executed the current guidance test against two fixture destinations containing the q5tz archive's pre-repair wording: two failed subtests, zero errors/skips. Same test passed on both repaired destinations. Actual public render yielded opposite holds for disclosed and undisclosed policy.",
+    "limitations": "Host-side MDM, native Windows and client filters were outside the probe. Archive conclusions draw on the recorded macOS CLI and stdio runs with an explicit CPU provider. I ran the renderer, roster, documentation check and two CLI cleanup tests independently."
+  },
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "Executed the current guidance test against two fixture destinations containing the q5tz archive's pre-repair wording: two failed subtests, zero errors/skips. Same test passed on both repaired destinations. Actual public render yielded opposite holds for disclosed and undisclosed policy."
+  }
+}

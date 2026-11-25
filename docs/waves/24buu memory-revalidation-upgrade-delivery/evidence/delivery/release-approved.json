@@ -1,0 +1,32 @@
+{
+  "wave_id": "24buu",
+  "event": "approval",
+  "actor": "release-reviewer",
+  "context_id": "24buu-delivery-release-independent-20261124",
+  "mode": "dry_run",
+  "signoff_key": "release-reviewer",
+  "approval_phase": "delivery",
+  "fresh_context": true,
+  "independent": true,
+  "evidence": {
+    "execution_status": "executed",
+    "proposition": "The local 1.53.0 pair ships the repaired runtime and reaches terminal cleanup through all three tested entries with the expected interventions.",
+    "failure_condition": "Any runtime byte mismatch, incomplete terminal state or unnecessary successor CLI cleanup.",
+    "public_path": "Direct python release ZIP, installed wf upgrade --pack and fresh stdio wf_upgrade.",
+    "command_or_fixture": "Run python3 -B .wavefoundry/work/24buu/delivery/release-final-check.py to validate the two archives and six primary/terminal transcript pairs. release-control.py exercises the real archive in an isolated interpreter.",
+    "expected": "Each archive must match the reviewed runtime, and each hop must remove the lock and report exactly one cleanup-complete terminal summary. The installed legacy CLI and both MCP primaries retain intervention points.",
+    "observed": "Independently verified the q5u0 and q5u1 archive SHA-256 digests, outer and inner CRCs, 285 matching embedded members, and 238 shipped scripts/seeds against live per archive. All six coordinator-run upgrade hops passed 18 assertions each. Both direct ZIP primaries and the successor installed CLI completed cleanup. The installed 1.51 CLI and both MCP primaries retained checkpoints, then completed after separate cleanup. Five separately executed focused controls exercised both generated archive forms, an actual extracted cleanup child, eligible stock baseline replacements and preservation of mixed project-owned states.",
+    "artifact_or_test_id": "delivery/release-final-check.py, release-final.log, release-control.py, release-control-final.log, release-positive.log and release-seat.md under .wavefoundry/work/24buu. SHA-256 q5u0 81ed6d2cc28b3e78d912b63514197addb55951ca8daea5e02583c8843006ab1d and q5u1 c0b771482678830533d6660c11c40f391b537a417c19bb319a083fa2cd1b0043.",
+    "known_bad_detection_method": "Removing the single scripts-path initialization from a disposable copy of the final q5u1 ZIP reproduced ModuleNotFoundError for contained_files in retain. The unchanged ZIP reached the incoming feature runner on the same deliberately incomplete target.",
+    "limitations": "Apple Silicon, offline CPU/INT8, local Phase 1 fixture with stock prompts. Native Windows, Linux, completed Phase 2 and field adoption remain unverified. The direct route preserved temporary verified ZIPs with unproven parent ownership. This review checks recorded real full hops and independently exercises bounded archive and renderer controls. Full exact-byte suite qualification is tracked separately.",
+    "safety_and_authorization": "Offline disposable targets, local test packages and read-only evaluation of the recorded runs."
+  },
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "Removing the single scripts-path initialization from a disposable copy of the final q5u1 ZIP reproduced ModuleNotFoundError for contained_files in retain. The unchanged ZIP reached the incoming feature runner on the same deliberately incomplete target."
+  }
+}

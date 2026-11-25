@@ -1552,7 +1552,19 @@ def _run_auto_cleanup(root: Path) -> int:
     import setup_commands
     import upgrade_lib
 
-    _log("Primary upgrade complete. Index publication succeeded. Running cleanup.")
+    # Gate resume has already closed its log. Append these primary facts on
+    # both paths before handing the same log and terminal sentinel to cleanup.
+    _open_log(root, mode="a")
+    checkpoint = upgrade_lib.read_upgrade_lock(root) or {}
+    _log("Primary upgrade complete.")
+    recorded_zip = checkpoint.get("zip_path")
+    _emit_primary_summary_via_delegate_or_fallback(
+        root, checkpoint.get("from_version"), checkpoint.get("to_version"),
+        Path(recorded_zip) if recorded_zip else None, checkpoint.get("pruned_count") or 0,
+        review_sidecar_cleanup=checkpoint.get("review_sidecar_cleanup"),
+        index_published=True, terminal=False,
+    )
+    _log("Index publication succeeded. Running cleanup.")
     _close_log()
     runner = root / ".wavefoundry/framework/scripts/upgrade_wavefoundry.py"
     argv = [_preferred_python(), str(runner), "--root", str(root), "--cleanup", "--yes"]
@@ -5059,6 +5071,7 @@ def _emit_primary_phase_summary(
     *,
     index_published: bool,
     degradation_marker: str | None = None,
+    terminal: bool = True,
 ) -> None:
     """Wave 1p8kz — emit the structured summary sentinel at the end of the primary upgrade phase
     (phases 0–4, the default ``wf_upgrade()`` call) so agents get ``data['summary']`` — including
@@ -5112,7 +5125,10 @@ def _emit_primary_phase_summary(
         # the response bounder on both the terminal-key path and (for a stale
         # server without the registration) the unknown-scalar budget path.
         summary[SUMMARY_DEGRADATION_MARKER_KEY] = degradation_marker
-    _emit_summary_line(summary)
+    if terminal:
+        _emit_summary_line(summary)
+    else:
+        _log(json.dumps(summary, indent=2, ensure_ascii=False))
 
 
 def _persist_skipped_scan_locations(root: Path) -> None:
@@ -5226,6 +5242,7 @@ def _emit_primary_summary_via_delegate_or_fallback(
     *,
     index_published: bool,
     timeout_s: float = _SUMMARY_DELEGATE_TIMEOUT_S,
+    terminal: bool = True,
 ) -> None:
     """Wave 1u44o: the SINGLE primary-phase summary emit site (mutually exclusive).
 
@@ -5262,7 +5279,10 @@ def _emit_primary_summary_via_delegate_or_fallback(
         if mismatch:
             payload, degradation = None, "parent_fact_mismatch"
     if payload is not None:
-        _log(WAVE_UPGRADE_SUMMARY_SENTINEL + payload)
+        if terminal:
+            _log(WAVE_UPGRADE_SUMMARY_SENTINEL + payload)
+        else:
+            _log(json.dumps(returned, indent=2, ensure_ascii=False))
     else:
         _emit_primary_phase_summary(
             from_version,
@@ -5273,6 +5293,7 @@ def _emit_primary_summary_via_delegate_or_fallback(
             review_sidecar_cleanup=review_sidecar_cleanup,
             index_published=index_published,
             degradation_marker=degradation or "delegation_failed",
+            terminal=terminal,
         )
 
 

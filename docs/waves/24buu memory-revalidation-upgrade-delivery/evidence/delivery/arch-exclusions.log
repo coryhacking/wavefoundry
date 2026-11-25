@@ -1,0 +1,7 @@
+test_v151_upgrade_renderer_installs_proven_baselines_and_summary (test_lifecycle_baseline_drift.BaselineDriftTests.test_v151_upgrade_renderer_installs_proven_baselines_and_summary) ... ok
+test_every_state_writes_absent_members_only_and_warns_iff_mixed (test_render_agent_surfaces.TechdocsBaselineStateMatrixTests.test_every_state_writes_absent_members_only_and_warns_iff_mixed) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 4.705s
+
+OK

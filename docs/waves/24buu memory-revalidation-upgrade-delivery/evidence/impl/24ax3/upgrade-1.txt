@@ -1,0 +1,17 @@
+FOCUSED diagnostic run (1 of 261 test files) — not delivery evidence; the full-suite cache is untouched.
+Running 1 test files across 1 workers …
+  [1/1] test_upgrade_wavefoundry.py — 768 tests ok (218.1s)
+
+----------------------------------------------------------------------
+Slowest files (top 1 of 1):
+  test_upgrade_wavefoundry.py                    218.132s  (768 tests)
+Worker service time: 218.132s across 1 files; skipped 2 tests
+FILES CHANGED DURING THE TEST RUN AND TOLERATED: these paths under docs/ changed during the run; they are outside the waves open at its start and the policy files, so the run was not refused for them. A write here that bypasses the in-worker guard (a child process started without it, a shell or git command, a native write) is not caught by the end-of-run comparison:
+  docs/prompts/upgrade-wavefoundry.prompt.md
+
+REPOSITORY CHANGED DURING THE TEST RUN: tests must write only under temporary roots, but these tracked, non-ignored or edit-gate paths were created, modified or deleted:
+  .wavefoundry/framework/scripts/tests/test_spec_tool_permissions.py
+  .wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md
+A concurrent edit by an operator or agent during the run also trips this guard when it touches the framework tree, the edit gate (including opening or closing an edit gate), the folder of a wave that was open when the run started (unless it is validated canonical bookkeeping), a policy file under docs/, or any path outside docs/. Other changes under docs/ are tolerated and listed. Re-run after material inputs settle. Otherwise fix the offending test to write under a temporary root.
+Ran 768 tests across 1 files in 218.133s
+FAILED (stray test artifacts or repository changes)

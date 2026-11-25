@@ -1,0 +1,29 @@
+# Wave 24buu delivery primer
+
+Owner: Engineering
+Status: active
+Last verified: 2026-11-24
+
+Mode `council-adversarial-primer`, full depth. The strongest challenge is whether a released runner recognizes its own real completion checkpoint. The initial pair of 1.53.0 test archives needed manual cleanup on the successor CLI hop. I independently replayed the actual preserved checkpoint with its installed runner and the frozen source. The installed runner returned false for automatic cleanup. The frozen runner returned true, returned false on explicit opt-out, and left the checkpoint bytes identical. The chair should require the successor CLI transcript and a single cleanup-complete summary from the final package before crediting end-to-end repair.
+
+| Thinking stance | Impact and efficacy replay | Executed evidence | Limits and what can defeat the outcome |
+| --- | --- | --- | --- |
+| Adversarial | 24ax3 preserves the operator's constraint when a repository allow and an outside deny name the same retired tool. | On two successive migrations, a new Python process consulted the real roster and held only wf_get_spec. Its verification receipt stayed absent. The outside file and second-run project tree retained their bytes. The focused tests also passed six isolated outside-policy cases, the old orchestrator argv and teammate setup. | The independent restart probe used the roster in a fresh process. The earlier archive rehearsal listed actual stdio tools with repository rules. A separately supplied host launch policy remains outside this evidence. |
+| Constructive | 24bn8 delivers stock guidance to an untouched installation while a project with edits retains control of its prompt. | The production render child replaced proven 1.51 baselines. The edited, unknown, changed-after-comparison and symlink test passed its preservation assertions. | An edited memory or close prompt still needs the documented manual merge. Prompt preservation does not prove a human performed it. |
+| Simplicity | 24but's active-record counts let a reviewer see unresolved targets even when no matching advisory appears. | Five fixture tests passed. A default brief, limit one, an empty target match and review context agreed. Four active records produced one of each reason. Unavailable churn data set availability false. The evaluator and brief agreed, without exposing memory IDs. | The reason counts do not establish that a memory needs removal. The coordinator's earlier stdio rehearsal compared memory and ledger bytes. The focused handler test did not trace every possible filesystem write. |
+| First principles | 24bn9 must base automatic cleanup on verified pending work. Treating any captured capability as a pending stop caused the actual second-hop failure. | Same real checkpoint and original package gave installed false, frozen true, frozen opt-out false. A real extracted cleanup child removed its fixture's lock and emitted one sentinel. Required stops, malformed guards, restart receipts and retained continuations passed their controls. | The checkpoint replay is a decision probe. The final archive transcript must establish that its caller takes the action. Old-installed and MCP callers retain their phase-specific intervention. |
+| Analogical | 24bn7 needs the same dependency resolution as an installed program when invoked as an archive. Checking the archive member list alone had missed the function-local import. | Direct zip entry tests reached the continuation in both supported sample archives. A newly introduced function-level framework import also resolved. | Those tests use a stub continuation. The full two-hop rehearsal must establish completion on the actual package and document its provider setting. Native Windows was outside this review. |
+
+## Questions for the seats
+
+1. Do the fresh stdio route inventory, repeated setup and outside-policy controls jointly establish which routes a restarted installation can serve while preserving each restriction and the user's bytes?
+2. Does the delivered render apply the keep guidance only to proven baselines, preserve edited, unknown, changed and linked destinations, and report all active memories read-only even for an empty brief?
+3. Do the final direct-archive and installed CLI successor runs each show one cleanup-complete summary and a removed lock, while legacy, MCP and retained-checkpoint runs show the appropriate continuation?
+
+## Alternative and tradeoff
+
+Use a paired artifact check as the release evidence. Run the same two candidate archives through the installed CLI, direct archive and stdio handler, retaining primary checkpoints separately from terminal summaries. Reuse the original CPU provider and list every intervention. This costs fixture runtime, but preserves the distinction that exposed the known-bad successor runner. Counting a green terminal inventory alone would accept a manual repair of an automatic-cleanup regression. The existing confirmation driver already performs these checks.
+
+## Evidence and confidence
+
+I independently matched the frozen path hash to `7cb3a3714a6e996278cc3a097c32c522ba830d215d1d530f219ee09532e503df`. The 15 focused unittest identifiers and their results appear in `primer-checks.log` (21.721 seconds, all passed). I used the tool venv with `-B -m unittest -v` from the framework tests directory, with the scripts directory on PYTHONPATH. `primer-policy.log` records the fresh-process comparison. `primer-checkpoint.log` records the actual guard result against the original diagnostic target, checkpoint SHA-256 `779b9d13cc9dcff4ebee83aa53a59ac188da7830f24c794fe7ab8567c827e704`. The installed runner supplied the known-bad control. Confidence is high for the tested behaviors. The first rehearsal summary documents the original failing pair and automatic-provider precision issue. Final packaged confirmation is tracked by the coordinator. This primer supplies questions and evidence for the seats.

@@ -1,0 +1,28 @@
+package wavefoundry-1.53.0.q5tz.zip c8b9886bae36ff14e2e1126f20652bca0f07e5b3c6f343265e35d2818a2b2e10 stamp 1.53.0+q5tz compared_scripts 11 drift []
+good 3 hacking/.wavefoundry/venv/bin/python\", \"<temp>/tmphkhh0yny/target good/.wavefoundry/framework/scripts/upgrade_wavefoundry.py\", \"--root\", \"<temp>/tmphkhh0yny/target good\", \"--pack\", \"<temp>/tmphkhh0yny/target good/.wavefoundry/upgrade-assets/embedded-2g02lesl.zip\", \"--yes\", \"--confirm-hosts-stopped\"], \"command\": \"<home>/.wavefoundry/venv/bin/python '<temp>/tmphkhh0yny/target good/.wavefoundry/framework/scripts/upgrade_wavefoundry.py' --root '<temp>/tmphkhh0yny/target good' --pack '<temp>/tmphkhh0yny/target good/.wavefoundry/upgrade-assets/embedded-2g02lesl.zip' --yes --confirm-hosts-stopped\", \"command_shell\": \"POSIX shell\"}\nPOSIX shell: <home>/.wavefoundry/venv/bin/python '<temp>/tmphkhh0yny/target good/.wavefoundry/framework/scripts/upgrade_wavefoundry.py' --root '<temp>/tmphkhh0yny/target good' --pack '<temp>/tmphkhh0yny/target good/.wavefoundry/upgrade-assets/embedded-2g02lesl.zip' --yes --confirm-hosts-stopped\n", "target_protocol": 2, "target_version": "1.53.0", "upgrade_log": "<temp>/tmphkhh0yny/target good/.wavefoundry/logs/upgrade.log"}
+ 
+bad 1  eback (most recent call last):
+  File "<frozen runpy>", line 203, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "<temp>/tmphkhh0yny/altered.zip/__main__.py", line 465, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "<temp>/tmphkhh0yny/altered.zip/__main__.py", line 446, in main
+    code, payload = run(
+                    ~~~^
+        Path(sys.argv[0]).resolve(),
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<2 lines>...
+        dry_run=args.dry_run,
+        ^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "<temp>/tmphkhh0yny/altered.zip/__main__.py", line 326, in run
+    bridge, runner_stage, retained = _incoming_runner(bundle, root, dry_run=dry_run)
+                                     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<temp>/tmphkhh0yny/altered.zip/__main__.py", line 271, in _incoming_runner
+    retained = envelope.retain(root, bundle)
+  File "<temp>/tmphkhh0yny/altered.zip/embedded_model_bundle.py", line 94, in retain
+    import contained_files
+ModuleNotFoundError: No module named 'contained_files'
+

@@ -1,0 +1,15 @@
+test_retry_preserves_edit_after_incomplete_receipt (test_lifecycle_baseline_drift.BaselineDriftTests.test_retry_preserves_edit_after_incomplete_receipt) ... FAIL
+
+======================================================================
+FAIL: test_retry_preserves_edit_after_incomplete_receipt (test_lifecycle_baseline_drift.BaselineDriftTests.test_retry_preserves_edit_after_incomplete_receipt)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_lifecycle_baseline_drift.py", line 604, in test_retry_preserves_edit_after_incomplete_receipt
+    self.assertEqual(prompt.read_bytes(), data)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: b'# Implement Wave\n\nOwner: Engineering\n[9864 chars]->\n' != b"# Implement Wave\n\nOwner: Engineering\n[7144 chars]e.\n"
+
+----------------------------------------------------------------------
+Ran 1 test in 0.363s
+
+FAILED (failures=1)

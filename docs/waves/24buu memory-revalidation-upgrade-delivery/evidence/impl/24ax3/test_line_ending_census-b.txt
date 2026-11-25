@@ -1,0 +1,11 @@
+Bytecode cache warm (1.6s).
+FOCUSED diagnostic run (1 of 261 test files) — not delivery evidence; the full-suite cache is untouched.
+Running 1 test files across 1 workers …
+  [1/1] test_line_ending_census.py — 16 tests ok (58.1s)
+
+----------------------------------------------------------------------
+Slowest files (top 1 of 1):
+  test_line_ending_census.py                      58.058s  (16 tests)
+Worker service time: 58.058s across 1 files; skipped 0 tests
+Ran 16 tests across 1 files in 58.060s
+OK

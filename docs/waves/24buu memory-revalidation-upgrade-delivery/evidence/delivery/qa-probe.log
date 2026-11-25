@@ -1,0 +1,61 @@
+test_ac1_counts_active_records_before_the_briefing_filters (__main__.MutatedCounts.test_ac1_counts_active_records_before_the_briefing_filters) ... FAIL
+
+======================================================================
+FAIL: test_ac1_counts_active_records_before_the_briefing_filters (__main__.MutatedCounts.test_ac1_counts_active_records_before_the_briefing_filters)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_memory_records.py", line 6736, in test_ac1_counts_active_records_before_the_briefing_filters
+    self.assertEqual(self._revalidation(), self.EXPECTED)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: {'active_records': 1, 'target_unresolved': 1, 'target_churn'[51 chars]True} != {'active_records': 4, 'target_unresolved': 1, 'target_churn'[51 chars]True}
+- {'active_records': 1,
+?                    ^
+
++ {'active_records': 4,
+?                    ^
+
+   'churn_available': True,
+-  'target_churn': 0,
+?                  ^
+
++  'target_churn': 1,
+?                  ^
+
+-  'target_not_canonical': 0,
+?                          ^
+
++  'target_not_canonical': 1,
+?                          ^
+
+   'target_unresolved': 1}
+
+----------------------------------------------------------------------
+Ran 1 test in 3.369s
+
+FAILED (failures=1)
+CONTROL DETECTED
+test_ac1_counts_active_records_before_the_briefing_filters (test_memory_records.BriefRevalidationCountsTests.test_ac1_counts_active_records_before_the_briefing_filters) ... ok
+test_ac2_counts_match_maintenance_signals_and_carry_no_ids (test_memory_records.BriefRevalidationCountsTests.test_ac2_counts_match_maintenance_signals_and_carry_no_ids) ... ok
+test_ac7_an_unavailable_churn_source_is_never_reported_clean (test_memory_records.BriefRevalidationCountsTests.test_ac7_an_unavailable_churn_source_is_never_reported_clean) ... ok
+test_no_file_target_reads_nothing_and_counts_churn_available (test_memory_records.BriefRevalidationCountsTests.test_no_file_target_reads_nothing_and_counts_churn_available) ... ok
+test_other_ranker_callers_keep_their_results (test_memory_records.BriefRevalidationCountsTests.test_other_ranker_callers_keep_their_results) ... ok
+test_v151_upgrade_renderer_installs_proven_baselines_and_summary (test_lifecycle_baseline_drift.BaselineDriftTests.test_v151_upgrade_renderer_installs_proven_baselines_and_summary) ... ok
+test_edited_unknown_late_changed_and_linked_paths_keep_bytes_and_findings (test_lifecycle_baseline_drift.BaselineDriftTests.test_edited_unknown_late_changed_and_linked_paths_keep_bytes_and_findings) ... ok
+test_direct_zip_entry_resolves_a_future_function_level_import (test_upgrade_protocol.UpgradeProtocolTests.test_direct_zip_entry_resolves_a_future_function_level_import) ... ok
+test_cli_primary_runs_extracted_cleanup_and_emits_one_terminal_result (test_upgrade_wavefoundry.UpgradeManifestRecoveryTests.test_cli_primary_runs_extracted_cleanup_and_emits_one_terminal_result) ... ok
+test_primary_preserves_continuations_after_publication (test_upgrade_wavefoundry.UpgradeManifestRecoveryTests.test_primary_preserves_continuations_after_publication) ... ok
+test_ac10_installing_hop_argv_and_teammate_setup_path (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac10_installing_hop_argv_and_teammate_setup_path) ... render_platform_surfaces: Spec-tool verified: wf_new_spec
+render_platform_surfaces: Spec-tool verified: wf_get_spec
+render_platform_surfaces: Spec-tool verified: wf_add_spec
+render_platform_surfaces: Spec-tool verified: wf_remove_spec
+render_platform_surfaces: Spec-tool verified: wf_close_spec
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmp_iuzz69o/claude/settings.json (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmp_iuzz69o/codex/config.toml (absent)
+render_platform_surfaces: Spec-tool outside layer: <temp>/tmp_iuzz69o/managed/managed-settings.json (absent)
+ok
+test_ac4_outside_restrictions_hold_routes_and_are_never_written (test_spec_tool_permissions.SpecPermissionMigrationTests.test_ac4_outside_restrictions_hold_routes_and_are_never_written) ... ok
+
+----------------------------------------------------------------------
+Ran 12 tests in 16.580s
+
+OK

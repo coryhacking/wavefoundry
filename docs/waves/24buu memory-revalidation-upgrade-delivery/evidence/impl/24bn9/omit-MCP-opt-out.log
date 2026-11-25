@@ -1,0 +1,30 @@
+F
+======================================================================
+FAIL: test_storage_pause_carries_external_continuation_and_rejects_stale_action (test_server_tools.WaveUpgradeMcpToolTests.test_storage_pause_carries_external_continuation_and_rejects_stale_action)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/work/24buu/impl/24bn9/tree/.wavefoundry/framework/scripts/tests/test_server_tools.py", line 6567, in test_storage_pause_carries_external_continuation_and_rejects_stale_action
+    result = self.srv.wf_upgrade_response(self.root)
+  File "<repo>/.wavefoundry/work/24buu/impl/24bn9/tree/.wavefoundry/framework/scripts/wf_server/upgrade_handlers.py", line 1327, in wf_upgrade_response
+    result = server_impl._mcp_subprocess_run(
+        cmd,
+    ...<3 lines>...
+             "WAVEFOUNDRY_STORAGE_INVOCATION": storage_invocation},
+    )
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1176, in __call__
+    return self._mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1180, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.8/Frameworks/Python.framework/Versions/3.14/lib/python3.14/unittest/mock.py", line 1247, in _execute_mock_call
+    result = effect(*args, **kwargs)
+  File "<repo>/.wavefoundry/work/24buu/impl/24bn9/tree/.wavefoundry/framework/scripts/tests/test_server_tools.py", line 6555, in pause_child
+    self.assertIn("--no-auto-cleanup", cmd)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '--no-auto-cleanup' not found in ['<home>/.wavefoundry/venv/bin/python', '<repo>/.wavefoundry/work/24buu/impl/24bn9/tree/.wavefoundry/framework/scripts/upgrade_wavefoundry.py', '--root', '<temp>/tmp03hls_hk', '--yes']
+
+----------------------------------------------------------------------
+Ran 1 test in 0.377s
+
+FAILED (failures=1)

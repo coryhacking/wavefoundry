@@ -1,0 +1,182 @@
+[
+  {
+    "partial_skill_delivery": false,
+    "skill_collisions": [],
+    "spec_tool_permission_holds": [],
+    "spec_tool_permission_recommendations": [],
+    "spec_tool_outside_layers": [
+      "<repo>/.wavefoundry/work/24buu/rehearsal/confirmed/cli/home/.claude/settings.json (absent)",
+      "<repo>/.wavefoundry/work/24buu/rehearsal/confirmed/cli/home/.codex/config.toml (absent)",
+      "<repo>/.wavefoundry/work/24buu/rehearsal/confirmed/cli/home/enterprise/managed-settings.json (absent)"
+    ],
+    "historical_memory": {
+      "closed_waves_without_memory": 0,
+      "candidates_awaiting_validation": 0,
+      "next_step": "Run Review memories: memory_backfill(mode='create') then memory_validate."
+    },
+    "review_sidecar_cleanup": {
+      "removed_sidecars": 0,
+      "removed_stale_root_lock": 0,
+      "restart_required": false
+    },
+    "from_version": "1.51.0+q5hc",
+    "to_version": "1.53.0+q5u0",
+    "zip_applied": "wf-verified-pack-_5baolfm.zip",
+    "pruned_count": 0,
+    "cleanup_complete": true,
+    "docs_gate": "PASSED",
+    "index_update": "docs and code layers complete",
+    "dependency_provisioning_failed": false,
+    "setup_status": "ready",
+    "setup_reasons": [],
+    "setup_command": null,
+    "setup_argv": [],
+    "setup_shell": null,
+    "failed_phase": null,
+    "is_major_or_minor": true,
+    "reconciliation": [],
+    "reconciliation_disposition_diagnostics": [],
+    "host_permission_flags": [
+      {
+        "file": ".claude/settings.json",
+        "line": 124,
+        "retired_surface": "wf_remove_change",
+        "matched": "mcp__wavefoundry__wf_remove_change",
+        "suggested": "wf_remove_spec (use spec_id wherever the older operation accepted change_id)",
+        "disposition_key": "v2:6682148af31ea862e976f7687be47b27",
+        "disposition_key_version": "v2",
+        "legacy_disposition_key": "419d31b5d0b8332d",
+        "disposition_state": "unrecorded",
+        "logical_line": "      \"mcp__wavefoundry__wf_remove_change\",",
+        "heading_context": "",
+        "proposed_v2_key": null
+      },
+      {
+        "file": ".claude/settings.local.json",
+        "line": 4,
+        "retired_surface": "wf_add_change",
+        "matched": "mcp__wavefoundry__wf_add_change",
+        "suggested": "wf_add_spec (use spec_id wherever the older operation accepted change_id)",
+        "disposition_key": "v2:1ef1262581ee403107db078150fa7fd1",
+        "disposition_key_version": "v2",
+        "legacy_disposition_key": "b98b2915a20d8df9",
+        "disposition_state": "unrecorded",
+        "logical_line": "      \"mcp__wavefoundry__wf_add_change\",",
+        "heading_context": "",
+        "proposed_v2_key": null
+      },
+      {
+        "file": ".claude/settings.local.json",
+        "line": 5,
+        "retired_surface": "wf_get_change",
+        "matched": "mcp__wavefoundry__wf_get_change",
+        "suggested": "wf_get_spec (use spec_id wherever the older operation accepted change_id)",
+        "disposition_key": "v2:08cc25255ba7aa1d23db01e8db94301e",
+        "disposition_key_version": "v2",
+        "legacy_disposition_key": "039e0f9d34be78a0",
+        "disposition_state": "unrecorded",
+        "logical_line": "      \"mcp__wavefoundry__wf_get_change\",",
+        "heading_context": "",
+        "proposed_v2_key": null
+      }
+    ],
+    "renderer_provenance_flags": [],
+    "renderer_warnings": [],
+    "lifecycle_baseline_drift": [
+      {
+        "channel": "lifecycle_baseline_drift",
+        "file": "docs/prompts/implement-wave.prompt.md",
+        "detail": "replaced: local copy matched the previous template",
+        "action": "replaced: Installed the incoming template.",
+        "local_sha256": "33ad07240dc3642e98efeb181773be2ead659f4f659564704ce0b95c2be327ba"
+      },
+      {
+        "channel": "lifecycle_baseline_drift",
+        "file": "docs/prompts/memory-review.prompt.md",
+        "detail": "replaced: local copy matched the previous template",
+        "action": "replaced: Installed the incoming template.",
+        "local_sha256": "1110c8a7db6e51e76a0318caf4358a08bf4bc14a4b1c36800a2182e079b8a5a2"
+      },
+      {
+        "channel": "lifecycle_baseline_drift",
+        "file": "docs/prompts/close-wave.prompt.md",
+        "detail": "replaced: local copy matched the previous template",
+        "action": "replaced: Installed the incoming template.",
+        "local_sha256": "895c5d4700b83b1bb4dcfd9ce3ab0c8dec6e51ea6077d98576486c0bda70325d"
+      },
+      {
+        "channel": "lifecycle_baseline_drift",
+        "file": "docs/prompts/close-spec.prompt.md",
+        "detail": "replaced: local copy matched the previous template",
+        "action": "replaced: Installed the incoming template.",
+        "local_sha256": "d95ae98255ec8f12d65c890fd0d44cb18a55d53a4e484070e472db60be2d3788"
+      },
+      {
+        "channel": "lifecycle_baseline_drift",
+        "file": "docs/prompts/explain.prompt.md",
+        "detail": "replaced: local copy matched the previous template",
+        "action": "replaced: Installed the incoming template.",
+        "local_sha256": "8221d7a03f4bcb3a467cf34f4cee545070d8f54d9f3569c60f66064e6853073e"
+      },
+      {
+        "channel": "lifecycle_baseline_drift",
+        "file": "docs/plans/plan-template.md",
+        "detail": "replaced: local copy matched the previous template",
+        "action": "replaced: Installed the incoming template.",
+        "local_sha256": "12a1e92235d457591f68d4167cce9586a217a5a7dfb9cdfcd69323a592b1a843"
+      }
+    ],
+    "permissions_file": ".claude/settings.json",
+    "permissions_added": [
+      "mcp__wavefoundry__wf_get_spec"
+    ],
+    "permissions_removed": [
+      "mcp__wavefoundry__wf_get_change"
+    ],
+    "permissions_changed": 2,
+    "permissions_unmanaged_present": null,
+    "skipped_scan_locations": [],
+    "retired_model_cleanup_status": "complete",
+    "retired_model_cleanup_removed": [],
+    "retired_model_cleanup_absent": [
+      "clean-onnx:default:models--Snowflake--snowflake-arctic-embed-xs",
+      "clean-onnx:default:models--Xenova--bge-reranker-base",
+      "clean-onnx:default:models--Xenova--bge-small-en-v1.5",
+      "coreml:default:BAAI__bge-base-en-v1.5",
+      "coreml:default:BAAI__bge-reranker-base",
+      "coreml:default:BAAI__bge-small-en-v1.5",
+      "coreml:default:Snowflake__snowflake-arctic-embed-xs",
+      "fastembed:default:models--BAAI--bge-base-en-v1.5",
+      "fastembed:default:models--BAAI--bge-reranker-base",
+      "fastembed:default:models--BAAI--bge-small-en-v1.5",
+      "fastembed:default:models--qdrant--bge-base-en-v1.5-onnx-q",
+      "fastembed:default:models--qdrant--bge-small-en-v1.5-onnx-q",
+      "fastembed:default:models--snowflake--snowflake-arctic-embed-xs",
+      "static-onnx:default:BAAI__bge-base-en-v1.5",
+      "static-onnx:default:BAAI__bge-reranker-base",
+      "static-onnx:default:BAAI__bge-small-en-v1.5",
+      "static-onnx:default:Snowflake__snowflake-arctic-embed-xs"
+    ],
+    "retired_model_cleanup_unowned": [],
+    "retired_model_cleanup_failed": [],
+    "reconciliation_state": "complete",
+    "reconciliation_reason": "",
+    "reconciliation_last_path": "app/main.py",
+    "reconciliation_last_stage": "dispositions",
+    "reconciliation_elapsed": 1.1722666670102626,
+    "reconciliation_visited_entries": 435,
+    "reconciliation_eligible_files": 86,
+    "reconciliation_read_files": 86,
+    "reconciliation_read_bytes": 441295,
+    "reconciliation_candidates": 58,
+    "work_root_state": "complete",
+    "work_root_reason": "",
+    "work_leftovers": [],
+    "work_leftovers_next_action": "",
+    "delivery_coverage_state": "complete",
+    "delivery_coverage_affected": [],
+    "delivery_coverage_limitations": [],
+    "delivery_coverage_action": "",
+    "summary_schema_version": 1
+  }
+]

@@ -1,0 +1,11 @@
+Bytecode cache warm (2.1s).
+FOCUSED diagnostic run (1 of 261 test files) — not delivery evidence; the full-suite cache is untouched.
+Running 1 test files across 1 workers …
+  [1/1] test_upgrade_protocol.py — 54 tests ok (20.8s)
+
+----------------------------------------------------------------------
+Slowest files (top 1 of 1):
+  test_upgrade_protocol.py                        20.845s  (54 tests)
+Worker service time: 20.845s across 1 files; skipped 0 tests
+Ran 54 tests across 1 files in 20.846s
+OK

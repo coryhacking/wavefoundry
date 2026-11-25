@@ -1,0 +1,397 @@
+Bytecode cache warm (1.6s).
+FOCUSED diagnostic run (1 of 261 test files) — not delivery evidence; the full-suite cache is untouched.
+Running 1 test files across 1 workers …
+  [1/1] test_setup_readiness.py — 56 tests FAIL (6.2s)
+
+======================================================================
+FAILED: test_setup_readiness.py
+======================================================================
+test_adoption_writes_only_a_missing_or_unreadable_baseline (test_setup_readiness.SetupReadinessTests.test_adoption_writes_only_a_missing_or_unreadable_baseline) ... ok
+test_all_canonical_setup_parser_options_survive_real_continuation (test_setup_readiness.SetupReadinessTests.test_all_canonical_setup_parser_options_survive_real_continuation) ... ok
+test_application_edits_do_not_request_setup_or_rewrite_stamp (test_setup_readiness.SetupReadinessTests.test_application_edits_do_not_request_setup_or_rewrite_stamp) ... FAIL
+test_assessment_has_no_product_walk_and_at_most_one_child (test_setup_readiness.SetupReadinessTests.test_assessment_has_no_product_walk_and_at_most_one_child) ... FAIL
+test_below_minimum_remains_blocked_without_deprecation_advisory (test_setup_readiness.SetupReadinessTests.test_below_minimum_remains_blocked_without_deprecation_advisory) ... ok
+test_busy_database_returns_indeterminate_without_setup (test_setup_readiness.SetupReadinessTests.test_busy_database_returns_indeterminate_without_setup) ... ok
+test_changed_metadata_signature (test_setup_readiness.SetupReadinessTests.test_changed_metadata_signature) ... ok
+test_command_format_posix_and_windows_are_shell_correct (test_setup_readiness.SetupReadinessTests.test_command_format_posix_and_windows_are_shell_correct) ... ok
+test_configuration_change_after_stamp_requests_setup (test_setup_readiness.SetupReadinessTests.test_configuration_change_after_stamp_requests_setup) ... ok
+test_deprecated_runtime_is_additive_and_retains_independent_failures (test_setup_readiness.SetupReadinessTests.test_deprecated_runtime_is_additive_and_retains_independent_failures) ... 
+  test_deprecated_runtime_is_additive_and_retains_independent_failures (test_setup_readiness.SetupReadinessTests.test_deprecated_runtime_is_additive_and_retains_independent_failures) (failure='none', minor=11) ... FAIL
+  test_deprecated_runtime_is_additive_and_retains_independent_failures (test_setup_readiness.SetupReadinessTests.test_deprecated_runtime_is_additive_and_retains_independent_failures) (failure='none', minor=12) ... FAIL
+  test_deprecated_runtime_is_additive_and_retains_independent_failures (test_setup_readiness.SetupReadinessTests.test_deprecated_runtime_is_additive_and_retains_independent_failures) (failure='none', minor=13) ... FAIL
+test_different_target_framework_never_ready (test_setup_readiness.SetupReadinessTests.test_different_target_framework_never_ready) ... ok
+test_exclusive_write_falls_back_when_hard_links_are_unsupported (test_setup_readiness.SetupReadinessTests.test_exclusive_write_falls_back_when_hard_links_are_unsupported) ... ok
+test_exclusive_write_never_replaces_an_existing_stamp (test_setup_readiness.SetupReadinessTests.test_exclusive_write_never_replaces_an_existing_stamp) ... ok
+test_failed_setup_pairs_ordinary_resume_with_legacy_recovery (test_setup_readiness.SetupReadinessTests.test_failed_setup_pairs_ordinary_resume_with_legacy_recovery) ... ok
+test_fifo_rejected_before_open (test_setup_readiness.SetupReadinessTests.test_fifo_rejected_before_open) ... ok
+test_identity_guard_refuses_a_source_change_since_assessment (test_setup_readiness.SetupReadinessTests.test_identity_guard_refuses_a_source_change_since_assessment) ... ok
+test_junie_argument_base_is_config_directory (test_setup_readiness.SetupReadinessTests.test_junie_argument_base_is_config_directory) ... ok
+test_lexical_producer_newer_is_not_ready (test_setup_readiness.SetupReadinessTests.test_lexical_producer_newer_is_not_ready) ... ok
+test_malformed_database_preserved (test_setup_readiness.SetupReadinessTests.test_malformed_database_preserved) ... ok
+test_malformed_ownership_suppresses_setup (test_setup_readiness.SetupReadinessTests.test_malformed_ownership_suppresses_setup) ... ok
+test_mcp_2_is_reported_missing_and_mcp_1_is_not (test_setup_readiness.SetupReadinessTests.test_mcp_2_is_reported_missing_and_mcp_1_is_not) ... ok
+test_metadata_extras_without_import_or_pth_execution (test_setup_readiness.SetupReadinessTests.test_metadata_extras_without_import_or_pth_execution) ... ok
+test_missing_dependency_checked_despite_matching_stamp (test_setup_readiness.SetupReadinessTests.test_missing_dependency_checked_despite_matching_stamp) ... ok
+test_newer_legacy_named_database_does_not_recommend_setup (test_setup_readiness.SetupReadinessTests.test_newer_legacy_named_database_does_not_recommend_setup) ... ok
+test_newer_schema_suppresses_setup_even_if_dependencies_missing (test_setup_readiness.SetupReadinessTests.test_newer_schema_suppresses_setup_even_if_dependencies_missing) ... ok
+test_old_schema_recommends_setup (test_setup_readiness.SetupReadinessTests.test_old_schema_recommends_setup) ... ok
+test_operator_provider_change_after_stamp_requests_setup (test_setup_readiness.SetupReadinessTests.test_operator_provider_change_after_stamp_requests_setup) ... ok
+test_other_host_preferences_do_not_change_stamp_projection (test_setup_readiness.SetupReadinessTests.test_other_host_preferences_do_not_change_stamp_projection) ... FAIL
+test_ownership_changed_during_snapshot_never_ready (test_setup_readiness.SetupReadinessTests.test_ownership_changed_during_snapshot_never_ready) ... FAIL
+test_pre_projection_stamp_compares_by_the_same_rule (test_setup_readiness.SetupReadinessTests.test_pre_projection_stamp_compares_by_the_same_rule) ... FAIL
+test_projection_detects_operator_controlled_changes (test_setup_readiness.SetupReadinessTests.test_projection_detects_operator_controlled_changes) ... ok
+test_projection_equal_across_launch_details (test_setup_readiness.SetupReadinessTests.test_projection_equal_across_launch_details) ... ok
+test_provider_canonical_environment_changes_signature (test_setup_readiness.SetupReadinessTests.test_provider_canonical_environment_changes_signature) ... ok
+test_ready_without_stamp_and_no_application_writes (test_setup_readiness.SetupReadinessTests.test_ready_without_stamp_and_no_application_writes) ... FAIL
+test_real_child_deadline_and_isolation_flags (test_setup_readiness.SetupReadinessTests.test_real_child_deadline_and_isolation_flags) ... ok
+test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice (test_setup_readiness.SetupReadinessTests.test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice) ... 
+  test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice (test_setup_readiness.SetupReadinessTests.test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice) (iteration=0, host='.mcp.json') ... FAIL
+  test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice (test_setup_readiness.SetupReadinessTests.test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice) (iteration=0, host='.cursor/mcp.json') ... FAIL
+  test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice (test_setup_readiness.SetupReadinessTests.test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice) (iteration=0, host='.junie/mcp/mcp.json') ... FAIL
+  test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice (test_setup_readiness.SetupReadinessTests.test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice) (iteration=0, host='.agents/mcp_config.json') ... FAIL
+  test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice (test_setup_readiness.SetupReadinessTests.test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice) (iteration=0, host='.codex/config.toml') ... FAIL
+  test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice (test_setup_readiness.SetupReadinessTests.test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice) (iteration=1, host='.mcp.json') ... FAIL
+  test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice (test_setup_readiness.SetupReadinessTests.test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice) (iteration=1, host='.cursor/mcp.json') ... FAIL
+  test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice (test_setup_readiness.SetupReadinessTests.test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice) (iteration=1, host='.junie/mcp/mcp.json') ... FAIL
+  test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice (test_setup_readiness.SetupReadinessTests.test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice) (iteration=1, host='.agents/mcp_config.json') ... FAIL
+  test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice (test_setup_readiness.SetupReadinessTests.test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice) (iteration=1, host='.codex/config.toml') ... FAIL
+test_real_setup_continuation_requires_checkpoint_root_identity (test_setup_readiness.SetupReadinessTests.test_real_setup_continuation_requires_checkpoint_root_identity) ... ok
+test_repository_launcher_quotes_posix_and_windows_special_paths (test_setup_readiness.SetupReadinessTests.test_repository_launcher_quotes_posix_and_windows_special_paths) ... ok
+test_setup_notes_edit_after_stamp_does_not_request_setup (test_setup_readiness.SetupReadinessTests.test_setup_notes_edit_after_stamp_does_not_request_setup) ... FAIL
+test_setup_remedy_uses_checkout_launcher_and_round_trips_arguments (test_setup_readiness.SetupReadinessTests.test_setup_remedy_uses_checkout_launcher_and_round_trips_arguments) ... ok
+test_source_difference_with_another_input_change_still_requests_setup (test_setup_readiness.SetupReadinessTests.test_source_difference_with_another_input_change_still_requests_setup) ... ok
+test_source_only_stamp_difference_is_a_limitation_not_a_setup_request (test_setup_readiness.SetupReadinessTests.test_source_only_stamp_difference_is_a_limitation_not_a_setup_request) ... FAIL
+test_stale_loaded_assessor_returns_restart_without_sql_or_setup (test_setup_readiness.SetupReadinessTests.test_stale_loaded_assessor_returns_restart_without_sql_or_setup) ... ok
+test_stamp_ignores_setup_handoff_and_launch_variables (test_setup_readiness.SetupReadinessTests.test_stamp_ignores_setup_handoff_and_launch_variables) ... FAIL
+test_stamp_records_provenance_and_rejects_unknown (test_setup_readiness.SetupReadinessTests.test_stamp_records_provenance_and_rejects_unknown) ... ok
+test_storage_identity_diagnostics_preserve_record_bytes_on_accept_and_refusal (test_setup_readiness.SetupReadinessTests.test_storage_identity_diagnostics_preserve_record_bytes_on_accept_and_refusal) ... ok
+test_surface_cwd_root_and_unknown_variables_are_checked (test_setup_readiness.SetupReadinessTests.test_surface_cwd_root_and_unknown_variables_are_checked) ... FAIL
+test_tampered_ready_stamp_cannot_override_newer_database (test_setup_readiness.SetupReadinessTests.test_tampered_ready_stamp_cannot_override_newer_database) ... ok
+test_timeout_is_indeterminate (test_setup_readiness.SetupReadinessTests.test_timeout_is_indeterminate) ... ok
+test_unreadable_advisory_stamp_does_not_force_setup (test_setup_readiness.SetupReadinessTests.test_unreadable_advisory_stamp_does_not_force_setup) ... FAIL
+test_unsupported_historical_schema_preserved (test_setup_readiness.SetupReadinessTests.test_unsupported_historical_schema_preserved) ... ok
+test_use_stamp_false_skips_only_the_stamp_comparison (test_setup_readiness.SetupReadinessTests.test_use_stamp_false_skips_only_the_stamp_comparison) ... FAIL
+test_valid_recorded_archive_continuation_preserved (test_setup_readiness.SetupReadinessTests.test_valid_recorded_archive_continuation_preserved) ... ok
+test_venv_executable_removal_invalidates_signature (test_setup_readiness.SetupReadinessTests.test_venv_executable_removal_invalidates_signature) ... ok
+test_wal_commit_invalidates_monitor_signature (test_setup_readiness.SetupReadinessTests.test_wal_commit_invalidates_monitor_signature) ... ok
+test_wal_snapshot_sees_newer_schema_before_checkpoint (test_setup_readiness.SetupReadinessTests.test_wal_snapshot_sees_newer_schema_before_checkpoint) ... ok
+
+======================================================================
+FAIL: test_application_edits_do_not_request_setup_or_rewrite_stamp (test_setup_readiness.SetupReadinessTests.test_application_edits_do_not_request_setup_or_rewrite_stamp)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 456, in test_application_edits_do_not_request_setup_or_rewrite_stamp
+    self.assertEqual(result['status'], 'ready', result)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+ : {'schema_version': 1, 'status': 'action_required', 'signature': '9f5c20f846a95f3e6c3241a3392fdf440c044da991c5d316a6ef53cba409024e', 'reasons': [{'code': 'spec_tools_withheld', 'message': 'Renamed spec tools are withheld until setup migrates host rules and records its verification: wf_add_spec, wf_close_spec, wf_get_spec, wf_new_spec, wf_remove_spec.', 'tools': ['wf_add_spec', 'wf_close_spec', 'wf_get_spec', 'wf_new_spec', 'wf_remove_spec']}], 'actions': [{'kind': 'setup', 'argv': ['<temp>/tmp7tz5wnkn/.wavefoundry/bin/wf', 'setup', '--root', '<temp>/tmp7tz5wnkn']}], 'startup_blocked': False, 'advisories': [], 'limitations': ['Setup readiness is not an integrity, search-quality, model-execution or source-freshness audit.', 'Dependency metadata does not prove native package imports or accelerator availability.', 'Python interpreter startup customization precedes this check; package .pth files are not executed by it.', 'SQLite may create or update coordination WAL/SHM files; application data and recovery records are read-only.', 'The child deadline bounds database probing; parent filesystem calls have no hard wall-clock deadline.'], 'timings_ms': {'environment': 0.066, 'database': 51.263, 'total': 63.221}, 'storage_identity': {}}
+
+======================================================================
+FAIL: test_assessment_has_no_product_walk_and_at_most_one_child (test_setup_readiness.SetupReadinessTests.test_assessment_has_no_product_walk_and_at_most_one_child)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 599, in test_assessment_has_no_product_walk_and_at_most_one_child
+    self.assertEqual(self.assess()['status'], 'ready')
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+
+
+======================================================================
+FAIL: test_deprecated_runtime_is_additive_and_retains_independent_failures (test_setup_readiness.SetupReadinessTests.test_deprecated_runtime_is_additive_and_retains_independent_failures) (failure='none', minor=11)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 115, in test_deprecated_runtime_is_additive_and_retains_independent_failures
+    self.assertEqual(observed['status'], 'ready')
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+
+
+======================================================================
+FAIL: test_deprecated_runtime_is_additive_and_retains_independent_failures (test_setup_readiness.SetupReadinessTests.test_deprecated_runtime_is_additive_and_retains_independent_failures) (failure='none', minor=12)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 115, in test_deprecated_runtime_is_additive_and_retains_independent_failures
+    self.assertEqual(observed['status'], 'ready')
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+
+
+======================================================================
+FAIL: test_deprecated_runtime_is_additive_and_retains_independent_failures (test_setup_readiness.SetupReadinessTests.test_deprecated_runtime_is_additive_and_retains_independent_failures) (failure='none', minor=13)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 115, in test_deprecated_runtime_is_additive_and_retains_independent_failures
+    self.assertEqual(observed['status'], 'ready')
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+
+
+======================================================================
+FAIL: test_other_host_preferences_do_not_change_stamp_projection (test_setup_readiness.SetupReadinessTests.test_other_host_preferences_do_not_change_stamp_projection)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 273, in test_other_host_preferences_do_not_change_stamp_projection
+    self.assertEqual(self.assess()['status'], 'ready')
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+
+
+======================================================================
+FAIL: test_ownership_changed_during_snapshot_never_ready (test_setup_readiness.SetupReadinessTests.test_ownership_changed_during_snapshot_never_ready)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 569, in test_ownership_changed_during_snapshot_never_ready
+    self.assertEqual(result['actions'], [])
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Lists differ: [{'kind': 'setup', 'argv': ['/private/var/[165 chars]s']}] != []
+
+First list contains 1 additional elements.
+First extra element 0:
+{'kind': 'setup', 'argv': ['<temp>/tmpqmnyge7s/.wavefoundry/bin/wf', 'setup', '--root', '<temp>/tmpqmnyge7s']}
+
++ []
+- [{'argv': ['<temp>/tmpqmnyge7s/.wavefoundry/bin/wf',
+-            'setup',
+-            '--root',
+-            '<temp>/tmpqmnyge7s'],
+-   'kind': 'setup'}]
+
+======================================================================
+FAIL: test_pre_projection_stamp_compares_by_the_same_rule (test_setup_readiness.SetupReadinessTests.test_pre_projection_stamp_compares_by_the_same_rule)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 414, in test_pre_projection_stamp_compares_by_the_same_rule
+    self.assertEqual(self.assess()['status'], 'ready')
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+
+
+======================================================================
+FAIL: test_ready_without_stamp_and_no_application_writes (test_setup_readiness.SetupReadinessTests.test_ready_without_stamp_and_no_application_writes)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 135, in test_ready_without_stamp_and_no_application_writes
+    self.assertEqual(result['status'], 'ready', result)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+ : {'schema_version': 1, 'status': 'action_required', 'signature': 'cea4a3cb48b2581ed86a59954ee15d22bbe93211f479bcd8fed271c112ad0419', 'reasons': [{'code': 'spec_tools_withheld', 'message': 'Renamed spec tools are withheld until setup migrates host rules and records its verification: wf_add_spec, wf_close_spec, wf_get_spec, wf_new_spec, wf_remove_spec.', 'tools': ['wf_add_spec', 'wf_close_spec', 'wf_get_spec', 'wf_new_spec', 'wf_remove_spec']}], 'actions': [{'kind': 'setup', 'argv': ['<temp>/tmpwid97n_8/.wavefoundry/bin/wf', 'setup', '--root', '<temp>/tmpwid97n_8']}], 'startup_blocked': False, 'advisories': [], 'limitations': ['Setup readiness is not an integrity, search-quality, model-execution or source-freshness audit.', 'Dependency metadata does not prove native package imports or accelerator availability.', 'Python interpreter startup customization precedes this check; package .pth files are not executed by it.', 'SQLite may create or update coordination WAL/SHM files; application data and recovery records are read-only.', 'The child deadline bounds database probing; parent filesystem calls have no hard wall-clock deadline.'], 'timings_ms': {'environment': 0.082, 'database': 48.868, 'total': 60.346}, 'storage_identity': {}}
+
+======================================================================
+FAIL: test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice (test_setup_readiness.SetupReadinessTests.test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice) (iteration=0, host='.mcp.json')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 714, in test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice
+    self.assertEqual(result['status'], 'ready', result)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+ : {'schema_version': 1, 'status': 'action_required', 'signature': '6cfb1aa90c0ead8cf0d6aa10d31369f2697e7e94ea84586d87bf7663ab3afde1', 'reasons': [{'code': 'spec_tools_withheld', 'message': 'Renamed spec tools are withheld until setup migrates host rules and records its verification: wf_add_spec, wf_close_spec, wf_get_spec, wf_new_spec, wf_remove_spec.', 'tools': ['wf_add_spec', 'wf_close_spec', 'wf_get_spec', 'wf_new_spec', 'wf_remove_spec']}], 'actions': [{'kind': 'setup', 'argv': ['<temp>/tmpizpwas7p/.wavefoundry/bin/wf', 'setup', '--root', '<temp>/tmpizpwas7p']}], 'startup_blocked': False, 'advisories': [], 'limitations': ['Setup readiness is not an integrity, search-quality, model-execution or source-freshness audit.', 'Dependency metadata does not prove native package imports or accelerator availability.', 'Python interpreter startup customization precedes this check; package .pth files are not executed by it.', 'SQLite may create or update coordination WAL/SHM files; application data and recovery records are read-only.', 'The child deadline bounds database probing; parent filesystem calls have no hard wall-clock deadline.'], 'timings_ms': {'environment': 0.065, 'database': 48.294, 'total': 59.659}, 'storage_identity': {}}
+
+======================================================================
+FAIL: test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice (test_setup_readiness.SetupReadinessTests.test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice) (iteration=0, host='.cursor/mcp.json')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 714, in test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice
+    self.assertEqual(result['status'], 'ready', result)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+ : {'schema_version': 1, 'status': 'action_required', 'signature': 'dd6bc6cb27623fc5af018464976c983de589bd1da1463c02d41fd1f6ac8e0ace', 'reasons': [{'code': 'spec_tools_withheld', 'message': 'Renamed spec tools are withheld until setup migrates host rules and records its verification: wf_add_spec, wf_close_spec, wf_get_spec, wf_new_spec, wf_remove_spec.', 'tools': ['wf_add_spec', 'wf_close_spec', 'wf_get_spec', 'wf_new_spec', 'wf_remove_spec']}], 'actions': [{'kind': 'setup', 'argv': ['<temp>/tmpizpwas7p/.wavefoundry/bin/wf', 'setup', '--root', '<temp>/tmpizpwas7p']}], 'startup_blocked': False, 'advisories': [], 'limitations': ['Setup readiness is not an integrity, search-quality, model-execution or source-freshness audit.', 'Dependency metadata does not prove native package imports or accelerator availability.', 'Python interpreter startup customization precedes this check; package .pth files are not executed by it.', 'SQLite may create or update coordination WAL/SHM files; application data and recovery records are read-only.', 'The child deadline bounds database probing; parent filesystem calls have no hard wall-clock deadline.'], 'timings_ms': {'environment': 0.08, 'database': 47.323, 'total': 58.963}, 'storage_identity': {}}
+
+======================================================================
+FAIL: test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice (test_setup_readiness.SetupReadinessTests.test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice) (iteration=0, host='.junie/mcp/mcp.json')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 714, in test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice
+    self.assertEqual(result['status'], 'ready', result)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+ : {'schema_version': 1, 'status': 'action_required', 'signature': 'b4db3d93458a3d6ad43c110e9b0b445bd4579a9b72ce258b5bc8cfc42b04fc0c', 'reasons': [{'code': 'spec_tools_withheld', 'message': 'Renamed spec tools are withheld until setup migrates host rules and records its verification: wf_add_spec, wf_close_spec, wf_get_spec, wf_new_spec, wf_remove_spec.', 'tools': ['wf_add_spec', 'wf_close_spec', 'wf_get_spec', 'wf_new_spec', 'wf_remove_spec']}], 'actions': [{'kind': 'setup', 'argv': ['<temp>/tmpizpwas7p/.wavefoundry/bin/wf', 'setup', '--root', '<temp>/tmpizpwas7p']}], 'startup_blocked': False, 'advisories': [], 'limitations': ['Setup readiness is not an integrity, search-quality, model-execution or source-freshness audit.', 'Dependency metadata does not prove native package imports or accelerator availability.', 'Python interpreter startup customization precedes this check; package .pth files are not executed by it.', 'SQLite may create or update coordination WAL/SHM files; application data and recovery records are read-only.', 'The child deadline bounds database probing; parent filesystem calls have no hard wall-clock deadline.'], 'timings_ms': {'environment': 0.079, 'database': 46.909, 'total': 58.683}, 'storage_identity': {}}
+
+======================================================================
+FAIL: test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice (test_setup_readiness.SetupReadinessTests.test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice) (iteration=0, host='.agents/mcp_config.json')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 714, in test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice
+    self.assertEqual(result['status'], 'ready', result)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+ : {'schema_version': 1, 'status': 'action_required', 'signature': 'af7bc796d951ad1b138141d7baccf4e1c18af2fd6ba5da26d064d3a79d166403', 'reasons': [{'code': 'spec_tools_withheld', 'message': 'Renamed spec tools are withheld until setup migrates host rules and records its verification: wf_add_spec, wf_close_spec, wf_get_spec, wf_new_spec, wf_remove_spec.', 'tools': ['wf_add_spec', 'wf_close_spec', 'wf_get_spec', 'wf_new_spec', 'wf_remove_spec']}], 'actions': [{'kind': 'setup', 'argv': ['<temp>/tmpizpwas7p/.wavefoundry/bin/wf', 'setup', '--root', '<temp>/tmpizpwas7p']}], 'startup_blocked': False, 'advisories': [], 'limitations': ['Setup readiness is not an integrity, search-quality, model-execution or source-freshness audit.', 'Dependency metadata does not prove native package imports or accelerator availability.', 'Python interpreter startup customization precedes this check; package .pth files are not executed by it.', 'SQLite may create or update coordination WAL/SHM files; application data and recovery records are read-only.', 'The child deadline bounds database probing; parent filesystem calls have no hard wall-clock deadline.'], 'timings_ms': {'environment': 0.081, 'database': 47.669, 'total': 59.581}, 'storage_identity': {}}
+
+======================================================================
+FAIL: test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice (test_setup_readiness.SetupReadinessTests.test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice) (iteration=0, host='.codex/config.toml')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 714, in test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice
+    self.assertEqual(result['status'], 'ready', result)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+ : {'schema_version': 1, 'status': 'action_required', 'signature': '73f9b4ff8bb59e9c99666e0f3a650e2e22a45ed7bbd9ccbd43b5023b687a1f4d', 'reasons': [{'code': 'spec_tools_withheld', 'message': 'Renamed spec tools are withheld until setup migrates host rules and records its verification: wf_add_spec, wf_close_spec, wf_get_spec, wf_new_spec, wf_remove_spec.', 'tools': ['wf_add_spec', 'wf_close_spec', 'wf_get_spec', 'wf_new_spec', 'wf_remove_spec']}], 'actions': [{'kind': 'setup', 'argv': ['<temp>/tmpizpwas7p/.wavefoundry/bin/wf', 'setup', '--root', '<temp>/tmpizpwas7p']}], 'startup_blocked': False, 'advisories': [], 'limitations': ['Setup readiness is not an integrity, search-quality, model-execution or source-freshness audit.', 'Dependency metadata does not prove native package imports or accelerator availability.', 'Python interpreter startup customization precedes this check; package .pth files are not executed by it.', 'SQLite may create or update coordination WAL/SHM files; application data and recovery records are read-only.', 'The child deadline bounds database probing; parent filesystem calls have no hard wall-clock deadline.'], 'timings_ms': {'environment': 0.08, 'database': 47.837, 'total': 60.359}, 'storage_identity': {}}
+
+======================================================================
+FAIL: test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice (test_setup_readiness.SetupReadinessTests.test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice) (iteration=1, host='.mcp.json')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 714, in test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice
+    self.assertEqual(result['status'], 'ready', result)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+ : {'schema_version': 1, 'status': 'action_required', 'signature': 'fe3cfe42e7665635d0ca6f5e6e54bd846a9c05292e953215b285be25ecee4ba4', 'reasons': [{'code': 'spec_tools_withheld', 'message': 'Renamed spec tools are withheld until setup migrates host rules and records its verification: wf_add_spec, wf_close_spec, wf_get_spec, wf_new_spec, wf_remove_spec.', 'tools': ['wf_add_spec', 'wf_close_spec', 'wf_get_spec', 'wf_new_spec', 'wf_remove_spec']}], 'actions': [{'kind': 'setup', 'argv': ['<temp>/tmpizpwas7p/.wavefoundry/bin/wf', 'setup', '--root', '<temp>/tmpizpwas7p']}], 'startup_blocked': False, 'advisories': [], 'limitations': ['Setup readiness is not an integrity, search-quality, model-execution or source-freshness audit.', 'Dependency metadata does not prove native package imports or accelerator availability.', 'Python interpreter startup customization precedes this check; package .pth files are not executed by it.', 'SQLite may create or update coordination WAL/SHM files; application data and recovery records are read-only.', 'The child deadline bounds database probing; parent filesystem calls have no hard wall-clock deadline.'], 'timings_ms': {'environment': 0.079, 'database': 46.935, 'total': 59.99}, 'storage_identity': {}}
+
+======================================================================
+FAIL: test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice (test_setup_readiness.SetupReadinessTests.test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice) (iteration=1, host='.cursor/mcp.json')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 714, in test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice
+    self.assertEqual(result['status'], 'ready', result)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+ : {'schema_version': 1, 'status': 'action_required', 'signature': 'fe3cfe42e7665635d0ca6f5e6e54bd846a9c05292e953215b285be25ecee4ba4', 'reasons': [{'code': 'spec_tools_withheld', 'message': 'Renamed spec tools are withheld until setup migrates host rules and records its verification: wf_add_spec, wf_close_spec, wf_get_spec, wf_new_spec, wf_remove_spec.', 'tools': ['wf_add_spec', 'wf_close_spec', 'wf_get_spec', 'wf_new_spec', 'wf_remove_spec']}], 'actions': [{'kind': 'setup', 'argv': ['<temp>/tmpizpwas7p/.wavefoundry/bin/wf', 'setup', '--root', '<temp>/tmpizpwas7p']}], 'startup_blocked': False, 'advisories': [], 'limitations': ['Setup readiness is not an integrity, search-quality, model-execution or source-freshness audit.', 'Dependency metadata does not prove native package imports or accelerator availability.', 'Python interpreter startup customization precedes this check; package .pth files are not executed by it.', 'SQLite may create or update coordination WAL/SHM files; application data and recovery records are read-only.', 'The child deadline bounds database probing; parent filesystem calls have no hard wall-clock deadline.'], 'timings_ms': {'environment': 0.083, 'database': 46.83, 'total': 60.121}, 'storage_identity': {}}
+
+======================================================================
+FAIL: test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice (test_setup_readiness.SetupReadinessTests.test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice) (iteration=1, host='.junie/mcp/mcp.json')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 714, in test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice
+    self.assertEqual(result['status'], 'ready', result)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+ : {'schema_version': 1, 'status': 'action_required', 'signature': 'fe3cfe42e7665635d0ca6f5e6e54bd846a9c05292e953215b285be25ecee4ba4', 'reasons': [{'code': 'spec_tools_withheld', 'message': 'Renamed spec tools are withheld until setup migrates host rules and records its verification: wf_add_spec, wf_close_spec, wf_get_spec, wf_new_spec, wf_remove_spec.', 'tools': ['wf_add_spec', 'wf_close_spec', 'wf_get_spec', 'wf_new_spec', 'wf_remove_spec']}], 'actions': [{'kind': 'setup', 'argv': ['<temp>/tmpizpwas7p/.wavefoundry/bin/wf', 'setup', '--root', '<temp>/tmpizpwas7p']}], 'startup_blocked': False, 'advisories': [], 'limitations': ['Setup readiness is not an integrity, search-quality, model-execution or source-freshness audit.', 'Dependency metadata does not prove native package imports or accelerator availability.', 'Python interpreter startup customization precedes this check; package .pth files are not executed by it.', 'SQLite may create or update coordination WAL/SHM files; application data and recovery records are read-only.', 'The child deadline bounds database probing; parent filesystem calls have no hard wall-clock deadline.'], 'timings_ms': {'environment': 0.078, 'database': 46.637, 'total': 60.0}, 'storage_identity': {}}
+
+======================================================================
+FAIL: test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice (test_setup_readiness.SetupReadinessTests.test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice) (iteration=1, host='.agents/mcp_config.json')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 714, in test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice
+    self.assertEqual(result['status'], 'ready', result)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+ : {'schema_version': 1, 'status': 'action_required', 'signature': 'fe3cfe42e7665635d0ca6f5e6e54bd846a9c05292e953215b285be25ecee4ba4', 'reasons': [{'code': 'spec_tools_withheld', 'message': 'Renamed spec tools are withheld until setup migrates host rules and records its verification: wf_add_spec, wf_close_spec, wf_get_spec, wf_new_spec, wf_remove_spec.', 'tools': ['wf_add_spec', 'wf_close_spec', 'wf_get_spec', 'wf_new_spec', 'wf_remove_spec']}], 'actions': [{'kind': 'setup', 'argv': ['<temp>/tmpizpwas7p/.wavefoundry/bin/wf', 'setup', '--root', '<temp>/tmpizpwas7p']}], 'startup_blocked': False, 'advisories': [], 'limitations': ['Setup readiness is not an integrity, search-quality, model-execution or source-freshness audit.', 'Dependency metadata does not prove native package imports or accelerator availability.', 'Python interpreter startup customization precedes this check; package .pth files are not executed by it.', 'SQLite may create or update coordination WAL/SHM files; application data and recovery records are read-only.', 'The child deadline bounds database probing; parent filesystem calls have no hard wall-clock deadline.'], 'timings_ms': {'environment': 0.081, 'database': 47.181, 'total': 60.355}, 'storage_identity': {}}
+
+======================================================================
+FAIL: test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice (test_setup_readiness.SetupReadinessTests.test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice) (iteration=1, host='.codex/config.toml')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 714, in test_real_renderers_reach_ready_fixed_point_for_all_hosts_twice
+    self.assertEqual(result['status'], 'ready', result)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+ : {'schema_version': 1, 'status': 'action_required', 'signature': 'fe3cfe42e7665635d0ca6f5e6e54bd846a9c05292e953215b285be25ecee4ba4', 'reasons': [{'code': 'spec_tools_withheld', 'message': 'Renamed spec tools are withheld until setup migrates host rules and records its verification: wf_add_spec, wf_close_spec, wf_get_spec, wf_new_spec, wf_remove_spec.', 'tools': ['wf_add_spec', 'wf_close_spec', 'wf_get_spec', 'wf_new_spec', 'wf_remove_spec']}], 'actions': [{'kind': 'setup', 'argv': ['<temp>/tmpizpwas7p/.wavefoundry/bin/wf', 'setup', '--root', '<temp>/tmpizpwas7p']}], 'startup_blocked': False, 'advisories': [], 'limitations': ['Setup readiness is not an integrity, search-quality, model-execution or source-freshness audit.', 'Dependency metadata does not prove native package imports or accelerator availability.', 'Python interpreter startup customization precedes this check; package .pth files are not executed by it.', 'SQLite may create or update coordination WAL/SHM files; application data and recovery records are read-only.', 'The child deadline bounds database probing; parent filesystem calls have no hard wall-clock deadline.'], 'timings_ms': {'environment': 0.078, 'database': 47.108, 'total': 60.301}, 'storage_identity': {}}
+
+======================================================================
+FAIL: test_setup_notes_edit_after_stamp_does_not_request_setup (test_setup_readiness.SetupReadinessTests.test_setup_notes_edit_after_stamp_does_not_request_setup)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 210, in test_setup_notes_edit_after_stamp_does_not_request_setup
+    self.assertEqual(self.assess()['status'], 'ready')
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+
+
+======================================================================
+FAIL: test_source_only_stamp_difference_is_a_limitation_not_a_setup_request (test_setup_readiness.SetupReadinessTests.test_source_only_stamp_difference_is_a_limitation_not_a_setup_request)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 442, in test_source_only_stamp_difference_is_a_limitation_not_a_setup_request
+    self.assertEqual(result['status'], 'ready', result)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+ : {'schema_version': 1, 'status': 'action_required', 'signature': 'c2b62783e5dc5734b06f60969389e2ef9229677f71fde69afb6b0ebbd3d1ffa9', 'reasons': [{'code': 'spec_tools_withheld', 'message': 'Renamed spec tools are withheld until setup migrates host rules and records its verification: wf_add_spec, wf_close_spec, wf_get_spec, wf_new_spec, wf_remove_spec.', 'tools': ['wf_add_spec', 'wf_close_spec', 'wf_get_spec', 'wf_new_spec', 'wf_remove_spec']}], 'actions': [{'kind': 'setup', 'argv': ['<temp>/tmpi_f1fjpn/.wavefoundry/bin/wf', 'setup', '--root', '<temp>/tmpi_f1fjpn']}], 'startup_blocked': False, 'advisories': [], 'limitations': ['Setup readiness is not an integrity, search-quality, model-execution or source-freshness audit.', 'Dependency metadata does not prove native package imports or accelerator availability.', 'Python interpreter startup customization precedes this check; package .pth files are not executed by it.', 'SQLite may create or update coordination WAL/SHM files; application data and recovery records are read-only.', 'The child deadline bounds database probing; parent filesystem calls have no hard wall-clock deadline.', 'Framework sources differ from the setup stamp at the same framework version; live checks decided readiness.'], 'timings_ms': {'environment': 0.083, 'database': 47.313, 'total': 59.218}, 'storage_identity': {}}
+
+======================================================================
+FAIL: test_stamp_ignores_setup_handoff_and_launch_variables (test_setup_readiness.SetupReadinessTests.test_stamp_ignores_setup_handoff_and_launch_variables)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 369, in test_stamp_ignores_setup_handoff_and_launch_variables
+    self.assertEqual(result['status'], 'ready', result)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+ : {'schema_version': 1, 'status': 'action_required', 'signature': '44a193c59a8f9dd27efeda2389db3b820fc802cfcdb575fd191bbde9cecc235d', 'reasons': [{'code': 'spec_tools_withheld', 'message': 'Renamed spec tools are withheld until setup migrates host rules and records its verification: wf_add_spec, wf_close_spec, wf_get_spec, wf_new_spec, wf_remove_spec.', 'tools': ['wf_add_spec', 'wf_close_spec', 'wf_get_spec', 'wf_new_spec', 'wf_remove_spec']}], 'actions': [{'kind': 'setup', 'argv': ['<temp>/tmpfs9fe___/.wavefoundry/bin/wf', 'setup', '--root', '<temp>/tmpfs9fe___']}], 'startup_blocked': False, 'advisories': [], 'limitations': ['Setup readiness is not an integrity, search-quality, model-execution or source-freshness audit.', 'Dependency metadata does not prove native package imports or accelerator availability.', 'Python interpreter startup customization precedes this check; package .pth files are not executed by it.', 'SQLite may create or update coordination WAL/SHM files; application data and recovery records are read-only.', 'The child deadline bounds database probing; parent filesystem calls have no hard wall-clock deadline.'], 'timings_ms': {'environment': 0.064, 'database': 49.693, 'total': 61.435}, 'storage_identity': {}}
+
+======================================================================
+FAIL: test_surface_cwd_root_and_unknown_variables_are_checked (test_setup_readiness.SetupReadinessTests.test_surface_cwd_root_and_unknown_variables_are_checked)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 724, in test_surface_cwd_root_and_unknown_variables_are_checked
+    self.assertEqual(self.assess()['status'], 'ready')
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+
+
+======================================================================
+FAIL: test_unreadable_advisory_stamp_does_not_force_setup (test_setup_readiness.SetupReadinessTests.test_unreadable_advisory_stamp_does_not_force_setup)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 545, in test_unreadable_advisory_stamp_does_not_force_setup
+    self.assertEqual(result['status'], 'ready', result)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+ : {'schema_version': 1, 'status': 'action_required', 'signature': '2b0f69f820af085a3733a1ed86d873abc5d45bd956e123986ee758dd699fe998', 'reasons': [{'code': 'spec_tools_withheld', 'message': 'Renamed spec tools are withheld until setup migrates host rules and records its verification: wf_add_spec, wf_close_spec, wf_get_spec, wf_new_spec, wf_remove_spec.', 'tools': ['wf_add_spec', 'wf_close_spec', 'wf_get_spec', 'wf_new_spec', 'wf_remove_spec']}], 'actions': [{'kind': 'setup', 'argv': ['<temp>/tmpei5w_grt/.wavefoundry/bin/wf', 'setup', '--root', '<temp>/tmpei5w_grt']}], 'startup_blocked': False, 'advisories': [], 'limitations': ['Setup readiness is not an integrity, search-quality, model-execution or source-freshness audit.', 'Dependency metadata does not prove native package imports or accelerator availability.', 'Python interpreter startup customization precedes this check; package .pth files are not executed by it.', 'SQLite may create or update coordination WAL/SHM files; application data and recovery records are read-only.', 'The child deadline bounds database probing; parent filesystem calls have no hard wall-clock deadline.', 'The advisory setup stamp is unreadable; live observations were used.'], 'timings_ms': {'environment': 0.069, 'database': 49.303, 'total': 60.873}, 'storage_identity': {}}
+
+======================================================================
+FAIL: test_use_stamp_false_skips_only_the_stamp_comparison (test_setup_readiness.SetupReadinessTests.test_use_stamp_false_skips_only_the_stamp_comparison)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/framework/scripts/tests/test_setup_readiness.py", line 424, in test_use_stamp_false_skips_only_the_stamp_comparison
+    self.assertEqual(result['status'], 'ready', result)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'action_required' != 'ready'
+- action_required
++ ready
+ : {'schema_version': 1, 'status': 'action_required', 'signature': 'e36d5f99302417caabdda1da3e9b04dab7dc7af219356577553e3420122b0a85', 'reasons': [{'code': 'spec_tools_withheld', 'message': 'Renamed spec tools are withheld until setup migrates host rules and records its verification: wf_add_spec, wf_close_spec, wf_get_spec, wf_new_spec, wf_remove_spec.', 'tools': ['wf_add_spec', 'wf_close_spec', 'wf_get_spec', 'wf_new_spec', 'wf_remove_spec']}], 'actions': [{'kind': 'setup', 'argv': ['<temp>/tmpneadz8f4/.wavefoundry/bin/wf', 'setup', '--root', '<temp>/tmpneadz8f4']}], 'startup_blocked': False, 'advisories': [], 'limitations': ['Setup readiness is not an integrity, search-quality, model-execution or source-freshness audit.', 'Dependency metadata does not prove native package imports or accelerator availability.', 'Python interpreter startup customization precedes this check; package .pth files are not executed by it.', 'SQLite may create or update coordination WAL/SHM files; application data and recovery records are read-only.', 'The child deadline bounds database probing; parent filesystem calls have no hard wall-clock deadline.'], 'timings_ms': {'environment': 0.077, 'database': 48.657, 'total': 60.414}, 'storage_identity': {}}
+
+----------------------------------------------------------------------
+Ran 56 tests in 6.037s
+
+FAILED (failures=25)
+
+----------------------------------------------------------------------
+Slowest files (top 1 of 1):
+  test_setup_readiness.py                          6.154s  (56 tests)
+Worker service time: 6.154s across 1 files; skipped 0 tests
+FAILED (test_setup_readiness.py)
+Ran 56 tests across 1 files in 6.155s

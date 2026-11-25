@@ -1,0 +1,12 @@
+{
+  "stock_spec_routes": [],
+  "retired_change_routes": [],
+  "memory_brief_status": "ok",
+  "revalidation": {
+    "active_records": 1,
+    "target_unresolved": 0,
+    "target_churn": 0,
+    "target_not_canonical": 0,
+    "churn_available": true
+  }
+}

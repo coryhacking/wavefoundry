@@ -1,0 +1,31 @@
+Bytecode cache warm (1.5s).
+FOCUSED diagnostic run (8 of 261 test files) — not delivery evidence; the full-suite cache is untouched.
+Running 8 test files across 6 workers …
+  [1/8] test_review_policy.py — 133 tests ok (5.0s)
+  [2/8] test_mcp_tool_registry.py — 27 tests ok (5.0s)
+  [3/8] test_install_resume_integration.py — 2 tests ok (5.9s)
+  [4/8] test_memory_eval.py — 53 tests ok (8.6s)
+  [5/8] test_memory_records.py — 323 tests ok (23.6s)
+  [6/8] test_render_agent_surfaces.py — 247 tests ok (40.6s)
+  [7/8] test_docs_lint.py — 367 tests ok (69.2s)
+  [8/8] test_upgrade_wavefoundry.py — 767 tests ok (216.4s)
+
+----------------------------------------------------------------------
+Slowest files (top 8 of 8):
+  test_upgrade_wavefoundry.py                    216.400s  (767 tests)
+  test_docs_lint.py                               69.214s  (367 tests)
+  test_render_agent_surfaces.py                   40.592s  (247 tests)
+  test_memory_records.py                          23.620s  (323 tests)
+  test_memory_eval.py                              8.559s  (53 tests)
+  test_install_resume_integration.py               5.930s  (2 tests)
+  test_mcp_tool_registry.py                        5.030s  (27 tests)
+  test_review_policy.py                            4.964s  (133 tests)
+Worker service time: 374.309s across 8 files; skipped 2 tests
+FILES CHANGED DURING THE TEST RUN AND TOLERATED: these paths under docs/ changed during the run; they are outside the waves open at its start and the policy files, so the run was not refused for them. A write here that bypasses the in-worker guard (a child process started without it, a shell or git command, a native write) is not caught by the end-of-run comparison:
+  docs/architecture/contracts/mcp-tool-surface.md
+
+REPOSITORY CHANGED DURING THE TEST RUN: tests must write only under temporary roots, but these tracked, non-ignored or edit-gate paths were created, modified or deleted:
+  CHANGELOG.md
+A concurrent edit by an operator or agent during the run also trips this guard when it touches the framework tree, the edit gate (including opening or closing an edit gate), the folder of a wave that was open when the run started (unless it is validated canonical bookkeeping), a policy file under docs/, or any path outside docs/. Other changes under docs/ are tolerated and listed. Re-run after material inputs settle. Otherwise fix the offending test to write under a temporary root.
+Ran 1919 tests across 8 files in 221.372s
+FAILED (stray test artifacts or repository changes)

@@ -1,0 +1,94 @@
+{
+  "started_at": "2026-11-25T05:50:39.249179+00:00",
+  "from_version": "1.53.0+q5ts",
+  "to_version": "1.53.0+q5tt",
+  "pid": 18563,
+  "zip_path": "<temp>/wf-verified-pack-ez_y9r35.zip",
+  "pruned_count": 0,
+  "failed_phase": null,
+  "failed_at": null,
+  "current_phase": "index_complete",
+  "runner_protocol": 2,
+  "pack_protocol": 2,
+  "retired_model_cleanup_status": "not_applicable",
+  "retired_model_cleanup_removed": [],
+  "retired_model_cleanup_absent": [],
+  "retired_model_cleanup_unowned": [],
+  "retired_model_cleanup_failed": [],
+  "verified_pack_identity": {
+    "path": "<temp>/wf-verified-pack-ez_y9r35.zip",
+    "identity": [
+      16777233,
+      1158319103,
+      14714472,
+      1795585824376069386,
+      1795585824376069386
+    ],
+    "parent": {
+      "kind": "temporary",
+      "path": "<temp>",
+      "identity": [
+        16777233,
+        783987
+      ]
+    }
+  },
+  "model_bundle_path": "<repo>/.wavefoundry/work/24buu/rehearsal/diagnostic/cli/home/.wavefoundry/dist/wavefoundry-models-3.zip",
+  "model_bundle_model_set_version": "3",
+  "index_guard_handoff": {
+    "version": 1,
+    "token": "df62086c46264547b54514ac2dd17b33",
+    "required": false,
+    "root": "<repo>/.wavefoundry/work/24buu/rehearsal/diagnostic/cli/target",
+    "root_identity": {
+      "device": 16777233,
+      "inode": 1158288880
+    },
+    "target_version": "1.53.0+q5tt",
+    "pack_sha256": "ce2c96e77a2693031cabad53af689871a9ce3295c8bd092a86591af51c17ad15",
+    "pack_path": "<repo>/.wavefoundry/work/24buu/rehearsal/diagnostic/cli/home/.wavefoundry/dist/wavefoundry-1.53.0.q5tt.zip",
+    "prior_capability": true,
+    "prior_runtime_present": true,
+    "prior_coordinator_capable": true
+  },
+  "lifecycle_baseline_drift": [],
+  "lifecycle_baseline_drift_pack_sha256": "ce2c96e77a2693031cabad53af689871a9ce3295c8bd092a86591af51c17ad15",
+  "docs_scalar_claims_pre_extract": {},
+  "docs_scalar_claims_pack_sha256": "",
+  "graph_builder_doc_claim_pre_extract": "",
+  "graph_builder_doc_claim_pack_sha256": "",
+  "dashboard_restart_pending": false,
+  "dashboard_restart_port": null,
+  "runtime_lock_cutover_complete": true,
+  "last_completed_path": "docs/workflow-config.json",
+  "review_policy_migration": {
+    "delivery_mode": "targeted",
+    "carriers_reconciled": [],
+    "waves_marked_for_reprepare": []
+  },
+  "skill_delivery": {
+    "partial_skill_delivery": false,
+    "skill_collisions": []
+  },
+  "permissions_delta": {
+    "file": ".claude/settings.json",
+    "added": [],
+    "removed": [],
+    "unmanaged_present": 0
+  },
+  "review_sidecar_cleanup": {
+    "removed_sidecars": 0,
+    "removed_stale_root_lock": 0,
+    "restart_required": false
+  },
+  "historical_memory_report": {
+    "closed_waves_without_memory": 0,
+    "candidates_awaiting_validation": 0,
+    "next_step": "Run Review memories: memory_backfill(mode='create') then memory_validate."
+  },
+  "publisher_grant": "732abfbfd7424d44b76fbd7ffd1e01e8",
+  "dependency_provisioning_failed": false,
+  "index_rebuilt_at": "2026-11-25T05:51:24.267643+00:00",
+  "index_publication_failed": false,
+  "skipped_scan_locations": []
+}

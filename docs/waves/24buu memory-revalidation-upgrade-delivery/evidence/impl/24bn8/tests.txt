@@ -1,0 +1,124 @@
+    def test_v151_upgrade_renderer_installs_proven_baselines_and_summary(self):
+        # Freeze the historical install assets rather than requiring a release zip
+        # or network access in projects running the suite.
+        assets = json.loads((SCRIPTS / "tests/fixtures/upgrade_old_runner/lifecycle_templates_v1_51_0.json").read_text())
+        for part in ("install", "seeds"):
+            shutil.copytree(SCRIPTS.parent / part, self.install.parent / part)
+        incoming = {name: (self.install / name).read_text() for name in assets}
+        fixed_date = "2022-04-03"
+        fresh = self.root.parent / "fresh"
+        shutil.copytree(self.root, fresh)
+        renderer.render_agent_surfaces(fresh)
+        paths = {template: destination for _, destination, template in self.registered() if template in assets}
+        # Previous prompt copies used localized public shortcut names, but
+        # v1.51.0 installed the plan template with Change ID and Change Status.
+        for name, previous in assets.items():
+            (self.install / name).write_bytes(previous.encode())
+            local = (previous.replace("{{generated_at}}", fixed_date) if name == "plan-template.md"
+                     else renderer.materialize_baseline_template(name.rsplit("/", 1)[-1], previous, fixed_date))
+            self.put(paths[name], local)
+        renderer.render_agent_surfaces(self.root)
+        before = {path: (self.root / path).read_bytes() for path in paths.values()}
+        self.assertIn(b"Change ID:", before[paths["plan-template.md"]])
+        self.assertIn(b"Change Status:", before[paths["plan-template.md"]])
+        findings = renderer.lifecycle_baseline_drift(self.root, incoming)
+        findings = [row for row in findings if row["file"] in before]
+        self.assertEqual(self.states(findings), dict.fromkeys(before, "upstream_changed_local_matches_previous"))
+        for name, content in incoming.items():
+            (self.install / name).write_bytes(content.encode())
+
+        def phase_one():
+            home = self.root.parent / "home"
+            home.mkdir(exist_ok=True)
+            env = {**os.environ, "HOME": str(home), "USERPROFILE": str(home), "CODEX_HOME": str(home / "codex"),
+                   "CLAUDE_CONFIG_DIR": str(home / "claude"), "WAVEFOUNDRY_MANAGED_SETTINGS_PATH": str(home / "managed")}
+            result = subprocess.run([sys.executable, "-B", str(SCRIPTS / "render_platform_surfaces.py"),
+                                     "--repo-root", str(self.root), "--platform", "codex", "--include-permissions",
+                                     "--manifest", str(self.root.parent / "manifest.json")], env=env,
+                                    capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+        phase_one()
+        self.assertEqual({path: (self.root / path).read_bytes() for path in before}, before)
+        self.save_comparison(findings)
+        phase_one()
+        self.assertEqual(self.states(upgrade._lifecycle_baseline_findings(self.root)), dict.fromkeys(before, "replaced"))
+        for name, path in paths.items():
+            result = (self.root / path).read_bytes()
+            expected = (fresh / path).read_bytes()
+            expected = re.sub(rb"(?m)^(Last verified: )\d{4}-\d{2}-\d{2}", rb"\g<1>" + fixed_date.encode(), expected)
+            self.assertEqual(result, expected, path)
+            if "close-wave" in name or "memory-review" in name:
+                self.assertIn(b"check_note", result)
+            if "close-wave" in name or "implement-wave" in name:
+                self.assertIn(renderer.REVIEW_POLICY_SURFACE_MARKER_BEGIN.encode(), result)
+            if name != "plan-template.md":
+                self.assertNotIn(b"wf_close_change", result)
+                self.assertNotIn(b"wf_get_change", result)
+        captured = renderer.lifecycle_baseline_drift(self.root, incoming)
+        self.save_comparison(captured)
+        mtimes = {path: (self.root / path).stat().st_mtime_ns for path in before}
+        phase_one()
+        self.assertEqual({path: (self.root / path).stat().st_mtime_ns for path in before}, mtimes)
+        self.assertNotIn("replaced", self.states(upgrade._lifecycle_baseline_findings(self.root)).values())
+
+    def registered(self):
+        with renderer._registered_upgrade_baselines(self.root) as paths:
+            return paths
+
+    def save_comparison(self, rows):
+        upgrade_lib.write_upgrade_lock(self.root, from_version="1.51.0", to_version="1.52.0", zip_path=self.pack)
+        self.assertTrue(upgrade_lib.update_upgrade_lock(self.root, lifecycle_baseline_drift=rows))
+
+    def test_edited_unknown_late_changed_and_linked_paths_keep_bytes_and_findings(self):
+        incoming = self.fixture()
+        findings = renderer.lifecycle_baseline_drift(self.root, incoming)
+        self.save_comparison(findings)
+        for template, text in incoming.items():
+            self.put(".wavefoundry/framework/install/" + template, text)
+        self.put(CREATE, "Changed since preview\r\n")
+        before = {row["file"]: (self.root / row["file"]).read_bytes() for row in findings}
+        self.assertFalse(renderer.replace_upgrade_baselines(self.root)[0])
+        self.assertEqual(upgrade._lifecycle_baseline_findings(self.root), findings)
+        self.assertEqual({path: (self.root / path).read_bytes() for path in before}, before)
+        path = self.root / CREATE
+        target = self.put("another.prompt.md", "# " + renderer.vocabulary_profile.shortcut_title("create-wave")
+                          + "\r\nA\r\nLast verified: 2024-01-02\r\n")
+        previous = target.read_bytes()
+        path.unlink()
+        try:
+            path.symlink_to(target)
+        except OSError as exc:
+            self.skipTest(str(exc))
+        self.assertFalse(renderer.replace_upgrade_baselines(self.root)[0])
+        self.assertTrue(path.is_symlink())
+        self.assertEqual(target.read_bytes(), previous)
+        self.assertEqual(upgrade._lifecycle_baseline_findings(self.root), findings)
+
+    def test_installing_upgrade_names_edited_memory_and_close_baselines(self):
+        incoming = {}
+        for key in ("memory-review", "close-wave"):
+            template = "lifecycle-prompts/" + key + ".prompt.md"
+            self.put(".wavefoundry/framework/install/" + template, "Previous\n")
+            self.put(renderer.vocabulary_profile.prompt_doc(key) if key == "close-wave" else "docs/prompts/memory-review.prompt.md",
+                     "Local edit\n")
+            incoming[template] = "Incoming keep rule\n"
+        self.make_pack(incoming)
+        with contextlib.redirect_stdout(io.StringIO()):
+            rows = extensions.lifecycle_baseline_report(self.ctx(True))
+        self.assertEqual(len(rows), 2)
+        self.assertEqual({row["action"] for row in rows},
+                         {f"merge: Keep the local copy and merge .wavefoundry/framework/install/{template} by hand."
+                          for template in incoming})
+
+    def test_upgrade_guidance_names_automatic_replacement_and_agent_merge(self):
+        from upstream_fixture_support import source_repository_fixture
+        paths = [SCRIPTS.parent / "seeds/160-upgrade-wavefoundry.prompt.md"]
+        if source_repository_fixture():
+            paths.append(SCRIPTS.parents[2] / "docs/prompts/upgrade-wavefoundry.prompt.md")
+        for path in paths:
+            section = path.read_text().split("## Lifecycle baseline drift report\n", 1)[1].split("\n## ", 1)[0]
+            self.assertIn("rechecks its digest and replaces it", section)
+            self.assertIn("incoming template to use when merging a local edit", section)
+            self.assertNotIn("The report leaves the files and exit status unchanged", section)
+

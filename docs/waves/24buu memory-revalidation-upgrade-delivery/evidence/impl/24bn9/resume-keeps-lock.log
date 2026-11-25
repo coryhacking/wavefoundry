@@ -1,0 +1,14 @@
+F
+======================================================================
+FAIL: test_successful_gate_resume_completes_cleanup (test_upgrade_wavefoundry.ResumeAfterGateTests.test_successful_gate_resume_completes_cleanup)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<repo>/.wavefoundry/work/24buu/impl/24bn9/tree/.wavefoundry/framework/scripts/tests/test_upgrade_wavefoundry.py", line 2140, in test_successful_gate_resume_completes_cleanup
+    self.assertFalse(self.lib.upgrade_lock_path(self.root).exists())
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: True is not false
+
+----------------------------------------------------------------------
+Ran 1 test in 0.323s
+
+FAILED (failures=1)

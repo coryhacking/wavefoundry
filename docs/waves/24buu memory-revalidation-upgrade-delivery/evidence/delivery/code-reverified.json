@@ -1,0 +1,55 @@
+{
+  "wave_id": "24buu",
+  "event": "finding",
+  "actor": "code-reviewer",
+  "context_id": "24buu-code-cr-d1-independent-reverification-2",
+  "finding_id": "CR-D1",
+  "run_kind": "reverification",
+  "cycle": 2,
+  "source_lanes": [
+    "code-reviewer"
+  ],
+  "blocking_required_lanes": [],
+  "approval_recheck_lanes": [
+    "code-reviewer"
+  ],
+  "fresh_context": true,
+  "independent": true,
+  "judgment": {
+    "validation_status": "real",
+    "scope_relation": "admitted",
+    "introduced_or_worsened_by_wave": true,
+    "contract_relevance": "required_ac",
+    "supported_reachability": true,
+    "attacker_reachability": false,
+    "authority_domain": "none",
+    "authority_delta": "none",
+    "observable_impact": "material",
+    "containment": "none",
+    "disposition": "do_now",
+    "repair_execution_state": "verified"
+  },
+  "evidence": {
+    "execution_status": "executed",
+    "proposition": "Retrying an interrupted Phase 1 render converges on the incoming implement-wave prompt, its generated review-policy region and the replaced finding required by 24bn8 AC-1.",
+    "failure_condition": "The renderer returns success on retry with a missing policy region or a stale comparison finding.",
+    "public_path": "render_platform_surfaces.main --repo-root <fixture> --platform codex --include-permissions --manifest <fixture manifest>",
+    "command_or_fixture": "From .wavefoundry/framework/scripts run PYTHONPATH=.:tests python3 -B ../../work/24buu/delivery/code-retry.py. Run python3 -B -m unittest with PYTHONPATH=.:tests for the four BaselineDriftTests listed in delivery/code-repair-controls.log.",
+    "expected": "After a rejected intent checkpoint the original bytes remain intact. Retry of a partially published target finishes recording and regenerates the policy region only for the exact published bytes. An intervening local date edit remains byte-identical.",
+    "observed": "The public retry returned 0 after the original injected exit 1 and retained the incoming prose, restored the policy marker and recorded replaced. All four focused tests passed with zero skips. The post-publication checkpoint failure recovered and cleared the pending digest. Editing only the date before retry preserved all local bytes and kept the original finding. The in-memory mutant that ignored the pending digest failed the byte-preservation assertion.",
+    "artifact_or_test_id": "delivery/code-retry-confirmed.log, delivery/code-repair-controls.log, delivery/code-repair-mutant.log and the original delivery/code-retry.log under .wavefoundry/work/24buu; frozen file fingerprint 8d729920b9f45b89c354f519637d64e36d6e2d64afd487f0f8a3754ba4174b2e",
+    "known_bad_detection_method": "The identical public replay previously returned success with a missing policy region and stale finding. It now passes both assertions. Removing the exact-byte comparison from the pending-replacement path in an isolated Python process failed test_retry_preserves_edit_after_incomplete_receipt at the byte-preservation assertion.",
+    "limitations": "Checkpoint failures were injected at the writer boundary in isolated local targets. The reviewer ran the public render entry and focused tests. Coordinator-owned packaged two-hop verification is separate.",
+    "safety_and_authorization": "Disposable local target and isolated host settings. No installed workspace or external service is mutated by the probes.",
+    "disposition_rationale": "The exact-byte pending receipt allows the ordinary retry to complete the publication and preserves later edits. The repaired renderer satisfies the disputed 24bn8 AC-1 property."
+  },
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "The identical public replay previously returned success with a missing policy region and stale finding. It now passes both assertions. Removing the exact-byte comparison from the pending-replacement path in an isolated Python process failed test_retry_preserves_edit_after_incomplete_receipt at the byte-preservation assertion."
+  },
+  "mode": "dry_run"
+}

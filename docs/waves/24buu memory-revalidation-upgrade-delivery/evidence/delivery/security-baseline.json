@@ -1,0 +1,18 @@
+{
+  "stock_spec_routes": [
+    "wf_add_spec",
+    "wf_close_spec",
+    "wf_get_spec",
+    "wf_new_spec",
+    "wf_remove_spec"
+  ],
+  "retired_change_routes": [],
+  "memory_brief_status": "ok",
+  "revalidation": {
+    "active_records": 1,
+    "target_unresolved": 0,
+    "target_churn": 0,
+    "target_not_canonical": 0,
+    "churn_available": true
+  }
+}

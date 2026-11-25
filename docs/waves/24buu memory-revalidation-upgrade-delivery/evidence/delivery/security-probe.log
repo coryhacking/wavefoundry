@@ -1,0 +1,11 @@
+wavefoundry: Python prerequisite failed: command=python3; resolved=/usr/bin/python3; stage=interpreter execution/version; result=too_old; executable='/Applications/Xcode.app/Contents/Developer/usr/bin/python3'; version=(3, 9); exit_code=0; stdout='{"version": [3, 9], "executable": "/Applications/Xcode.app/Contents/Developer/usr/bin/python3"}\n'
+wavefoundry: Inspect PATH and the resolved interpreter; use your approved package manager or an operator-managed symlink if appropriate. An execution failure is not proof of an old or absent installation.
+wavefoundry: MCP requires command: "python3". Verify python3 --version reports Python 3.11 or newer, then verify server.py --dry-run and fully restart the agent host. Python 3.13+ is recommended. Shell-only aliases and .cmd shims do not establish raw-spawn readiness. A seeded checkout does not prove workstation readiness; do not reseed or rebuild indexes to fix command resolution. Wavefoundry does not modify your Python installation or PATH.
+<repo>/.wavefoundry/work/24buu/delivery/security-relocated.json ok
+relocated [] memory, ledger and wave bytes identical
+<repo>/.wavefoundry/work/24buu/delivery/security-baseline.json ok
+baseline ['wf_add_spec', 'wf_close_spec', 'wf_get_spec', 'wf_new_spec', 'wf_remove_spec'] memory, ledger and wave bytes identical
+<repo>/.wavefoundry/work/24buu/delivery/security-restricted.json ok
+restricted ['wf_add_spec', 'wf_close_spec', 'wf_new_spec', 'wf_remove_spec'] memory, ledger and wave bytes identical
+<repo>/.wavefoundry/work/24buu/delivery/security-restart.json ok
+restart ['wf_add_spec', 'wf_close_spec', 'wf_new_spec', 'wf_remove_spec'] memory, ledger and wave bytes identical

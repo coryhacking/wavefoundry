@@ -1,0 +1,26 @@
+{
+  "wave_id": "24buu",
+  "mode": "dry_run",
+  "event": "approval",
+  "actor": "council-chair",
+  "context_id": "24buu-delivery-independent-chair-final-q5u1",
+  "approval_phase": "delivery",
+  "signoff_key": "council-delivery",
+  "fresh_context": true,
+  "independent": true,
+  "evidence": {
+    "intent_fit": "establishes",
+    "execution_status": "executed",
+    "observed": "The chair independently reran the archive and transcript checks on q5u0 and q5u1. Each of six real upgrades passed 18 assertions and produced one terminal cleanup. Both ZIP primaries and the successor installed CLI completed automatically. The legacy installed CLI and both MCP primaries retained checkpoints for explicit cleanup. Both archives matched recorded hashes and all 238 shipped scripts and seeds matched the reviewed source. The original installed successor primary failed the same terminal check. QA and the chair confirm the dated objective on the tested fixture. The five specs establish filtered-independent memory counts and keep guidance, bounded permission migration, contained archive imports, stock prompt replacement with guarded retry, and correct CLI cleanup ownership. Full default suite 13614 tests, 261 files, 13 skips, OK. Second profile 846 tests, 4 files, 2 skips, OK. All six required specialist approvals are current with zero blocking findings. Full red-team primer and all four fixed seats addressed the release seat's proposal for universal manual checkpoint review and cleanup. Each supports conditional cleanup, with explicit intervention for retained states. Seat agreement unanimous on the exercised outcome. The three original blocking findings were repaired and independently cleared.",
+    "artifact_or_test_id": "Wave 24buu delivery/primer.md, architecture-seat.md, security-seat.md, qa-seat.md, reality-seat.md, release-seat.md and qa-final.py; rehearsal/final-archives.json and six primary/terminal transcript sets; impl/full-delivery.log and impl/second-delivery.log. Default receipt ae081c3dc17c55492dd4ede80a1b7aa4d202ae0a37e062d988929aa11d7e1348.",
+    "limitations": "Local offline Apple Silicon Phase 1 fixture, CPU/INT8, two 1.53.0 test candidates. Human follow-through, undisclosed host policies, other platforms and Phase 2 remain outside this evidence. The direct ZIP preserved verified archives whose parent ownership could not be proved. Suite skip counts are explicit. The chair independently rechecked the coordinator's rehearsal artifacts and reviewed the seats' executed controls."
+  },
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "Compared primary terminal JSON from the earlier q5ts/q5tt installed successor (cleanup_complete false) with both repaired CLI successor primary logs (one true each). Terminal inventory after manual intervention had concealed the original defect."
+  }
+}

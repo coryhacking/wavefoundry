@@ -1,0 +1,24 @@
+{
+  "wave_id": "24buu",
+  "event": "approval",
+  "actor": "qa-reviewer",
+  "signoff_key": "qa-reviewer",
+  "approval_phase": "delivery",
+  "context_id": "24buu-qa-1124-final-pair",
+  "fresh_context": true,
+  "independent": true,
+  "mode": "dry_run",
+  "evidence": {
+    "observed": "Independently checked raw terminal summaries, primary checkpoints and snapshots for both hops via direct archive, installed CLI and fresh MCP. All 108 assertions passed with one terminal completion per case and locks removed. Only the installed legacy runner and both MCP primary calls retained checkpoints. Checked both archive SHA-256 values and compared all 238 scripts/seeds in each directly against live sources. On repaired fingerprint 8d729920 the interrupted renderer retried with status 0, restored the policy marker and reported replaced. The old control omitted the marker. Twelve prior targeted fixture tests and the failing counter-truncation control cover all five admitted specs and the Objective.",
+    "artifact_or_test_id": ".wavefoundry/work/24buu/delivery/qa-final.py, qa-probe.log, code-retry.py, qa-seat.md and rehearsal/final-archives.json",
+    "limitations": "Offline Apple Silicon Phase 1 project with explicit CPU provider to preserve its INT8 index. Undisclosed host policy, human completion of local merges and post-release operator response are outside the measured outcome. Whole-suite and renamed-profile status are assessed separately."
+  },
+  "integrity_checks": {
+    "test_ran_without_unintended_skip": true,
+    "public_path_reached": true,
+    "boundary_values_realistic": true,
+    "assertions_non_vacuous": true,
+    "known_bad_detected": true,
+    "known_bad_detection_method": "In-process mutation passed only the first ranked record to the production revalidation counter. The expected four active records fell to one and two reason counts fell from one to zero. Removing the mutation restored all assertions."
+  }
+}

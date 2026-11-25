@@ -5618,5 +5618,85 @@
         "confirmed_at": "2026-11-06T21:25:08.427229+00:00"
       }
     ]
+  },
+  {
+    "id": "24abm-sec",
+    "file": "docs/waves/24buu memory-revalidation-upgrade-delivery/evidence/rehearsal/diagnostic/cli/forward-lock.json",
+    "line": 40,
+    "line_hash": "ee8b498c73a5",
+    "context_hash": "0adc0f0b3974",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "confirmed_at": "2026-11-25T07:31:04Z",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed the offline rehearsal checkpoint contains a UUID used to correlate the local index guard handoff. The guard was not required and the identifier grants no access."
+      }
+    ]
+  },
+  {
+    "id": "24arx-sec",
+    "file": "docs/waves/24buu memory-revalidation-upgrade-delivery/evidence/rehearsal/final-installed/cli/hop1-primary-checkpoint.json",
+    "line": 40,
+    "line_hash": "32fee5e8f083",
+    "context_hash": "eb4d129f8795",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "confirmed_at": "2026-11-25T07:31:04Z",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed the offline rehearsal checkpoint contains a UUID used to correlate the local index guard handoff. The guard was not required and the identifier grants no access."
+      }
+    ]
+  },
+  {
+    "id": "24bq0-sec",
+    "file": "docs/waves/24buu memory-revalidation-upgrade-delivery/evidence/rehearsal/final-mcp/mcp/hop1-primary-checkpoint.json",
+    "line": 40,
+    "line_hash": "034d9d79bc23",
+    "context_hash": "0d61052fa650",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "confirmed_at": "2026-11-25T07:31:04Z",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed the offline rehearsal checkpoint contains a UUID used to correlate the local index guard handoff. The guard was not required and the identifier grants no access."
+      }
+    ]
+  },
+  {
+    "id": "24bq1-sec",
+    "file": "docs/waves/24buu memory-revalidation-upgrade-delivery/evidence/rehearsal/final-mcp/mcp/hop2-primary-checkpoint.json",
+    "line": 40,
+    "line_hash": "862e65dcc095",
+    "context_hash": "513229531539",
+    "rule_id": "generic-api-key",
+    "matched_text": "\"****,",
+    "in_comment": false,
+    "status": "false-positive",
+    "confirmations": [
+      {
+        "git_user_name": "Cory Hacking",
+        "git_user_email": "coryhacking@mac.com",
+        "confirmed_at": "2026-11-25T07:31:04Z",
+        "verdict": "false-positive",
+        "reason": "Operator confirmed the offline rehearsal checkpoint contains a UUID used to correlate the local index guard handoff. The guard was not required and the identifier grants no access."
+      }
+    ]
   }
 ]

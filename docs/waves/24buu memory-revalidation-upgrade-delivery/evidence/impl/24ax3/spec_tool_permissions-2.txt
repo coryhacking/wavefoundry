@@ -1,0 +1,11 @@
+Bytecode cache warm (1.5s).
+FOCUSED diagnostic run (1 of 261 test files) — not delivery evidence; the full-suite cache is untouched.
+Running 1 test files across 1 workers …
+  [1/1] test_spec_tool_permissions.py — 27 tests ok (1.6s)
+
+----------------------------------------------------------------------
+Slowest files (top 1 of 1):
+  test_spec_tool_permissions.py                    1.617s  (27 tests)
+Worker service time: 1.617s across 1 files; skipped 0 tests
+Ran 27 tests across 1 files in 1.618s
+OK
