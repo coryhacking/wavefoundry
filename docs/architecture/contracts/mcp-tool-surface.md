@@ -2402,6 +2402,18 @@ status: str = "", include_history: bool = False, limit: int = 10, order: str = "
   the last recorded check, and can drop below the confidence floor.
   Freshness and the active-memory budget are described under **Adaptive memory
   freshness** below. The brief takes no free-text query.
+- Every successful response carries a read-only `revalidation` object (change 24but):
+  `{active_records, target_unresolved, target_churn, target_not_canonical,
+  churn_available}`. Each count is the number of `active` records whose
+  `revalidation_reasons` contain that reason, counted from the same ranking pass before the
+  briefing, `targets` and `limit` filters; candidate records are not counted, and the
+  object carries no memory ids. The counts follow the same rule as `wf_memory_eval`'s
+  `maintenance_signals`. `churn_available` is `false` when the commit-time read could not
+  use the index store (absent, unopenable, unexpected schema, or the read raised), so a
+  `target_churn` of `0` is then not a clean result. When no record has a file target,
+  nothing is read and `churn_available` is `true`. Upgrade recommends **Review memories**
+  when `target_unresolved` or `target_churn` is above zero or `churn_available` is
+  `false`.
 
 **Memory record identity (wave 1t9w7):** generated records mint the repository-wide lifecycle naming `<lifecycleId>-mem <slug>` (the prefix comes from the repo's own lifecycle policy; the filename stem is the memory id, so resolution is unchanged). Legacy bare-slug ids (`mem-...`) remain valid indefinitely — field stores reference them — but nothing mints one again; upgrades from pre-1.15 rename existing generated `mem-*` records deterministically, backdating each prefix from the record's `Created` date (explicit bare-slug ids stay frozen-valid and are never auto-renamed) so filesystem order shows true chronology (append-only history keeps the old ids).
 
@@ -2517,7 +2529,8 @@ or hosted model; optional Tensorwell inference uses authenticated local loopback
 **Adaptive memory freshness (wave 1tbt5):**
 
 - `memory_search` and `memory_brief` collect all surfaced file targets and use
-  one `file_commit_times` query. Tactical and time-sensitive records derive a
+  one commit-time query (`file_commit_times_read`, which also reports whether the store
+  was read). Tactical and time-sensitive records derive a
   target cadence from the median commit interval, apply named multiplier and
   min/max clamps, and use the most conservative multi-target half-life. Sparse
   or unreadable histories retain the established fixed half-life.

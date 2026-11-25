@@ -54,6 +54,10 @@ SURFACE_FILES = ('.mcp.json', '.codex/config.toml', '.cursor/mcp.json',
 OWNERSHIP_FILES = ('.wavefoundry/upgrade-in-progress.json',
                    '.wavefoundry/index/sqlite-migration.json')
 STAMP_PATH = '.wavefoundry/index/setup-state.json'
+# Wave 24buu (24ax3): inputs of the spec_tools_withheld reason, so a pull that
+# changes them is reassessed.
+SPEC_TOOL_POLICY_FILES = ('.claude/settings.json', '.claude/settings.local.json',
+                          '.wavefoundry/install-log.md')
 SOURCE_ONLY_STAMP_LIMITATION = ('Framework sources differ from the setup stamp at the same framework version; '
                                 'live checks decided readiness.')
 ENV_KEYS = (REQUESTED_PROVIDER_ENV, SETUP_SELECTED_ENV,
@@ -164,6 +168,13 @@ def assessment_signature(root: Path) -> dict:
                          '.wavefoundry/index/index.sqlite', '.wavefoundry/index/index.sqlite-wal',
                          '.wavefoundry/index/index-state.sqlite'):
             values[relative] = _stat(_safe(root, relative))
+        for relative in SPEC_TOOL_POLICY_FILES:
+            # Not followed: a link here is an input of its own, never an escape.
+            try:
+                entry = os.lstat(root / relative)
+                values[relative] = [entry.st_dev, entry.st_ino, entry.st_size, entry.st_mtime_ns, entry.st_ctime_ns]
+            except (FileNotFoundError, NotADirectoryError):
+                values[relative] = None
         for name in SOURCE_FILES:
             values['source:' + name] = _stat(SCRIPTS / name)
         values['venv_root'] = str(_venv().resolve())
@@ -597,6 +608,25 @@ def assess_setup(root: Path, *, loaded_identity: dict | None = None,
                     needs_setup = True; reason('surface_entry_missing', f'Wavefoundry MCP entry is missing: {relative}')
                 elif not _valid_surface_entry(root, entry, relative):
                     needs_setup = True; reason('surface_entry_changed', f'Wavefoundry MCP launch entry needs setup reconciliation: {relative}')
+        if target_scripts.is_dir():
+            # Wave 24buu (24ax3): after a pull, the renamed spec tools stay
+            # withheld on this workstation until setup migrates the repository
+            # rules and records its verification. Routes a readable layer still
+            # restricts are not reported, because setup cannot change them.
+            try:
+                import mcp_tool_extensions
+                import mcp_tool_roster
+                import spec_tool_permissions
+                spec_pending = spec_tool_permissions.setup_pending(
+                    root, mcp_tool_extensions.stock_spec_routes(), mcp_tool_roster.MCP_RULE_PREFIX)
+            except (ImportError, OSError, ValueError) as exc:
+                result['limitations'].append(f'Renamed spec-tool permissions were not assessed: {exc}')
+            else:
+                tools = sorted({*spec_pending['unverified'], *(item['tool'] for item in spec_pending['migrations'])})
+                if tools:
+                    needs_setup = True
+                    reason('spec_tools_withheld', 'Renamed spec tools are withheld until setup migrates host rules '
+                           'and records its verification: ' + ', '.join(tools) + '.', tools=tools)
         # Stamp comparison can reveal an update, but cannot authorize readiness.
         stamp_path = _safe(root, STAMP_PATH)
         if use_stamp and stamp_path.exists():

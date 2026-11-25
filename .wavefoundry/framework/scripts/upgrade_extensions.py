@@ -4562,7 +4562,7 @@ print(json.dumps(r.lifecycle_baseline_drift(root, incoming)))
         _update_upgrade_state(ctx.root, **fields)
     if getattr(ctx, "lifecycle_baseline_reported", False):
         return findings
-    print("Lifecycle baseline drift (report only; project copies preserved):", flush=True)
+    print("Lifecycle baseline drift:", flush=True)
     for finding in findings:
         print("  " + json.dumps(finding, ensure_ascii=True), flush=True)
     if not findings:

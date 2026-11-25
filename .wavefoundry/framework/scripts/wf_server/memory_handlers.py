@@ -260,6 +260,7 @@ def _memory_ranked(
     *,
     relevance_rank_by_id: Optional[dict[str, int]] = None,
     commit_times_override: Optional[dict[str, list[int]]] = None,
+    availability: Optional[dict[str, bool]] = None,
 ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
     """Policy-partitioned freshness/relevance ordering.
 
@@ -281,6 +282,13 @@ def _memory_ranked(
     by each target's canonical path (the ref when ``resolved``, its
     ``resolved_path`` when ``suffix_only``), so a bare-name target churns
     like its full path. The decay dicts carry the revalidation flag.
+
+    Change 24but: when the caller passes an ``availability`` dict, its
+    ``churn_available`` key is set to False when the commit-time read could
+    not use the index store (absent, unopenable, unexpected schema, or the
+    read raised), so a zero churn count is never read as clean. With no file
+    target, or with ``commit_times_override``, nothing is read from the store
+    and churn counts as available. The return value is the same either way.
     """
     import wf_server.server_impl as server_impl
     mem = _memory_mod()
@@ -297,6 +305,7 @@ def _memory_ranked(
             resolutions[id(record)] = resolution
             file_targets.update(mem.revalidation_state(resolution)["canonical_paths"])
     commit_times: dict[str, list[int]] = {}
+    churn_available = True
     if commit_times_override is not None:
         # Wave 1tis8: an evaluation caller freezes a commit-history snapshot so
         # its scoring is deterministic. It passes that snapshot in EXPLICITLY —
@@ -311,11 +320,12 @@ def _memory_ranked(
         }
     elif file_targets:
         try:
-            commit_times = server_impl._load_script("index_state_store").file_commit_times(
-                index_dir, file_targets
-            )
+            commit_times, churn_available = server_impl._load_script(
+                "index_state_store").file_commit_times_read(index_dir, file_targets)
         except Exception:
-            commit_times = {}
+            commit_times, churn_available = {}, False
+    if availability is not None:
+        availability["churn_available"] = churn_available
 
     def _churn_provider(path: str, since_ts: Optional[int]) -> int:
         times = commit_times.get(path)
@@ -2286,6 +2296,27 @@ def memory_search_response(
     return result
 
 
+def _revalidation_counts(
+    ranked: list[tuple[dict[str, Any], dict[str, Any]]], churn_available: bool
+) -> dict[str, Any]:
+    """Change 24but: read-only revalidation counts for ``memory_brief``.
+
+    Counted over active records of the unfiltered ``_memory_ranked`` output,
+    before the briefing, target and limit filters, with the same derived
+    reasons ``memory_eval.maintenance_signals`` counts. Counts only, never
+    memory ids.
+    """
+    reasons = [decay.get("revalidation_reasons") or []
+               for record, decay in ranked if record.get("status") == "active"]
+    return {
+        "active_records": len(reasons),
+        "target_unresolved": sum(1 for item in reasons if "target_unresolved" in item),
+        "target_churn": sum(1 for item in reasons if "target_churn" in item),
+        "target_not_canonical": sum(1 for item in reasons if "target_not_canonical" in item),
+        "churn_available": bool(churn_available),
+    }
+
+
 def memory_brief_response(
     root: Path,
     context: str = "pre_implementation",
@@ -2306,7 +2337,9 @@ def memory_brief_response(
     n = max(1, min(int(limit), MEMORY_BRIEF_CAP))
     target_list = [str(t).strip() for t in (targets or []) if str(t).strip()]
     records = mem.load_memory_records(root, statuses=mem.DEFAULT_SURFACED_STATUSES)
-    ranked = _memory_ranked(root, records)
+    availability: dict[str, bool] = {}
+    ranked = _memory_ranked(root, records, availability=availability)
+    revalidation = _revalidation_counts(ranked, availability.get("churn_available", True))
     ranked = [(r, d) for r, d in ranked if d.get("briefing_included", True)]
     if target_list:
         # Change 249aq: a targeted briefing shows only records that match a
@@ -2347,6 +2380,7 @@ def memory_brief_response(
             "active_count": active_count,
             "remaining": max(0, mem.ACTIVE_MEMORY_CAP - active_count),
         },
+        "revalidation": revalidation,
     }
     if active_count >= mem.ACTIVE_MEMORY_CAP:
         data["curation_required"] = True

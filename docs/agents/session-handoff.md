@@ -6,9 +6,11 @@ Last verified: 2026-11-24
 
 ## Current state
 
-Wave `248o5` closed on 2026-11-24. It moved standing behavior contracts under `docs/architecture/contracts/` and introduced spec-named MCP tools. The full framework suite passed, and close removed its disposable work folder.
+Wave `24buu` completed delivery review and awaits operator closure. All five specs are implemented. The six specialist lanes and the council approved delivery after the retry and documentation repairs. The final source passed 13,614 tests with 13 skips; the four final affected files passed 846 tests with two skips under the renamed profile. The wave record preserves the two-hop results and remaining operator interventions. The local test package is `~/.wavefoundry/dist/wavefoundry-1.53.0.q5u1.zip` (SHA-256 `c0b771482678830533d6660c11c40f391b537a417c19bb319a083fa2cd1b0043`). The operator requested a preview for Waveforge. The review does not authorize an official release.
 
 ## Earlier handoffs
+
+Wave `248o5` closed on 2026-11-24. It moved standing behavior contracts under `docs/architecture/contracts/` and introduced spec-named MCP tools. The full framework suite passed, and close removed its disposable work folder.
 
 All three waves for 1.48.0 are closed. Wave `24237` added optional dependency diagrams to planning and the offline dashboard. Wave `24239` added labeled implementation walkthroughs and inline text diagrams for terminal users. Wave `241c3` updated the shared writing guide and preserved the scripts for measuring later specs. The full framework suite passed 13,194 tests with 12 skips. The close tools removed the owned work directories.
 

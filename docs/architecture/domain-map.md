@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-21
+Last verified: 2026-11-24
 
 ## Domains
 
@@ -21,7 +21,7 @@ Last verified: 2026-11-21
 ## Dependency Direction Rules
 
 1. `.wavefoundry/framework/seeds/` is source of truth for generic framework behavior — no domain modifies it except Wavefoundry maintainers through an explicit wave (requires `seed_edit_allowed` guard).
-2. `.wavefoundry/framework/scripts/` does not own whole project docs. It owns only explicit lifecycle records, framework marker-bounded carrier regions, and the missing-only baseline class it materializes exactly once when a destination is absent (the plan-template scaffold, the lifecycle prompt baselines, and the Backstage/TechDocs trio `catalog-info.yaml` / `mkdocs.yml` / `docs/index.md`); a materialized baseline is project-owned from that moment on and is never regenerated as a whole file. Managed-region renderer updates preserve surrounding project-authored bytes. The separately controlled council-role migration may move its named files and rewrite only exact local Markdown destinations to those roles in current docs, preserving unrelated bytes and excluding historical record roots (wave 204mp).
+2. `.wavefoundry/framework/scripts/` does not own whole project docs. It owns explicit lifecycle records and marker-bounded carrier regions. Ordinary rendering creates absent lifecycle prompts and the plan template. During upgrade, the Phase 1 renderer can replace a registered lifecycle prompt or plan template after it verifies that the contained destination still matches the previous shipped baseline. It preserves the verification date, regenerates owned regions and records the replacement in the upgrade checkpoint. It preserves edited, unverified and linked destinations. TechDocs creates only absent members of its baseline trio (`catalog-info.yaml`, `mkdocs.yml`, `docs/index.md`). Managed-region renderer updates preserve surrounding project-authored bytes. The separately controlled council-role migration may move its named files and rewrite only exact local Markdown destinations to those roles in current docs, preserving unrelated bytes and excluding historical record roots (wave 204mp).
 3. `docs/` is tool-independent — it does not import or reference script internals. The MCP server reads `docs/` but `docs/` has no knowledge of the server.
 4. Executable-review lifecycle validation may write outside `docs/` only to its bounded ignored host-local coordination state (the `project_state_publication_lock` carrier `.wavefoundry/locks/review-evidence-adoptions.lock`; the adoption-shaped basename is a stable compatibility ABI). The narrow additional lifecycle write scope is the repository-bound owned `.wavefoundry/work/<wave-id>/`: creation on successful lifecycle mutation, optional disposable review aids, and contained post-close cleanup. It grants no document ownership, tool permission or approval authority; unique long-term proof belongs in maintained records before final evidence. Other MCP mutations—such as index state, edit-gate overrides, and platform rendering—remain limited to their explicitly documented tool scopes; this rule does not redefine those separate boundaries.
 5. The local dashboard server is loopback-only and read-mostly: it may write host-local endpoint metadata under `.wavefoundry/`, but it must not mutate project docs, wave state, or git-tracked product state.

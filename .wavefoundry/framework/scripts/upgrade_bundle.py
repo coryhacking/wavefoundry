@@ -137,7 +137,7 @@ def _bounded(text: str) -> str:
     return "…[truncated]…\n" + text[-OUTPUT_LIMIT:]
 
 
-def _feature_state(root: Path, returncode: int) -> tuple[str, dict]:
+def _feature_state(root: Path, returncode: int, stdout: str = "") -> tuple[str, dict]:
     checkpoint = root / ".wavefoundry" / "upgrade-in-progress.json"
     state: dict = {}
     try:
@@ -156,6 +156,16 @@ def _feature_state(root: Path, returncode: int) -> tuple[str, dict]:
     except (OSError, UnicodeError, ValueError):
         pass
     if returncode == 0:
+        if not os.path.lexists(checkpoint):
+            for line in reversed(stdout.splitlines()):
+                if line.startswith("WAVE_UPGRADE_SUMMARY_JSON:"):
+                    try:
+                        summary = json.loads(line.partition(":")[2])
+                    except (ValueError, RecursionError):
+                        break
+                    if isinstance(summary, dict) and summary.get("cleanup_complete") is True:
+                        return "cleanup_complete", state
+                    break
         return "primary_phase_complete", state
     if returncode == 4:
         return "awaiting_memory_validation", state
@@ -188,6 +198,10 @@ def _recovery(root: Path, bridge: dict, feature_state: str) -> dict:
     if feature_state == "awaiting_memory_validation":
         return {"kind": "continue_index_then_cleanup",
                 "instruction": "Continue with wf_upgrade(phase='update_index'), then wf_upgrade(phase='cleanup')."}
+    if feature_state == "cleanup_complete":
+        return {"kind": "reconcile_then_audit",
+                "instruction": "Cleanup is complete. Restart attached hosts, complete the editing pass, "
+                               "and refresh the index only if edits changed indexed files. Run wf_audit."}
     if feature_state == "primary_phase_complete":
         return {
             "kind": "restart_reconcile_then_cleanup",
@@ -217,7 +231,10 @@ def _recovery(root: Path, bridge: dict, feature_state: str) -> dict:
     except (OSError, UnicodeError, ValueError):
         state = {}
     failed = state.get("failed_phase") if isinstance(state, dict) else None
-    if failed == "docs_gate" or _post_docs_gate_failure(state):
+    if failed in {"cleanup", "retired_model_cleanup", "dashboard_restart"} or (
+            not failed and isinstance(state, dict) and state.get("current_phase") == "index_complete"):
+        argv = [sys.executable, str(runner), "--root", str(root), "--cleanup", "--yes"]
+    elif failed == "docs_gate" or _post_docs_gate_failure(state):
         argv = [sys.executable, str(runner), "--root", str(root), "--resume-after-gate", "--yes"]
     else:
         argv = list(bridge["next_argv"])
@@ -376,7 +393,7 @@ def run(bundle: Path, root: Path, *, hosts_stopped: bool, dry_run: bool = False)
                     pass
                 else:
                     envelope.cleanup(root, retained)
-    feature_state, checkpoint = _feature_state(root, result.returncode)
+    feature_state, checkpoint = _feature_state(root, result.returncode, result.stdout or "")
     payload = {
         "status": "ok" if result.returncode == 0 else "action_required",
         "source_version": bridge["source_version"],
@@ -397,12 +414,34 @@ def run(bundle: Path, root: Path, *, hosts_stopped: bool, dry_run: bool = False)
     return result.returncode, payload
 
 
+def _add_bundle_scripts_path(bundle: Path) -> None:
+    """Resolve framework imports from this zip's own scripts (change 24bn7).
+
+    Entry code such as ``embedded_model_bundle.retain`` imports framework modules
+    inside functions (``contained_files``) that are not top-level runner members,
+    and the materializer's member allowlist forbids adding them. The zip already
+    carries every framework script under ``.wavefoundry/framework/scripts/``, so
+    that directory is put on ``sys.path`` through zipimport at index 1, right
+    after the zip's own root entry: the top-level runner members still win over
+    their scripts copies, and no later entry can shadow the zip's scripts. The
+    entry is built with ``os.path.join`` from the zip path, which zipimport reads
+    the same way on Windows, macOS, Linux and WSL2. A standalone copied bridge is
+    not a zip and gets no entry.
+    """
+    if not zipfile.is_zipfile(bundle):
+        return
+    entry = os.path.join(str(bundle), ".wavefoundry", "framework", "scripts")
+    if entry not in sys.path:
+        sys.path.insert(1, entry)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True)
     parser.add_argument("--confirm-hosts-stopped", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
+    _add_bundle_scripts_path(Path(sys.argv[0]).resolve())
     try:
         code, payload = run(
             Path(sys.argv[0]).resolve(),

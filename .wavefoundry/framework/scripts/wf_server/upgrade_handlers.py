@@ -1317,7 +1317,8 @@ def wf_upgrade_response(
             cmd.append("--confirm-hosts-stopped")
         if rebuild_storage:
             cmd.append("--rebuild-storage")
-        # phase == "preflight_to_docs_gate": --yes only (default run)
+        if phase == "preflight_to_docs_gate":
+            cmd.append("--no-auto-cleanup")
 
     # Bind an expected restart response to this child invocation. A previous
     # receipt (or exit 3 by itself) must never disguise a new upgrade failure.

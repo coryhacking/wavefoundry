@@ -2204,7 +2204,8 @@ class HotPathBoundedIOTests(_MemoryCase):
         import graph_snapshot as _gs
         _gs.invalidate(self.root)
         real_load = modmem.load_memory_records
-        real_commits = modiss.file_commit_times
+        # Change 24but: the ranker's batched read is `file_commit_times_read`.
+        real_commits = modiss.file_commit_times_read
         real_communities = _gc.read_published_clusters
 
         def load_spy(*a, **k):
@@ -2220,10 +2221,10 @@ class HotPathBoundedIOTests(_MemoryCase):
             return real_communities(*a, **k)
 
         modmem.load_memory_records = load_spy
-        modiss.file_commit_times = commits_spy
+        modiss.file_commit_times_read = commits_spy
         _gc.read_published_clusters = communities_spy
         self.addCleanup(setattr, modmem, "load_memory_records", real_load)
-        self.addCleanup(setattr, modiss, "file_commit_times", real_commits)
+        self.addCleanup(setattr, modiss, "file_commit_times_read", real_commits)
         self.addCleanup(setattr, _gc, "read_published_clusters", real_communities)
         t0 = _time.perf_counter()
         first = self.srv._memory_advisories_for_path(self.root, "src/core.py")
@@ -6674,6 +6675,156 @@ _DAY = 86400
 
 def _weekly(start: str, count: int) -> list[int]:
     return [_utc(start) + index * 7 * _DAY for index in range(count)]
+
+
+class BriefRevalidationCountsTests(_MemoryCase):
+    """Change 24but: ``memory_brief`` reports read-only revalidation counts
+    over active records, before its briefing, target and limit filters."""
+
+    FILES = ("a.py", "pkg/b.py", "other.py")
+    EXPECTED = {"active_records": 4, "target_unresolved": 1, "target_churn": 1,
+                "target_not_canonical": 1, "churn_available": True}
+
+    def setUp(self):
+        super().setUp()
+        self.srv = load_server()
+        self.root = Path(self._tmp.name) / "counts"
+        (self.root / "docs" / "agents").mkdir(parents=True)
+        self.index_dir = self.root / ".wavefoundry" / "index"
+        for rel in self.FILES:
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("value = 1\n", encoding="utf-8")
+        for memory_id, targets, status in (
+                ("mem-a-unresolved", ("gone.py",), "active"),
+                ("mem-b-churned", ("a.py",), "active"),
+                ("mem-c-bare", ("b.py",), "active"),
+                ("mem-d-clean", ("other.py",), "active"),
+                ("mem-e-candidate", ("gone-too.py",), "candidate")):
+            content = self.mem.render_memory_record(
+                memory_id=memory_id, kind="failed_attempt",
+                summary=f"Lesson from {memory_id}.", evidence=["a.py"],
+                targets=list(targets), title=f"Lesson {memory_id}",
+                confidence=0.8, status=status, date="2026-11-01")
+            self.mem.write_memory_record(self.root, content, memory_id)
+
+    def _seed(self, histories):
+        iss = _load("index_state_store")
+        store = iss.IndexStateStore(self.index_dir)
+        try:
+            store.apply_freshness(
+                rows={path: {"commit_count": len(times), "source": "test"}
+                      for path, times in histories.items()},
+                commits=[(path, f"{pindex:03d}{index:037x}", int(ts))
+                         for pindex, (path, times) in enumerate(sorted(histories.items()))
+                         for index, ts in enumerate(times)],
+                fingerprint="test", paths_hash="test")
+        finally:
+            store.close()
+
+    def _seed_churn(self):
+        self._seed({"a.py": _weekly("2026-11-02T12:00:00Z", 12),
+                    "other.py": _weekly("2026-11-02T12:00:00Z", 1)})
+
+    def _revalidation(self, **kwargs):
+        brief = self.srv.memory_brief_response(self.root, **kwargs)
+        self.assertEqual(brief["status"], "ok", brief)
+        return brief["data"]["revalidation"]
+
+    def test_ac1_counts_active_records_before_the_briefing_filters(self):
+        self._seed_churn()
+        self.assertEqual(self._revalidation(), self.EXPECTED)
+        self.assertEqual(self._revalidation(limit=1), self.EXPECTED)
+        brief = self.srv.memory_brief_response(self.root, targets=["no/such/file.py"])
+        self.assertEqual(brief["data"]["advisories"], [])
+        self.assertEqual(brief["data"]["revalidation"], self.EXPECTED)
+        self.assertEqual(self._revalidation(context="review"), self.EXPECTED)
+
+    def test_ac2_counts_match_maintenance_signals_and_carry_no_ids(self):
+        import memory_eval
+        self._seed_churn()
+        revalidation = self._revalidation()
+        signals = memory_eval.maintenance_signals(self.root)
+        self.assertEqual(
+            (revalidation["active_records"], revalidation["target_unresolved"],
+             revalidation["target_churn"], revalidation["target_not_canonical"]),
+            (signals["active_records"], signals["unresolved_target_records"],
+             signals["churn_flagged_records"], signals["not_canonical_target_records"]))
+        self.assertEqual(set(revalidation), set(self.EXPECTED))
+        rendered = json.dumps(revalidation)
+        for memory_id in ("mem-a", "mem-b", "mem-c", "mem-d", "mem-e"):
+            self.assertNotIn(memory_id, rendered)
+
+    def _reset_store(self):
+        if self.index_dir.exists():
+            shutil.rmtree(self.index_dir)
+
+    def _rewrite_store(self, statement):
+        import sqlite3
+        iss = _load("index_state_store")
+        self._seed_churn()
+        conn = sqlite3.connect(iss.state_store_path(self.index_dir))
+        try:
+            conn.execute(statement)
+            conn.commit()
+        finally:
+            conn.close()
+
+    def test_ac7_an_unavailable_churn_source_is_never_reported_clean(self):
+        iss = _load("index_state_store")
+        store_path = iss.state_store_path(self.index_dir)
+        unavailable = dict(self.EXPECTED, target_churn=0, churn_available=False)
+        with self.subTest(store="absent"):
+            self._reset_store()
+            self.assertFalse(store_path.exists())
+            self.assertEqual(self._revalidation(), unavailable)
+        with self.subTest(store="corrupt"):
+            self._reset_store()
+            self.index_dir.mkdir(parents=True)
+            store_path.write_bytes(b"this is not a sqlite database" * 64)
+            self.assertEqual(self._revalidation(), unavailable)
+        with self.subTest(store="unexpected schema"):
+            self._reset_store()
+            self._rewrite_store("UPDATE meta SET value='1' WHERE key='store_schema_version'")
+            self.assertEqual(self._revalidation(), unavailable)
+        with self.subTest(store="query raises"):
+            self._reset_store()
+            self._rewrite_store("DROP TABLE file_commits")
+            self.assertEqual(self._revalidation(), unavailable)
+        with self.subTest(store="read raises"):
+            self._reset_store()
+            self._seed_churn()
+            loader = self.srv._load_script("index_state_store")
+            with patch.object(loader, "file_commit_times_read",
+                              side_effect=RuntimeError("store read failed")):
+                self.assertEqual(self._revalidation(), unavailable)
+        with self.subTest(store="valid"):
+            self._reset_store()
+            self._seed_churn()
+            self.assertEqual(self._revalidation(), self.EXPECTED)
+        self.assertEqual(iss.file_commit_times_read(self.index_dir, []), ({}, True))
+
+    def test_no_file_target_reads_nothing_and_counts_churn_available(self):
+        import wf_server.memory_handlers as memory_handlers
+        records = [r for r in self.mem.load_memory_records(self.root, statuses=["active"])
+                   if r["memory_id"] == "mem-a-unresolved"]
+        availability = {}
+        loader = self.srv._load_script("index_state_store")
+        with patch.object(loader, "file_commit_times_read",
+                          side_effect=AssertionError("no target needs a read")):
+            memory_handlers._memory_ranked(self.root, records, availability=availability)
+        self.assertEqual(availability, {"churn_available": True})
+
+    def test_other_ranker_callers_keep_their_results(self):
+        import wf_server.memory_handlers as memory_handlers
+        records = self.mem.load_memory_records(self.root, statuses=["active", "candidate"])
+        plain = memory_handlers._memory_ranked(self.root, records)
+        availability = {}
+        reported = memory_handlers._memory_ranked(self.root, records, availability=availability)
+        self.assertEqual(plain, reported)
+        self.assertEqual(availability, {"churn_available": False})
+        iss = _load("index_state_store")
+        self.assertEqual(iss.file_commit_times(self.index_dir, ["a.py"]), {})
 
 
 class RevalidationSignalTests(_MemoryCase):

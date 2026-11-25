@@ -87,6 +87,9 @@ def build(root: Path, *, claude: bool = False) -> dict[str, str]:
     shutil.copytree(SCRIPTS, scripts, ignore=shutil.ignore_patterns('tests', '__pycache__', '*.pyc'))
     (root / 'docs').mkdir(parents=True, exist_ok=True)
     (root / 'docs/workflow-config.json').write_text('{}', encoding='utf-8')
+    # A fresh install: the renamed spec tools need no migration (wave 24buu).
+    (root / '.wavefoundry/install-log.md').write_text(
+        '# Install log\n\nInitial MCP vocabulary: spec-tools-v1\n', encoding='utf-8')
     venv = root / 'venv'
     python = venv / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
     python.parent.mkdir(parents=True)

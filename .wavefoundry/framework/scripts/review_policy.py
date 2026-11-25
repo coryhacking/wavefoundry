@@ -270,9 +270,12 @@ Markdown and ledgers remain immutable. After the upgrade reload—or a
 restart when `runner_stale` or cutover requires one—check from a fresh turn. If the
 catalog remains stale, reconnect MCP, then restart as the final fallback. Once current,
 use `wf_list_waves` for compact wave metrics and `memory_brief` for the active-memory
-budget and any consolidation candidates. If `memory_brief` reports
-`curation_required=true` or returns consolidation candidates, recommend the public
-**Review memories** shortcut (alias **Memory review**); Upgrade never auto-curates or
+budget, any consolidation candidates and the `revalidation` counts. Recommend the
+public **Review memories** shortcut (alias **Memory review**) when `memory_brief`
+reports `curation_required=true`, returns consolidation candidates, reports
+`revalidation.target_unresolved` or `revalidation.target_churn` above zero, or
+reports `revalidation.churn_available=false`; state those counts in the
+recommendation. Upgrade never auto-curates or
 purges memory.
 
 Every upgrade also reconciles shortcut discovery merge-safely: ensure the canonical

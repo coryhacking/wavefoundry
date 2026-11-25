@@ -691,6 +691,62 @@ class ReviewPolicyUpgradeTests(unittest.TestCase):
         self.assertNotIn("memory_purge(", review_policy.UPGRADE_POLICY_BLOCK)
         self.assertNotIn('memory_consolidate(mode="create"', review_policy.UPGRADE_POLICY_BLOCK)
 
+    # Change 24but: upgrade delivers the memory keep rule and the revalidation
+    # recommendation to an upgraded project.
+    _SEED_160 = SCRIPTS.parent / "seeds" / "160-upgrade-wavefoundry.prompt.md"
+    _SELF_HOSTED_UPGRADE = SCRIPTS.parents[2] / "docs" / "prompts" / "upgrade-wavefoundry.prompt.md"
+    _KEEP_RULE_ENTRY = (
+        "   - Seed 240 and `memory-review` baseline -> `docs/prompts/memory-review.prompt.md`, "
+        "and seed 190 and `close-wave` baseline -> the profile-resolved Close wave prompt: "
+        "the memory keep rule. A keep or reactivation of an active record needs a single-line "
+        "`check_note`, a keep is refused while a target is unresolved, and promoting a "
+        "candidate needs neither."
+    )
+    _RECOMMENDATION_NAMES = (
+        "curation_required=true", "consolidation candidates",
+        "revalidation.target_unresolved", "revalidation.target_churn",
+        "revalidation.churn_available=false",
+    )
+
+    def test_upgrade_carries_the_memory_keep_rule_into_existing_prompts(self):
+        for path in (self._SEED_160, self._SELF_HOSTED_UPGRADE):
+            with self.subTest(path=path.name):
+                text = path.read_text(encoding="utf-8")
+                self.assertEqual(text.count(self._KEEP_RULE_ENTRY), 1)
+                start = text.index("- **Changed briefing-loop carriers.**")
+                end = text.index("Merge only changed authored clauses", start)
+                self.assertIn(self._KEEP_RULE_ENTRY, text[start:end])
+                entry = text[text.index(self._KEEP_RULE_ENTRY):].split("\n", 1)[0]
+                for copy in ("an edited copy", "a copy with an unknown baseline",
+                             "a symlinked copy", "a copy that changed after the comparison"):
+                    self.assertIn(copy, entry)
+        self_hosted = self._SELF_HOSTED_UPGRADE.read_text(encoding="utf-8")
+        region = self_hosted[self_hosted.index(review_policy.UPGRADE_POLICY_MARKER_BEGIN):
+                             self_hosted.index(review_policy.UPGRADE_POLICY_MARKER_END)]
+        self.assertNotIn(self._KEEP_RULE_ENTRY, region)
+
+    def test_upgrade_recommends_review_memories_on_revalidation_counts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / review_policy_reconcile.UPGRADE_POLICY_DESTINATION
+            path.parent.mkdir(parents=True)
+            path.write_text("# Upgrade Wavefoundry\n\nOperator body.\n", encoding="utf-8")
+            review_policy_reconcile.reconcile_upgrade_policy_surface(root)
+            rendered = path.read_text(encoding="utf-8")
+        start = rendered.index(review_policy.UPGRADE_POLICY_MARKER_BEGIN)
+        block = rendered[start:rendered.index(review_policy.UPGRADE_POLICY_MARKER_END, start)]
+        for name in self._RECOMMENDATION_NAMES:
+            self.assertIn(name, block)
+        self.assertIn("state those counts", block)
+        self.assertIn("never auto-curates or\npurges memory", block)
+        seed = self._SEED_160.read_text(encoding="utf-8")
+        step = next(line for line in seed.splitlines()
+                    if "Once current, call `memory_brief`" in line)
+        for name in self._RECOMMENDATION_NAMES:
+            self.assertIn(name, step)
+        self.assertIn("state the `revalidation` counts", step)
+        self.assertIn("Never run memory curation or purge automatically", step)
+
     def _repo(self, tmp: str, *, enabled: bool) -> tuple[Path, Path, Path]:
         root = Path(tmp)
         config = root / "docs/workflow-config.json"

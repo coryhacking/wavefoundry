@@ -15,12 +15,18 @@ Phases (run in order when no phase flag given):
     Phase 2 — Pruning: prune_framework.py --old-manifest <saved MANIFEST>
     Phase 3 — Docs gate: docs-gardener && docs-lint
 
-Separate phase (called after agent editing pass):
+Index publication (also available as a separate phase):
     Phase 4 — Index update: one blocking setup_index.py pass publishes a complete
               docs+code semantic epoch, then the graph index is rebuilt.
 
 Phase 5 — Cleanup (called after phase 4, or via --cleanup):
     Remove upgrade lock; print operator summary.
+
+The CLI and release-zip entry run cleanup in the newly installed framework after
+successful index publication when the running upgrade program is 1.52.0 or later.
+A CLI upgrade from 1.51.0 still needs one manual --cleanup. MCP and
+--no-auto-cleanup keep the separate cleanup step. When a retained continuation
+owns the next step, follow its recovery command before cleanup.
 
 Exit codes:
     0 — success
@@ -1500,6 +1506,68 @@ def _run_upgrade_child(cmd, root: Path, phase: str, **kwargs):
     if result.returncode and isinstance(tail, str) and tail:
         _log("  Child failure tail (stream order is best-effort):\n" + tail)
     return result
+
+
+def _auto_cleanup_ready(root: Path, opted_out: bool) -> bool:
+    """Require an observed index publication and a checkpoint owned by cleanup."""
+    if opted_out or "WAVEFOUNDRY_STORAGE_OLD_MCP_PID" in os.environ:
+        return False
+    import sqlite_storage_migration as migration
+    import upgrade_lib
+
+    lock = upgrade_lib.read_upgrade_lock(root)
+    if (not isinstance(lock, dict) or not lock.get("index_rebuilt_at") or lock.get("failed_phase")
+            or lock.get("action_required") or lock.get("index_publication_failed")
+            or lock.get("dependency_provisioning_failed") or lock.get("current_phase") != "index_complete"):
+        return False
+    if "index_guard_handoff" in lock:
+        import upgrade_extensions
+        guard = lock["index_guard_handoff"]
+        try:
+            upgrade_extensions._validate_index_guard_handoff(root, lock, guard)
+        except (OSError, ValueError, TypeError) as exc:
+            _err(f"Could not verify the index guard for automatic cleanup: {exc}")
+            return False
+        if "action" in guard or "terminal_cleanup" in guard:
+            return False
+        if guard["required"]:
+            if guard.get("hosts_stopped_confirmed") is not True:
+                return False
+        else:
+            # Pre-extract records capability even when no stop is required.
+            # The recovery selector treats a present guard as a handoff.
+            lock = {key: value for key, value in lock.items() if key != "index_guard_handoff"}
+    if migration._checkpoint_resume_flag(lock) != "--cleanup":
+        return False
+    try:
+        receipt = migration.read_receipt(root / ".wavefoundry/index")
+    except (OSError, migration.MigrationRequired) as exc:
+        _err(f"Could not verify storage readiness for automatic cleanup: {exc}")
+        return False
+    return receipt is None or receipt["state"] in migration.READABLE_STATES
+
+
+def _run_auto_cleanup(root: Path) -> int:
+    """The installed child owns the terminal summary and appends to the same log."""
+    import setup_commands
+    import upgrade_lib
+
+    _log("Primary upgrade complete. Index publication succeeded. Running cleanup.")
+    _close_log()
+    runner = root / ".wavefoundry/framework/scripts/upgrade_wavefoundry.py"
+    argv = [_preferred_python(), str(runner), "--root", str(root), "--cleanup", "--yes"]
+    try:
+        status = _run_upgrade_child(argv, root, "cleanup", cwd=str(root)).returncode
+    except OSError as exc:
+        _err(f"Could not start cleanup: {exc}")
+        status = 1
+    if status or os.path.lexists(upgrade_lib.upgrade_lock_path(root)):
+        lock = upgrade_lib.read_upgrade_lock(root) or {}
+        phase = lock.get("failed_phase") or lock.get("current_phase") or "unavailable"
+        _err(f"Cleanup did not finish. Retained checkpoint phase: {phase}. "
+             f"Inspect wf_upgrade_status and retry: {setup_commands.format_command(argv)}")
+        return status or 1
+    return 0
 
 
 def _child_failure(message: str, result) -> str:
@@ -3982,7 +4050,7 @@ def phase_cleanup(
             permissions_delta=_cl_permissions, skill_delivery=_cl_skill_delivery,
             index_update_failed=index_update_failed,
             retired_model_cleanup=retired_model_cleanup, setup_assessment=setup_assessment,
-            dependency_provisioning_failed=dependency_provisioning_failed)
+            dependency_provisioning_failed=dependency_provisioning_failed, cleanup_complete=True)
         summary.update(_report_fields(_empty_reporting("error", "emitter_" + type(exc).__name__)))
         summary[SUMMARY_SCHEMA_KEY] = SUMMARY_SCHEMA_VERSION
         _emit_summary_line(summary)
@@ -4773,8 +4841,15 @@ def _lifecycle_baseline_findings(root: Path | None) -> list[dict]:
 def _spec_tool_permission_summary(root):
     if root is None:
         return {}
-    from mcp_tool_roster import spec_permission_holds
-    return {"spec_tool_permission_holds": list(spec_permission_holds(root).values())}
+    import mcp_tool_roster
+    import spec_tool_permissions
+    routes = mcp_tool_roster.mcp_tool_extensions.stock_spec_routes()
+    layers = spec_tool_permissions.assess_layers(root, routes, mcp_tool_roster.MCP_RULE_PREFIX)
+    # Wave 24buu (24ax3): the Phase 1 render child migrates the repository
+    # rules and records the verification; this reports what remains.
+    return {"spec_tool_permission_holds": list(mcp_tool_roster.spec_permission_holds(root).values()),
+            "spec_tool_permission_recommendations": list(layers["recommendations"]),
+            "spec_tool_outside_layers": [f"{item['path']} ({item['state']})" for item in layers["outside_files"]]}
 
 
 def _contract_migration_summary(root):
@@ -4814,6 +4889,7 @@ def _build_upgrade_summary(
     lifecycle_baseline_drift: list[dict] | None = None,
     root: Path | None = None,
     skill_delivery: dict | None = None,
+    cleanup_complete: bool = False,
 ) -> dict:
     """Wave 1p8eu — assemble the operator summary ONCE as a dict.
 
@@ -4864,6 +4940,7 @@ def _build_upgrade_summary(
         "to_version": to_version,
         "zip_applied": zip_path.name if zip_path else None,
         "pruned_count": pruned_count,
+        "cleanup_complete": cleanup_complete,
         "docs_gate": _docs_gate_summary_line(failed_phase),
         "index_update": (
             "docs and code layers complete"
@@ -5348,6 +5425,7 @@ def _print_operator_summary(
         retired_model_cleanup=retired_model_cleanup,
         setup_assessment=setup_assessment,
         dependency_provisioning_failed=dependency_provisioning_failed,
+        cleanup_complete=failed_phase is None,
     )
 
     summary.update(_report_fields(report))
@@ -5363,6 +5441,11 @@ def _print_operator_summary(
     _log("Historical memory: " + json.dumps(summary.get("historical_memory"), sort_keys=True))
     for remedy in summary.get("spec_tool_permission_holds", []):
         _log("Withheld renamed tool: " + remedy)
+    for advice in summary.get("spec_tool_permission_recommendations", []):
+        _log("Recommended host rule: " + advice)
+    if summary.get("spec_tool_permission_holds") or summary.get("spec_tool_permission_recommendations"):
+        for layer in summary.get("spec_tool_outside_layers", []):
+            _log("Host policy layer read: " + layer)
     if summary.get("contract_migration_preview"):
         _log("Review retained behavior contracts: " + summary["contract_migration_preview"])
     if summary.get("partial_skill_delivery") is True:
@@ -5474,7 +5557,7 @@ def _print_operator_summary(
     for line in _work_root_summary_lines(summary):
         _log(line)
     if summary["lifecycle_baseline_drift"]:
-        _log("  Lifecycle baseline drift (report only; project copies preserved):")
+        _log("  Lifecycle baseline drift:")
         for finding in summary["lifecycle_baseline_drift"]:
             _log("    " + json.dumps(finding, ensure_ascii=True))
     # Wave 1vgep: this line already acts on the upgrade that DELIVERS the audit, because
@@ -6078,6 +6161,8 @@ def main(argv: list[str] | None = None) -> int:
         dest="rebuild_index",
         help="Run phase 4 as full rebuild — re-embeds every file from scratch (use when --update-index is insufficient)",
     )
+    parser.add_argument("--no-auto-cleanup", action="store_true",
+                        help="Keep cleanup as a separate phase after successful index publication")
     parser.add_argument(
         "--cleanup",
         action="store_true",
@@ -6723,11 +6808,13 @@ def main(argv: list[str] | None = None) -> int:
             _run_hook("post_index_update", _gate_ctx, _gate_ext)
             _clear_legacy_memory_checkpoint(root)
             upgrade_lib.update_upgrade_lock(root, failed_phase=None, failed_at=None, current_phase="index_complete")
-            _log("Docs gate and index publication complete. Run --cleanup to finish the upgrade.")
         finally:
             _close_log()
             if gate_transaction is not None:
                 gate_transaction.__exit__(*sys.exc_info())
+        if _auto_cleanup_ready(root, args.no_auto_cleanup):
+            return _run_auto_cleanup(root)
+        _log("Docs gate and index publication complete. Run --cleanup to finish the upgrade.")
         return 0
 
     # ── Full upgrade: phases 0–3 ───────────────────────────────────────────
@@ -7164,6 +7251,9 @@ def main(argv: list[str] | None = None) -> int:
 
         upgrade_transaction.__exit__(None, None, None)
         upgrade_transaction_open = False
+
+        if index_published and _auto_cleanup_ready(root, args.no_auto_cleanup):
+            return _run_auto_cleanup(root)
 
         # Wave 1p8kz — emit the structured summary sentinel now (end of the default primary phase) so the
         # wf_upgrade() call returns data['summary'] WITH the 1p8et reconciliation findings, instead of

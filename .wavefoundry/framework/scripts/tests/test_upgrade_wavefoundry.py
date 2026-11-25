@@ -2125,9 +2125,19 @@ class ResumeAfterGateTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _resume(self):
+    def _resume(self, *, auto_cleanup=False):
         with patch.object(self.mod, "phase_index_update", return_value=True), patch.object(self.mod, "_load_extension_module", return_value=None), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            return self.mod.main(["--resume-after-gate", "--root", str(self.root)])
+            return self.mod.main(["--resume-after-gate", "--root", str(self.root)]
+                                 + ([] if auto_cleanup else ["--no-auto-cleanup"]))
+
+    def test_successful_gate_resume_completes_cleanup(self):
+        from test_spec_tool_permissions import isolate_host_policy
+        isolate_host_policy(self)
+        self._failed_gate_lock()
+        _install_cleanup_runner(self.root)
+        with patch.object(self.mod, "phase_docs_gate", return_value=None):
+            self.assertEqual(self._resume(auto_cleanup=True), 0)
+        self.assertFalse(self.lib.upgrade_lock_path(self.root).exists())
 
     def _failed_gate_lock(self):
         self.lib.write_upgrade_lock(self.root, "1.5.0", "1.6.0")
@@ -2321,6 +2331,14 @@ class ResumeAfterGateTests(unittest.TestCase):
         self.assertEqual(self._resume(), 1)
 
 
+def _install_cleanup_runner(root):
+    framework = root / ".wavefoundry/framework"
+    shutil.copytree(SCRIPTS_ROOT, framework / "scripts", dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns("tests", "__pycache__"))
+    shutil.copytree(SCRIPTS_ROOT.parent / "install", framework / "install", dirs_exist_ok=True)
+    shutil.copytree(SCRIPTS_ROOT.parent / "seeds", framework / "seeds", dirs_exist_ok=True)
+
+
 class UpgradeManifestRecoveryTests(unittest.TestCase):
     """Real extraction/pruning across attempts; isolate unrelated upgrade phases."""
 
@@ -2346,7 +2364,7 @@ class UpgradeManifestRecoveryTests(unittest.TestCase):
             archive.writestr(".wavefoundry/framework/seeds/keep.md", "new keep\n")
         return pack
 
-    def _attempt(self, root, pack, failure=None, mod=None):
+    def _attempt(self, root, pack, failure=None, mod=None, *, auto_cleanup=False, output=None, guard_hooks=False):
         mod = mod or load_upgrade_module()
         import upgrade_protocol
         import venv_bootstrap
@@ -2360,7 +2378,19 @@ class UpgradeManifestRecoveryTests(unittest.TestCase):
                 raise OSError("injected partial extraction")
             return real_extract(archive, destination)
 
-        def hook(name, *_):
+        def hook(name, ctx, _extension):
+            if guard_hooks:
+                import upgrade_extensions
+                if name == "pre_extract":
+                    upgrade_extensions._capture_index_guard_handoff(ctx)
+                elif name == "pre_index_update":
+                    upgrade_extensions.enforce_index_guard_handoff(ctx)
+            if name == "post_index_update" and failure in {"storage_continuation", "retained_checkpoint"}:
+                import upgrade_lib
+                if failure == "retained_checkpoint":
+                    upgrade_lib.update_upgrade_lock(root, failed_phase="dashboard_restart")
+                else:
+                    upgrade_lib.update_upgrade_lock(root, action_required={"kind": "storage_migration"})
             if name == "pre_extract" and failure == "before":
                 raise SystemExit(23)
             if name == "post_docs_gate" and failure == "post_docs_gate":
@@ -2407,20 +2437,143 @@ class UpgradeManifestRecoveryTests(unittest.TestCase):
                 stack.enter_context(patch("child_tee.run", return_value=types.SimpleNamespace(
                     returncode=0, stdout="", stderr="prune: deleted 0 item(s)\n",
                     capture_truncated={"stdout": False, "stderr": True})))
-            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
-            stack.enter_context(contextlib.redirect_stderr(io.StringIO()))
+            stack.enter_context(contextlib.redirect_stdout(output if output is not None else io.StringIO()))
+            stack.enter_context(contextlib.redirect_stderr(output if output is not None else io.StringIO()))
             try:
-                result = mod.main(["--root", str(root), "--pack", str(pack), "--yes"])
+                result = mod.main(["--root", str(root), "--pack", str(pack), "--yes"]
+                                  + ([] if auto_cleanup else ["--no-auto-cleanup"]))
             except (SystemExit, OSError, RuntimeError) as exc:
                 result = exc
         return result, len(extracted)
+
+    def test_cli_primary_runs_extracted_cleanup_and_emits_one_terminal_result(self):
+        from test_spec_tool_permissions import isolate_host_policy
+        isolate_host_policy(self)
+        import upgrade_lib
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            pack = self._fixture(root)
+            self.addCleanup(pack.unlink, missing_ok=True)
+            _install_cleanup_runner(root)
+            runner = root / ".wavefoundry/framework/scripts/upgrade_wavefoundry.py"
+            with zipfile.ZipFile(pack, "a") as archive:
+                archive.write(UPGRADE_PATH, runner.relative_to(root).as_posix())
+            runner.write_text("raise SystemExit(97)\n")
+            mod = load_upgrade_module()
+            output = io.StringIO()
+            with patch.object(mod, "_run_upgrade_child", wraps=mod._run_upgrade_child) as child:
+                result, _ = self._attempt(root, pack, mod=mod, auto_cleanup=True, output=output, guard_hooks=True)
+            self.assertEqual(result, 0, output.getvalue()[-12000:])
+            self.assertFalse(upgrade_lib.upgrade_lock_path(root).exists())
+            self.assertIn(str(runner), child.call_args.args[0])
+            self.assertEqual(child.call_args.args[2], "cleanup")
+            self.assertIn("Primary upgrade complete.", output.getvalue())
+            self.assertIn("Agent editing pass", output.getvalue())
+            self.assertEqual(output.getvalue().count(mod.WAVE_UPGRADE_SUMMARY_SENTINEL), 1)
+
+    def test_cli_cleanup_guidance_explains_installed_version_and_opt_out(self):
+        for doc in (UPGRADE_PATH, SCRIPTS_ROOT.parent / "seeds/160-upgrade-wavefoundry.prompt.md"):
+            with self.subTest(doc=doc.name):
+                text = doc.read_text(encoding="utf-8")
+                self.assertIn("1.52.0 or later", text)
+                self.assertIn("from 1.51.0 still needs one manual", text)
+                self.assertIn("--no-auto-cleanup", text)
+                self.assertIn("follow its recovery command before cleanup", text)
+
+    def test_source_upgrade_prompt_tracks_cli_cleanup(self):
+        from upstream_fixture_support import source_repository_fixture
+        project = SCRIPTS_ROOT.parents[2]
+        prompt = source_repository_fixture(project / "docs/prompts/upgrade-wavefoundry.prompt.md")
+        text = prompt.read_text(encoding="utf-8")
+        self.assertIn("from 1.51.0 still needs one manual", text)
+        self.assertIn("follow its recovery command before cleanup", text)
+
+    def test_cli_cleanup_failure_keeps_checkpoint_and_reports_retry(self):
+        import upgrade_lib
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            pack = self._fixture(root)
+            self.addCleanup(pack.unlink, missing_ok=True)
+            runner = root / ".wavefoundry/framework/scripts/upgrade_wavefoundry.py"
+            runner.parent.mkdir()
+            runner.write_text("raise SystemExit(19)\n")
+            output = io.StringIO()
+            result, _ = self._attempt(root, pack, auto_cleanup=True, output=output)
+            self.assertEqual(result, 19, output.getvalue()[-3000:])
+            self.assertTrue(upgrade_lib.upgrade_lock_path(root).exists())
+            self.assertIn("Retained checkpoint phase: index_complete", output.getvalue())
+            self.assertIn("--cleanup", output.getvalue())
+
+    def test_opt_outs_preserve_primary_continuation(self):
+        import upgrade_lib
+        for old_host in (False, True):
+            with self.subTest(old_host=old_host), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                pack = self._fixture(root)
+                self.addCleanup(pack.unlink, missing_ok=True)
+                output = io.StringIO()
+                env = {"WAVEFOUNDRY_STORAGE_OLD_MCP_PID": "1"} if old_host else {}
+                with patch.dict(os.environ, env):
+                    result, _ = self._attempt(root, pack, auto_cleanup=old_host, output=output)
+                self.assertEqual(result, 0, output.getvalue()[-3000:])
+                self.assertTrue(upgrade_lib.upgrade_lock_path(root).exists())
+                self.assertIn("then run:\n    upgrade-wavefoundry --cleanup", output.getvalue())
+
+    def test_auto_cleanup_checks_required_and_malformed_guard(self):
+        import upgrade_extensions
+        import upgrade_lib
+        mod = load_upgrade_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            upgrade_lib.write_upgrade_lock(root, "1.51.0", "1.52.0")
+            ctx = mod.UpgradeContext(root, "1.51.0", "1.52.0", None, True)
+            upgrade_extensions._capture_index_guard_handoff(ctx)
+            mod._record_index_publication_outcome(root, True)
+            guard = upgrade_lib.read_upgrade_lock(root)["index_guard_handoff"]
+            self.assertIs(guard["required"], True)
+            for label, record, expected in (
+                ("awaiting stop", guard, False),
+                ("confirmed", dict(guard, hosts_stopped_confirmed=True), True),
+                ("legacy or malformed confirmation", dict(guard, hosts_stopped_confirmed="yes"), False),
+                ("mismatched requirement", dict(guard, required=False), False),
+                ("pending action", dict(guard, action={}, hosts_stopped_confirmed=True), False),
+                ("invalid guard", None, False),
+            ):
+                with self.subTest(label=label):
+                    upgrade_lib.update_upgrade_lock(root, index_guard_handoff=record)
+                    self.assertIs(mod._auto_cleanup_ready(root, False), expected)
+
+    def test_primary_preserves_continuations_after_publication(self):
+        import sqlite_storage_migration as migration
+        import upgrade_lib
+        for reason in ("storage_continuation", "retained_checkpoint", "restart_receipt"):
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                pack = self._fixture(root)
+                self.addCleanup(pack.unlink, missing_ok=True)
+                original = migration.read_receipt
+
+                def read_receipt(index):
+                    lock = upgrade_lib.read_upgrade_lock(root) or {}
+                    if reason == "restart_receipt" and lock.get("current_phase") == "index_complete":
+                        return {"state": "restart_required"}
+                    return original(index)
+
+                output = io.StringIO()
+                with patch.object(migration, "read_receipt", side_effect=read_receipt):
+                    result, _ = self._attempt(root, pack, failure=reason, auto_cleanup=True, output=output)
+                self.assertEqual(result, 0, output.getvalue()[-3000:])
+                self.assertTrue(upgrade_lib.upgrade_lock_path(root).exists())
+                self.assertIn("then run:\n    upgrade-wavefoundry --cleanup", output.getvalue())
 
     def test_failed_primary_index_publication_is_not_phase_success(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             pack = self._fixture(root)
             self.addCleanup(lambda: pack.unlink(missing_ok=True))
-            result, extracted = self._attempt(root, pack, failure="index_publication")
+            output = io.StringIO()
+            result, extracted = self._attempt(root, pack, failure="index_publication", auto_cleanup=True, output=output)
+            self.assertIn("retained recovery state", output.getvalue())
             self.assertEqual(result, 1)
             self.assertEqual(extracted, 1)
             import upgrade_lib
@@ -6237,7 +6390,7 @@ class PublicUpgradeReviewProtocolIntegrationTests(unittest.TestCase):
             ), patch.object(
                 mod, "_emit_primary_summary_via_delegate_or_fallback"
             ):
-                self.assertEqual(mod.main(["--root", str(root), "--yes"]), 0)
+                self.assertEqual(mod.main(["--root", str(root), "--yes", "--no-auto-cleanup"]), 0)
 
             self.assertIn(
                 "def build_compact_review_event(",
@@ -9563,6 +9716,8 @@ class PrimaryPhaseSummaryTests(unittest.TestCase):
             set(primary.keys()) - set(prose.keys()), set(),
             "primary + cleanup summaries must share one _build_upgrade_summary shape",
         )
+        self.assertIs(primary["cleanup_complete"], False)
+        self.assertIs(prose["cleanup_complete"], True)
         # Same load-bearing values for the same inputs (one source, no drift).
         for k in ("from_version", "to_version", "pruned_count", "docs_gate", "is_major_or_minor"):
             self.assertEqual(primary[k], prose[k], f"key {k} drifted between the two emissions")
@@ -15471,7 +15626,7 @@ class ScaffoldRepairIsClassATests(unittest.TestCase):
                 patch.object(upgrade_wavefoundry, "_load_extension_module", return_value=None), \
                 patch.object(upgrade_wavefoundry, "phase_index_update", return_value=True):
             rc = upgrade_wavefoundry.main(
-                ["--resume-after-gate", "--root", str(self.root)]
+                ["--resume-after-gate", "--root", str(self.root), "--no-auto-cleanup"]
             )
 
         self.assertEqual(rc, 0, "the resume branch must complete")
@@ -16205,3 +16360,66 @@ print("RAN")
             elif isinstance(node, ast.ImportFrom):
                 names = [node.module or ""]
             self.assertNotIn("line_endings", names)
+
+
+class SpecToolPermissionUpgradeTests(unittest.TestCase):
+    """Wave 24buu (24ax3) AC-6: an upgraded legacy install serves the spec tools."""
+
+    def setUp(self):
+        self.mod = load_upgrade_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name).resolve()
+        outside = self.root.parent / (self.root.name + "-outside")
+        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
+        # No test reads the real home or system policy files.
+        env = patch.dict(os.environ, {
+            "HOME": str(outside / "home"), "USERPROFILE": str(outside / "home"),
+            "CLAUDE_CONFIG_DIR": str(outside / "claude"), "CODEX_HOME": str(outside / "codex"),
+            "WAVEFOUNDRY_MANAGED_SETTINGS_PATH": str(outside / "managed-settings.json")})
+        env.start()
+        self.addCleanup(env.stop)
+        framework = self.root / ".wavefoundry" / "framework"
+        shutil.copytree(SCRIPTS_ROOT, framework / "scripts",
+                        ignore=shutil.ignore_patterns("tests", "benchmarks", "__pycache__"))
+        shutil.copytree(SCRIPTS_ROOT.parent / "install", framework / "install")
+        shutil.copytree(SCRIPTS_ROOT.parent / "seeds", framework / "seeds")
+        self.scripts = framework / "scripts"
+        prefix = "mcp__wavefoundry__"
+        claude = self.root / ".claude"
+        claude.mkdir()
+        # A 1.51.0 project: the framework-managed old name and a personal grant.
+        (claude / "settings.json").write_text(json.dumps({
+            "permissions": {"allow": [prefix + "wf_get_change"], "deny": [prefix + "wf_remove_change"]},
+            "wavefoundryManagedAllow": [prefix + "wf_get_change"]}, indent=2) + "\n", encoding="utf-8")
+        (claude / "settings.local.json").write_text(json.dumps({
+            "permissions": {"allow": [prefix + "wf_add_change"]}}, indent=2) + "\n", encoding="utf-8")
+
+    def test_upgrade_migrates_verifies_and_renders_managed_rules(self):
+        import venv_bootstrap
+
+        self.assertEqual(len(self.mod._spec_tool_permission_summary(self.root)["spec_tool_permission_holds"]), 5)
+        out = io.StringIO()
+        with patch.object(venv_bootstrap, "ensure_python_resolves", return_value="ok"), \
+                patch.object(self.mod, "SCRIPTS_DIR", self.scripts), \
+                patch.object(self.mod, "_preferred_python", return_value=sys.executable), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            self.mod.phase_surface_rendering(self.root)
+            # The Phase 1 child alone migrates, verifies, then renders the managed rules.
+            self.assertEqual(self.mod._spec_tool_permission_summary(self.root)["spec_tool_permission_holds"], [])
+            phase1 = json.loads((self.root / ".claude/settings.json").read_text(encoding="utf-8"))
+            self.assertIn("mcp__wavefoundry__wf_get_spec", phase1["wavefoundryManagedAllow"])
+            self.assertNotIn("mcp__wavefoundry__wf_get_change", phase1["wavefoundryManagedAllow"])
+            self.mod._ensure_rendered_permissions_backstop(self.root)
+            self.mod._print_operator_summary(from_version="1.51.0", to_version="1.52.0", zip_path=None,
+                                             pruned_count=0, ran_index_rebuild=True, root=self.root)
+        summary = self.mod._spec_tool_permission_summary(self.root)
+        self.assertEqual(summary["spec_tool_permission_holds"], [])
+        self.assertNotIn("Withheld renamed tool:", out.getvalue())
+        settings = json.loads((self.root / ".claude/settings.json").read_text(encoding="utf-8"))
+        managed = settings["wavefoundryManagedAllow"]
+        self.assertIn("mcp__wavefoundry__wf_get_spec", managed)
+        self.assertNotIn("mcp__wavefoundry__wf_get_change", managed)
+        self.assertNotIn("mcp__wavefoundry__wf_get_change", settings["permissions"]["allow"])
+        self.assertIn("mcp__wavefoundry__wf_remove_spec", settings["permissions"]["deny"])
+        self.assertNotIn("self-heal", out.getvalue())

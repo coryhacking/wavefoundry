@@ -52,6 +52,13 @@ os.environ.setdefault("WAVEFOUNDRY_SUPPRESS_DASHBOARD_BROWSER", "1")
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _TESTS_DIR = _SCRIPT_DIR / "tests"
+# Wave 24buu (24ax3): a per-run directory that is never created; see _run_file.
+_NO_HOST_POLICY = Path(os.path.realpath(os.sep)) / f"wavefoundry-tests-no-host-policy-{uuid.uuid4().hex}"
+_HOST_POLICY_ISOLATION = {
+    "CLAUDE_CONFIG_DIR": str(_NO_HOST_POLICY / "claude"),
+    "CODEX_HOME": str(_NO_HOST_POLICY / "codex"),
+    "WAVEFOUNDRY_MANAGED_SETTINGS_PATH": str(_NO_HOST_POLICY / "managed-settings.json"),
+}
 _FRAMEWORK_DIR = _SCRIPT_DIR.parent
 _CACHE_FILE = _FRAMEWORK_DIR / "test-cache.json"
 _LOCK_FILE = _FRAMEWORK_DIR / "test-run.lock"
@@ -1371,6 +1378,11 @@ def _run_file(file_path: Path) -> FileResult:
     # disable flag turns reranking off entirely for the suite — fast + deterministic. Tests that
     # exercise the reranker mock `_get_reranker`/`make_reranker` directly.
     env.setdefault("WAVEFOUNDRY_DISABLE_RERANKER", "1")
+    # Wave 24buu (24ax3): spec-tool permission assessment reads user-level and
+    # enterprise host settings. Point every location it resolves at a path that
+    # never exists, so no test reads the real home or system policy files.
+    # Tests that need an outside layer set their own temporary paths.
+    env.update(_HOST_POLICY_ISOLATION)
     # Wave 1p9j0 (F13): force UTF-8 in the worker so its output is emitted as UTF-8 regardless of
     # the host locale (native Windows defaults to cp1252), and decode the captured text as UTF-8
     # with an error-tolerant policy — consistent with the timeout branch's replace-decode below.

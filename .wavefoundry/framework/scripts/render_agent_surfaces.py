@@ -10,6 +10,7 @@ It lives here because it reuses this module's private containment/asset/write he
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import re
@@ -4939,8 +4940,10 @@ def materialize_baseline_template(template_name: str, content: str, generated_at
     return vocabulary_profile.localize_template(content)
 
 
-def lifecycle_baseline_drift(repo_root: Path, incoming: dict[str, str]) -> list[dict]:
-    """Compare project-owned copies at their registered paths, using contained reads."""
+@contextmanager
+def _registered_upgrade_baselines(repo_root: Path, *, for_write: bool = False):
+    """Resolve registered destinations against the applied project prompt names."""
+    protected = frozenset()
     try:
         _, _, manifest = _read_prompt_manifest(repo_root)
         slugs = vocabulary_profile.applied_prompt_slugs(
@@ -4949,19 +4952,32 @@ def lifecycle_baseline_drift(repo_root: Path, incoming: dict[str, str]) -> list[
     except (ValueError, RuntimeError):
         # This read-only report can compare the profile paths without a manifest.
         manifest, slugs = {}, {}
+        if for_write:
+            migration = ProfilePromptMigration((), (), (), False, _stranded_earlier_default_keys(repo_root))
+            protected = unrecorded_profile_prompt_paths(migration)
     with using_repository_prompt_names(repo_root, manifest):
         applied = {
             vocabulary_profile.prompt_doc(key): f"docs/prompts/{slug}.prompt.md"
             for key, slug in slugs.items()
         }
-        return _compare_lifecycle_baselines(repo_root, incoming, applied)
+        pairs = [(destination, "lifecycle-prompts/" + template)
+                 for destination, template in _lifecycle_prompt_baselines()]
+        pairs.extend(scaffold_baselines(repo_root))
+        yield [(registered, applied.get(registered, registered), template)
+               for registered, template in pairs if registered not in protected]
+
+
+def lifecycle_baseline_drift(repo_root: Path, incoming: dict[str, str]) -> list[dict]:
+    """Compare project-owned copies at their registered paths, using contained reads."""
+    with _registered_upgrade_baselines(repo_root) as paths:
+        return _compare_lifecycle_baselines(repo_root, incoming, paths)
 
 
 _BASELINE_ACTIONS = {
     "upstream_changed_local_matches_previous": "overwrite: Replace the unedited local copy with the incoming template.",
-    "upstream_changed_local_differs_from_previous": "merge: Keep the local copy and merge the incoming changes by hand.",
+    "upstream_changed_local_differs_from_previous": "merge: Keep the local copy and merge .wavefoundry/framework/install/{template} by hand.",
     "already_current": "preserve: Keep the current local copy.",
-    "upstream_unchanged_local_differs": "preserve: Compare the local copy with the current template and use the overwrite procedure only if an earlier template update was missed and no project edits need to be kept.",
+    "upstream_unchanged_local_differs": "preserve: Compare the local copy with the current template before applying an earlier template update.",
     "baseline_unknown": "preserve: Compare the files by hand before replacing anything.",
 }
 
@@ -4999,14 +5015,9 @@ def _comparable_baseline(content: str, marker_pairs: tuple) -> str:
                   r"\1{{generated_at}}", content)
 
 
-def _compare_lifecycle_baselines(repo_root: Path, incoming: dict[str, str], applied: dict[str, str]) -> list[dict]:
+def _compare_lifecycle_baselines(repo_root: Path, incoming: dict[str, str], paths) -> list[dict]:
     findings = []
-    pairs = [(destination, "lifecycle-prompts/" + template)
-             for destination, template in _lifecycle_prompt_baselines()]
-    pairs.extend(scaffold_baselines(repo_root))
-
-    for registered, template in pairs:
-        destination = applied.get(registered, registered)
+    for registered, destination, template in paths:
         marker_pairs = tuple(_baseline_marker_pairs(registered))
 
         local_path = repo_root / destination
@@ -5042,22 +5053,102 @@ def _compare_lifecycle_baselines(repo_root: Path, incoming: dict[str, str], appl
             explanation = "previous template unavailable; local copy " + ("matches" if incoming_matches else "differs from") + " incoming template"
         else:
             previous = _comparable_baseline(materialize_baseline_template(name, previous_source, "{{generated_at}}"), marker_pairs)
-            upstream_changed = _comparable_baseline(previous_source, marker_pairs) != _comparable_baseline(source, marker_pairs)
+            previous_shipped = _comparable_baseline(previous_source, marker_pairs)
+            upstream_changed = previous_shipped != _comparable_baseline(source, marker_pairs)
             if incoming_matches:
                 if not upstream_changed:
                     continue
                 state, explanation = "already_current", "local copy matches incoming template"
             elif upstream_changed:
-                matches_previous = local == previous
+                matches_previous = local in (previous, previous_shipped)
                 state = "upstream_changed_local_" + ("matches_previous" if matches_previous else "differs_from_previous")
                 explanation = "local copy " + ("matches" if matches_previous else "differs from") + " previous template"
             else:
                 state, explanation = "upstream_unchanged_local_differs", "local copy differs from previous template"
-            if local != previous:
+            if local != previous and state != "upstream_changed_local_matches_previous":
                 explanation += "; difference may be a local edit or an earlier template update that was never applied"
         findings.append({"channel": "lifecycle_baseline_drift", "file": destination,
-                         "detail": state + ": " + explanation, "action": _BASELINE_ACTIONS[state]})
+                         "detail": state + ": " + explanation, "action": _BASELINE_ACTIONS[state].format(template=template)})
+        if state == "upstream_changed_local_matches_previous":
+            findings[-1]["local_sha256"] = hashlib.sha256(local.encode("utf-8")).hexdigest()
     return findings
+
+
+def _save_baseline_checkpoint(repo_root: Path, findings: list[dict], destination: str) -> None:
+    import upgrade_lib
+
+    if not upgrade_lib.update_upgrade_lock(repo_root, lifecycle_baseline_drift=findings):
+        raise RuntimeError("could not record lifecycle baseline replacement: " + destination)
+
+
+def _replace_upgrade_baseline(repo_root: Path, registered: str, destination: str, template: str,
+                              row: dict, findings: list[dict]) -> bool:
+    """Publish only a matching, still-owned destination using its existing line endings."""
+    path = repo_root / destination
+    try:
+        data, identity, _ = contained_files.read_contained_identity(
+            repo_root, path, max_bytes=contained_files.DEFAULT_MAX_BYTES, follow_links=False)
+        pending = row.get("pending_replacement_sha256")
+        if pending and hashlib.sha256(data).hexdigest() == pending:
+            # The previous render published these exact bytes, then stopped
+            # before it could record completion or regenerate the owned regions.
+            return True
+        disk = data.decode("utf-8")
+        local = _comparable_baseline(disk, tuple(_baseline_marker_pairs(registered)))
+        if hashlib.sha256(local.encode("utf-8")).hexdigest() != row["local_sha256"]:
+            return False
+        source = _read_repo_text(repo_root, repo_root / ".wavefoundry/framework/install" / template)
+        date = re.search(r"(?m)^Last verified: (\d{4}-\d{2}-\d{2})[ \t]*$", _universal_newlines(disk))
+        rendered = materialize_baseline_template(template.rsplit("/", 1)[-1], source,
+                                                 date[1] if date else time.strftime("%Y-%m-%d"))
+        if date:
+            # A few historical assets carried a literal date.
+            rendered = re.sub(r"(?m)^(Last verified: )\d{4}-\d{2}-\d{2}(?=[ \t]*$)",
+                              r"\g<1>" + date[1], rendered)
+        replacement = line_endings.encode(line_endings.merge(disk, rendered))
+        digest = hashlib.sha256(replacement).hexdigest()
+        if pending != digest:
+            row["pending_replacement_sha256"] = digest
+            _save_baseline_checkpoint(repo_root, findings, destination)
+        contained_files.write_contained_bytes(
+            repo_root, path, replacement,
+            no_links=True, expected_identity=(identity.st_dev, identity.st_ino))
+    except (FileNotFoundError, contained_files.ContainedFileRefused, UnicodeError):
+        return False
+    return True
+
+
+def replace_upgrade_baselines(repo_root: Path) -> tuple[list[str], set[str]]:
+    """Apply proven matches only, ahead of the ordinary generated-region render."""
+    import upgrade_lib
+
+    findings = (upgrade_lib.read_upgrade_lock(repo_root) or {}).get("lifecycle_baseline_drift")
+    if not isinstance(findings, list):
+        return [], set()
+    by_path = {row["file"]: row for row in findings if isinstance(row, dict)
+               and isinstance(row.get("file"), str)}
+    written = []
+    protected = set()
+    with _registered_upgrade_baselines(repo_root, for_write=True) as paths:
+        for registered, destination, template in paths:
+            row = by_path.get(destination)
+            if not row:
+                continue
+            state = row.get("detail", "").partition(":")[0]
+            if state == "replaced":
+                continue
+            protected.update((registered, destination))
+            if state != "upstream_changed_local_matches_previous" or not row.get("local_sha256"):
+                continue
+            if not _replace_upgrade_baseline(repo_root, registered, destination, template, row, findings):
+                continue
+            written.append(destination)
+            protected.difference_update((registered, destination))
+            row.pop("pending_replacement_sha256", None)
+            row.update(detail="replaced: local copy matched the previous template",
+                       action="replaced: Installed the incoming template.")
+            _save_baseline_checkpoint(repo_root, findings, destination)
+    return written, protected
 
 
 @_repository_prompt_scope
@@ -5133,12 +5224,14 @@ def _install_asset_rel(template_name: str) -> str:
     return _display_name(f".wavefoundry/framework/install/{template_name}")
 
 
-def reconcile_scaffold_baselines(repo_root: Path) -> list[str]:
+def reconcile_scaffold_baselines(repo_root: Path, *, skip_paths=frozenset()) -> list[str]:
     """Materialize missing project scaffolds without replacing operator copies."""
 
     written: list[str] = []
     today = time.strftime("%Y-%m-%d")
     for destination, template_name in scaffold_baselines(repo_root):
+        if destination in skip_paths:
+            continue
         path = _contained_review_carrier_path(repo_root, destination)
         if path.is_file():
             continue
@@ -5634,7 +5727,7 @@ def reconcile_context_efficiency_surface(
 
 
 @_repository_prompt_scope
-def render_agent_surfaces(repo_root: Path) -> list[str]:
+def render_agent_surfaces(repo_root: Path, *, upgrade_baselines: bool = False) -> list[str]:
     """Render auto-Guru tier 2–3 surfaces. Returns paths written or updated."""
     # Wave 1skt1: this must run before the historical Guru-availability early
     # return so setup/upgrade/render can repair review carriers in repositories
@@ -5650,7 +5743,8 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     # Wave 1w047: this fresh-code migration is the first mutating step. It must
     # resolve the project-owned old/new prompt state before a renamed skill can
     # point at it and before missing-only baselines can materialize beside it.
-    migration_written = migrate_review_plan_prompt(repo_root)
+    replaced, protected = replace_upgrade_baselines(repo_root) if upgrade_baselines else ([], set())
+    migration_written = [*replaced, *migrate_review_plan_prompt(repo_root)]
     # Wave 1zyc5: same fresh-code position. Preflights every feature-to-change
     # prompt pair and raises before any write on conflict, so no skill or
     # baseline renders beside an unresolved old prompt.
@@ -5687,15 +5781,16 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     # Wave 200xy (200xx): with no readable record, no pass writes, creates or
     # requires a file at a renamed key's prompt paths this render.
     unrecorded = unrecorded_profile_prompt_paths(profile_migration)
+    preserved = unrecorded | protected
     # Materialize missing prompt baselines first so a doc-gated skill can
     # render on the install or upgrade that introduces its backing prompt.
-    lifecycle_written = reconcile_lifecycle_prompt_baselines(repo_root, skip_paths=unrecorded)
+    lifecycle_written = reconcile_lifecycle_prompt_baselines(repo_root, skip_paths=preserved)
     # Wave 1p6lp: the skill registry renders BEFORE the policy reconcile passes so a
     # freshly migrated carrier skill (wf-guru on Codex) is reconciled in the
     # same render, and BEFORE the Guru gate because lifecycle skills are not
     # Guru-gated (per-skill gates live in the registry).
     skills_written = render_skills(repo_root, skip_paths=unrecorded)
-    scaffold_written = reconcile_scaffold_baselines(repo_root)
+    scaffold_written = reconcile_scaffold_baselines(repo_root, skip_paths=protected)
     # The phase-0c in-process reconciler can still be old code on the upgrade
     # that installs this release. Replay only its shared upgrade-policy marker
     # from the extracted renderer so this one surface converges in that run.
@@ -5703,12 +5798,12 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
         upgrade_policy_written = list(reconcile_upgrade_policy_surface(repo_root))
     except ValueError as exc:
         raise RuntimeError(str(exc)) from exc
-    review_written = reconcile_review_protocol_surfaces(repo_root, skip_paths=unrecorded)
+    review_written = reconcile_review_protocol_surfaces(repo_root, skip_paths=preserved)
     # Policy companions include optional carriers materialized by the review
     # protocol pass (for example the agent and council review prompts). Run
     # policy second so one render converges from a sparse pre-adoption tree.
-    policy_written = reconcile_review_policy_surfaces(repo_root, skip_paths=unrecorded)
-    context_written = reconcile_context_efficiency_surface(repo_root, skip_paths=unrecorded)
+    policy_written = reconcile_review_policy_surfaces(repo_root, skip_paths=preserved)
+    context_written = reconcile_context_efficiency_surface(repo_root, skip_paths=preserved)
     framework_written = list(
         dict.fromkeys(
             [
@@ -5837,7 +5932,7 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     # Native Guru wrappers are materialized above, after the initial carrier
     # census. Reconcile again so the first public render gives them the same
     # protocol minimum and later renders cannot overwrite it away.
-    reconciled_again = reconcile_review_protocol_surfaces(repo_root, skip_paths=unrecorded)
+    reconciled_again = reconcile_review_protocol_surfaces(repo_root, skip_paths=preserved)
 
     # Net-change decision for the tier-3 candidates: a file whose final
     # post-reconcile bytes equal its pre-render bytes was not written in any

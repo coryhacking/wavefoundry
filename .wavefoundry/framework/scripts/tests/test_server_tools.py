@@ -3047,11 +3047,13 @@ def tool_spec_index_rows(parsed: dict) -> tuple[list[dict], list[str]]:
 
 def localized_tool_summary(name: str, summary: str) -> str:
     """Translate the source index's planning nouns where registration localizes them."""
-    if name not in {"wf_get_spec", "wf_list_plans"} and not name.startswith("wf_new_"):
+    planning_tools = {"wf_get_spec", "wf_list_plans", "wf_add_spec", "wf_remove_spec", "wf_close_spec"}
+    if name not in planning_tools and not name.startswith("wf_new_"):
         return summary
     terms = {"a spec": _V.planning_noun("article"), "specs": _V.planning_noun("docs"),
-             "spec": _V.planning_noun(), "a wave": _V.tier_noun("container", article=True)}
-    return re.sub(r"\b(a spec|specs|spec|a wave(?= in bulk\.|\.))\b", lambda m: terms[m.group()], summary)
+             "spec": _V.planning_noun(), "a wave": _V.tier_noun("container", article=True),
+             "wave": _V.tier_noun("container"), "Changes": _V.MEMBER_HEADING.removeprefix("## ")}
+    return re.sub(r"\b(a spec|specs|spec|a wave|wave|Changes)\b", lambda m: terms[m.group()], summary)
 
 
 def tool_spec_problems(text: str, registry: dict) -> list[str]:
@@ -6552,6 +6554,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         publisher_token = "publisher-known-token-0123456789"
 
         def pause_child(cmd, **kwargs):
+            self.assertIn("--no-auto-cleanup", cmd)
             invocation_tokens.append(kwargs["env"][migration.INVOCATION_ENV])
             stream = io.StringIO()
             with patch.dict(os.environ, {**kwargs["env"], migration.CONFIRM_ENV: "0"}), \
@@ -7905,7 +7908,9 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         upgrade_lib.write_upgrade_lock(self.root, "1.27.0", "1.28.0")
         upgrade_lib.update_upgrade_lock(self.root, current_phase="docs_gate_complete", failed_phase="post_docs_gate", failed_at="t")
         self.addCleanup(upgrade_lib.remove_upgrade_lock, self.root)
-        with patch.object(upgrade_wavefoundry, "phase_docs_gate"), \
+        # Model the host boundary: MCP passes its PID on every upgrade child.
+        with patch.dict(os.environ, {"WAVEFOUNDRY_STORAGE_OLD_MCP_PID": str(os.getpid())}), \
+             patch.object(upgrade_wavefoundry, "phase_docs_gate"), \
              patch.object(upgrade_wavefoundry, "_load_extension_module", return_value=None), \
              patch.object(upgrade_wavefoundry, "phase_index_update", return_value=True) as index, \
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):

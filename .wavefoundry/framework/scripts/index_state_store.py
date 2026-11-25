@@ -1400,12 +1400,25 @@ def file_commit_times(index_dir: Path, paths: Iterable[str]) -> dict[str, list[i
     of a per-target store open. Returns ``{path: [commit_ts, ...]}`` (only
     paths with rows appear). Empty on absent/unreadable store.
     """
+    return file_commit_times_read(index_dir, paths)[0]
+
+
+def file_commit_times_read(
+    index_dir: Path, paths: Iterable[str]
+) -> tuple[dict[str, list[int]], bool]:
+    """``file_commit_times`` plus whether the commit-time source was read.
+
+    Change 24but: the second value is False when the store is absent, cannot be
+    opened, has an unexpected schema, or the query raises, so a caller can tell
+    an unavailable source from a store with no commits for the paths. With no
+    paths nothing needs reading and the source counts as available.
+    """
     wanted = sorted({str(p) for p in paths if p})
     if not wanted:
-        return {}
+        return {}, True
     conn = open_read_only(index_dir)
     if conn is None:
-        return {}
+        return {}, False
     try:
         marks = ",".join("?" for _ in wanted)
         out: dict[str, list[int]] = {}
@@ -1414,9 +1427,9 @@ def file_commit_times(index_dir: Path, paths: Iterable[str]) -> dict[str, list[i
             wanted,
         ):
             out.setdefault(str(path), []).append(int(ts))
-        return out
+        return out, True
     except _SQL_ERRORS:
-        return {}
+        return {}, False
     finally:
         try:
             conn.close()

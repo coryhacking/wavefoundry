@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: supported
-Last verified: 2026-11-23
+Last verified: 2026-11-24
 
 ## SQLite conversion qualification (1xjmm)
 
@@ -175,6 +175,12 @@ A known Windows READONLY target is refused before publication, separately from a
 Qualification here used synthetic Windows metadata/errors and real POSIX descriptor controls, not a native Windows or drvfs run. Before claiming native qualification, probe long versus short missing paths, a BOM config, READONLY versus sharing violations, a shim-only PATH, and descriptor modes on the intended filesystem. The earlier warm-up return-value claim was disproved and remains deferred pending an actual Windows reproduction; no warm-up or timing policy changed.
 
 ## Retained archive cleanup and native probes
+
+The CLI and release-zip entry run cleanup in the newly installed framework after
+successful index publication when the running upgrade program is 1.52.0 or later.
+A CLI upgrade from 1.51.0 still needs one manual `--cleanup`. MCP and
+`--no-auto-cleanup` keep the separate cleanup step. When a retained continuation
+owns the next step, follow its recovery command before cleanup.
 
 Combined upgrade archives are retained under `.wavefoundry/upgrade-assets/embedded-*.zip`; phase cleanup removes them only after current ownership and hash checks. Native Windows uses the bounded path fallback when descriptor-relative deletion is unavailable. It rechecks ancestors and final identity but retains a residual same-user pathname race. Index-guard continuation packs use `.wavefoundry/cache/upgrade/index-guard-feature.zip` and require atomic no-clobber hard-link publication; unavailable capability produces controlled restart/refusal guidance.
 

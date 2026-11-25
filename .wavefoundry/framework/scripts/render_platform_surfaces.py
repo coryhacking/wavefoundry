@@ -2198,6 +2198,44 @@ def selected_permission_rules(settings: dict, *, root=None) -> tuple[str, ...]:
     return tuple(dict.fromkeys([rule for rule in rules if rule.removeprefix(prefix) not in suppress] + retained))
 
 
+def migrate_spec_tool_permissions(repo_root: Path) -> dict:
+    """Copy repository spec-tool rules to the renamed tools and record verification.
+
+    Wave 24buu (24ax3). Runs only under ``--include-permissions`` (upgrade and
+    setup), before ``render_claude_permissions``: first each exact old-name
+    rule in ``.claude/settings.json``, ``.claude/settings.local.json`` and
+    ``.codex/config.toml`` is copied to the new name with the same category
+    and constraint (nothing is removed and no rule is invented), then an
+    upgrade-verification receipt is written for each tool that no readable
+    layer still restricts. User-level and enterprise settings are read, never
+    written. Fail-safe: a fault is reported and leaves the remaining render
+    running, because the upgrade aborts on a non-zero exit.
+    """
+    try:
+        import spec_tool_permissions
+
+        roster = _load_tool_roster()
+        routes = roster.mcp_tool_extensions.stock_spec_routes()
+        if not routes:
+            return {}
+
+        def write(rel: str, text: str) -> None:
+            write_text(repo_root / rel, text, root=repo_root)
+
+        report = spec_tool_permissions.migrate_repository(
+            repo_root, routes, roster.MCP_RULE_PREFIX, write=write)
+        report.pop("planned", None)
+        report.update(spec_tool_permissions.record_verification(
+            repo_root, routes, roster.MCP_RULE_PREFIX))
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"render_platform_surfaces: WARNING, spec-tool permission migration skipped ({exc}).",
+              file=sys.stderr)
+        return {}
+    for line in spec_tool_permissions.report_lines(report):
+        print("render_platform_surfaces: " + line)
+    return report
+
+
 def render_claude_permissions(repo_root: Path) -> None:
     """Provenance-tracked set-merge of the roster-derived allowlist into
     ``.claude/settings.json`` ``permissions.allow``.
@@ -2207,7 +2245,10 @@ def render_claude_permissions(repo_root: Path) -> None:
     (``upgrade_wavefoundry``) and install (``setup_wavefoundry``)
     orchestrations pass. The agent-invocable ``wf_sync_surfaces`` render never
     passes it, so no agent can widen its own allow rules through the
-    surface-sync path.
+    surface-sync path. The same switch runs ``migrate_spec_tool_permissions``
+    first, so ``wf_upgrade`` also writes ``.claude/settings.local.json`` and
+    ``.codex/config.toml``; that step copies existing rules to the renamed
+    tools and never adds authority.
 
     That boundary is OPERATOR-APPROVED, not structurally unreachable by an
     agent, and this docstring must not claim otherwise. ``wf_upgrade`` is an
@@ -3328,6 +3369,10 @@ def main(argv: list[str] | None = None) -> int:
     # --include-permissions (the one permissions switch), so this narrows the
     # render scope without adding a second way to widen permissions.
     if args.permissions_only:
+        if args.include_permissions:
+            # Wave 24buu (24ax3): migrate repository rules and record the
+            # verification before the managed render, on every platform.
+            migrate_spec_tool_permissions(repo_root)
         if args.include_permissions and "claude" in platforms:
             try:
                 render_claude_permissions(repo_root)
@@ -3362,6 +3407,12 @@ def main(argv: list[str] | None = None) -> int:
         # Codex MCP wiring is a baseline connection surface. It must not depend on
         # filesystem detection or an explicit platform selection; direct dispatch
         # remains available for discoverability and focused tests.
+        if args.include_permissions:
+            # Wave 24buu (24ax3): migrate repository rules, then write the
+            # verification receipts, then (below) render the managed rules, so
+            # the render sees the new names unheld. Not gated on the Claude
+            # platform: a Codex-only project migrates as well.
+            migrate_spec_tool_permissions(repo_root)
         render_codex_mcp_config(repo_root)
         for platform in sorted(platforms - {"codex"}):
             render_platform_entrypoints(repo_root, platform)
@@ -3371,7 +3422,10 @@ def main(argv: list[str] | None = None) -> int:
         # both merges compose on the same file.
         if args.include_permissions and "claude" in platforms:
             render_claude_permissions(repo_root)
-        agent_written = render_agent_surfaces(repo_root)
+        if args.include_permissions and args.manifest:
+            agent_written = render_agent_surfaces(repo_root, upgrade_baselines=True)
+        else:
+            agent_written = render_agent_surfaces(repo_root)
         render_bin_launchers(repo_root)
         render_gitignore_block(repo_root)  # wave 1p8vj: enforce the runtime ignore block on every render/upgrade (self-heals)
         for warning in tracked_runtime_diagnostics(repo_root):

@@ -102,12 +102,16 @@ class OldParentPublicationTests(unittest.TestCase):
         self.enterContext(patch.dict(os.environ, {'WAVEFOUNDRY_SKIP_PYTHON_HEAL': '1'}))
         output = io.StringIO()
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+            # These assertions inspect the retained primary-phase checkpoint.
+            args = ['--root', str(self.root), '--yes']
+            if not archived:
+                args.append('--no-auto-cleanup')
             if hook_exit is not None or archived and not index_result:
                 with self.assertRaises(SystemExit) as caught:
-                    parent.main(['--root', str(self.root), '--yes'])
+                    parent.main(args)
                 result = caught.exception.code
             else:
-                result = parent.main(['--root', str(self.root), '--yes'])
+                result = parent.main(args)
         return result, visited, inventory_calls, phase, output.getvalue()
 
     def test_archived_main_and_new_hook_inventory_once_and_do_not_touch_manual_run(self):

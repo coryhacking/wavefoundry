@@ -1,6 +1,7 @@
 """Read-only bootstrap assessment and real isolated SQLite observations."""
 from __future__ import annotations
 
+import contextlib
 import json
 from collections import namedtuple
 import ast
@@ -23,6 +24,8 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 import setup_readiness as readiness
 
+FRESH_INSTALL_LOG = '# Install log\n\nInitial MCP vocabulary: spec-tools-v1\n'
+
 
 class SetupReadinessTests(unittest.TestCase):
     def setUp(self):
@@ -38,6 +41,8 @@ class SetupReadinessTests(unittest.TestCase):
             shutil.copy2(SCRIPTS / name, target / name)
         (self.root / 'docs').mkdir()
         (self.root / 'docs/workflow-config.json').write_text('{}')
+        # A fresh install: the renamed spec tools need no migration (wave 24buu).
+        (self.root / '.wavefoundry/install-log.md').write_text(FRESH_INSTALL_LOG)
         self.venv = self.root / 'venv'
         python = self.venv / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
         python.parent.mkdir(parents=True)
@@ -788,6 +793,49 @@ class SetupReadinessTests(unittest.TestCase):
                 self.assertEqual(result['actions'], [])
                 self.assertEqual(stdout.getvalue(), '')
                 self.assertEqual(stderr.getvalue(), '')
+
+
+class SpecToolReadinessTests(unittest.TestCase):
+    """Wave 24buu (24ax3) AC-11: a pulled legacy install is pointed at wf setup."""
+
+    assess = SetupReadinessTests.assess
+
+    def setUp(self):
+        SetupReadinessTests.setUp(self)
+        outside = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
+        self.enterContext(patch.dict(os.environ, {
+            'CLAUDE_CONFIG_DIR': str(outside / 'claude'), 'CODEX_HOME': str(outside / 'codex'),
+            'WAVEFOUNDRY_MANAGED_SETTINGS_PATH': str(outside / 'managed-settings.json')}))
+        (self.root / '.wavefoundry/install-log.md').unlink()  # an installation from before the rename
+        (self.root / '.claude').mkdir()
+        (self.root / '.claude/settings.local.json').write_text(json.dumps(
+            {'permissions': {'allow': ['mcp__wavefoundry__wf_get_change']}}), encoding='utf-8')
+
+    def spec_reason(self, result):
+        return [reason for reason in result['reasons'] if reason['code'] == 'spec_tools_withheld']
+
+    def test_withheld_spec_tools_recommend_setup_until_setup_ran(self):
+        with patch.object(readiness, '_valid_surface_entry', return_value=True):
+            result = self.assess()
+            [reason] = self.spec_reason(result)
+            self.assertEqual(reason['tools'], ['wf_add_spec', 'wf_close_spec', 'wf_get_spec',
+                                               'wf_new_spec', 'wf_remove_spec'])
+            self.assertEqual(result['status'], 'action_required')
+            self.assertIn('setup', [action['kind'] for action in result['actions']])
+            import render_platform_surfaces
+            with contextlib.redirect_stdout(io.StringIO()):
+                render_platform_surfaces.migrate_spec_tool_permissions(self.root)  # what wf setup runs
+            self.assertEqual(self.spec_reason(self.assess()), [])
+
+    def test_a_route_setup_cannot_change_is_not_reported(self):
+        (self.root / '.claude/settings.local.json').write_text(json.dumps(
+            {'permissions': {'deny': ['mcp__wavefoundry__wf_*_change']}}), encoding='utf-8')
+        self.assertEqual(self.spec_reason(self.assess()), [])
+
+    def test_policy_inputs_are_in_the_assessment_signature(self):
+        before = readiness.assessment_signature(self.root)
+        (self.root / '.wavefoundry/install-log.md').write_text(FRESH_INSTALL_LOG)
+        self.assertNotEqual(readiness.assessment_signature(self.root), before)
 
 
 if __name__ == '__main__':

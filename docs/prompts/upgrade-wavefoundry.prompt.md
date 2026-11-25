@@ -41,9 +41,11 @@ Update stock MCP callers to use the following names. Kind-specific creation tool
 
 For example, replace `wf_get_change(change_id="abcde")` with `wf_get_spec(spec_id="abcde")`. Read `spec_id` from the stock replacement tools and pass it to the next operation. Kind-specific creators such as `wf_new_bug` also expose `spec_id`. Use `spec_id` with `wf_mark_ac` and `wf_mark_task`. These two tools still accept the legacy `change_id` argument and reject conflicting values if callers supply both. Read a spec at `wavefoundry://spec/{spec_id}`. Existing `wavefoundry://change/{change_id}` bookmarks still resolve.
 
-New stock specs and new admission entries use `Spec ID:` and `Spec Status:`. Preserve a legacy record’s `Change ID:` and `Change Status:` when updating it. A wave may contain both generations. Use the project’s declared labels for a custom profile. The upgrade preserves existing identifier values, closed history and review evidence. Review exact-name permissions and project-owned scripts during upgrade. A distribution can retain an alias or wrapper with its established schema. Check the served schema before changing those callers.
+New stock specs and new admission entries use `Spec ID:` and `Spec Status:`. Preserve a legacy record’s `Change ID:` and `Change Status:` when updating it. A wave may contain both generations. Use the project’s declared labels for a custom profile. The upgrade preserves existing identifier values, closed history and review evidence. Review project-owned scripts that call the previous names. A distribution can retain an alias or wrapper with its established schema. Check the served schema before changing those callers.
 
-On an existing installation, check each host’s effective permissions for the old and new tool, including personal and enterprise rules. Transfer any exact-name rules in the layer that owns them. After verifying equivalent effective permissions for a replacement, record that decision for this checkout and restart the MCP host. For example, run `wf upgrade spec-permissions --root . --tool wf_get_spec --confirm-effective-host-rules` from the target checkout. Repeat for each replacement you reviewed. The command records the local decision. An unresolved project rule still withholds the replacement.
+Upgrade and `wf setup` carry the permissions over. In the repository's `.claude/settings.json`, `.claude/settings.local.json` and `.codex/config.toml`, each exact rule for a previous tool gets the same rule, constraint included, for its replacement. The previous rules stay. Upgrade and setup then read the user-level Claude and Codex settings and the enterprise managed settings without changing them, and record a verification for this checkout for each replacement that no readable layer still restricts. Restart the MCP host afterwards. A teammate who pulls the upgraded repository runs `wf setup`, which does the same on their machine. Until then, setup readiness reports the withheld tools with `wf setup` as the remedy.
+
+When a user-level or enterprise layer denies or asks for a previous tool, the replacement stays withheld. The summary names the file and the rule to add there, and the operator applies it. A replacement also stays withheld when a pattern rule names the previous tool but not the replacement, when a settings file cannot be parsed, or when Cursor settings name the previous tool. Upgrade cannot inspect MDM profiles, the Windows registry, server-managed settings or host launch flags. A tool can appear in MCP even when those layers still restrict only its old name. If you manage such a policy, apply the same restrictions to the new names and verify the effective rules in the host before use. Resolve the rule in the layer that owns it, then record the review for that tool from the target checkout, for example `wf upgrade spec-permissions --root . --tool wf_get_spec --confirm-effective-host-rules`, and restart the MCP host.
 
 ## Setup after a clone or pull
 
@@ -306,10 +308,11 @@ not a new adoption attempt. For an already-installed current index, use
 an already-complete receipt, or a current schema conversion it refuses without
 starting adoption; it is not a synonym for rebuilding the current index.
 
-The primary phase can exit zero while cleanup remains pending; zero means that
-phase succeeded, not that the complete upgrade is terminal. Failed index
-publication exits nonzero and cannot claim successful index publication. Preserve
-the retained upgrade checkpoint and follow its owning continuation before cleanup.
+The CLI and release-zip entry run cleanup in the newly installed framework after
+successful index publication when the running upgrade program is 1.52.0 or later.
+A CLI upgrade from 1.51.0 still needs one manual `--cleanup`. MCP and
+`--no-auto-cleanup` keep the separate cleanup step. When a retained continuation
+owns the next step, follow its recovery command before cleanup. Failed index publication exits nonzero.
 Unchanged renderer-owned documents keep their existing dates; the docs gardener
 still stamps genuinely changed documents. Do not exclude dates from historical
 memory fingerprints to hide real changes.
@@ -610,6 +613,7 @@ Inventory/drift-detection subagents run read-only. Broad edits to `docs/prompts/
    - Seed 209 and `prepare-wave`/`review-wave` baselines -> the profile-resolved Prepare/Review prompts and `docs/contributing/review-and-evals.md`: assess intent and complexity, runtime cost and operator burden in existing lanes; the council-chair's `intent_fit` statement among the readiness verdict conditions (seed 215); and a Review wave step that drafts one dated `Intent outcome:` paragraph in the existing exact `## Review Checkpoints` section, never a second one, on every delivery review. Assign the independent check to `qa-reviewer` when it is in the current required delivery roster; otherwise assign one reviewer already in that roster. If the roster is empty, record `No independent delivery-lane intent check ran` in `## Review Checkpoints`; do not add a lane or claim an independent check occurred. The assigned reviewer independently confirms or corrects whether the delivered work achieves each admitted change's Product Intent and the wave Objective, citing delivery evidence and material limitations, whether or not delivery Council is required. A required delivery Council judges the same draft using the assigned reviewer's assessment when available. Preserve typed council approvals that require `evidence.intent_fit` (an upgraded server refuses a council approval without it and names the field and its values).
    - Seeds 209, 213 and 229 -> the project's security reviewer and security engineer role docs (`docs/agents/security-reviewer.md` and `docs/agents/specialists/security-engineer.md` by default), outside their renderer-owned marker regions: the credible-threat gate's rule that an unknown factor is not an absent factor, as a one-sentence summary pointing to seed 209.
    - Seed 190 and `close-wave` baseline -> the profile-resolved Close wave prompt: explicitly authored `Intent outcome:` in exact `## Review Checkpoints`, with evidence and limitations preserved by the summary composer, citing the plan's measure of success when one exists.
+   - Seed 240 and `memory-review` baseline -> `docs/prompts/memory-review.prompt.md`, and seed 190 and `close-wave` baseline -> the profile-resolved Close wave prompt: the memory keep rule. A keep or reactivation of an active record needs a single-line `check_note`, a keep is refused while a target is unresolved, and promoting a candidate needs neither. A copy that upgrade replaces itself as an unedited lifecycle prompt needs no merge; merge the rule into every copy left in place: an edited copy, a copy with an unknown baseline, a symlinked copy, or a copy that changed after the comparison.
    Apply these changes prospectively and clarify intent during material revisions; do not bulk-edit existing waves/plans, rotate other receipts or rewrite closed records/ledgers. Follow declared layout and vocabulary. These are agent-assisted edits, not a mechanical template rewrite; add no broad history scan, index pass, source/profile qualification, model work or evidence sidecar.
    Merge only changed authored clauses, preserving project additions, metadata, and every renderer-owned marker region. For newly added guidance, verify a unique insertion location and absence of conflicting local instructions. If the old clause or insertion location is ambiguous, or local intent conflicts, stop and present the conflict to the operator. Never replace a whole destination or silently omit a changed mapping. Missing-only baseline rendering does not update existing authored prose; run `wf render-surfaces` after reconciliation for the regions it owns.
 
@@ -630,13 +634,13 @@ Inventory/drift-detection subagents run read-only. Broad edits to `docs/prompts/
 
 ## Lifecycle baseline drift report
 
-Before extraction, the incoming extension compares each registered lifecycle prompt and plan template with the local copy and the previously installed template. It normalizes generated dates, vocabulary and line endings and ignores complete renderer-owned regions only in their registered destinations. Project edits outside those regions remain visible. Current copies of unchanged templates produce no finding. Each `lifecycle_baseline_drift` finding has `{channel, file, detail, action}`. The detail retains the comparison state. The action tells the operator how to proceed.
+Before extraction, the incoming extension compares each registered local lifecycle prompt and plan template with the installed and incoming templates. It ignores generated dates, line endings and complete renderer-owned regions.
 
-- `overwrite` for `upstream_changed_local_matches_previous`: the local copy matches the previous template outside generated regions. To take the incoming version, finish the upgrade, delete just that local copy, then call `wf_sync_surfaces(mode='run')` or run `wf render-surfaces` to recreate the copy and its generated regions.
-- `merge` for `upstream_changed_local_differs_from_previous`: keep the local copy and merge the incoming changes by hand.
-- `preserve` for `already_current`: keep the current copy. For `upstream_unchanged_local_differs`, compare the files. Use the overwrite procedure only after confirming that an earlier update was missed and no project edits need to be kept. For `baseline_unknown`, compare by hand before replacing anything.
+- `overwrite` previews an unedited copy that matches the previous template. During upgrade, the Phase 1 renderer rechecks its digest and replaces it before docs validation and indexing. It keeps the local verification date and regenerates the owned regions. The upgrade summary lists each `replaced` path.
+- `merge` identifies the incoming template to use when merging a local edit. The upgrade preserves the project copy.
+- `preserve` covers current copies, earlier differences and unknown baselines. Compare differences by hand before replacing a project document. The renderer preserves links and skips destinations whose comparison no longer matches.
 
-The installing upgrade and its dry run use the incoming region masks and actions, including under supported older runners. Older runners print the findings. A real upgrade captures them in the checkpoint and replays that evidence on resume and cleanup. The report leaves the files and exit status unchanged.
+The dry run reports planned actions. A real upgrade captures the comparison in its checkpoint and carries the results into resume and cleanup. Setup continues to create missing baselines.
 
 The installing dry run still prints the full extension source because it uses the previous runner. This is expected. Starting with the next upgrade, the dry run prints the zip entry name, SHA-256 and line count, and writes the exact source to `.wavefoundry/logs/upgrade-extension-module.preview.log`. Its final line and `preview_logs` name the log when written. If the write fails, inspect the named entry in the pack. The runner's own missing-capture notice also gains its `preserve` action on that next upgrade.
 
@@ -735,9 +739,12 @@ Markdown and ledgers remain immutable. After the upgrade reload—or a
 restart when `runner_stale` or cutover requires one—check from a fresh turn. If the
 catalog remains stale, reconnect MCP, then restart as the final fallback. Once current,
 use `wf_list_waves` for compact wave metrics and `memory_brief` for the active-memory
-budget and any consolidation candidates. If `memory_brief` reports
-`curation_required=true` or returns consolidation candidates, recommend the public
-**Review memories** shortcut (alias **Memory review**); Upgrade never auto-curates or
+budget, any consolidation candidates and the `revalidation` counts. Recommend the
+public **Review memories** shortcut (alias **Memory review**) when `memory_brief`
+reports `curation_required=true`, returns consolidation candidates, reports
+`revalidation.target_unresolved` or `revalidation.target_churn` above zero, or
+reports `revalidation.churn_available=false`; state those counts in the
+recommendation. Upgrade never auto-curates or
 purges memory.
 
 Every upgrade also reconciles shortcut discovery merge-safely: ensure the canonical

@@ -613,6 +613,11 @@
       "primitive_calls": 0,
       "wrapper_calls": 1
     },
+    "render_agent_surfaces:_replace_upgrade_baseline": {
+      "class": "in_place",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
     "render_platform_surfaces:main": {
       "callers": [
         "render_platform_surfaces:<module>"
@@ -620,6 +625,13 @@
       "class": "generated",
       "primitive_calls": 1,
       "wrapper_calls": 0
+    },
+    "render_platform_surfaces:migrate_spec_tool_permissions.write": {
+      "class": "in_place",
+      "merged_by": "spec_tool_permissions:migrate_repository",
+      "merged_by_reason": "Publishes the host settings text migrate_repository planned as line_endings.merge of each file as read.",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
     },
     "render_platform_surfaces:render_aiignore": {
       "class": "in_place",
@@ -920,9 +932,10 @@
       "primitive_calls": 0,
       "wrapper_calls": 1
     },
-    "spec_tool_permissions:acknowledge": {
+    "spec_tool_permissions:_write_receipt": {
       "callers": [
-        "upgrade_wavefoundry:main"
+        "spec_tool_permissions:acknowledge",
+        "spec_tool_permissions:record_verification"
       ],
       "class": "generated",
       "primitive_calls": 1,
@@ -1120,6 +1133,7 @@
     },
     "upgrade_lib:update_upgrade_lock": {
       "callers": [
+        "render_agent_surfaces:_save_baseline_checkpoint",
         "setup_reconciliation:session._update",
         "sqlite_storage_migration:_pause_for_restart",
         "sqlite_storage_migration:restore_checkpoint",
@@ -1596,6 +1610,9 @@
       "class": "wrapper"
     },
     "render_platform_surfaces:_merge_mcp_server -> render_platform_surfaces:write_text #1": {
+      "class": "in_place"
+    },
+    "render_platform_surfaces:migrate_spec_tool_permissions.write -> render_platform_surfaces:write_text #1": {
       "class": "in_place"
     },
     "render_platform_surfaces:render_aiignore -> render_platform_surfaces:write_text #1": {

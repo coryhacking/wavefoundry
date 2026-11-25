@@ -782,6 +782,180 @@ class UpgradeProtocolTests(unittest.TestCase):
                 feature_payload = package.read("payload/" + feature.name)
             self.assertEqual(retained.read_bytes(), feature_payload)
 
+    # Change 24bn7: the documented direct entry of the release zip,
+    # ``python3 <zip> --root <repo> --confirm-hosts-stopped``, must resolve the
+    # framework modules its entry code imports inside functions from the zip's own
+    # scripts. The feature runner is a stub built into the feature zip, so the
+    # selection hashes match and the run stops at the bridge's next step.
+    _STUB_RUNNER = (
+        "import json, sys\n"
+        "from pathlib import Path\n"
+        "root = Path(sys.argv[sys.argv.index('--root') + 1])\n"
+        "(root / 'stub-next-argv.json').write_text(json.dumps(sys.argv[1:]), encoding='utf-8')\n"
+        "raise SystemExit(0)\n"
+    )
+    _PROBE_IMPORT = (
+        "    import contained_files\n"
+        "    import index_paths as _probe_24bn7\n"
+        "    if '.zip' not in _probe_24bn7.__file__:\n"
+        "        raise AssertionError('probe import did not resolve from the zip: ' + _probe_24bn7.__file__)\n"
+    )
+
+    def _stub_feature(self, root: Path) -> Path:
+        fw = root / ".wavefoundry/framework"
+        (fw / "scripts").mkdir(parents=True)
+        for source in framework_source_files(include_aliases=True):
+            target = fw / "scripts" / source.relative_to(SCRIPTS)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+        (fw / "scripts" / "upgrade_wavefoundry.py").write_text(self._STUB_RUNNER, encoding="utf-8")
+        (fw / "VERSION").write_text("1.52.0+test\n", encoding="utf-8")
+        return build_pack.build_zip(
+            root, "1.52.0", "test", framework_dir=fw, write_version=False,
+            update_manifest=False, inject_install_templates=False,
+        )
+
+    def _direct_entry_zips(self, base: Path, bundle_source: Path) -> dict[str, Path]:
+        import model_bundle
+        source = base / "source"; source.mkdir()
+        feature = self._stub_feature(source)
+        artifacts = build_pack.build_protocol_bridge_artifacts(
+            feature, version="1.52.0", build_prefix="direct",
+            bootstrap_source=SCRIPTS / "upgrade_bridge_bootstrap.py",
+        )
+        plain = build_pack.build_upgrade_bundle(
+            feature, artifacts, version="1.52.0", build_prefix="direct",
+            bundle_source=bundle_source,
+        )
+        companion = base / model_bundle.bundle_name()
+        with zipfile.ZipFile(companion, "w") as archive:
+            archive.writestr("placeholder.txt", "companion stand-in")
+        with patch.object(model_bundle, "verify_bundle_archive", return_value=None):
+            combined = build_pack.build_embedded_package(plain, companion)
+        return {"plain": plain, "with-models": combined}
+
+    def _run_direct_entry(self, base: Path, bundle: Path, label: str, *, with_cleanup_runner=False) -> tuple[subprocess.CompletedProcess, Path]:
+        target = base / f"target {label}"
+        framework = target / ".wavefoundry/framework"
+        framework.mkdir(parents=True)
+        (framework / "VERSION").write_text("1.51.0+q5hc\n", encoding="utf-8")
+        (framework / "UPGRADE-PROTOCOL.json").write_text(
+            json.dumps({"upgrade_protocol_version": 2}) + "\n", encoding="utf-8")
+        if with_cleanup_runner:
+            shutil.copytree(SCRIPTS, framework / "scripts",
+                            ignore=shutil.ignore_patterns("tests", "__pycache__"))
+            shutil.copytree(SCRIPTS.parent / "install", framework / "install")
+            shutil.copytree(SCRIPTS.parent / "seeds", framework / "seeds")
+        outside = base / f"cwd {label}"; outside.mkdir()
+        completed = subprocess.run(
+            [sys.executable, "-I", str(bundle), "--root", str(target), "--confirm-hosts-stopped"],
+            cwd=str(outside), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, timeout=120, check=False,
+        )
+        return completed, target
+
+    def _assert_direct_entry_reached_next_step(self, completed, target: Path, bundle: Path) -> None:
+        self.assertNotIn("ModuleNotFoundError", completed.stderr)
+        self.assertNotIn("upgrade_protocol_invalid", completed.stdout)
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        payload = json.loads(completed.stdout.splitlines()[-1])
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["source_protocol"], 2)
+        self.assertEqual(payload["target_version"], "1.52.0")
+        recorded = json.loads((target / "stub-next-argv.json").read_text("utf-8"))
+        resolved = target.resolve()
+        self.assertEqual(recorded[recorded.index("--root") + 1], str(resolved))
+        pack = Path(recorded[recorded.index("--pack") + 1])
+        self.assertEqual(pack.parent, resolved / ".wavefoundry/upgrade-assets")
+        self.assertEqual(
+            recorded[recorded.index("--expected-pack-sha256") + 1],
+            upgrade_bridge_bootstrap._sha256(bundle),
+        )
+        self.assertEqual(recorded[-1], "--yes")
+        self.assertNotIn("--dry-run", recorded)
+        # The retained source was owned by the run and cleaned after exit 0.
+        self.assertFalse(pack.exists())
+        self.assertEqual((target / ".wavefoundry/framework/VERSION").read_text("utf-8"), "1.51.0+q5hc\n")
+
+    def test_protocol_two_entry_reports_observed_cleanup_without_a_second_command(self):
+        from test_spec_tool_permissions import isolate_host_policy
+        isolate_host_policy(self)
+        # Exercise the packaged entry and actual terminal child. The feature
+        # stand-in supplies only the already-published primary checkpoint.
+        primary = """from pathlib import Path
+import sys
+root = Path(sys.argv[sys.argv.index('--root') + 1])
+sys.path.insert(0, str(root / '.wavefoundry/framework/scripts'))
+import upgrade_lib
+import upgrade_wavefoundry as upgrade
+upgrade_lib.write_upgrade_lock(root, '1.51.0', '1.52.0')
+upgrade._record_index_publication_outcome(root, True)
+assert upgrade._auto_cleanup_ready(root, False)
+sys.exit(upgrade._run_auto_cleanup(root))
+"""
+        with tempfile.TemporaryDirectory() as directory, patch.object(self, "_STUB_RUNNER", primary):
+            base = Path(directory)
+            bundle = self._direct_entry_zips(base, SCRIPTS / "upgrade_bundle.py")["plain"]
+            completed, target = self._run_direct_entry(base, bundle, "cleanup", with_cleanup_runner=True)
+            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+            report = json.loads(completed.stdout.splitlines()[-1])
+            self.assertEqual(report["feature_state"], "cleanup_complete", report)
+            self.assertIn("Cleanup is complete", report["recovery"]["instruction"])
+            self.assertNotIn("wf_upgrade(phase='cleanup')", report["recovery"]["instruction"])
+            self.assertFalse((target / ".wavefoundry/upgrade-in-progress.json").exists())
+
+    def test_direct_zip_entry_resolves_framework_imports_from_the_zip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            zips = self._direct_entry_zips(base, SCRIPTS / "upgrade_bundle.py")
+            for label, bundle in zips.items():
+                with self.subTest(zip=label):
+                    with zipfile.ZipFile(bundle) as archive:
+                        top_level = {name for name in archive.namelist() if "/" not in name}
+                    # AC-2: the top-level member set the materializer and older
+                    # runners accept is unchanged.
+                    self.assertEqual(top_level, {
+                        "__main__.py", "upgrade_bridge_bootstrap.py",
+                        "subprocess_util.py", "embedded_model_bundle.py",
+                    })
+                    completed, target = self._run_direct_entry(base, bundle, label)
+                    self._assert_direct_entry_reached_next_step(completed, target, bundle)
+
+    def test_direct_zip_scripts_entry_follows_the_zip_root_and_skips_non_zips(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            bundle = base / "bundle.zip"
+            with zipfile.ZipFile(bundle, "w") as archive:
+                archive.writestr("__main__.py", "")
+            plain_file = base / "upgrade_bundle.py"
+            plain_file.write_text("", encoding="utf-8")
+            expected = os.path.join(str(bundle), ".wavefoundry", "framework", "scripts")
+            with patch.object(sys, "path", [str(bundle), "/stdlib", "/site"]):
+                upgrade_bundle._add_bundle_scripts_path(bundle)
+                upgrade_bundle._add_bundle_scripts_path(bundle)
+                self.assertEqual(sys.path, [str(bundle), expected, "/stdlib", "/site"])
+            with patch.object(sys, "path", [str(plain_file), "/stdlib"]):
+                upgrade_bundle._add_bundle_scripts_path(plain_file)
+                self.assertEqual(sys.path, [str(plain_file), "/stdlib"])
+
+    def test_direct_zip_entry_resolves_a_future_function_level_import(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            copied = base / "bundle-source"; copied.mkdir()
+            shutil.copy2(SCRIPTS / "upgrade_bundle.py", copied / "upgrade_bundle.py")
+            text = (SCRIPTS / "embedded_model_bundle.py").read_text("utf-8")
+            marker = "    import contained_files\n    directory = contained_files.ensure_contained_dir("
+            self.assertIn(marker, text)
+            text = text.replace(marker, self._PROBE_IMPORT + "    directory = contained_files.ensure_contained_dir(", 1)
+            (copied / "embedded_model_bundle.py").write_text(text, encoding="utf-8")
+            zips = self._direct_entry_zips(base, copied / "upgrade_bundle.py")
+            for label, bundle in zips.items():
+                with self.subTest(zip=label):
+                    with zipfile.ZipFile(bundle) as archive:
+                        self.assertIn("_probe_24bn7", archive.read("embedded_model_bundle.py").decode("utf-8"))
+                    completed, target = self._run_direct_entry(base, bundle, label)
+                    self._assert_direct_entry_reached_next_step(completed, target, bundle)
+
     def test_real_builder_emits_framework_only_bridge_and_verified_bootstrap(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
