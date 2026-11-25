@@ -351,7 +351,7 @@ class GeneratedAndIgnoredScopeTests(unittest.TestCase):
             self.assertEqual(result.state, "complete", result.reasons)
             self.assertEqual({ref.file for ref in result.findings}, live)
             self.assertEqual({ref.file for ref in result.host_permission_flags},
-                             {".claude/settings.local.json", ".cursor/settings.json"})
+                             {".claude/settings.local.json", ".cursor/settings.json", ".codex/config.toml"})
             self.assertEqual(result.read_files, len(live))
 
     def test_required_carrier_links_and_special_files_are_not_followed(self):
@@ -1271,29 +1271,26 @@ class RenamedMcpToolScanTests(unittest.TestCase):
         self.scan = _load("reconcile_scan", RECONCILE_PATH)
 
     def test_map_is_oracle_anchored_to_the_live_registration_census(self):
-        """AC-1 (two directions): every NEW name is a currently registered MCP
-        tool; no OLD name is. The census source is server_impl's registration
-        AST — the same authority the envelope census test uses — so a
-        hand-copied map cannot drift from the shipped surface."""
-        import ast as _ast
-        registered: set[str] = set()
-        # server_impl registers the surface; server.py registers the reload
-        # survivor (wf_reload_mcp) in build_server — census both.
-        for file_name, fn_name in (
-            ("server_impl.py", "register_mcp_surface"),
-            ("server.py", "build_server"),
-        ):
-            source = source_path(file_name).read_text(encoding="utf-8")
-            tree = _ast.parse(source)
-            for node in _ast.walk(tree):
-                if isinstance(node, _ast.FunctionDef) and node.name == fn_name:
-                    for inner in _ast.walk(node):
-                        if isinstance(
-                            inner, (_ast.FunctionDef, _ast.AsyncFunctionDef)
-                        ) and any(
-                            isinstance(d, _ast.Call) for d in inner.decorator_list
-                        ):
-                            registered.add(inner.name)
+        """Exercise the stock server, including runtime-registered adapters."""
+        import subprocess
+        if importlib.util.find_spec("mcp") is None:
+            self.skipTest("MCP runtime unavailable")
+        script = """import sys
+from pathlib import Path
+sys.path.insert(0, 'tests')
+from declaration_support import base_declaration
+from server_tools_support import load_server, load_thin_runner
+with base_declaration():
+    impl = load_server()
+    server = load_thin_runner().build_server(Path(sys.argv[1]))
+    print('REGISTERED=' + ' '.join(sorted(impl._registered_mcp_tool_names(server))))
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run([sys.executable, "-B", "-c", script, tmp], cwd=SCRIPTS_ROOT,
+                                    text=True, capture_output=True, timeout=60, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        line, = [line for line in result.stdout.splitlines() if line.startswith("REGISTERED=")]
+        registered = set(line.removeprefix("REGISTERED=").split())
         self.assertGreater(len(registered), 60, "census sanity: the surface is large")
         mapping = self.render._RENAMED_MCP_TOOLS
         missing_new = sorted(v for v in mapping.values() if v not in registered)

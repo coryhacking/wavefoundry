@@ -213,7 +213,11 @@ def _checkpoint_recovery_tail(checkpoint: dict[str, Any], root: Path | None = No
 
 
 def publication_block_reason(root: Path, tool_name: str) -> str | None:
-    """All registered writers fail closed under a retained upgrade checkpoint."""
+    """Check the operation identity captured before applying public names and schemas.
+
+    Stock spec tools and their downstream aliases call the same guarded operation.
+    An independently declared binding owns its own publication tier.
+    """
     if _BY_TOOL.get(tool_name) is None:
         return None
     return publication_checkpoint_reason(root, tool_name)

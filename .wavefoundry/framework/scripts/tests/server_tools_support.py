@@ -194,12 +194,12 @@ def close_container(call, root, wave_id, **kwargs):
 
 
 def close_member(call, root, wave_id, change_id, **kwargs):
-    """Call the served ``wf_close_change`` with the container fixture profile's arguments (change 230k6).
+    """Call the served ``wf_close_spec`` with the container fixture profile's arguments (change 230k6).
 
     ``call`` invokes a registered tool by name, so the handler a distribution serves under
     that name is the one exercised."""
     return _container_fixture_call(
-        call, "wf_close_change", root, {"wave_id": wave_id, "change_id": change_id, **kwargs})
+        call, "wf_close_spec", root, {"wave_id": wave_id, "spec_id": change_id, **kwargs})
 
 
 def review_policy_config(**overrides) -> dict:

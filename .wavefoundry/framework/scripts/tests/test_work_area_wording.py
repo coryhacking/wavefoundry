@@ -11,6 +11,8 @@ import sys
 import unittest
 from pathlib import Path
 
+from upstream_fixture_support import tool_contract_rel
+
 SCRIPTS = Path(__file__).resolve().parents[1]
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
@@ -44,7 +46,7 @@ def _prompt(key: str) -> Path:
 HEADING_FILES = (*map(_framework, TEMPLATES), _framework(SEED_180), *map(_prompt, HEADING_PROMPTS),
                  REPO / "docs/architecture/threat-model.md",
                  REPO / "docs/contributing/build-and-verification.md",
-                 REPO / "docs/specs/mcp-tool-surface.md")
+                 REPO / tool_contract_rel(REPO))
 LEAD_IN_FILES = (_framework(SEED_160), _prompt("upgrade-wavefoundry"))
 CROSS_REFERENCE_FILES = (*map(_framework, TEMPLATES), _framework(SEED_160), _framework(SEED_209),
                          *map(_prompt, PROMPTS))

@@ -72,7 +72,7 @@ _KWARGS_PROVIDERS = {
     "_wrap_lifecycle_mutation_lock": "_lock_pass_kwargs",
     "_wrap_upgrade_publication_guard": "_guard_pass_kwargs",
 }
-_TRIPLE_WRAPPED_TOOL = "wf_add_change"
+_TRIPLE_WRAPPED_TOOL = "wf_add_spec"
 _TRIPLE_WRAPPED_RESPONSE = "wf_add_change_response"
 
 
@@ -180,6 +180,7 @@ class _BootedSurface(unittest.TestCase):
         fw = self.root / ".wavefoundry" / "framework"
         fw.mkdir(parents=True, exist_ok=True)
         (fw / "VERSION").write_text("test-pack-version", encoding="utf-8")
+        (fw.parent / "install-log.md").write_text("Initial MCP vocabulary: spec-tools-v1" + chr(10), encoding="utf-8")
         scripts_dir = str(SCRIPTS_DIR)
         if scripts_dir not in sys.path:
             sys.path.insert(0, scripts_dir)
@@ -196,7 +197,7 @@ class _BootedSurface(unittest.TestCase):
         self.tmp.cleanup()
 
     def surface(self) -> dict:
-        return serialize_surface(self.mcp, self.roster.TOOL_TIERS)
+        return serialize_surface(self.mcp, self.roster.all_tool_tiers())
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +215,7 @@ class ToolSurfaceGoldenTests(_BootedSurface):
         )
         self.assertEqual(
             created,
-            [".wavefoundry/framework/VERSION", "docs/workflow-config.json"],
+            [".wavefoundry/framework/VERSION", ".wavefoundry/install-log.md", "docs/workflow-config.json"],
         )
 
     def test_live_surface_matches_committed_golden(self):
@@ -251,7 +252,7 @@ class ToolSurfaceGoldenTests(_BootedSurface):
         tools = self.surface()["tools"]
         for name in self.roster.RUNNER_TOOLS:
             self.assertIn(name, tools)
-            self.assertEqual(tools[name]["tier"], self.roster.TOOL_TIERS[name])
+            self.assertEqual(tools[name]["tier"], self.roster.all_tool_tiers()[name])
             self.assertIsInstance(tools[name]["inputSchema"], dict)
         # Every entry carries a tier from the roster; none is unknown.
         self.assertNotIn(None, {entry["tier"] for entry in tools.values()})
@@ -456,6 +457,7 @@ root = Path(spec["root"])
 fw = root / ".wavefoundry" / "framework"
 fw.mkdir(parents=True, exist_ok=True)
 (fw / "VERSION").write_text("test-pack-version", encoding="utf-8")
+(fw.parent / "install-log.md").write_text("Initial MCP vocabulary: spec-tools-v1" + chr(10), encoding="utf-8")
 try:
     server_spec = importlib.util.spec_from_file_location("server", scripts / "server.py")
     runner = importlib.util.module_from_spec(server_spec)
@@ -527,6 +529,7 @@ class ProfileToolSurfaceGoldenTests(unittest.TestCase):
         fw = root / ".wavefoundry" / "framework"
         fw.mkdir(parents=True, exist_ok=True)
         (fw / "VERSION").write_text("test-pack-version", encoding="utf-8")
+        (fw.parent / "install-log.md").write_text("Initial MCP vocabulary: spec-tools-v1" + chr(10), encoding="utf-8")
         import mcp_tool_extensions
         import mcp_tool_roster as roster
 
@@ -849,15 +852,15 @@ class RosterRuntimeParityTests(_BootedSurface):
     def test_parity_fails_in_both_directions(self):
         registered = set(self.mcp._tool_manager._tools)
         with patch.dict(self.roster.TOOL_TIERS, {"wf_ghost_tool": self.roster.TIER_READ}):
-            errors = parity_errors(registered, self.roster.TOOL_TIERS, self.roster.RUNNER_TOOLS)
+            errors = parity_errors(registered, self.roster.all_tool_tiers(), self.roster.RUNNER_TOOLS)
         self.assertEqual(errors, ["in roster but not registered: wf_ghost_tool"])
         errors = parity_errors(
-            registered | {"wf_unlisted_tool"}, self.roster.TOOL_TIERS, self.roster.RUNNER_TOOLS
+            registered | {"wf_unlisted_tool"}, self.roster.all_tool_tiers(), self.roster.RUNNER_TOOLS
         )
         self.assertEqual(errors, ["registered but not in roster: wf_unlisted_tool"])
         errors = parity_errors(
             registered - set(self.roster.RUNNER_TOOLS),
-            self.roster.TOOL_TIERS,
+            self.roster.all_tool_tiers(),
             self.roster.RUNNER_TOOLS,
         )
         self.assertTrue(any(line.startswith("runner survivor not registered") for line in errors))
@@ -962,15 +965,15 @@ class WrapperOrderTests(unittest.TestCase):
             mcp = self.FastMCP("wrapper-order-probe")
             self.impl.register_mcp_surface(mcp, lambda: handler)
             tool = mcp._tool_manager._tools[_TRIPLE_WRAPPED_TOOL]
-            tool.fn(wave_id="1abc", change_id="1abd", mode="dry_run")
+            tool.fn(wave_id="1abc", spec_id="1abd", mode="dry_run")
         return events
 
     def test_subject_is_wrapped_by_all_three_passes(self):
         import publication_control
 
-        self.assertIn(_TRIPLE_WRAPPED_TOOL, self.impl._LIFECYCLE_MUTATION_LOCK_TOOLS)
-        self.assertIn(_TRIPLE_WRAPPED_TOOL, publication_control.registered_publication_tool_names())
-        self.assertNotIn(_TRIPLE_WRAPPED_TOOL, self.impl._COST_EXEMPT_TOOLS)
+        self.assertIn("wf_add_change", self.impl._LIFECYCLE_MUTATION_LOCK_TOOLS)
+        self.assertIn("wf_add_change", publication_control.registered_publication_tool_names())
+        self.assertNotIn("wf_add_change", self.impl._COST_EXEMPT_TOOLS)
 
     def test_production_order_is_cost_inner_lock_middle_guard_outer(self):
         identity = _WRAPPER_NAMES

@@ -1,13 +1,15 @@
-# [Change Title]
+# [Title]
 
-Change ID: `<id-prefix>-<kind> <slug>` — **mint via the MCP `wf_new_*` tool** (e.g. `wf_new_bug`, `wf_new_enhancement`, `wf_new_change`). The MCP path borrows from future buckets when the natural prefix collides with existing IDs, so concurrent minting stays unique. Avoid the CLI for new IDs unless the MCP server is unavailable; if you must, use `wf lifecycle-id --kind <kind> --slug <slug>` (venv-aware dispatcher subcommand) rather than invoking `python3` against `lifecycle_id.py` directly. The subcommand is named `lifecycle-id` because the same prefix system is used for wave IDs and change IDs.
-Change Status: `planned`
+Spec ID: `<id-prefix>-<kind> <slug>` — **mint via the MCP `wf_new_*` tool** (e.g. `wf_new_bug`, `wf_new_enhancement`, `wf_new_spec`). The MCP path borrows from future buckets when the natural prefix collides with existing IDs, so concurrent minting stays unique. Avoid the CLI for new IDs unless the MCP server is unavailable; if you must, use `wf lifecycle-id --kind <kind> --slug <slug>` (venv-aware dispatcher subcommand) rather than invoking `python3` against `lifecycle_id.py` directly. The subcommand is named `lifecycle-id` because the same prefix system is used for wave IDs and change IDs.
+Spec Status: `planned`
 Owner: [role or person]
 Status: planned
-Last verified: 2026-11-21
+Last verified: 2026-11-24
 Wave: [wave-id or TBD]
 
 ## Rationale
+
+This spec plans one delivery. When it changes an existing promise, identify the behavior contract indexed in `docs/architecture/contracts/index.md`. Record a lasting design choice in the architecture decision log.
 
 Why this change is needed. State a specific motivation a reviewer can understand without additional context.
 

@@ -1207,11 +1207,9 @@ class RenamedBookkeepingProfileTests(unittest.TestCase):
             # shipped vocabulary in this disposable profile, then rerun the
             # same real-worker oracle. The renamed carrier must be rejected.
             vocabulary = scripts / 'vocabulary_profile.py'
-            source = vocabulary.read_text()
-            old = 'MEMBER_ID_LABEL_RE = re.escape(MEMBER_ID_LABEL)'
             fixed = re.escape(SHIPPED_DEFAULTS['vocabulary_profile']['MEMBER_ID_LABEL'])
-            self.assertEqual(source.count(old), 1)
-            vocabulary.write_text(source.replace(old, f'MEMBER_ID_LABEL_RE = {fixed!r}'))
+            with vocabulary.open('a', encoding='utf-8', newline='\n') as stream:
+                stream.write(f'\nMEMBER_ID_LABEL_RE = {fixed!r}\n')
             rejected = subprocess.run(command, cwd=scripts, env=env, capture_output=True, text=True, timeout=60)
             self.assertNotEqual(rejected.returncode, 0, rejected.stdout + rejected.stderr)
             self.assertIn('REPOSITORY CHANGED DURING THE TEST RUN', rejected.stdout + rejected.stderr)

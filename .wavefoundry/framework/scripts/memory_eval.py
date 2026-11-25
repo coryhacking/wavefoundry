@@ -28,9 +28,17 @@ this CLI. Two distinct surfaces live here:
   ``tests/test_memory_eval.py``. Calling it without the fixture raises a clear
   ``FileNotFoundError`` rather than degrading silently.
 
-Usage:  python memory_eval.py [--json] [--curated-root PATH]
-        python memory_eval.py --freeze-query-set ROOT
+Usage:  python memory_eval.py [--json] [--curated-root PATH] [--query-set-version N]
+        python memory_eval.py --freeze-query-set ROOT [--query-set-version N]
+        python memory_eval.py --uncoverable-records ROOT
 Exit 0 iff every policy invariant passes.
+
+Change 246to: both passes report model-free, aggregate ``maintenance_signals``
+(``maintenance_signals(root, state)``); the memory ids of the records the
+frozen set cannot cover come only from ``uncoverable_records`` and
+``--uncoverable-records``, never from the report. Query set version 1 is
+``docs/evals/memory-query-set.json``; version N of 2 or more is
+``memory-query-set.vN.json`` with ``memory-query-set.vN.lock.json``.
 """
 from __future__ import annotations
 
@@ -151,6 +159,14 @@ def _seed_commit_history(srv, root: Path, histories: dict[str, list[int]]) -> No
 def build_corpus(root: Path, records: list[dict], mem) -> None:
     archives: list[str] = []
     for rec in records:
+        # Change 246to: the fixture's file targets exist in the throwaway
+        # tree, so they resolve and churn on their canonical paths.
+        for target in rec["targets"]:
+            if not str(target).startswith(("symbol:", "community:")):
+                target_path = root / str(target)
+                if not target_path.exists():
+                    target_path.parent.mkdir(parents=True, exist_ok=True)
+                    target_path.write_bytes(b"# memory eval fixture target\n")
         content = mem.render_memory_record(
             memory_id=rec["memory_id"], kind=rec["kind"], summary=rec["summary"],
             evidence=list(rec["evidence"]), targets=list(rec["targets"]),
@@ -216,6 +232,13 @@ def _invariant_pass(case: dict, response: dict[str, Any]) -> bool:
     if kind == "data_equals":
         return data.get(case["invariant_field"]) == case["invariant_value"]
     if kind == "record_truthy":
+        if case.get("invariant_falsy_id") and not any(
+            record["memory_id"] == case["invariant_falsy_id"]
+            and not record.get(case["invariant_field"])
+            for record in records
+        ):
+            # Change 246to: the named control record must be present and unflagged.
+            return False
         return any(
             record["memory_id"] == case["invariant_id"]
             and bool(record.get(case["invariant_field"]))
@@ -829,6 +852,7 @@ def run(root: Path, k: int = DEFAULT_K) -> dict:
     return {
         "k": k,
         "fixture_fingerprint": fixture_fingerprint,
+        "maintenance_signals": maintenance_signals(root, load_query_set(root)),
         "cases": case_results,
         "overall": {
             "recall_at_k": _average([r["recall_at_k"] for r in case_results]),
@@ -980,16 +1004,56 @@ def sequence_leaks(case: dict[str, Any], summaries: dict[str, str]) -> bool:
     )
 
 
-def load_query_set(root: Path) -> dict[str, Any]:
+def query_set_paths(version: int = 1) -> tuple[Path, Path]:
+    """``(query set, lock)`` relative paths of query set ``version``.
+
+    Version 1 is the original pair; version N of 2 or more is
+    ``memory-query-set.vN.json`` with ``memory-query-set.vN.lock.json``.
+    """
+    version = int(version)
+    if version < 1:
+        raise ValueError("query set version must be 1 or more")
+    if version == 1:
+        return QUERY_SET_PATH, QUERY_SET_LOCK_PATH
+    return (QUERY_SET_PATH.with_name(f"memory-query-set.v{version}.json"),
+            QUERY_SET_LOCK_PATH.with_name(f"memory-query-set.v{version}.lock.json"))
+
+
+_VERSIONED_QUERY_SET_RE = re.compile(r"^memory-query-set\.v([1-9][0-9]*)\.json$")
+
+
+def default_query_set_version(root: Path) -> int:
+    """The highest version N of 2 or more with both files, else 1."""
+    folder = root / QUERY_SET_PATH.parent
+    versions: list[int] = []
+    try:
+        names = [entry.name for entry in folder.iterdir()]
+    except OSError:
+        names = []
+    for name in names:
+        match = _VERSIONED_QUERY_SET_RE.match(name)
+        if not match or int(match.group(1)) < 2:
+            continue
+        version = int(match.group(1))
+        set_path, lock_path = query_set_paths(version)
+        if (root / set_path).is_file() and (root / lock_path).is_file():
+            versions.append(version)
+    return max(versions, default=1)
+
+
+def load_query_set(root: Path, version: int | None = None) -> dict[str, Any]:
     """Load, validate and hash-check the frozen query set.
 
     Returns ``{"available": bool, "reason": str|None, "cases": [...],
-    "sha256": str|None, "lock": dict|None}``. An absent set is not an error:
-    only the sanity floor runs.
+    "sha256": str|None, "lock": dict|None, "version": int}``. An absent set is
+    not an error: only the sanity floor runs. ``version`` defaults to
+    ``default_query_set_version(root)``.
     """
+    version = default_query_set_version(root) if version is None else int(version)
+    set_rel, lock_rel = query_set_paths(version)
     state: dict[str, Any] = {"available": False, "reason": None, "cases": [],
-                             "sha256": None, "lock": None}
-    path = root / QUERY_SET_PATH
+                             "sha256": None, "lock": None, "version": version}
+    path = root / set_rel
     if not path.is_file():
         state["reason"] = "query_set_absent"
         return state
@@ -1003,7 +1067,7 @@ def load_query_set(root: Path) -> dict[str, Any]:
         state["reason"] = reason
         return state
     state["sha256"] = query_set_sha256(payload)
-    lock_path = root / QUERY_SET_LOCK_PATH
+    lock_path = root / lock_rel
     if not lock_path.is_file():
         state["reason"] = "query_set_unfrozen"
         return state
@@ -1020,6 +1084,120 @@ def load_query_set(root: Path) -> dict[str, Any]:
         return state
     state.update(available=True, cases=cases, lock=lock)
     return state
+
+
+COVERAGE_MIN_ANSWERABLE_CASES = 2
+RETIRED_STATUSES = ("stale", "superseded", "rejected", "archived")
+
+
+def _scored_cases(root: Path, state: dict[str, Any] | None, mem: Any) -> list[dict[str, Any]] | None:
+    """The scored cases of a loaded query set, or None without one.
+
+    Scored means not cosine-rejected by the lock and not a sequence leak,
+    exactly as ``run_curated`` filters; no model is used.
+    """
+    if not state or not state.get("available"):
+        return None
+    corpus = (mem.load_memory_records(root, statuses=list(mem.DEFAULT_SURFACED_STATUSES))
+              + mem.load_archive_register_entries(root))
+    summaries = {record["memory_id"]: str(record.get("summary") or "") for record in corpus}
+    cosine_rejected = set((state.get("lock") or {}).get("cosine_rejected") or [])
+    return [case for case in state["cases"]
+            if case["id"] not in cosine_rejected and not sequence_leaks(case, summaries)]
+
+
+def _answerable_counts(scored: list[dict[str, Any]]) -> Counter:
+    return Counter(case["source_id"] for case in scored if case["case_type"] == "answerable")
+
+
+def _has_file_target(record: dict[str, Any]) -> bool:
+    return any(not str(ref).startswith(("symbol:", "community:"))
+               for ref in record.get("target_refs") or [])
+
+
+def _coverage_gap(record: dict[str, Any], counts: Counter) -> bool:
+    return (_has_file_target(record) and bool(str(record.get("summary") or "").strip())
+            and counts.get(record["memory_id"], 0) < COVERAGE_MIN_ANSWERABLE_CASES)
+
+
+def _has_rationale(record: dict[str, Any]) -> bool:
+    return bool(str(record.get("validation_rationale") or "").strip()
+                or str(record.get("action_delta") or "").strip())
+
+
+def uncoverable_records(root: Path, query_set: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Active records the frozen query set cannot cover (change 246to).
+
+    ``query_set`` is a ``load_query_set`` state; without an available one only
+    ``no_rationale`` is evaluated. Each entry is ``{"memory_id", "reasons"}``
+    with sorted reasons: ``coverage_gap`` (a file target and a summary, and
+    fewer than 2 answerable scored cases whose ``source_id`` is the record)
+    and ``no_rationale`` (neither a ``Validation rationale:`` nor an
+    ``Action delta:`` line). Sorted by id. This is the Review memories batch;
+    the ids never enter the evaluation report.
+    """
+    import server_impl as srv
+    mem = srv._memory_mod()
+    scored = _scored_cases(root, query_set, mem)
+    counts = _answerable_counts(scored) if scored is not None else None
+    out: list[dict[str, Any]] = []
+    for record in sorted(mem.load_memory_records(root, statuses=["active"]),
+                         key=lambda record: record["memory_id"]):
+        reasons = []
+        if counts is not None and _coverage_gap(record, counts):
+            reasons.append("coverage_gap")
+        if not _has_rationale(record):
+            reasons.append("no_rationale")
+        if reasons:
+            out.append({"memory_id": record["memory_id"], "reasons": sorted(reasons)})
+    return out
+
+
+def maintenance_signals(root: Path, query_set: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Model-free maintenance counts for ``root`` (change 246to Requirement 7).
+
+    Aggregate only: counts, never memory ids. Flags are the derived
+    revalidation reasons the shipped ranker reports.
+    """
+    import server_impl as srv
+    import wf_server.memory_handlers as memory_handlers
+    mem = srv._memory_mod()
+    active = mem.load_memory_records(root, statuses=["active"])
+    reasons = [decay.get("revalidation_reasons") or []
+               for _record, decay in memory_handlers._memory_ranked(root, active)]
+    unresolved = sum(1 for item in reasons if "target_unresolved" in item)
+    scored = _scored_cases(root, query_set, mem)
+    if scored is None:
+        coverage_gaps = None
+    else:
+        counts = _answerable_counts(scored)
+        coverage_gaps = sum(1 for record in active if _coverage_gap(record, counts))
+    outcomes = {"flagged": {"active": 0, "retired": 0},
+                "unflagged": {"active": 0, "retired": 0}}
+    for record in mem.load_memory_records(root, statuses=None):
+        flags = record.get("check_flags")
+        if flags is None or record.get("record_type") == "archive_register_entry":
+            continue
+        status = record.get("status")
+        if status == "active":
+            bucket = "active"
+        elif status in RETIRED_STATUSES:
+            bucket = "retired"
+        else:
+            continue
+        flagged = bool(flags.strip()) and flags.strip() != "none"
+        outcomes["flagged" if flagged else "unflagged"][bucket] += 1
+    return {
+        "active_records": len(active),
+        "unresolved_target_records": unresolved,
+        "unresolved_target_fraction": round(unresolved / len(active), 4) if active else None,
+        "not_canonical_target_records": sum(
+            1 for item in reasons if "target_not_canonical" in item),
+        "churn_flagged_records": sum(1 for item in reasons if "target_churn" in item),
+        "coverage_gap_records": coverage_gaps,
+        "uncoverable_records": len(uncoverable_records(root, query_set)),
+        "check_outcomes": outcomes,
+    }
 
 
 def _case_contributions(case: dict[str, Any], ranked: list[str], shown: list[str],
@@ -1344,7 +1522,8 @@ def _unavailable(report: dict[str, Any], reason: str) -> dict[str, Any]:
     return report
 
 
-def run_curated(root: Path, k: int = DEFAULT_K, *, index: Any = None) -> dict[str, Any]:
+def run_curated(root: Path, k: int = DEFAULT_K, *, index: Any = None,
+                query_set_version: int | None = None) -> dict[str, Any]:
     """Score the frozen situation-language query set against baseline arms.
 
     Aggregate-only: no query text, record bodies, summaries, memory ids,
@@ -1380,9 +1559,12 @@ def run_curated(root: Path, k: int = DEFAULT_K, *, index: Any = None) -> dict[st
         "counts_by_status": dict(sorted(Counter(r["status"] for r in sample_pool).items())),
         "embedded_text": dict(EMBEDDED_TEXT),
     }
-    state = load_query_set(root)
+    state = load_query_set(root, query_set_version)
     report["query_set"] = {"available": state["available"], "reason": state["reason"],
-                           "sha256": state["sha256"]}
+                           "sha256": state["sha256"], "version": state["version"]}
+    # Change 246to: model-free counts, reported whether or not the model or
+    # the query set is available.
+    report["maintenance_signals"] = maintenance_signals(root, state)
     if state["reason"] in ("query_set_invalid", "query_set_hash_mismatch",
                            "query_set_unfrozen", "query_set_lock_invalid"):
         return _unavailable(report, state["reason"])
@@ -1574,15 +1756,43 @@ def _cosine(a: Any, b: Any) -> float:
     return sum(x * y for x, y in zip(a, b)) / (na * nb)
 
 
-def freeze_query_set(root: Path, *, embedder: Any = None) -> dict[str, Any]:
+class ParentQuerySetMismatch(ValueError):
+    """The parent version's query set does not match its own lock."""
+
+
+PARENT_MISMATCH_MESSAGE = "parent query set does not match its lock"
+
+
+def freeze_query_set(root: Path, *, embedder: Any = None, version: int = 1) -> dict[str, Any]:
     """Apply both leakage filters and write the lock; the query file is unchanged.
 
     ``embedder`` is ``(docs_model, embed_queries, embed_documents)``. Any
     embedding failure raises ``FreezeModelUnavailable`` before a lock exists.
+    For ``version`` N of 2 or more (change 246to) the parent N-1 set must
+    match its own lock, else ``ParentQuerySetMismatch`` is raised and nothing
+    is written; the lock adds ``version``, ``parent_version``,
+    ``parent_query_set_sha256`` and the sorted ``added_case_ids`` and
+    ``removed_case_ids`` against the parent, by case id.
     """
     import server_impl as srv
     mem = srv._memory_mod()
-    payload = json.loads((root / QUERY_SET_PATH).read_text(encoding="utf-8"))
+    version = int(version)
+    set_rel, lock_rel = query_set_paths(version)
+    lineage: dict[str, Any] = {}
+    if version >= 2:
+        parent_set, parent_lock = query_set_paths(version - 1)
+        try:
+            parent_payload = json.loads((root / parent_set).read_text(encoding="utf-8"))
+            parent_lock_data = json.loads((root / parent_lock).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ParentQuerySetMismatch(PARENT_MISMATCH_MESSAGE) from exc
+        parent_sha = query_set_sha256(parent_payload)
+        if not isinstance(parent_lock_data, dict) or parent_lock_data.get("query_set_sha256") != parent_sha:
+            raise ParentQuerySetMismatch(PARENT_MISMATCH_MESSAGE)
+        parent_cases = parent_payload.get("cases") if isinstance(parent_payload, dict) else None
+        parent_ids = {case.get("id") for case in parent_cases or [] if isinstance(case, dict)}
+        lineage = {"parent_ids": parent_ids, "parent_sha": parent_sha}
+    payload = json.loads((root / set_rel).read_text(encoding="utf-8"))
     cases, reason = validate_query_set(payload)
     if cases is None:
         raise ValueError(reason)
@@ -1615,8 +1825,17 @@ def freeze_query_set(root: Path, *, embedder: Any = None) -> dict[str, Any]:
         "sequence_rejected": sequence_rejected,
         "cosine_rejected": cosine_rejected,
     }
+    if lineage:
+        ids = {case["id"] for case in cases}
+        lock.update({
+            "version": version,
+            "parent_version": version - 1,
+            "parent_query_set_sha256": lineage["parent_sha"],
+            "added_case_ids": sorted(ids - lineage["parent_ids"]),
+            "removed_case_ids": sorted(lineage["parent_ids"] - ids),
+        })
     import line_endings
-    (root / QUERY_SET_LOCK_PATH).write_bytes(
+    (root / lock_rel).write_bytes(
         line_endings.encode(json.dumps(lock, indent=2, ensure_ascii=False) + "\n"))
     return lock
 
@@ -1627,12 +1846,29 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--curated-root", type=Path)
     ap.add_argument("--freeze-query-set", type=Path, metavar="ROOT",
                     help="apply both leakage filters and write the query-set lock")
+    ap.add_argument("--query-set-version", type=int, metavar="N",
+                    help="query set version to freeze or score (default: freeze 1, "
+                         "score the highest frozen version)")
+    ap.add_argument("--uncoverable-records", type=Path, metavar="ROOT",
+                    help="print, as JSON, the active records the frozen query set cannot cover")
     args = ap.parse_args(argv)
+    if args.query_set_version is not None and args.query_set_version < 1:
+        print("--query-set-version must be 1 or more", file=sys.stderr)
+        return 2
+    if args.uncoverable_records:
+        root = args.uncoverable_records.resolve()
+        print(json.dumps(uncoverable_records(
+            root, load_query_set(root, args.query_set_version)), indent=2))
+        return 0
     if args.freeze_query_set:
         try:
-            lock = freeze_query_set(args.freeze_query_set.resolve())
+            lock = freeze_query_set(args.freeze_query_set.resolve(),
+                                    version=args.query_set_version or 1)
         except FreezeModelUnavailable:
             print(FREEZE_MODEL_MESSAGE, file=sys.stderr)
+            return 2
+        except ParentQuerySetMismatch:
+            print(PARENT_MISMATCH_MESSAGE, file=sys.stderr)
             return 2
         except (OSError, ValueError) as exc:
             print(f"freeze failed: {type(exc).__name__}: {exc}", file=sys.stderr)
@@ -1645,7 +1881,10 @@ def main(argv: list[str] | None = None) -> int:
         (root / "docs" / "agents").mkdir(parents=True)
         report = run(root)
     if args.curated_root:
-        report["curated"] = run_curated(args.curated_root.resolve())
+        report["curated"] = run_curated(args.curated_root.resolve(),
+                                        query_set_version=args.query_set_version)
+        # Change 246to: the top-level signals describe ROOT when one is named.
+        report["maintenance_signals"] = report["curated"]["maintenance_signals"]
         report["adoption_gate"] = evaluate_adoption(
             report["comparison"],
             candidate_invariants_passed=report["overall"]["candidate_invariants_passed"],

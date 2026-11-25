@@ -9,6 +9,8 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
+from upstream_fixture_support import tool_contract_rel
+
 import lifecycle_gates as gates
 import lifecycle_gate_support as support
 import record_paths
@@ -304,7 +306,7 @@ class LifecycleGateBehaviorTests(unittest.TestCase):
         repo = srv.SCRIPTS_DIR.parents[2]
         disjunct = "returned by a tool body before it calls its handler"
         cross = (repo / "docs/architecture/cross-cutting-concerns.md").read_text(encoding="utf-8")
-        surface = (repo / "docs/specs/mcp-tool-surface.md").read_text(encoding="utf-8")
+        surface = (repo / tool_contract_rel(repo)).read_text(encoding="utf-8")
         self.assertIn(disjunct, cross)
         self.assertEqual(surface.count(disjunct), 3, "all three tool bullets state the rule")
         # No site may present a registration-wrapper refusal as the only keyless class.

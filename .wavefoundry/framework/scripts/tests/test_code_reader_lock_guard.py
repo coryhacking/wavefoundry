@@ -466,7 +466,8 @@ class ResourceLockTargetTests(_LockTargetCase):
         plans_rel = RecordTreeBuilder(self.root).plans_dir.relative_to(self.root).as_posix()
         change = f"{plans_rel}/1bbbb-bug held.md"
         self.link_to_lock(change)
-        self.assert_refused_markdown(self.call(resources["resource_change"], "1bbbb"), change)
+        for name in ("resource_change", "resource_spec"):
+            self.assert_refused_markdown(self.call(resources[name], "1bbbb"), change)
 
     def test_wave_resources(self) -> None:
         resources = self.resources()
@@ -581,7 +582,7 @@ class CheckedReaderCensusTests(unittest.TestCase):
             "get_prompt", "_resolve_change_doc_matches", "_read_doc_or_not_found",
             "_validated_wave_markdown", "resource_project_overview", "resource_seed",
             "resource_architecture", "resource_area_context", "resource_codebase_map",
-            "resource_prompt", "resource_current_wave", "resource_wave", "resource_change",
+            "resource_prompt", "resource_current_wave", "resource_wave", "resource_change", "resource_spec",
             "resource_session_handoff", "resource_agents", "resource_prompt_index",
             "resource_architecture_current_state",
         }

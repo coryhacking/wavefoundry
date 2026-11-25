@@ -41,6 +41,16 @@ downloads no models and does not repair or rebuild indexes. It is read-only for
 application data; SQLite may create or update normal WAL/SHM coordination files.
 It is a bounded readiness check, not a complete integrity, freshness or search-quality audit.
 
+### Discover CA bundles in a downstream client
+
+With the installed framework’s `scripts/` directory on Python’s import path, distributions can use the supported import `from trust_bundles import trust_bundle_candidates`. Each call returns a fresh list of existing file paths and keeps the first occurrence of each path. Setup uses the same order:
+
+1. `CODEX_CA_CERTIFICATE`, `CLAUDE_CODE_CERT_STORE`, then `NODE_EXTRA_CA_CERTS`.
+2. `SSL_CERT_FILE`, then `REQUESTS_CA_BUNDLE`.
+3. Platform bundle files, then the certifi default when available.
+
+Discovery can return an empty list. Importing and calling the accessor leaves the process environment intact. A client can load a selected PEM file into its own verifying context with `ssl.create_default_context(cafile=path)`.
+
 ## Optional Tensorwell inference
 
 Setup skips local embedding probes for service-covered models. Mixed workloads
@@ -203,7 +213,7 @@ The Wave Framework replaces the older project-context framework model with a wav
 - `wave-0` is the project's first installed Wave Framework layer in the repository, whether it comes from fresh init or from legacy project-context migration
 
 - **waves are the primary delivery unit** — each wave is a bounded, reviewable container for one or more changes that are planned, implemented, reviewed, and committed together
-- changes with stable `Change ID` anchors are admitted into a wave; the wave is the umbrella, not the change
+- changes with stable `Spec ID` anchors are admitted into a wave; the wave is the umbrella, not the change
 - individual changes do not ship independently — everything is delivered through a wave
 - `wave-0` designates the first active wave layer; the reserved `00000` prefix is used only for the legacy baseline wave created during init
 - journals capture role- and persona-specific learning over time
@@ -418,7 +428,7 @@ Artifacts should be:
 
 Every major artifact should have stable anchors such as:
 
-- identity (`Change ID`, `wave-id`, persona name, etc.)
+- identity (`Spec ID`, `wave-id`, persona name, etc.)
 - status
 - scope
 - dependencies
@@ -442,7 +452,7 @@ A wave artifact exists to preserve the minimum durable truth needed for multi-ag
 - **Coordination truth:** who is coordinating, which participants and lanes are active, how work is allocated, and which dependencies or checkpoints gate progress.
 - **Assumption truth:** which assumptions and interfaces are frozen, tentative, confirmed, or invalidated, and which changes or tasks they affect.
 - **Disposition truth:** which changes or tasks completed, blocked, deferred, moved, retried, or were superseded, and why.
-- **Carry-forward truth:** what remains part of the same `Change ID`, what must move into the next wave, and what conditions make the next wave ready or not ready.
+- **Carry-forward truth:** what remains part of the same `Spec ID`, what must move into the next wave, and what conditions make the next wave ready or not ready.
 - **Handoff truth:** enough state, rationale, findings, and review status that another agent can continue or challenge the wave without reconstructing missing context from scratch.
 
 These goals define the contract for wave artifacts and reconciliation helpers. Section layouts may vary, but these truths must remain recoverable.
@@ -494,7 +504,7 @@ Wave artifacts should be machine-usable without becoming rigid fill-in-the-blank
 
 Each wave artifact must expose stable identifiers and state anchors sufficient to recover operational, coordination, assumption, disposition, and handoff truth, such as:
 
-- `Change ID`
+- `Spec ID`
 - `wave-id`
 - `Status`
 - `Coordinator`
@@ -517,9 +527,9 @@ For machine usability, each wave should make these relationships explicit when t
 
 Changes should support variable depth while preserving stable anchors. A change may be atomic or composite, and optional tasks/subtasks may be tracked inside the spec when finer execution state is useful. A normal wave record should expose:
 
-- `Change ID`
-- `Change Status`
-- optional `Previous Change Status`
+- `Spec ID`
+- `Spec Status`
+- optional `Previous Spec Status`
 - title or scope
 - owner
 - dependencies
@@ -548,7 +558,7 @@ Waves are operational containers. Changes are the durable units of scope and int
 
 Default policy:
 
-- when a change is not finished at wave closure, keep the same `Change ID` and carry its unfinished work into a later wave
+- when a change is not finished at wave closure, keep the same `Spec ID` and carry its unfinished work into a later wave
 - move, defer, retry, or rescope the unfinished change work explicitly rather than inventing a new change identifier by default
 
 Split a change into a new change only when:
@@ -556,7 +566,7 @@ Split a change into a new change only when:
 - the remaining work has become materially different in purpose or scope
 - the unfinished work now needs separate planning, review, or decision treatment
 - the original change is effectively complete and the remainder is follow-on work rather than continuation
-- keeping the same `Change ID` would hide a real shift in intent, risk, or accountability
+- keeping the same `Spec ID` would hide a real shift in intent, risk, or accountability
 
 ## Persona Model
 

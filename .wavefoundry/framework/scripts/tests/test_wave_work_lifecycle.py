@@ -128,7 +128,7 @@ class WaveWorkLifecycleTests(unittest.TestCase):
                           **({"intent_fit": "establishes"} if "council" in key else {})},
                 integrity_checks=integrity_checks(),
             ))
-        self.ok(self.call("wf_close_change", wave_id=wid, change_id=cid, mode="create"))
+        self.ok(self.call("wf_close_spec", wave_id=wid, spec_id=cid, mode="create"))
 
     def test_registered_create_preview_does_not_create_and_paths_use_resolved_prefix(self):
         preview = create_container(self.call, self.root, "first", mode="dry_run")
@@ -1155,14 +1155,14 @@ class WaveWorkLifecycleTests(unittest.TestCase):
         wid, wave_md, first = self.wave(slug="members", ready=False)
         made = self.ok(self.srv._change_create_response(self.root, "enh", "members-second", mode="create"))
         second = made["change_id"]
-        self.ok(self.call("wf_add_change", wave_id=wid, change_id=second, mode="create"))
+        self.ok(self.call("wf_add_spec", wave_id=wid, spec_id=second, mode="create"))
         folder = wave_md.parent
         admitted = folder / f"{second}.md"
         self.assertTrue(admitted.is_file())
         result = close_container(self.call, self.root, wid, mode="dry_run")
         self.assertEqual(self.extras(result), [], "admitted specs, the record and the ledger are not extras")
         spec_bytes = admitted.read_bytes()
-        self.ok(self.call("wf_remove_change", wave_id=wid, change_id=second, mode="create"))
+        self.ok(self.call("wf_remove_spec", wave_id=wid, spec_id=second, mode="create"))
         self.assertNotIn(second, wave_md.read_text())
         # The same file, left in the folder after it leaves the admitted set.
         admitted.write_bytes(spec_bytes)
@@ -1341,7 +1341,7 @@ class WaveWorkLifecycleTests(unittest.TestCase):
             "wf_review_wave": self.call("wf_review_wave", wave_id=wid, phase="implementation"),
             "wf_prepare_wave": self.call("wf_prepare_wave", wave_id=wid, mode="dry_run"),
             "wf_audit": self.srv.wf_audit_response(self.root),
-            "wf_close_change": self.call("wf_close_change", wave_id=wid, change_id=cid, mode="dry_run"),
+            "wf_close_spec": self.call("wf_close_spec", wave_id=wid, spec_id=cid, mode="dry_run"),
             "wf_cleanup_work": self.cleanup_tool(work_key=wid.split()[0]),
             "wf_pause_wave": self.call("wf_pause_wave", wave_id=wid, mode="create"),
         }

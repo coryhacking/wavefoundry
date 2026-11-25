@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-24
 
 ## Runtime Topology
 
@@ -13,7 +13,7 @@ Developer/agent
   │
   ├── python3 .wavefoundry/framework/scripts/lifecycle_id.py  →  docs/workflow-config.json (read)
   ├── record_paths.py (imported by the server, docs-lint, gardener, indexer, memory backfill, dashboard, upgrade)  →  reads no config; its module constants `WAVES_ROOT`, `PLANS_ROOT`, `NESTED`, `MAX_DEPTH` are the single owner of the wave and plan record roots, edited by a fork at merge time (wave 1y0gz)
-  ├── vocabulary_profile.py (imported by record_paths, docs-lint, the server, gardener, review evidence, memory, dashboard and the Stop hook)  →  reads no config; its module constants are the single owner of the record vocabulary (the record filename `wave.md`, the `wave-id` key, the record title, the `## Wave Summary` and `## Changes` headings, and the `Change ID`, `Change Status` and `Wave` labels), edited by a fork at merge time; every reader and writer of those markers takes them from here, and the shipped change template is rewritten to the profile's labels when rendered (wave 1z8mm); an optional `ARCHIVE_PROFILE` names the vocabulary of records under `record_paths.ARCHIVE_ROOT`, the read-only archive that lookup by id and id-collision scanning consult after the live roots and that no lifecycle writer, gardener or lint rule modifies (wave 1z8ts)
+  ├── vocabulary_profile.py (imported by record_paths, docs-lint, the server, gardener, review evidence, memory, dashboard and the Stop hook)  →  reads no config; its module constants are the single owner of the record vocabulary (the record filename `wave.md`, the `wave-id` key, the record title, the `## Wave Summary` and `## Changes` headings, and the `Spec ID`, `Spec Status` and `Wave` labels), edited by a fork at merge time; every reader and writer of those markers takes them from here, and the shipped change template is rewritten to the profile's labels when rendered (wave 1z8mm); an optional `ARCHIVE_PROFILE` names the vocabulary of records under `record_paths.ARCHIVE_ROOT`, the read-only archive that lookup by id and id-collision scanning consult after the live roots and that no lifecycle writer, gardener or lint rule modifies (wave 1z8ts)
   ├── marker_namespaces.py (imported by the chunker, the code-navigation handlers and the surface renderer)  →  reads no config; its module constant `MARKER_NAMESPACES` is the single owner of the author-facing marker namespaces (`wave`, `waveframework`, `wavefoundry`, `waveforge`), edited by a fork at merge time (wave 1ym4h)
   ├── python3 .wavefoundry/framework/scripts/docs_lint.py      →  docs/ tree (read)
   ├── python3 .wavefoundry/framework/scripts/docs_gardener.py  →  docs/ tree (read/write metadata)
@@ -36,9 +36,9 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
               ├── wf_server_info
               ├── docs_search / code_search / seed_get
               │       └── .wavefoundry/index/ (read: *.npy, *.json)
-              ├── wf_current_wave / wf_list_waves / wf_list_plans / wf_get_change / wf_get_prompt
+              ├── wf_current_wave / wf_list_waves / wf_list_plans / wf_get_spec / wf_get_prompt
               │       └── docs/waves/ (read), docs/plans/ (read), docs/prompts/ (read)
-              │       [wf_current_wave: returns data.waves[] of all non-closed waves (active→planned→paused), advisory drift detection on active; wf_get_change: supports bulk wave_id mode; wf_prepare_wave: modes dry_run/ready/create — readiness (ready) stays planned and is unguarded; wf_implement_wave consumes current typed readiness authority on declared waves and the legacy prose verdict only on legacy waves; the single-OPEN guard (another_wave_active) fires at activation (implement/reopen/prepare-create); wf_pause_wave: transitions active/implementing→paused]
+              │       [wf_current_wave: returns data.waves[] of all non-closed waves (active→planned→paused), advisory drift detection on active; wf_get_spec: supports bulk wave_id mode; wf_prepare_wave: modes dry_run/ready/create — readiness (ready) stays planned and is unguarded; wf_implement_wave consumes current typed readiness authority on declared waves and the legacy prose verdict only on legacy waves; the single-OPEN guard (another_wave_active) fires at activation (implement/reopen/prepare-create); wf_pause_wave: transitions active/implementing→paused]
               ├── wf_get_handoff / wf_set_handoff
               │       └── docs/agents/session-handoff.md (read/write; wf_set_handoff triggers background refresh)
               │       [wf_close_wave/wf_pause_wave: targeted handoff update (Active wave line + Last verified only); close summary includes Owner/Status/Last verified metadata]
@@ -58,9 +58,9 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
               │       └── Python AST definitions + tree-sitter-backed Java/C#/JS/TS navigation + structural/text fallback for other supported non-Python languages
               ├── wf_new_* convenience tools
               │       └── docs/plans/ (write), lifecycle_id.py (import), background index refresh request
-              ├── wf_add_change / wf_remove_change / wf_prepare_wave
+              ├── wf_add_spec / wf_remove_spec / wf_prepare_wave
               │       └── docs/waves/ (read/write), docs/plans/ (read/write), background index refresh request
-              ├── wf_close_change (wave 1zlu1; lifecycle lock, publication lock on create)
+              ├── wf_close_spec (wave 1zlu1; lifecycle lock, publication lock on create)
               │       └── one wave folder (read/write): the closed change's doc and wave-record block -> `complete`, unblocked dependents -> `ready`; scoped docs-lint before/after, rollback on an introduced failure
               ├── index_health / index_build
               │       └── .wavefoundry/index/ (read/write), indexer.py (subprocess)
@@ -75,7 +75,7 @@ MCP client (Claude Code, Cursor, Copilot, etc.)
               │       wavefoundry://agents, wavefoundry://index/status, wavefoundry://graph/status,
               │       wavefoundry://graph/communities, wavefoundry://waves
               │       └── docs/ + AGENTS.md (read-only, raw markdown; no-write guarantee)
-              └── [resource templates] wavefoundry://change/{id}, wavefoundry://wave/{id}
+              └── [resource templates] wavefoundry://spec/{spec_id}, wavefoundry://wave/{id}
                       wavefoundry://prompt/{slug}, wavefoundry://seed/{slug}, wavefoundry://architecture/{slug}
                       └── docs/ + .wavefoundry/framework/seeds/ (read-only, raw markdown)
 ```
@@ -153,8 +153,8 @@ On native Windows, the pre-Python entry is the read-only `diagnose_python.ps1` i
 | Index not built on first install | `fastembed`, `numpy`, and `mcp[cli]` must be available in the Python runtime; index built manually before server is useful | `setup_index.py` checks dependencies, selects/logs the embedding provider, prewarms/verifies the embedding model cache, and prints remediation when GPU-capable hardware falls back to CPU |
 | Search index drift or missing cache | Hook-driven indexing is not guaranteed in every agent environment, and query embedding must remain offline-safe | `docs_search` falls back to lexical search with structured diagnostics when the index is not ready or the semantic model is unavailable offline; per-query repo hash walks were removed to avoid O(repo) latency on every search; mutating MCP doc tools now request background incremental refresh for affected docs in non-hook environments; additional project index roots are explicit in `docs/workflow-config.json` `indexing.project_include_prefixes` rather than hidden repo-specific toggles |
 | Loopback dashboard port collisions | Multiple local Wave Framework repositories can run dashboards concurrently on one workstation | Dashboard host/port preferences live in `docs/workflow-config.json`; the server reuses host-local metadata when valid and scans a bounded fallback range when the preferred port is busy |
-| Lifecycle mutation drift between docs and files | Admitted specs can drift between `docs/plans/` and wave folders when operators or tools bypass the normal lifecycle path | `wf_add_change`, `wf_remove_change`, and `wf_prepare_wave` now relocate or repair placement and emit explicit diagnostics for duplicates or mismatched wave ownership |
-| MCP contract migration complete for initial surface | Discovery, `wf_map`, envelopes, consolidated creation, prefix checks, `docs_search` kind validation, per-process caches (wave/plan lists, prompt resolution, `wf_help` catalogue snapshot, index reload on mutation), `resolve_path_under_root`, server-side rejection of unexpected tool kwargs, MCP resources/templates, `wf_server_info`, and code navigation tools (`code_keyword`, `code_list_files`, `code_read`, `code_definition`, `code_references`) are all in place. Symbol navigation now uses a mixed strategy: Python AST definitions, tree-sitter-backed Java/C#/JS/TS navigation, structural regex definitions for several other non-Python languages, and cross-language text fallbacks; future LSP integration can deepen precision without changing the public tool API. | `docs/specs/mcp-tool-surface.md` is the governing contract for follow-on MCP work |
+| Lifecycle mutation drift between docs and files | Admitted specs can drift between `docs/plans/` and wave folders when operators or tools bypass the normal lifecycle path | `wf_add_spec`, `wf_remove_spec`, and `wf_prepare_wave` now relocate or repair placement and emit explicit diagnostics for duplicates or mismatched wave ownership |
+| MCP contract migration complete for initial surface | Discovery, `wf_map`, envelopes, consolidated creation, prefix checks, `docs_search` kind validation, per-process caches (wave/plan lists, prompt resolution, `wf_help` catalogue snapshot, index reload on mutation), `resolve_path_under_root`, server-side rejection of unexpected tool kwargs, MCP resources/templates, `wf_server_info`, and code navigation tools (`code_keyword`, `code_list_files`, `code_read`, `code_definition`, `code_references`) are all in place. Symbol navigation now uses a mixed strategy: Python AST definitions, tree-sitter-backed Java/C#/JS/TS navigation, structural regex definitions for several other non-Python languages, and cross-language text fallbacks; future LSP integration can deepen precision without changing the public tool API. | `docs/architecture/contracts/mcp-tool-surface.md` is the governing contract for follow-on MCP work |
 
 ## Verification Sources
 

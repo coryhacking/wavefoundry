@@ -75,10 +75,10 @@
             "code": "change_status_drift",
             "message": "The wave record and specs disagree for: `0exxlz-ref fixture-change` is `planned` in the wave record but no readable status in its spec. Update whichever side is wrong, then close again.",
             "recovery_tools": [
-              "wf_get_change",
+              "wf_get_spec",
               "wf_current_wave"
             ],
-            "recovery_usage": "wf_get_change(change_id='0exxlz-ref fixture-change')"
+            "recovery_usage": "wf_get_spec(spec_id='0exxlz-ref fixture-change')"
           }
         ],
         "isError": true,
@@ -162,10 +162,10 @@
             "code": "change_status_drift",
             "message": "The wave record and specs disagree for: `0exxlz-ref fixture-change` is `planned` in the wave record but no readable status in its spec. Update whichever side is wrong, then close again.",
             "recovery_tools": [
-              "wf_get_change",
+              "wf_get_spec",
               "wf_current_wave"
             ],
-            "recovery_usage": "wf_get_change(change_id='0exxlz-ref fixture-change')"
+            "recovery_usage": "wf_get_spec(spec_id='0exxlz-ref fixture-change')"
           }
         ],
         "isError": true,
@@ -942,10 +942,10 @@
             "code": "change_status_drift",
             "message": "The wave record and specs disagree for: `0exxmz-ref fixture-change` is `planned` in the wave record but no readable status in its spec. Update whichever side is wrong, then close again.",
             "recovery_tools": [
-              "wf_get_change",
+              "wf_get_spec",
               "wf_current_wave"
             ],
-            "recovery_usage": "wf_get_change(change_id='0exxmz-ref fixture-change')"
+            "recovery_usage": "wf_get_spec(spec_id='0exxmz-ref fixture-change')"
           }
         ],
         "isError": true,
@@ -1038,10 +1038,10 @@
             "code": "change_status_drift",
             "message": "The wave record and specs disagree for: `0exxmz-ref fixture-change` is `planned` in the wave record but no readable status in its spec. Update whichever side is wrong, then close again.",
             "recovery_tools": [
-              "wf_get_change",
+              "wf_get_spec",
               "wf_current_wave"
             ],
-            "recovery_usage": "wf_get_change(change_id='0exxmz-ref fixture-change')"
+            "recovery_usage": "wf_get_spec(spec_id='0exxmz-ref fixture-change')"
           }
         ],
         "isError": true,
@@ -1920,10 +1920,10 @@
             "code": "change_status_drift",
             "message": "The wave record and specs disagree for: `0exxkz-ref fixture-change` is `planned` in the wave record but no readable status in its spec. Update whichever side is wrong, then close again.",
             "recovery_tools": [
-              "wf_get_change",
+              "wf_get_spec",
               "wf_current_wave"
             ],
-            "recovery_usage": "wf_get_change(change_id='0exxkz-ref fixture-change')"
+            "recovery_usage": "wf_get_spec(spec_id='0exxkz-ref fixture-change')"
           }
         ],
         "isError": true,
@@ -2007,10 +2007,10 @@
             "code": "change_status_drift",
             "message": "The wave record and specs disagree for: `0exxkz-ref fixture-change` is `planned` in the wave record but no readable status in its spec. Update whichever side is wrong, then close again.",
             "recovery_tools": [
-              "wf_get_change",
+              "wf_get_spec",
               "wf_current_wave"
             ],
-            "recovery_usage": "wf_get_change(change_id='0exxkz-ref fixture-change')"
+            "recovery_usage": "wf_get_spec(spec_id='0exxkz-ref fixture-change')"
           }
         ],
         "isError": true,

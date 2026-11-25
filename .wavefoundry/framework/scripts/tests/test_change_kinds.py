@@ -503,21 +503,21 @@ class UndeclaredKindTests(unittest.TestCase):
 
     def test_the_misleading_messages_are_gone_for_those_lines(self):
         out = self.out["lint_out"]
-        self.assertNotIn(f"unstable Change ID `{DECISION_CHANGE}`", out)
+        self.assertNotIn(f"unstable Spec ID `{DECISION_CHANGE}`", out)
         self.assertFalse([line for line in out.splitlines()
                           if f"plans/{DECISION_PLAN}.md" in line and "is missing a" in line], out)
 
     def test_a_malformed_id_that_is_not_change_shaped_keeps_todays_message(self):
         out = self.out["lint_out"]
         self.assertTrue([line for line in out.splitlines()
-                         if "plans/not-an-id.md" in line and "plan is missing a `Change ID:`" in line], out)
+                         if "plans/not-an-id.md" in line and "plan is missing a `Spec ID:`" in line], out)
         malformed = self.malformed["lint_out"]
         # Wave 1zxo0 (1zxns): the line number and reason class, never the value.
-        self.assertRegex(malformed, r"unstable Change ID on line \d+ \(shape\)")
-        self.assertNotIn("unstable Change ID `00059-Enh Fixture`", malformed)
+        self.assertRegex(malformed, r"unstable Spec ID on line \d+ \(shape\)")
+        self.assertNotIn("unstable Spec ID `00059-Enh Fixture`", malformed)
         self.assertNotIn("undeclared change kind", malformed)
         upper = self.upper["lint_out"]
-        self.assertRegex(upper, r"unstable Change ID on line \d+ \(shape\)")
+        self.assertRegex(upper, r"unstable Spec ID on line \d+ \(shape\)")
         self.assertNotIn("00059-Feat fixture`", upper.split("unstable", 1)[-1].split("\n", 1)[0])
         self.assertNotIn("undeclared change kind", upper)
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-24
 
 ## Current Quality Posture
 
@@ -25,7 +25,7 @@ Last verified: 2026-11-18
 | ------------------------------------------------------- | -------- | ----------------------------------------------------------------------- |
 | No CI/CD                                                | Medium   | Tests not automatically run on every change; human must run manually    |
 | Insufficient implementation history for pattern catalog | Low      | `code_patterns` has `insufficient_history`; revisit when MCP src/ added |
-| MCP tool contracts not yet specified                    | Medium   | `docs/specs/mcp-tool-surface.md` missing; see `docs/missing-docs.md`    |
+| MCP tool contracts not yet specified                    | Medium   | `docs/architecture/contracts/mcp-tool-surface.md` missing; see `docs/missing-docs.md`    |
 
 
 ## Review-Sensitive Surfaces
@@ -40,4 +40,4 @@ Last verified: 2026-11-18
 1. Add CI/CD (GitHub Actions) after first delivery wave
 2. Add `pyproject.toml` with test infrastructure declaration
 3. Populate `code_patterns` once MCP implementation sources exist
-4. Document the MCP tool surface as a behavior contract in `docs/specs/mcp-tool-surface.md`
+4. Document the MCP tool surface as a behavior contract in `docs/architecture/contracts/mcp-tool-surface.md`

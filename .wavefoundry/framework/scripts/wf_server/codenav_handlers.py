@@ -2929,5 +2929,5 @@ def code_commit_provenance_response(
             recovery_tools=["code_commit_provenance"], recovery_usage=""))
     return server_impl._response(
         "ok", data, diagnostics=diagnostics,
-        next_tools=["wf_get_change", "code_read"],
-        usage="wf_get_change(change_id=...)")
+        next_tools=["wf_get_spec", "code_read"],
+        usage="wf_get_spec(spec_id=...)")

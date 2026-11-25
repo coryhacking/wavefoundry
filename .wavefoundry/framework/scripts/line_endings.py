@@ -6,9 +6,13 @@ any other framework module.
 
 The rule:
 
-* Existing lines keep their own ending, byte for byte.
-* Inserted or replaced lines take the file's majority ending; a tie goes to
-  CRLF; a file with no terminated line gives LF.
+* Logical no-ops retain every original byte. Uniform files keep their ending.
+* In changed mixed files, aligned lines retain their endings. Inserted or
+  replaced lines take the original majority ending (CRLF on a tie, LF if
+  there are no endings).
+* When old line count times new line count exceeds 1,000,000, a changed
+  mixed file takes the majority ending throughout. The writer's requested
+  final termination applies on every path.
 
 A writer reads the file once (``original``, endings intact), computes its
 result on ``to_lf(original)``, and publishes ``encode(merge(original, new))``
@@ -23,6 +27,7 @@ from pathlib import Path
 
 CRLF = "\r\n"
 LF = "\n"
+_MAX_ALIGNMENT_PAIRS = 1_000_000
 
 
 def to_lf(text: str) -> str:
@@ -65,15 +70,28 @@ def merge(original: str, new_lf: str) -> str:
     """Apply ``original``'s line endings to ``new_lf``.
 
     ``new_lf`` is the writer's result computed on ``to_lf(original)``.  Lines
-    the alignment finds equal keep their original ending; inserted or replaced
-    lines take ``majority(original)``.  An equal line that had no ending in
-    the original but now has a following line takes the majority ending.
+    within the alignment budget can retain their original ending. All other
+    terminated lines take the original majority ending.
     """
+    if new_lf == to_lf(original):
+        return original
+    crlf_count = original.count(CRLF)
+    if not new_lf or not crlf_count:
+        return new_lf
+    old_breaks = original.count(LF)
+    if old_breaks == crlf_count:
+        return new_lf.replace(LF, CRLF)
+
+    old_lines = old_breaks + (not original.endswith(LF))
+    new_lines = new_lf.count(LF) + (not new_lf.endswith(LF))
+    default = majority(original)
+    if old_lines * new_lines > _MAX_ALIGNMENT_PAIRS:
+        return new_lf.replace(LF, default)
+
     old_pairs = _split(original)
     old_bodies = [body for body, _ in old_pairs]
     new_pairs = _split(new_lf, crlf=False)
     new_bodies = [body for body, _ in new_pairs]
-    default = majority(original)
     out: list[str] = []
     matcher = difflib.SequenceMatcher(None, old_bodies, new_bodies, autojunk=False)
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():

@@ -256,7 +256,7 @@ class SharedAssessmentTests(unittest.TestCase):
         registry = RecordingFastMCP()
         tools = registry.tools
 
-        handler = Mock()
+        handler = Mock(root=Path(self.enterContext(tempfile.TemporaryDirectory())))
         assessment = result("indeterminate")
         with patch.object(sys, "version_info", (3, 12, 9)):
             assessment["advisories"] = [runtime_advisory.python_runtime_advisory()]

@@ -37,11 +37,11 @@ _FRONTMATTER_KEY_RE = re.compile(r"^(?P<key>[A-Za-z][\w .()/-]*):\s")
 # `docs/agents/memory-archive.md` closes its carrier above a genuine `Status:`
 # line and starts churning on every status advance.
 _CARRIER_METADATA_KEYS = frozenset({
-    _vocab.MEMBER_ID_LABEL, _vocab.MEMBER_STATUS_LABEL, "Status", "Owner",
+    *_vocab.record_label_spellings(_vocab.MEMBER_ID_LABEL), *_vocab.record_label_spellings(_vocab.MEMBER_STATUS_LABEL), "Status", "Owner",
     _vocab.BACKREF_LABEL, "Last verified", "Title", _vocab.ID_KEY,
     "review-evidence-source",
     "review-policy-reprepare-required", "Completed At", "Closed At",
-    _vocab.PREVIOUS_STATUS_LABEL, "Role", "Category", "Memory ID", "Kind",
+    *_vocab.record_label_spellings(_vocab.PREVIOUS_STATUS_LABEL), "Role", "Category", "Memory ID", "Kind",
     "Confidence", "Created", "Updated", "Source event", "Validation",
     "Validated by", "Action delta", "Validation rationale",
     "Evidence verified", "Current target verified", "Canonical overlap",

@@ -43,7 +43,7 @@ if str(FRAMEWORK / "scripts") not in sys.path:
     sys.path.insert(0, str(FRAMEWORK / "scripts"))
 
 from review_policy import RETIRED_LIFECYCLE_TOKENS
-from upstream_fixture_support import upstream_fixture
+from upstream_fixture_support import tool_contract_rel, upstream_fixture
 
 
 # Adoption-only API symbols, migration helpers, retired projector, and
@@ -93,13 +93,13 @@ BOUNDED_ALLOWANCES = {
         # documenting that cutover boundary.
         ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
         ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
-        "docs/specs/mcp-tool-surface.md",
+        tool_contract_rel(REPO_ROOT),
         "docs/contributing/build-and-verification.md",
     },
     "review-evidence-migration.json": {
         ".wavefoundry/framework/scripts/upgrade_wavefoundry.py",
         ".wavefoundry/framework/seeds/160-upgrade-wavefoundry.prompt.md",
-        "docs/specs/mcp-tool-surface.md",
+        tool_contract_rel(REPO_ROOT),
         "docs/contributing/build-and-verification.md",
     },
     # The physical carrier of project_state_publication_lock: its definition,
@@ -372,6 +372,7 @@ def _census_files() -> list[Path]:
     for base in (
         REPO_ROOT / "docs" / "prompts",
         REPO_ROOT / "docs" / "specs",
+        REPO_ROOT / "docs" / "architecture" / "contracts",
         REPO_ROOT / "docs" / "contributing",
         REPO_ROOT / "docs" / "references",
     ):
@@ -520,7 +521,7 @@ class EventsOnlyResidueCensusTests(unittest.TestCase):
         self.assertIn(".wavefoundry/framework/scripts/review_evidence.py", rels)
         self.assertIn(".wavefoundry/framework/scripts/upgrade_wavefoundry.py", rels)
         self.assertIn("docs/architecture/data-and-control-flow.md", rels)
-        self.assertIn("docs/specs/mcp-tool-surface.md", rels)
+        self.assertIn(tool_contract_rel(REPO_ROOT), rels)
         # Wave 1ug7o: the Tier-1 startup doc is inside the scope, and the ADR
         # archive stays outside it (1tsbu-adr keeps its original decision text
         # under an amendment note, so the census must never read it).

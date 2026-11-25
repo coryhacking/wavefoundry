@@ -808,24 +808,24 @@ class LifecycleToolRefusalTests(unittest.TestCase):
             ("wf_current_wave", lambda: srv.wf_current_wave_response(root)),
             ("wf_list_waves", lambda: srv.wf_list_waves_response(root)),
             # The wave-bulk mode resolves the wave through discovery.
-            ("wf_get_change", lambda: srv.wf_get_change_response(root, wave_id="1abcd")),
+            ("wf_get_spec", lambda: srv.wf_get_change_response(root, wave_id="1abcd")),
             ("wf_mark_item", lambda: srv._mark_change_item_response(
                 root, "1abcd", "1abce-enh x", "AC-1", "x", target_section="Acceptance Criteria", mode="create")),
             ("wf_mark_item", lambda: srv._mark_change_item_response(
                 root, "1abcd", "1abce-enh x", "Task one", "x", target_section="Tasks", mode="create")),
-            ("wf_add_change", lambda: srv.wf_add_change_response(root, "1abcd", "1abce-enh x", mode="create")),
-            ("wf_remove_change", lambda: srv.wf_remove_change_response(root, "1abcd", "1abce-enh x", mode="create")),
+            ("wf_add_spec", lambda: srv.wf_add_change_response(root, "1abcd", "1abce-enh x", mode="create")),
+            ("wf_remove_spec", lambda: srv.wf_remove_change_response(root, "1abcd", "1abce-enh x", mode="create")),
             ("wf_review_event", lambda: srv.wf_review_event_response(
                 root, "1abcd", "approval", "qa", "ctx-1", mode="create", signoff_key="qa")),
             ("wf_pause_wave", lambda: srv.wf_pause_wave_response(root, "1abcd", mode="create")),
             ("wf_review_wave", lambda: srv.wf_review_wave_response(root, "1abcd")),
             ("wf_close_wave", lambda: srv.wf_close_wave_response(root, "1abcd", mode="create")),
-            ("wf_close_change", lambda: srv.wf_close_change_response(root, "1abcd", "1abce-enh x", mode="create")),
+            ("wf_close_spec", lambda: srv.wf_close_change_response(root, "1abcd", "1abce-enh x", mode="create")),
             ("wf_prepare_wave", lambda: srv.wf_prepare_wave_response(root, "1abcd", mode="dry_run")),
             ("wf_implement_wave", lambda: srv.wf_implement_wave_response(root, "1abcd", mode="create")),
             ("wf_reopen_wave", lambda: srv.wf_reopen_wave_response(root, "1abcd")),
             ("wf_create_wave", lambda: srv.wf_create_wave_response(root, "refused-wave", mode="create")),
-            ("wf_new_change", lambda: srv._change_create_response(root, "enh", "refused-change", mode="create")),
+            ("wf_new_spec", lambda: srv._change_create_response(root, "enh", "refused-change", mode="create")),
             ("wf_audit", lambda: srv.wf_audit_response(root)),
         )
 
@@ -844,7 +844,7 @@ class LifecycleToolRefusalTests(unittest.TestCase):
                 self.assertIn(line, diagnostic["message"])
                 self.assertNotIn("record_paths.py", diagnostic["message"])
                 self.assertIsNotNone(lifecycle_lock.path_free_text(json.dumps(result), self.root), result)
-                if tool in {"wf_create_wave", "wf_new_change"}:
+                if tool in {"wf_create_wave", "wf_new_spec"}:
                     self.assertEqual(self._snapshot(), before, f"{tool} must write nothing")
         plans = self.srv.wf_list_plans_response(self.root)
         self.assertEqual(plans["status"], "ok", plans)

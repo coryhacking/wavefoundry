@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-23
+Last verified: 2026-11-24
 
 ## The Problem
 
@@ -37,7 +37,7 @@ choice and uses four fixed weak slots, shared-object labels and conservative unk
 absence after reload. Status does no discovery, construction or inference and
 describes only the reporting MCP process. Provider labels are diagnostic, not
 physical-device or execution attestation. See the
-schema and examples in `docs/specs/mcp-tool-surface.md`, "Cached inference status".
+schema and examples in `docs/architecture/contracts/mcp-tool-surface.md`, "Cached inference status".
 
 Agents navigating a project through Wavefoundry's MCP server face two distinct retrieval problems:
 

@@ -88,7 +88,7 @@ def _wave_review_policy_diagnostics(root: Path) -> list[dict[str, Any]]:
         lifecycle_gate_support._diagnostic(
             "review_policy_reprepare_required",
             str(error),
-            recovery_tools=["wf_get_change", "wf_validate_docs"],
+            recovery_tools=["wf_get_spec", "wf_validate_docs"],
             recovery_usage="Fix docs/workflow-config.json wave_review.enabled/delivery_mode, then call wf_validate_docs().",
         )
         for error in policy.get("errors", ["wave_review policy is invalid"])
@@ -461,8 +461,8 @@ def _reviewed_delivery(root: Path, wave_md: Path, wave_text: str) -> bool:
         visible = change_doc_checklist.unfenced_text(text)
         records = _parse_change_records(visible, "")
         ids = [record.record_id for record in records]
-        id_lines = sum(line.lstrip(" \t").startswith(f"{_vocab.MEMBER_ID_LABEL}:") for line in visible.splitlines())
-        status_lines = sum(line.lstrip(" \t").startswith(f"{_vocab.MEMBER_STATUS_LABEL}:") for line in visible.splitlines())
+        id_lines = len(re.findall(rf"(?m)^[ \t]*{_vocab.MEMBER_ID_LABEL_RE}:", visible))
+        status_lines = len(re.findall(rf"(?m)^[ \t]*{_vocab.MEMBER_STATUS_LABEL_RE}:", visible))
         if id_lines != len(ids) or status_lines != len(ids):
             return []
         return records if len(set(ids)) == len(ids) else []
@@ -942,6 +942,13 @@ def close_checkbox_gate(ctx: GateContext) -> GateResult:
                 recovery_usage="wf_validate_docs()",
             )
         )
+    from wave_lint_lib.wave_validators import conflicting_spec_labels
+    if conflicting_spec_labels(ctx.wave_text, roster=True) or any(
+        item["item_id"] == "conflicting_spec_fields" for item in doc_findings
+    ):
+        diagnostics.append(lifecycle_gate_support._diagnostic(
+            "conflicting_spec_fields", "The wave or an admitted spec declares conflicting record fields.",
+            recovery_tools=["wf_validate_docs"], recovery_usage="wf_validate_docs()"))
     for item in missing_docs:
         diagnostics.append(
             lifecycle_gate_support._diagnostic(
@@ -950,10 +957,10 @@ def close_checkbox_gate(ctx: GateContext) -> GateResult:
                     f"Wave close blocked: admitted change '{item['change_id']}' has no "
                     f"document on disk ({item['item_text']}). The close hard gate cannot "
                     "verify ACs and tasks it cannot see; restore the document, or remove "
-                    "the change via wf_remove_change, before close."
+                    "the change via wf_remove_spec, before close."
                 ),
-                recovery_tools=["wf_remove_change", "wf_current_wave"],
-                recovery_usage=f"wf_remove_change(change_id='{item['change_id']}')",
+                recovery_tools=["wf_remove_spec", "wf_current_wave"],
+                recovery_usage=f"wf_remove_spec(wave_id={ctx.wave_md.parent.name!r}, spec_id={item['change_id']!r})",
             )
         )
     for item in unreadable_docs:
@@ -966,8 +973,8 @@ def close_checkbox_gate(ctx: GateContext) -> GateResult:
                     "verified over a document that cannot be read; repair or restore "
                     "the file before close."
                 ),
-                recovery_tools=["wf_get_change", "wf_current_wave"],
-                recovery_usage=f"wf_get_change(change_id='{item['change_id']}')",
+                recovery_tools=["wf_get_spec", "wf_current_wave"],
+                recovery_usage=f"wf_get_spec(spec_id={item['change_id']!r})",
             )
         )
     for item in missing_section_docs:
@@ -983,8 +990,8 @@ def close_checkbox_gate(ctx: GateContext) -> GateResult:
                     "under these exact headings; a misspelled, suffixed or demoted heading counts "
                     "as missing. Restore the heading (the section may be empty) before close."
                 ),
-                recovery_tools=["wf_get_change"],
-                recovery_usage=f"wf_get_change(change_id={item['change_id']!r})",
+                recovery_tools=["wf_get_spec"],
+                recovery_usage=f"wf_get_spec(spec_id={item['change_id']!r})",
             )
         )
     if silent_unchecked:
@@ -1226,8 +1233,8 @@ def change_location_gate(ctx: GateContext, *, admitted_change: str) -> GateResul
         diagnostics.append(lifecycle_gate_support._diagnostic(
             "duplicate_change_doc_locations",
             f"Admitted change '{admitted_change}' exists in both {lifecycle_gate_support._repo_rel(ctx.root, location['staged_path'])} and {lifecycle_gate_support._repo_rel(ctx.root, location['wave_path'])}.",
-            recovery_tools=["wf_get_change"],
-            recovery_usage=f"wf_get_change(change_id={admitted_change!r})",
+            recovery_tools=["wf_get_spec"],
+            recovery_usage=f"wf_get_spec(spec_id={admitted_change!r})",
         ))
         skip = True
     elif location["wave_exists"]:
@@ -1248,8 +1255,8 @@ def change_location_gate(ctx: GateContext, *, admitted_change: str) -> GateResul
         diagnostics.append(lifecycle_gate_support._diagnostic(
             "change_not_found",
             f"Admitted change '{admitted_change}' was not found in {lifecycle_gate_support._repo_rel(ctx.root, location['staged_path'])} or {lifecycle_gate_support._repo_rel(ctx.root, location['wave_path'])}.",
-            recovery_tools=["wf_get_change", "wf_list_plans"],
-            recovery_usage=f"wf_get_change(change_id={admitted_change!r})",
+            recovery_tools=["wf_get_spec", "wf_list_plans"],
+            recovery_usage=f"wf_get_spec(spec_id={admitted_change!r})",
         ))
         skip = True
     return GateResult(diagnostics, {"location": location, "change_path": change_path,
@@ -1265,8 +1272,8 @@ def change_sections_gate(ctx: GateContext, *, admitted_change: str,
             lifecycle_gate_support._diagnostic(
                 "change_doc_missing_sections",
                 f"Admitted change '{admitted_change}' is missing sections: {', '.join(missing_headers)}.",
-                recovery_tools=["wf_get_change"],
-                recovery_usage=f"wf_get_change(change_id={admitted_change!r})",
+                recovery_tools=["wf_get_spec"],
+                recovery_usage=f"wf_get_spec(spec_id={admitted_change!r})",
             )
         )
     # Wave 1zime (1zimq): per-change lint runs only once a wave is implementing,
@@ -1299,8 +1306,8 @@ def change_sections_gate(ctx: GateContext, *, admitted_change: str,
                     f"Admitted change '{admitted_change}' has a non-canonical checklist: "
                     + "; and ".join(parts) + "."
                 ),
-                recovery_tools=["wf_get_change"],
-                recovery_usage=f"wf_get_change(change_id={admitted_change!r})",
+                recovery_tools=["wf_get_spec"],
+                recovery_usage=f"wf_get_spec(spec_id={admitted_change!r})",
             )
         )
     # AC priority advisory (non-blocking): warn if every AC row still has unpopulated placeholder text
@@ -1314,8 +1321,8 @@ def change_sections_gate(ctx: GateContext, *, admitted_change: str,
                 lifecycle_gate_support._diagnostic(
                     "ac_priority_unpopulated",
                     f"Change '{admitted_change}' AC priority table still contains only placeholder text. Fill in priority values (required / important / nice-to-have / not-this-scope) for each AC row before closing the wave.",
-                    recovery_tools=["wf_get_change"],
-                    recovery_usage=f"wf_get_change(change_id={admitted_change!r})",
+                    recovery_tools=["wf_get_spec"],
+                    recovery_usage=f"wf_get_spec(spec_id={admitted_change!r})",
                     advisory=True,
                 )
             )

@@ -261,7 +261,7 @@ RESERVED_MODULE_NAMES = frozenset({
 FRAMEWORK_SCRIPT_MODULE_NAMES = frozenset({
     '_tag_utils', 'accel_embedder', 'advisory_lint_identity', 'agent_surface_integrity', 'ann_reference_eval', 'build_pack',
     'build_scan_allowlist', 'bytecode_cache', 'change_doc_checklist', 'check_version', 'child_tee', 'chunker', 'cli_stdio',
-    'commit_provenance', 'contained_files', 'context_efficiency', 'dashboard_handlers', 'dashboard_lib',
+    'commit_provenance', 'contained_files', 'contract_migration', 'context_efficiency', 'dashboard_handlers', 'dashboard_lib',
     'dashboard_server', 'design_token_build', 'docs_gardener', 'docs_lint', 'embedded_model_bundle', 'eval_chunker',
     'exploration_avoided', 'gardener_metadata', 'gen_codebase_map', 'gpu_doctor',
     'graph_call_census', 'graph_cluster', 'graph_di_signals', 'graph_indexer',
@@ -279,8 +279,8 @@ FRAMEWORK_SCRIPT_MODULE_NAMES = frozenset({
     'scanner_skips', 'scanner_upgrade', 'score_context_efficiency_pairs', 'sensor_runner', 'server', 'server_impl',
     'setup_commands', 'setup_index', 'setup_readiness', 'setup_reconciliation', 'setup_requirements',
     'setup_wavefoundry', 'small_change_lane', 'sqlite_runtime', 'sqlite_storage_migration', 'sqlite_vector_store',
-    'storage_identity', 'subprocess_util', 'techdocs_audit', 'techdocs_audit_lib',
-    'inference_profile', 'inference_provider', 'techdocs_baseline', 'tensorwell_client', 'test_worker_guard', 'tree_sitter_cache', 'upgrade_bridge_bootstrap', 'upgrade_bundle',
+    'spec_tool_permissions', 'storage_identity', 'subprocess_util', 'techdocs_audit', 'techdocs_audit_lib',
+    'inference_profile', 'inference_provider', 'techdocs_baseline', 'tensorwell_client', 'test_worker_guard', 'tree_sitter_cache', 'trust_bundles', 'upgrade_bridge_bootstrap', 'upgrade_bundle',
     'upgrade_extensions', 'upgrade_lib', 'upgrade_protocol', 'upgrade_wavefoundry',
     'vendored_integrity', 'venv_bootstrap', 'verify_vendored_scripts', 'vocabulary_profile',
     'wave_gate', 'wave_work', 'wf_cli', 'workflow_include_prefixes',
@@ -321,6 +321,30 @@ def replacement_targets() -> dict[str, tuple[str, Mapping[str, str]]]:
             if isinstance(spec, Mapping):
                 targets.setdefault(core_name, (module_name, spec))
     return targets
+
+
+# Private handler IDs stay stable for existing extension declarations and records.
+SPEC_TOOL_NAMES = {
+    "wf_new_change": "wf_new_spec",
+    "wf_get_change": "wf_get_spec",
+    "wf_add_change": "wf_add_spec",
+    "wf_remove_change": "wf_remove_spec",
+    "wf_close_change": "wf_close_spec",
+}
+
+
+def stock_spec_routes() -> dict[str, str]:
+    """Expose stock schemas only where the distribution leaves both bindings free."""
+    replacements = replacement_targets()
+    occupied = set(EXTENSION_TOOL_TIERS) | set(EXTENSION_TOOL_ALIASES)
+    occupied.update(spec.get("alias_for_core") for _, spec in replacements.values())
+    protected = set(EXTENSION_HIDDEN_TOOLS) | set(replacements) | set(override_targets())
+    return {old: new for old, new in SPEC_TOOL_NAMES.items() if old not in protected and new not in occupied}
+
+
+def retired_stock_tools() -> set[str]:
+    """An explicitly rebound old spelling belongs to the distribution."""
+    return set(SPEC_TOOL_NAMES) - set(override_targets()) - set(replacement_targets()) - set(EXTENSION_TOOL_ALIASES)
 
 
 def pinned_aliases() -> frozenset[str]:
@@ -567,7 +591,7 @@ def _alias_hide_replacement_problems(
             return
         if alias in runner:
             problems.append(f"{label} {alias!r} collides with runner tool {alias!r}")
-        elif alias in served:
+        elif alias in served and not (alias in SPEC_TOOL_NAMES and EXTENSION_TOOL_ALIASES.get(alias) == alias and label == "alias"):
             problems.append(f"{label} {alias!r} collides with an existing tool")
         if alias in taken:
             problems.append(f"{label} {alias!r} is already declared as {taken[alias]}")
@@ -619,7 +643,7 @@ def _alias_hide_replacement_problems(
         check_alias(alias, "alias")
         if target in runner:
             problems.append(f"alias {alias!r} targets runner tool {target!r}")
-        elif target in alias_names:
+        elif target in alias_names and not (alias == target and alias in SPEC_TOOL_NAMES):
             problems.append(f"alias {alias!r} targets another alias {target!r}")
         elif target in replaced:
             problems.append(

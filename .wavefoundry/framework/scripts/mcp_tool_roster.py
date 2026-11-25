@@ -204,22 +204,25 @@ def all_tool_tiers() -> dict[str, str]:
     declaration is invalid, so no caller derives rules from it.
     """
     tiers = dict(TOOL_TIERS)
-    if not mcp_tool_extensions.declared():
-        return tiers
-    mcp_tool_extensions.validate_declaration(
-        core_tools=set(TOOL_TIERS) - RUNNER_TOOLS,
-        runner_tools=RUNNER_TOOLS,
-        core_tiers=TOOL_TIERS,
-    )
-    tiers.update(mcp_tool_extensions.EXTENSION_TOOL_TIERS)
-    for core_name, (_module, spec) in mcp_tool_extensions.replacement_targets().items():
-        tiers[spec["alias_for_core"]] = TOOL_TIERS[core_name]
-        if "tier" in spec:
-            tiers[core_name] = spec["tier"]
-    for alias, canonical in mcp_tool_extensions.EXTENSION_TOOL_ALIASES.items():
-        tiers[alias] = tiers[canonical]
-    for name in mcp_tool_extensions.EXTENSION_HIDDEN_TOOLS:
-        tiers.pop(name, None)
+    if mcp_tool_extensions.declared():
+        mcp_tool_extensions.validate_declaration(
+            core_tools=set(TOOL_TIERS) - RUNNER_TOOLS,
+            runner_tools=RUNNER_TOOLS,
+            core_tiers=TOOL_TIERS,
+        )
+        tiers.update(mcp_tool_extensions.EXTENSION_TOOL_TIERS)
+        for core_name, (_module, spec) in mcp_tool_extensions.replacement_targets().items():
+            tiers[spec["alias_for_core"]] = TOOL_TIERS[core_name]
+            if "tier" in spec:
+                tiers[core_name] = spec["tier"]
+        for alias, canonical in mcp_tool_extensions.EXTENSION_TOOL_ALIASES.items():
+            tiers[alias] = tiers[canonical]
+        for name in mcp_tool_extensions.EXTENSION_HIDDEN_TOOLS:
+            tiers.pop(name, None)
+    for old, new in mcp_tool_extensions.stock_spec_routes().items():
+        tiers[new] = tiers[old]
+    for old in mcp_tool_extensions.retired_stock_tools():
+        tiers.pop(old, None)
     return tiers
 
 
@@ -232,6 +235,7 @@ def _served_low_risk_write_tools(tiers: dict[str, str]) -> set[str]:
                  if name in LOW_RISK_WRITE_TOOLS)
     names.update(alias for alias, name in mcp_tool_extensions.EXTENSION_TOOL_ALIASES.items()
                  if name in original)
+    names.update(new for old, new in mcp_tool_extensions.stock_spec_routes().items() if old in original)
     return {name for name in names if tiers.get(name) == TIER_WRITE}
 
 
@@ -249,3 +253,11 @@ def tools_for_tiers(include_write: bool = False, include_low_risk: bool = False)
 def allow_rules(include_write: bool = False, include_low_risk: bool = False) -> tuple[str, ...]:
     """Sorted Claude Code permission rules for the operator's selection."""
     return tuple(MCP_RULE_PREFIX + name for name in tools_for_tiers(include_write, include_low_risk))
+
+
+def spec_permission_holds(root, routes=None):
+    """Return project host-policy conflicts for otherwise eligible new stock routes."""
+    from spec_tool_permissions import assess
+    if routes is None:
+        routes = mcp_tool_extensions.stock_spec_routes()
+    return assess(root, routes, MCP_RULE_PREFIX)[0]

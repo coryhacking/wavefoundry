@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-24
 
 ## Verification Commands
 
@@ -520,13 +520,16 @@ Same checks whether you run **`wf_validate_docs`** / **`wf_garden_docs`** over M
 
 `wf docs-gardener` refreshes stale metadata timestamps.
 
-Every framework writer that edits an existing file in place, the gardener
-included, keeps that file's line endings on every platform (wave 244in). Each
-existing line keeps its own ending byte for byte, and an inserted or replaced
-line takes the file's majority ending, with a tie going to CRLF; a file with no
-line ending yet gets LF. The rule lives in `line_endings.py`, and the census in
-`tests/test_line_ending_census.py` keeps every writer on it. A writer leaves an
-unchanged file's bytes and modification time intact. New files and files the
+Every framework writer that edits an existing file in place, including the
+gardener, leaves an unchanged file's bytes and modification time intact. Edits
+to a file with uniform endings keep that convention. A file with no endings
+yet gets LF. For mixed endings, the writer aligns lines when the old line
+count times the new line count is at most 1,000,000. Aligned lines keep their
+endings, and new or replaced lines take the original majority ending (CRLF
+on a tie). Above that budget the writer uses the majority ending throughout.
+All paths honor the edit's requested final newline or unterminated last line.
+The rule lives in `line_endings.py`, and the census in
+`tests/test_line_ending_census.py` keeps every writer on it. New files and files the
 framework generates in full are LF on every platform. The explicit writes do not
 depend on Git's `core.autocrlf` setting or on `os.linesep`. Managed
 review-policy/protocol regions accept either convention; review-event JSONL

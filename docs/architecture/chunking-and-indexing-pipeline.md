@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-23
+Last verified: 2026-11-24
 
 This document describes how Wavefoundry builds and maintains its search indexes. It covers
 every stage of the pipeline: file discovery, change detection, chunking, embedding, and
@@ -153,7 +153,7 @@ each other: a prompt **turn-end** trigger and a slow **quiet-period safety net**
   stale/trigger/reason decision. The lock object from `index_build_status` remains the authority for
   whether a build is running.
 - **MCP mutating tools → background project refresh** — most doc-writing wave-lifecycle tools
-  (`wf_new_*`, `wf_add_change`, `wf_set_handoff`, prepare / pause / review / close / reopen,
+  (`wf_new_*`, `wf_add_spec`, `wf_set_handoff`, prepare / pause / review / close / reopen,
   docs gardening) call `_trigger_background_index_refresh_for_paths` → `_start_background_index_refresh`
   after they write, launching a detached project reindex.
 - **First-query lazy auto-rebuild** — a query that hits a stale or missing graph (e.g. a version bump

@@ -922,7 +922,7 @@ class NoRawCoveredScriptInvocationInOperatorDocsTests(unittest.TestCase):
     )
 
     EXCLUDED_DIRS = (
-        ".git", "__pycache__", "node_modules", ".wavefoundry/index",
+        ".git", "__pycache__", "node_modules", ".wavefoundry/index", ".wavefoundry/work",
         "docs/architecture", "docs/plans", "docs/waves", "docs/reports",
     )
     EXCLUDED_FILES = ("CHANGELOG.md",)

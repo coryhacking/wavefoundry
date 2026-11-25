@@ -380,7 +380,7 @@ class RealSurfaceRegistryTests(_BootedSurface):
         # Wave 1zoju (1zodw): the final render pass wraps every served tool.
         registry = self.impl._TOOL_REGISTRY
         self.assertEqual(
-            getattr(registry.get("wf_add_change").callable, reg.MIDDLEWARE_MARKER),
+            getattr(registry.get("wf_add_spec").callable, reg.MIDDLEWARE_MARKER),
             ("cost", "lock", "guard", "setup", "render"),
         )
         self.assertEqual(
@@ -423,7 +423,7 @@ class RosterWarningTests(unittest.TestCase):
         return stderr.getvalue()
 
     def test_drift_names_both_directions(self):
-        tiers = dict(self.real_roster.TOOL_TIERS)
+        tiers = self.real_roster.all_tool_tiers()
         del tiers["wf_help"]
         tiers["wf_ghost"] = "read"
         drifted = types.SimpleNamespace(TOOL_TIERS=tiers, RUNNER_TOOLS=self.real_roster.RUNNER_TOOLS)

@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: guru
 Category: specialist
-Last verified: 2026-11-22
+Last verified: 2026-11-24
 
 Shortcut: **`Guru`** | MCP tool: **`code_ask`**
 
@@ -127,7 +127,7 @@ Workflow-level frictions accumulated from real session use of the MCP code tools
 
 **1. `code_read` is the right tool for inspection — use it freely, even when you plan to edit.** Its response includes containing symbol, edit-governance gate state, marker-region warnings, and a `read_invocation` field carrying the exact `{file_path, offset, limit}` to pass to the built-in `Read` tool.
 
-Before you `Edit` or `Write`, call `Read(file_path=..., offset=..., limit=...)` using `code_read`'s `read_invocation` values — the host harness's precondition tracks built-in `Read` calls only, so this targeted re-read of the same range is what unblocks the `Edit`. Same pattern after MCP file-creation tools (`wf_new_enhancement`, `wf_add_change`): `Read` the created file before writing into it.
+Before you `Edit` or `Write`, call `Read(file_path=..., offset=..., limit=...)` using `code_read`'s `read_invocation` values — the host harness's precondition tracks built-in `Read` calls only, so this targeted re-read of the same range is what unblocks the `Edit`. Same pattern after MCP file-creation tools (`wf_new_enhancement`, `wf_add_spec`): `Read` the created file before writing into it.
 
 **2. `code_keyword` and `code_pattern` default to `limit=50` to prevent response overflow.**
 
@@ -633,7 +633,7 @@ After answering, if a finding is significant enough to help future implementers 
 - Edge cases not yet reflected in architecture or behavior contract docs
 - Architectural questions asked of the operator and their answers
 
-**Behavior contract docs** (`docs/specs/`) — when a behavioral contract is implied by the code but not formally specified, or when the code diverges from an existing behavior contract.
+**Behavior contract docs** (start at `docs/architecture/contracts/index.md`; check `docs/specs/` in legacy projects) — when a behavioral contract is implied by the code but not formally specified, or when the code diverges from an existing behavior contract.
 
 ### Architecture write-up escalation (deep technical questions)
 
@@ -766,10 +766,10 @@ Guru is permitted to write to the following paths only:
 |---|---|
 | a typed memory record | Durable discoveries, index gaps, edge cases, operator Q&A answers |
 | `docs/architecture/` | Architectural findings worth formal documentation |
-| `docs/specs/` | Behavioral contracts or behavior contract divergences discovered in code |
+| `docs/architecture/contracts/` or an existing legacy contract in `docs/specs/` | Behavioral contracts or behavior contract divergences discovered in code |
 
 All other write-paths are prohibited:
-- `index_build`, `wf_sync_surfaces`, `wf_add_change`, `wf_new_*` — never
+- `index_build`, `wf_sync_surfaces`, `wf_add_spec`, `wf_new_*` — never
 - Any source code file write, edit, or create — never
 - Any file outside the permitted paths above — never
 

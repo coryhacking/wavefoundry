@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-24
 
 This folder is Wavefoundry's self-hosted Wave Framework project operating surface. Framework seed prompts and reusable framework reference material live under `.wavefoundry/framework/seeds/`. Project-local docs (plans, waves, architecture notes, agent roles, journals) live here.
 
@@ -34,6 +34,6 @@ This folder is Wavefoundry's self-hosted Wave Framework project operating surfac
 
 ## Near-Term Docs To Add
 
-- `docs/specs/mcp-tool-surface.md` — MCP tool contracts (once server is scaffolded)
+- `docs/architecture/contracts/mcp-tool-surface.md` — MCP tool contracts (once server is scaffolded)
 - `docs/architecture/decisions/<id>-adr framework-location.md` — ADR for framework content location (`.wavefoundry/framework/` as canonical directory)
 - `docs/contributing/docs-maintenance.md` — doc freshness and metadata policy

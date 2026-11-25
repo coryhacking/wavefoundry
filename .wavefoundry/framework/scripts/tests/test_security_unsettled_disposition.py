@@ -28,7 +28,7 @@ import container_fixture_profile
 from declaration_support import RecordingFastMCP, base_declaration
 from record_layout_support import default_profile_only
 from server_tools_support import SCRIPTS_ROOT, close_member, load_server
-from upstream_fixture_support import source_carriers, source_repository_fixture
+from upstream_fixture_support import tool_contract_rel, source_carriers, source_repository_fixture
 from test_intent_fit_approvals import IntentFitWritePathTests
 from test_lifecycle_golden import _APPROVAL_INTEGRITY, _stub_garden, _stub_validate
 from wave_lint_lib import wave_validators
@@ -820,17 +820,17 @@ class ServedCloseSeamTests(_ServedLedger):
         root, wave_md, wave_id = self._unsettled("override")
         change_id = self._change_id(wave_md)
         mcp, call = self._served_call(root)
-        tool = mcp._tool_manager._tools["wf_close_change"]
+        tool = mcp._tool_manager._tools["wf_close_spec"]
         core, seen = tool.fn, []
 
-        def distribution_close(wave_id, change_id, mode="dry_run", *, parent):
+        def distribution_close(wave_id, spec_id, mode="dry_run", *, parent):
             seen.append(parent)
-            return core(wave_id=wave_id, change_id=change_id, mode=mode)
+            return core(wave_id=wave_id, spec_id=spec_id, mode=mode)
 
         tool.fn = distribution_close
         declared = dict(EXTENSION_MODULES=("fixture_close",),
-                        EXTENSION_OVERRIDES={"fixture_close": ("wf_close_change",)})
-        profile = lambda tool_name, _root: {"parent": "parent-1"} if tool_name == "wf_close_change" else {}
+                        EXTENSION_OVERRIDES={"fixture_close": ("wf_close_spec",)})
+        profile = lambda tool_name, _root: {"parent": "parent-1"} if tool_name == "wf_close_spec" else {}
         with base_declaration(**declared), \
                 patch.object(container_fixture_profile, "container_fixture_args", profile):
             response = close_member(call, root, wave_id, change_id, mode="dry_run")
@@ -1283,7 +1283,7 @@ class SurfaceCensusTests(unittest.TestCase):
     OLD = ("do_now", "maybe_later", "dont_do_later", "not_issue")
     CANONICAL_ROOT = ".wavefoundry/framework"
     SEEDS_ROOT = ".wavefoundry/framework/seeds"
-    PROJECT_ROOTS = ("docs/specs", "docs/contributing", "docs/agents", "docs/prompts")
+    PROJECT_ROOTS = ("docs/architecture/contracts", "docs/specs", "docs/contributing", "docs/agents", "docs/prompts")
     SUFFIXES = {".md", ".py", ".json"}
     # Requirement 8 (22ubf): these surfaces must each be found by the census.
     REQUIRED = (
@@ -1291,7 +1291,7 @@ class SurfaceCensusTests(unittest.TestCase):
         ".wavefoundry/framework/scripts/review_evidence.py",
         ".wavefoundry/framework/seeds/209-agent-harness-core.prompt.md",
         "docs/contributing/review-and-evals.md",
-        "docs/specs/mcp-tool-surface.md",
+        tool_contract_rel(REPO_ROOT),
         "docs/agents/qa-reviewer.md",
         "docs/agents/specialists/council-chair.md",
     )

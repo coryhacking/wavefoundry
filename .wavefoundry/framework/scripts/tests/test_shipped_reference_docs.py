@@ -4,6 +4,8 @@ import re
 import unittest
 from pathlib import Path
 
+from upstream_fixture_support import tool_contract_rel
+
 # tests/ -> scripts/ -> framework/ -> .wavefoundry/ -> repo root
 REPO_ROOT = Path(__file__).resolve().parents[4]
 
@@ -292,9 +294,9 @@ class UpgradeMcpFirstGuidanceTests(unittest.TestCase):
     def test_tool_lists_and_spec_name_wf_upgrade_tools(self) -> None:
         # AC-2: the spec's Tool Index (the enforced tool inventory, change 237eh)
         # and the spec's detailed entries name both upgrade tools.
-        spec = self._read("docs/specs/mcp-tool-surface.md")
+        spec = self._read(tool_contract_rel(REPO_ROOT))
         index = re.search(r"^### Tool Index\n(.*?)(?=^#)", spec, flags=re.MULTILINE | re.DOTALL)
-        self.assertIsNotNone(index, "docs/specs/mcp-tool-surface.md has no Tool Index")
+        self.assertIsNotNone(index, "MCP contract has no Tool Index")
         self.assertRegex(index.group(1), r"(?m)^\| `wf_upgrade` \|")
         self.assertRegex(index.group(1), r"(?m)^\| `wf_upgrade_status` \|")
         self.assertIn("wf_upgrade_status()", spec)
@@ -306,7 +308,7 @@ class UpgradeMcpFirstGuidanceTests(unittest.TestCase):
         self.assertNotIn("**Available tools:**", agents)
         mcp = re.search(r"^## MCP Server\n(.*?)(?=^## )", agents, flags=re.MULTILINE | re.DOTALL)
         self.assertIsNotNone(mcp, "AGENTS.md has no ## MCP Server section")
-        self.assertIn("`docs/specs/mcp-tool-surface.md` § **Tool Index**", mcp.group(1))
+        self.assertIn(f"`{tool_contract_rel(REPO_ROOT)}` § **Tool Index**", mcp.group(1))
         self.assertIn("`wf_help`", mcp.group(1))
 
 
@@ -407,7 +409,7 @@ class GuruQuestionTypeContractParityTests(unittest.TestCase):
     SEED = REPO_ROOT / ".wavefoundry/framework/seeds/211-guru.prompt.md"
     GURU = REPO_ROOT / "docs/agents/guru.md"
     RUNTIME = REPO_ROOT / ".wavefoundry/framework/scripts/wf_server/server_impl.py"
-    SPEC = REPO_ROOT / "docs/specs/mcp-tool-surface.md"
+    SPEC = REPO_ROOT / tool_contract_rel(REPO_ROOT)
     ARCHITECTURE = REPO_ROOT / "docs/architecture/search-architecture.md"
     HEADING = "## Question Classification"
     QUESTION_TYPES = (

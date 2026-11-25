@@ -191,13 +191,15 @@ class RecordingFastMCPTests(unittest.TestCase):
         self.assertIs(mcp.resource_functions[mcp.resource_uris["wavefoundry://codebase-map"].__name__],
                       mcp.resource_uris["wavefoundry://codebase-map"])
 
-    def test_the_stock_surface_on_the_double_has_no_alias(self):
+    def test_the_stock_surface_on_the_double_serves_stock_spec_names(self):
         apply_base_declaration(self)
         mcp = RecordingFastMCP()
         self.impl.register_mcp_surface(mcp, lambda: types.SimpleNamespace(root=self.root))
         declared = load_profile("declared")["modules"]["mcp_tool_extensions"]
         self.assertFalse(set(declared["EXTENSION_TOOL_ALIASES"]) & set(mcp._tool_manager._tools))
-        self.assertEqual(set(mcp.tools), set(mcp._tool_manager._tools))
+        routes = mcp_tool_extensions.SPEC_TOOL_NAMES
+        expected = (set(mcp.tools) - routes.keys()) | set(routes.values())
+        self.assertEqual(expected, set(mcp._tool_manager._tools))
 
 
 if __name__ == "__main__":

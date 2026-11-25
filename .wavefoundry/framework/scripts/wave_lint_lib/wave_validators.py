@@ -1158,6 +1158,32 @@ class WaveRecord:
     record_ids: list[str] = field(default_factory=list)
 
 
+def conflicting_spec_labels(text: str, *, roster: bool = False) -> bool:
+    """Detect competing generations of the same field in one logical record."""
+    labels = (_vocab.MEMBER_ID_LABEL, _vocab.MEMBER_STATUS_LABEL, _vocab.PREVIOUS_STATUS_LABEL)
+    spellings = {alias: key for key in labels for alias in _vocab.record_label_spellings(key)}
+    if not any(alias != key and alias + ":" in text and key + ":" in text
+               for alias, key in spellings.items()):
+        return False
+    visible = change_doc_checklist.unfenced_text(text)
+    bodies = (change_doc_checklist.section_bodies(visible, _vocab.MEMBER_HEADING.removeprefix("## "))
+              if roster else [re.split(r"(?m)^## ", visible, maxsplit=1)[0]])
+    for body in bodies:
+        declarations = {}
+        for line in body.splitlines():
+            label, sep, value = line.strip().partition(":")
+            key = spellings.get(label)
+            if not sep or not key:
+                continue
+            if roster and key == _vocab.MEMBER_ID_LABEL and _vocab.MEMBER_STATUS_LABEL in declarations:
+                declarations = {}
+            previous = declarations.get(key)
+            if previous and previous[0] != label and previous[1] != value.strip():
+                return True
+            declarations[key] = label, value.strip()
+    return False
+
+
 def _parse_change_records(text: str, rel: str) -> list[WorkRecord]:
     records: list[WorkRecord] = []
     text = change_doc_checklist.comment_visible_text(text)
@@ -1311,7 +1337,7 @@ def change_doc_header_status(raw: str) -> str | None:
     """A spec's status from its leading metadata (wave 1zoju,
     1zodx): CRLF normalised, the text before the first ``## `` heading, the
     first member-status match; ``None`` when absent. This is the reading
-    ``wf_close_change`` uses."""
+    ``wf_close_spec`` uses."""
     text = change_doc_checklist.comment_visible_text(raw.replace("\r\n", "\n"))
     heading = re.search(r"(?m)^## ", text)
     header = text if heading is None else text[: heading.start()]
@@ -1586,6 +1612,8 @@ def check_plan_filenames(root: Path, only: set[Path] | None = None, skip: set[Pa
         if text is None:
             continue  # a refused record document (wave 200xy, 200v1)
         basename = path.stem
+        if conflicting_spec_labels(text):
+            failures.append(f"{rel}: conflicting spec header fields")
 
         change_ids = CHANGE_ID_PATTERN.findall(text)
         if change_ids:
@@ -2000,6 +2028,8 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
         if text is None:
             continue  # a refused record document (wave 200xy, 200v1)
         is_wave_record = path.name == _vocab.RECORD_FILENAME
+        if conflicting_spec_labels(text, roster=is_wave_record):
+            failures.append(f"{rel}: conflicting spec record fields")
         if is_wave_record:
             report_drift(path, text)
         elif only is not None:
@@ -2140,7 +2170,7 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
                 continue
             reason = _change_id_reason_class(_extract_backtick_value(raw_line) if "`" in raw_line else "")
             failures.append(f"{rel}: wave artifact has unstable Item ID on line {line_number} ({reason})")
-        for line_number, raw_line in [(n, line) for n, line in enumerate(text.splitlines(), start=1) if line.startswith(f"{_vocab.MEMBER_ID_LABEL}:")]:
+        for line_number, raw_line in [(n, line) for n, line in enumerate(text.splitlines(), start=1) if re.match(rf"^{_vocab.MEMBER_ID_LABEL_RE}:", line)]:
             if CHANGE_ID_PATTERN.match(raw_line):
                 continue
             undeclared = _undeclared_change_kinds(raw_line)
@@ -2157,10 +2187,10 @@ def check_wave_docs(root: Path, only: set[Path] | None = None, skip: set[Path] |
             failures.append(f"{rel}: missing `{status_label}` for declared wave changes")
         change_status_suffix = allowed_values_suffix(ALLOWED_CHANGE_STATUS_TRANSITIONS)
         item_status_suffix = allowed_values_suffix(ALLOWED_ITEM_STATUS_TRANSITIONS)
-        for raw_line in [line for line in text.splitlines() if line.startswith(f"{_vocab.MEMBER_STATUS_LABEL}:")]:
+        for raw_line in [line for line in text.splitlines() if re.match(rf"^{_vocab.MEMBER_STATUS_LABEL_RE}:", line)]:
             if not CHANGE_STATUS_PATTERN.match(raw_line):
                 failures.append(f"{rel}: invalid `{_vocab.MEMBER_STATUS_LABEL}` declaration `{raw_line}`{change_status_suffix}")
-        for raw_line in [line for line in text.splitlines() if line.startswith(f"{_vocab.PREVIOUS_STATUS_LABEL}:")]:
+        for raw_line in [line for line in text.splitlines() if re.match(rf"^{_vocab.PREVIOUS_STATUS_LABEL_RE}:", line)]:
             if not PREVIOUS_CHANGE_STATUS_PATTERN.match(raw_line):
                 failures.append(f"{rel}: invalid `{_vocab.PREVIOUS_STATUS_LABEL}` declaration `{raw_line}`{change_status_suffix}")
         for raw_line in [line for line in text.splitlines() if line.startswith("Item Status:")]:

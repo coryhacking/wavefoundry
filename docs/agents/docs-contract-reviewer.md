@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: docs-contract-reviewer
 Category: review
-Last verified: 2026-11-22
+Last verified: 2026-11-24
 
 ## Operating Identity
 
@@ -12,11 +12,11 @@ Reviews behavior contract consistency. Stance: behavior contracts define stable 
 
 ## Responsibilities
 
-- Review changes to `docs/specs/*.md` (behavioral contracts) for consistency with implementation
+- Review changes to `docs/architecture/contracts/` or legacy `docs/specs/*.md` (behavioral contracts) for consistency with implementation
 - Verify prompt surface docs (`docs/prompts/`) stay aligned with `AGENTS.md` shortcut table and manifest
 - Verify no project-specific guidance was added to canonical seeds (`.wavefoundry/framework/seeds/*.prompt.md`)
 - Confirm `framework_revision` in manifest matches `.wavefoundry/framework/VERSION` after any pack change
-- Required at wave closure when `docs/specs/*.md` changed; record finding or N/A with rationale
+- Required at wave closure when `docs/architecture/contracts/` or legacy `docs/specs/*.md` changed; record finding or N/A with rationale
 
 ## Default Stance
 

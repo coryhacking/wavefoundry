@@ -21,6 +21,8 @@ from review_policy import (
     REVIEW_POLICY_OBLIGATION_ANCHORS,
     REVIEW_POLICY_SURFACE_MARKER_BEGIN,
     RETIRED_LIFECYCLE_TOKENS,
+    TOOL_CONTRACT,
+    LEGACY_TOOL_CONTRACT,
     UPGRADE_POLICY_MARKER_BEGIN,
     ProjectLanesConfigError,
     normalize_wave_review_policy,
@@ -425,6 +427,10 @@ def check_review_policy_carriers(root: Path) -> list[str]:
         else review_policy_carriers("lifecycle_reconciler")
     )
     for carrier in carriers:
+        # With a destination collision the upgrade keeps the legacy page in
+        # place. The colliding page has never assumed its policy obligations.
+        if carrier.destination == TOOL_CONTRACT and doc_entry_is_regular(root, root / LEGACY_TOOL_CONTRACT):
+            continue
         path = root / carrier.destination
         paths = (
             sorted(item for item in path.rglob("*.md") if doc_entry_is_regular(root, item))

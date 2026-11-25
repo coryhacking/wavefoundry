@@ -1108,7 +1108,7 @@ def page_links(text: str) -> "list[str]":
 
     Extraction and normalization are `wave_lint_lib.link_validators`': fences and
     inline code stripped first, image links excluded by its regex, schemes and
-    pure anchors skipped, fragments stripped, directory links skipped, and the
+    pure anchors skipped, queries and fragments stripped, directory links skipped, and the
     href URL-decoded. The decode is load-bearing rather than cosmetic: without it
     a percent-encoded filename reads as a dangling link.
 
@@ -1124,8 +1124,7 @@ def page_links(text: str) -> "list[str]":
 
     The shared primitives are imported rather than copied so extraction stays in
     step; the normalization below is this module's own. A normalization rule added
-    to `check_markdown_links` (angle-bracket hrefs, query-string stripping, a
-    scheme needing more than a prefix match) does NOT reach here automatically,
+    to `check_markdown_links` (such as a new URI scheme) does not reach here automatically,
     which is the known cost of the fork.
     """
     from wave_lint_lib import link_validators as lv  # noqa: PLC0415
@@ -1135,11 +1134,13 @@ def page_links(text: str) -> "list[str]":
     seen: set[str] = set()
     for match in lv._LINK_RE.finditer(lv._strip_code(text)):
         href = match.group(1).strip()
+        if href.startswith("<") and href.endswith(">"):
+            href = href[1:-1]
         if not href or href.startswith("#"):
             continue
         if any(href.startswith(scheme) for scheme in lv._SKIP_SCHEMES):
             continue
-        href_path = href.split("#")[0]
+        href_path = href.partition("#")[0].partition("?")[0]
         if not href_path or href_path.endswith("/"):
             continue
         href_path = unquote(href_path)

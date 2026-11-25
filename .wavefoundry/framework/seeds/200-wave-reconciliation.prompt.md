@@ -10,7 +10,7 @@ Reconciliation goals:
 - confirm or revise coordination truth after execution findings
 - record assumption changes and their downstream impact
 - decide the explicit disposition of every admitted change and any optional tasks/subtasks
-- determine whether unfinished work stays under the same `Change ID` and how it carries forward
+- determine whether unfinished work stays under the same `Spec ID` and how it carries forward
 - produce next-wave readiness and handoff truth for downstream agents
 
 Use this helper when:
@@ -121,10 +121,10 @@ Recommended reconciliation outputs:
 
 Change carry-forward rules:
 
-- keep the same `Change ID` when unfinished work is still part of the same intended change
+- keep the same `Spec ID` when unfinished work is still part of the same intended change
 - move unfinished changes or tasks into the next wave explicitly when they continue under the same change
 - split into a new change only when the remaining work is materially different in purpose, risk, or review treatment
-- when a split happens, record why continuing under the old `Change ID` would be misleading
+- when a split happens, record why continuing under the old `Spec ID` would be misleading
 
 Guardrails:
 

@@ -2165,7 +2165,7 @@ def _permissions_unmanaged_present(root: Path) -> int | None:
             if isinstance(prior, list)
             else set()
         )
-        desired = set(renderer.selected_permission_rules(loaded))
+        desired = set(renderer.selected_permission_rules(loaded, root=root))
         return len(desired & (present - claimed))
     except Exception:
         return None
@@ -4770,6 +4770,28 @@ def _lifecycle_baseline_findings(root: Path | None) -> list[dict]:
     return []
 
 
+def _spec_tool_permission_summary(root):
+    if root is None:
+        return {}
+    from mcp_tool_roster import spec_permission_holds
+    return {"spec_tool_permission_holds": list(spec_permission_holds(root).values())}
+
+
+def _contract_migration_summary(root):
+    if root is None or not os.path.lexists(root / "docs/specs"):
+        return {}
+    from contract_migration import recovery, remaining
+    try:
+        paths = remaining(root)
+    except (ValueError, OSError) as error:
+        return {"contract_migration_state": "incomplete", "contract_migration_reason": str(error),
+                "contract_migration_preview": recovery(root)}
+    if not paths:
+        return {}
+    return {"contract_migration_state": "available", "contract_migration_paths": paths,
+            "contract_migration_count": len(paths), "contract_migration_preview": recovery(root)}
+
+
 def _build_upgrade_summary(
     from_version: str | None,
     to_version: str | None,
@@ -4834,6 +4856,8 @@ def _build_upgrade_summary(
     cleanup = _retired_model_cleanup_from_mapping(retired_model_cleanup)
     return {
         **(_skill_delivery_fields(skill_delivery) if skill_delivery is not None else _read_skill_delivery(root)),
+        **_contract_migration_summary(root),
+        **_spec_tool_permission_summary(root),
         "historical_memory": historical_memory,
         "review_sidecar_cleanup": review_sidecar_cleanup,
         "from_version": from_version,
@@ -5337,6 +5361,10 @@ def _print_operator_summary(
     else:
         _log("Upgrade complete")
     _log("Historical memory: " + json.dumps(summary.get("historical_memory"), sort_keys=True))
+    for remedy in summary.get("spec_tool_permission_holds", []):
+        _log("Withheld renamed tool: " + remedy)
+    if summary.get("contract_migration_preview"):
+        _log("Review retained behavior contracts: " + summary["contract_migration_preview"])
     if summary.get("partial_skill_delivery") is True:
         _log("Skills: partial delivery; rename colliding downstream declarations and rerun rendering.")
         for collision in summary.get("skill_collisions") or []:
@@ -5999,6 +6027,13 @@ def _clear_legacy_memory_checkpoint(root: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    arguments = sys.argv[1:] if argv is None else argv
+    if arguments[:1] == ["spec-permissions"]:
+        from spec_tool_permissions import acknowledge
+        return acknowledge(arguments[1:])
+    if arguments[:1] == ["contracts"]:
+        from contract_migration import main as migrate_contracts
+        return migrate_contracts(arguments[1:])
     parser = argparse.ArgumentParser(
         description="Automated Wavefoundry framework upgrade.",
         formatter_class=argparse.RawDescriptionHelpFormatter,

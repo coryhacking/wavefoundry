@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-24
 
 ## Single-Change Delivery Path (Implement spec)
 
@@ -14,7 +14,7 @@ Use **Implement spec** for a single docs-first change that doesn't require multi
 4. **Prepare wave** → confirm readiness and repair placement drift if admission left any staged-only docs behind
 5. **Implement spec** → implement and run computational verification
 6. **Review wave** → independently review delivery
-7. **Close spec** (optional) → mark the reviewed change `complete` with `wf_close_change`
+7. **Close spec** (optional) → mark the reviewed change `complete` with `wf_close_spec`
 8. **Close wave** → closure reconciliation; the only wave close
 
 Full path: Plan spec -> Create wave -> Add spec to wave -> Prepare wave -> Implement spec -> Review wave -> Close spec (per change, optional) -> Close wave.

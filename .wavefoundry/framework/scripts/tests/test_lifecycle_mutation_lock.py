@@ -20,6 +20,7 @@ from framework_files import source_path  # wf_server-aware source locations (wav
 
 # Extracted handlers resolve the public composition-root module per call.
 # Use the shared loader so patches target that exact module identity.
+from declaration_support import RecordingFastMCP, base_declaration
 from server_tools_support import load_server
 from record_layout_support import RecordTreeBuilder
 import vocabulary_profile
@@ -82,11 +83,7 @@ class MutationLockTests(unittest.TestCase):
                 release.wait(timeout=10)
                 return {"status": "ok", "data": {}}
 
-            def fast_tool(**kwargs):
-                return {"status": "ok", "data": {}}
-
             slow = self._wrapped(root, "wf_close_wave", slow_tool)
-            fast = self._wrapped(root, "wf_add_change", fast_tool)
             results = {}
             t = threading.Thread(target=lambda: results.update(slow=slow()))
             t.start()
@@ -1313,9 +1310,14 @@ class LifecycleRefusalContractTests(unittest.TestCase):
 
     def test_contention_from_another_thread_says_this_server_process(self):
         # AC-8 (last sentence)
+        handler = srv.build_handler(self.root)
+        self.addCleanup(handler.close)
+        registry = RecordingFastMCP()
+        self.enterContext(base_declaration())
+        srv.register_mcp_surface(registry, lambda: handler)
         holder = _HeldOnThread(self.ll, self.root)
         try:
-            result = self._wrapped("wf_add_change", lambda **kw: {"status": "ok"})()
+            result = registry._tool_manager._tools["wf_add_spec"].fn(wave_id="1aaaa", spec_id="1abcd")
         finally:
             holder.stop()
         self.assertEqual(self._codes(result), ["lifecycle_mutation_locked"])

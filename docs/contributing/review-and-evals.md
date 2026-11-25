@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-24
 
 ## Review Lane Summary
 
@@ -12,7 +12,7 @@ Last verified: 2026-11-22
 | `architecture-reviewer` | Cross-boundary or integration-contract changes | Yes |
 | `qa-reviewer` | Ordinary review of bug fixes and acceptance criteria when project policy requires QA | Yes |
 | `security-reviewer` | Trust boundary, guard mechanism, or allowed-roots changes | Yes |
-| `docs-contract-reviewer` | `docs/specs/*.md` behavioral contract changes | Yes at wave closure |
+| `docs-contract-reviewer` | `docs/architecture/contracts/` or legacy `docs/specs/*.md` behavioral contract changes | Yes at wave closure |
 | `performance-reviewer` | Indexing, search, or MCP response path changes | Advisory |
 | `release-reviewer` | Packaging, VERSION, or distribution format changes | Yes |
 | `council-readiness` | Before implementation when the current Prepare receipt requires readiness Council | Yes |
@@ -98,7 +98,7 @@ Before implementation begins, the wave-coordinator confirms:
 1. All changes marked `implemented`, `complete`, or `deferred` with explicit rationale for deferral
 2. All required review lanes from readiness are reconciled in `## Review Checkpoints` (including deferred with rationale when applicable)
 3. Confirm both phase rosters. Require `council-readiness` and `council-delivery` only for their respective phases when selected by the current Prepare receipt (typed, phase-scoped approval events on declared waves; prose lines count only on legacy waves)
-4. Docs-contract review: recorded as performed (findings in `## Review Checkpoints`) or `not applicable` with rationale, when any `docs/specs/*.md` changed during the wave
+4. Docs-contract review: recorded as performed (findings in `## Review Checkpoints`) or `not applicable` with rationale, when any `docs/architecture/contracts/` or legacy `docs/specs/*.md` changed during the wave
 5. Typed memory candidate review complete: review every actual wave-linked pending candidate, including candidates absent from current proposals; record evidence-based dispositions through the memory tools
 6. Promote only justified durable lessons; a wave may correctly yield zero new memories, with the rationale recorded inline in `wave.md`. Routine successful work does not require creating memory
 7. `docs/agents/session-handoff.md` cleared or refreshed to reflect post-closure state
@@ -431,7 +431,7 @@ Lance/FTS hybrid response-path gate.
 
 ## Docs-Contract Review
 
-At wave closure: if any `docs/specs/*.md` behavioral contract changed during the wave, record a docs-contract review with findings in `## Review Checkpoints`. If no behavior contracts changed, record `Docs-contract review: not applicable` with a one-line rationale.
+At wave closure: if any `docs/architecture/contracts/` or legacy `docs/specs/*.md` behavioral contract changed during the wave, record a docs-contract review with findings in `## Review Checkpoints`. If no behavior contracts changed, record `Docs-contract review: not applicable` with a one-line rationale.
 
 <!-- wavefoundry:review-policy:begin -->
 ## Review-policy evidence baseline

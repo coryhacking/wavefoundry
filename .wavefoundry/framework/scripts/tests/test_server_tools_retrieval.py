@@ -28,6 +28,8 @@ from unittest.mock import MagicMock, patch
 import graph_fixture_support as gfs
 import graph_snapshot
 
+from upstream_fixture_support import tool_contract_rel
+
 # The RETIRED standalone graph state store's relative path. Wave 1xny6 lane L6b
 # removed `index_state_store.GRAPH_STATE_STORE_RELPATH` with its last reader;
 # the only code that still NAMES the file is the upgrade's pre-deletion
@@ -5161,7 +5163,7 @@ class CodeAskTests(unittest.TestCase):
     def test_code_ask_does_not_call_write_path_tools(self):
         """AC-4 (12d4b): code_ask_response must never invoke write-path operations."""
         write_path_names = {
-            "index_build", "wf_sync_surfaces", "wf_add_change",
+            "index_build", "wf_sync_surfaces", "wf_add_spec",
             "wf_new_feature", "wf_new_bug",
         }
         srv = load_server()
@@ -14169,10 +14171,8 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
             self.assertEqual(len(candidate), 93)  # 2347r adds the read-tier wf_stats; 23q0s adds wf_cleanup_work
             self.assertEqual(
                 hashlib.sha256("\n".join(candidate).encode("utf-8")).hexdigest(),
-                # 1vqqi: roster digest re-measured after wf_techdocs_audit joined the surface;
-                # 1zlu1: re-measured after wf_close_change joined it; 23q0s: after
-                # wf_cleanup_work (the old value is this roster minus that name).
-                "05deeab173e4c2024816ab6e66b8fe398da0889654a489ab8ff6ddeb44590221",
+                # The five renamed operations still account for exactly five public tools.
+                "7c611e25fad17df0d20ab858edb16ce626e1d1908b57674f6887d7ea93e7a56f",
             )
 
         assert_tool_registry(names)
@@ -14247,7 +14247,7 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
         for anchor in ("Blocking lint errors", "pending_lint", "final gate", "complete"):
             self.assertIn(anchor, phase_two)
 
-        spec = (repo_root / "docs/specs/mcp-tool-surface.md").read_text(encoding="utf-8")
+        spec = (repo_root / tool_contract_rel(repo_root)).read_text(encoding="utf-8")
         detail = spec.split("`wf_audit_install(phase: int | None = None)`", 1)[1].split(
             "`wf_server_info()`", 1
         )[0]
@@ -14315,7 +14315,7 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
             SCRIPTS_ROOT.parent / "seeds" / "209-agent-harness-core.prompt.md"
         ).read_text(encoding="utf-8")
         spec = (
-            SCRIPTS_ROOT.parents[2] / "docs" / "specs" / "mcp-tool-surface.md"
+            SCRIPTS_ROOT.parents[2] / tool_contract_rel(SCRIPTS_ROOT.parents[2])
         ).read_text(encoding="utf-8")
         for surface_name, surface in (("seed 209", seed), ("tool spec", spec)):
             self.assertIn("evidence.execution_status", surface, surface_name)
@@ -14330,7 +14330,7 @@ class TestMcpWrapperParameterExposure(unittest.TestCase):
             SCRIPTS_ROOT.parent / "seeds" / "209-agent-harness-core.prompt.md"
         ).read_text(encoding="utf-8")
         spec = (
-            SCRIPTS_ROOT.parents[2] / "docs" / "specs" / "mcp-tool-surface.md"
+            SCRIPTS_ROOT.parents[2] / tool_contract_rel(SCRIPTS_ROOT.parents[2])
         ).read_text(encoding="utf-8")
         description = self._tool_description("wf_review_event")
         surfaces = {"seed 209": seed, "tool spec": spec, "tool description": description}
@@ -18456,14 +18456,14 @@ class EvidencePairDocumentationTests(unittest.TestCase):
                                 f"the tool description omits evidence_{name}")
 
     def test_the_specification_names_every_evidence_array(self):
-        spec = (self.REPO / "docs" / "specs" / "mcp-tool-surface.md").read_text()
+        spec = (self.REPO / tool_contract_rel(self.REPO)).read_text()
         for name in self.PAIRS:
             with self.subTest(pair=name):
                 self.assertTrue(f"evidence_{name}" in spec,
                                 f"the MCP specification omits evidence_{name}")
 
     def test_both_surfaces_state_the_presence_and_limit_semantics(self):
-        spec = (self.REPO / "docs" / "specs" / "mcp-tool-surface.md").read_text()
+        spec = (self.REPO / tool_contract_rel(self.REPO)).read_text()
         doc = self._tool_description()
         for surface, text in (("spec", spec), ("tool description", doc)):
             with self.subTest(surface=surface):
@@ -18507,7 +18507,7 @@ class ConfidenceBasisContractTests(unittest.TestCase):
         }
 
     def test_the_specification_names_the_field_and_every_value(self):
-        spec = (self.REPO / "docs" / "specs" / "mcp-tool-surface.md").read_text()
+        spec = (self.REPO / tool_contract_rel(self.REPO)).read_text()
         self.assertTrue("confidence_basis" in spec,
                         "the MCP specification omits confidence_basis")
         for value in sorted(self._values()):

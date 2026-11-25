@@ -8,7 +8,7 @@ Waves: ``set.md``, ``set-id``, ``## Waves``, ``Wave ID``, ``Wave Status`` and
 so on, mirroring a distribution that renamed its tiers to Set and Wave) and
 its nested live root. A fresh interpreter
 over the copied tree then runs discovery, docs-lint, ``list_waves``,
-``wf_get_change``, dashboard parsing, memory backfill and the review-policy
+``wf_get_spec``, dashboard parsing, memory backfill and the review-policy
 digest against those records.
 
 Every assertion is paired with a control: a tree with only the asset's layout

@@ -188,7 +188,7 @@ class AmbiguousWaveIdTests(_NestedRepo):
         plan = self.srv.change_create(self.root, "enh", "blocked-change", mode="create")
         before = self._snapshot()
         added = self.srv.wf_add_change_response(self.root, w1, plan["id"], mode="create")
-        self._assert_ambiguous("wf_add_change", added, w1)
+        self._assert_ambiguous("wf_add_spec", added, w1)
         self.assertEqual(before, self._snapshot(), "an ambiguous id must not move or write anything")
 
     def test_every_wave_resolving_tool_refuses_the_duplicate_identically(self):
@@ -200,9 +200,9 @@ class AmbiguousWaveIdTests(_NestedRepo):
         srv, root = self.srv, self.root
         calls = (
             ("wf_prepare_wave", lambda: srv.wf_prepare_wave_response(root, w1, mode="dry_run")),
-            ("wf_add_change", lambda: srv.wf_add_change_response(root, w1, plan["id"], mode="create")),
+            ("wf_add_spec", lambda: srv.wf_add_change_response(root, w1, plan["id"], mode="create")),
             # DC-C: removal resolves the wave the same way admission does.
-            ("wf_remove_change", lambda: srv.wf_remove_change_response(root, w1, plan["id"], mode="create")),
+            ("wf_remove_spec", lambda: srv.wf_remove_change_response(root, w1, plan["id"], mode="create")),
             ("wf_review_event", lambda: srv.wf_review_event_response(
                 root, w1, "approval", "qa", "ctx-1", mode="dry_run", signoff_key="qa",
             )),
@@ -216,7 +216,7 @@ class AmbiguousWaveIdTests(_NestedRepo):
             ("wf_audit", lambda: srv.wf_audit_response(root, cache=cache)),
             ("wf_audit", lambda: srv.wf_audit_response(root, wave_id=w1)),
             # Finding `cycle2-adjacent-gaps` (a): bulk change lookup by wave id.
-            ("wf_get_change", lambda: srv.wf_get_change_response(root, wave_id=w1)),
+            ("wf_get_spec", lambda: srv.wf_get_change_response(root, wave_id=w1)),
             # Finding `mark-item-decorator-unpinned`: both mark tools.
             ("wf_mark_item", lambda: srv._mark_change_item_response(
                 root, w1, plan["id"], "AC-1", "x", target_section="Acceptance Criteria", mode="dry_run",

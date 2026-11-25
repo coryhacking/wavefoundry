@@ -218,7 +218,7 @@ class BuilderLintTests(unittest.TestCase):
         run = self.runs["default"]
         self.assertEqual(run["live"], ["docs/waves/00070 built-wave", "docs/waves/change-2026-03"])
         self.assertIn("wave.md", run["record_files"])
-        self.assertIn("Change ID: `00071-enh built-member`", run["record_text"])
+        self.assertIn("Spec ID: `00071-enh built-member`", run["record_text"])
         self.assertEqual(run["archive"], [])
 
 
@@ -282,7 +282,7 @@ class DefaultProfileOnlyMarkerTests(unittest.TestCase):
 
         result = unittest.TestResult()
         with self._loaded(), mock.patch.object(
-                corpus.vp, "MEMBER_ID_LABEL_RE", re.escape(corpus.vp.MEMBER_ID_LABEL)), \
+                corpus.vp, "MEMBER_ID_LABEL_RE", corpus.vp._record_label_re(corpus.vp.MEMBER_ID_LABEL)), \
                 mock.patch.dict(os.environ, {"WAVEFOUNDRY_TEST_PROFILE": "declared"}):
             corpus.IsChangeIdTests("test_accepts_every_admitted_id_in_this_repository").run(result)
         self.assertEqual(result.testsRun, 1)

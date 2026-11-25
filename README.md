@@ -194,7 +194,7 @@ If you already work spec-first, the documents map across like this. The Spec Kit
 | What it is | Wavefoundry | Spec Kit | OpenSpec |
 | --- | --- | --- | --- |
 | The document that plans one piece of work | A **spec**: one file, `docs/plans/<id>.md`, moved into its wave folder on admission | A feature, with its own `spec.md`, `plan.md` and `tasks.md` | A change proposal folder `openspec/changes/<name>/` holding `proposal.md`, delta specs, `design.md` and `tasks.md` |
-| The durable description of current behavior | A **behavior contract** under `docs/specs/` | None mandated; the team chooses what happens to the feature documents after delivery, and the constitution persists | Main specs under `openspec/specs/` |
+| The durable description of current behavior | A **behavior contract** listed in `docs/architecture/contracts/index.md` | None mandated; the team chooses what happens to the feature documents after delivery, and the constitution persists | Main specs under `openspec/specs/` |
 | The unit that is reviewed and delivered together | A **wave**: one or more specs, readied, reviewed and closed as a bundle | No core equivalent found | No equivalent found |
 | What happens when the work is done | The spec stays in its closed wave folder as the record | Left to the team's retention policy | The change folder is archived and its deltas merge into the main specs |
 
@@ -303,7 +303,7 @@ If a required model cannot download, first retry `wf setup` when network access 
 
 ## Core concepts
 
-A *spec* explains why the team needs a change, what it covers and how the team will test it. A *wave* groups changes that the team reviews and closes together. The team keeps durable descriptions of implemented, tested behavior in *behavior contracts* under `docs/specs/`.
+A *spec* explains why the team needs a change, what it covers and how the team will test it. A *wave* groups changes that the team reviews and closes together. The team keeps durable descriptions of implemented, tested behavior in *behavior contracts* in the collection indexed by `docs/architecture/contracts/index.md`.
 
 ### Lifecycle
 
@@ -418,7 +418,7 @@ You don't have to memorize the phrases. In hosts that support skills — **Claud
 | `/wf-implement-wave` | `Implement wave` |
 | `/wf-review-wave` | `Review wave` |
 | `/wf-close-wave` | `Close wave` |
-| `/wf-close-spec` | `Close spec`: close one reviewed change inside the open wave with `wf_close_change`; never closes the wave |
+| `/wf-close-spec` | `Close spec`: close one reviewed change inside the open wave with `wf_close_spec`; never closes the wave |
 | `/wf-pause-wave` | `Pause wave` — park session state in the handoff |
 | `/wf-council` | Convene an on-demand review: Wave Council, Archetype Council, or a standalone Red-team review |
 | `/wf-evaluate-decision` | `Evaluate decision` — ADR-shaped comparison of two options |

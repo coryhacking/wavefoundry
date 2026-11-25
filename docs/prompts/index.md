@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-24
 
 The public catalog of shortcut phrases you can say to your agent. Each phrase routes to the documented prompt body for that command. See `AGENTS.md` for the agent-side routing table.
 
@@ -51,6 +51,7 @@ Stop at the requested step. Defining behavior or breaking it into tasks authoriz
 | **Implement spec** / **Implement change** | Single-change docs-first implementation | `docs/prompts/implement-spec.prompt.md` |
 | **Pause wave** | Park session state in handoff artifact | `docs/prompts/pause-wave.prompt.md` |
 | **Review wave** | Run required review lanes with AC reconciliation | `docs/prompts/review-wave.prompt.md` |
+| **Author behavior contract** | Write or update a behavior contract using the implementation and its tests | `docs/prompts/author-behavior-contract.prompt.md` |
 | **Explain** | Walk through a reviewed delivery or one spec, its design choices and verification | `docs/prompts/explain.prompt.md` |
 | **Review memories** / **Memory review** | Review and apply eligible memory consolidation, archival, and purge | `docs/prompts/memory-review.prompt.md` |
 | **Refresh TechDocs** / **Author TechDocs** | Generate the missing-only Backstage catalog and TechDocs baseline (MCP: `wf_techdocs_baseline(mode='run')` after a `mode='dry_run'` preview; CLI: `wf techdocs-baseline`; `catalog-info.yaml`, `mkdocs.yml`, `docs/index.md`; gated on the navigation targets existing), then author the published pages with the technical-writer-coordinated collaboration and validate with the publication audit (MCP: `wf_techdocs_audit`; CLI: `wf techdocs-audit`); an explicit read-only request selects the review-only branch, which runs the audit alone and writes nothing; registration and publication stay operator-owned | `docs/prompts/refresh-techdocs.prompt.md` |
@@ -58,7 +59,7 @@ Stop at the requested step. Defining behavior or breaking it into tasks authoriz
 | **Index build status** | Poll background index refresh progress | MCP: `index_build_status(layer?)` — use after `wf setup --background-code`, `wf setup --background-docs`, or any detached refresh |
 | **GPU doctor** | Embedding-provider / GPU capability diagnostic (platform, ONNX providers, selected provider, CUDA ABI-gap) | MCP: `wf_gpu_doctor()`; CLI: `wf gpu-doctor` (same report; also `wf setup --check-gpu`) |
 | **Close wave** | Close and archive the wave with closure reconciliation; the only wave close | `docs/prompts/close-wave.prompt.md` |
-| **Close spec** / **Close change** | Close one admitted change inside the open wave with `wf_close_change` (marks it `complete`, activates dependents; optional, after Review wave) | `docs/prompts/close-spec.prompt.md` |
+| **Close spec** / **Close change** | Close one admitted change inside the open wave with `wf_close_spec` (marks it `complete`, activates dependents; optional, after Review wave) | `docs/prompts/close-spec.prompt.md` |
 | **Review plan** / **Interrogate this plan** / **Stress-test this plan** | Optionally stress-test a spec, or the current wave when no change is named, before or after admission and before implementation; records no signoff and satisfies no gate | `docs/prompts/review-plan.prompt.md` |
 | **Council review** / **Run council** | Two-phase adversarial council review on any artifact: red-team primer → fixed seats → synthesis | `docs/prompts/council-review.prompt.md` |
 | **Red-team review** / **Red team this** | Standalone single-stance adversarial pass on one artifact (plan, code, ADR, design, prose, workflow); mode chosen from the red-team specialist's standalone lenses; records no signoffs, satisfies no gate | `docs/prompts/red-team-review.prompt.md` |

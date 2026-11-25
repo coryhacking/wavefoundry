@@ -182,7 +182,7 @@ class LifecycleLineEndingTests(unittest.TestCase):
                           **({"intent_fit": "establishes"} if "council" in key else {})},
                 integrity_checks=integrity_checks()))
         self.assert_shape(shape, wave_md, "delivery review")
-        self.ok(call("wf_close_change", wave_id=wid, change_id=cid, mode="create"))
+        self.ok(call("wf_close_spec", wave_id=wid, spec_id=cid, mode="create"))
         self.assert_shape(shape, wave_md, "close change")
         self.assert_shape(shape, spec, "close change")
         self.ok(close_container(call, root, wid, mode="create"))

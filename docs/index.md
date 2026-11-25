@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-19
+Last verified: 2026-11-24
 
 **Wavefoundry enables a single engineer or small team to take on the work of an exceptional engineering department.** Use your coding agent to plan a change, test the result and leave the next contributor a record of what the team decided.
 
@@ -17,6 +17,8 @@ Your agent records the request and its acceptance criteria in a *spec*. When you
 - **Setting up a repository?** Start with the [installation walkthrough](https://github.com/coryhacking/wavefoundry/blob/main/README.md#prerequisites).
 - **Ready to make a change?** Follow a [health-check fix or enhancement](https://github.com/coryhacking/wavefoundry/blob/main/README.md#fix-a-bug-or-add-an-enhancement) from the first request through testing and review.
 - **Looking for a command?** Find the phrase for planning, implementation, review or closure in [Workflow and agent commands](prompts/index.md).
+
+For the behavior that callers can rely on across releases, see [Behavior contracts](architecture/contracts/index.md).
 
 For work spanning several deliveries, see the [product overview](references/wavefoundry-overview.md) and [Vision and Roadmap](https://github.com/coryhacking/wavefoundry/blob/main/VISION.md). The [project overview](references/project-overview.md#vocabulary) defines the terms used in the workflow.
 
@@ -51,7 +53,7 @@ Agents reach the index and the repository through MCP tool families; every tool 
 | Agent memory | `memory_add`, `memory_propose`, `memory_search` |
 | Index operations | `index_health`, `index_build`, `index_build_status` |
 
-Read-only MCP resources such as `wavefoundry://overview` and `wavefoundry://waves` expose the same documents without a tool call (the `@mcp.resource` registrations in `server_impl.register_mcp_surface`; [Data and control flow](architecture/data-and-control-flow.md), Path 6b step 2). Retrieval design lives in [Search architecture](architecture/search-architecture.md) and [Graph index system](architecture/graph-index-system.md); the full tool contract is `docs/specs/mcp-tool-surface.md` (repository path, outside this site). Before opening files, the generated [codebase map](references/codebase-map.md) shows the code's major areas and entry points. Its per-area "Area context" entries preserve existing `AGENTS.md` targets as inline-code repo-relative prose paths, so the TechDocs publication audit reports zero boundary findings for them while agents retain the routing information.
+Read-only MCP resources such as `wavefoundry://overview` and `wavefoundry://waves` expose the same documents without a tool call (the `@mcp.resource` registrations in `server_impl.register_mcp_surface`; [Data and control flow](architecture/data-and-control-flow.md), Path 6b step 2). Retrieval design lives in [Search architecture](architecture/search-architecture.md) and [Graph index system](architecture/graph-index-system.md); the full tool contract is `docs/architecture/contracts/mcp-tool-surface.md` (repository path, outside this site). Before opening files, the generated [codebase map](references/codebase-map.md) shows the code's major areas and entry points. Its per-area "Area context" entries preserve existing `AGENTS.md` targets as inline-code repo-relative prose paths, so the TechDocs publication audit reports zero boundary findings for them while agents retain the routing information.
 
 > **Docs gate.** Every page under `docs/` carries `Owner`, `Status`, and `Last verified` metadata and passes docs lint. Agents run `wf_validate_docs` and `wf_garden_docs` over MCP (`wf_validate_docs` and `wf_garden_docs`, `wf_server/server_impl.py`; `docs_gardener.gardener_run`, lines 282-320); the CLI fallback is `wf docs-lint` (`wf_cli.py` line 37, writer-verified).
 

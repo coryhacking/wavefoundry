@@ -10,7 +10,7 @@ Persona agents are distinct from agent roles. Agent roles (planner, implementer,
 Evidence sources to inspect:
 
 1. Architecture docs (`docs/ARCHITECTURE.md`, `docs/architecture/`) — who interacts with each layer of the system? What roles does the architecture assume (end user, admin, API consumer, background operator)?
-2. Behavior contracts (`docs/specs/*.md`) — who triggers the behaviors described? What configurations, schedules, or preferences do they manage?
+2. Behavior contracts in the maintained collection — who triggers the behaviors described? What configurations, schedules, or preferences do they manage?
 3. Deployment and platform docs — who installs, configures, and updates the software? Is there a difference between an end user and an administrator?
 4. UI or interaction surface — what user-facing workflows exist? What does daily use look like?
 5. Reliability and failure docs (`docs/RELIABILITY.md`) — what failure modes exist? Who experiences them and how do they notice?

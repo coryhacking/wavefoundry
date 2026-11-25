@@ -192,7 +192,7 @@ RISK_TRIGGER_LANES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("code-reviewer", (".py", ".js", ".ts", ".go", ".rs", "src/", "framework/scripts/")),
     ("qa-reviewer", ("tests/",)),
     ("architecture-reviewer", ("docs/architecture", "docs/architecture.md")),
-    ("docs-contract-reviewer", ("framework/seeds/", "docs/prompts/", "docs/specs/")),
+    ("docs-contract-reviewer", ("framework/seeds/", "docs/prompts/", "docs/specs/", "docs/architecture/contracts/")),
     ("release-reviewer", ("upgrade_wavefoundry.py", "build_pack.py")),
 )
 
@@ -207,7 +207,7 @@ LEGACY_WHOLE_DOCUMENT_TRIGGER_LANES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("code-reviewer", ("-feat ", "-enh ", "-refactor ", ".py", ".js", ".ts", ".go", ".rs", "src/", "framework/scripts/")),
     ("qa-reviewer", ("-bug ", "tests/", "regression", "test harness", "fixture path")),
     ("architecture-reviewer", ("docs/architecture", "protocol boundary", "ownership change", "state machine", "public abi")),
-    ("docs-contract-reviewer", ("framework/seeds/", "docs/prompts/", "docs/specs/", "public contract")),
+    ("docs-contract-reviewer", ("framework/seeds/", "docs/prompts/", "docs/specs/", "docs/architecture/contracts/", "public contract")),
     ("release-reviewer", ("upgrade_wavefoundry.py", "build_pack.py", "release artifact", "distribution boundary")),
 )
 
@@ -316,6 +316,10 @@ _implement_doc = vocabulary_profile.prompt_doc("implement-wave")
 _create_doc = vocabulary_profile.prompt_doc("create-wave")
 _agent_review_doc = vocabulary_profile.agent_prompt_doc("review-wave")
 _PREPARE_TITLE = vocabulary_profile.shortcut_title("prepare-wave")
+
+TOOL_CONTRACT = "docs/architecture/contracts/mcp-tool-surface.md"
+LEGACY_TOOL_CONTRACT = "docs/specs/mcp-tool-surface.md"
+TOOL_CONTRACT_PATHS = (TOOL_CONTRACT, LEGACY_TOOL_CONTRACT)
 
 REVIEW_POLICY_SURFACE_BLOCKS = {
     _prepare_doc: f"""## Review-policy readiness
@@ -430,10 +434,10 @@ reverification.""",
 
 The review policy records phase-scoped approval_phase evidence separately for
 readiness and delivery.""",
-    "docs/specs/mcp-tool-surface.md": """## Review-policy tool baseline
+    **dict.fromkeys(TOOL_CONTRACT_PATHS, """## Review-policy tool baseline
 
 Typed review tools preserve the current policy receipt, phase-scoped
-approval_phase evidence, and evidence-integrity checks.""",
+approval_phase evidence, and evidence-integrity checks."""),
     "docs/references/dashboard-adapter-model.md": """## Review-policy dashboard baseline
 
 Dashboard review state projects the current review-policy receipt rather than
@@ -494,8 +498,10 @@ REVIEW_POLICY_CARRIER_REGISTRY = (
     ReviewPolicyCarrier("policy-baseline:review-and-evals", "docs/contributing/review-and-evals.md", "renderer", (), True, False),
     ReviewPolicyCarrier("docs/contributing/lifecycle-overview.md", "docs/contributing/lifecycle-overview.md", "direct_docs", ("policy", "phase"), True, False),
     ReviewPolicyCarrier("policy-baseline:lifecycle", "docs/contributing/lifecycle-overview.md", "renderer", (), True, False),
-    ReviewPolicyCarrier("docs/specs/mcp-tool-surface.md", "docs/specs/mcp-tool-surface.md", "direct_docs", ("receipt", "integrity", "phase"), True, False),
-    ReviewPolicyCarrier("policy-baseline:mcp-tool-surface", "docs/specs/mcp-tool-surface.md", "renderer", (), True, False),
+    *(carrier for path in TOOL_CONTRACT_PATHS for carrier in (
+        ReviewPolicyCarrier(path, path, "direct_docs", ("receipt", "integrity", "phase"), True, False),
+        ReviewPolicyCarrier("policy-baseline:mcp-tool-surface", path, "renderer", (), True, False),
+    )),
     ReviewPolicyCarrier("docs/agents", "docs/agents", "direct_docs", ("policy", "repair_census"), True, False),
     ReviewPolicyCarrier("docs/references/dashboard-adapter-model.md", "docs/references/dashboard-adapter-model.md", "direct_docs", ("dashboard_policy",), True, False),
     ReviewPolicyCarrier("policy-baseline:dashboard-adapter", "docs/references/dashboard-adapter-model.md", "renderer", (), True, False),

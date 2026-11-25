@@ -31,5 +31,21 @@
     "heading_context": "## Distribution Extension Tools",
     "reviewed_by": "docs-contract-reviewer (independent agent assessment; no human identity asserted)",
     "evidence": "docs/waves/206is journal-hook-follow-up/evidence/delivery/wf-206is-delivery-docs-disposition-probe.log"
+  },
+  {
+    "key": "v2:0461b61b129bb5f0859d103136d48a18",
+    "status": "historical-record",
+    "file": "docs/plans/243hz-bug memory-eval-measures-production-path.md",
+    "matched": "wf_remove_change",
+    "heading_context": "# Memory eval measures the production search path",
+    "reason": "The withdrawn plan records the operator-directed removal on 2026-11-23 under the tool name served that day."
+  },
+  {
+    "key": "v2:144a1b19ca92289b321eeeea1e8ea8f2",
+    "status": "historical-record",
+    "file": "docs/plans/243hz-bug memory-eval-measures-production-path.md",
+    "matched": "wf_remove_change",
+    "heading_context": "## Progress Log",
+    "reason": "The withdrawn plan records the operator-directed removal on 2026-11-23 under the tool name served that day."
   }
 ]

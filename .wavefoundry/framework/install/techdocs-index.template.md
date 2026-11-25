@@ -10,4 +10,5 @@ Technical documentation for the `{{entity_name}}` project.
 
 - [Project overview](references/project-overview.md)
 - [Architecture](ARCHITECTURE.md)
+{{if_contract_index}}- [Behavior contracts](architecture/contracts/index.md)
 - [Workflow and agent commands](prompts/index.md)

@@ -10,6 +10,7 @@ nav:
   - Dashboard install and upgrade: references/dashboard-install-upgrade.md
   - Release flow: references/release-flow.md
   - Architecture: ARCHITECTURE.md
+  - Behavior contracts: architecture/contracts/index.md
   - Workflow and agent commands: prompts/index.md
 exclude_docs: |
   /*
@@ -22,3 +23,4 @@ exclude_docs: |
   !/prompts/
   /prompts/*
   !/prompts/index.md
+  /architecture/contracts/mcp-tool-surface.md

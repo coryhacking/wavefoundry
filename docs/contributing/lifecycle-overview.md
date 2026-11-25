@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-24
 
 Adapted from `.wavefoundry/framework/seeds/001-framework-lifecycle-overview.md` for Wavefoundry's specific reviewer roles, personas, and artifact paths.
 
@@ -18,7 +18,7 @@ The lifecycle has five stages. The facts for each stage (what you do, what runs 
 2. **Prepare wave**: **Create wave** writes `docs/waves/<wave-id>/wave.md`; **Add spec to wave** admits the spec and moves it into the wave folder; **Prepare wave** validates docs, records the review-policy receipt and runs the readiness lanes. In ordinary review the readiness Wave Council then records `council-readiness`; an operator-selected small change uses an independent code reviewer instead. Implementation refuses until the required readiness approval is recorded. Readying does not take the OPEN slot.
 3. **Implement wave**: activate the wave (by default one wave is OPEN at a time) and build every admitted spec, marking tasks and ACs as they complete. Framework and seed edits need the `framework_edit_allowed` and `seed_edit_allowed` gates open.
 4. **Review wave**: run the required delivery lanes. The delivery Wave Council records `council-delivery` only when the current receipt selects it (`delivery_mode: targeted` escalates on boundary triggers). Blocking findings return to implementation through the repair loop.
-5. **Close wave**: the operator signs off and tells the agent to close. Optional **Close spec** (`wf_close_change`) first closes one reviewed change. **Pause wave** parks work; a reviewed paused wave shows **Awaiting closure**. In this framework source repository, close also checks the framework test receipt. The operator commits the result.
+5. **Close wave**: the operator signs off and tells the agent to close. Optional **Close spec** (`wf_close_spec`) first closes one reviewed change. **Pause wave** parks work; a reviewed paused wave shows **Awaiting closure**. In this framework source repository, close also checks the framework test receipt. The operator commits the result.
 
 ## Wavefoundry-Specific Reviewer Roles
 

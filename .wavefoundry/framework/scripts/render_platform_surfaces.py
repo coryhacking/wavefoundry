@@ -2168,12 +2168,34 @@ def _load_tool_roster():
     return mcp_tool_roster
 
 
-def selected_permission_rules(settings: dict) -> tuple[str, ...]:
-    """Both upgrade reporting and rendering use the operator's strict JSON booleans."""
-    return _load_tool_roster().allow_rules(
+def selected_permission_rules(settings: dict, *, root=None) -> tuple[str, ...]:
+    """Return permitted managed grants for this project and the operator's tier selection."""
+    roster = _load_tool_roster()
+    rules = roster.allow_rules(
         include_write=settings.get(PERMISSIONS_WRITE_TIER_KEY) is True,
         include_low_risk=settings.get(PERMISSIONS_LOW_RISK_KEY) is True,
     )
+    if root is None:
+        return rules
+    from spec_tool_permissions import assess
+    routes = roster.mcp_tool_extensions.stock_spec_routes()
+    held, manual = assess(root, routes, roster.MCP_RULE_PREFIX)
+    permissions = settings.get("permissions", {})
+    allow = permissions.get("allow", []) if isinstance(permissions, dict) else []
+    prior = settings.get(PERMISSIONS_PROVENANCE_KEY, [])
+    prefix = roster.MCP_RULE_PREFIX
+    managed = set()
+    if isinstance(prior, list) and isinstance(allow, list):
+        managed = {rule for rule in prior if isinstance(rule, str) and rule in allow}
+    suppress = set(held)
+    retained = []
+    for old, new in routes.items():
+        predecessors = {prefix + old, prefix + new}
+        if new in manual and predecessors.isdisjoint(managed):
+            suppress.add(new)
+        if new in held and prefix + old in managed and prefix + new in rules:
+            retained.append(prefix + old)
+    return tuple(dict.fromkeys([rule for rule in rules if rule.removeprefix(prefix) not in suppress] + retained))
 
 
 def render_claude_permissions(repo_root: Path) -> None:
@@ -2266,7 +2288,7 @@ def render_claude_permissions(repo_root: Path) -> None:
             )
             return
         existing = loaded
-    desired = list(selected_permission_rules(existing))
+    desired = list(selected_permission_rules(existing, root=repo_root))
     desired_set = set(desired)
     prior_raw = existing.get(PERMISSIONS_PROVENANCE_KEY)
     claimed_set = (
@@ -2617,11 +2639,27 @@ _RENAMED_MCP_TOOLS: dict[str, str] = {
 }
 
 
+# Keep the original hook handler identities private. Upgrade recommendations
+# follow all historical renames to the current stock spelling in one step.
+from mcp_tool_extensions import SPEC_TOOL_NAMES, retired_stock_tools
+_RENAMED_MCP_TOOLS = {old: SPEC_TOOL_NAMES.get(target, target)
+                      for old, target in _RENAMED_MCP_TOOLS.items()}
+_RENAMED_MCP_TOOLS.update((old, SPEC_TOOL_NAMES[old]) for old in retired_stock_tools())
+
+
 def renamed_tool_suggestion(old_name: str) -> str:
     """Human-facing suggestion for a renamed MCP tool reference."""
     new_name = _RENAMED_MCP_TOOLS.get(old_name)
     if not new_name:
         return "removed tool; consult the current tool list (wf_help)"
+    if old_name in SPEC_TOOL_NAMES:
+        from mcp_tool_extensions import served_name_map, stock_spec_routes
+        if old_name not in stock_spec_routes():
+            alternate = served_name_map().get(old_name)
+            if alternate:
+                return f"{alternate} (distribution route; check the served parameters with wf_help)"
+            return "Use wf_help to inspect the distribution declaration and select an authorized route."
+        return f"{new_name} (use spec_id wherever the older operation accepted change_id)"
     return f"{new_name} (MCP tool renamed in 1.14.0)"
 
 

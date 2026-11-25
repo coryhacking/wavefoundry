@@ -15,7 +15,7 @@ qualified Tensorwell controller using its existing configuration. Registration a
 non-inference tools remain responsive; imports, dry-run, reload and status reads do not
 start it. `wf_server_info().data.tensorwell` adds compact cached backend, profile and
 startup/fallback state without credentials or input text. No new MCP tool is added.
-See [inference compatibility and opt-out](../architecture/embedding-model.md#optional-tensorwell-execution-wave-20nju).
+See [inference compatibility and opt-out](../embedding-model.md#optional-tensorwell-execution-wave-20nju).
 
 Wavefoundry exposes framework-aware operations through a local MCP stdio server so
 agents can inspect project state, search indexed content, create specs,
@@ -84,7 +84,7 @@ Finding content, finding paths, hashes and identities are never returned. Bounde
 
 ### Execution and presentation
 
-No network, model loading, subprocess, external counter, scan or rebuild runs. The index collector may maintain SQLite sidecars, refresh statistics from finished logs and remove finished build-state metadata; other project files and canonical index data are preserved. An absent store or malformed/unreadable build state degrades instead of triggering cleanup. The index section can take several seconds on a large store; omit it when not needed. Edits to retained `dashboard_lib` code require an MCP host restart.
+No network, model loading, subprocess, external counter, scan or rebuild runs. Reading the index can touch SQLite WAL or shared-memory sidecars. When build polling observes completion, it can refresh `index-build-stats.json` from the log and clear `index-build.json`; other project files and canonical index data are preserved. An absent store or malformed/unreadable build state degrades instead of triggering cleanup. The index section can take several seconds on a large store; omit it when not needed. Edits to retained `dashboard_lib` code require an MCP host restart.
 
 `/wf-stats` presents returned data as a concise summary and labelled tables, prioritizing effective counts and their limits over legacy compatibility fields. It preserves scope, estimates and unavailable reasons without recounting. The CLI is the fallback when MCP is unavailable.
 
@@ -454,6 +454,11 @@ Explicit extension selection never falls back to Tensorwell/local models; existi
 caller degradation remains explicit. Credentials, endpoints and model files remain
 downstream-owned. An adapter gains no daemon lifecycle ownership. The synthetic
 adapter tests exercise the contract without live enterprise or hardware qualification.
+
+A distribution’s TLS client can use the supported Python import
+`from trust_bundles import trust_bundle_candidates` from the framework scripts
+directory. The accessor returns setup’s ordered CA paths without initializing
+setup or changing the environment. See the [bundle order and client example](../../../.wavefoundry/framework/README.md#discover-ca-bundles-in-a-downstream-client).
 
 **Helper modules (wave `1zls8`).** A distribution's extension modules may share code through
 helper modules named in `EXTENSION_HELPER_MODULES`. Each is loaded in declaration order, before any
@@ -839,7 +844,7 @@ boundary. Its trigger is selected statically from `EXTENSION_JOURNAL_PRE_MIGRATI
 | Unreadable/refused or unparseable source | Later versions skip with path-free uncertainty diagnostic and no declaration execution; retain original pre-1.15 validated apply-time load/refusal | Report unknown, never silently default or execute the declaration |
 
 The opt-in presence predicate inspects only metadata for direct regular singly linked `*.md`
-files under the contained standard `docs/agents/journals/` directory, excluding `README.md`.
+files in the legacy `docs/agents/journals/` directory used by **Migrate journals**, excluding `README.md`.
 It reads no journal content and does not use the mechanical preview's `left` list as eligibility.
 Missing, empty, README-only, nested-only, symlink and hardlink sources produce no opted-in hook
 invocation on any version. Discovery is neither recursive nor configurable through a new source
@@ -1020,7 +1025,7 @@ Initial core set:
 | `wf_gpu_doctor`    | Embedding-provider / GPU capability diagnostic — platform, onnxruntime, GPU detection (nvidia/apple), available ONNX providers, the provider Wavefoundry would select (+ reason/remediation + `decision_provenance`: `setup-cache` when honoring the setup-recorded decision, `fresh-probe` for an in-process probe, or `operator-request` when `WAVEFOUNDRY_EMBED_PROVIDER` forced the selection), CUDA 12/13 ABI-gap. Read-only (no index build) but runs the bounded model-loading provider probe — the same probe setup uses; same report as the `wf gpu-doctor` dispatcher subcommand and `setup-wavefoundry --check-gpu` |
 
 
-The `wf_new_<kind>` family has one tool per core change kind. Use the kind-specific tool that matches the change; `wf_new_change` is the general fallback.
+The `wf_new_<kind>` family has one tool per core change kind. Use the kind-specific tool that matches the change; `wf_new_spec` is the general fallback.
 
 **Retired kinds (wave `1zli8`).** `vocabulary_profile.RETIRED_CHANGE_KINDS` (`feat`) names the kinds no creation path mints. They stay in `CHANGE_KINDS`, so existing ids lint unchanged. `wf_new_feature` stays registered and returns `status: "error"` with one `change_kind_retired` diagnostic carrying `vocabulary_profile.retired_kind_message(kind)`, recovery tool and `next_tools` `wf_new_enhancement`, and writes nothing (no lifecycle id is minted); a `feat` request is never remapped. `wf lifecycle-id --kind feat` keeps `feat` as a parseable choice and exits 2 with the same message on stderr.
 
@@ -1028,7 +1033,7 @@ The `wf_new_<kind>` family has one tool per core change kind. Use the kind-speci
 `vocabulary_profile.CHANGE_KINDS`: the fixed core kinds above plus a distribution's
 `EXTRA_CHANGE_KINDS` (see `docs/architecture/layering-rules.md`, vocabulary profile paragraph).
 Docs-lint, the server and `wf lifecycle-id --kind` accept every declared kind, and a change id
-whose kind is not declared lints as `uses undeclared change kind '<kind>'`. `wf_new_change` stays
+whose kind is not declared lints as `uses undeclared change kind '<kind>'`. `wf_new_spec` stays
 `kind=change`, and no core tool is added per extra kind. A distribution serves its own kind
 through its own write-tier extension tool that calls the public helper
 `server_impl.change_doc_response(root, kind, slug, *, cache=None)`: it creates the spec
@@ -1409,8 +1414,23 @@ The response `data` carries the engine's aggregate report only:
   `headline_variant` (`production`) and `headline_split` (`heldout`).
 - `query_set`: `available`, `reason` (`query_set_absent`, `query_set_invalid`,
   `query_set_unfrozen`, `query_set_lock_invalid` or `query_set_hash_mismatch`),
-  `sha256`, and case counts: `cases`, `scored`, `leakage_rejected`,
-  `cosine_rejected` and per case type.
+  `sha256`, `version`, and case counts: `cases`, `scored`, `leakage_rejected`,
+  `cosine_rejected` and per case type. Version 1 is the pair above; version N of 2 or
+  more is `docs/evals/memory-query-set.vN.json` with `memory-query-set.vN.lock.json`
+  (change 246to). The pass scores the highest version that has both files, and version 1
+  when none does; `memory_eval.py --query-set-version N` names one.
+- `maintenance_signals` (change 246to), computed without any model and reported whether or
+  not the pass is available: `active_records`, `unresolved_target_records`,
+  `unresolved_target_fraction` (4 places, `null` with no active records),
+  `not_canonical_target_records`, `churn_flagged_records`, `coverage_gap_records` (active
+  records with a file target and a summary whose id is the `source_id` of fewer than 2
+  answerable scored cases; `null` with no available query set), `uncoverable_records` (a
+  count) and `check_outcomes` (`flagged` and `unflagged`, each split into `active` and
+  `retired`, over live and archived bodies carrying a `Check flags:` line). The ids behind
+  `uncoverable_records` come only from `memory_eval.uncoverable_records(root, query_set)`
+  and `memory_eval.py --uncoverable-records ROOT`, which print each active record with a
+  `coverage_gap` or `no_rationale` reason (neither `Validation rationale:` nor
+  `Action delta:`), sorted by id.
 - `metrics` per split (`heldout`, `dev`) and arm (`no_memory`, `grep`,
   `bm25_only`, `dense_only`, `hybrid_no_rerank`, `production`, `full_context`,
   plus the informational `dense_summary_only` and `dense_compact`): `recall_at_5`
@@ -1538,11 +1558,11 @@ registration.
 | `memory_search` | read | Search agent memory records by query, target file/symbol, kind, or status. | Lifecycle Mutations |
 | `memory_validate` | write | Validate one evidence-derived memory candidate with focused agent judgment. | Lifecycle Mutations |
 | `seed_get` | read | Retrieve a framework seed prompt by name or partial slug. | Search And Retrieval |
-| `wf_add_change` | write | Admit a change into a wave's Changes section. | Lifecycle Mutations |
+| `wf_add_spec` | write | Admit a spec into a wave's Changes section. | Lifecycle Mutations |
 | `wf_audit` | read | Aggregate read-only audit: wave state + docs validation + a FAST index readiness snapshot. | Audit |
 | `wf_audit_install` | read | Audit install state via .wavefoundry/install-log.md. | Framework Operations |
 | `wf_cleanup_work` | write | Preview, or on the operator's direction remove, ONE retained work folder. | Lifecycle Mutations |
-| `wf_close_change` | write | Close ONE admitted change inside an OPEN wave and activate its dependents. | Lifecycle Mutations |
+| `wf_close_spec` | write | Close one admitted spec inside an OPEN wave and activate its dependents. | Lifecycle Mutations |
 | `wf_close_gate` | write | Close an edit gate in .wavefoundry/guard-overrides.json. | Framework Operations |
 | `wf_close_wave` | write | Dry-run or close a wave after validation passes. | Lifecycle Mutations |
 | `wf_context_efficiency_eval` | write | Register or attach quality-gated paired context-efficiency evidence. | Paired evaluation |
@@ -1550,7 +1570,7 @@ registration.
 | `wf_current_wave` | read | Return the active wave ID, lifecycle status, and admitted changes. | Wave Inspection |
 | `wf_garden_docs` | write | Run docs_gardener to update Last verified dates. | Framework Operations |
 | `wf_gate_status` | read | Return the current enabled/disabled state of all edit gates. | Framework Operations |
-| `wf_get_change` | read | Return a spec by ID, or all specs for a wave in bulk. | Wave Inspection |
+| `wf_get_spec` | read | Return a spec by ID, or all specs for a wave in bulk. | Wave Inspection |
 | `wf_get_handoff` | read | Read the session handoff document (docs/agents/session-handoff.md). | Wave Inspection |
 | `wf_get_prompt` | read | Return the full rendered prompt for a Wave Framework shortcut phrase. | Wave Inspection |
 | `wf_gpu_doctor` | read | Embedding-provider / GPU capability diagnostic — platform, onnxruntime, GPU detection (nvidia/apple), available ONNX execution providers, the provider Wavefoundry would select (+ reason/remediation + decision provenance: setup-cache / fresh-probe / operator-request), and the CUDA 12/13 ABI-gap check. | Framework Operations |
@@ -1564,7 +1584,7 @@ registration.
 | `wf_mark_task` | write | Mark one task complete (``x``) or deferred (``~``) by its full label or a unique prefix. | Lifecycle Mutations |
 | `wf_memory_eval` | write | Inspect this repository's memory-retrieval diagnostics (aggregate only). | `wf_memory_eval` |
 | `wf_new_bug` | write | Create a scaffolded bug spec (kind=bug). | Change Creation |
-| `wf_new_change` | write | Create a scaffolded general spec (kind=change). | Change Creation |
+| `wf_new_spec` | write | Create a scaffolded general spec (kind=change). | Change Creation |
 | `wf_new_documentation` | write | Create a scaffolded documentation spec (kind=doc). | Change Creation |
 | `wf_new_enhancement` | write | Create a scaffolded enhancement spec (kind=enh). | Change Creation |
 | `wf_new_feature` | write | Retired: the feat kind is no longer minted for new specs. | Change Creation |
@@ -1578,7 +1598,7 @@ registration.
 | `wf_pause_wave` | write | Write or preview a session handoff entry for an active wave. | Lifecycle Mutations |
 | `wf_prepare_wave` | write | Transactional prepare check: validates docs, runs the prepare-phase council gate, and (mode-dependent) readies or opens the wave. | Lifecycle Mutations |
 | `wf_reload_mcp` | write | Reload MCP implementation module without restarting the stdio server. | Framework Operations |
-| `wf_remove_change` | write | Remove an admitted change from a wave's Changes section. | Lifecycle Mutations |
+| `wf_remove_spec` | write | Remove an admitted spec from a wave's Changes section. | Lifecycle Mutations |
 | `wf_reopen_wave` | write | Reopen a closed OR PAUSED wave, restoring it to active status. | Lifecycle Mutations |
 | `wf_restart_dashboard` | write | Restart the local dashboard server for this repository. | Framework Operations |
 | `wf_review_event` | write | Preview, append, or LIST compact executable-review evidence without hand-authoring JSONL. | Lifecycle Mutations |
@@ -1854,9 +1874,11 @@ action when known.
   `wave_record_unreadable` diagnostic per unreadable entry, and `status` stays
   `ok`.
 
+Both `wf_current_wave` and `wf_list_waves` expose `waves[].changes[].spec_id` alongside each member’s existing `id`.
+
 `wf_list_plans(limit: int = 50)`
 
-- Lists pending specs under `docs/plans/`.
+- Lists pending specs under `docs/plans/`. Each entry exposes `spec_id` alongside its existing `id`.
 - Optional `limit`: max plans to return, default `50`, clamped `[1, 200]`.
 - Response `data` includes `plans` (truncated list), `total` (untruncated count), and
 `has_more` (boolean indicating whether results were truncated).
@@ -1874,19 +1896,19 @@ action when known.
   target's content never appears and a FIFO cannot block the listing. The dashboard's plan
   rows apply the same rule.
 
-`wf_get_change(change_id: str = "", wave_id: str = "")`
+`wf_get_spec(spec_id: str = "", wave_id: str = "")`
 
-- Returns a spec by ID or prefix.
+- Returns a spec by ID or prefix. Pass the ID as `spec_id`. Stock results use `spec_id` to identify each spec. A distribution that explicitly declares an older alias retains its declared schema.
 - A single-id lookup applies the same member-doc read rule to every candidate (wave
   `200xy`): a spec that is a link, a directory or another non-regular file (a
   FIFO, say) is never followed or opened. A candidate whose name matches is returned as an
   unreadable match, with empty content and a path-free `read_error`, so neither the
   target's content nor its path appears and a FIFO cannot block the lookup. A candidate
   that resolves to a framework runtime lock, through a symbolic link or a hard link, is
-  marked `refused` and never opened. The `wavefoundry://change/{change_id}` resource
+  marked `refused` and never opened. The `wavefoundry://spec/{spec_id}` resource
   returns `# Refused` for a lock and `# Unreadable Change` with the path-free cause
   otherwise.
-- With `wave_id` and no `change_id`, returns all admitted specs for the matching wave.
+- With `wave_id` and no `spec_id`, returns all admitted specs for the matching wave.
   Each member is found by its exact name, `<wave folder>/<id>.md`, falling back to
   `<plans root>/<id>.md` for a staged member (wave `1zxo0`); there is no recursive or
   substring search, so a member whose id is part of another member's id gets its own
@@ -1897,18 +1919,18 @@ action when known.
   never followed.
 - A member-id line in the wave record whose value is not a change id of the form
   `<prefix>-<kind> <slug>` is never read and never echoed (wave `1zxo0`). Bulk
-  `wf_get_change` lists only the valid members and adds an advisory `change_id_invalid`
+  `wf_get_spec` lists only the valid members and adds an advisory `change_id_invalid`
   diagnostic naming the record path and line number and the reason class (`control
   character`, `path character` or `shape`). `wf_prepare_wave`, `wf_implement_wave`,
   `wf_review_wave` and `wf_close_wave` report the same `change_id_invalid` as a blocking
   diagnostic. Every other reader (`wf_current_wave`, `wf_list_waves`, `wf_audit`, the
   dashboard) omits the line. Recovery is a hand edit of that line followed by
-  `wf_validate_docs`: no tool repairs it, and `wf_remove_change` refuses an invalid id.
-  Single-change tools (`wf_mark_ac`, `wf_mark_task`, `wf_close_change`, `wf_add_change`)
-  are not blocked by an unrelated bad line. `wf_add_change` refuses a plan whose own
+  `wf_validate_docs`: no tool repairs it, and `wf_remove_spec` refuses an invalid id.
+  Single-change tools (`wf_mark_ac`, `wf_mark_task`, `wf_close_spec`, `wf_add_spec`)
+  are not blocked by an unrelated bad line. `wf_add_spec` refuses a plan whose own
   member-id header is not a change id with `change_id_invalid`, before any move.
-- Ambiguous `change_id` matches return `data.change: null`, all candidates in
-  `data.changes[]` (`change_id`, `path`, `content`), and an
+- Ambiguous `spec_id` matches return `data.change: null`, all candidates in
+  `data.changes[]` (`spec_id`, `path`, `content`), and an
   `ambiguous_change_id` diagnostic.
 - Ambiguous `wave_id` matches return all candidates in `data.waves[]`
   (`wave_id`, `path`, `changes`) and an `ambiguous_wave_id` diagnostic.
@@ -1918,10 +1940,10 @@ action when known.
   `data.change.archived: true`, and an archived wave returns with
   `data.archived: true`, `data.wave` and its members read from the archived
   folder only (each `archived: true`). A live record with the same id wins.
-  The lifecycle writers that take an existing wave or change id (`wf_add_change`,
-  `wf_remove_change`, `wf_mark_ac`, `wf_mark_task`, `wf_review_event`,
+  The lifecycle writers that take an existing wave or change id (`wf_add_spec`,
+  `wf_remove_spec`, `wf_mark_ac`, `wf_mark_task`, `wf_review_event`,
   `wf_prepare_wave`, `wf_pause_wave`, `wf_review_wave`, `wf_implement_wave`,
-  `wf_close_wave`, `wf_close_change`, `wf_reopen_wave`) refuse an archive-only id with
+  `wf_close_wave`, `wf_close_spec`, `wf_reopen_wave`) refuse an archive-only id with
   `archived_record_read_only` instead of the not-found diagnostic, and change
   nothing.
 - Change lookup is namespace-scoped to specs; wave lookup is namespace-scoped
@@ -1932,7 +1954,7 @@ action when known.
   `read_error` string naming the exception type and message, and the response adds a
   `change_doc_unreadable` diagnostic. `status` stays `ok` for a bulk `wave_id` lookup
   so the readable siblings are still returned. The single-document MCP resource
-  `wavefoundry://change/{change_id}` renders `# Unreadable Change` for the same
+  `wavefoundry://spec/{spec_id}` renders `# Unreadable Change` for the same
   condition rather than an empty body.
 - An unreadable **wave record** at a bulk `wave_id` lookup refuses (wave 1v0lw),
   matching this tool's `change_doc_unreadable` convention: `status: "error"`
@@ -1980,7 +2002,7 @@ reads.
 - `data.parent` is the parent folder's POSIX path below the waves root as spelled on disk (case folding and Windows' stripped trailing dots and spaces report the folder actually used), or `null` without a `parent`; `data.path` stays repo-relative.
 - In apply/create mode, requests a background docs-index refresh for the new wave doc without blocking the MCP response.
 
-`wf_add_change(wave_id: str, change_id: str, mode: str = "dry_run", small_change: dict | None = None)`
+`wf_add_spec(wave_id: str, spec_id: str, mode: str = "dry_run", small_change: dict | None = None)`
 
 - Admits a planned change into the wave's `## Changes` section.
 - If the operator explicitly chooses the small-change lane, pass `small_change` at initial admission. Its keys are `operator_direction`, `intended_diff` and `paths` (one to three exact repository-relative filenames, including tests). Preview the request, then apply it with `mode="create"`. Repeating admission preserves its baseline.
@@ -1992,7 +2014,7 @@ reads.
 - Must reject duplicate staged + wave copies or a doc found in another wave folder.
 - On successful apply/create writes, requests a background docs-index refresh without relying on editor hooks.
 
-`wf_remove_change(wave_id: str, change_id: str, mode: str = "dry_run")`
+`wf_remove_spec(wave_id: str, spec_id: str, mode: str = "dry_run")`
 
 - Removes an admitted change from the wave.
 - In apply/create mode, moves the active spec back to `docs/plans/` when the
@@ -2000,7 +2022,7 @@ change remains active outside the wave.
 - Must reject duplicate staged + wave copies rather than silently picking one.
 - On successful apply/create writes, requests a background docs-index refresh without relying on editor hooks.
 
-**Unreadable wave records (wave 1v0lw): shared refusal contract for `wf_create_wave`, `wf_add_change`, `wf_remove_change`, `wf_prepare_wave`, `wf_implement_wave`, `wf_pause_wave`, `wf_review_wave`, `wf_review_event`, `wf_mark_ac`, `wf_mark_task`, `wf_close_wave`, `wf_close_change`, and `wf_reopen_wave`:**
+**Unreadable wave records (wave 1v0lw): shared refusal contract for `wf_create_wave`, `wf_add_spec`, `wf_remove_spec`, `wf_prepare_wave`, `wf_implement_wave`, `wf_pause_wave`, `wf_review_wave`, `wf_review_event`, `wf_mark_ac`, `wf_mark_task`, `wf_close_wave`, `wf_close_spec`, and `wf_reopen_wave`:**
 
 - A `wave.md` that exists but cannot be read (invalid UTF-8, permissions)
   **refuses, never raises**: `status: "error"` with a `wave_record_unreadable`
@@ -2019,9 +2041,9 @@ change remains active outside the wave.
   resolution runs that skipped no unreadable candidate.
 - An unreadable NON-matching sibling never blocks resolution of a readable
   wave. Sibling diagnostics surface on the inspection surfaces
-  (`wf_get_change`, `wf_list_waves`, `wf_current_wave`) and inside the
-  refusal envelopes of `wf_get_change`, `wf_mark_ac`/`wf_mark_task`,
-  `wf_add_change`, and `wf_remove_change`; the remaining decision gates'
+  (`wf_get_spec`, `wf_list_waves`, `wf_current_wave`) and inside the
+  refusal envelopes of `wf_get_spec`, `wf_mark_ac`/`wf_mark_task`,
+  `wf_add_spec`, and `wf_remove_spec`; the remaining decision gates'
   refusal envelopes and every gate's SUCCESS envelope carry no sibling
   diagnostics, so a rotted unrelated record can never block an unrelated
   wave's readiness, activation, or close.
@@ -2063,7 +2085,7 @@ during `ready`/`create` (readiness mutations); `dry_run` is read-only.
 
 - Opens an `active` wave (legacy prepare-and-open) or a readied `planned` wave (wave 1p45l) for implementation; requires a current typed readiness approval on every declared wave, including when `wave_review.enabled` is false, while retaining the structured prose verdict gate on legacy waves; required lane approvals are enforced when configured. The stable readiness key remains unconditional until the enabled-aware projection migration owned by `1tsbu`.
 - Runs the single-OPEN guard at activation: blocks with `another_wave_active` when another wave is already `active`/`implementing`; otherwise transitions the wave to `implementing`.
-- Each `ordered_changes` entry's `depends_on` comes from the wave record's column-0 `Depends On:` lines under the member's id line inside the member section (falling back to the spec's own `Depends On:` lines when the wave record declares none). A `Depends On:` line inside a closed fenced code block is an example, not a declaration, in both sources, and a `## ` line inside a fence does not end the member section (wave `1zoju`). An unterminated fence is read as ordinary lines.
+- Each entry in `ordered_changes` exposes the admitted identifier as `spec_id` alongside the existing `change_id`. Its `depends_on` comes from the wave record's column-0 `Depends On:` lines under the member's id line inside the member section (falling back to the spec's own `Depends On:` lines when the wave record declares none). A `Depends On:` line inside a closed fenced code block is an example, not a declaration, in both sources, and a `## ` line inside a fence does not end the member section (wave `1zoju`). An unterminated fence is read as ordinary lines.
 
 `wf_reopen_wave(wave_id: str, purpose: str)`
 
@@ -2150,7 +2172,7 @@ verbose: bool = False, operator_handle: str | None = None, attested_by: str | No
 - `wf_review_event(event="list")` (wave 1t59p) **is the standardized forensic/history READ surface for the ledger.** Returns a compact per-record index (identity, `record_type`, `run_kind`, `cycle`, `finding_id`, claim/signoff fields, `execution_status` on evidence records, lanes, `supersedes_record_id`, `verification_context`), a per-finding `chain_summary` (current head record, disposition, repair state, unresolved required lanes, `terminal` flag), and `approvals` (per-signoff currency rows), all presented from the same canonical structured authority projection used by guided review and the close gate. `finding_id`/`record_type`/`run_kind` filter; `verbose=true` returns full records; output is capped (`record_cap`, tail kept) with an explicit named-total truncation diagnostic. For `list`, `mode` is ignored, `actor`/`context_id` are pass-through identity, nothing is written, and no lock is taken; an absent/empty ledger returns an empty listing with a `review_evidence_empty` diagnostic. Use it for full history, filters, truncation recovery, or disputed state—not after every successful write. **Accounting (operator policy):** the first listing of a ledger version earns the state-source credit (the response conveys whole-ledger state); an identical-content repeat listing is NEUTRAL — zero credit AND zero debit — via a content-hash event identity (same ledger version + same filters + same verbosity ⇒ same response ⇒ replay-deduplicated). A changed ledger, different filters, or any response difference records as a normal measured call.
 - Finding callers explicitly provide the load-bearing judgment object plus evidence narrative; the tool never guesses contract relevance, reachability, authority, impact, containment, scope, or wave causality. It derives IDs, disposition, blocking, review depth, supersession, cycle linkage, and append order.
 - **Accepted findings and `promotion_trigger` (wave `22u26`, change `22r95`):** a real finding the reviewer accepts without repair carries a non-`none` `judgment.rejection_basis` and records as `dont_do_later` with `repair_execution_state: not_required`. `promotion_trigger`, which states what would reopen it, goes in `evidence`. It is required when the basis is `insufficient_evidence`, `unsupported_reachability` or `disproportionate_repair` (`review_evidence.PROMOTION_TRIGGER_REJECTION_BASES`), and refused for any other basis, `categorical` included. The guided `caller_input_schema` lists it under `evidence.finding.conditional_fields`. `dont_do_later` is terminal; `security_unsettled` is not (next bullet).
-- **Unsettled security candidates (wave `22upa`, change `22ubf`; change `230k6`):** a real finding needing no action whose `attacker_reachability` or `authority_delta` is `unverified` derives `security_unsettled`, whatever its `rejection_basis` and `authority_domain`, except `unsupported_reachability` with `supported_reachability: false`, which stays `dont_do_later`. So does one whose `observable_impact` or `containment` is `unverified` when its `authority_domain` is anything but `none`; with `authority_domain: none` those two unknowns stay `dont_do_later`. An earlier action-required predicate still derives `do_now`. It is never blocking for lanes, stays `repair_execution_state: pending`, and holds only `operator-signoff` withheld; the status row names each `finding_id` and its `promotion_trigger`, and its `next_action` is an operator decision, never an agent call. `wf_review_wave`, `wf_close_wave` and `wf_close_change` report each one as the same blocking diagnostic `unsettled_security_candidate`, which names the unverified factors and states that this is missing evidence, not a demonstrated defect. All three read the candidates from `resolve_review_authority`; `wf_close_change` refuses a typed record whose ledger is missing, or whose ledger or review projection is invalid, with `review_ledger_unreadable` (the message says which) and writes nothing. A record without the `review-evidence-source` declaration is legacy prose: its review authority is not read from a ledger by Review, wave close or change close, and docs-lint reports a ledger left beside one. It is settled by `repair_start` then a fresh, independent lane reverification (`do_now` stays `pending` and follows the normal repair chain; `not_issue` or `dont_do_later` is terminal), or by the operator close: `event="finding"`, `run_kind="reverification"`, `actor="operator"`, `evidence.waiver` (`waiver_id`, `waiver_scope`, `waiver_reason`, `waiver_risk`), no `judgment`, in the head's open repair cycle or the cycle the next `repair_start` would use. The close writes attributed operator evidence (null integrity checks) and an `operator_waived` head keeping the judgment and `promotion_trigger`; Close reports it as the advisory `security_candidate_waived`. Record the operator close only on the operator's explicit instruction in the current request. The `Machine review state` line appends `, security_unsettled N` only when N is non-zero. A closed wave's recorded dispositions are not re-derived (`validate_review_evidence_records(..., closed=True)`, passed by docs-lint, the dashboard, and the `wf_review_event` list, wave resource and status projection read paths); in an open wave a pre-rule `maybe_later` or `dont_do_later` that would now derive `security_unsettled` is accepted as written and reported as the advisory `security_candidate_predates_rule`, which names the reconsideration route. **Shown unreachable (change `23z8z`):** a current real head whose judgment records `unsupported_reachability` with `supported_reachability: false` while at least one gate factor is `unverified` (the factors above, under the same `authority_domain` rule and from the same implementation as `unsettled_security_factors`) stays `dont_do_later` and holds no signoff. `wf_review_wave` (implementation phase), `wf_close_wave` and `wf_close_change` report each one as the advisory `security_candidate_shown_unreachable`, which names the `finding_id`, the unverified factors in gate order, the recorded disposition and the `promotion_trigger` (`none recorded` when the head has none), states that this is missing evidence, not a demonstrated defect, and names the reconsideration route: a `repair_start` in the next cycle whose judgment no longer records the finding as shown unreachable and leaves the factor `unverified`. A head shown unreachable with every gate factor settled, or whose only unknown is `observable_impact` or `containment` under `authority_domain: none`, gets no advisory. The code is not a shared blocking code and never refuses Review or a close. **Reconsideration (change `230k6`):** a terminal real finding takes fresh evidence through `event="finding"`, `run_kind="repair_start"` in the cycle the next repair start would use, with a judgment that leaves the factor in question `unverified`. The new head is `security_unsettled` and `pending` under the same `finding_id`, supersedes the terminal head and leaves every earlier record in place; it is then settled as above. A start whose judgment derives a terminal disposition is refused as before (`repair_start requires an actionable synthesis row`), a finding recorded as `not_issue` is refused, and a closed record refuses any repair start with `wave_closed`. A start on an `operator_waived` head leaves that waiver in the ledger; the new head carries none, and the `unsettled_security_candidate` diagnostic names the superseded `waiver_id`.
+- **Unsettled security candidates (wave `22upa`, change `22ubf`; change `230k6`):** a real finding needing no action whose `attacker_reachability` or `authority_delta` is `unverified` derives `security_unsettled`, whatever its `rejection_basis` and `authority_domain`, except `unsupported_reachability` with `supported_reachability: false`, which stays `dont_do_later`. So does one whose `observable_impact` or `containment` is `unverified` when its `authority_domain` is anything but `none`; with `authority_domain: none` those two unknowns stay `dont_do_later`. An earlier action-required predicate still derives `do_now`. It is never blocking for lanes, stays `repair_execution_state: pending`, and holds only `operator-signoff` withheld; the status row names each `finding_id` and its `promotion_trigger`, and its `next_action` is an operator decision, never an agent call. `wf_review_wave`, `wf_close_wave` and `wf_close_spec` report each one as the same blocking diagnostic `unsettled_security_candidate`, which names the unverified factors and states that this is missing evidence, not a demonstrated defect. All three read the candidates from `resolve_review_authority`; `wf_close_spec` refuses a typed record whose ledger is missing, or whose ledger or review projection is invalid, with `review_ledger_unreadable` (the message says which) and writes nothing. A record without the `review-evidence-source` declaration is legacy prose: its review authority is not read from a ledger by Review, wave close or change close, and docs-lint reports a ledger left beside one. It is settled by `repair_start` then a fresh, independent lane reverification (`do_now` stays `pending` and follows the normal repair chain; `not_issue` or `dont_do_later` is terminal), or by the operator close: `event="finding"`, `run_kind="reverification"`, `actor="operator"`, `evidence.waiver` (`waiver_id`, `waiver_scope`, `waiver_reason`, `waiver_risk`), no `judgment`, in the head's open repair cycle or the cycle the next `repair_start` would use. The close writes attributed operator evidence (null integrity checks) and an `operator_waived` head keeping the judgment and `promotion_trigger`; Close reports it as the advisory `security_candidate_waived`. Record the operator close only on the operator's explicit instruction in the current request. The `Machine review state` line appends `, security_unsettled N` only when N is non-zero. A closed wave's recorded dispositions are not re-derived (`validate_review_evidence_records(..., closed=True)`, passed by docs-lint, the dashboard, and the `wf_review_event` list, wave resource and status projection read paths); in an open wave a pre-rule `maybe_later` or `dont_do_later` that would now derive `security_unsettled` is accepted as written and reported as the advisory `security_candidate_predates_rule`, which names the reconsideration route. **Shown unreachable (change `23z8z`):** a current real head whose judgment records `unsupported_reachability` with `supported_reachability: false` while at least one gate factor is `unverified` (the factors above, under the same `authority_domain` rule and from the same implementation as `unsettled_security_factors`) stays `dont_do_later` and holds no signoff. `wf_review_wave` (implementation phase), `wf_close_wave` and `wf_close_spec` report each one as the advisory `security_candidate_shown_unreachable`, which names the `finding_id`, the unverified factors in gate order, the recorded disposition and the `promotion_trigger` (`none recorded` when the head has none), states that this is missing evidence, not a demonstrated defect, and names the reconsideration route: a `repair_start` in the next cycle whose judgment no longer records the finding as shown unreachable and leaves the factor `unverified`. A head shown unreachable with every gate factor settled, or whose only unknown is `observable_impact` or `containment` under `authority_domain: none`, gets no advisory. The code is not a shared blocking code and never refuses Review or a close. **Reconsideration (change `230k6`):** a terminal real finding takes fresh evidence through `event="finding"`, `run_kind="repair_start"` in the cycle the next repair start would use, with a judgment that leaves the factor in question `unverified`. The new head is `security_unsettled` and `pending` under the same `finding_id`, supersedes the terminal head and leaves every earlier record in place; it is then settled as above. A start whose judgment derives a terminal disposition is refused as before (`repair_start requires an actionable synthesis row`), a finding recorded as `not_issue` is refused, and a closed record refuses any repair start with `wave_closed`. A start on an `operator_waived` head leaves that waiver in the ledger; the new head carries none, and the `unsettled_security_candidate` diagnostic names the superseded `waiver_id`.
 - Approval callers must name the exact authority actor for the signoff; specialist/council approvals are accepted only with explicit fresh, independent context. Finding events require at least one originating source lane.
 - **Council actor (wave `200ey`, change `200ew`):** the council actor is `council-chair`. An approval given the earlier council actor name `wave-council` is recorded with `council-chair` (in `dry_run` and `create` alike) and the response carries the informational diagnostic `actor_alias` (`severity: info`) naming the current actor, as `signoff_key_alias` does for an earlier council key spelling (`wave-council-readiness`, `wave-council-delivery`, or a distribution's `EXTRA_LEGACY_COUNCIL_SIGNOFF_KEYS` spelling). Approvals already recorded under either earlier name stay valid forever, and a retry of an approval first recorded under the earlier actor or key replays it by its stored identity instead of appending; recorded events are never rewritten.
 - **Distribution actor aliases (wave `204mp`, change `204mm`):** `vocabulary_profile.EXTRA_LEGACY_COUNCIL_ACTORS: tuple[str, ...] = ()` adds earlier council identities at merge time. Valid aliases are deterministically deduplicated with the built-in aliases and take effect on MCP reload. They use the same canonical-write, stored-identity replay and byte-preserved history behavior above. Malformed declarations and operator/shipped-reviewer collisions fail import; current configured base/prepare/close and wave-requested reviewer collisions fail policy-state validation with a diagnostic naming the declaration. An alias never authorizes a non-council signoff, and two alias spellings cannot satisfy repair/reverification actor independence. Extra aliases do not change the built-in moderator spelling in policy digests.
@@ -2161,7 +2183,7 @@ verbose: bool = False, operator_handle: str | None = None, attested_by: str | No
 - **Repair/reverification independence (wave 1tmb2), enforced chain-aware on both preview and create against the exact finding/cycle chain:** a `reverification` sharing its resolving `repair_start`'s `context_id` while declaring `fresh_context=true` is rejected with diagnostic `reverification_context_not_fresh` (a decidable self-contradiction, no trust assumption); a `reverification` carrying the same `actor` as that `repair_start` from a different context is rejected with `reverification_actor_not_distinct` (forward protocol policy — actor equality is not proof of shared caller identity, and the truth of `fresh_context`/`independent` remains a declaration the validator cannot authenticate). Precedence is deterministic: when both match, only `reverification_context_not_fresh` is returned; actor policy is evaluated only after the context differs. Rejected attempts append nothing, so the prior synthesis head remains the single current-state authority. Recovery: retry from a distinct acting role and context (the implementer records `repair_start`; the blocking reviewer lane reverifies). The repair waiver has different semantics and is not an independence bypass. Upgrade replaces the packaged server implementation; the new enforcement and diagnostic codes become live after the normal MCP reload, with no ledger migration, compatibility alias, or fallback.
 - The sibling JSONL ledger remains canonical. Each typed write regenerates the compact Finding Synthesis and `wave:review-status` projections in `wave.md`; the latter has columns `Signoff | Phase | State | Why | Next action`. A specialist with a recorded readiness approval has a readiness row before its delivery row. Each row shows the state of that phase. Both are presentation only and raw event fields are not semantically indexed.
 - `create` derives stable structured event identity from the existing compact inputs, rejects same-identity/different-request conflicts, and replays same-identity/same-request retries without appending. Under the project-global `project_state_publication_lock` it validates the complete prospective ledger, atomically replaces `events.jsonl` as the authority commit point, then refreshes both Markdown projections. The fixed sibling ledger is the sole machine authority. Prepare alone may append a parent-bound `review_policy_receipt` in that same ledger; it is policy provenance, not a second ledger or rollback checksum. No count/hash sidecar exists. Post-commit projection failures return structured stale diagnostics and converge on replay; only `wave.md` receives a background docs-index refresh.
-- Review-policy receipts use evaluator version `8`. Section readers ignore headings and targets inside HTML comments. Explicit machine metadata in comments remains available to its owning reader. Updating a readied or open declared wave from v7 requires one re-Prepare even if its selected lanes are identical. Their admitted-change digest normalizes `Status` / `Change Status` tracking metadata in the leading carrier, exactly one canonical top-level `Last verified: YYYY-MM-DD` line, the Progress Log body, and completion and deferral checkboxes in Acceptance Criteria and Tasks, with a criterion's canonical status note (a trailing ` *Status: <reason>*` on its first line, or a continuation line that is exactly `*Status: <reason>*` after the item, at any blockquote depth; the reason holds no `*` and no line break); contract prose, every other byte of a criterion and a note in any other form remain significant. A deferral therefore lapses no readiness approval (change `23q1h`); criteria inside a blockquote are read the same way. An open wave whose admitted changes hold a deferred criterion, a canonical note or a ticked blockquoted criterion gets a new digest once on upgrade and needs one re-Prepare, after which its readiness approvals are recorded again. The leading carrier is bounded by a known-key allowlist rather than by line shape, so a body line shaped `Word: text` closes it and a similarly named prose `Status:` line stays reviewable, while a blockquote inside the carrier does not close it. Legacy fallback extension triggers require an actual path-shaped match, and the receipt reason names the matched token with a normalized excerpt. It deliberately reports no line number: the fallback corpus is every undeclared spec joined and canonicalized, so an offset into it identifies no line in any real document. Adoption of the declared-target contract is decided per DOCUMENT and the results union, so a wave mixing declaring and un-migrated specs scores each in its own mode. For a document that declares targets, those exact per-path reasons replace the fallback for that document only; a target is declared by a bullet whose content is entirely repo-relative paths, or inside an explicit `**Review targets (repo-relative paths):**` block whose backtick-quoted entries may contain spaces. Prose declares nothing in either form: a bullet carrying any word that is not a target is prose even inside the block, a wrapped bullet is prose in its entirety, and fenced regions are skipped. A receipt persists its council roster but v5 and later do not supersede it merely because a later wave-record edit would rotate a seat. A non-closed wave carrying an older receipt therefore needs one deterministic re-Prepare to publish the current version, after which repeated Prepare is idempotent. Closed `wave.md` files and their event ledgers remain byte-immutable during this transition.
+- Review-policy receipts use evaluator version `8`. Section readers ignore headings and targets inside HTML comments. Explicit machine metadata in comments remains available to its owning reader. Updating a readied or open declared wave from v7 requires one re-Prepare even if its selected lanes are identical. Their admitted-change digest normalizes `Status` and the spec status field (including legacy `Change Status`) in the leading carrier, exactly one canonical top-level `Last verified: YYYY-MM-DD` line, the Progress Log body, and completion and deferral checkboxes in Acceptance Criteria and Tasks, with a criterion's canonical status note (a trailing ` *Status: <reason>*` on its first line, or a continuation line that is exactly `*Status: <reason>*` after the item, at any blockquote depth; the reason holds no `*` and no line break); contract prose, every other byte of a criterion and a note in any other form remain significant. A deferral therefore lapses no readiness approval (change `23q1h`); criteria inside a blockquote are read the same way. An open wave whose admitted changes hold a deferred criterion, a canonical note or a ticked blockquoted criterion gets a new digest once on upgrade and needs one re-Prepare, after which its readiness approvals are recorded again. The leading carrier is bounded by a known-key allowlist rather than by line shape, so a body line shaped `Word: text` closes it and a similarly named prose `Status:` line stays reviewable, while a blockquote inside the carrier does not close it. Legacy fallback extension triggers require an actual path-shaped match, and the receipt reason names the matched token with a normalized excerpt. It deliberately reports no line number: the fallback corpus is every undeclared spec joined and canonicalized, so an offset into it identifies no line in any real document. Adoption of the declared-target contract is decided per DOCUMENT and the results union, so a wave mixing declaring and un-migrated specs scores each in its own mode. For a document that declares targets, those exact per-path reasons replace the fallback for that document only; a target is declared by a bullet whose content is entirely repo-relative paths, or inside an explicit `**Review targets (repo-relative paths):**` block whose backtick-quoted entries may contain spaces. Prose declares nothing in either form: a bullet carrying any word that is not a target is prose even inside the block, a wrapped bullet is prose in its entirety, and fenced regions are skipped. A receipt persists its council roster but v5 and later do not supersede it merely because a later wave-record edit would rotate a seat. A non-closed wave carrying an older receipt therefore needs one deterministic re-Prepare to publish the current version, after which repeated Prepare is idempotent. Closed `wave.md` files and their event ledgers remain byte-immutable during this transition.
 - Executed specialist and council approvals and executed findings require the exact caller-authored `integrity_checks` object: five booleans (`test_ran_without_unintended_skip`, `public_path_reached`, `boundary_values_realistic`, `assertions_non_vacuous`, `known_bad_detected`) the recording actor honestly affirms about its own evidence, plus non-empty `known_bad_detection_method`. Seed 209's Executable Evidence Record table defines each boolean and the phase rule: a readiness approval attests to the review of the current tree, plan, census, or feasibility probe, not unimplemented product behavior; a non-executed finding may honestly carry `false`; apart from the explicit exceptions below, an executed claim must affirm each check honestly. Never set a check true merely to pass validation. An `operator-signoff` approval runs no check of its own, so agents do not ask the operator for values: omitting `integrity_checks` stores all five as `null` (not applicable) with a not-applicable method, and values the operator states may be `true`, `false` or `null`. Only an unaffected specialist readiness approval may additionally use explicit `known_bad_detected: null`, with a non-empty `known_bad_detection_method` explaining the inspected scope and why no relevant surface in that lane is affected. Its other four checks remain true; false and omission are refused. No findings, an unrun control or missing evidence does not establish non-applicability. Council and delivery approvals gain no exception. Existing operator-close evidence remains supported. The `caller_input_schema` adds `specialist-readiness-with-scope-rationale` to `null_allowed_for` for `known_bad_detected` only. Review output displays not applicable and its rationale, without claiming a detected defect. Use a refuted plan claim, deliberately omitted known census site or rejected invalid review input when a readiness control applies. Approval calls require `approval_phase: readiness | delivery`; readiness and delivery currency are distinct, and server-derived readiness approvals bind the current policy receipt. Caller-supplied receipt IDs are rejected. A readiness approval is also **refused** when the receipt it would bind is already superseded-in-waiting — that is, when a policy input has moved and the next Prepare will publish a new receipt. Such a record could never satisfy a gate, so it is refused rather than written into the append-only ledger, and the refusal names the current receipt, the pending receipt, the differing `receipt_semantic_fields`, and the change ids that were digested. Recovery is one `wf_prepare_wave(mode='ready')` call, after which the approval is re-recorded once per receipt-bound readiness key. The check runs inside the publication lock on `create`, covers every receipt-bound readiness key rather than just the council key, and applies only to a genuinely new append — an idempotent same-identity retry of an already-recorded approval still replays without appending. That lock serializes cooperating Wavefoundry lifecycle publishers; it does not linearize an ordinary editor, formatter, or other raw filesystem writer. An unmediated edit can race after the final policy read, but the next policy-aware Prepare, review, or close detects the pending receipt and blocks. The project accepts that low-likelihood boundary for its mostly single-user, one-agent-per-wave operating model; a mediated/CAS authoring surface is required if concurrent raw editing becomes supported. If the policy inputs cannot be recomputed the call degrades only for **environmental** causes (an unreadable or undecodable spec): the approval is accepted and the response states that the staleness check could not be performed. Repairable causes — an invalid `wave_review` config, or a spec with a duplicate excluded heading such as two `## Progress Log` sections — refuse instead, because degrading there would let one bad file switch the check off.
 - Council approvals carry the intent verdict (wave `21j63`). A `council-readiness` or `council-delivery` approval, in any recognized spelling, requires `evidence.intent_fit`: the council-chair's worst verdict across every admitted change and the wave Objective. Readiness accepts `establishes` or `partially` and refuses `does_not` with a diagnostic that says to record a finding instead; delivery accepts `establishes`, `partially` or `does_not`. A missing value is refused with a diagnostic naming the field and its values. Every other approval, including a custom `wave-council-<x>` key, refuses the field. The check runs after replay detection, so an identical retry of an approval recorded before the field existed still replays, and the ledger accepts older council approvals without it. The guided schema's `evidence.council_approval` entry and each council approval action's `blocking_constraint.required_evidence` name the field and its values. When the current `council-delivery` approval carries `does_not`, `wf_review_wave` and `wf_close_wave` report the advisory `delivery_intent_not_established` and the `missing_operator_signoff` remedy says signing off accepts that outcome; nothing blocks.
 - **Execution status of a finding (wave `242k5`, change `242k4`):** a finding may state `evidence.execution_status`, one of `executed`, `inferred`, `unverified` or `not_applicable`. `executed`: a command, test, probe or handler call ran, and its result is the observation. `inferred`: the actor read code, documents or earlier output, or ran a read-only search such as `grep` or `code_read`. `unverified`: neither. `not_applicable`: the state or path the claim concerns does not exist. The field is optional: omitted, the status is stored as `executed`, and stated, it is stored exactly as stated. A value outside the vocabulary is refused with the allowed values. A finding that is not `executed` carries each integrity boolean as the actor honestly states it (`false` means the check was not demonstrated; `null` stays refused). It can open and record a finding, including a `repair_start` or a reverification that leaves its required lanes blocking. No gate changes: a finding event recorded as `inferred`, `unverified` or `not_applicable` that would drop a required lane, set the repair `completed` on a head with no blocking lanes left, or make terminal a head that was not terminal is refused and appends nothing, whatever its `run_kind` or phase. A blocking finding still cannot rest on `unverified` or `not_applicable` evidence, and lane reassessment, dedup and census evidence must still be `executed`. An approval and an operator close always store `executed`, which attests that the review pass was performed; one that states another status is refused instead of being stored as `executed`. An identical retry of a recorded event replays before any of these refusals. `caller_input_schema.evidence.finding.optional_fields.execution_status` carries the allowed values, the default and each meaning, and the compact rows of `wf_review_event(event="list")` show `execution_status` on each evidence record. The tool's input schema does not change, so the reconnect note below does not apply. A server that was not restarted or reloaded after an upgrade still runs the earlier code and refuses a non-executed finding with "dedup evidence must be executed"; restart it first.
@@ -2169,21 +2191,22 @@ verbose: bool = False, operator_handle: str | None = None, attested_by: str | No
 - **Criterion deferrals and delivery approvals (change `23q1h`):** when a `council-delivery` or `operator-signoff` approval is recorded on a wave with a review-policy receipt, the tool appends one final line to the record's free-text `limitations`: `Criterion status when recorded: ` and compact, key-sorted ASCII JSON mapping each admitted change id to the criteria with a leading AC id that are deferred or carry a canonical status note, each `{"deferred":<bool>,"note":"<first 12 hex characters of SHA-256 of its note text, or empty>"}`. A request whose own `limitations` contains that prefix is refused with `invalid_review_event` and appends nothing. On a wave that is not closed, the shared Review and Close gate blocks with `delivery_approval_predates_deferral` for the latest current approval of either key when a criterion of a change its line lists is deferred or noted now and was not recorded, is deferred now and was recorded as not deferred, or has a different note hash; the message names the signoff key, change id, criterion id and case, the status rows stay as the ledger reads them, `lane_results` and `council_results` show that approval as not current, and `review_actions` offers recording it again with a fresh `context_id`. A record without the line, a line that does not parse, a change the line does not list, a criterion without a leading AC id, a restored criterion and a closed wave block nothing; specialist lanes are not affected. Review and Close also list each deferred criterion as advisory `deferred_criterion_scope_change` and each other criterion with a canonical note as advisory `criterion_status_note`, quoting the item; neither is persisted. Under 1.43.0 a record carrying the line validates and projects as before.
 - **Finding phase and approval currency (wave `207lx`):** a finding whose sealed originating review run is delivery cannot withhold or chronologically stale a readiness approval in any lane, including custom specialist lanes and council aliases. Its unresolved head still withholds affected delivery approvals; a terminal repair head requires a later delivery approval. Independently of findings, a delivery approval is not current once a change is admitted after it and the wave is re-prepared (the membership rule above), and its `approval_state` is then `stale`. Readiness-origin and unknown-origin findings retain their existing effects, and operator closure remains subject to delivery findings. Changing a finding head's presentation phase does not change its sealed origin. Prepare, implementation admission and delivery gates derive lane results from the same authority projection: typed rows expose `approval_recorded`, `approval_current`, `approval_state` (`absent`, `invalid`, `stale`, `withheld`, or `approved`), `why`, `next_action`, and blocking finding IDs. Compatible diagnostic codes such as `missing_required_lane`, `prepare_review_incomplete`, and `readiness_lane_approvals_missing` distinguish these states and give the phase-correct remedy; an existing approval withheld by a finding is not described as an absent approval. Legacy prose authority and its diagnostics are unchanged.
 
-`wf_mark_ac(wave_id, change_id, ac_id, state, reason="", mode="dry_run")` and `wf_mark_task(wave_id, change_id, task, state, mode="dry_run")`
+`wf_mark_ac(wave_id, spec_id, ac_id, state, reason="", mode="dry_run", change_id=None)` and `wf_mark_task(wave_id, spec_id, task, state, mode="dry_run", change_id=None)`
 
+- New callers use `spec_id`. Existing callers can supply `change_id`; the tools refuse conflicting identifiers before writing.
 - Both tools use the same repository lifecycle lock as Close spec and Close wave. A competing call receives `lifecycle_mutation_locked` before it reads or writes the checklist. Retry after the first call finishes.
 - The default `dry_run` previews without writing. Accepted modes are `dry_run`, `create` and `apply`, after trim/lower-case normalization; other values refuse with `invalid_arguments`. Every successful response includes normalized `mode` (`apply` reports `create`) and `applied`, which is true only after document bytes are replaced. `changed` retains its existing meaning; a create no-op reports both booleans false. A changing preview adds advisory `dry_run_not_written` with the equivalent applying call, including the same target/state/reason and `mode='create'`. The advisory grants no permission and applies nothing automatically.
 - Mark one acceptance criterion or task as complete (`state="x"`) or intentionally deferred (`state="~"`). Preview and apply both refuse a closed or completed wave, including one still in the live root. A terminal member in an open wave also refuses both marks. Other unfinished members, including implemented specs awaiting review, remain editable. A required AC deferral needs a nonblank explicit reason. Repeating a deferral can keep its existing canonical note. Optional ACs and tasks may be deferred without a reason. Logical labels include indented continuation lines. An exact task label or its existing colon-delimited short form takes precedence. Otherwise, the writer accepts a nonblank, case-insensitive prefix that identifies one task. A criterion retains its full label or AC ID as its short form.
-- Refusals are recoverable: an unknown wave points to `wf_current_wave`; an absent or ambiguous item points to `wf_get_change`. An ambiguous task prefix returns only its matching full labels in document order. Retry with a longer prefix or the full label. For identical labels, give the tasks distinct labels in the spec before retrying. An absent target returns every parsed label in that section so the caller can pick the right one; that branch reports the candidates without the not-arbitrarily instruction, which applies only where several labels genuinely matched. A required AC deferral without a valid note tells the agent to retry `wf_mark_ac` with `reason`.
+- Refusals are recoverable: an unknown wave points to `wf_current_wave`; an absent or ambiguous item points to `wf_get_spec`. An ambiguous task prefix returns only its matching full labels in document order. Retry with a longer prefix or the full label. For identical labels, give the tasks distinct labels in the spec before retrying. An absent target returns every parsed label in that section so the caller can pick the right one; that branch reports the candidates without the not-arbitrarily instruction, which applies only where several labels genuinely matched. A required AC deferral without a valid note tells the agent to retry `wf_mark_ac` with `reason`.
 - `wf_mark_ac(state="~")` with a `reason` writes it as a ` *Status: <reason>*` note: on the criterion's first line, or as a continuation line after a criterion that has continuation lines (change `23042`). A reason containing an asterisk, a line break or an opening or closing HTML comment delimiter is refused with `tilde_rationale_required`. The document keeps its original bytes. Every mark writes only the document: a deferral, like a completion or task mark, leaves the review-policy digest unchanged, appends no receipt and lapses no readiness approval (change `23q1h`, reversing the receipt refresh of change `1ug66`); the response carries no `review_receipt_refreshed` field and no `review_policy_receipt_superseded` diagnostic. When the mark leaves a current `council-delivery` or `operator-signoff` approval recorded before it, the response carries the advisory `delivery_approval_rerecord_required` naming each one; Review and Close then block with `delivery_approval_predates_deferral` until it is recorded again. Legacy or policy-disabled waves retain their ordinary tracking-only behavior.
 
-`wf_close_change(wave_id, change_id, mode="dry_run")` (wave 1zlu1)
+`wf_close_spec(wave_id, spec_id, mode="dry_run")` (wave 1zlu1)
 
-- Closes ONE admitted change inside an OPEN wave without closing the wave, and moves the dependents its close unblocks to `ready`. `wave_id` takes a unique prefix; `change_id` must be the full admitted id. Modes: `dry_run` (read-only) and `create` (alias `apply`); any other mode returns `invalid_arguments` with `valid_modes`. Undeclared arguments are refused. It is a lifecycle writer: serialized by the lifecycle mutation lock (a held lock returns the busy response), `create` holds the project publication lock, it is `write` tier, registered as a `lifecycle` publication writer, and an invalid record layout or archive-only wave id is refused like the other lifecycle writers.
+- Closes ONE admitted change inside an OPEN wave without closing the wave, and moves the dependents its close unblocks to `ready`. `wave_id` takes a unique prefix; `spec_id` must be the full admitted id. Modes: `dry_run` (read-only) and `create` (alias `apply`); any other mode returns `invalid_arguments` with `valid_modes`. Undeclared arguments are refused. It is a lifecycle writer: serialized by the lifecycle mutation lock (a held lock returns the busy response), `create` holds the project publication lock, it is `write` tier, registered as a `lifecycle` publication writer, and an invalid record layout or archive-only wave id is refused like the other lifecycle writers.
 - Gate: every failing gate is reported as its own diagnostic, in both modes, and nothing is written: `wave_not_open` (the wave `Status:` is not `active` or `implementing`), `change_not_admitted` (no member block under the member heading), `change_doc_missing` / `change_doc_unreadable`, `change_status_not_closable` (the closable statuses are derived at call time from the docs-lint constants: progressable or done, not terminal, and allowed to move to `complete`, which today is `ready`, `active`, `review` and `implemented`), `change_status_drift` (the spec and the wave record disagree), `silent_unchecked_items` (the close-wave checkbox collector, filtered to this change; an open item in another change does not block), `dependencies_not_done` (a wave-record `Depends On:` target that is not done, terminal or `implemented`, or that is not admitted to this wave), `review_ledger_unreadable` (change `230k6`: on a typed record, review authority cannot be established because the ledger is missing, or the ledger or the record's review projection is invalid; the message says which and lists the first errors), and `unsettled_security_candidate` (a pending `security_unsettled` finding, named exactly as Review and wave close name it). A legacy prose record has no ledger and takes neither check. From the security candidate source, `unsettled_security_candidate` is the only diagnostic that refuses; its advisories never enter the refusing list (change `23z8z`).
-- Writes (`create`): the spec's `Change Status:` and `Status:` header lines become `complete`; the wave-record block becomes `complete` with `Previous Change Status` set to the prior status (wave record only, so the review-policy digest does not move). Activation candidates are only the other changes whose wave-record `Depends On:` names the closed change; each candidate that is `planned` or `blocked` and whose dependencies are now all done moves to `ready` in both files (never `active`). Dependencies declared only in a spec are reported as the advisory `dependencies_not_in_wave_record` and never activated. A `Depends On:` line inside a closed fenced code block, in the wave record or the spec, is an example and is never read as a dependency, so it neither gates nor activates; docs-lint warns about a fenced one inside a wave record's member section so a dependency fenced by mistake is visible. Fenced status lines are still read, so an example cannot hide an open change from wave close (wave `1zoju`). Labels follow the vocabulary profile; status values are never translated.
+- Writes (`create`): the spec's member status and `Status:` header lines become `complete`. The wave entry records its prior status. New stock entries use `Spec Status:` and `Previous Spec Status:`. Existing entries retain `Change Status:` and `Previous Change Status:` (wave record only, so the review-policy digest does not move). Activation candidates are only the other changes whose wave-record `Depends On:` names the closed change; each candidate that is `planned` or `blocked` and whose dependencies are now all done moves to `ready` in both files (never `active`). Dependencies declared only in a spec are reported as the advisory `dependencies_not_in_wave_record` and never activated. A `Depends On:` line inside a closed fenced code block, in the wave record or the spec, is an example and is never read as a dependency, so it neither gates nor activates; docs-lint warns about a fenced one inside a wave record's member section so a dependency fenced by mistake is visible. Fenced status lines are still read, so an example cannot hide an open change from wave close (wave `1zoju`). Labels follow the vocabulary profile; status values are never translated.
 - Lint: the new statuses are checked in memory against the transition table and the dependency rule first (`close_change_transition_invalid`); docs-lint scoped to the written documents runs before and after the write, and a failure the write introduced restores every written file and returns `close_change_lint_failed`. Pre-existing failures never roll back; `dry_run` reports them as the advisory `close_change_lint_preexisting`.
-- Response `data`: `wave_id`, `change_id`, `mode`, `previous_status`, `status`, `planned_writes`, `written` (repo-relative paths, empty in `dry_run`), `activated` and `not_activated` (each with `change_id`, `previous_status` and, for skipped ones, `reason`), and the post-write `lint` attachment on `create`. Response `diagnostics` on a successful `dry_run` or `create` (change `23z8z`): beside `dependencies_not_in_wave_record` and `close_change_lint_preexisting`, every diagnostic the security candidate source returns with `advisory: True`, with the message Review and wave close return. The rule is the `advisory` flag, not a list of codes; today that is `security_candidate_predates_rule`, `security_candidate_waived` and `security_candidate_shown_unreachable`. A refused close (`error`) carries only its refusing diagnostics and no security advisory, and a legacy prose record or a typed record with an unreadable ledger gets none. Review evidence is read only for the authority gate and these advisories; none is written, no ledger event is appended, and reopening a completed change is not supported.
+- Response `data`: `wave_id`, `spec_id`, `mode`, `previous_status`, `status`, `planned_writes`, `written` (repo-relative paths, empty in `dry_run`), `activated` and `not_activated` (each with `spec_id`, `previous_status` and, for skipped ones, `reason`), and the post-write `lint` attachment on `create`. Response `diagnostics` on a successful `dry_run` or `create` (change `23z8z`): beside `dependencies_not_in_wave_record` and `close_change_lint_preexisting`, every diagnostic the security candidate source returns with `advisory: True`, with the message Review and wave close return. The rule is the `advisory` flag, not a list of codes; today that is `security_candidate_predates_rule`, `security_candidate_waived` and `security_candidate_shown_unreachable`. A refused close (`error`) carries only its refusing diagnostics and no security advisory, and a legacy prose record or a typed record with an unreadable ledger gets none. Review evidence is read only for the authority gate and these advisories; none is written, no ledger event is appended, and reopening a completed change is not supported.
 
 `wf_cleanup_work(work_key, mode="dry_run", confirmation="")` (change `23q0s`)
 
@@ -2221,17 +2244,17 @@ verbose: bool = False, operator_handle: str | None = None, attested_by: str | No
   never exempts it, and an item without a leading id is `<unidentified>` and blocks while
   unchecked. Both exact headings are required, though a section may be empty; a missing,
   misspelled, suffixed or demoted heading blocks close as `change_doc_missing_sections` naming the
-  change and each missing heading, with `wf_get_change` recovery. Prepare checks the same two
+  change and each missing heading, with `wf_get_spec` recovery. Prepare checks the same two
   headings by exact heading line and refuses, on every wave status, a checklist item in either
   section whose marker is not `-`, and any near-miss heading, even beside an exact one
   (`change_doc_noncanonical_checklist`); docs-lint fails such an item, naming the canonical
   `- [ ] ...` form, and such a heading, for a change in a ready, active or implementing wave.
 - **Status drift blocks close (wave `1zoju`):** a blocking `change_status_drift`
   diagnostic (in `dry_run` and `create`, before close's own summary, status and
-  handoff writes) lists every admitted change whose wave-record `Change Status`
+  handoff writes) lists every admitted spec whose status in the wave record
   differs from the status in its spec's header (the leading metadata
-  before the first `## ` heading, CRLF read as LF, as `wf_close_change` reads it),
-  with `recovery_tools` `["wf_get_change", "wf_current_wave"]`. Only the document
+  before the first `## ` heading, CRLF read as LF, as `wf_close_spec` reads it),
+  with `recovery_tools` `["wf_get_spec", "wf_current_wave"]`. Only the document
   at the exact path `<wave folder>/<change id>.md` is read; a missing or unreadable
   document is not drift (other gates own it), and a header with no readable status
   is. The gate applies only while the wave's `Status` is not `closed` or
@@ -2242,7 +2265,7 @@ verbose: bool = False, operator_handle: str | None = None, attested_by: str | No
   own member in the sibling wave record.
 - **Missing admitted documents block close (wave 1v0lx):** a `change_doc_missing`
   diagnostic per admitted change whose document has no file on disk, naming the
-  change id and the recovery (restore the document, or `wf_remove_change`). The
+  change id and the recovery (restore the document, or `wf_remove_spec`). The
   missing case is deliberately not folded into `change_doc_unreadable`: the file
   is absent rather than broken, and the recovery differs. Exact-match consumers
   note: `change_doc_missing` is a distinct code from the pre-existing
@@ -2340,11 +2363,22 @@ status: str = "", include_history: bool = False, limit: int = 10, order: str = "
   **Explicit memory-query retrieval** below. Queryless listings keep kind-aware
   confidence and freshness ordering.
 - `order="least_recently_reviewed"` (wave 244fi) is the memory review's audit order for a
-  queryless listing. It sorts by `updated_at` ascending, then `effective_confidence`
-  ascending, then `memory_id`, before the cap, so the record reviewed or changed longest ago
-  comes first. A keep stamp (`memory_reconcile(memory_id, status="active")`) moves a record
-  to the end. Combining an `order` with `query`, or passing an unknown `order`, is refused
-  with `invalid_arguments`. Without `order` the ordering is unchanged.
+  queryless listing. Change 246to sorts by signal first: records with `target_unresolved`,
+  then `target_churn`, then `target_not_canonical` alone, then records with no reason.
+  Within a group it sorts by `updated_at` ascending, then `effective_confidence` ascending,
+  then `memory_id`, before the cap, so the record reviewed or changed longest ago comes
+  first. A recorded check (`memory_reconcile(memory_id, status="active", check_note=...)`)
+  moves a record to the end of its group. Combining an `order` with `query`, or passing an
+  unknown `order`, is refused with `invalid_arguments`. Without `order` the ordering is
+  unchanged.
+- Every record view carries `revalidation_reasons` (change 246to), derived on each read
+  and never written: `target_unresolved` (a file target `unresolved` or `ambiguous`, or an
+  `unresolved` `symbol:` target), `target_churn` (commits on a target's canonical path
+  strictly after the last recorded check reach the record's adaptive halving count) and
+  `target_not_canonical` (a `suffix_only` file target), in that order. The canonical path
+  is the ref when `resolved` and its `resolved_path` when `suffix_only`. The last recorded
+  check is `Checked at:`, else `Updated:`, else `Created:`. `needs_reverification` is true
+  for the first two reasons. A flag is a reason to check, not a verdict.
 - Results are ranked evidence, not verified answers: the calling agent judges each
   record's relevance, support and applicability. An empty result adds a
   `no_memory_matches` diagnostic; absence of a record is not absence of risk. The
@@ -2363,8 +2397,9 @@ status: str = "", include_history: bool = False, limit: int = 10, order: str = "
   249aq); no match is a normal result with `status: "ok"`, `advisories: []`, `count: 0`
   and no diagnostic. A brief without targets keeps the policy order. Community-scoped
   advisories are returned separately from file and symbol advisories.
-- Decay affects inclusion: churn-decayed kinds can drop below the confidence floor, while
-  `fragile_file` never drops from churn alone and reports `needs_reverification` instead.
+- Churn never lowers confidence or drops a record (change 246to): it sets the
+  `target_churn` flag. Only `environment_gotcha` and `dependency_gotcha` decay, by age since
+  the last recorded check, and can drop below the confidence floor.
   Freshness and the active-memory budget are described under **Adaptive memory
   freshness** below. The brief takes no free-text query.
 
@@ -2401,11 +2436,21 @@ or hosted model; optional Tensorwell inference uses authenticated local loopback
 **Memory physical archive (wave 1t8la):**
 
 - `memory_reconcile(memory_id: str, status: str, superseded_by: str = "", archive_reason: str = "",
-  eligibility_confirmed: bool = False, retain_for_history: bool = False)` transitions one
+  eligibility_confirmed: bool = False, retain_for_history: bool = False, check_note: str = "")` transitions one
   memory record's status. A `superseded` transition requires `superseded_by`; an `archived`
-  transition is the physical archive described next. A same-status call on an active record
-  (`status="active"`) is the memory review's keep stamp: it rewrites only the `Updated:`
-  date and leaves the body, `Created:` and decay unchanged (wave 244fi).
+  transition is the physical archive described next. Change 246to adds
+  `check_note: str = ""`. A call with a single-line `check_note` is a recorded check: it
+  re-stamps `Updated:` with the check's date and writes `Checked at:` (ISO 8601 UTC),
+  `Check note:` and `Check flags:` (the record's revalidation reasons just before the check,
+  or `none`); the note passes the content check before any write. A same-status call on an
+  active record (`status="active"`) is the memory review's keep: it requires `check_note`
+  (else `memory_check_required`) and is refused with `memory_target_unresolved`, naming each
+  ref and state, while a target sets `target_unresolved`; nothing is written. A
+  reactivation (a transition to `active` from any status other than `candidate`) is a keep
+  and follows the same two rules. The
+  refusal leaves out any stored target ref that matches the content check and reports
+  `withheld_target_count`. Promoting a `candidate` to `active` needs no note. Without a note only the `Status:` line changes.
+  Archival does not take a `check_note`.
 - `memory_reconcile(memory_id, status="archived", archive_reason,
   retain_for_history=true, eligibility_confirmed=false)` archives only a reviewed,
   history-worthy `stale`, `superseded`, or
@@ -2476,9 +2521,9 @@ or hosted model; optional Tensorwell inference uses authenticated local loopback
   target cadence from the median commit interval, apply named multiplier and
   min/max clamps, and use the most conservative multi-target half-life. Sparse
   or unreadable histories retain the established fixed half-life.
-- Decisions and operator preferences have no automatic age penalty.
-  `fragile_file` remains visible and reports `needs_reverification` after target
-  churn.
+- Decisions and operator preferences have no automatic age penalty. Change 246to:
+  churn on any kind sets the `target_churn` flag once the commits since the last recorded
+  check reach the adaptive halving count, and never lowers confidence.
 - Exact-target class, base-confidence band, surfaced status, and kind family
   are policy partitions ahead of adaptive freshness, semantic query rank,
   centrality, and id. Missing semantic/freshness/graph state preserves the same
@@ -2558,6 +2603,20 @@ or hosted model; optional Tensorwell inference uses authenticated local loopback
   allowed. A rewrite keeps the path, command, error string or finding it was drawn from.
   This refusal replaces the former `memory_target_not_current`. A successful response
   carries `untrusted_refs` and, when non-empty, `memory_untrusted_evidence`.
+- Stored fields: the pending record's stored title, summary, evidence and targets (change
+  249aq) and its `action_delta`, `validation_rationale`, `source_event`, `memory_id` and
+  path (change 24885) are content-checked once per call, before any response names the
+  record. `source_event` is checked as the record lint checks its rendered `Source event:`
+  line. Promote and retain refuse on any matching stored field; rewrite refuses on a
+  matching `action_delta`, `validation_rationale` or `source_event` and proceeds on a
+  matching title, summary or ref, which it replaces; reject proceeds. Every record view a
+  response returns (the refusal view, the success view, `rewrite_record` whether new or
+  reused) is checked against the record it was built from, and each matching field reads
+  `[withheld: <codes>]` (refs read `[]`) with `withheld_reasons` listing the codes. A
+  matching id or path is also left out of the fallback view and of
+  `memory_validation_write_failed` text, and `memory_rewrite_anchor_dropped` leaves a
+  matching stored target out of `original_anchors` and its message, reporting
+  `withheld_anchor_count`.
 - Rewrite creates the corrected active record and supersedes the generated
   candidate under the project-global lock. Multi-file crash atomicity is not
   claimed; partial failures return explicit recovery diagnostics.
@@ -2576,11 +2635,13 @@ caller field, refs included; (2) ref resolution of the record that would be admi
   `github_pat_` token, Slack `xox?-` token, three-part JWT, `sk-ant-`, `sk-proj-`, Google
   `AIza`, GitLab `glpat-`, npm `npm_` and a case-insensitive bearer token);
   `model_control_token` (ChatML `<|...|>` tokens, `[INST]`, `<<SYS>>`, Gemma turn markers,
-  `system-reminder` tags, tool-call markup with or without a namespace prefix, and a line
-  starting `Human:`, `Assistant:` or `System:`); `transcript_or_personal` (raw-transcript,
-  routine-log and personal-fact phrasing). A record that only documents a control token is
-  refused too; such a lesson names the token in words. The record lint uses the same line
-  checker, names the record and reason, and does not print the line.
+  `system-reminder` tags, tool-call markup with or without a namespace prefix, whose tag
+  names and prefix match in any case (change 24885), and a line starting `Human:`,
+  `Assistant:` or `System:`); `transcript_or_personal` (raw-transcript, routine-log and
+  personal-fact phrasing). A record that only documents a control token is refused too;
+  such a lesson names the token in words. The record lint uses the same line checker,
+  names the record and reason, and does not print the line. The only source-event
+  exemption is the hash separator of a generated decision-log source event.
 - Ref resolution (`memory_records.resolve_memory_refs`) reads only the working tree and the
   record roots, never Git, the index or the network, so a target in an uncommitted new file
   resolves. Each ref, backticks stripped, takes the first rule that applies: a URI scheme
@@ -2613,7 +2674,7 @@ caller field, refs included; (2) ref resolution of the record that would be admi
 
 ### Change Creation
 
-Ten kind-specific tools; each mintable kind scaffolds a spec and returns its ID and path:
+Choose the tool for the spec’s kind. Every successful creator returns the new identifier in `data.spec_id` and the path in `data.path`. Pass that identifier to `wf_get_spec` or `wf_add_spec`.
 
 - `wf_new_feature(slug)` — retired (wave `1zli8`): refuses with `change_kind_retired` and names `wf_new_enhancement`; plan a large feature as several changes
 - `wf_new_bug(slug)` — defect fix
@@ -2624,7 +2685,7 @@ Ten kind-specific tools; each mintable kind scaffolds a spec and returns its ID 
 - `wf_new_task(slug)` — one-off task with no ongoing code artifact
 - `wf_new_maintenance(slug)` — routine upkeep
 - `wf_new_operations(slug)` — operational or process change
-- `wf_new_change(slug)` — general fallback when no specific kind fits
+- `wf_new_spec(slug)` — general fallback when no specific kind fits
 
 All tools: on apply/create, request a background docs-index refresh for the new spec.
 
@@ -2744,7 +2805,7 @@ Creation prefers the project-local `plan-template.md` under the declared plans r
 
 Set `"wavefoundryAllowLowRiskWriteTools": true` in the project's `.claude/settings.json`. The next install, setup or upgrade render adds the served names for these core handlers. Older frameworks ignore the key. Only Claude Code receives this rendered allowlist.
 
-Low-risk tools: `wf_mark_ac`, `wf_mark_task`, `wf_garden_docs`, `index_build`, `index_optimize`, `wf_new_bug`, `wf_new_change`, `wf_new_documentation`, `wf_new_enhancement`, `wf_new_feature`, `wf_new_maintenance`, `wf_new_operations`, `wf_new_refactor`, `wf_new_task`, `wf_new_tech_debt`, `wf_memory_eval`.
+Low-risk tools: `wf_mark_ac`, `wf_mark_task`, `wf_garden_docs`, `index_build`, `index_optimize`, `wf_new_bug`, `wf_new_spec`, `wf_new_documentation`, `wf_new_enhancement`, `wf_new_feature`, `wf_new_maintenance`, `wf_new_operations`, `wf_new_refactor`, `wf_new_task`, `wf_new_tech_debt`, `wf_memory_eval`.
 
 The host grants each tool across its arguments. The mark tools can record mistaken completion or a deferral on an editable spec. They preserve closed waves, individually completed specs and neighboring items, and require a visible reason for a required deferral. Checkmarks do not supply review evidence or authorize a close. Operators can inspect tracked changes in Git. Index rebuilds and repeated plan creation can consume disk and compute. The plan scaffolders rely on unique IDs and check for existing files. A distribution that overrides a core handler owns the compatibility of that override.
 
@@ -2867,6 +2928,7 @@ This subset is off by default. It grants no lifecycle close, review approval, ed
 
 `index_health()`
 
+- The check can refresh `index-build-stats.json` from a finished build log. Starting a build requires a separate operation.
 - Returns the semantic index health for the single project index (the project `docs` and `code` tables; framework seeds and the top-level `README` are folded into the project `docs` table at setup/upgrade).
 - Each layer object includes `readiness`: `missing` (sources exist but index artifacts absent),
 `stale` (hash drift vs the store's build snapshot), `current` (a completed build epoch exists and
@@ -2947,12 +3009,12 @@ Python runtime advice is available under `index_health().data.setup_readiness.ad
 `wf_scan_secrets(mode: str = "incremental")`
 
 - Scans project files for hardcoded secrets, API keys, and credentials using `.wavefoundry/framework/scan-rules.toml` (rules for Wavefoundry’s local Python engine; provenance in the scanner notice) and `docs/scan-rules.toml` (project overrides and additions). A same-ID project rule replaces the framework rule at its existing position; unrelated rules retain their order. Existing disabled-rule and policy precedence is unchanged.
-- The explicit `betterleaks-v2-8f376ff9` profile implements the offline semantics of the pinned 474-rule configuration; [the scanner notice](../../.wavefoundry/framework/scan/NOTICE.md) records its source. Sourcegraph retains prefixed modern/local/instance forms and intentionally omits legacy unprefixed 40-hex tokens, including credential assignments. Full-profile reporting distinguishes 473 observable IDs from the deliberately suppressed, unreferenced `polymarket-address`; isolated matching is not a claim of active reporting.
+- The explicit `betterleaks-v2-8f376ff9` profile implements the offline semantics of the pinned 474-rule configuration; [the scanner notice](../../../.wavefoundry/framework/scan/NOTICE.md) records its source. Sourcegraph retains prefixed modern/local/instance forms and intentionally omits legacy unprefixed 40-hex tokens, including credential assignments. Full-profile reporting distinguishes 473 observable IDs from the deliberately suppressed, unreferenced `polymarket-address`; isolated matching is not a claim of active reporting.
 - Framework configurations without `wavefoundryProfile` retain legacy CEL. An omitted project profile inherits the framework profile; explicitly different profiles refuse. Custom rule syntax must match that profile, and unsupported project-wide Expr filter/prefilter overrides are diagnosed. There is no automatic legacy-filter migration.
 - The upstream profile parses, compiles and evaluates in an owned Python worker, using verified local tokenizer/dictionary assets and no shipped Go helper or new runtime dependency. Each worker operation has a 115-second deadline plus at most four seconds of cleanup. Timeout, crash, invalid output or asset failure is incomplete work; affected files cannot enter the clean cache, partial output cannot clear pending findings, and no unbounded serial fallback runs. Imported validation, analysis and revocation blocks remain inert.
 - The opt-in compatibility inspector compiles the explicit upstream profile and verifies its assets inside the bounded worker; legacy inputs retain static subset inspection. It does not scan content or execute imported provider actions. Neither compilation nor a compatible report proves extraction, regex equivalence, cost or absence of secrets. Existing local policy, JWT handling, redaction, human confirmation and project exclusions remain intact. Path-only PKCS#12 detection may report filename metadata without reading binary contents; binary-content coverage is not implied.
 - Candidate selection excludes only descendants of the six immediate runtime directories `cache`, `index`, `logs`, `dist`, `work` and `locks` inside any declared framework namespace, including nested projects, forced-tracked Git files and explicit file lists. `wave_lint_lib.constants.SCAN_RUNTIME_ROOT_NAMES` defaults to `(".wavefoundry",)`; downstream distributions extend this validated tuple rather than adding upstream hardcoded fork names. Malformed declarations refuse even on no-work/cache-current paths. Matching is literal by component with normalized separators and a required descendant; source/bin/framework, lookalikes, deeper project/cache paths and a file named cache stay eligible under existing policy. Existing lock-path case handling is unchanged.
-- The same exclusion applies before content hashing and during excluded-observation cleanup. Both cache owners fingerprint the declaration and predicate implementation; unchanged file contents cannot preserve stale path policy. Unrelated finding dispositions and confirmation history retain existing semantics. See [runtime scope and declaration](../contributing/build-and-verification.md#exclude-runtime-artifacts).
+- The same exclusion applies before content hashing and during excluded-observation cleanup. Both cache owners fingerprint the declaration and predicate implementation; unchanged file contents cannot preserve stale path policy. Unrelated finding dispositions and confirmation history retain existing semantics. See [runtime scope and declaration](../../contributing/build-and-verification.md#exclude-runtime-artifacts).
 - `mode="incremental"` (default): retain the standalone scanner's candidate selection and content-addressed skips. Rule, profile, asset or runtime-path policy identity changes invalidate scan currency and cause unchanged candidate files to be scanned again; neither cache producer can treat an incomplete result as completed work.
 - `mode="full"`: scans eligible git-tracked files regardless of change state, retaining scanner exclusions. Use after initial install or when you want a baseline across the whole repo.
 - Findings are written to and read from `docs/scan-findings.json`. New matches with no existing entry are auto-appended with `status: "pending"`. Existing entries keep their status and confirmation history.
@@ -3262,7 +3324,7 @@ is case-sensitive except on Windows, where it is case-insensitive.
 - `code_graph_community(community_id: str = "", hub_node_id: str = "", layer: str = "project", limit: int = 50, offset: int = 0, exclude_generated: bool = False)` — member nodes of one graph community from the published community rows, read against one pinned graph generation; pass `community_id` (as `wf_graph_report` or the `wavefoundry://graph/communities` resource names it; renumbered across rebuilds) or `hub_node_id` (the stable id of the community's highest-degree member, resolved to the community that now contains it; `community_id` wins when both are given), and one of them is required. Members are sorted by degree descending and paged with `limit` (default 50, clamped `[1, 500]`) and `offset` (default 0); `layer` is `project`. `exclude_generated=true` drops generated members from the page while `total_node_count` still counts the whole community. The response carries `label`, `total_node_count`, `returned_count`, `offset`, `has_more`, `nodes` (`{id, label, kind, source_file, generated, degree}`), the hub's stable id `community_hub_node_id`, `community_size_class` (`small` under 50, `medium` to 200, `large` above) and, for communities over 200 members, a `large_community_advisory` pointing to `code_callhierarchy` on the hub. An unknown id returns up to five near-match `suggestions`. Read-only.
 - `code_graph_path(from_symbol: str, to_symbol: str, relations: list[str] | None = None, max_hops: int = 10, layer: str = "project", direction: str = "forward", min_confidence: str = "EXTRACTED")` — lowest-cost path between two symbols (weighted Dijkstra-equivalent; `direction` forward/backward/either, `min_confidence` filter). Edge costs are tiered: deterministic-attribution `calls` cost 1, heuristic `calls` cost 2, everything structural (`imports`/`defines` — and, wave `1p9qh`/`1p9qa`, `implements`/`extends`; wave `1p9qi`, the SQL data-layer `reads`/`writes`/`maps_to`) cost 100, so a real call chain always beats an inheritance/import/shared-table/shared-entity shortcut within the horizon; inheritance edges are deliberately NOT dispatch-boosted here — dispatch potential is `code_impact`'s concern, path answers "how does control actually flow"
 - `code_risk_score(scope: str = "", top: int = 20, max_hops: int = 3, layer: str = "project", include_tests: bool = False)` — ranks the `function`/`method` symbols in a `scope=` (path, directory, or glob) by composite change-risk `risk = weighted_affected_file_count * log1p(weighted_fan_in)` (blast radius × log-dampened incoming call-degree, both **weighted by edge attribution confidence** — `EXTRACTED` heuristic edges count at `extracted_edge_weight` while `RECEIVER_RESOLVED`/`CONSTRUCTION_RESOLVED` count in full, so a ubiquitous accessor name like `getKey` can't top the rank purely on a name collision with an unrelated symbol); each result also carries raw `affected_file_count`/`fan_in`, `extracted_edge_fraction` (discount a high score when near 1.0), and `transitive_extracted_fraction` (Wave 1p7df: share of affected nodes reachable only via an `EXTRACTED`-traversing path — the blast radius's transitive confidence, now propagated along the whole path rather than the immediate hop); `fan_out` is surfaced as an independent `score_component`, not folded into `risk`; response carries `score_formula` + `score_components` so the score is transparent; `top` (default 20) caps output and `>200` candidates returns `over_candidate_cap`; **ranks many** symbols across a scope (vs `code_impact`, which sizes **one**); use before a cross-cutting change/refactor to prioritize which symbols to touch carefully. Structural (graph-derived), not git-commit churn; `risk` is a relative rank within the queried scope, not a cross-scope absolute
-- `code_commit_provenance(commit: str = "", path: str = "", line_start: int = 0, line_end: int = 0)` — reverse provenance: from exactly one input mode — an existing local commit SHA (`commit=`), or a blamed line range (`path=` + `line_start`/`line_end`) — back to the wave(s) that produced it and their recorded reasoning. Local git only (routed through the sanctioned argv-based `_run_git`, no shell, canonical commit verification, file path confined to the repo root) and strictly read-only. Resolution accepts either an anchored `Land wave(s) <id-list>` commit subject or an explicit top-level `landing-commit: <sha>` wave association; arbitrary SHA prose, code-fenced examples, quoted/reverted landing text, and nonexistent commits never authorize ownership. `resolution` is `resolved`, `honest_absence`, `partial`, or `conflict`; line responses preserve committed/uncommitted coverage, and any contributing resolution conflict wins at the envelope while retaining the partial diagnostic. Each provenance row carries `change_id`, document path, Rationale, Decision Log rows, and `relevance: file_relevant|wave_level`; broad context is labeled rather than claimed as file-specific. Only content-bearing reasoning actually present in the response is eligible for measured `context_avoided` credit. Use to answer "why is this line here / what decided it" from recorded reasoning rather than re-deriving it.
+- `code_commit_provenance(commit: str = "", path: str = "", line_start: int = 0, line_end: int = 0)` — reverse provenance: from exactly one input mode — an existing local commit SHA (`commit=`), or a blamed line range (`path=` + `line_start`/`line_end`) — back to the wave(s) that produced it and their recorded reasoning. Local git only (routed through the sanctioned argv-based `_run_git`, no shell, canonical commit verification, file path confined to the repo root) and strictly read-only. Resolution accepts either an anchored `Land wave(s) <id-list>` commit subject or an explicit top-level `landing-commit: <sha>` wave association; arbitrary SHA prose, code-fenced examples, quoted/reverted landing text, and nonexistent commits never authorize ownership. `resolution` is `resolved`, `honest_absence`, `partial`, or `conflict`; line responses preserve committed/uncommitted coverage, and any contributing resolution conflict wins at the envelope while retaining the partial diagnostic. Each provenance row carries `spec_id` alongside its legacy `change_id`, document path, Rationale, Decision Log rows, and `relevance: file_relevant|wave_level`; broad context is labeled rather than claimed as file-specific. Only content-bearing reasoning actually present in the response is eligible for measured `context_avoided` credit. Use to answer "why is this line here / what decided it" from recorded reasoning rather than re-deriving it.
 - `wf_graph_report(layer: str = "project", limit: int = 20, sections: list[str] | None = None, exclude_generated: bool = False, exclude_external: bool = False, collapse_generated_files: bool = False, collapse_class_module_pairs: bool = False, collapse_package_to_directory: bool = False)` — structural whole-graph summary; sections: `fan_in` (most-called symbols by in-degree), `fan_out` (most-calling symbols), `chokepoints` (high fan-out nodes ≥ threshold), `orphan_docs` (doc nodes with no `doc_references_code` edges), `communities` (top communities by node_count with `community_id`/`label`/`hub_node_id`/`hub_label`), `betweenness` (bridge nodes by centrality, served from the ranking persisted at build time in the clusters artifact — size-tiered exact / bounded-`cutoff` / degree-fallback computation, no per-query cost and no graph-size cap; carries `betweenness_method` (`"exact"` / `"cutoff"` / `"degree_fallback"`), `betweenness_metadata` (node_count, edge_count, top_n, elapsed_ms, cutoff when applicable), `betweenness_computed` / `betweenness_dominated_by_generated`; a clusters artifact predating the build-time pass returns `betweenness_skipped_reason: "betweenness_not_in_artifact"` until the next graph rebuild; since wave `1wpaj` a persisted cluster artifact whose builder version does not match runtime is refused with the distinct reason `"betweenness_artifact_stale"` plus a `betweenness_stale_artifact` object, rather than being served as if it described the current graph, and a missing persisted version is treated as stale for the same reason; and `"unsupported_for_collapsed_view"` when betweenness is requested alongside ANY collapse flag, since the persisted order describes the base topology and is not served for a collapsed graph — this is a behaviour reversal, as such a request previously returned base-topology rows. `betweenness_served_from` reports `"prefix"` or `"complete_order"`, and should be read instead of `betweenness_metadata.top_n`, which is the prefix size rather than the depth a refilled ranking reached). **Evidence/Data partition (wave `1wpie`):** five sections return an exact parallel typed array — `communities`/`evidence_communities`, `fan_in`/`evidence_fan_in`, `fan_out`/`evidence_fan_out`, `chokepoints`/`evidence_chokepoints`, and `file_hubs`/`evidence_file_hubs`. Rows whose owning artifact is a classified machine result are partitioned out BEFORE top-N, so they never consume a production ranking slot; the public `limit` then applies independently to each half. The evidence array is PRESENT AND EMPTY when nothing qualifies, including when its production section was not requested, so a consumer never has to distinguish "nothing qualified" from "this build predates the partition". Evidence entries keep their section's existing fields and add `evidence_type="evidence_data"` plus non-empty `classification_reasons`; evidence-community entries also add `community_type="evidence_data"`. `exclude_generated` does NOT erase Evidence/Data (the two classifications are orthogonal), evidence community ids stay discoverable in the catalog and queryable through `code_graph_community`, and cross-boundary edges are never discarded. **Call-edge attribution (wave `203pu`):** every `fan_in`, `fan_out`, `chokepoints` and `file_hubs` row and its `evidence_*` counterpart adds `call_edge_counts` = `{total, resolved, extracted, unclassified, receiver_unknown}`, nonnegative integers over `calls` edges only, in the row's direction (incoming for `fan_in`, outgoing otherwise) and in the effective filtered or collapsed view. `resolved` counts `RECEIVER_RESOLVED`/`CONSTRUCTION_RESOLVED` edges without unknown-receiver provenance, `extracted` counts `EXTRACTED` (name-based) edges, and `unclassified` counts the rest, including absent or unrecognized confidence and resolved-plus-unknown metadata; `total = resolved + extracted + unclassified`, and `receiver_unknown` is an overlapping subset of `total`. These are edge counts, not distinct callers or callees and not proof of runtime dispatch, and extracted edges are not resolved callers. The legacy `count`/`fan_out` value, which also counts SQL data-layer relations, keeps driving ranking, limits and thresholds, so `total` may be lower than it. Since graph builder 53 a member call on a receiver that cannot own a name-only binding (a computed receiver, or a non-`self` receiver of Rust `.` / C/C++ `->` member syntax) stays an `external::` target carrying `unowned_member_call` instead of binding an unrelated project function by name; use for codebase orientation and hotspot identification
 
 
@@ -3305,7 +3367,7 @@ The server exposes read-only **MCP resources** and **resource templates** via th
 | Attach project overview, AGENTS guide, wave state, or architecture doc as conversation context | **resource** | Raw markdown, no tool-call overhead, no envelope parsing needed |
 | Need error diagnostics, `next_tools`, or recovery hints | **tool** | Structured envelope with `diagnostics` and `next_tools` |
 | Attach a specific spec or seed as ambient reference | **resource** | `wavefoundry://change/{id}`, `wavefoundry://seed/{slug}` |
-| Query with parameters that influence retrieval depth or layer | **tool** | `wf_get_change`, `seed_get`, etc. support filtered, layered lookup |
+| Query with parameters that influence retrieval depth or layer | **tool** | `wf_get_spec`, `seed_get`, etc. support filtered, layered lookup |
 | Check quick ambient status (index ready? graph present?) | **resource** | `wavefoundry://index/status`, `wavefoundry://graph/status` |
 | Need full indexed health with stale/missing diagnostics | **tool** | `index_health` returns `readiness_overview`, `stale_layers`, etc. |
 
@@ -3332,8 +3394,9 @@ Parameterized reads — supply the URI variable to select a specific document:
 
 | URI template | MIME | Content | Equivalent tool |
 |---|---|---|---|
-| `wavefoundry://change/{change_id}` | `text/markdown` | Spec matching ID or prefix; ambiguous matches return an `# Ambiguous Change` markdown list | `wf_get_change(change_id=…)` |
-| `wavefoundry://wave/{wave_id}` | `text/markdown` | `wave.md` for the given wave ID or prefix; ambiguous matches return an `# Ambiguous Wave` markdown list | `wf_get_change(wave_id=…)` |
+| `wavefoundry://spec/{spec_id}` | `text/markdown` | Spec matching ID or prefix | `wf_get_spec(spec_id=…)` |
+| `wavefoundry://change/{change_id}` | `text/markdown` | Compatible URI for existing bookmarks to the same spec | `wf_get_spec(spec_id=…)` |
+| `wavefoundry://wave/{wave_id}` | `text/markdown` | `wave.md` for the given wave ID or prefix; ambiguous matches return an `# Ambiguous Wave` markdown list | `wf_get_spec(wave_id=…)` |
 | `wavefoundry://prompt/{slug}` | `text/markdown` | Prompt doc matching slug or shortcut | `wf_get_prompt(shortcut=…)` |
 | `wavefoundry://seed/{slug}` | `text/markdown` | Seed doc matching slug or name | `seed_get(name=…)` |
 | `wavefoundry://architecture/{slug}` | `text/markdown` | Architecture doc matching slug (e.g. `domain-map`) | — |
@@ -3499,7 +3562,7 @@ Current audit/recovery tools:
 - `wf_validate_docs`
 - `wf_current_wave`
 - `wf_list_waves`
-- `wf_get_change`
+- `wf_get_spec`
 
 Future lifecycle tools should cite `wf_audit` in their `next_tools` fields
 when a combined health snapshot is useful after a mutation. Individual tools

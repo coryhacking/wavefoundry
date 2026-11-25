@@ -32,7 +32,7 @@ briefed subagent.
 
 1. Every change is `implemented`, `complete`, or `deferred` with rationale, and
    every AC and task is completed or intentionally deferred with rationale.
-   **Close spec** (`wf_close_change`) is optional; use it to mark a single
+   **Close spec** (`wf_close_spec`) is optional; use it to mark a single
    change `complete` and activate its dependents inside the open wave.
 2. Required review lanes are current. Check each Council signoff required by the current Prepare receipt for its phase (`council-readiness` or `council-delivery`).
 3. Change status, wave status, completion date, and chronology agree.
@@ -48,7 +48,11 @@ briefed subagent.
    docstring, assertion or the code itself, so reject it. A rewrite keeps its
    concrete anchor: at least one original target that still resolves, and the
    path, command, error string or finding it was drawn from, not condensed into
-   a general lesson. A wave may correctly produce
+   a general lesson. Move a manually selected candidate to active or rejected
+   with `memory_reconcile`: promoting a candidate needs no `check_note` and is
+   not refused on an unresolved target, while a keep of an already-active
+   record needs a single-line `check_note` and is refused while a target is
+   unresolved. A wave may correctly produce
    zero memories; a missing or pending eligible candidate blocks close.
 6. The canonical test suite, docs gate, and relevant packaging checks pass.
 7. The context-efficiency checkpoint has been projected from durable telemetry

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-24
 
 **Shortcut phrases:** `Refresh TechDocs` · `Author TechDocs`
 
@@ -50,6 +50,7 @@ The writer then authors or refreshes the published pages: `docs/index.md` (landi
 
 - **Audience invariant.** `docs/references/project-overview.md` and `docs/ARCHITECTURE.md` are agent startup-order surfaces (`AGENTS.md` Start Here) and MCP resources (`wavefoundry://overview`, `wavefoundry://architecture/current-state`). A reader-facing revision adds framing and summaries around their agent-orientation content and never removes or reorders it: the pre-revision heading sequence must remain a subsequence of the post-revision file. The docs-contract check verifies this explicitly.
 - **Framing-only under `docs/architecture/`.** The Boundary Invariants, Interaction Edges, Dependency Direction, and State Ownership tables are review authority; the writer may frame and summarize them, never change their substance. The architecture lane verifies every edit there.
+- **Behavior contracts.** Follow the landing page and navigation through the built site to the contract index and a maintained contract. An index may point to a published page elsewhere. For a repository-only contract, label the destination and use the project’s repository link when available. Preserve the project's existing publication choices.
 - **Link boundary.** `exclude_docs` removes agent surfaces (`agents/**`, prompt bodies, `waves/**`, plans, reports, memory) from the built site. Published pages link only inside the publication boundary. For a cross-boundary reference, name the repository path in prose or replace the relative link with an explicit repository URL derived from an operator-configured remote and branch. `repo_url` configures site and edit-link metadata; it does not rewrite Markdown links or repair a relative link that points outside the publication boundary.
 - **Summarize and link.** Pages do not duplicate `AGENTS.md`, role docs, wave records, or prompt bodies.
 - **Citations and metadata.** Every behavior claim carries a citation from the supplier that verified it. Prefer the symbol form (`module.symbol`, file named without a line number): a line range goes stale the moment anything above it moves, including edits made later in the same wave, and nothing validates it. Use `path:start-end` only where no symbol names the fact, and recompute every such range against the final tree at Step 3. Every touched page keeps `Owner` / `Status` / `Last verified` metadata and passes the project's citation and link rules.

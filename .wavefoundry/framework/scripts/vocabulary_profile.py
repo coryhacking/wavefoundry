@@ -65,8 +65,8 @@ SUMMARY_HEADING = "## Wave Summary"
 
 # Work items, as listed in the container record and headed in their own docs.
 MEMBER_HEADING = "## Changes"
-MEMBER_ID_LABEL = "Change ID"
-MEMBER_STATUS_LABEL = "Change Status"
+MEMBER_ID_LABEL = "Spec ID"
+MEMBER_STATUS_LABEL = "Spec Status"
 
 # The label a work-item document (and a plan overview) uses to name its container.
 BACKREF_LABEL = "Wave"
@@ -286,7 +286,7 @@ PLANNING_PROMPT_ROLES: "dict[str, str]" = {
 # names and the prompt index.
 FIXED_PROMPT_SLUGS: tuple[str, ...] = (
     "review-plan", "memory-review", "council-review", "archetype-council", "red-team-review",
-    "evaluate-decision", "envision-project", "explain", "refresh-techdocs", "plan-initiative", "codebase-cleanup-review", "package-wavefoundry",
+    "evaluate-decision", "envision-project", "explain", "author-behavior-contract", "refresh-techdocs", "plan-initiative", "codebase-cleanup-review", "package-wavefoundry",
     "install-wavefoundry", "upgrade-wavefoundry", "framework-config-review",
     "agent-routing-concurrency", "start-dashboard", "stop-dashboard", "restart-dashboard",
     "init-wave-context", "upgrade-wave-context", "performance-reviewer", "security-reviewer",
@@ -297,14 +297,14 @@ FIXED_PROMPT_SLUGS: tuple[str, ...] = (
 # folder names the renderer removes on every render.
 FIXED_SKILL_NAMES: tuple[str, ...] = (
     "wf-review-plan", "wf-evaluate-decision", "wf-memory-review", "wf-council", "wf-guru",
-    "wf-stats", "wf-upgrade", "wf-package", "wf-code-cleanup", "wf-techdocs", "wf-envision", "wf-explain",
+    "wf-stats", "wf-upgrade", "wf-package", "wf-code-cleanup", "wf-techdocs", "wf-envision", "wf-explain", "wf-contract",
 )
 FIXED_STALE_SKILL_NAMES: tuple[str, ...] = ("auto-guru", "wf-interrogate-plan", "wf-plan-feature", "wf-plan-initiative")
 # The framework's untiered public shortcuts (a test pins them to the manifest).
 FIXED_PROMPT_SHORTCUTS: tuple[str, ...] = (
     "Init Wavefoundry", "Start dashboard", "Stop dashboard", "Restart dashboard",
     "Upgrade Wavefoundry", "Package Wavefoundry", "Review memories", "Review plan",
-    "Red-team review", "Refresh TechDocs", "Envision project", "Explain",
+    "Red-team review", "Refresh TechDocs", "Envision project", "Explain", "Author behavior contract",
 )
 _PROMPT_SLUG_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
 _PROMPT_NAME_MAX = 64
@@ -655,14 +655,37 @@ def pending_prompt_name_keys(record: object, registered_docs: "Iterable[str]" = 
     return [key for key in DEFAULT_PROMPT_NAMES if applied[key] != prompt_slug(key)]
 
 
+# Stock records written before the spec vocabulary remain readable in place.
+# A custom field name belongs exclusively to its own profile.
+_LEGACY_RECORD_LABELS = {
+    "Spec ID": "Change ID",
+    "Spec Status": "Change Status",
+    "Previous Spec Status": "Previous Change Status",
+}
+
+
+def record_label_spellings(label: str, *, occupied: tuple[str, ...] | None = None) -> tuple[str, ...]:
+    legacy = _LEGACY_RECORD_LABELS.get(label)
+    if occupied is None:
+        occupied = (ID_KEY, MEMBER_ID_LABEL, MEMBER_STATUS_LABEL, PREVIOUS_STATUS_LABEL, BACKREF_LABEL)
+    return (label, legacy) if legacy and legacy not in occupied else (label,)
+
+
+def _record_label_re(label: str, *, occupied: tuple[str, ...] | None = None) -> str:
+    variants = record_label_spellings(label, occupied=occupied)
+    if len(variants) == 1:
+        return re.escape(label)
+    return "(?:" + "|".join(map(re.escape, variants)) + ")"
+
+
 RECORD_FILENAME_RE = re.escape(RECORD_FILENAME)
 ID_KEY_RE = re.escape(ID_KEY)
 RECORD_TITLE_RE = re.escape(RECORD_TITLE)
 SUMMARY_HEADING_RE = re.escape(SUMMARY_HEADING)
 MEMBER_HEADING_RE = re.escape(MEMBER_HEADING)
-MEMBER_ID_LABEL_RE = re.escape(MEMBER_ID_LABEL)
-MEMBER_STATUS_LABEL_RE = re.escape(MEMBER_STATUS_LABEL)
-PREVIOUS_STATUS_LABEL_RE = re.escape(PREVIOUS_STATUS_LABEL)
+MEMBER_ID_LABEL_RE = _record_label_re(MEMBER_ID_LABEL)
+MEMBER_STATUS_LABEL_RE = _record_label_re(MEMBER_STATUS_LABEL)
+PREVIOUS_STATUS_LABEL_RE = _record_label_re(PREVIOUS_STATUS_LABEL)
 BACKREF_LABEL_RE = re.escape(BACKREF_LABEL)
 
 # Tokens that are fixed in every profile; a vocabulary token may not reuse one.
@@ -901,9 +924,9 @@ def _field_errors(fields: "dict[str, str]", previous: object) -> list[str]:
 # The vocabulary the shipped ``install/plan-template.md`` is written with.
 # Fixed text describing that file, not profile values: a fork edits the
 # constants above, and ``localize_template`` rewrites these to them.
-_SHIPPED_TEMPLATE_LABELS = ("Change ID", "Change Status", "Wave")
+_SHIPPED_TEMPLATE_LABELS = ("Spec ID", "Spec Status", "Wave")
 _SHIPPED_TEMPLATE_LABEL_RE = re.compile(
-    r"(?m)^(" + "|".join(re.escape(label) for label in _SHIPPED_TEMPLATE_LABELS) + r"):"
+    r"(?m)^(" + "|".join(re.escape(label) for label in (*_SHIPPED_TEMPLATE_LABELS, "Change ID", "Change Status")) + r"):"
 )
 # The record filename as the last segment of the template's example path.
 _SHIPPED_TEMPLATE_RECORD_RE = re.compile(r"(?<=/)wave\.md(?=`)")
@@ -916,6 +939,7 @@ def localize_template(text: str) -> str:
     identity under the default profile. Apply it to the shipped template only,
     never to a project copy it already produced."""
     current = dict(zip(_SHIPPED_TEMPLATE_LABELS, (MEMBER_ID_LABEL, MEMBER_STATUS_LABEL, BACKREF_LABEL)))
+    current.update({"Change ID": MEMBER_ID_LABEL, "Change Status": MEMBER_STATUS_LABEL})
     text = _SHIPPED_TEMPLATE_LABEL_RE.sub(lambda m: current[m.group(1)] + ":", text)
     return _SHIPPED_TEMPLATE_RECORD_RE.sub(lambda _m: RECORD_FILENAME, text)
 
@@ -928,8 +952,13 @@ class _Profile:
         for name in FIELD_NAMES:
             setattr(self, name, fields[name])
         self.PREVIOUS_STATUS_LABEL = f"Previous {self.MEMBER_STATUS_LABEL}"
+        occupied = (self.ID_KEY, self.MEMBER_ID_LABEL, self.MEMBER_STATUS_LABEL, self.PREVIOUS_STATUS_LABEL, self.BACKREF_LABEL)
         for name in _RE_FIELD_NAMES:
-            setattr(self, name + "_RE", re.escape(getattr(self, name)))
+            label = getattr(self, name)
+            pattern = re.escape(label)
+            if name in {"MEMBER_ID_LABEL", "MEMBER_STATUS_LABEL", "PREVIOUS_STATUS_LABEL"}:
+                pattern = _record_label_re(label, occupied=occupied)
+            setattr(self, name + "_RE", pattern)
 
     def id_line(self, wave_id: str) -> str:
         return f"{self.ID_KEY}: `{wave_id}`"

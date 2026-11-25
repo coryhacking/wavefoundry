@@ -29,7 +29,7 @@ import review_policy_reconcile  # noqa: E402
 from wave_lint_lib.core_validators import check_review_policy_carriers  # noqa: E402
 import vocabulary_profile as vp  # noqa: E402
 from record_layout_support import default_profile_only  # noqa: E402
-from upstream_fixture_support import upstream_fixture, source_carriers  # noqa: E402
+from upstream_fixture_support import tool_contract_rel, upstream_fixture, source_carriers  # noqa: E402
 import record_paths  # noqa: E402
 from prompt_vocabulary_support import (  # noqa: E402
     assert_clause,
@@ -82,8 +82,16 @@ def assert_memory_review_contract(test: unittest.TestCase, text: str) -> None:
         "Do not record model names.",
         # Change 244fh: the bounded active-record audit.
         'memory_search(status="active", order="least_recently_reviewed", limit=15)',
-        'memory_reconcile(memory_id=..., status="active")',
-        "reviewed, unchanged",
+        # Change 246to: a keep is a recorded check, the batch is signal first.
+        'memory_reconcile(memory_id=..., status="active",\n     check_note="<what you checked>")',
+        "`memory_check_required`",
+        "`memory_target_unresolved`",
+        "A flag is a reason to check, not a verdict.",
+        "`target_unresolved`",
+        "`target_churn`",
+        "`target_not_canonical`",
+        "Promoting a candidate to active needs no `check_note`",
+        "reviewed,\n     unchanged",
         "It must cover the lesson's whole scope",
         "not only the instance the record came from",
         'memory_reconcile(memory_id=..., status="stale")',
@@ -979,7 +987,7 @@ class IntentFitApprovalCarrierTests(unittest.TestCase):
         "docs/prompts/upgrade-wavefoundry.prompt.md": (
             "an upgraded server refuses a council approval without it",
         ),
-        "docs/specs/mcp-tool-surface.md": (
+        tool_contract_rel(ROOT): (
             "requires `evidence.intent_fit`",
             "`delivery_intent_not_established`",
         ),
@@ -1081,6 +1089,37 @@ class MemoryAdmissionGuidanceTests(unittest.TestCase):
             for sentence in self.SENTENCES:
                 with self.subTest(carrier=rel, sentence=sentence[:30]):
                     self.assertIn(sentence, text)
+
+
+class MemoryKeepGuidanceTests(unittest.TestCase):
+    """Change 246to AC-10: every keep guidance place states the rule."""
+
+    CARRIERS = MemoryAdmissionGuidanceTests.CARRIERS
+    PHRASES = (
+        "needs no `check_note` and is not refused on an unresolved target",
+        "keep of an already-active record",
+    )
+
+    def test_every_copy_states_the_keep_rule(self) -> None:
+        repo = PROJECT_ROOT.parent
+        for rel in self.CARRIERS:
+            text = " ".join((repo / rel).read_text(encoding="utf-8").split()).lower()
+            for phrase in self.PHRASES:
+                with self.subTest(carrier=rel, phrase=phrase[:30]):
+                    self.assertIn(phrase.lower(), text)
+            with self.subTest(carrier=rel, phrase="refused"):
+                self.assertRegex(text, r"`check_note` and is refused (?:on|while) (?:an unresolved target|a target is unresolved)")
+
+    def test_server_guidance_states_the_keep_rule(self) -> None:
+        source = (PROJECT_ROOT / "framework" / "scripts" / "wf_server" / "server_impl.py").read_text(
+            encoding="utf-8")
+        self.assertIn("promoting a candidate needs no check_note, but a keep of an already-active "
+                      "record needs a single-line check_note and is refused while a target is "
+                      "unresolved.", source)
+        docstring = " ".join(source.split("def memory_search(", 1)[1].split('"""', 2)[1].split())
+        self.assertIn('A keep is a recorded check (``memory_reconcile(status="active", '
+                      'check_note=...)``, refused on an unresolved target; a candidate promotion '
+                      'needs neither)', docstring)
 
 
 class MemoryReviewPromptTests(unittest.TestCase):
@@ -1271,18 +1310,22 @@ class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
         self.assertTrue(derived.issubset(set(ras.LIFECYCLE_PROMPT_BASELINES)))
 
     def test_policy_renderer_materializes_all_registered_policy_blocks(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            for destination, block in ras.REVIEW_POLICY_SURFACE_BLOCKS.items():
-                path = root / destination
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text("project prose\n", encoding="utf-8")
-            written = ras.reconcile_review_policy_surfaces(root)
-            self.assertEqual(set(written), set(ras.REVIEW_POLICY_SURFACE_BLOCKS))
-            for destination in ras.REVIEW_POLICY_SURFACE_BLOCKS:
-                text = (root / destination).read_text(encoding="utf-8")
-                self.assertEqual(text.count(ras.REVIEW_POLICY_SURFACE_MARKER_BEGIN), 1)
-                self.assertEqual(text.count(ras.REVIEW_POLICY_SURFACE_MARKER_END), 1)
+        for contract_path in review_policy.TOOL_CONTRACT_PATHS:
+            with self.subTest(contract=contract_path), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                destinations = set(ras.REVIEW_POLICY_SURFACE_BLOCKS)
+                destinations.difference_update(review_policy.TOOL_CONTRACT_PATHS)
+                destinations.add(contract_path)
+                for destination in destinations:
+                    path = root / destination
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("project prose\n", encoding="utf-8")
+                written = ras.reconcile_review_policy_surfaces(root)
+                self.assertEqual(set(written), destinations)
+                for destination in destinations:
+                    text = (root / destination).read_text(encoding="utf-8")
+                    self.assertEqual(text.count(ras.REVIEW_POLICY_SURFACE_MARKER_BEGIN), 1)
+                    self.assertEqual(text.count(ras.REVIEW_POLICY_SURFACE_MARKER_END), 1)
 
     def test_pre_v115_existing_docs_receive_owned_policy_baselines_and_validate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1294,6 +1337,7 @@ class ReviewProtocolCarrierRegistryTests(unittest.TestCase):
                 and carrier.destination not in {
                     "docs/agents",
                     "docs/references/dashboard-adapter-model.md",
+                    review_policy.TOOL_CONTRACT,  # Existing installations use the legacy path.
                 }
             }
             original: dict[str, bytes] = {}
@@ -2238,7 +2282,7 @@ class ReviewPlanPromptMigrationTests(unittest.TestCase):
             ras, "guru_available", return_value=False
         ):
             ras.render_agent_surfaces(Path(temp_dir))
-        self.assertEqual(order, ["migration", "skills", "baselines"])
+        self.assertEqual(order, ["migration", "baselines", "skills"])
 
 
 class ChangePromptRenameMigrationTests(unittest.TestCase):
@@ -2671,7 +2715,7 @@ class ChangePromptRenameMigrationTests(unittest.TestCase):
             ras, "guru_available", return_value=False
         ):
             ras.render_agent_surfaces(Path(temp_dir))
-        self.assertEqual(order, ["review-plan", "change", "skills", "baselines"])
+        self.assertEqual(order, ["review-plan", "change", "baselines", "skills"])
 
 
 class ChangePromptSkillAndContractTests(unittest.TestCase):
@@ -2727,7 +2771,7 @@ class ChangePromptSkillAndContractTests(unittest.TestCase):
 
         closable_list = "(`ready`, `active`, `review` or `implemented`)"
         clauses = (
-            "wf_close_change",
+            "wf_close_spec",
             "(`active` or `implementing`)",
             "admitted to that {wave}",
             "spec exists and is readable",
@@ -2747,10 +2791,10 @@ class ChangePromptSkillAndContractTests(unittest.TestCase):
             with self.subTest(source=name, clause="closable statuses"):
                 if name == "seed":
                     self.assertIn(closable_list, text)
-                elif name == "rendered" and "wf_close_change" in sys.modules["mcp_tool_extensions"].override_targets():
+                elif name == "rendered" and "wf_close_spec" in sys.modules["mcp_tool_extensions"].override_targets():
                     # Wave 216ga (216g9): an overriding distribution's prompt
                     # states its own close rule, not the core one.
-                    self.skipTest("wf_close_change is overridden; the rendered prompt states the override's rule")
+                    self.skipTest("wf_close_spec is overridden; the rendered prompt states the override's rule")
                 else:
                     self.assertEqual(self._closable_statuses_named(text), set(srv._close_change_closable_statuses()))
 
@@ -3067,12 +3111,48 @@ class SkillRegistryTests(unittest.TestCase):
 
     # The doc-gated skills (wave 1ve3a) and their gate docs.
     _DOC_GATED = {
+        "wf-contract": "docs/prompts/author-behavior-contract.prompt.md",
         "wf-package": "docs/prompts/package-wavefoundry.prompt.md",
         "wf-code-cleanup": "docs/prompts/codebase-cleanup-review.prompt.md",
         "wf-techdocs": "docs/prompts/refresh-techdocs.prompt.md",
         "wf-envision": "docs/prompts/envision-project.prompt.md",
         "wf-plan-arc": "docs/prompts/plan-arc.prompt.md",
     }
+
+    def test_contract_uses_missing_only_prompt_on_active_hosts(self):
+        path = "docs/prompts/author-behavior-contract.prompt.md"
+        description = "Write or update a behavior contract using the implementation and its tests."
+        for hosts in ((".codex", ".claude", ".agents"), (".claude",)):
+            with self.subTest(hosts=hosts), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                self._repo(root, guru=False, gate_docs=False, hosts=hosts)
+                ras.render_skills(root)
+                for host in hosts:
+                    self.assertFalse((root / host / "skills/wf-contract").exists())
+                prime_profile_render(root)
+                ras.render_agent_surfaces(root)
+                prompt = root / path
+                self.assertIn("**Author behavior contract** or `/wf-contract`", prompt.read_text())
+                for host in hosts:
+                    skill = (root / host / "skills/wf-contract/SKILL.md").read_text()
+                    self.assertIn("description: " + description, skill)
+                    self.assertIn(f"`{path}`", skill)
+                edited = prompt.read_bytes() + b"\nUse the service team's wire fixtures.\n"
+                prompt.write_bytes(edited)
+                self.assertEqual(ras.render_agent_surfaces(root), [])
+                self.assertEqual(prompt.read_bytes(), edited)
+
+    def test_spec_skill_routes_use_served_schemas_for_declared_projects(self):
+        for declared in (False, True):
+            with self.subTest(declared=declared), patch.object(ras.mcp_tool_extensions, "declared", return_value=declared):
+                entries = {skill.name: skill.body for skill in ras._build_skill_registry()}
+                plan = entries[ras._vp_skill("plan-change")]
+                close = entries[ras._vp_skill("close-change")]
+                for body, example in ((plan, "wf_add_spec(wave_id=..., spec_id="),
+                                      (plan, "wf_get_spec(spec_id="),
+                                      (close, "wf_close_spec(wave_id=..., spec_id=")):
+                    self.assertEqual(example in body, not declared)
+                    self.assertEqual("served MCP tool schema" in body, declared)
 
     def test_explain_and_review_share_the_installed_prompt_on_active_hosts(self) -> None:
         prompt_path = "docs/prompts/explain.prompt.md"
@@ -5173,6 +5253,59 @@ class TechdocsBaselineGoldenTests(unittest.TestCase):
             for _destination, template_name, _marker in ras.TECHDOCS_BASELINES:
                 template = ras._resolve_install_asset(root, template_name)
                 self.assertIn("{{entity_name}}", template.read_text(encoding="utf-8"), template_name)
+
+    def test_installed_templates_link_only_a_published_contract_index(self) -> None:
+        from shutil import copyfile
+
+        link = "architecture/contracts/index.md"
+        for case in ("present", "missing", "custom site", "escaping symlink", "legacy template"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temp_dir:
+                root = _techdocs_repo(temp_dir)
+                install = root / ".wavefoundry" / "framework" / "install"
+                install.mkdir(parents=True)
+                for _, name, _ in ras.TECHDOCS_BASELINES:
+                    copyfile(SCRIPTS_ROOT.parent / "install" / name, install / name)
+
+                contract = root / "docs" / link
+                contract.parent.mkdir(parents=True)
+                if case == "escaping symlink":
+                    outside = Path(temp_dir) / "private.md"
+                    outside.write_text("# Private", encoding="utf-8")
+                    contract.symlink_to(outside)
+                elif case != "missing":
+                    contract.write_text("# Behavior contracts", encoding="utf-8")
+
+                config = root / "mkdocs.yml"
+                catalog = root / "catalog-info.yaml"
+                if case == "custom site":
+                    config.write_text(f"site_name: Mine\nexclude_docs: |\n  /{link}\n", encoding="utf-8")
+                    catalog.write_text("metadata: {name: mine}\n", encoding="utf-8")
+                    original = config.read_bytes(), catalog.read_bytes()
+                elif case == "legacy template":
+                    (install / "mkdocs.template.yml").write_text(_TECHDOCS_GOLDEN_MKDOCS, encoding="utf-8")
+
+                result = _techdocs_render(root)
+                if case == "custom site":
+                    self.assertEqual(result.written_paths, ("docs/index.md",))
+                    self.assertEqual((config.read_bytes(), catalog.read_bytes()), original)
+                else:
+                    self.assertEqual(result.written_paths, _TECHDOCS_TRIO)
+                self.assertEqual(f"Behavior contracts: {link}" in config.read_text(), case == "present")
+                page = (root / "docs/index.md").read_text()
+                self.assertEqual(f"[Behavior contracts]({link})" in page, case == "present")
+                self.assertNotIn("{{", page)
+                self.assertNotIn("{{", config.read_text())
+                self.assertEqual(_techdocs_render(root).written_paths, ())
+                if case == "present":
+                    (root / "docs/index.md").unlink()
+                    self.assertEqual(_techdocs_render(root).written_paths, ("docs/index.md",))
+                    self.assertEqual((root / "docs/index.md").read_text(), page)
+                    # Owners may tighten the boundary while retaining the marker.
+                    with config.open("a", encoding="utf-8") as handle:
+                        handle.write(f"  /{link}\n")
+                    (root / "docs/index.md").unlink()
+                    self.assertEqual(_techdocs_render(root).written_paths, ("docs/index.md",))
+                    self.assertNotIn(link, (root / "docs/index.md").read_text())
 
     def test_templates_ship_under_names_no_discovery_glob_matches(self) -> None:
         # A literal catalog-info.yaml shipped into every target would be found by

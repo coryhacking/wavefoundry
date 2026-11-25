@@ -403,7 +403,10 @@ class DashboardSnapshotTests(unittest.TestCase):
         self.assertEqual(change["ac_completed_counts"]["important"], 0)
         self.assertEqual(change["ac_priority_counts"]["required"], 1)
         self.assertEqual(change["ac_priority_counts"]["important"], 1)
-        self.assertEqual(snapshot["activity"]["recent_progress"][0]["change_id"], "12x1a-enh sample-dashboard")
+        recent = snapshot["activity"]["recent_progress"][0]
+        self.assertEqual(recent["change_id"], "12x1a-enh sample-dashboard")
+        self.assertEqual(recent["spec_id"], change["spec_id"])
+        self.assertEqual(change["spec_id"], change["change_id"])
         self.assertEqual(snapshot["metrics"]["scope"], "active_wave")
 
     def test_pausing_unfinished_wave_keeps_it_pending_and_offers_resume(self):
@@ -1343,9 +1346,9 @@ Wave: `12x test-wave`
         self.assertIn('safe.split("-").flatMap', source)
         self.assertIn('part.replace(/ /g, "\\u00a0")', source)
         # Activity timeline span uses the helper.
-        self.assertIn("...renderChangeIdParts(item.change_id)", source)
+        self.assertIn("...renderChangeIdParts(specId(item))", source)
         # Regression guard: metric-dialog card headers still render the raw change_id (nowrap).
-        self.assertIn('h("span", { className: "wave-change-id" }, c.change_id)', source)
+        self.assertIn('h("span", { className: "wave-change-id" }, specId(c))', source)
         # Scoped wrap rule for the timeline.
         self.assertIn(".timeline .wave-change-id {", css)
         timeline_rule = css.split(".timeline .wave-change-id {", 1)[1].split("}", 1)[0]

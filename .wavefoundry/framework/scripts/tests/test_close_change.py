@@ -1,4 +1,4 @@
-"""Wave 1zlu1 (change 1zlu2): ``wf_close_change`` closes one admitted change
+"""Wave 1zlu1 (change 1zlu2): ``wf_close_spec`` closes one admitted change
 inside an OPEN wave and moves the dependents its close unblocks to ``ready``.
 
 Fixtures are written in the loaded vocabulary profile (labels, record file
@@ -149,13 +149,14 @@ class CloseChangeWriteTests(_CloseChangeCase):
         srv.register_mcp_surface(surface, lambda: handler)
 
         def call(tool, change, **kwargs):
-            return surface._tool_manager._tools[tool].fn(wave_id=WAVE_ID, change_id=change, **kwargs)
+            identifier = {"spec_id": change} if tool == "wf_close_spec" else {"change_id": change}
+            return surface._tool_manager._tools[tool].fn(wave_id=WAVE_ID, **identifier, **kwargs)
 
         for members in ([(A, "implemented"), (B, "active")], [(A, "implemented")]):
             with self.subTest(members=members):
                 docs = {B: _doc_text(B, "active", ac=" ", task=" ")}
                 self.wave(members, docs=docs)
-                self.assertEqual(call("wf_close_change", A, mode="create")["status"], "ok")
+                self.assertEqual(call("wf_close_spec", A, mode="create")["status"], "ok")
                 self.assertEqual(srv.wave_status_match(self.wave_md.read_text()).group(1), "active")
                 before = self.doc(A).read_bytes()
                 for tool, label in (("wf_mark_ac", {"ac_id": "AC-1"}), ("wf_mark_task", {"task": "Do the fixture task."})):
@@ -433,6 +434,77 @@ class CloseChangeReviewNeutralityTests(_CloseChangeCase):
         self.assertEqual(self.digest(), before)
         self.assertEqual(events.read_bytes(), events_before)
 
+    @unittest.skipUnless(vp.MEMBER_ID_LABEL == "Spec ID", "stock label transition")
+    def test_old_and_new_siblings_keep_labels_and_review_currency(self) -> None:
+        self.wave([(A, "active"), (B, "planned", None, (A,))])
+        def legacy(text):
+            return text.replace("Spec ID:", "Change ID:").replace("Spec Status:", "Change Status:")
+        self.doc(A).write_text(legacy(self.doc(A).read_text()))
+        text = self.wave_md.read_text()
+        self.wave_md.write_text(text.replace(_member(A, "active"), legacy(_member(A, "active"))))
+        before, ledger = self.digest(), (self.wave_md.parent / "events.jsonl").read_bytes()
+        self.assertEqual("ok", self.close()["status"])
+        self.assertIn(legacy(_member(A, "complete", previous="active")), self.wave_md.read_text())
+        self.assertIn(_member(B, "ready", previous="planned", depends_on=(A,)), self.wave_md.read_text())
+        self.assertIn("Change Status: `complete`", self.doc(A).read_text())
+        self.assertIn("Spec Status: `ready`", self.doc(B).read_text())
+        self.assertEqual(self.digest(), before)
+        self.assertEqual((self.wave_md.parent / "events.jsonl").read_bytes(), ledger)
+
+    @unittest.skipUnless(vp.MEMBER_ID_LABEL == "Spec ID", "stock label transition")
+    def test_mixed_admission_mark_review_and_legacy_binding(self) -> None:
+        self.wave([(A, "active")])
+        for path in (self.wave_md, self.doc(A)):
+            text = path.read_text()
+            path.write_text(text.replace("Spec ID:", "Change ID:").replace("Spec Status:", "Change Status:"))
+        # Calculated with the pre-change review_policy, gardener_metadata,
+        # change_doc_checklist and vocabulary_profile from commit eba56ca5.
+        self.assertEqual(self.digest(), "39afdace44abe44b707f2d0541526447c1b8809a62205092cfe35824b549fd36")
+        staged = self.builder.plan(B)
+        staged.write_text(_doc_text(B, "planned", ac=" ").replace(WAVE_ID, "TBD"))
+        admitted = srv.wf_add_change_response(self.root, WAVE_ID, B, mode="create")
+        self.assertEqual(admitted["status"], "ok", admitted)
+        self.assertIn(_member(B, "planned"), self.wave_md.read_text())
+        bulk = srv.wf_get_change_response(self.root, wave_id=WAVE_ID)["data"]["changes"]
+        self.assertEqual([(r["id"], r["status"]) for r in bulk], [(A, "active"), (B, "planned")])
+        marked = srv._mark_change_item_response(self.root, WAVE_ID, B, "AC-1", "x",
+                                                target_section="Acceptance Criteria", mode="create")
+        self.assertTrue(marked["data"]["applied"], marked)
+        with patch.object(srv, "run_validate", return_value={"passed": True}):
+            review = srv.wf_review_wave_response(self.root, WAVE_ID)
+        self.assertIn("review_actions", review["data"], review)
+        self.assertNotIn("change_doc_missing", self.codes(review))
+        self.assertEqual(self.close()["status"], "ok")
+        self.assertIn("Previous Change Status: `active`", self.wave_md.read_text())
+        before_members = self.wave_md.read_text().split(vp.MEMBER_HEADING, 1)[1]
+        self.wave_md.write_text(self.wave_md.read_text().replace("Status: active", "Status: paused", 1))
+        reopened = srv.wf_reopen_wave_response(self.root, WAVE_ID)
+        self.assertEqual(reopened["status"], "ok", reopened)
+        self.assertEqual(self.wave_md.read_text().split(vp.MEMBER_HEADING, 1)[1], before_members)
+
+    @unittest.skipUnless(vp.MEMBER_ID_LABEL == "Spec ID", "stock label transition")
+    def test_conflicting_legacy_id_or_status_refuses_before_write(self) -> None:
+        self.wave([(A, "active")])
+        original = self.doc(A).read_text()
+        for conflict in (f"Change ID: `{B}`", "Change Status: `complete`"):
+            with self.subTest(conflict=conflict):
+                self.doc(A).write_text(original.replace("Owner:", conflict + "\nOwner:"))
+                before = self.snapshot()
+                self.assertIn("conflicting_spec_fields", self.codes(self.close()))
+                self.assertEqual(self.snapshot(), before)
+
+    @unittest.skipUnless(vp.MEMBER_ID_LABEL == "Spec ID", "stock label transition")
+    def test_wave_close_and_prepare_refuse_conflicting_header_before_gardening(self) -> None:
+        self.wave([(A, "active")])
+        self.doc(A).write_text(self.doc(A).read_text().replace("Owner:", "Change Status: `closed`\nOwner:"))
+        with patch.object(srv, "run_garden", side_effect=AssertionError("unexpected garden")):
+            for call, mode in ((srv.wf_close_wave_response, "create"), (srv.wf_prepare_wave_response, "ready")):
+                with self.subTest(tool=call.__name__):
+                    before = self.snapshot()
+                    response = call(self.root, WAVE_ID, mode=mode)
+                    self.assertIn("conflicting_spec_fields", self.codes(response))
+                    self.assertEqual(before, self.snapshot())
+
     def test_previous_line_in_the_change_doc_would_move_the_digest(self) -> None:
         self.wave([(A, "active", "planned")])
         before = self.digest()
@@ -452,7 +524,7 @@ class CloseChangeRegistrationTests(unittest.TestCase):
         import publication_control
 
         self.assertIn("wf_close_change", srv._LIFECYCLE_MUTATION_LOCK_TOOLS)
-        self.assertEqual(mcp_tool_roster.TOOL_TIERS["wf_close_change"], mcp_tool_roster.TIER_WRITE)
+        self.assertEqual(mcp_tool_roster.all_tool_tiers()["wf_close_spec"], mcp_tool_roster.TIER_WRITE)
         writer = {w.tool_name: w for w in publication_control.PUBLICATION_WRITER_REGISTRY}["wf_close_change"]
         self.assertEqual((writer.producer, writer.contention_policy), ("lifecycle", "fail_fast"))
 
@@ -625,7 +697,7 @@ class FencedDependsOnTests(_CloseChangeCase):
         self.assertEqual([a["change_id"] for a in result["data"]["activated"]], [B])
 
     def test_admission_never_inserts_inside_a_fence(self) -> None:
-        """Repair F1: `wf_add_change`'s insertion ignores fenced headings, both
+        """Repair F1: `wf_add_spec`'s insertion ignores fenced headings, both
         a fenced ``## `` line inside the member list and a fenced member-heading
         example above it."""
         import change_doc_checklist

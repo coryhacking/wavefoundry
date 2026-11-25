@@ -13,9 +13,9 @@ without the ``_RE`` suffix, as a whole word). Each reference must lie inside
 one of these line-anchored, colon-terminated reader shapes:
 
 - a regex source where the escaped label follows a ``^`` anchor (not an escaped
-  ``\\^`` or a character-class ``[^``; optionally inside an
-  opening ``(?:`` alternation) and is followed by ``:`` (directly, or after
-  closing that alternation): ``^{x.LABEL_RE}:``, ``(?m)^{x.LABEL_RE}:``,
+  ``\\^`` or a character-class ``[^``). The anchor may carry a horizontal
+  indentation pattern. The label may open a non-capturing alternation.
+  The colon follows the label or the closing alternation: ``^{x.LABEL_RE}:``, ``(?m)^{x.LABEL_RE}:``,
   ``^(?:{x.LABEL_RE}|Status):``;
 - ``re.fullmatch(rf"{x.LABEL_RE}:`` (anchored by ``fullmatch`` on one line);
 - ``.startswith(f"{x.LABEL}:")`` on a line that iterates ``splitlines()``;
@@ -48,7 +48,7 @@ _FIELD_RE = rf"\{{[^{{}}]*\b{_LABELS}_RE\}}"
 READER_SHAPES = (
     # The ``^`` must be a real anchor: not an escaped literal ``\^`` and not the
     # negation of a character class ``[^``.
-    re.compile(rf"(?<![\\\[])\^(?:\(\?:)?{_FIELD_RE}(?:\|[^()]*\))?:"),
+    re.compile(rf"(?<![\\\[])\^(?:\[ \\t\]\*)?(?:\(\?:)?{_FIELD_RE}(?:\|[^()]*\))?:"),
     re.compile(rf"re\.fullmatch\(rf?\"{_FIELD_RE}:"),
     re.compile(rf"\.startswith\(f\"\{{[^{{}}]*\b{_LABELS}\}}:\"\)"),
 )
@@ -62,9 +62,10 @@ ALLOWED_REASONS = frozenset({"message", "writer", "exact_key", "newline_anchored
 # label references inside its own span on that line.
 ALLOWLIST: dict[tuple[str, str], str] = {
     # Carrier-key membership: a line's key is compared whole (`key in KEYS`).
-    ("gardener_metadata.py", "_vocab.MEMBER_ID_LABEL, _vocab.MEMBER_STATUS_LABEL,"): "exact_key",
+    ("gardener_metadata.py", "*_vocab.record_label_spellings(_vocab.MEMBER_ID_LABEL)"): "exact_key",
+    ("gardener_metadata.py", "*_vocab.record_label_spellings(_vocab.MEMBER_STATUS_LABEL)"): "exact_key",
+    ("gardener_metadata.py", "*_vocab.record_label_spellings(_vocab.PREVIOUS_STATUS_LABEL)"): "exact_key",
     ("gardener_metadata.py", "_vocab.BACKREF_LABEL, \"Last verified\", \"Title\", _vocab.ID_KEY,"): "exact_key",
-    ("gardener_metadata.py", "_vocab.PREVIOUS_STATUS_LABEL, \"Role\""): "exact_key",
     # Passed to _admitted_change_re_for, which compiles rf"(?m)^{member_id_label_re}:".
     ("memory_supply.py", "(profile or _vocab).MEMBER_ID_LABEL_RE)"): "variable",
     # The Stop hook reads it as s.startswith(_wf_id_prefix + ":") on stripped lines.
@@ -101,8 +102,14 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("wf_server/server_impl.py", "f\"{_vocab.MEMBER_ID_LABEL}: `{change_id}`\\n{_vocab.MEMBER_STATUS_LABEL}: `planned`\\n\""): "writer",
     ("wf_server/server_impl.py", "lambda _m: f\"{_vocab.BACKREF_LABEL}: {wave_md.parent.name}\""): "writer",
     ("wf_server/server_impl.py", "lambda _m: f\"{_vocab.MEMBER_ID_LABEL}: `{change_id}`\""): "writer",
-    # wf_close_change (wave 1zlu1): writes the wave-record previous-status line.
-    ("wf_server/server_impl.py", "previous_line = indent + _vocab.PREVIOUS_STATUS_LABEL + f\": `{previous}`\" + ending"): "writer",
+    # The classifier splits declarations at the colon before comparing keys.
+    ("wave_lint_lib/wave_validators.py",
+     "labels = (_vocab.MEMBER_ID_LABEL, _vocab.MEMBER_STATUS_LABEL, _vocab.PREVIOUS_STATUS_LABEL)"): "exact_key",
+    ("wave_lint_lib/wave_validators.py",
+     "key == _vocab.MEMBER_ID_LABEL and _vocab.MEMBER_STATUS_LABEL in declarations"): "exact_key",
+    ("wf_server/server_impl.py", ' _vocab.MEMBER_STATUS_LABEL + ":"'): "writer",
+    ("wf_server/server_impl.py",
+     "candidate_label in _vocab.record_label_spellings(_vocab.PREVIOUS_STATUS_LABEL)"): "exact_key",
 }
 
 

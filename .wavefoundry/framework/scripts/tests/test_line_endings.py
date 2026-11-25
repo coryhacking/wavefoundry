@@ -12,6 +12,7 @@ import importlib.util
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 if str(SCRIPTS) not in sys.path:
@@ -109,6 +110,38 @@ class MixedFileRuleTests(unittest.TestCase):
 
     def test_no_terminated_line_gives_lf(self):
         self.assertEqual(le.merge("a", "a\nb\n"), "a\nb\n")
+
+    def test_noop_and_uniform_files_skip_alignment(self):
+        with patch.object(le.difflib, "SequenceMatcher", side_effect=AssertionError):
+            self.assertEqual(le.merge("a\r\nb\n", "a\nb\n"), "a\r\nb\n")
+            self.assertEqual(le.merge("a\r\nb", "a\nb\n"), "a\r\nb\r\n")
+            self.assertEqual(le.merge("a\nb\n", "a\nb"), "a\nb")
+
+    def test_exact_alignment_through_the_budget(self):
+        # 1,000 original lines x 1,000 result lines. The minority LF survives.
+        rest = "".join(f"{i}\r\n" for i in range(998))
+        original = "first\n" + rest + "last\r\n"
+        new_lf = "first\n" + le.to_lf(rest) + "changed"
+        self.assertEqual(le.merge(original, new_lf), "first\n" + rest + "changed")
+        # One extra line crosses the budget. The original majority is CRLF.
+        with patch.object(le.difflib, "SequenceMatcher", side_effect=AssertionError):
+            self.assertEqual(
+                le.merge(original, new_lf + "\nextra"),
+                "first\r\n" + rest + "changed\r\nextra",
+            )
+
+    def test_large_repetitive_mixed_file_uses_majority_bytes(self):
+        original = "same\r\nsame\n" * 5_000
+        new_lf = "same\n" * 9_999 + "end\r\n"
+        with patch.object(le.difflib, "SequenceMatcher", side_effect=AssertionError):
+            self.assertEqual(
+                le.encode(le.merge(original, new_lf)),
+                b"same\r\n" * 9_999 + b"end\r\r\n",
+            )
+            self.assertEqual(
+                le.encode(le.merge(original + "extra\n", new_lf)),
+                b"same\n" * 9_999 + b"end\r\n",
+            )
 
 
 class StdlibOnlyTests(unittest.TestCase):

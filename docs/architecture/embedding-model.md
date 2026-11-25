@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-24
 
 ## What This Document Covers
 
@@ -50,7 +50,7 @@ agent search applies one sigmoid and memory retains the `>= -4` cutoff.
 continue to constrain the default Tensorwell mode; they do not redirect an explicitly
 declared enterprise adapter. Adapter authors own endpoint, credentials, transport
 deadlines and model identity assertions, with no requirement to expose local weights.
-The exact contract is in `docs/specs/mcp-tool-surface.md`, **Inference adapters**.
+The exact contract is in `docs/architecture/contracts/mcp-tool-surface.md`, **Inference adapters**.
 Synthetic fixture qualification covers dispatch and response validation, not a live
 enterprise endpoint, model equivalence qualification or enterprise hardware.
 
@@ -218,7 +218,7 @@ records and compatibility, retains live weak ownership evidence and makes absent
 ownership conservative; old completions cannot publish into the new epoch. A fork
 does not adopt the parent's observation history. Status reads copy only bounded
 metadata under a short lock and do no model, inference or service work. See the
-`docs/specs/mcp-tool-surface.md`, "Cached inference status", for the complete contract.
+`docs/architecture/contracts/mcp-tool-surface.md`, "Cached inference status", for the complete contract.
 
 Indexing children report their own `embedding_execution` separately through build
 logs and `index_build_status`, using a build/pass identity and per-layer provider

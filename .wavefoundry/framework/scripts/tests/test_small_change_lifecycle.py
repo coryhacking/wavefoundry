@@ -44,6 +44,8 @@ class SmallChangeLifecycleTests(unittest.TestCase):
         _write_config(self.root, _WAVE_REVIEW_CONFIG)
         scripts = self.root / ".wavefoundry/framework/scripts"
         scripts.mkdir(parents=True)
+        shutil.copyfile(Path(__file__).resolve().parents[2] / "install/install-log.template.md",
+                        self.root / ".wavefoundry/install-log.md")
         self.runner = scripts / "run_tests.py"
         shutil.copyfile(Path(__file__).resolve().parents[1] / "run_tests.py", self.runner)
 
@@ -100,7 +102,7 @@ class SmallChangeLifecycleTests(unittest.TestCase):
                 "intended_diff": "Simplify the internal count helper.",
                 "paths": [path or self.source],
             }
-        return self.require_ok(self.wave("wf_add_change", change_id=self.change_id, mode=mode, **selection))
+        return self.require_ok(self.wave("wf_add_spec", spec_id=self.change_id, mode=mode, **selection))
 
     def record_run(self, kind):
         self.require_ok(self.wave("wf_review_event", event="run", actor="code-reviewer",
@@ -260,10 +262,10 @@ class SmallChangeLifecycleTests(unittest.TestCase):
         second = "1200c-ref measurement"
         roots = record_paths.load_record_roots(self.root)
         (roots.plans / f"{second}.md").write_text(_change_doc(second), encoding="utf-8")
-        self.require_ok(self.wave("wf_add_change", change_id=second, mode="create"))
+        self.require_ok(self.wave("wf_add_spec", spec_id=second, mode="create"))
         result = self.wave("wf_prepare_wave", mode="ready")
         self.assertEqual(result["data"]["small_change"]["effective_lane"], "ordinary")
-        self.require_ok(self.wave("wf_remove_change", change_id=second, mode="create"))
+        self.require_ok(self.wave("wf_remove_spec", spec_id=second, mode="create"))
         after_removal = self.wave("wf_prepare_wave", mode="ready")
         self.assertIn("missing_wave_council_signoff", [d["code"] for d in after_removal["diagnostics"]])
         self.assertEqual(after_removal["data"]["small_change"]["effective_lane"], "ordinary")

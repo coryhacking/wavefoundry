@@ -1,0 +1,86 @@
+{
+  "finding": "DEL-248O6-PACK-VERIFICATION",
+  "date": "2026-11-24",
+  "qualified_scope": "248o6 AC-4 and AC-5",
+  "stock_pack": {
+    "sha256": "e1aa634a9a68b69dfcdbf087193ed25a42554f953dcc38f3467cca34bf992618",
+    "source_members_sha256": {
+      "install/plan-template.md": "2a91d84bd022e920dd4b4139872c0a6dec902cdbaf4a3ef807a8e5451ac7f9fa",
+      "scripts/render_agent_surfaces.py": "eac676f9e2d39426abdce5abb4d0d64c65d3464b0341f81ab5535c2851ca1e2f",
+      "scripts/wf_server/server_impl.py": "71d81edcbc5a3191122d0237c7e1311701d3852e3bc8967b750e0ac9adeecde3",
+      "scripts/vocabulary_profile.py": "e696181b798c990089fe2d0d7ff3f6f8a851c73cb0643e225b9178bc398f0eb3",
+      "scripts/record_paths.py": "93911c7049f52bd402bacbe39239fe258cb38218c8e8932f1c90d4503b868d39",
+      "scripts/spec_tool_permissions.py": "d1a80a97affc8803f1e428c1cab792fc6ea415b06528c8df96c66557af0387ae",
+      "scripts/mcp_tool_extensions.py": "18ebdd51e54c3f7600191f116caecbfd5e23eb3406e2aa6567b33201e2ace717",
+      "scripts/contract_migration.py": "57b69c047b7d3eb329db5fb0c2bad96810b63cecc39d0ac348ae2fcba694ef8f"
+    }
+  },
+  "vendor_pack": {
+    "sha256": "8771f0b34b9443235389c7099f6fb47cc4455d69053583aa5fb59189c07d271f",
+    "source_members_sha256": {
+      "install/plan-template.md": "2a91d84bd022e920dd4b4139872c0a6dec902cdbaf4a3ef807a8e5451ac7f9fa",
+      "scripts/render_agent_surfaces.py": "eac676f9e2d39426abdce5abb4d0d64c65d3464b0341f81ab5535c2851ca1e2f",
+      "scripts/wf_server/server_impl.py": "71d81edcbc5a3191122d0237c7e1311701d3852e3bc8967b750e0ac9adeecde3",
+      "scripts/vocabulary_profile.py": "e696181b798c990089fe2d0d7ff3f6f8a851c73cb0643e225b9178bc398f0eb3",
+      "scripts/record_paths.py": "93911c7049f52bd402bacbe39239fe258cb38218c8e8932f1c90d4503b868d39",
+      "scripts/spec_tool_permissions.py": "d1a80a97affc8803f1e428c1cab792fc6ea415b06528c8df96c66557af0387ae",
+      "scripts/mcp_tool_extensions.py": "db8009dd89f7b5b9d413b1e6ab0d0684726f54455c8871eabdfc805c691c775f",
+      "scripts/contract_migration.py": "57b69c047b7d3eb329db5fb0c2bad96810b63cecc39d0ac348ae2fcba694ef8f"
+    }
+  },
+  "observations": [
+    {
+      "fixture": "fresh",
+      "request_field": "spec_id",
+      "response_spec_id": "0fcw3-change stock-wire-equivalence",
+      "creation_has_change_id": false,
+      "get_record_identifier": {
+        "spec_id": "0fcw3-change stock-wire-equivalence"
+      },
+      "written_document": "docs/plans/0fcw3-change stock-wire-equivalence.md",
+      "document_sha256": "742004e9c684cc29fb2790bbda81ac57ed54ce37820b4622c3359cadc4a746e4",
+      "written_headers": [
+        "Spec ID: `0fcw3-change stock-wire-equivalence`",
+        "Spec Status: `planned`"
+      ]
+    },
+    {
+      "fixture": "upgraded-custom",
+      "request_field": "change_id",
+      "response_spec_id": "024rf-change stock-wire-equivalence",
+      "creation_has_change_id": false,
+      "get_record_identifier": {
+        "change_id": "024rf-change stock-wire-equivalence"
+      },
+      "written_document": "docs/plans/024rf-change stock-wire-equivalence.md",
+      "document_sha256": "457d34935b76a026f25b6e62d762d8863c036c0796636d0c2ad99dc5890e02c1",
+      "written_headers": [
+        "Spec ID: `024rf-change stock-wire-equivalence`",
+        "Spec Status: `planned`"
+      ]
+    },
+    {
+      "fixture": "upgraded-stock",
+      "request_field": "spec_id",
+      "response_spec_id": "024rf-change stock-wire-equivalence",
+      "creation_has_change_id": false,
+      "get_record_identifier": {
+        "spec_id": "024rf-change stock-wire-equivalence"
+      },
+      "written_document": "docs/plans/024rf-change stock-wire-equivalence.md",
+      "document_sha256": "457d34935b76a026f25b6e62d762d8863c036c0796636d0c2ad99dc5890e02c1",
+      "written_headers": [
+        "Spec ID: `024rf-change stock-wire-equivalence`",
+        "Spec Status: `planned`"
+      ]
+    }
+  ],
+  "method": [
+    "Built disposable stock and one-alias distribution packs from the integrated checkout. The distribution declares wf_get_spec as its own alias before and after upgrade.",
+    "Opened stdio ClientSession, called list_tools, followed rendered plan skill, executed wf_new_spec, opened its Markdown record, then called wf_get_spec using the discovered schema. Stock create/get both reject the old change_id response key in these assertions.",
+    "Fresh installed tree uses the shipped install-log marker. The planning shortcut backing page was authored per the installed planning seed. Rehearsal fixtures used the v1.51.0 runner compared byte for byte with its tag. Upgraded host surfaces were exercised on isolated copies following extraction.",
+    "On the upgraded stock copy zero preferred routes were served before permission review. Only in synthetic standalone clients the fixture operator reviewed the project settings and acknowledged each stock route. Restarted MCP client then saw the documented route names.",
+    "Across all three fixtures, the rendered skills and shortcut pointed to the backing prompt. Two actual fixture tests established code behavior. Applying the authoring prompt created a sourced contract, updated an existing externally maintained page without duplication, and routed a proposal to planning. Second reconciliation produced no changes; a project-authored addition and publication configuration survived.",
+    "Prior 1a025ffa pack results used legacy labels and do not establish the current claims."
+  ]
+}

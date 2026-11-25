@@ -140,6 +140,21 @@
       "primitive_calls": 0,
       "wrapper_calls": 2
     },
+    "contract_migration:apply": {
+      "class": "in_place",
+      "merged_by": "contract_migration:_config_after",
+      "merged_by_reason": "The configuration planner merges the rewritten navigation and exclusion lines for preview and apply. Markdown link edits splice only inline spans into the original bytes.",
+      "primitive_calls": 1,
+      "wrapper_calls": 1
+    },
+    "contract_migration:save_preview": {
+      "callers": [
+        "contract_migration:main"
+      ],
+      "class": "generated",
+      "primitive_calls": 0,
+      "wrapper_calls": 1
+    },
     "dashboard_server:_daemonize": {
       "callers": [
         "dashboard_server:main"
@@ -294,6 +309,14 @@
     "lexical_ranking_eval:write_report": {
       "callers": [
         "lexical_ranking_eval:main"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
+    "memory_eval:build_corpus": {
+      "callers": [
+        "memory_eval:run"
       ],
       "class": "generated",
       "primitive_calls": 1,
@@ -897,6 +920,14 @@
       "primitive_calls": 0,
       "wrapper_calls": 1
     },
+    "spec_tool_permissions:acknowledge": {
+      "callers": [
+        "upgrade_wavefoundry:main"
+      ],
+      "class": "generated",
+      "primitive_calls": 1,
+      "wrapper_calls": 0
+    },
     "sqlite_storage_migration:_fsync_file": {
       "callers": [
         "sqlite_storage_migration:_migrate_schema8",
@@ -1447,6 +1478,13 @@
       "class": "generated"
     },
     "context_efficiency:_write_gap_sentinel -> context_efficiency:_write_exclusive #2": {
+      "class": "generated"
+    },
+    "contract_migration:apply -> render_agent_surfaces:_write_bytes_atomic_exclusive #1": {
+      "class": "in_place_raw",
+      "reason": "The copy retains source bytes outside the inline link replacements."
+    },
+    "contract_migration:save_preview -> render_agent_surfaces:_write_bytes_atomic_exclusive #1": {
       "class": "generated"
     },
     "memory_records:archive_memory_record -> memory_records:_atomic_replace_text #1": {

@@ -18,6 +18,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
 
+from upstream_fixture_support import tool_contract_rel
+
 
 TESTS_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = TESTS_ROOT.parents[2]
@@ -3768,11 +3770,12 @@ class ClaudePermissionsRenderTests(unittest.TestCase):
             self.assertEqual(self.roster.TOOL_TIERS[name], "write", name)
         framework = SCRIPT_PATH.parent.parent
         for path in (framework / "seeds/050-agent-entry-surface-bootstrap.prompt.md",
-                     source_repository_fixture(SCRIPT_PATH.parents[3] / "docs/specs/mcp-tool-surface.md")):
+                     source_repository_fixture(SCRIPT_PATH.parents[3] / tool_contract_rel(SCRIPT_PATH.parents[3]))):
             with self.subTest(document=path.name):
                 line, = [line for line in path.read_text(encoding="utf-8").splitlines()
                          if line.lstrip("- ").startswith("Low-risk tools:")]
-                self.assertEqual(set(re.findall(r"`([a-z_]+)`", line)), expected)
+                self.assertEqual(set(re.findall(r"`([a-z_]+)`", line)),
+                                 expected - {"wf_new_change"} | {"wf_new_spec"})
 
     def test_low_risk_settings_select_only_literal_true_and_preserve_manual_rules(self):
         from declaration_support import base_declaration
@@ -3785,7 +3788,7 @@ class ClaudePermissionsRenderTests(unittest.TestCase):
             path = self._settings_path(root)
             path.parent.mkdir()
             reads = set(self.roster.allow_rules())
-            low_rules = {self.roster.MCP_RULE_PREFIX + n for n in self.roster.LOW_RISK_WRITE_TOOLS}
+            low_rules = {self.roster.MCP_RULE_PREFIX + n for n in self.roster.LOW_RISK_WRITE_TOOLS - {"wf_new_change"} | {"wf_new_spec"}}
             for value in (None, False, "true", 1, True):
                 with self.subTest(value=repr(value)):
                     settings = {} if value is None else {low_key: value}

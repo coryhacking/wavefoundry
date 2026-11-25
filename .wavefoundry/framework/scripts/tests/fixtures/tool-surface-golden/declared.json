@@ -1360,6 +1360,11 @@
             "title": "Archive Reason",
             "type": "string"
           },
+          "check_note": {
+            "default": "",
+            "title": "Check Note",
+            "type": "string"
+          },
           "eligibility_confirmed": {
             "default": false,
             "title": "Eligibility Confirmed",
@@ -1577,7 +1582,7 @@
       },
       "tier": "read"
     },
-    "wf_add_change": {
+    "wf_add_spec": {
       "annotations": {
         "destructiveHint": false,
         "idempotentHint": false,
@@ -1587,10 +1592,6 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "change_id": {
-            "title": "Change Id",
-            "type": "string"
-          },
           "mode": {
             "default": "dry_run",
             "title": "Mode",
@@ -1609,16 +1610,20 @@
             "default": null,
             "title": "Small Change"
           },
+          "spec_id": {
+            "title": "Spec Id",
+            "type": "string"
+          },
           "wave_id": {
             "title": "Wave Id",
             "type": "string"
           }
         },
         "required": [
-          "change_id",
+          "spec_id",
           "wave_id"
         ],
-        "title": "wf_add_changeArgumentsExact",
+        "title": "wf_add_specArguments",
         "type": "object"
       },
       "tier": "write"
@@ -1792,39 +1797,6 @@
       },
       "tier": "write"
     },
-    "wf_close_change": {
-      "annotations": {
-        "destructiveHint": true,
-        "idempotentHint": false,
-        "openWorldHint": false,
-        "readOnlyHint": false
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "change_id": {
-            "title": "Change Id",
-            "type": "string"
-          },
-          "mode": {
-            "default": "dry_run",
-            "title": "Mode",
-            "type": "string"
-          },
-          "wave_id": {
-            "title": "Wave Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "change_id",
-          "wave_id"
-        ],
-        "title": "wf_close_changeArgumentsExact",
-        "type": "object"
-      },
-      "tier": "write"
-    },
     "wf_close_gate": {
       "annotations": {
         "destructiveHint": false,
@@ -1844,6 +1816,39 @@
           "gate"
         ],
         "title": "wf_close_gateArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_close_spec": {
+      "annotations": {
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "default": "dry_run",
+            "title": "Mode",
+            "type": "string"
+          },
+          "spec_id": {
+            "title": "Spec Id",
+            "type": "string"
+          },
+          "wave_id": {
+            "title": "Wave Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec_id",
+          "wave_id"
+        ],
+        "title": "wf_close_specArguments",
         "type": "object"
       },
       "tier": "write"
@@ -2021,33 +2026,6 @@
       },
       "tier": "read"
     },
-    "wf_get_change": {
-      "annotations": {
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false,
-        "readOnlyHint": true
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "change_id": {
-            "default": "",
-            "title": "Change Id",
-            "type": "string"
-          },
-          "wave_id": {
-            "default": "",
-            "title": "Wave Id",
-            "type": "string"
-          }
-        },
-        "required": [],
-        "title": "wf_get_changeArgumentsExact",
-        "type": "object"
-      },
-      "tier": "read"
-    },
     "wf_get_handoff": {
       "annotations": {
         "destructiveHint": false,
@@ -2083,6 +2061,32 @@
           "shortcut"
         ],
         "title": "wf_get_promptArgumentsExact",
+        "type": "object"
+      },
+      "tier": "read"
+    },
+    "wf_get_spec": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "spec_id": {
+            "default": "",
+            "title": "Spec Id",
+            "type": "string"
+          },
+          "wave_id": {
+            "default": "",
+            "title": "Wave Id",
+            "type": "string"
+          }
+        },
+        "title": "wf_get_specArguments",
         "type": "object"
       },
       "tier": "read"
@@ -2280,14 +2284,34 @@
       },
       "inputSchema": {
         "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "spec_id"
+            ]
+          },
+          {
+            "required": [
+              "change_id"
+            ]
+          }
+        ],
         "properties": {
           "ac_id": {
             "title": "Ac Id",
             "type": "string"
           },
           "change_id": {
-            "title": "Change Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Change Id"
           },
           "mode": {
             "default": "dry_run",
@@ -2298,6 +2322,18 @@
             "default": "",
             "title": "Reason",
             "type": "string"
+          },
+          "spec_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Spec Id"
           },
           "state": {
             "title": "State",
@@ -2310,11 +2346,10 @@
         },
         "required": [
           "ac_id",
-          "change_id",
           "state",
           "wave_id"
         ],
-        "title": "wf_mark_acArgumentsExact",
+        "title": "wf_mark_acSpecArguments",
         "type": "object"
       },
       "tier": "write"
@@ -2328,15 +2363,47 @@
       },
       "inputSchema": {
         "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "spec_id"
+            ]
+          },
+          {
+            "required": [
+              "change_id"
+            ]
+          }
+        ],
         "properties": {
           "change_id": {
-            "title": "Change Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Change Id"
           },
           "mode": {
             "default": "dry_run",
             "title": "Mode",
             "type": "string"
+          },
+          "spec_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Spec Id"
           },
           "state": {
             "title": "State",
@@ -2352,12 +2419,11 @@
           }
         },
         "required": [
-          "change_id",
           "state",
           "task",
           "wave_id"
         ],
-        "title": "wf_mark_taskArgumentsExact",
+        "title": "wf_mark_taskSpecArguments",
         "type": "object"
       },
       "tier": "write"
@@ -2397,29 +2463,6 @@
           "slug"
         ],
         "title": "wf_new_bugArgumentsExact",
-        "type": "object"
-      },
-      "tier": "write"
-    },
-    "wf_new_change": {
-      "annotations": {
-        "destructiveHint": false,
-        "idempotentHint": false,
-        "openWorldHint": false,
-        "readOnlyHint": false
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "slug": {
-            "title": "Slug",
-            "type": "string"
-          }
-        },
-        "required": [
-          "slug"
-        ],
-        "title": "wf_new_changeArgumentsExact",
         "type": "object"
       },
       "tier": "write"
@@ -2558,6 +2601,29 @@
           "slug"
         ],
         "title": "wf_new_refactorArgumentsExact",
+        "type": "object"
+      },
+      "tier": "write"
+    },
+    "wf_new_spec": {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "title": "wf_new_specArguments",
         "type": "object"
       },
       "tier": "write"
@@ -2720,7 +2786,7 @@
       },
       "tier": "write"
     },
-    "wf_remove_change": {
+    "wf_remove_spec": {
       "annotations": {
         "destructiveHint": false,
         "idempotentHint": false,
@@ -2730,13 +2796,13 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
-          "change_id": {
-            "title": "Change Id",
-            "type": "string"
-          },
           "mode": {
             "default": "dry_run",
             "title": "Mode",
+            "type": "string"
+          },
+          "spec_id": {
+            "title": "Spec Id",
             "type": "string"
           },
           "wave_id": {
@@ -2745,10 +2811,10 @@
           }
         },
         "required": [
-          "change_id",
+          "spec_id",
           "wave_id"
         ],
-        "title": "wf_remove_changeArgumentsExact",
+        "title": "wf_remove_specArguments",
         "type": "object"
       },
       "tier": "write"

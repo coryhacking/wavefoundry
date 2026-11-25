@@ -1220,8 +1220,7 @@ def parse_change_doc(root: Path, change_path: Path, text: str | None = None) -> 
         return _unreadable_change_record(
             root, change_path, server._read_error_detail(exc))
     change_match = server._CHANGE_ID_PATTERN.search(text)
-    # Accept both "Change Status: `value`" (canonical) and plain "Status: value" (fallback for
-    # projects that omit the "Change" prefix and backticks).
+    # Prefer the spec lifecycle field, including its legacy spelling, over document metadata.
     status_match = server._CHANGE_STATUS_PATTERN.search(text) or server._STATUS_PATTERN.search(text)
     title_match = _TITLE_RE.search(text)
     owner_match = _OWNER_RE.search(text)
@@ -1323,6 +1322,7 @@ def _change_payload(record: ChangeRecord) -> dict[str, Any]:
     ``read_error: null`` sprayed across every healthy change.
     """
     payload = dict(record.__dict__)
+    payload["spec_id"] = record.change_id
     if payload.get("read_error") is None:
         payload.pop("read_error", None)
     return payload
@@ -1642,6 +1642,7 @@ def collect_activity(root: Path, change_sets: dict[str, list[dict[str, Any]]]) -
         for entry in item.get("progress_log", []):
             row = {
                 "change_id": item["change_id"],
+                "spec_id": item["change_id"],
                 "wave_id": wave_id,
                 "path": path,
                 "title": item["title"],

@@ -21,7 +21,7 @@ list, so a registry built after ``wf_reload_mcp`` comes from fresh code.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Mapping
+from typing import Any, Callable, Collection, Iterable, Mapping
 
 MIDDLEWARE_MARKER = "__wf_middleware__"
 
@@ -90,7 +90,7 @@ def _served_callable(entry: Any) -> Any:
     return entry if callable(entry) else None
 
 
-def build_registry(mcp: Any, roster: Any) -> ToolRegistry:
+def build_registry(mcp: Any, roster: Any, *, withheld: Collection[str] = ()) -> ToolRegistry:
     """Build the registry from FastMCP's tool table and the permission roster.
 
     Runner-registered survivors (``roster.RUNNER_TOOLS``) are excluded on both
@@ -133,7 +133,7 @@ def build_registry(mcp: Any, roster: Any) -> ToolRegistry:
         if name not in tiers:
             registry.parity_defects.append(ParityDefect(DEFECT_UNROSTERED_TOOL, name))
     if registered:
-        for name in sorted(set(tiers) - runner - registered):
+        for name in sorted(set(tiers) - runner - registered - set(withheld)):
             registry.parity_defects.append(ParityDefect(DEFECT_UNREGISTERED_ROSTER_TOOL, name))
     return registry
 

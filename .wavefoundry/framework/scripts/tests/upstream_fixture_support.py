@@ -34,6 +34,12 @@ KEY = "upstream_fixtures_required"
 SKIP_PREFIX = "upstream-only fixture absent: "
 
 
+def tool_contract_rel(root: Path = REPO_ROOT) -> str:
+    """Select the maintained reference in fresh and deferred-migration fixtures."""
+    legacy = "docs/specs/mcp-tool-surface.md"
+    return legacy if (root / legacy).is_file() else "docs/architecture/contracts/mcp-tool-surface.md"
+
+
 def _exists(path: Path) -> bool:
     """The existence probe, a seam so a test can make one fixture absent."""
     return path.exists()

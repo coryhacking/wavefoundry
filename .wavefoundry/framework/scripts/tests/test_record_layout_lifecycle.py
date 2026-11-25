@@ -21,6 +21,7 @@ import tempfile
 import unittest
 import unittest.mock
 from pathlib import Path
+from types import SimpleNamespace
 
 from record_layout_support import SHIPPED_DEFAULTS, apply_layout, default_profile_only, patch_layout
 from server_tools_support import _make_repo, load_server, load_thin_runner
@@ -39,8 +40,8 @@ GOLDEN_PATH = TESTS_DIR / "fixtures" / "tool-surface-golden.json"
 
 RELOCATED = {"waves_root": "project/records/waves", "plans_root": "project/records/plans"}
 EIGHT_TOOLS = (
-    "wf_create_wave", "wf_add_change", "wf_remove_change", "wf_list_waves",
-    "wf_list_plans", "wf_get_change", "wf_current_wave", "wf_prepare_wave",
+    "wf_create_wave", "wf_add_spec", "wf_remove_spec", "wf_list_waves",
+    "wf_list_plans", "wf_get_spec", "wf_current_wave", "wf_prepare_wave",
 )
 
 
@@ -262,16 +263,16 @@ class InvalidLayoutFailsClosedTests(_RepoCase):
             ("wf_list_waves", lambda: srv.wf_list_waves_response(root)),
             ("wf_list_plans", lambda: srv.wf_list_plans_response(root)),
             ("wf_current_wave", lambda: srv.wf_current_wave_response(root)),
-            ("wf_get_change", lambda: srv.wf_get_change_response(root, "1abcd")),
-            ("wf_add_change", lambda: srv.wf_add_change_response(root, "1abcd", "1abce-enh x", mode="create")),
-            ("wf_remove_change", lambda: srv.wf_remove_change_response(root, "1abcd", "1abce-enh x", mode="create")),
+            ("wf_get_spec", lambda: srv.wf_get_change_response(root, "1abcd")),
+            ("wf_add_spec", lambda: srv.wf_add_change_response(root, "1abcd", "1abce-enh x", mode="create")),
+            ("wf_remove_spec", lambda: srv.wf_remove_change_response(root, "1abcd", "1abce-enh x", mode="create")),
             ("wf_prepare_wave", lambda: srv.wf_prepare_wave_response(root, "1abcd", mode="dry_run")),
-            ("wf_new_change", lambda: srv._change_create_response(root, "enh", "refused-change", mode="create")),
+            ("wf_new_spec", lambda: srv._change_create_response(root, "enh", "refused-change", mode="create")),
             ("wf_review_event", lambda: srv.wf_review_event_response(
                 root, "1abcd", "approval", "qa", "ctx-1", mode="create", signoff_key="qa",
             )),
             ("wf_close_wave", lambda: srv.wf_close_wave_response(root, "1abcd", mode="create")),
-            ("wf_close_change", lambda: srv.wf_close_change_response(root, "1abcd", "1abce-enh x", mode="create")),
+            ("wf_close_spec", lambda: srv.wf_close_change_response(root, "1abcd", "1abce-enh x", mode="create")),
             ("wf_pause_wave", lambda: srv.wf_pause_wave_response(root, "1abcd", mode="create")),
             ("wf_implement_wave", lambda: srv.wf_implement_wave_response(root, "1abcd", mode="create")),
             ("wf_review_wave", lambda: srv.wf_review_wave_response(root, "1abcd")),
@@ -361,11 +362,11 @@ class WrapperFailClosedTests(_RepoCase):
         return (
             ("wf_prepare_wave", lambda: self._tool("wf_prepare_wave")(wave_id, mode="dry_run")),
             ("wf_close_wave", lambda: self._tool("wf_close_wave")(wave_id, mode="dry_run")),
-            ("wf_close_change", lambda: self._tool("wf_close_change")(wave_id, "1abce-enh x", mode="dry_run")),
-            ("wf_implement_wave", lambda: self._tool("wf_implement_wave")(wave_id, mode="dry_run")),
+            ("wf_close_spec", lambda: self._tool("wf_close_spec")(wave_id=wave_id, spec_id="1abce-enh x", mode="dry_run")),
+            ("wf_implement_wave", lambda: self._tool("wf_implement_wave")(wave_id=wave_id, mode="dry_run")),
             ("wf_review_wave", lambda: self._tool("wf_review_wave")(wave_id)),
-            ("wf_mark_ac", lambda: self._tool("wf_mark_ac")(wave_id, "1abce-enh x", "AC-1", "x", mode="dry_run")),
-            ("wf_mark_task", lambda: self._tool("wf_mark_task")(wave_id, "1abce-enh x", "Task one", "x", mode="dry_run")),
+            ("wf_mark_ac", lambda: self._tool("wf_mark_ac")(wave_id=wave_id, spec_id="1abce-enh x", ac_id="AC-1", state="x", mode="dry_run")),
+            ("wf_mark_task", lambda: self._tool("wf_mark_task")(wave_id=wave_id, spec_id="1abce-enh x", task="Task one", state="x", mode="dry_run")),
             ("wf_pause_wave", lambda: self._tool("wf_pause_wave")(wave_id, mode="dry_run")),
             ("wf_reopen_wave", lambda: self._tool("wf_reopen_wave")(wave_id, purpose="review")),
         )
@@ -686,7 +687,10 @@ class SchemaPinAndReloadTests(unittest.TestCase):
             self.skipTest("mcp package not installed")
         srv = load_server()
         mcp = FastMCP("pin")
-        srv.register_mcp_surface(mcp, lambda: None)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = _make_repo(Path(tmp.name))
+        srv.register_mcp_surface(mcp, lambda: SimpleNamespace(root=root))
         for name in EIGHT_TOOLS:
             with self.subTest(tool=name):
                 live = mcp._tool_manager._tools[name].parameters

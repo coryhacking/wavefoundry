@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-24
 
 ## Default Change Path
 
@@ -98,7 +98,7 @@ four non-closed waves, plus five in parked plans. And `wf_close_wave`
 verifies the framework test receipt, so the whole-suite requirement stays
 machine-visible as it leaves the acceptance criteria; see **Close gate** in
 `build-and-verification.md` and the `wf_close_wave` entry in
-`docs/specs/mcp-tool-surface.md`. That gate has two scope halves: its hash covers
+`docs/architecture/contracts/mcp-tool-surface.md`. That gate has two scope halves: its hash covers
 `.wavefoundry/framework/` only, so a documentation edit never makes a standing
 receipt stale, but the receipt is written only on a whole-suite pass, so a
 docs-triggered failure prevents a new one. A green receipt attests the framework

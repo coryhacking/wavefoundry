@@ -3,6 +3,7 @@
 Owner: operator
 Status: in-progress
 Schema version: 1.2
+Initial MCP vocabulary: spec-tools-v1
 Last verified: {{generated_at}}
 
 This file is the **install state machine** for this project. Each row is a slug pointing at the canonical source for the step's full instructions — execute the source, verify the artifact exists, mark `[x]`, advance.

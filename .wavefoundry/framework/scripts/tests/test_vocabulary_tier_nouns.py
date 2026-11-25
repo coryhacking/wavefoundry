@@ -45,7 +45,7 @@ print(json.dumps(result))
 # exact spans per skill under the Set/Wave profile (container Set, item Wave).
 SET_WAVE_SPANS = {
     "wf-plan-spec": ["Plan a wave of any kind", "consolidated wave doc ready for set admission",
-                       "# Plan a wave (", "by wave kind", "(wave doc, set admission, recorded readiness) is satisfied"],
+                       "# Plan a wave (", "retrieve the wave doc with", "(wave doc, set admission, recorded readiness) is satisfied"],
     "wf-prepare-wave": ["Confirm a set's readiness", "# Prepare a set (", "recorded before the set readies",
                         "only one set may be OPEN"],
     "wf-implement-wave": ["Open a readied set and coordinate multi-wave implementation", "# Implement a set (",
@@ -74,6 +74,7 @@ SET_WAVE_SPANS = {
 # shipped item name, so these spans have their own default oracle instead of
 # the tier swap.
 DEFAULT_PLANNING_SPANS = {
+    "retrieve the wave doc with": "retrieve the spec with",
     "consolidated wave doc ready for set admission": "consolidated spec ready for wave admission",
     "(wave doc, set admission, recorded readiness) is satisfied": "(spec, wave admission, recorded readiness) is satisfied",
     "(wave doc, set admission, recorded readiness); mark ACs": "(spec, wave admission, recorded readiness); mark ACs",
@@ -181,7 +182,7 @@ class SkillProseTests(unittest.TestCase):
 
     def test_only_tier_nouns_change(self) -> None:
         # Product, tool and kind names stay literal under any profile.
-        for literal in ("Wave Framework", "wf_close_change", "operations, change) by"):
+        for literal in ("Wave Framework", "wf_close_spec", "stored kind `change`"):
             with self.subTest(literal=literal):
                 self.assertIn(literal, json.dumps(self.set_wave))
 
@@ -325,12 +326,12 @@ class PlanningNounTests(unittest.TestCase):
                     mcp = RecordingFastMCP()
                     server.register_mcp_surface(mcp, lambda: handler)
                     tools = served_functions(mcp)
-                    missing = tools["wf_get_change"](change_id="nonexistent")
+                    missing = tools["wf_get_spec"](spec_id="nonexistent")
                     diagnostic = next(d for d in missing["diagnostics"] if d["code"] == "change_not_found")
                     self.assertIn(f"No {noun} found", diagnostic["message"])
                     self.assertIn(f"Create the {noun} with", tools["wf_help"](goal="plan_change")["data"]["next_step"])
                     self.assertIn(f"Return a {noun} by ID, or all {noun}s for a {container}",
-                                  mcp._tool_manager._tools["wf_get_change"].description)
+                                  mcp._tool_manager._tools["wf_get_spec"].description)
                     self.assertTrue(any(f"plan/{noun} concept" in msg for msg in check_persona_docs(root)))
 
     def test_article_form_reaches_the_rendered_skills(self) -> None:

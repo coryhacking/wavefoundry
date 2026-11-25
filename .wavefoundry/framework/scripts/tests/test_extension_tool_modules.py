@@ -750,8 +750,8 @@ with tempfile.TemporaryDirectory() as tmp:
         out["tool_count"] = len(table(mcp))
         # Wave 1zime (1zimm AC-2): the stock data the mapped server must match.
         spy_response(impl, "wf_add_change_response", [], echo=True)
-        out["add_call"] = ccall(mcp, "wf_add_change", {"wave_id": "1abcd", "change_id": "1abce-feat x"})["data"]
-        out["get_call"] = ccall(mcp, "wf_get_change", {"change_id": "1abce-feat x"})["data"]
+        out["add_call"] = ccall(mcp, "wf_add_spec", {"wave_id": "1abcd", "spec_id": "1abce-feat x"})["data"]
+        out["get_call"] = ccall(mcp, "wf_get_spec", {"spec_id": "1abce-feat x"})["data"]
         # Wave 1zls8 (1zltz AC-4): the stock declaration adds no cost keyword.
         out["cost_pass_kwargs"] = sorted(impl._cost_pass_kwargs())
         out["deltas_installed"] = sorted(impl._EXTENSION_OVERRIDE_DELTAS)
@@ -888,7 +888,7 @@ def register(mcp, get_handler):
             out["replaced_busy"] = hints(ccall(mcp, "wf_close_wave", {"item": "task-7"}))
             out["core_busy"] = hints(ccall(mcp, "fork_close_container", {"wave_id": "1abcd", "mode": "dry_run"}))
             # A core tool that is not replaced names a replaced core name in its hints.
-            out["other_core_busy"] = hints(ccall(mcp, "wf_add_change", {"wave_id": "1abcd", "change_id": "1abce-feat x"}))
+            out["other_core_busy"] = hints(ccall(mcp, "wf_add_spec", {"wave_id": "1abcd", "spec_id": "1abce-feat x"}))
         handler = runner._get_handler()
         exempt_costs = []
         with mock.patch.object(handler.telemetry, "record_tool_cost", lambda name, **kw: exempt_costs.append(name)):
@@ -934,7 +934,7 @@ def register(mcp, get_handler):
         out.update(observe_surface(impl, mcp, mcp_tool_roster))
         tools = table(mcp)
         out["schemas"] = {n: normalized(tools[n].parameters) for n in (
-            "wf_add_change", "fork_add_wave", "fork_add_wave_now", "wf_review_wave", "fork_review_prepare",
+            "wf_add_spec", "fork_add_wave", "fork_add_wave_now", "wf_review_wave", "fork_review_prepare",
             "fork_echo", "fork_say")}
         out["say_call"] = ccall(mcp, "fork_say", {"words": "hello"})["data"]
         # A pin reaches the body as the strictly validated value, copied per call.
@@ -952,15 +952,15 @@ def register(mcp, get_handler):
             out["say_short"] = "accepted"
         except Exception as exc:
             out["say_short"] = type(exc).__name__ + ": " + str(exc)
-        out["descriptions_equal"] = {n: tools[n].description == tools[c].description for n, c in (
-            ("fork_add_wave", "wf_add_change"), ("fork_review_prepare", "wf_review_wave"))}
+        out["descriptions_equal"] = {n: tools[n].description.replace("change_id", "spec_id") == tools[c].description for n, c in (
+            ("fork_add_wave", "wf_add_spec"), ("fork_review_prepare", "wf_review_wave"))}
         out["annotations_equal"] = {n: tools[n].annotations == tools[c].annotations for n, c in (
-            ("fork_add_wave", "wf_add_change"), ("fork_review_prepare", "wf_review_wave"))}
+            ("fork_add_wave", "wf_add_spec"), ("fork_review_prepare", "wf_review_wave"))}
         out["markers"] = {n: markers(mcp, n) for n in (
-            "wf_add_change", "fork_add_wave", "fork_add_wave_now", "wf_review_wave", "fork_review_prepare", "wf_remove_change")}
+            "wf_add_spec", "fork_add_wave", "fork_add_wave_now", "wf_review_wave", "fork_review_prepare", "wf_remove_change")}
         # Wave 1zoju (1zodw): both entries end in their own render wrapper; the
         # translator wraps the canonical callable that render wraps.
-        out["wraps_canonical"] = tools["fork_add_wave"].fn.__wrapped__.__wrapped__ is tools["wf_add_change"].fn.__wrapped__
+        out["wraps_canonical"] = tools["fork_add_wave"].fn.__wrapped__.__wrapped__ is tools["wf_add_spec"].fn.__wrapped__.__wrapped__
         install_counting_lock_probe(impl)
         add_calls, review_calls, remove_calls = [], [], []
         spy_response(impl, "wf_add_change_response", add_calls, echo=True)
@@ -1010,15 +1010,15 @@ def register(mcp, get_handler):
         out["guarded_reached_canonical"] = len(add_calls) != calls_before
         checkpoint.unlink()
         # Wave 1zime (1zimm): response data under the canonical name and a plain alias.
-        out["canonical_add_call"] = ccall(mcp, "wf_add_change", {"wave_id": "1abcd", "change_id": "1abce-feat x"})["data"]
+        out["canonical_add_call"] = ccall(mcp, "wf_add_spec", {"wave_id": "1abcd", "spec_id": "1abce-feat x"})["data"]
         out["plain_get_call"] = ccall(mcp, "fork_get_change", {"change_id": "1abce-feat x"})["data"]
-        out["canonical_get_call"] = ccall(mcp, "wf_get_change", {"change_id": "1abce-feat x"})["data"]
+        out["canonical_get_call"] = ccall(mcp, "wf_get_spec", {"spec_id": "1abce-feat x"})["data"]
         listed = {t.name: t.description for t in asyncio.run(mcp.list_tools())}
         out["listed_descriptions"] = {n: listed.get(n) for n in ("fork_echo", "fork_say", "fork_say_whole", "fork_say_plain")}
         ext_now = sys.modules["mcp_tool_extensions"]
         out["mapped_targets_coroutine"] = {
-            alias: [inspect.iscoroutinefunction(tools[canonical].fn),
-                    inspect.iscoroutinefunction(inspect.unwrap(tools[canonical].fn)),
+            alias: [inspect.iscoroutinefunction(tools[ext_now.stock_spec_routes().get(canonical, canonical)].fn),
+                    inspect.iscoroutinefunction(inspect.unwrap(tools[ext_now.stock_spec_routes().get(canonical, canonical)].fn)),
                     inspect.iscoroutinefunction(tools[alias].fn)]
             for alias, canonical in ext_now.EXTENSION_TOOL_ALIASES.items() if alias in ext_now.EXTENSION_TOOL_PARAMETERS
         }
@@ -1055,7 +1055,7 @@ def register(mcp, get_handler):
         result = runner.perform_mcp_reload()
         out["reload_status"] = result["status"]
         out["reload_schema"] = normalized(table(mcp)["fork_add_wave"].parameters)
-        out["reload_wraps_canonical"] = table(mcp)["fork_add_wave"].fn.__wrapped__.__wrapped__ is table(mcp)["wf_add_change"].fn.__wrapped__
+        out["reload_wraps_canonical"] = table(mcp)["fork_add_wave"].fn.__wrapped__.__wrapped__ is table(mcp)["wf_add_spec"].fn.__wrapped__.__wrapped__
         reloaded = {t.name: t.description for t in asyncio.run(mcp.list_tools())}
         out["reload_descriptions"] = {n: reloaded.get(n) for n in ("fork_echo", "fork_say")}
         handler.close()
@@ -1736,7 +1736,7 @@ def register(mcp, get_handler):
             record.write(f"\n{vp.MEMBER_ID_LABEL}: `{change_id}`\n{vp.MEMBER_STATUS_LABEL}: `planned`\n")
         out["admitted"] = [c["id"] for c in impl.wf_get_change_response(root, wave_id=wave_id)["data"]["changes"]]
         out["items_bulk"] = ccall(mcp, "fork_get_items", {"wave_id": wave_id})
-        out["canonical_bulk"] = ccall(mcp, "wf_get_change", {"wave_id": wave_id})
+        out["canonical_bulk"] = ccall(mcp, "wf_get_spec", {"wave_id": wave_id})
         out["plain_bulk"] = ccall(mcp, "fork_get_plain", {"wave_id": wave_id})
         out["items_unknown"] = ccall(mcp, "fork_get_items", {"wave_id": wave_id, "bogus": 1})
         out["listed_description"] = {t.name: t.description for t in asyncio.run(mcp.list_tools())}.get("fork_get_items")
@@ -1757,7 +1757,7 @@ def register(mcp, get_handler):
             "untouched_element": result["data"]["meta"]["list"][2] is source["data"]["meta"]["list"][2],
             "diagnostics_input_unchanged": source["diagnostics"] == before["diagnostics"],
         }
-        out["canonical_add"] = ccall(mcp, "wf_add_change", {"wave_id": "1abcd", "change_id": "1abce-enh x"})
+        out["canonical_add"] = ccall(mcp, "wf_add_spec", {"wave_id": "1abcd", "spec_id": "1abce-enh x"})
         out["extensions"] = impl.wf_server_info_response(root)["data"]["extensions"]
         runner._get_handler().close()
 
@@ -2187,7 +2187,7 @@ EXTENSION_TOOL_ALIASES = {"wf_callback_alias": "wf_close_wave"}
         # body and every other core wrapper) raising is rendered too.
         with mock.patch.object(impl.publication_control, "publication_block_reason",
                                side_effect=RuntimeError(f"guard failed at {root}")):
-            cases["inner_guard"] = observe(lambda: call(mcp, "wf_add_change", wave_id="x", change_id="y"))
+            cases["inner_guard"] = observe(lambda: call(mcp, "wf_add_spec", wave_id="x", spec_id="y"))
         # AC-5: an interrupt propagates unchanged.
         fork.RAISE["what"] = KeyboardInterrupt()
         cases["interrupt"] = observe(lambda: call(mcp, "fork_boom"))
@@ -2557,8 +2557,8 @@ class LowRiskDeclaredToolsTests(unittest.TestCase):
             EXTENSION_REPLACEMENTS={"dist_tools": {"wf_garden_docs": {"alias_for_core": "wf_core_garden_docs"}}},
         ):
             names = set(roster.tools_for_tiers(include_low_risk=True)) - set(roster.tools_for_tiers())
-            self.assertEqual(names, (roster.LOW_RISK_WRITE_TOOLS - {"wf_mark_ac", "wf_garden_docs"})
-                             | {"wf_tick_criterion", "index_build_docs", "wf_core_garden_docs"})
+            self.assertEqual(names, (roster.LOW_RISK_WRITE_TOOLS - {"wf_mark_ac", "wf_garden_docs", "wf_new_change"})
+                             | {"wf_tick_criterion", "index_build_docs", "wf_core_garden_docs", "wf_new_spec"})
             self.assertTrue(names <= roster.all_tool_tiers().keys())
         with base_declaration(EXTENSION_TOOL_TIERS={"wf_mark_ac": "read"}):
             with self.assertRaises(ext.ExtensionDeclarationError):
@@ -2615,8 +2615,8 @@ class ReplacementServingTests(unittest.TestCase):
     def test_core_tools_that_are_not_replaced_name_alias_for_core(self):
         busy = self.out["other_core_busy"]
         self.assertEqual(busy["codes"], ["error", "lifecycle_mutation_locked"])
-        self.assertEqual(busy["next_tools"], ["wf_add_change", "fork_current_core"])
-        self.assertEqual(busy["recovery_tools"], [["wf_add_change", "fork_current_core"]])
+        self.assertEqual(busy["next_tools"], ["wf_add_spec", "fork_current_core"])
+        self.assertEqual(busy["recovery_tools"], [["wf_add_spec", "fork_current_core"]])
 
     def test_core_behaviour_is_upgrade_guarded(self):
         # Native dry-run aliases require a compatible retained checkpoint;
@@ -2694,9 +2694,9 @@ class ParameterMappedAliasTests(unittest.TestCase):
 
     def test_alias_schema_is_the_renamed_canonical_schema(self):
         schemas = self.out["schemas"]
-        swap = {"set_id": "wave_id", "wave_id": "change_id"}
-        self.assertEqual(schemas["fork_add_wave"], _renamed_schema(schemas["wf_add_change"], swap, {}))
-        self.assertEqual(schemas["fork_add_wave_now"], _renamed_schema(schemas["wf_add_change"], swap, {"mode": "create"}))
+        swap = {"set_id": "wave_id", "wave_id": "spec_id"}
+        self.assertEqual(schemas["fork_add_wave"], _renamed_schema(schemas["wf_add_spec"], swap, {}))
+        self.assertEqual(schemas["fork_add_wave_now"], _renamed_schema(schemas["wf_add_spec"], swap, {"mode": "create"}))
         self.assertEqual(schemas["fork_review_prepare"], _renamed_schema(schemas["wf_review_wave"], {}, {"phase": "prepare"}))
         self.assertEqual(schemas["fork_say"], _renamed_schema(schemas["fork_echo"], {"words": "text"}, {}))
         # Annotated metadata and descriptions are carried, not re-derived.
@@ -2708,7 +2708,7 @@ class ParameterMappedAliasTests(unittest.TestCase):
         self.assertEqual(self.out["descriptions_equal"], {"fork_add_wave": True, "fork_review_prepare": True})
         self.assertEqual(self.out["annotations_equal"], {"fork_add_wave": True, "fork_review_prepare": True})
         self.assertTrue(self.out["wraps_canonical"])
-        for alias, canonical in (("fork_add_wave", "wf_add_change"), ("fork_add_wave_now", "wf_add_change"),
+        for alias, canonical in (("fork_add_wave", "wf_add_spec"), ("fork_add_wave_now", "wf_add_spec"),
                                  ("fork_review_prepare", "wf_review_wave")):
             self.assertEqual(self.out["markers"][alias], self.out["markers"][canonical], alias)
 
@@ -2852,10 +2852,12 @@ class ParameterMappedAliasTests(unittest.TestCase):
         self.assertEqual(self.out["pinned_add_call"], {"set_id": "1abcd", "wave_id": "1abce-feat x", "mode": "create"})
 
     # AC-2.
-    def test_canonical_and_plain_alias_data_match_the_stock_server(self):
+    def test_stock_operations_match_and_plain_alias_keeps_the_original_id(self):
         self.assertEqual(json.dumps(self.out["canonical_add_call"]), json.dumps(self.stock["add_call"]))
-        self.assertEqual(self.stock["add_call"], {"wave_id": "1abcd", "change_id": "1abce-feat x", "mode": "dry_run"})
-        self.assertEqual(json.dumps(self.out["plain_get_call"]), json.dumps(self.stock["get_call"]))
+        self.assertEqual(self.stock["add_call"], {"wave_id": "1abcd", "spec_id": "1abce-feat x", "mode": "dry_run"})
+        self.assertEqual(self.out["plain_get_call"], {
+            "change_id": self.stock["get_call"]["spec_id"], "change": None, "changes": [],
+        })
         self.assertEqual(json.dumps(self.out["canonical_get_call"]), json.dumps(self.stock["get_call"]))
 
     # AC-4.
@@ -3100,15 +3102,19 @@ class ResponseKeyServingTests(unittest.TestCase):
         self.assertEqual(len(items["data"]["items"]), 1)
         self.assertEqual(len(canonical["data"]["changes"]), 1)
         for got, want in zip(items["data"]["items"], canonical["data"]["changes"]):
-            self.assertEqual(got, {("item_id" if key == "id" else key): value for key, value in want.items()})
+            self.assertEqual(got, {("item_id" if key == "spec_id" else key): value for key, value in want.items()})
         self.assertEqual({k: v for k, v in items["data"].items() if k != "items"},
                          {k: v for k, v in canonical["data"].items() if k != "changes"})
         self.assertEqual(out["listed_description"], "Get one item, or every item of a set.")
 
     def test_canonical_plain_alias_and_unknown_arguments_answer_unchanged(self):
         out = self.out
-        self.assertEqual(out["plain_bulk"]["data"], out["canonical_bulk"]["data"])
-        self.assertIn("changes", out["canonical_bulk"]["data"])
+        expected = dict(out["canonical_bulk"]["data"])
+        expected["changes"] = [
+            {("id" if key == "spec_id" else key): value for key, value in row.items()}
+            for row in expected["changes"]
+        ]
+        self.assertEqual(out["plain_bulk"]["data"], expected)
         unknown = out["items_unknown"]
         self.assertEqual([d["code"] for d in unknown["diagnostics"]], ["unknown_arguments"])
         self.assertIn("rejected_arguments", unknown["data"])
@@ -3694,7 +3700,7 @@ class UnhandledToolExceptionRenderTests(unittest.TestCase):
 
     def test_an_inner_wrapper_exception_is_rendered(self):
         """AC-4: raised by the upgrade-publication guard, outside the body."""
-        self.assert_rendered("inner_guard", "RuntimeError", "wf_add_change")
+        self.assert_rendered("inner_guard", "RuntimeError", "wf_add_spec")
 
     def test_an_interrupt_propagates(self):
         """AC-5."""
@@ -4498,6 +4504,9 @@ NON_BEHAVIOR_COLLECTIONS = {
     # name may target (wave 1zicq); it keys no served behaviour.
     ("mcp_tool_extensions.py", "EDIT_GATE_TOOLS"),
     ("mcp_tool_extensions.py", "LIFECYCLE_RESPONSE_CALLBACK_TOOLS"),
+    ("mcp_tool_extensions.py", "SPEC_TOOL_NAMES"),
+    # Legacy schemas on explicitly declared operations bypass the stock adapter.
+    ("wf_server/server_impl.py", "_EXISTING_SPEC_ID_TOOLS"),
     # Flat script module names a declared module may not take (wave 1zls8,
     # 1zltx); "memory_backfill" is also a tool name, but these are modules.
     ("mcp_tool_extensions.py", "FRAMEWORK_SCRIPT_MODULE_NAMES"),
@@ -4642,7 +4651,8 @@ class ReservedNameCensusTests(unittest.TestCase):
         from server_tools_support import load_server
         import mcp_tool_roster
         impl = load_server()
-        served = set(mcp_tool_roster.TOOL_TIERS)
+        private_handlers = set(mcp_tool_roster.TOOL_TIERS)
+        served = private_handlers - set(impl.mcp_tool_extensions.SPEC_TOOL_NAMES)
         collections = impl._reserved_tool_name_collections()
         retired = collections.pop("_RENAMED_MCP_TOOLS")
         self.assertTrue(retired)
@@ -4650,7 +4660,7 @@ class ReservedNameCensusTests(unittest.TestCase):
         for label, members in collections.items():
             with self.subTest(collection=label):
                 self.assertTrue(members, f"{label} is empty, so this check would pass vacuously")
-                self.assertEqual(members - served, set(), f"{label} names a tool core does not serve")
+                self.assertEqual(members - private_handlers, set(), f"{label} names an unknown core handler")
 
     def test_registration_reserves_exactly_the_reserved_collections(self):
         from server_tools_support import load_server

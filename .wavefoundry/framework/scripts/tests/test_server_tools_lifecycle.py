@@ -6972,7 +6972,7 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
         self.assertEqual(diagnostic["code"], "ambiguous_mark_target")
         self.assertEqual(response["data"]["candidate_labels"], ["Implement", "Implement"])
         self.assertIn("Do not choose arbitrarily", diagnostic["message"])
-        self.assertEqual(diagnostic["recovery_tools"], ["wf_get_change"])
+        self.assertEqual(diagnostic["recovery_tools"], ["wf_get_spec"])
 
     def test_missing_target_and_non_checkbox_text_return_a_structured_retry(self):
         self._write_change(
@@ -6985,7 +6985,7 @@ class MarkChangeItemRecoveryTests(unittest.TestCase):
         self.assertEqual(response["status"], "error")
         self.assertEqual(diagnostic["code"], "mark_target_not_found")
         self.assertIn("current exact label", diagnostic["message"])
-        self.assertEqual(diagnostic["recovery_tools"], ["wf_get_change"])
+        self.assertEqual(diagnostic["recovery_tools"], ["wf_get_spec"])
 
     def test_wrapped_task_marks_by_its_logical_label(self):
         self._write_change(
@@ -8117,7 +8117,7 @@ class CloseWaveStatusDriftTests(unittest.TestCase):
                 self.assertEqual(len(drift), 1, response["diagnostics"])
                 self.assertIn(f"`{self.CHANGE}` is `complete`", drift[0]["message"])
                 self.assertIn(f"`active` in its {_planning_doc()}", drift[0]["message"])
-                self.assertEqual(drift[0]["recovery_tools"], ["wf_get_change", "wf_current_wave"])
+                self.assertEqual(drift[0]["recovery_tools"], ["wf_get_spec", "wf_current_wave"])
                 self.assertFalse(drift[0].get("advisory", False))
                 self.assertEqual((wave_md.read_bytes(), change_doc.read_bytes()), before)
                 self.assertEqual(self._handoff().read_bytes() if self._handoff().exists() else None,
@@ -8143,7 +8143,7 @@ class CloseWaveStatusDriftTests(unittest.TestCase):
 
 
 class BulkWaveGetChangeTests(unittest.TestCase):
-    """Item 3: wf_get_change with wave_id (no change_id) returns all admitted changes."""
+    """Item 3: wf_get_spec with wave_id (no change_id) returns all admitted changes."""
 
     @classmethod
     def setUpClass(cls):
@@ -8390,7 +8390,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         """1uu9z Requirement 1: no site raises, and nothing mutates on refusal.
 
         Two defects meet here.  The resolver was widened to MATCH unreadable
-        documents, which let `wf_add_change(mode='create')` reach
+        documents, which let `wf_add_spec(mode='create')` reach
         `_move_change_doc` and relocate a file it could not read; and a second
         read in the same function was left unguarded, so `dry_run` still raised.
         """
@@ -8592,7 +8592,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
     def test_close_hard_gate_blocks_a_missing_admitted_doc(self):
         """1v0lx AC-1: a missing admitted document blocks close with its own
         `change_doc_missing` diagnostic naming the change id and the
-        `wf_remove_change` recovery. Red pre-fix: the collector returned []
+        `wf_remove_spec` recovery. Red pre-fix: the collector returned []
         for a ghost and close (lint patched out, the TOCTOU window the hard
         gate exists for) succeeded while the summary fabricated a record."""
         from unittest.mock import patch as _patch
@@ -8620,7 +8620,7 @@ class BulkWaveGetChangeTests(unittest.TestCase):
         message = " ".join(d["message"] for d in resp["diagnostics"]
                            if d["code"] == "change_doc_missing")
         self.assertIn("ch9gh-feat ghost", message)
-        self.assertIn("wf_remove_change", message)
+        self.assertIn("wf_remove_spec", message)
         self.assertNotIn(str(self.root), message,
                          "the missing-doc message must not leak the absolute path")
 
@@ -8733,13 +8733,13 @@ class BulkWaveGetChangeTests(unittest.TestCase):
             self.srv._generate_wf_close_wave_summary(
                 "ghost-wave", text, wave_dir / vocabulary_profile.RECORD_FILENAME)
         self.assertIn("ch9gh-feat ghost", str(ctx.exception))
-        self.assertIn("wf_remove_change", str(ctx.exception))
+        self.assertIn("wf_remove_spec", str(ctx.exception))
         self.assertNotIn(str(self.root), str(ctx.exception))
 
     def test_list_plans_reports_an_unreadable_plan_doc(self):
         """1uu9z follow-up (twelfth site, found by the delivery code lane):
         `wf_list_plans` is the recovery tool `change_doc_unreadable` routes to
-        from `wf_add_change`'s error exits, and it raised on the same input --
+        from `wf_add_spec`'s error exits, and it raised on the same input --
         the diagnostic sent the operator into a second stack trace.
         """
         for mode in ("decode", "permission"):
@@ -11745,11 +11745,11 @@ class WaveCouncilPolicyTests(unittest.TestCase):
                 # the envelope; it softens no blocker.
                 ("_prepare_council_location_advisory", "_diagnostic", "prepare_council_verdict_misplaced"),
                 ("policy_advisory_gate", "_review_policy_receipt_diagnostics", "<helper-call>"),
-                # Wave 1zxo0 (1zxns): bulk wf_get_change is a read tool; a
+                # Wave 1zxo0 (1zxns): bulk wf_get_spec is a read tool; a
                 # rejected member line is advisory there and blocking in every
                 # phase gate (prepare, implement, review, close).
                 ("wf_get_change_response", "_diagnostic", "change_id_invalid"),
-                # Wave 1zlu1 (1zlu2): wf_close_change's dry-run report of a lint
+                # Wave 1zlu1 (1zlu2): wf_close_spec's dry-run report of a lint
                 # failure that already exists on a document it would write, and
                 # its report of a dependency declared only in a spec.
                 # Neither softens a gate: every closing gate is a separate
@@ -12311,7 +12311,7 @@ class WaveCouncilPolicyTests(unittest.TestCase):
         )
         self.assertEqual(refused["status"], "error", refused)
         tools = [t for d in refused["diagnostics"] for t in (d.get("recovery_tools") or [])]
-        self.assertIn("wf_get_change", tools)
+        self.assertIn("wf_get_spec", tools)
         self.assertNotIn("wf_prepare_wave", tools)
 
     def _wave_with_an_advisory_only_create(self, slug):
@@ -13633,15 +13633,15 @@ class WaveImplementTests(unittest.TestCase):
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["data"].get("already_implementing"))
 
-    # --- AC-11: wf_add_change next_tools ---
+    # --- AC-11: wf_add_spec next_tools ---
 
     def test_wf_add_change_includes_wf_add_change_in_next_tools(self):
-        """AC-11: wf_add_change includes wf_add_change in next_tools."""
+        """AC-11: wf_add_spec includes wf_add_spec in next_tools."""
         wave_result = self.srv.wf_create_wave_response(self.root, "ac11-wave", mode="create")
         wave_id = wave_result["data"]["wave_id"]
         change = self.srv.new_change(self.root, "feat", "ac11-change")
         result = self.srv.wf_add_change_response(self.root, wave_id, change["id"], mode="create")
-        self.assertIn("wf_add_change", result.get("next_tools", []))
+        self.assertIn("wf_add_spec", result.get("next_tools", []))
 
 
 class WaveCloseSummaryGenerationTests(unittest.TestCase):
@@ -13989,7 +13989,7 @@ class TypedExclusiveGateDerivationTests(unittest.TestCase):
     review evidence solely from typed events.jsonl records.
 
     The fixture is built through canonical producers (wf_create_wave scaffold,
-    wf_add_change admission, the canonical ledger serializer and both
+    wf_add_spec admission, the canonical ledger serializer and both
     projection renderers) with a parseable ``- Required review lanes:`` bullet
     and ZERO operator-authored prose signoff lines, then exercised through
     wf_prepare_wave readiness, wf_review_wave(phase='prepare'),
@@ -18109,8 +18109,8 @@ class CloseGateChecklistBypassTests(unittest.TestCase):
                     self.assertEqual(len(missing), 1, resp.get("diagnostics"))
                     self.assertIn(self.CID, missing[0]["message"])
                     self.assertIn(heading, missing[0]["message"])
-                    self.assertEqual(missing[0]["recovery_tools"], ["wf_get_change"])
-                    self.assertEqual(missing[0]["recovery_usage"], f"wf_get_change(change_id={self.CID!r})")
+                    self.assertEqual(missing[0]["recovery_tools"], ["wf_get_spec"])
+                    self.assertEqual(missing[0]["recovery_usage"], f"wf_get_spec(spec_id={self.CID!r})")
                     self.assertEqual(self._diag(resp, "silent_unchecked_items_at_close"), [])
                     self.assertEqual(resp["status"], "error")
 
@@ -18182,7 +18182,7 @@ class CloseGateChecklistBypassTests(unittest.TestCase):
         self.assertIn(self.CID, found[0]["message"])
         self.assertIn("star-step", found[0]["message"])
         self.assertIn("- [ ] ...", found[0]["message"])
-        self.assertEqual(found[0]["recovery_tools"], ["wf_get_change"])
+        self.assertEqual(found[0]["recovery_tools"], ["wf_get_spec"])
         self.assertFalse(found[0].get("advisory"))
         self.assertEqual(resp["status"], "error")
         clean = self._prepare(self._doc(tasks="- [ ] star-step\n"))
@@ -18772,7 +18772,7 @@ class ReceiptSnapshotPublicIntegrationTests(unittest.TestCase):
         child = self.ok(self.srv._change_create_response(self.root, "enh", "snapshot-public-child", mode="create"))
         self.change_id = child["change_id"]
         (self.root / child["path"]).write_bytes(self.body())
-        self.ok(self.call("wf_add_change", wave_id=self.wave_id, change_id=self.change_id, mode="create"))
+        self.ok(self.call("wf_add_spec", wave_id=self.wave_id, spec_id=self.change_id, mode="create"))
         self.change_path = self.wave_md.parent / (self.change_id + ".md")
         self.change_path.write_bytes(self.body())
         self.ok(self.call("wf_review_event", wave_id=self.wave_id, event="run", actor="council-chair",
@@ -18996,7 +18996,7 @@ class ReceiptSnapshotPublicIntegrationTests(unittest.TestCase):
         # Matched reconstruction: the established full-plan route independently
         # confirms the same final material state. Calls/content are only proxies;
         # this asserts completeness and access, never effort or token savings.
-        full = self.call("wf_get_change", change_id=self.change_id)
+        full = self.call("wf_get_spec", spec_id=self.change_id)
         self.assertEqual(full["status"], "ok", full)
         content = json.dumps(full["data"], ensure_ascii=False)
         self.assertIn("beta", content)
@@ -19162,7 +19162,7 @@ class HeadingSpacingLifecycleTests(unittest.TestCase):
                           **({"intent_fit": "establishes"} if requires_intent_fit(key) else {})},
                 integrity_checks=integrity_checks()))
         for cid in ids:
-            self.ok(self.call("wf_close_change", wave_id=wid, change_id=cid, mode="create"))
+            self.ok(self.call("wf_close_spec", wave_id=wid, spec_id=cid, mode="create"))
 
     def test_close_summary_reports_criteria_and_is_spaced_from_the_next_heading(self):
         wid, wave_md, ids = self._two_change_wave("summary")
@@ -19416,7 +19416,7 @@ class _RegisteredApprovalWaveFixture(unittest.TestCase):
         self.wave_id = made["data"]["wave_id"]
         self.wave_md = self.root / made["data"]["path"]
         for change_id in change_ids:
-            added = self.call("wf_add_change", wave_id=self.wave_id, change_id=change_id, mode="create")
+            added = self.call("wf_add_spec", wave_id=self.wave_id, spec_id=change_id, mode="create")
             self.assertEqual(added["status"], "ok", added)
         if prepare:
             self._prepare()
@@ -19523,7 +19523,7 @@ class _RegisteredApprovalWaveFixture(unittest.TestCase):
 
     def _admit_late(self, change_id=LATE):
         self._new_change(change_id)
-        added = self.call("wf_add_change", wave_id=self.wave_id, change_id=change_id, mode="create")
+        added = self.call("wf_add_spec", wave_id=self.wave_id, spec_id=change_id, mode="create")
         self.assertEqual(added["status"], "ok", added)
 
 
@@ -19655,7 +19655,7 @@ class DeliveryApprovalMembershipTests(_RegisteredApprovalWaveFixture):
     def test_a_renamed_change_id_counts_as_newly_admitted(self):
         """Requirement 1: ids are compared whole."""
         self._approved_wave("renamed-id")
-        removed = self.call("wf_remove_change", wave_id=self.wave_id, change_id=self.SAMPLE, mode="create")
+        removed = self.call("wf_remove_spec", wave_id=self.wave_id, spec_id=self.SAMPLE, mode="create")
         self.assertEqual(removed["status"], "ok", removed)
         self._admit_late("1abcz-bug sample-renamed")
         self._prepare()
@@ -19678,10 +19678,10 @@ class DeliveryApprovalMembershipTests(_RegisteredApprovalWaveFixture):
                 self.assertTrue(before and all(state == "approved" for state, _w, _n in before.values()), before)
                 receipts = self._receipt_count()
                 if case in {"remove", "remove-and-readmit"}:
-                    removed = self.call("wf_remove_change", wave_id=self.wave_id, change_id=self.OTHER, mode="create")
+                    removed = self.call("wf_remove_spec", wave_id=self.wave_id, spec_id=self.OTHER, mode="create")
                     self.assertEqual(removed["status"], "ok", removed)
                     if case == "remove-and-readmit":
-                        readded = self.call("wf_add_change", wave_id=self.wave_id, change_id=self.OTHER, mode="create")
+                        readded = self.call("wf_add_spec", wave_id=self.wave_id, spec_id=self.OTHER, mode="create")
                         self.assertEqual(readded["status"], "ok", readded)
                     self._prepare()
                 else:

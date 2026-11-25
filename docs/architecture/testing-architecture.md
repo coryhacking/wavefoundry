@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-23
+Last verified: 2026-11-24
 
 ## Tensorwell qualification
 
@@ -466,7 +466,7 @@ four pieces, all test infrastructure in
   them. Nested and sequential contexts restore the earlier state.
 - **Served-close seam (change 230k6).** `close_member(call, root, wave_id,
   change_id, ...)` in `tests/server_tools_support.py` calls the registered
-  `wf_close_change` through the same profile, so a closure test exercises the
+  `wf_close_spec` through the same profile, so a closure test exercises the
   handler a distribution serves under that name instead of the core response
   function. `test_security_unsettled_disposition.py` closes through it, and
   `ServedCloseSeamTests` drives it with an overriding handler that requires a

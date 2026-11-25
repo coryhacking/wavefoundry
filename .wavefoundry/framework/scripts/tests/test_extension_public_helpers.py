@@ -26,7 +26,7 @@ from server_tools_support import _make_repo, load_server
 from test_archive_root import ARCHIVED_CHANGE, ARCHIVED_WAVE, _ArchiveCase
 
 
-# The documented signatures (docs/specs/mcp-tool-surface.md, Registration).
+# The documented signatures (docs/architecture/contracts/mcp-tool-surface.md, Registration).
 # server_impl uses postponed annotations, so annotations are their source text.
 EXPECTED_SIGNATURES = {
     "ensure_no_extra_args": "(tool_name: 'str', kwargs: 'dict') -> 'dict | None'",

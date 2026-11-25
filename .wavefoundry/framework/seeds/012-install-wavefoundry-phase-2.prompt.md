@@ -69,9 +69,9 @@ Record what was found, kept, moved or skipped (and any collision or instruction-
 
 ### 2.4 — Create canonical `docs/` structure (seed-040)
 
-**Action:** Read `seed-040` and execute. Outputs include `docs/README.md`, `docs/architecture/`, `docs/contributing/`, `docs/plans/`, `docs/references/`, `docs/prompts/`, `docs/waves/`, `docs/agents/`, plus topical artifact homes. Keep a pre-existing `docs/README.md`; create it only when absent. Propose any navigation additions separately rather than replacing the project's landing page.
+**Action:** Read `seed-040` and execute. Outputs include `docs/README.md`, `docs/architecture/`, `docs/contributing/`, `docs/plans/`, `docs/references/`, `docs/prompts/`, `docs/waves/`, `docs/agents/`, plus topical artifact homes. On fresh installations also create `docs/architecture/contracts/index.md` from the shipped template as directed in seed-040. Keep a pre-existing `docs/README.md`; create it only when absent. Propose any navigation additions separately rather than replacing the project's landing page.
 
-**Expected artifact:** `docs/README.md` exists and the listed directories are present.
+**Expected artifact:** `docs/README.md` exists and the listed directories are present. Verify the fresh index or record the existing contract layout preserved under seed-040.
 
 > **Provision the install-log-format reference (once):** if `docs/references/install-log-format.md` does not already exist, copy it from the shipped framework template `.wavefoundry/framework/install/install-log-format.md` (verbatim — do not author a thin version). It is the canonical install-log row format + the trustworthy-`[x]`-marker invariant that `seed-011` and `seed-010` reference; the upgrade flow (`seed-160`) refreshes it from the same template.
 
@@ -163,7 +163,7 @@ For richer per-role content on the other roles, consult the authoritative per-ro
 
 **Action:** Read `seed-060`. Generate `docs/ARCHITECTURE.md` hub plus `docs/architecture/current-state.md`, `domain-map.md`, `layering-rules.md`, `cross-cutting-concerns.md`, `data-and-control-flow.md`, `testing-architecture.md`.
 
-**Expected artifact:** `docs/ARCHITECTURE.md` and the architecture sub-docs.
+**Expected artifact:** `docs/ARCHITECTURE.md` and the architecture sub-docs. On fresh installations follow the hub's Behavior contracts link to `docs/architecture/contracts/index.md`.
 
 ### 2.7 — Establish posture (seed-070)
 

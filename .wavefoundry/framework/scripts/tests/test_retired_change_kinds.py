@@ -227,9 +227,9 @@ class GuidanceTests(unittest.TestCase):
         cls.srv = load_server()
 
     def test_wf_help_plan_change_recommends_wf_new_enhancement(self):
-        workflow = self.srv._help_catalog()["workflows"]["plan_change"]
-        self.assertEqual(workflow["recommended_chain"], ["wf_new_enhancement", "wf_get_change", "wf_validate_docs"])
-        self.assertEqual(workflow["fallback_tools"], ["wf_new_bug", "wf_new_maintenance", "wf_new_change"])
+        workflow = self.srv._help_catalog()["workflows"]["plan_spec"]
+        self.assertEqual(workflow["recommended_chain"], ["wf_new_enhancement", "wf_get_spec", "wf_validate_docs"])
+        self.assertEqual(workflow["fallback_tools"], ["wf_new_bug", "wf_new_maintenance", "wf_new_spec"])
         self.assertIn("wf_new_enhancement", workflow["next_step"])
         self.assertTrue(workflow["usage"].startswith("wf_new_enhancement("), workflow["usage"])
         self.assertNotIn("wf_new_feature", json.dumps(workflow))
@@ -243,7 +243,7 @@ class GuidanceTests(unittest.TestCase):
         old = self.srv.wf_help_response(retired)
         self.assertEqual(old["diagnostics"][0]["code"], "unknown_goal")
         self.assertNotIn(retired, self.srv._help_catalog()["workflows"])
-        self.assertEqual(self.srv.wf_help_response("")["usage"], "wf_help(goal='plan_change')")
+        self.assertEqual(self.srv.wf_help_response("")["usage"], "wf_help(goal='plan_spec')")
         from framework_files import source_path
 
         source = source_path("server_impl.py").read_text(encoding="utf-8")
@@ -274,7 +274,7 @@ class GuidanceTests(unittest.TestCase):
         feature = tools["wf_new_feature"].description
         self.assertIn("retired", feature)
         self.assertIn("wf_new_enhancement", feature)
-        change = tools["wf_new_change"].description
+        change = tools["wf_new_spec"].description
         prefer = next(line for line in change.splitlines() if "Prefer" in line)
         self.assertNotIn("feat", prefer)
         self.assertIn("enh", prefer)
@@ -288,13 +288,11 @@ class SkillGuidanceTests(unittest.TestCase):
         import render_agent_surfaces
         name = vocabulary_profile.skill_name("plan-change")
         skill = next(s for s in render_agent_surfaces.SKILL_REGISTRY if s.name == name)
-        line = next(l for l in skill.body.splitlines() if "`wf_new_<kind>`" in l)
-        scaffolds = [w.strip() for w in line.split("(", 1)[1].split(")", 1)[0].split(",")]
-        self.assertIn("enhancement", scaffolds)
-        # The retired kind's scaffold word (feat is offered as "feature").
-        self.assertNotIn("feature", scaffolds)
+        self.assertIn("`wf_new_enhancement`", skill.body)
+        self.assertIn("wf_new_spec(slug=", skill.body)
+        self.assertNotIn("wf_new_feature", skill.body)
         for kind in vocabulary_profile.RETIRED_CHANGE_KINDS:
-            self.assertNotIn(kind, scaffolds)
+            self.assertNotRegex(skill.body, rf"\bwf_new_{kind}\b")
 
 
 if __name__ == "__main__":

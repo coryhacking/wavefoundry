@@ -18,7 +18,7 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 from framework_files import source_path  # wf_server-aware source locations (wave 1yzd0)
-from upstream_fixture_support import upstream_fixture
+from upstream_fixture_support import tool_contract_rel, upstream_fixture
 MODULES = ("lifecycle_gate_support", "lifecycle_gates", "sensor_runner")
 FIELDS = {"root", "wave_md", "wave_text", "mode", "lint_result", "phase"}
 MARKERS = ("events.jsonl", "## Review Evidence", "## Review Signoff Evidence",
@@ -794,7 +794,7 @@ class LifecycleGateStructureTests(unittest.TestCase):
         rather than whatever the pass produced.
         """
         repo = SCRIPTS.parents[2]
-        surface = (repo / "docs/specs/mcp-tool-surface.md").read_text(encoding="utf-8")
+        surface = (repo / tool_contract_rel(repo)).read_text(encoding="utf-8")
         # Stays true: Requirement 3 leaves the prepare call site passing no keyword.
         self.assertIn(
             "reached required sensors run in `ready`/`create`, while dry-run reports "

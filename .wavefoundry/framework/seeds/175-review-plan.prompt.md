@@ -15,7 +15,7 @@ Intent:
 Before reviewing, consult all available project resources to self-answer questions without operator input:
 
 - Source code under the target repository's product, package, app, service, library, or shared module roots
-- `docs/specs/*.md` — behavior contracts and acceptance expectations
+- The maintained behavior contracts index and its authoritative pages — standing promises and acceptance expectations
 - `docs/architecture/` — module boundaries, layering rules, data/control flows, decisions
 - `docs/references/` — project context memory, recurring patterns, durable constraints
 - `docs/agents/` — role docs, personas, memory records, operating identity

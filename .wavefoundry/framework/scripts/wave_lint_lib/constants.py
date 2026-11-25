@@ -269,10 +269,12 @@ MEMORY_CONTROL_TOKEN_PATTERNS = (
     re.compile(r"<(?:start|end)_of_turn>"),
     re.compile(r"</?system-reminder>"),
     re.compile(
-        r"</?(?:[A-Za-z][A-Za-z0-9_-]*:)?"
+        # Change 24885: the namespace prefix and tag names match in any case,
+        # in an inline group so the other patterns keep their case rules.
+        r"</?(?i:(?:[a-z][a-z0-9_-]*:)?"
         # Only the tag opening is matched, which is linear and catches any
         # attribute length or content.
-        r"(?:function_calls|invoke|tool_call|tool_use|tool_result|parameter)\b"
+        r"(?:function_calls|invoke|tool_call|tool_use|tool_result|parameter))\b"
     ),
     re.compile(r"^(?:Human|Assistant|System):\s"),
 )
@@ -361,7 +363,7 @@ ALLOWED_CHANGE_STATUS_TRANSITIONS = {
     "deferred": {"deferred", "ready", "active", "superseded"},
     # Wave 1zlu1 (1zlu2): `implemented` is a recognized change status, reached
     # from `ready`, `active` and `review` (delivery review F5), that
-    # `wf_close_change` closes to `complete`; it stays non-terminal.
+    # `wf_close_spec` closes to `complete`; it stays non-terminal.
     "implemented": {"implemented", "complete", "completed"},
     "moved": {"moved"},
     "retry": {"retry", "ready", "active", "blocked", "review", "complete", "completed", "moved", "superseded"},

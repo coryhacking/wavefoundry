@@ -25,6 +25,7 @@ import stat
 from pathlib import Path
 
 from .helpers import read_record_text, record_entry_is_regular, resolve_record_roots
+from review_policy import LEGACY_TOOL_CONTRACT, TOOL_CONTRACT
 import record_paths  # errno cause label (wave 1zrak, 1zu4y)
 import vocabulary_profile as _vocab  # record markers are vocabulary (wave 1z8mm)
 
@@ -59,11 +60,11 @@ def _public_contract():
 # expected-value callable). The regex's group(1) must equal the expected value.
 # A missing claim is itself a failure: the refreshed docs carry these facts in
 # a stable, checkable form, and silently dropping one is drift too.
-def _claims():
+def _claims(tool_contract=TOOL_CONTRACT):
     pc = _public_contract()
     return (
         (
-            "docs/specs/mcp-tool-surface.md",
+            tool_contract,
             "configured_gates outcomes",
             re.compile(r"configured_gates outcomes: `([^`]+)`"),
             lambda: "/".join(pc.CONFIGURED_GATE_OUTCOMES),
@@ -179,7 +180,17 @@ def _framework_internal_constants_enabled(root: Path) -> tuple[bool, list[str]]:
 def check_docs_constants(root: Path) -> list[str]:
     """Assert documented facts match their owning code constants."""
     enabled, failures = _framework_internal_constants_enabled(root)
-    for rel, label, pattern, expected_fn in (_claims() if enabled else ()):
+    # A deferred migration leaves the legacy page authoritative on collision.
+    tool_contract = TOOL_CONTRACT
+    if enabled:
+        try:
+            if stat.S_ISREG(os.stat(root / LEGACY_TOOL_CONTRACT).st_mode):
+                tool_contract = LEGACY_TOOL_CONTRACT
+        except (FileNotFoundError, NotADirectoryError):
+            pass
+        except OSError as exc:
+            failures.append(docs_lint_input_unreadable(LEGACY_TOOL_CONTRACT, exc))
+    for rel, label, pattern, expected_fn in (_claims(tool_contract) if enabled else ()):
         doc = root / rel
         # Wave 1zrak (1zu4y): presence under the errno rule (``os.stat``,
         # following links as ``is_file()`` did); an uninspectable or unreadable

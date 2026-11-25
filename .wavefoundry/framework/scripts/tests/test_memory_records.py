@@ -1081,15 +1081,18 @@ class DecayTests(_MemoryCase):
             subprocess.run(["git", "-C", str(self.root), "commit", "-qm", f"c{i}"], check=True)
         iss.update_freshness_from_build(self.root, self.index_dir, ["src/a.py"])
 
-    def test_failed_attempt_decays_with_target_churn(self):
+    def test_failed_attempt_is_flagged_not_attenuated_by_churn(self):
+        # Change 246to: churn at the halving count flags the record and
+        # leaves its confidence and briefing inclusion alone.
         self._seed_churn(10)
         path = self._add("mem-fail", "failed_attempt", created="2020-01-01")
         record = self.mem.parse_memory_record(path)
         decay = self.mem.apply_decay(record, index_dir=self.index_dir)
-        self.assertLess(decay["effective_confidence"], 0.8)
-        self.assertIn("target_churn", decay["decay_basis"])
-        # Enough churn pushes it below the briefing floor.
-        self.assertAlmostEqual(decay["effective_confidence"], 0.8 / 2.0, places=2)
+        self.assertEqual(decay["effective_confidence"], 0.8)
+        self.assertEqual(decay["decay_basis"], "target_churn:10 (flag only)")
+        self.assertEqual(decay["revalidation_reasons"], ["target_churn"])
+        self.assertTrue(decay["needs_reverification"])
+        self.assertTrue(decay["briefing_included"])
 
     def test_operator_preference_never_decays_on_churn(self):
         self._seed_churn(10)
@@ -1097,7 +1100,8 @@ class DecayTests(_MemoryCase):
             self._add("mem-pref", "operator_preference", created="2020-01-01"))
         decay = self.mem.apply_decay(record, index_dir=self.index_dir)
         self.assertEqual(decay["effective_confidence"], 0.8)
-        self.assertEqual(decay["decay_basis"], "none")
+        # Change 246to: churn now flags every kind; it still never lowers it.
+        self.assertEqual(decay["revalidation_reasons"], ["target_churn"])
         self.assertTrue(decay["briefing_included"])
 
     def test_fragile_file_flags_instead_of_attenuating(self):
@@ -1184,7 +1188,10 @@ class DecayTests(_MemoryCase):
             decay["halving_commits"],
             self.mem.ADAPTIVE_CHURN_MAX_HALVING_COMMITS,
         )
-        self.assertAlmostEqual(decay["effective_confidence"], 0.8 / 1.25)
+        # Change 246to: 10 commits stay under the adaptive halving of 40, so
+        # no flag, and churn never attenuates.
+        self.assertEqual(decay["effective_confidence"], 0.8)
+        self.assertEqual(decay["revalidation_reasons"], [])
 
     def test_policy_key_keeps_freshness_inside_comparability_partition(self):
         decision = {
@@ -5440,7 +5447,9 @@ class LeastRecentlyReviewedOrderTests(_MemoryCase):
                             self._ids(status="active", order=self.ORDER, limit=15))
 
     def test_keep_stamp_rotates_the_record_to_the_end(self):
-        kept = self.srv.memory_reconcile_response(self.root, "mem-old-decision", "active")
+        # Change 246to: a keep is a recorded check and needs a check_note.
+        kept = self.srv.memory_reconcile_response(
+            self.root, "mem-old-decision", "active", check_note="checked src/a.py; still holds")
         self.assertTrue(kept["data"]["updated"], kept)
         got = self._ids(status="active", order=self.ORDER, limit=15)
         # A skip-then-cap order would drop the stamped record instead.
@@ -5480,19 +5489,32 @@ class SameStatusKeepStampTests(_MemoryCase):
         self.assertEqual(changed, [("Updated: 2026-01-01", f"Updated: {today}")])
 
     def test_same_status_reconcile_stamps_updated_only(self):
+        # Change 246to: a keep without a check_note is refused and writes
+        # nothing; with one it stamps Updated and adds the three check lines.
         before = self.path.read_text(encoding="utf-8")
-        resp = self.srv.memory_reconcile_response(self.root, "mem-keep", "active")
+        refused = self.srv.memory_reconcile_response(self.root, "mem-keep", "active")
+        self.assertEqual(refused["status"], "error")
+        self.assertEqual([d["code"] for d in refused["diagnostics"]], ["memory_check_required"])
+        self.assertEqual(self.path.read_text(encoding="utf-8"), before)
+        with patch.object(self.srv._memory_mod(), "_now", lambda: 1795514400.0):  # 2026-11-24T10:00:00Z
+            resp = self.srv.memory_reconcile_response(
+                self.root, "mem-keep", "active", check_note="checked src/a.py")
         self.assertEqual(resp["status"], "ok", resp)
         self.assertTrue(resp["data"]["updated"])
         self.assertEqual(resp["data"]["record"]["effective_confidence"], 0.95)
-        self._assert_stamped(before, self.path.read_text(encoding="utf-8"),
-                             time.strftime("%Y-%m-%d"))
+        after = self.path.read_text(encoding="utf-8")
+        self._assert_stamped(before, "\n".join(
+            line for line in after.splitlines() if not line.startswith("Check")), "2026-11-24")
+        self.assertIn("Checked at: 2026-11-24T10:00:00Z\nCheck note: checked src/a.py\n"
+                      "Check flags: none\n", after)
 
     def test_known_bad_without_updated_rewrite_fails(self):
         import re
         before = self.path.read_text(encoding="utf-8")
         with patch.object(self.mem, "_UPDATED_LINE_RE", re.compile(r"(?!x)x")):
-            self.mem.reconcile_memory_record(self.root, "mem-keep", "active", date="2026-11-22")
+            self.mem.reconcile_memory_record(
+                self.root, "mem-keep", "active", check_note="checked",
+                checked_at="2026-11-22T10:00:00Z")
         with self.assertRaises(AssertionError):
             self._assert_stamped(before, self.path.read_text(encoding="utf-8"), "2026-11-22")
 
@@ -6634,6 +6656,624 @@ class MemoryTargetedBriefTests(_AdmissionCase):
         result = self.srv.memory_search_response(self.root, target="src/none.py")
         diagnostic = next(d for d in result["diagnostics"] if d["code"] == "no_memory_matches")
         self.assertNotIn("memory_add", diagnostic.get("recovery_tools") or [])
+
+
+
+# ---------------------------------------------------------------------------
+# Change 246to (wave 249ar): memory revalidation by signal.
+# ---------------------------------------------------------------------------
+
+
+def _utc(text: str) -> int:
+    import calendar
+    return calendar.timegm(time.strptime(text, "%Y-%m-%dT%H:%M:%SZ"))
+
+
+_DAY = 86400
+
+
+def _weekly(start: str, count: int) -> list[int]:
+    return [_utc(start) + index * 7 * _DAY for index in range(count)]
+
+
+class RevalidationSignalTests(_MemoryCase):
+    """AC-1 to AC-7: derived flags, decay from the last check, the
+    signal-first audit order and the recorded-check keep."""
+
+    ORDER = "least_recently_reviewed"
+    FILES = ("a.py", "pkg/b.py", "x/c.py", "y/c.py", "other.py", "r3.py", "r4.py",
+             "r5.py", "d1.py", "d2.py", "d3.py", "f3.py", "s1.py", "same.py")
+
+    def setUp(self):
+        super().setUp()
+        self.srv = load_server()
+        import wf_server.memory_handlers as memory_handlers
+        self.handlers = memory_handlers
+        self.root = Path(self._tmp.name) / "signals"
+        (self.root / "docs" / "agents").mkdir(parents=True)
+        self.index_dir = self.root / ".wavefoundry" / "index"
+        for rel in self.FILES:
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("value = 1\n", encoding="utf-8")
+
+    def _record(self, memory_id, kind="failed_attempt", *, targets=("a.py",),
+                evidence=("a.py",), created="2026-11-01", updated=None,
+                confidence=0.8, status="active") -> Path:
+        content = self.mem.render_memory_record(
+            memory_id=memory_id, kind=kind, summary=f"Lesson from {memory_id}.",
+            evidence=list(evidence), targets=list(targets), title=f"Lesson {memory_id}",
+            confidence=confidence, status=status, date=created)
+        if updated:
+            content = content.replace(f"Updated: {created}", f"Updated: {updated}")
+        return self.mem.write_memory_record(self.root, content, memory_id)
+
+    def _seed(self, histories):
+        iss = _load("index_state_store")
+        store = iss.IndexStateStore(self.index_dir)
+        try:
+            store.apply_freshness(
+                rows={path: {"commit_count": len(times), "source": "test"}
+                      for path, times in histories.items()},
+                commits=[(path, f"{pindex:03d}{index:037x}", int(ts))
+                         for pindex, (path, times) in enumerate(sorted(histories.items()))
+                         for index, ts in enumerate(times)],
+                fingerprint="test", paths_hash="test")
+        finally:
+            store.close()
+
+    def _decays(self):
+        records = self.mem.load_memory_records(self.root, statuses=["active", "candidate"])
+        return {r["memory_id"]: d for r, d in self.handlers._memory_ranked(self.root, records)}
+
+    def _search(self, **kwargs):
+        resp = self.srv.memory_search_response(self.root, **kwargs)
+        self.assertEqual(resp["status"], "ok", resp)
+        return resp["data"]["records"]
+
+    def _reasons(self, memory_id):
+        return next(r for r in self._search(status="active", limit=20)
+                    if r["memory_id"] == memory_id)["revalidation_reasons"]
+
+    def _memory_bytes(self):
+        memory = self.root / self.mem.MEMORY_DIR
+        return {p.name: p.read_bytes() for p in sorted(memory.glob("*.md"))}
+
+    def _codes(self, response):
+        return [d["code"] for d in response["diagnostics"]]
+
+    def _clock(self, text):
+        return patch.object(self.srv._memory_mod(), "_now", lambda: float(_utc(text)))
+
+    # AC-1 ---------------------------------------------------------------
+    def test_ac1_churn_flags_without_lowering_on_the_canonical_path(self):
+        self._record("mem-churn-a", targets=("a.py",))
+        self._record("mem-churn-b", targets=("b.py",))
+        self._seed({"a.py": _weekly("2026-11-02T12:00:00Z", 12),
+                    "pkg/b.py": _weekly("2026-11-02T12:00:00Z", 12)})
+        decays = self._decays()
+        first = decays["mem-churn-a"]
+        self.assertEqual(first["halving_commits"], 10)
+        self.assertTrue(first["needs_reverification"])
+        self.assertEqual(first["revalidation_reasons"], ["target_churn"])
+        self.assertEqual(first["effective_confidence"], 0.8)
+        self.assertTrue(first["briefing_included"])
+        self.assertEqual(first["decay_basis"], "target_churn:12 (flag only)")
+        # Known bad: a raw-ref lookup finds no commits under `b.py`.
+        self.assertEqual(decays["mem-churn-b"]["revalidation_reasons"],
+                         ["target_churn", "target_not_canonical"])
+        view = next(r for r in self._search(status="active") if r["memory_id"] == "mem-churn-a")
+        self.assertEqual(view["revalidation_reasons"], ["target_churn"])
+        self.assertEqual(view["effective_confidence"], 0.8)
+        self.assertTrue(view["needs_reverification"])
+        self._seed({"a.py": _weekly("2026-11-02T12:00:00Z", 9)})
+        nine = self._decays()["mem-churn-a"]
+        self.assertFalse(nine["needs_reverification"])
+        self.assertEqual(nine["revalidation_reasons"], [])
+
+    # AC-2 ---------------------------------------------------------------
+    def test_ac2_decay_counts_from_the_last_recorded_check(self):
+        self._record("mem-checked", created="2026-01-01", updated="2026-11-01")
+        self._seed({"a.py": _weekly("2026-01-05T12:00:00Z", 20)})
+        self.assertEqual(self._decays()["mem-checked"]["revalidation_reasons"], [])
+
+        path = self._record("mem-env", "environment_gotcha", targets=("other.py",),
+                            created="2026-01-01", updated="2026-11-01")
+        # `now` is 22 elapsed days after the `Updated:` instant (2026-11-23),
+        # independent of the host's daylight-saving change on 2026-11-01.
+        decay = self.mem.apply_decay(self.mem.parse_memory_record(path), root=self.root,
+                                     now=self.mem._date_ts("2026-11-01") + 22 * _DAY)
+        self.assertEqual(decay["halving_days"], 180)
+        self.assertEqual(round(decay["effective_confidence"], 4), 0.7129)
+
+        before = self._memory_bytes()
+        self._search(status="active", order=self.ORDER, limit=15)
+        self._search(limit=20)
+        brief = self.srv.memory_brief_response(self.root)
+        self.assertEqual(brief["status"], "ok", brief)
+        self.assertEqual(self._memory_bytes(), before)
+
+    # AC-3 ---------------------------------------------------------------
+    def test_ac3_each_resolution_state_sets_its_flag(self):
+        missing_evidence = "9zzzz"
+        state = self.mem.resolve_memory_refs(self.root, evidence=[missing_evidence])["refs"][0]
+        self.assertEqual((state["form"], state["state"]), ("wave_id", "unresolved"))
+        self._record("mem-gone", targets=("gone.py",))
+        self._record("mem-ambiguous", targets=("c.py",))
+        self._record("mem-bare", targets=("b.py",))
+        self._record("mem-evidence", targets=("pkg/b.py",), evidence=(missing_evidence,))
+        self._record("mem-gone-churn", targets=("gone.py", "other.py"))
+        self._seed({"other.py": _weekly("2026-11-02T12:00:00Z", 12)})
+        decays = self._decays()
+        self.assertEqual(decays["mem-gone"]["revalidation_reasons"], ["target_unresolved"])
+        self.assertEqual(decays["mem-ambiguous"]["revalidation_reasons"], ["target_unresolved"])
+        # Known bad: reading 249aq's `blocking` flags this record unresolved.
+        self.assertEqual(decays["mem-bare"]["revalidation_reasons"], ["target_not_canonical"])
+        self.assertFalse(decays["mem-bare"]["needs_reverification"])
+        self.assertEqual(decays["mem-evidence"]["revalidation_reasons"], [])
+        self.assertEqual(decays["mem-gone-churn"]["revalidation_reasons"],
+                         ["target_unresolved", "target_churn"])
+
+    # AC-4 ---------------------------------------------------------------
+    def test_ac4_never_decaying_kinds_are_revalidated_on_churn(self):
+        checked = time.strftime("%Y-%m-%d", time.localtime(time.time() - 400 * _DAY))
+        start = time.strftime("%Y-%m-%dT12:00:00Z", time.gmtime(time.time() - 380 * _DAY))
+        for memory_id, kind, target in (("mem-decision", "decision", "d1.py"),
+                                        ("mem-preference", "operator_preference", "d2.py"),
+                                        ("mem-fragile", "fragile_file", "d3.py")):
+            self._record(memory_id, kind, targets=(target,), created=checked)
+        self._record("mem-fragile-quiet", "fragile_file", targets=("f3.py",), created=checked)
+        self._seed({"d1.py": _weekly(start, 12), "d2.py": _weekly(start, 12),
+                    "d3.py": _weekly(start, 12), "f3.py": _weekly(start, 3)})
+        decays = self._decays()
+        for memory_id in ("mem-decision", "mem-preference", "mem-fragile"):
+            with self.subTest(memory_id=memory_id):
+                self.assertEqual(decays[memory_id]["effective_confidence"], 0.8)
+                self.assertEqual(decays[memory_id]["revalidation_reasons"], ["target_churn"])
+        self.assertEqual(decays["mem-fragile-quiet"]["revalidation_reasons"], [])
+
+    # AC-5 / AC-6 fixture -------------------------------------------------
+    def _audit_fixture(self):
+        """R1 unresolved, R2 churn, R3/R4 unflagged, R5 both, R6 not canonical."""
+        self._record("mem-r1", targets=("gone.py",), created="2026-11-20")
+        self._record("mem-r2", targets=("a.py",), created="2026-11-10")
+        self._record("mem-r3", targets=("r3.py",), created="2026-01-01")
+        self._record("mem-r4", targets=("r4.py",), created="2026-06-01")
+        self._record("mem-r5", targets=("gone.py", "r5.py"), created="2026-11-22")
+        self._record("mem-r6", targets=("b.py",), created="2026-03-01")
+        # A weekly history before the burst keeps the adaptive halving at 10;
+        # every burst commit precedes the 2026-11-24T10:00:00Z check.
+        history = _weekly("2026-01-05T12:00:00Z", 40)
+        self._seed({
+            "a.py": history + [_utc("2026-11-11T00:00:00Z") + i * 3600 for i in range(12)],
+            "r5.py": history + [_utc("2026-11-23T00:00:00Z") + i * 3600 for i in range(12)],
+        })
+
+    def test_ac5_audit_batch_is_ordered_by_signal_then_age(self):
+        self._audit_fixture()
+        got = [r["memory_id"] for r in self._search(status="active", order=self.ORDER, limit=15)]
+        self.assertEqual(got, ["mem-r1", "mem-r5", "mem-r2", "mem-r6", "mem-r3", "mem-r4"])
+        capped = [r["memory_id"] for r in self._search(status="active", order=self.ORDER, limit=2)]
+        self.assertEqual(capped, ["mem-r1", "mem-r5"])
+        by_age = sorted(self._search(status="active", limit=15),
+                        key=lambda r: (r["updated_at"], r["effective_confidence"], r["memory_id"]))
+        self.assertEqual([r["memory_id"] for r in by_age],
+                         ["mem-r3", "mem-r6", "mem-r4", "mem-r2", "mem-r1", "mem-r5"])
+
+    # AC-6 ---------------------------------------------------------------
+    def test_ac6_keep_needs_a_recorded_check(self):
+        self._audit_fixture()
+        r2 = self.root / self.mem.MEMORY_DIR / "mem-r2.md"
+        before = r2.read_bytes()
+        refused = self.srv.memory_reconcile_response(self.root, "mem-r2", "active")
+        self.assertEqual(self._codes(refused), ["memory_check_required"])
+        self.assertEqual(r2.read_bytes(), before)
+        note = "checked a.py; lesson still holds"
+        with self._clock("2026-11-24T10:00:00Z"):
+            kept = self.srv.memory_reconcile_response(self.root, "mem-r2", "active", check_note=note)
+        self.assertEqual(kept["status"], "ok", kept)
+        text = r2.read_text(encoding="utf-8")
+        for line in ("Updated: 2026-11-24", "Checked at: 2026-11-24T10:00:00Z",
+                     f"Check note: {note}", "Check flags: target_churn"):
+            self.assertIn(line + "\n", text)
+        self.assertEqual(self._reasons("mem-r2"), [])
+
+        r1 = self.root / self.mem.MEMORY_DIR / "mem-r1.md"
+        before = r1.read_bytes()
+        with self._clock("2026-11-24T10:00:00Z"):
+            unresolved = self.srv.memory_reconcile_response(
+                self.root, "mem-r1", "active", check_note="checked gone.py")
+        self.assertEqual(self._codes(unresolved), ["memory_target_unresolved"])
+        self.assertIn("'gone.py' is unresolved", unresolved["diagnostics"][0]["message"])
+        self.assertEqual(unresolved["data"]["unresolved_targets"],
+                         [{"ref": "gone.py", "form": "path", "state": "unresolved"}])
+        self.assertEqual(r1.read_bytes(), before)
+        with self._clock("2026-11-24T10:00:00Z"):
+            r6 = self.srv.memory_reconcile_response(
+                self.root, "mem-r6", "active", check_note="checked pkg/b.py")
+        self.assertEqual(r6["status"], "ok", r6)
+        self.assertIn("Check flags: target_not_canonical\n",
+                      (self.root / self.mem.MEMORY_DIR / "mem-r6.md").read_text(encoding="utf-8"))
+
+    def test_ac6_same_day_check_clears_earlier_commits(self):
+        self._record("mem-same", targets=("same.py",), created="2026-11-01")
+        history = _weekly("2026-01-05T12:00:00Z", 40)
+        morning = [_utc("2026-11-24T09:00:00Z") + i for i in range(12)]
+        self._seed({"same.py": history + morning})
+        self.assertEqual(self._reasons("mem-same"), ["target_churn"])
+        with self._clock("2026-11-24T10:00:00Z"):
+            kept = self.srv.memory_reconcile_response(
+                self.root, "mem-same", "active", check_note="checked same.py")
+        self.assertEqual(kept["status"], "ok", kept)
+        # Known bad: a day-granular boundary still counts the 09:00 commits.
+        self.assertEqual(self._reasons("mem-same"), [])
+        self._seed({"same.py": history + morning + [_utc("2026-11-24T11:00:00Z")]})
+        self.assertEqual(self._reasons("mem-same"), [])
+        later = [_utc("2026-11-24T11:00:00Z") + i * 60 for i in range(10)]
+        self._seed({"same.py": history + morning + later})
+        self.assertEqual(self._reasons("mem-same"), ["target_churn"])
+
+    def test_ac6_candidate_promotion_needs_no_note(self):
+        path = self._record("mem-candidate", status="candidate", created="2026-11-01")
+        before = path.read_text(encoding="utf-8")
+        promoted = self.srv.memory_reconcile_response(self.root, "mem-candidate", "active")
+        self.assertEqual(promoted["status"], "ok", promoted)
+        changed = [(a, b) for a, b in zip(before.splitlines(), path.read_text(encoding="utf-8").splitlines())
+                   if a != b]
+        self.assertEqual(changed, [("Status: candidate", "Status: active")])
+        self.assertEqual(len(before.splitlines()), len(path.read_text(encoding="utf-8").splitlines()))
+
+    def test_ac6_check_note_content_and_line_endings(self):
+        self._audit_fixture()
+        r6 = self.root / self.mem.MEMORY_DIR / "mem-r6.md"
+        before = r6.read_bytes()
+        secret = "password=" + "hunter2" * 2
+        refused = self.srv.memory_reconcile_response(
+            self.root, "mem-r6", "active", check_note=f"checked; {secret}")
+        self.assertEqual(refused["status"], "error")
+        self.assertEqual(refused["data"]["rejected_reasons"], ["secret"])
+        self.assertNotIn(secret, json.dumps(refused))
+        self.assertEqual(r6.read_bytes(), before)
+
+        r6.write_bytes(before.replace(b"\n", b"\r\n"))
+        with self._clock("2026-11-24T10:00:00Z"):
+            kept = self.srv.memory_reconcile_response(
+                self.root, "mem-r6", "active", check_note="checked pkg/b.py")
+        self.assertEqual(kept["status"], "ok", kept)
+        data = r6.read_bytes()
+        self.assertIn(b"Checked at: 2026-11-24T10:00:00Z\r\n", data)
+        self.assertEqual(data.count(b"\n"), data.count(b"\r\n"))
+        self.assertNotIn(b"\r\r\n", data)
+
+    # Delivery fixes (red-team 1 and 2, code-reviewer 1) ------------------
+    def test_reactivation_with_a_note_is_refused_on_an_unresolved_target(self):
+        path = self._record("mem-revive", targets=("gone.py",))
+        stale = self.srv.memory_reconcile_response(self.root, "mem-revive", "stale")
+        self.assertEqual(stale["status"], "ok", stale)
+        before = path.read_bytes()
+        revived = self.srv.memory_reconcile_response(
+            self.root, "mem-revive", "active", check_note="ok")
+        self.assertEqual(self._codes(revived), ["memory_target_unresolved"])
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_reactivation_is_a_keep(self):
+        # Red-team RT-1: a stale-to-stale check cannot launder a later
+        # note-less reactivation onto an unresolved target.
+        gone = self._record("mem-launder", targets=("gone.py",))
+        self.assertEqual(self.srv.memory_reconcile_response(
+            self.root, "mem-launder", "stale")["status"], "ok")
+        noted = self.srv.memory_reconcile_response(
+            self.root, "mem-launder", "stale", check_note="checked gone.py")
+        self.assertEqual(noted["status"], "ok", noted)
+        before = gone.read_bytes()
+        revived = self.srv.memory_reconcile_response(self.root, "mem-launder", "active")
+        self.assertEqual(self._codes(revived), ["memory_check_required"])
+        self.assertEqual(gone.read_bytes(), before)
+        revived = self.srv.memory_reconcile_response(
+            self.root, "mem-launder", "active", check_note="checked gone.py")
+        self.assertEqual(self._codes(revived), ["memory_target_unresolved"])
+        self.assertEqual(gone.read_bytes(), before)
+
+        ambiguous = self._record("mem-ambiguous-revive", targets=("c.py",))
+        self.srv.memory_reconcile_response(self.root, "mem-ambiguous-revive", "stale")
+        before = ambiguous.read_bytes()
+        refused = self.srv.memory_reconcile_response(
+            self.root, "mem-ambiguous-revive", "active", check_note="checked c.py")
+        self.assertEqual(self._codes(refused), ["memory_target_unresolved"])
+        self.assertEqual(refused["data"]["unresolved_targets"],
+                         [{"ref": "c.py", "form": "path", "state": "ambiguous"}])
+        self.assertEqual(ambiguous.read_bytes(), before)
+
+        clean = self._record("mem-clean-revive", targets=("a.py",))
+        self.srv.memory_reconcile_response(self.root, "mem-clean-revive", "stale")
+        with self._clock("2026-11-24T10:00:00Z"):
+            revived = self.srv.memory_reconcile_response(
+                self.root, "mem-clean-revive", "active", check_note="checked a.py")
+        self.assertEqual(revived["status"], "ok", revived)
+        text = clean.read_text(encoding="utf-8")
+        self.assertIn("Status: active\n", text)
+        self.assertIn("Checked at: 2026-11-24T10:00:00Z\n", text)
+
+    def test_target_unresolved_refusal_withholds_a_matching_stored_ref(self):
+        token = _generated("gh" + "p_", 36)
+        path = self._record("mem-token-target", targets=(f"src/{token}.py", "gone.py"))
+        before = path.read_bytes()
+        refused = self.srv.memory_reconcile_response(
+            self.root, "mem-token-target", "active", check_note="checked the targets")
+        self.assertEqual(self._codes(refused), ["memory_target_unresolved"])
+        self.assertEqual(refused["data"]["unresolved_targets"],
+                         [{"ref": "gone.py", "form": "path", "state": "unresolved"}])
+        self.assertEqual(refused["data"]["withheld_target_count"], 1)
+        self.assertIn("1 more withheld", refused["diagnostics"][0]["message"])
+        blob = json.dumps(refused)
+        self.assertNotIn(token, blob)
+        self.assertNotIn(token[4:], blob)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_ranked_batch_walks_the_tree_lazily_and_once(self):
+        handler_mem = self.srv._memory_mod()
+        real = handler_mem._walk_memory_ref_files
+        calls = []
+
+        def counting(root):
+            calls.append(root)
+            return real(root)
+        self._record("mem-exact-one", targets=("a.py",))
+        self._record("mem-exact-two", targets=("other.py",))
+        with patch.object(handler_mem, "_walk_memory_ref_files", counting):
+            exact = self._decays()
+        self.assertEqual(calls, [], "an all-exact batch never walks the repository")
+        self.assertEqual(exact["mem-exact-one"]["revalidation_reasons"], [])
+        self._record("mem-bare-one", targets=("b.py",))
+        self._record("mem-bare-two", targets=("c.py",))
+        with patch.object(handler_mem, "_walk_memory_ref_files", counting):
+            bare = self._decays()
+        self.assertEqual(len(calls), 1, "a bare-name batch walks once")
+        self.assertEqual(bare["mem-bare-one"]["revalidation_reasons"], ["target_not_canonical"])
+        self.assertEqual(bare["mem-bare-two"]["revalidation_reasons"], ["target_unresolved"])
+
+    # AC-7 ---------------------------------------------------------------
+    def test_ac7_updated_moves_only_on_a_recorded_check(self):
+        self._audit_fixture()
+        r4 = self.root / self.mem.MEMORY_DIR / "mem-r4.md"
+        before = r4.read_text(encoding="utf-8")
+        stale = self.srv.memory_reconcile_response(self.root, "mem-r4", "stale")
+        self.assertEqual(stale["status"], "ok", stale)
+        after = r4.read_text(encoding="utf-8")
+        changed = [(a, b) for a, b in zip(before.splitlines(), after.splitlines()) if a != b]
+        self.assertEqual(changed, [("Status: active", "Status: stale")])
+        self.assertEqual(len(before.splitlines()), len(after.splitlines()))
+
+        r5 = self.root / self.mem.MEMORY_DIR / "mem-r5.md"
+        with self._clock("2026-11-24T10:00:00Z"):
+            noted = self.srv.memory_reconcile_response(
+                self.root, "mem-r5", "stale", check_note="gone.py was removed")
+        self.assertEqual(noted["status"], "ok", noted)
+        text = r5.read_text(encoding="utf-8")
+        for line in ("Status: stale", "Updated: 2026-11-24", "Checked at: 2026-11-24T10:00:00Z",
+                     "Check note: gone.py was removed", "Check flags: target_unresolved, target_churn"):
+            self.assertIn(line + "\n", text)
+
+        added = self.srv.memory_add_response(
+            self.root, "decision", "The replacement lesson for r3.", ["r3.py"], ["r3.py"],
+            status="active", supersedes="mem-r3")
+        self.assertEqual(added["status"], "ok", added)
+        r3 = self.mem.parse_memory_record(self.root / self.mem.MEMORY_DIR / "mem-r3.md")
+        self.assertEqual(r3["status"], "superseded")
+        self.assertEqual(r3["updated_at"], "2026-01-01")
+
+
+
+# ---------------------------------------------------------------------------
+# Change 24885 (wave 249ar): every stored field is withheld, and tool-call
+# markup matches in any case.
+# ---------------------------------------------------------------------------
+
+
+class MemoryStoredFieldWithholdTests(_AdmissionCase):
+    """AC-1 and AC-2: memory_validate never repeats a matching stored field."""
+
+    def _token(self):
+        return "xo" + "xb-" + "1234567890abcdef"
+
+    def _candidate(self, memory_id, *, source_event=None, title="", validation="pending",
+                   status="candidate", targets=("src/a.py",), **fields):
+        content = self.mem.render_memory_record(
+            memory_id=memory_id, kind="failed_attempt", title=title or f"Candidate {memory_id}",
+            summary=f"Generated lesson for {memory_id} that needs validation.",
+            evidence=["1abcd"], targets=list(targets), status=status,
+            source_event=source_event or f"finding:{memory_id}", validation=validation, **fields)
+        return self.mem.write_memory_record(self.root, content, memory_id)
+
+    def _assert_no_echo(self, token, *responses):
+        blob = json.dumps(responses)
+        self.assertNotIn(token, blob)
+        self.assertNotIn(token[5:], blob)
+
+    def test_ac1_stored_source_event_refuses_promote_retain_and_rewrite(self):
+        token = self._token()
+        self._candidate("mem-event", source_event=f"finding:{token}")
+        before = self._memory_bytes()
+        refused = [self._validate("mem-event", verdict) for verdict in ("promote", "retain")]
+        refused.append(self._rewrite("mem-event", ["src/a.py"]))
+        for response in refused:
+            self.assertEqual(self._codes(response), ["invalid_memory_validation"], response)
+            self.assertEqual(response["data"]["rejected_reasons"], ["secret"])
+            self.assertEqual(response["data"]["content_reasons"], {"record_source_event": ["secret"]})
+        self.assertEqual(self._memory_bytes(), before, "a refused rewrite writes no record")
+        rejected = self._validate("mem-event", "reject")
+        self.assertEqual(rejected["status"], "ok", rejected)
+        self.assertEqual(rejected["data"]["record"]["source_event"], "[withheld: secret]")
+        self.assertIn("secret", rejected["data"]["record"]["withheld_reasons"])
+        self._assert_no_echo(token, refused, rejected)
+
+    def test_ac1_finalized_record_view_withholds_action_delta_and_rationale(self):
+        token = self._token()
+        for field in ("action_delta", "validation_rationale"):
+            with self.subTest(field=field):
+                memory_id = f"mem-final-{field.replace('_', '-')}"
+                values = {"action_delta": "Run the test first.",
+                          "validation_rationale": "Checked the target."}
+                values[field] = f"Rotated {token} after the leak."
+                self._candidate(memory_id, validation="promote", status="active",
+                                validated_by="agent", evidence_verified=True,
+                                current_target_verified=True, canonical_overlap="none", **values)
+                response = self._validate(memory_id, "promote")
+                self.assertEqual(self._codes(response), ["memory_validation_not_pending"])
+                self.assertEqual(response["data"]["record"][field], "[withheld: secret]")
+                other = "validation_rationale" if field == "action_delta" else "action_delta"
+                self.assertEqual(response["data"]["record"][other], values[other])
+                self._assert_no_echo(token, response)
+
+    def test_ac1_clean_decision_log_twin_is_promoted_unchanged(self):
+        # Control (passes before the fix): the generated decision-log hash
+        # separator after a `-token` slug is lint-clean, so nothing is withheld.
+        for verdict in ("promote", "reject"):
+            with self.subTest(verdict=verdict):
+                memory_id = f"mem-twin-{verdict}"
+                event = f"decision-log:1abcd-bug rotate-session-token:{'0123456789abcdef'}"
+                self._candidate(memory_id, source_event=event)
+                stored = self.mem.parse_memory_record(self.root / self.mem.MEMORY_DIR / f"{memory_id}.md")
+                response = self._validate(memory_id, verdict)
+                self.assertEqual(response["status"], "ok", response)
+                view = response["data"]["record"]
+                self.assertNotIn("withheld_reasons", view)
+                self.assertNotIn("withheld_reasons", response["data"])
+                for key in ("memory_id", "title", "summary", "source_event", "evidence_refs",
+                            "target_refs"):
+                    self.assertEqual(view[key], stored[key], key)
+                self.assertEqual(view["action_delta"], "Run the targeted regression before editing.")
+                self.assertEqual(view["validation_rationale"],
+                                 "Evidence and current target support the lesson.")
+
+    def test_ac1_rewrite_proceeds_on_a_matching_stored_title(self):
+        token = self._token()
+        self._candidate("mem-title", title=f"Title {token}")
+        rewritten = self._rewrite("mem-title", ["src/a.py"])
+        self.assertEqual(rewritten["status"], "ok", rewritten)
+        self.assertEqual(rewritten["data"]["record"]["title"], "[withheld: secret]")
+        self._assert_no_echo(token, rewritten)
+
+    def test_ac1_reused_rewrite_record_is_checked_against_its_own_fields(self):
+        token = self._token()
+        self._candidate("mem-partial")
+        # A prior partial rewrite: same source event, kind, summary and refs,
+        # with a credential in its stored title and action delta.
+        content = self.mem.render_memory_record(
+            memory_id="mem-partial-fix", kind="decision", title=f"Fixed {token}",
+            summary="Corrected lesson for mem-partial naming its file.", evidence=["1abcd"],
+            targets=["src/a.py"], status="active", confidence=0.8,
+            source_event="finding:mem-partial", validation="promote", validated_by="agent",
+            action_delta=f"Rotate {token} first.", validation_rationale="Checked.",
+            evidence_verified=True, current_target_verified=True, canonical_overlap="none")
+        self.mem.write_memory_record(self.root, content, "mem-partial-fix")
+        rewritten = self._rewrite("mem-partial", ["src/a.py"])
+        self.assertEqual(rewritten["status"], "ok", rewritten)
+        reused = rewritten["data"]["rewrite_record"]
+        self.assertEqual(reused["memory_id"], "mem-partial-fix")
+        self.assertEqual(reused["title"], "[withheld: secret]")
+        self.assertEqual(reused["action_delta"], "[withheld: secret]")
+        self._assert_no_echo(token, rewritten)
+
+    def test_ac1_anchor_refusal_leaves_out_a_matching_stored_ref(self):
+        token = "AK" + "IA" + "ABCDEFGHIJKLMNOP"
+        rel = f"src/{token}.py"
+        (self.root / rel).write_text("value = 1\n", encoding="utf-8")
+        self._candidate("mem-anchor", targets=(rel,))
+        before = self._memory_bytes()
+        dropped = self._rewrite("mem-anchor", ["pkg/one/util.py"])
+        self.assertEqual(self._codes(dropped), ["memory_rewrite_anchor_dropped"], dropped)
+        self.assertEqual(dropped["data"]["original_anchors"], [])
+        self.assertEqual(dropped["data"]["withheld_anchor_count"], 1)
+        self.assertIn("1 more withheld", dropped["diagnostics"][0]["message"])
+        self.assertEqual(self._memory_bytes(), before)
+        self._assert_no_echo(token, dropped)
+
+    def test_ac2_matching_id_and_path_are_withheld_from_every_surface(self):
+        token = self._token()
+        self._candidate(token)
+        rejected = self._validate(token, "reject")
+        self.assertEqual(rejected["status"], "ok", rejected)
+        self.assertEqual(rejected["data"]["record"]["memory_id"], "[withheld: secret]")
+        self.assertEqual(rejected["data"]["record"]["path"], "[withheld: secret]")
+        self._assert_no_echo(token, rejected)
+
+        handler_mem = self.srv._memory_mod()
+        failing_id = token + "-two"
+        self._candidate(failing_id)
+
+        def fail(*_args, **_kwargs):
+            raise OSError(f"cannot write {self.root / self.mem.MEMORY_DIR / failing_id}.md")
+        with patch.object(handler_mem, "record_memory_validation", fail):
+            failed = self._validate(failing_id, "reject")
+        self.assertEqual(self._codes(failed), ["memory_validation_write_failed"])
+        self._assert_no_echo(token, failed)
+
+        corrupt_id = token + "-three"
+        self._candidate(corrupt_id)
+        real = handler_mem.record_memory_validation
+
+        def corrupting(root, memory_id, **kwargs):
+            path = real(root, memory_id, **kwargs)
+            path.write_text(path.read_text(encoding="utf-8").replace("Kind:", "Sort:"),
+                            encoding="utf-8")
+            return path
+        with patch.object(handler_mem, "record_memory_validation", corrupting):
+            unparsed = self._validate(corrupt_id, "reject")
+        self.assertEqual(unparsed["status"], "ok", unparsed)
+        self.assertEqual(unparsed["data"]["record"], {"memory_id": "[withheld: secret]"})
+        self._assert_no_echo(token, unparsed)
+
+        # A clean id under a credential-shaped folder withholds only the path.
+        nested = self.root / self.mem.MEMORY_DIR / token
+        nested.mkdir()
+        content = self.mem.render_memory_record(
+            memory_id="mem-nested-clean", kind="failed_attempt", title="Nested clean",
+            summary="Nested lesson.", evidence=["1abcd"], targets=["src/a.py"],
+            status="active", source_event="finding:nested", validation="promote",
+            validated_by="agent", action_delta="Run it.", validation_rationale="Checked.",
+            evidence_verified=True, current_target_verified=True, canonical_overlap="none")
+        (nested / "mem-nested-clean.md").write_text(content, encoding="utf-8")
+        response = self._validate("mem-nested-clean", "promote")
+        self.assertEqual(self._codes(response), ["memory_validation_not_pending"])
+        self.assertEqual(response["data"]["record"]["memory_id"], "mem-nested-clean")
+        self.assertEqual(response["data"]["record"]["path"], "[withheld: secret]")
+        self._assert_no_echo(token, response)
+
+
+class MemoryMarkupCaseTests(_AdmissionCase):
+    """AC-3: tool-call tag names match case-insensitively."""
+
+    POSITIVE = ("<IN" + "VOKE name=\"x\">", "</In" + "voke>", "<Function_" + "Calls>",
+                "<ns:TOOL_" + "USE>", "<PARA" + "METER name=\"a\">")
+    # Controls: these pass before and after the fix.
+    NEGATIVE = ("<invoker>", "<PARAMETERS>", "<Tool_Calls>", "the INVOKE step", "a < INVOKE b")
+
+    def test_ac3_mixed_case_markup_is_a_control_token(self):
+        import wave_lint_lib.constants as lint_constants
+        for sample in self.POSITIVE:
+            with self.subTest(sample=sample):
+                self.assertEqual(lint_constants.memory_line_reasons(sample), {"model_control_token"})
+        for sample in self.NEGATIVE:
+            with self.subTest(sample=sample):
+                self.assertEqual(lint_constants.memory_line_reasons(sample), set())
+
+    def test_ac3_add_and_lint_refuse_mixed_case_markup(self):
+        from wave_lint_lib import wave_validators
+        sample = self.POSITIVE[0]
+        added = self.srv.memory_add_response(
+            self.root, "decision", f"Lesson mentioning {sample} here.", ["1abcd"], ["src/a.py"])
+        self.assertEqual(added["status"], "error")
+        self.assertEqual(added["data"]["rejected_reasons"], ["model_control_token"])
+        self.assertNotIn(sample, json.dumps(added))
+        path = self.mem.write_memory_record(self.root, self.mem.render_memory_record(
+            memory_id="mem-upper-markup", kind="decision", summary=f"Keep {sample} out.",
+            evidence=["1abcd"], targets=["src/a.py"], status="active", date="2026-11-24"),
+            "mem-upper-markup")
+        failures = wave_validators.check_memory_docs(self.root, only={path})
+        self.assertEqual(len(failures), 1, failures)
+        self.assertIn("reason: model_control_token", failures[0])
+        self.assertNotIn(sample, failures[0])
 
 
 if __name__ == "__main__":

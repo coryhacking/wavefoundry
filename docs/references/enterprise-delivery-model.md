@@ -4,7 +4,7 @@
 
 Owner: Engineering
 Status: draft
-Last verified: 2026-11-18
+Last verified: 2026-11-24
 
 ---
 
@@ -434,7 +434,7 @@ The SDLC transformations achieving durable results share three characteristics:
 | Cycle | Manual artifact (`cycle.md`); `wave-dashboard` for portfolio visibility | No dedicated MCP tools yet; managed as a docs-tier artifact |
 | Swell | Manual artifact (`swell.md`); `wf_list_waves` to survey in-scope waves | Swell acts as a grouping label on wave docs |
 | Wave | Full MCP surface — `wf_create_wave`, `wf_current_wave`, `wf_prepare_wave`, `wf_implement_wave`, `wf_review_wave`, `wf_close_wave`, `wf_garden_docs`, `wf_audit`, `wf_validate_docs` | See `docs/prompts/index.md` for full command catalog |
-| Change | `wf_add_change`, `wf_get_change`, `wf_new_*` tools for each change kind | Specs authored at `docs/plans/`; admitted into waves |
+| Change | `wf_add_spec`, `wf_get_spec`, `wf_new_*` tools for each change kind | Specs authored at `docs/plans/`; admitted into waves |
 
 The Wave Framework's full lifecycle governance — stage gates, reviewer lanes, Wave Council (when enabled), progress logs, journal watchpoints — applies at the Wave and Change tiers. Swell and Cycle tiers are lighter-weight: they govern narrative and outcome alignment, not implementation mechanics.
 

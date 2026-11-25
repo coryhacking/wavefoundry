@@ -22,7 +22,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
 import context_efficiency as ce
 import record_paths
 import vocabulary_profile
-from upstream_fixture_support import upstream_fixture
+from upstream_fixture_support import tool_contract_rel, upstream_fixture
 from record_layout_support import (
     SHIPPED_DEFAULTS,
     RecordTreeBuilder,
@@ -4193,7 +4193,7 @@ class AdvisoryFirstRulePinTests(unittest.TestCase):
         testing = (self.DOCS_DIR / "architecture" / "testing-architecture.md").read_text(encoding="utf-8")
         self.assertIn("its entry names that wave in `decided_wave`", testing)
         self.assertIn("Wave `1yzj9`\nrecorded that decision for the AC-locality sensor", testing)
-        spec = (self.DOCS_DIR / "specs" / "mcp-tool-surface.md").read_text(encoding="utf-8")
+        spec = (self.DOCS_DIR.parent / tool_contract_rel(self.DOCS_DIR.parent)).read_text(encoding="utf-8")
         self.assertIn("Advisory findings never block Prepare, Review, or Close", spec)
 
     def test_the_release_checklist_lists_advisory_sensors(self) -> None:
@@ -6463,7 +6463,7 @@ class SerializationPointsTokenGrammarPinTests(unittest.TestCase):
     @default_profile_only("pins the shipped plan template's fenced example text, written for the default layout")
     def test_the_fenced_examples_are_untouched(self) -> None:
         shipped = (self.FRAMEWORK_DIR / "install" / "plan-template.md").read_text(encoding="utf-8")
-        self.assertIn("```\n- `src/app/handler.py`, `docs/specs/`\n```", shipped)
+        self.assertIn("```\n- `src/app/handler.py`, `docs/architecture/contracts/`\n```", shipped)
         self.assertIn("```\n**Review targets (repo-relative paths):**\n\n- `docs/waves/1abc some slug/wave.md`\n```", shipped)
         project = (self.DOCS_DIR / "plans" / "plan-template.md").read_text(encoding="utf-8")
         self.assertIn("```\n**Review targets (repo-relative paths):**\n\n- `docs/waves/1abc some slug/wave.md`\n```", project)
@@ -6482,8 +6482,8 @@ class FreshPlanTemplateTests(unittest.TestCase):
         self.assertEqual(serialization_point_paths(text), ())
 
         unfenced = text.replace(
-            "```\n- `src/app/handler.py`, `docs/specs/`\n```",
-            "- `src/app/handler.py`, `docs/specs/`",
+            "```\n- `src/app/handler.py`, `docs/architecture/contracts/`\n```",
+            "- `src/app/handler.py`, `docs/architecture/contracts/`",
             1,
         )
         self.assertTrue(serialization_point_paths(unfenced))
@@ -7420,7 +7420,7 @@ class MemberStatusDriftDetectorTests(unittest.TestCase):
         self.assertEqual(self.drift(self.wave_text((self.A, "active"))), [(self.A, "active", None)])
 
     def test_close_change_reads_the_same_header(self):
-        """Requirement 5: `wf_close_change` reads the header the same way."""
+        """Requirement 5: `wf_close_spec` reads the header the same way."""
         from wave_lint_lib.wave_validators import change_doc_header_status
         from server_tools_support import load_server
         srv = load_server()

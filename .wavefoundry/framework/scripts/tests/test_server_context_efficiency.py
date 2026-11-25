@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import copy
 import json
 import os
 import sqlite3
@@ -16,6 +17,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from upstream_fixture_support import tool_contract_rel
+
 
 SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_ROOT) not in sys.path:
@@ -30,7 +33,7 @@ import wf_server.context_efficiency_handlers as ce_handlers
 import score_context_efficiency_pairs as pair_scorer
 import record_paths
 import vocabulary_profile
-from declaration_support import RecordingFastMCP  # shared FastMCP-backed double (change 1zim4)
+from declaration_support import RecordingFastMCP, base_declaration  # shared FastMCP-backed double (change 1zim4)
 from perf_budget_policy import timing_budget  # change 242yq: distribution bypass
 
 # Record locations and markers follow the loaded profile (wave 1zim5).
@@ -75,6 +78,7 @@ LIFECYCLE_TOOLS = {
     "wf_review_wave",
     "wf_close_wave",
 }
+# The AST census inspects the implementation functions before wire-name mapping.
 SERIALIZED_WAVE_WRITERS = {
     "wf_create_wave",
     "wf_add_change",
@@ -2966,7 +2970,7 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
             )
 
     def test_get_change_credits_only_conveyed_content(self):
-        """Wave 1t3ek (1t15a) AC-2: wf_get_change credits exactly the
+        """Wave 1t3ek (1t15a) AC-2: wf_get_spec credits exactly the
         specs whose content the response conveys — the single spec and
         untruncated bulk rows — never truncated or content-less rows, and a
         replay with unchanged files dedupes to zero new credits."""
@@ -2986,12 +2990,16 @@ class ContextEfficiencyServerIntegrationTests(unittest.TestCase):
                     {"id": "1x3", "path": "docs/plans/1x3-enh bare.md", "content": None, "truncated": False},
                 ],
             }}
-            def fake_tool(change_id="1x1", kwargs=None):
-                return json.loads(json.dumps(canned))
-            wrapped, handler = self._wrapped_registry(root, "wf_get_change", fake_tool)
-            handler.telemetry.set_focus(wave_id, "implement", new_phase=True)
-            wrapped(change_id="1x1")
-            wrapped(change_id="1x1")  # unchanged files: dedup, no new rows
+            handler = SimpleNamespace(root=root, telemetry=ce.ProcessTelemetry(root))
+            self.addCleanup(handler.telemetry.close)
+            registry = RecordingFastMCP()
+            with base_declaration():
+                srv.register_mcp_surface(registry, lambda: handler)
+                handler.telemetry.set_focus(wave_id, "implement", new_phase=True)
+                with patch.object(srv, "wf_get_change_response", side_effect=[copy.deepcopy(canned), canned]):
+                    for _ in range(2):
+                        result = registry._tool_manager._tools["wf_get_spec"].fn(spec_id="1x1")
+                        self.assertEqual(result["status"], "ok", result)
             handler.telemetry.close()
             conn = sqlite3.connect(ce.store_path(root))
             rows = conn.execute(
@@ -5322,7 +5330,7 @@ class DeferredTransferBoundaryTests(unittest.TestCase):
         item=text.split('### Path 6a:',1)[1].split('\n9. ',1)[1].split('\n10. ',1)[0]
         self.assertIn('FLUSH_RETRYABLE_EXCEPTIONS',item);self.assertIn('_is_retryable_flush_error',item)
         self.assertIn('deferred',item);self.assertIn('general',item)
-        spec=(root/'docs/specs/mcp-tool-surface.md').read_text()
+        spec=(root / tool_contract_rel(root)).read_text()
         self.assertIn('durable | duplicate | spooled | deferred | poisoned | failed',spec)
         self.assertIn('pending_general_transfer',spec)
 

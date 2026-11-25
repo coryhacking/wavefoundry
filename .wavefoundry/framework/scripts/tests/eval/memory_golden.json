@@ -3,7 +3,7 @@
   "commit_times": {
     "src/volatile.py": [1735689600, 1735776000, 1735862400, 1735948800, 1736035200],
     "src/slow.py": [1735689600, 1738281600, 1740873600, 1743465600, 1746057600],
-    "src/fragile.py": [1735689600, 1735776000]
+    "src/fragile.py": [1735689600, 1738281600, 1740873600, 1743465600, 1746057600]
   },
   "records": [
     {"memory_id": "mem-auth-fragile", "kind": "fragile_file", "confidence": 0.9, "status": "active",
@@ -84,10 +84,10 @@
      "expected": ["mem-strategy-trusted"], "invariant": "top_is", "invariant_id": "mem-strategy-trusted",
      "invariant_note": "new low-confidence evidence does not cross the base-confidence band"},
     {"category": "adaptive_cadence", "query": "cache repair cadence lesson", "no_index": true,
-     "expected": ["mem-cadence-fast"], "invariant": "ranked_above", "invariant_a": "mem-cadence-fast", "invariant_b": "mem-cadence-slow",
-     "invariant_note": "cadence-derived half-lives reorder only comparable tactical records"},
+     "expected": ["mem-cadence-fast", "mem-cadence-slow"], "invariant": "record_truthy", "invariant_id": "mem-cadence-slow", "invariant_falsy_id": "mem-cadence-fast", "invariant_field": "needs_reverification",
+     "invariant_note": "cadence-derived half-lives set the churn threshold: 5 commits flag the slow-cadence target and not the fast one, and neither loses confidence (change 246to)"},
     {"category": "fragile_reverification", "target": "src/fragile.py",
      "expected": ["mem-fragile-churn"], "invariant": "record_truthy", "invariant_id": "mem-fragile-churn", "invariant_field": "needs_reverification",
-     "invariant_note": "fragile records remain visible and gain re-verification pressure"}
+     "invariant_note": "fragile records remain visible and are flagged once churn since the last check reaches the shared threshold (change 246to)"}
   ]
 }

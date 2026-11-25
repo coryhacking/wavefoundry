@@ -4597,6 +4597,21 @@ def post_extract(ctx):
     it there.
     """
     if getattr(ctx, "dry_run", False):
+        if os.path.lexists(ctx.root / "docs/specs"):
+            try:
+                with _scripts_on_sys_path(_journal_scripts_dir(ctx.root)):
+                    migration = _incoming_framework_module("contract_migration", getattr(ctx, "zip_path", None))
+                    plan = migration.preview(ctx.root)
+                    if plan["moves"] or plan["deferred"]:
+                        print("Behavior contract migration preview: " + json.dumps(plan, sort_keys=True))
+                        if plan["actions"]:
+                            digest = migration.save_preview(ctx.root, plan)
+                            print("After upgrade, apply or resume: " + migration.recovery(ctx.root, digest))
+            except (ImportError, OSError, ValueError, RuntimeError, _IncomingModuleUnavailable) as error:
+                argv = [_operator_python(sys.executable), str(_journal_scripts_dir(ctx.root) / "upgrade_wavefoundry.py"),
+                        "contracts", "--root", str(ctx.root)]
+                print(f"Behavior contracts retained; preview unavailable ({error}). "
+                      f"After upgrade run {_render_command(argv)}.")
         _docs_preflight(ctx)
         lifecycle_baseline_report(ctx)
         print("journal hook preview: " + json.dumps(

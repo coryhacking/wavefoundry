@@ -467,7 +467,7 @@
             "value": "Search And Retrieval"
           },
           "grade": 3,
-          "path": "docs/specs/mcp-tool-surface.md",
+          "path": "docs/architecture/contracts/mcp-tool-surface.md",
           "tools": [
             "code_ask",
             "docs_search"
@@ -784,7 +784,7 @@
             "value": "code_lexical"
           },
           "grade": 1,
-          "path": "docs/specs/mcp-tool-surface.md",
+          "path": "docs/architecture/contracts/mcp-tool-surface.md",
           "tools": [
             "code_ask"
           ]

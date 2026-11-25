@@ -1018,6 +1018,8 @@ _STATE_SOURCE_EXTRACTORS: dict[str, Any] = {
     "wf_review_event": _state_sources_review_evidence,
     "memory_validate": _state_sources_memory_validate,
     "memory_propose": _state_sources_memory_propose,
+    # Keyed before wire-name projection so an unrelated distribution tool
+    # occupying the preferred spelling never earns credit for spec reads.
     "wf_get_change": _state_sources_get_change,
     "wf_current_wave": _state_sources_live_waves,
     "wf_list_waves": _state_sources_live_waves,

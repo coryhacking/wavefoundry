@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-02
+Last verified: 2026-11-24
 
 ## Context
 
 You are running **Plan spec** on Wavefoundry. Author a consolidated spec following `docs/plans/plan-template.md`.
 
-## Change ID Generation
+## Spec ID generation
 
 Use MCP first when the Wavefoundry server is available. The `wf_new_*` tools generate the lifecycle ID and scaffold `docs/plans/<change-id>.md` in one call:
 
@@ -17,7 +17,7 @@ Use MCP first when the Wavefoundry server is available. The `wf_new_*` tools gen
 | `bug` | `wf_new_bug` |
 | `enh` | `wf_new_enhancement` |
 | `ref` | `wf_new_refactor` |
-| `change` | `wf_new_change` |
+| `change` | `wf_new_spec` |
 | `doc` | `wf_new_documentation` |
 | `debt` | `wf_new_tech_debt` |
 | `task` | `wf_new_task` |

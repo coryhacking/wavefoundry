@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import textwrap
 import threading
 import time
 import tomllib
@@ -1480,6 +1481,73 @@ class SetupLayerSchedulingTests(unittest.TestCase):
         self.assertIn("cannot be combined", stderr.getvalue())
         prewarm.assert_not_called()
         build_index.assert_not_called()
+
+
+class PublicTrustBundleTests(unittest.TestCase):
+    def test_order_matches_setup_and_filters_duplicate_and_missing_paths(self):
+        import trust_bundles
+
+        setup = load_setup_index()
+        with tempfile.TemporaryDirectory() as tmp:
+            expected = [str(Path(tmp) / name) for name in
+                        ("codex", "claude", "node", "ssl", "requests", "os-a", "os-b", "certifi")]
+            for name in expected:
+                Path(name).touch()
+            settings = dict(zip(
+                ("CODEX_CA_CERTIFICATE", "CLAUDE_CODE_CERT_STORE", "NODE_EXTRA_CA_CERTS",
+                 "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"), expected[:5], strict=True))
+            platform = [expected[4], str(Path(tmp) / "missing"), expected[5], expected[6]]
+            with patch.dict(os.environ, settings), \
+                 patch.object(trust_bundles, "_OS_CA_BUNDLE_CANDIDATES", platform), \
+                 patch.object(trust_bundles, "_certifi_default_bundle", return_value=expected[-1]):
+                self.assertEqual(trust_bundles.trust_bundle_candidates(), expected)
+                self.assertEqual(setup._os_trust_store_candidates(), expected)
+                self.assertEqual(setup._os_trust_store_bundle(), expected[0])
+
+    def test_fresh_import_and_verifying_context_preserve_environment(self):
+        # Self-signed, public test CA. The private key was discarded at generation.
+        certificate = """-----BEGIN CERTIFICATE-----
+MIIBoTCCAUegAwIBAgIUUHQ0f24nEeDMXuiUd6Z31kytTTQwCgYIKoZIzj0EAwIw
+JjEkMCIGA1UEAwwbV2F2ZWZvdW5kcnkgb2ZmbGluZSB0ZXN0IENBMB4XDTI2MTEy
+NDIxMzMyMVoXDTM2MTEyMTIxMzMyMVowJjEkMCIGA1UEAwwbV2F2ZWZvdW5kcnkg
+b2ZmbGluZSB0ZXN0IENBMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEgdwlHUVM
+T57BokD0o6rISVAlcLo0uzsadDraTGfRc2reGodsP+LSRu6Aa8Fl63wdGbGUi9Uz
+4fnckC3Ez7f7tqNTMFEwHQYDVR0OBBYEFGRjfgc+6NnRe8WHv4MfVS7FeMa6MB8G
+A1UdIwQYMBaAFGRjfgc+6NnRe8WHv4MfVS7FeMa6MA8GA1UdEwEB/wQFMAMBAf8w
+CgYIKoZIzj0EAwIDSAAwRQIga+mxfueCIDBQswsZD7zZh3KYPDIm0yewegwxzEnj
+JW4CIQC2Pxkmytg1YsTfQKIY+mw28XsuSRzvLNFSa1YrNdiKRA==
+-----END CERTIFICATE-----
+"""
+        child = textwrap.dedent("""
+            import os
+            import ssl
+            import sys
+
+            sys.path.insert(0, sys.argv[1])
+            before = dict(os.environ)
+            from trust_bundles import trust_bundle_candidates
+            assert dict(os.environ) == before
+            paths = trust_bundle_candidates()
+            assert dict(os.environ) == before
+            assert paths[0] == sys.argv[2]
+            assert "setup_index" not in sys.modules
+            context = ssl.create_default_context(cafile=paths[0])
+            assert context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname
+            assert context.cert_store_stats()["x509_ca"] == 1
+            assert dict(os.environ) == before
+        """)
+        with tempfile.TemporaryDirectory() as tmp:
+            ca = Path(tmp) / "ca.pem"
+            ca.write_text(certificate, encoding="ascii")
+            env = os.environ.copy()
+            for var in ("HF_HUB_DISABLE_XET", "FASTEMBED_CACHE_PATH", "ORT_DISABLE_TELEMETRY",
+                        "CLAUDE_CODE_CERT_STORE", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE",
+                        "REQUESTS_CA_BUNDLE"):
+                env.pop(var, None)
+            env["CODEX_CA_CERTIFICATE"] = str(ca)
+            result = subprocess.run([sys.executable, "-IB", "-c", child, str(SCRIPTS_ROOT), str(ca)],
+                                    env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
 
 
 class TlsTrustStoreFallbackTests(unittest.TestCase):

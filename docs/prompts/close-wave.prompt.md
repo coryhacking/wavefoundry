@@ -26,10 +26,10 @@ When the operator authorizes closure, pass the ID of the paused delivery directl
 
 All closure-time code and docs investigation follows the run contract's Retrieval Rules (`.wavefoundry/framework/seeds/020-run-contract.prompt.md`): MCP retrieval tools first, for every lane and briefed subagent.
 
-1. All changes `implemented`, `complete`, or `deferred` with explicit rationale (matching the `wf_close_wave` open-changes gate). **Close spec** (`docs/prompts/close-spec.prompt.md`, `wf_close_change`) is optional: use it to mark a single change `complete` and activate its dependents inside the open wave
+1. All changes `implemented`, `complete`, or `deferred` with explicit rationale (matching the `wf_close_wave` open-changes gate). **Close spec** (`docs/prompts/close-spec.prompt.md`, `wf_close_spec`) is optional: use it to mark a single change `complete` and activate its dependents inside the open wave
 2. All required review lanes from readiness reconciled in `## Review checkpoints` (or deferred with rationale)
 3. Check each Council signoff required by the current Prepare receipt for its phase (`council-readiness` or `council-delivery`). The approval appears in `## Review Evidence`.
-4. **Docs-contract review:** recorded as performed with findings, or `Docs-contract review: not applicable` with rationale — required whenever any `docs/specs/*.md` changed during the wave
+4. **Docs-contract review:** recorded as performed with findings, or `Docs-contract review: not applicable` with rationale — required whenever any `docs/architecture/contracts/` or legacy `docs/specs/*.md` changed during the wave
 5. Chronology reconciled: `Status: completed`, `Completed at:` date, all change statuses settled
 6. Memory capture: important implementation/review lessons recorded as typed memory candidates and validated at the close checkpoint (absence of new candidates is acceptable if nothing warranted one)
 7. Durable memory promoted to `docs/references/project-context-memory.md` (and other canonical docs when applicable). When a repeated finding can be checked mechanically, name a check as a destination too: a sensor registered under `sensors` in `docs/workflow-config.json` (run by `wf_run_sensors`), a docs-lint rule or a test, and plan it as a change unless this wave already delivers it.
@@ -103,7 +103,7 @@ Before closure, explicitly author one concise `Intent outcome:` paragraph in the
 
 ## Agent Memory Validation Checkpoint
 
-Before closure, inspect `memory_propose(wave_id, mode='dry_run')`. Review concrete future action and canonical overlap before selecting source-event IDs with `memory_propose(wave_id, mode='create', source_events=[...])`. Omitted selection creates nothing and empty selection is a no-op. Keep the retrospective and any no-new-memory rationale inline in wave.md; do not create a per-repair rejection file for an unselected proposal. Review every actual wave-linked pending selected candidate, including when its target disappears or its source is no longer draft-eligible. Use `memory_validate` for evidence-derived records; review manually selected candidates through the existing `memory_reconcile` status transition to active or rejected:
+Before closure, inspect `memory_propose(wave_id, mode='dry_run')`. Review concrete future action and canonical overlap before selecting source-event IDs with `memory_propose(wave_id, mode='create', source_events=[...])`. Omitted selection creates nothing and empty selection is a no-op. Keep the retrospective and any no-new-memory rationale inline in wave.md; do not create a per-repair rejection file for an unselected proposal. Review every actual wave-linked pending selected candidate, including when its target disappears or its source is no longer draft-eligible. Use `memory_validate` for evidence-derived records; review manually selected candidates through the existing `memory_reconcile` status transition to active or rejected (promoting a candidate needs no `check_note` and is not refused on an unresolved target; a keep of an already-active record needs a single-line `check_note` and is refused while a target is unresolved):
 
 - Follow the linked evidence and inspect the current target.
 - State what changes the next action.

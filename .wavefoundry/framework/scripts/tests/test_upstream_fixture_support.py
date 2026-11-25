@@ -34,6 +34,16 @@ class UpstreamFixtureHelperTests(unittest.TestCase):
         (self.root / "docs").mkdir()
         self.absent = self.root / "docs" / "evals" / "absent.json"
 
+    def test_tool_contract_location_after_a_deferred_or_completed_move(self):
+        old = self.root / "docs/specs/mcp-tool-surface.md"
+        new = self.root / "docs/architecture/contracts/mcp-tool-surface.md"
+        for path in (old, new):
+            path.parent.mkdir(parents=True)
+            path.touch()
+            self.assertEqual(self.root / ufs.tool_contract_rel(self.root), old)
+        old.unlink()
+        self.assertEqual(self.root / ufs.tool_contract_rel(self.root), new)
+
     def _config(self, text: "str | None") -> None:
         path = self.root / ufs.CONFIG_REL
         if text is not None:

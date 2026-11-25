@@ -659,9 +659,11 @@ class ServerToleratesSkillDeclarationTests(unittest.TestCase):
     """AC-3: the skill declaration is never fatal to the server."""
 
     def test_a_skills_only_declaration_is_not_a_tool_declaration(self) -> None:
+        with base_declaration():
+            stock_tiers = mcp_tool_roster.all_tool_tiers()
         with base_declaration(EXTENSION_SKILLS=INVALID):
             self.assertFalse(ext.declared())
-            self.assertEqual(mcp_tool_roster.all_tool_tiers(), dict(mcp_tool_roster.TOOL_TIERS))
+            self.assertEqual(mcp_tool_roster.all_tool_tiers(), stock_tiers)
             mcp_tool_roster.allow_rules(include_write=True)
             ext.validate_declaration(core_tools=set(mcp_tool_roster.TOOL_TIERS) - mcp_tool_roster.RUNNER_TOOLS,
                                      runner_tools=mcp_tool_roster.RUNNER_TOOLS)

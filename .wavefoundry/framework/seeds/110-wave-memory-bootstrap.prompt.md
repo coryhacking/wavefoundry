@@ -10,7 +10,7 @@ Core rules:
 - A wave may contain one small change or multiple compatible feature bundles and workstreams.
 - Wave artifacts must support variable depth without forcing different document types for small and large work.
 - A wave may contain one or more changes, and each change may contain optional tracked tasks/subtasks when finer execution tracking is useful.
-- Changes should normally remain durable across waves; unfinished work is usually carried forward under the same `Change ID` unless the work has truly become a different change.
+- Changes should normally remain durable across waves; unfinished work is usually carried forward under the same `Spec ID` unless the work has truly become a different change.
 
 Wave memory goals:
 
@@ -19,7 +19,7 @@ Wave memory goals:
 - Preserve assumption truth so invalidated interfaces, changed findings, and frozen decisions remain visible rather than being rediscovered.
 - Preserve operating-memory truth when role/persona behavior, operator directives, or high-salience observations must survive compaction or handoff.
 - Preserve disposition truth so blocked, deferred, moved, retried, superseded, and completed work are all explicit.
-- Preserve carry-forward truth so unfinished work normally continues under the same `Change ID` unless the work has materially changed.
+- Preserve carry-forward truth so unfinished work normally continues under the same `Spec ID` unless the work has materially changed.
 - Preserve handoff truth so a later wave or later session can continue without re-deriving missing context.
 
 Required target-repo outputs:
@@ -50,7 +50,7 @@ Every `wave.md` must carry the anchors below, grouped into the natural section l
 | disposition (when applicable)   | `deferred`, `moved`, `retry`, or `blocked` for incomplete work                        |
 | changes inside the wave         | change-level anchors in `## Changes` / `## Corpus` (see below)                        |
 
-`wave-id` is the folder name under `docs/waves/`. **`Change ID` does not belong in the wave record header** — it lives in the body (`## Changes` or `## Corpus`).
+`wave-id` is the folder name under `docs/waves/`. **`Spec ID` does not belong in the wave record header** — it lives in the body (`## Changes` or `## Corpus`).
 
 Context Efficiency telemetry, when the installed tool surface provides it:
 
@@ -94,10 +94,12 @@ Scalable change model:
 
 Required change anchors in normal wave records:
 
-- `Change ID`
-- `Change Status`
-- optional `Previous Change Status`
-- `Depends On` when a change depends on another admitted `Change ID`; put a `Depends On:` line with full backticked admitted change ids in that change's `## Changes` block, which `wf_implement_wave` reads to report intra-wave dependencies while preserving admission order.
+- `Spec ID`
+- `Spec Status`
+- optional `Previous Spec Status`
+- `Depends On` when a change depends on another admitted `Spec ID`; put a `Depends On:` line with full backticked admitted change ids in that change's `## Changes` block, which `wf_implement_wave` reads to report intra-wave dependencies while preserving admission order.
+
+New stock specs and new admission entries use `Spec ID:` and `Spec Status:`. Preserve a legacy record’s `Change ID:` and `Change Status:` when updating it. A wave may contain both generations. Use the project’s declared labels for a custom profile. A closed entry keeps the previous-status spelling for that entry’s generation.
 
 Optional task/subtask anchors inside a spec when finer tracking is useful:
 
@@ -115,9 +117,9 @@ Optional task/subtask anchors inside a spec when finer tracking is useful:
 
 Recommended change-level anchors when a wave tracks multiple changes:
 
-- `Change ID` — belongs in the body of `wave.md` (inside `## Changes` or `## Corpus`), **never** in the wave record header
+- `Spec ID` — belongs in the body of `wave.md` (inside `## Changes` or `## Corpus`), **never** in the wave record header
 - change title or scope
-- `Change Status` in this wave
+- `Spec Status` in this wave
 - change-specific tasks/subtasks
 - change-specific risks or review requirements when they differ from the rest of the wave
 
@@ -175,7 +177,7 @@ Guardrails:
 - Only one wave may be **OPEN** (`active`/`implementing`) per configured activation scope at a time — the hard single-OPEN rule, enforced at the activation transitions. Any number of waves may be planned and readied in parallel; readiness never takes the slot.
 - Parallelism is allowed inside a wave only after its shared assumptions and interfaces are stable enough.
 - Keep the artifact contract stable enough that later prompts, scripts, and agents can recover wave state, decisions, and carry-forward intent without requiring identical prose layout.
-- Do not split a change into a new `Change ID` merely because the wave ended; carry unfinished work forward by default and split only when the remaining work is materially different.
+- Do not split a change into a new `Spec ID` merely because the wave ended; carry unfinished work forward by default and split only when the remaining work is materially different.
 - Do not wait for closure to preserve compaction-sensitive operating memory. Critical or high-salience observations become typed memory candidates during planning, implementation, review, handoff, or closure; the close checkpoint validates them.
 - Keep salience lightweight in wave records. Use it only when it changes admission priority, reviewer/persona routing, escalation, handoff, memory preservation, or future behavior.
 - **State each wave-level rule once in its most natural `wave.md` section; cite rather than restate.** `wave.md` is a coordination record, not a marketing summary: every fact (objective, admitted changes, serialization points, protected surfaces, reviewer roster, completion criteria, etc.) should appear **in exactly one section**, namely the section whose anchor it most naturally belongs to. If another section needs to reference the fact, cite the anchor (e.g. "see `## Changes`", "per `Serialization Points` below") instead of repeating the prose. Details that belong in a spec (`## Requirements`, `## Acceptance Criteria`, `## Tasks`, `## Risks`, `## Decision Log`, `## Agent Execution Graph`) **must stay in the spec** — `wave.md` cites them, it does not duplicate them. The admitted-changes list plus the `## Changes` table is the authoritative in-scope record; prose elsewhere in `wave.md` must not re-narrate what those entries already say. Keep the scaffolding sections (`Objective`, `Participants`, `Protected Surfaces`, `Knowledge Transfer Plan`, `Persona Review Plan`, `Watchpoints`, `Review Checkpoints`, `Readiness Checkpoints`, `Serialization Points`, `Completion Criteria`, `Wave Summary`, `Changes`) — just state each bullet inside them **once**. `Wave Summary` is populated at closure and must be retained empty (`*(Populated at closure.)*` or equivalent placeholder) pre-closure rather than dropped.

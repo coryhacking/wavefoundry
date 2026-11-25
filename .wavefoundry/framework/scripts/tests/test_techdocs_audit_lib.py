@@ -9,6 +9,8 @@ is the state a repository is in once the workflow has authored its pages.
 from __future__ import annotations
 
 import ast
+from html.parser import HTMLParser
+import importlib.util
 import json
 import os
 import shutil
@@ -106,6 +108,81 @@ class TechdocsAuditFindingMatrixTests(unittest.TestCase):
 
     def _codes(self, report) -> list[str]:
         return [f.code for f in report.findings]
+
+    def _contract_tree(self):
+        docs = self.root / "docs"
+        _page(docs / "architecture/contracts/returns.md", "Returns",
+              "Return windows last fourteen days.")
+        _page(docs / "references/responses.md", "Wire format",
+              "The response identifies its contract version.")
+        index = docs / "architecture/contracts/index.md"
+        _page(index, "Behavior contracts",
+              "[Return window](returns.md)\n\n"
+              "[Wire format](../../references/responses.md?view=client#wire-format)\n\n"
+              "Repository only: [Maintainer checklist](https://example.org/repo/blob/main/docs/agents/guru.md)")
+        return index
+
+    def test_contract_index_checks_authoritative_targets_and_reports_the_broken_link(self):
+        index = self._contract_tree()
+        index.with_name("returns.md").unlink()
+        body = index.read_text(encoding="utf-8").replace("[Return window](returns.md)", "")
+        index.write_text(body + "\n[Broken](<missing.md?view=client#example>)\n",
+                         encoding="utf-8")
+        self.assertEqual(list(index.parent.iterdir()), [index])
+        report = audit.audit_techdocs(self.root)
+        self.assertEqual([(f.code, f.href) for f in report.findings
+                          if f.path == "architecture/contracts/index.md"],
+                         [("techdocs_link_missing", "missing.md")])
+
+    @unittest.skipUnless(importlib.util.find_spec("techdocs_core"),
+                         "requires the MkDocs TechDocs build plugin")
+    def test_follow_contract_links_in_built_techdocs(self):
+        from render_agent_surfaces import render_techdocs_baseline
+        from urllib.parse import urlsplit
+
+        self._contract_tree()
+        (self.root / "mkdocs.yml").unlink()
+        (self.root / "docs/index.md").unlink()
+        rendered = render_techdocs_baseline(self.root)
+        self.assertIn("docs/index.md", rendered.written_paths)
+        run = subprocess.run([sys.executable, "-m", "mkdocs", "build", "--clean"],
+                             cwd=self.root, capture_output=True, text=True, timeout=90)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
+        class PageLinks(HTMLParser):
+            def __init__(self, page):
+                super().__init__()
+                self.links = {}
+                self.href = None
+                self.feed(page.read_text(encoding="utf-8"))
+
+            def handle_starttag(self, tag, attrs):
+                if tag == "a":
+                    self.href = dict(attrs).get("href")
+                    self.label = []
+
+            def handle_data(self, data):
+                if self.href is not None:
+                    self.label.append(data)
+
+            def handle_endtag(self, tag):
+                if tag == "a" and self.href is not None:
+                    self.links[" ".join("".join(self.label).split())] = self.href
+                    self.href = None
+
+        def follow(page, label):
+            path = page.parent / urlsplit(PageLinks(page).links[label]).path
+            return path / "index.html" if path.is_dir() else path
+
+        home = self.root / "site/index.html"
+        contracts = follow(home, "Behavior contracts")
+        for label, expected in (("Return window", "Return windows last fourteen days."),
+                                ("Wire format", "The response identifies its contract version.")):
+            self.assertIn(expected, follow(contracts, label).read_text(encoding="utf-8"))
+        self.assertIn("Repository only", contracts.read_text(encoding="utf-8"))
+        self.assertEqual(PageLinks(contracts).links["Maintainer checklist"],
+                         "https://example.org/repo/blob/main/docs/agents/guru.md")
+        self.assertFalse((self.root / "site/agents/guru/index.html").exists())
 
     def test_clean_tree_produces_no_finding(self):
         report = audit.audit_techdocs(self.root)

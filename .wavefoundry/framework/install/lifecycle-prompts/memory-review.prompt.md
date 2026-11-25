@@ -48,16 +48,30 @@ asks for a read-only review, use the separate read-only procedure and make no mu
    - Never send a hand-authored or already-finalized candidate to `memory_validate`. When
      justified, disposition it with `memory_reconcile(memory_id=...,
      status="active"|"rejected")`; otherwise leave it unchanged and report it unresolved.
+     Promoting a candidate to active needs no `check_note` and is not refused on an
+     unresolved target. A keep of an already-active record is different: it needs a
+     `check_note` and is refused on an unresolved target (step 3).
 3. Audit a bounded batch of active records. List it with
    `memory_search(status="active", order="least_recently_reviewed", limit=15)`: the 15 active
-   records of every kind whose `updated_at` is oldest, weakest effective confidence first on a
-   tie. Protected kinds retire only after current review proves the knowledge is no longer
+   records of every kind, signal first. Each record's `revalidation_reasons` puts it in a
+   group: `target_unresolved` (a target no longer resolves in the working tree) first, then
+   `target_churn` (commits on a target since its last recorded check reached the threshold),
+   then `target_not_canonical` alone (a target named by a bare suffix that matches one file),
+   then records with no reason. Within a group the oldest `updated_at` comes first, weakest
+   effective confidence first on a tie. A flag is a reason to check, not a verdict.
+   Protected kinds retire only after current review proves the knowledge is no longer
    operational. Archive every record this step retires in step 6; do not purge it in this run.
    Record one outcome and a reason that names current evidence for each record:
    - **keep:** the record still changes a future action, or you cannot name the evidence another
-     outcome needs. Stamp it with `memory_reconcile(memory_id=..., status="active")`, which
-     rewrites only its `Updated:` line and moves it to the end of the order. The stamp means
-     "reviewed, unchanged", not a content change. Repeated runs advance through the corpus.
+     outcome needs. Record the check with `memory_reconcile(memory_id=..., status="active",
+     check_note="<what you checked>")`. A keep needs a single-line `check_note`; without one
+     it is refused with `memory_check_required`. A keep is refused with
+     `memory_target_unresolved` while a target is unresolved, so rewrite or retire that record
+     instead. A `target_not_canonical` record can be kept, but prefer a rewrite that names the
+     full path. The check re-stamps `Updated:`, writes `Checked at:`, `Check note:` and
+     `Check flags:`, and moves the record to the end of its group. It means "reviewed,
+     unchanged", not a content change. Repeated runs advance through the corpus. A
+     retirement below may carry a `check_note` too, which records the check the same way.
    - **retire to stale, encoded elsewhere:** name the specific assertion (test, check or code
      path) that would fail on a regression of the lesson. It must cover the lesson's whole scope,
      not only the instance the record came from; otherwise keep or rewrite. Then call
@@ -111,7 +125,9 @@ When the operator explicitly requests read-only review, use only:
 - `memory_brief(context="review")`
 - `memory_search(...)` and `memory_search(include_history=true, ...)`
 - `memory_search(status="active", order="least_recently_reviewed", limit=15)` for the audit
-  walk: report the batch and each proposed outcome with its reason
+  walk: report the batch, each record's `revalidation_reasons`, and each proposed outcome with
+  its reason. A proposed keep needs a `check_note` and cannot apply to a record with
+  `target_unresolved`; a candidate promotion needs neither.
 - `memory_consolidate(mode="dry_run")`
 - `wf_memory_eval()`
 

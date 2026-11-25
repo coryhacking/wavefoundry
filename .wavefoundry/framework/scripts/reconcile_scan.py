@@ -741,6 +741,7 @@ HOST_PERMISSION_FILES: frozenset[str] = frozenset({
     ".claude/settings.local.json",  # Claude Code permission allow rules (operator-owned)
     ".claude/settings.json",        # Claude Code project settings / hook+permission wiring
     ".cursor/settings.json",        # Cursor project settings / permissions
+    ".codex/config.toml",           # Codex project tool restrictions and per-tool approval
 })
 
 
@@ -1772,6 +1773,18 @@ def _scan_file(root, path, rel, text, work, findings):
             continue
         old_name = m.group(1)
         line = bisect_right(line_starts, m.start())
+        if rel == "docs/prompts/upgrade-wavefoundry.prompt.md":
+            # The upgrade guide intentionally teaches the exact before/after spelling.
+            start = text.rfind("\n", 0, m.start()) + 1
+            end = text.find("\n", m.end())
+            row = text[start:end if end != -1 else None]
+            successor = _RENAMED_MCP_TOOLS[old_name]
+            if row.strip() == f"| `{old_name}` | `{successor}` |":
+                continue
+            left, right = re.escape(old_name), re.escape(successor)
+            example = re.match(fr"For example, replace `({left})\(change_id=(.+?)\)` with `{right}\(spec_id=\2\)`\.", row)
+            if example and m.start() - start == example.start(1):
+                continue
         findings.append(
             StaleReference(
                 file=rel,

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-21
+Last verified: 2026-11-24
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
@@ -173,7 +173,7 @@ The allowlist derives from the canonical stdlib tool roster
 permission tier), so tool renames self-heal on the next upgrade render; the
 upgrade output names the rendered permissions delta as an explicit operator
 consent line, and the reconciliation scan reports renderer-provenance stale
-rules in their own self-healing channel (see `docs/specs/mcp-tool-surface.md`).
+rules in their own self-healing channel (see `docs/architecture/contracts/mcp-tool-surface.md`).
 
 Render-boundary honesty: the `wf_sync_surfaces` negative is a tested invariant,
 but the boundary as a whole is **operator approval plus host enforcement, not

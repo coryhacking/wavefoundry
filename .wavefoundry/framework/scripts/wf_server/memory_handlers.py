@@ -248,6 +248,9 @@ def _memory_view(record: dict[str, Any], decay: dict[str, Any]) -> dict[str, Any
         view["keywords"] = record["keywords"]
     if decay.get("needs_reverification"):
         view["needs_reverification"] = True
+    if "revalidation_reasons" in decay:
+        # Change 246to: the derived flag's reasons, in their fixed order.
+        view["revalidation_reasons"] = list(decay["revalidation_reasons"])
     return view
 
 
@@ -271,16 +274,28 @@ def _memory_ranked(
     commit timestamps fetched in a single store query, then per-record churn
     is computed in memory — no per-target store open, no per-call cluster
     decompress (betweenness is cached).
+
+    Change 246to: every record's targets are resolved against one lazy
+    ``memory_ref_tree`` per batch (it walks only when a bare-name ref first
+    needs it), and commit times are fetched and filtered
+    by each target's canonical path (the ref when ``resolved``, its
+    ``resolved_path`` when ``suffix_only``), so a bare-name target churns
+    like its full path. The decay dicts carry the revalidation flag.
     """
     import wf_server.server_impl as server_impl
     mem = _memory_mod()
     index_dir = root / ".wavefoundry" / "index"
     betweenness = _memory_betweenness_by_file(root)
 
-    file_targets = {
-        ref for r in records for ref in (r.get("target_refs") or [])
-        if not ref.startswith(("symbol:", "community:"))
-    }
+    resolutions: dict[int, dict[str, Any]] = {}
+    file_targets: set[str] = set()
+    if records:
+        ref_tree = mem.lazy_memory_ref_tree(root)
+        for record in records:
+            resolution = mem.resolve_memory_refs(
+                root, targets=record.get("target_refs") or [], tree=ref_tree)
+            resolutions[id(record)] = resolution
+            file_targets.update(mem.revalidation_state(resolution)["canonical_paths"])
     commit_times: dict[str, list[int]] = {}
     if commit_times_override is not None:
         # Wave 1tis8: an evaluation caller freezes a commit-history snapshot so
@@ -327,6 +342,7 @@ def _memory_ranked(
             index_dir=index_dir,
             churn_provider=_churn_provider,
             commit_times_by_path=commit_times,
+            resolution=resolutions.get(id(record)),
         )
         scored.append((record, decay, _centrality(record)))
     scored.sort(
@@ -340,6 +356,14 @@ def _memory_ranked(
         )
     )
     return [(record, decay) for record, decay, _c in scored]
+
+
+def _single_decay(root: Path, record: Optional[dict[str, Any]]) -> dict[str, Any]:
+    """One record's decay and revalidation flag, through the batch ranker so
+    churn reads canonical paths (change 246to)."""
+    if not record:
+        return {}
+    return _memory_ranked(root, [record])[0][1]
 
 
 # Per-tool advisory cap on hot read tools (1p8gy Req 6): a nudge in a
@@ -576,7 +600,62 @@ def _unterminated_refs(mem: Any, role: str, values: Iterable[str]) -> list[dict[
 _WITHHELD_VIEW_KEYS = {
     "record_title": "title", "record_summary": "summary",
     "record_evidence": "evidence_refs", "record_targets": "target_refs",
+    # Change 24885: the remaining stored fields a record view repeats.
+    "record_action_delta": "action_delta",
+    "record_validation_rationale": "validation_rationale",
+    "record_source_event": "source_event",
+    "record_memory_id": "memory_id", "record_path": "path",
 }
+# Change 24885: stored fields whose match refuses rewrite as well as promote
+# and retain; rewrite replaces title, summary and refs with checked values.
+_REWRITE_REFUSING_FIELDS = (
+    "record_action_delta", "record_validation_rationale", "record_source_event",
+)
+
+
+def _stored_record_reasons(mem: Any, root: Path, record: Optional[dict[str, Any]]
+                           ) -> dict[str, list[str]]:
+    """Content reasons per stored field of a record or record view.
+
+    Change 249aq checked title, summary and refs; change 24885 adds
+    ``action_delta``, ``validation_rationale``, ``source_event`` (checked as
+    the record lint checks its rendered line, so a generated decision-log
+    event's hash separator stays exempt), ``memory_id`` and the path, which a
+    hand-edited file can name differently from its id.
+    """
+    import wave_lint_lib.wave_validators as wave_validators
+    if not record:
+        return {}
+    path_text = ""
+    if record.get("path"):
+        path = Path(str(record["path"]))
+        try:
+            path_text = path.resolve().relative_to(Path(root).resolve()).as_posix()
+        except (OSError, ValueError):
+            path_text = path.as_posix() if not path.is_absolute() else path.name
+    reasons = mem.forbidden_content_reasons({
+        "record_title": [record.get("title") or ""],
+        "record_summary": [record.get("summary") or ""],
+        "record_evidence": list(record.get("evidence_refs") or []),
+        "record_targets": list(record.get("target_refs") or []),
+        "record_action_delta": [record.get("action_delta") or ""],
+        "record_validation_rationale": [record.get("validation_rationale") or ""],
+        "record_memory_id": [record.get("memory_id") or ""],
+        "record_path": [path_text],
+    })
+    source_event = record.get("source_event")
+    if source_event:
+        # The same f-string memory_records.render_memory_record writes.
+        codes = wave_validators._memory_forbidden_match(f"Source event: `{source_event}`")
+        if codes:
+            reasons["record_source_event"] = sorted(codes)
+    return reasons
+
+
+def _withheld_id(memory_id: str, reasons: dict[str, list[str]]) -> str:
+    """``memory_id``, or its withheld form when the stored id matched."""
+    codes = reasons.get("record_memory_id")
+    return f"[withheld: {', '.join(codes)}]" if codes else memory_id
 
 
 def _withhold_view(view: Optional[dict[str, Any]],
@@ -624,17 +703,32 @@ def _anchor_refusal(mem: Any, root: Path, original_targets: list[str], new_refs:
             out.add(entry.get("resolved_path") or entry["ref"])
         return out
 
-    original = _anchors(mem.resolve_memory_refs(root, targets=original_targets, tree=tree)["refs"])
+    original_entries = mem.resolve_memory_refs(root, targets=original_targets, tree=tree)["refs"]
+    original = _anchors(original_entries)
     new = _anchors(new_refs["refs"])
     if original:
         if original & new:
             return None
+        # Change 24885: an anchor whose stored ref matched the content check
+        # is left out of the response; the refusal itself is unchanged.
+        withheld = {
+            entry.get("resolved_path") or entry["ref"] for entry in original_entries
+            if mem.forbidden_content_reasons({
+                "ref": [entry["ref"], entry.get("resolved_path") or ""]})
+        }
+        shown = sorted(original - withheld)
+        hidden = len(original & withheld)
+        listed = ", ".join(shown)
+        if hidden:
+            listed += ("; " if listed else "") + (
+                f"{hidden} more withheld because the stored ref matched a forbidden pattern")
         return server_impl._response(
-            "error", {**data, "original_anchors": sorted(original)},
+            "error", {**data, "original_anchors": shown,
+                      **({"withheld_anchor_count": hidden} if hidden else {})},
             diagnostics=[_diagnostic(
                 "memory_rewrite_anchor_dropped",
                 "Refused: the new targets must keep at least one original target that "
-                "still resolves (" + ", ".join(sorted(original)) + "). Nothing changed.",
+                "still resolves (" + listed + "). Nothing changed.",
                 recovery_tools=[recovery_tool],
                 recovery_usage="include a still-resolving original target in the new targets")],
             next_tools=[recovery_tool], usage="")
@@ -940,7 +1034,7 @@ def _memory_add_response_locked(
     if not _defer_index_refresh:
         server_impl._trigger_background_index_refresh_for_paths(root, [path])
     record = mem.parse_memory_record(path)
-    decay = mem.apply_decay(record, index_dir=root / ".wavefoundry" / "index") if record else {}
+    decay = _single_decay(root, record)
     return server_impl._response(
         "ok",
         {"written": True, "record": _memory_view(record, decay) if record else {"memory_id": memory_id},
@@ -1689,12 +1783,7 @@ def memory_validate_response(
         # The stored record's fields are checked for content before anything
         # names them: promote and retain refuse, and every response withholds
         # a field that matched (reject is the recovery, so it must not echo).
-        stored_reasons = mem.forbidden_content_reasons({
-            "record_title": [record.get("title") or ""],
-            "record_summary": [record.get("summary") or ""],
-            "record_evidence": list(record.get("evidence_refs") or []),
-            "record_targets": list(record.get("target_refs") or []),
-        })
+        stored_reasons = _stored_record_reasons(mem, root, record)
         if not record.get("source_event"):
             return server_impl._response(
                 "error", {"validated": False},
@@ -1716,16 +1805,23 @@ def memory_validate_response(
                     recovery_usage="memory_search(include_history=True)")],
                 next_tools=["memory_search"], usage="")
         untrusted_refs: list[str] = []
+        # Change 24885: rewrite also refuses on the stored fields it would
+        # carry or that describe the stored judgment; it still proceeds on a
+        # matching title, summary or ref, which it replaces.
+        refusing = (stored_reasons if verdict in ("promote", "retain") else {
+            field: codes for field, codes in stored_reasons.items()
+            if field in _REWRITE_REFUSING_FIELDS
+        } if verdict == "rewrite" else {})
+        if refusing:
+            return server_impl._response(
+                "error", {"validated": False, "content_reasons": refusing,
+                          "rejected_reasons": _content_reason_codes(refusing)},
+                diagnostics=[_diagnostic(
+                    "invalid_memory_validation", _content_problem(refusing)
+                    + "; reject the candidate",
+                    recovery_tools=["memory_validate"], recovery_usage="")],
+                next_tools=["memory_validate"], usage="")
         if verdict in ("promote", "retain"):
-            if stored_reasons:
-                return server_impl._response(
-                    "error", {"validated": False, "content_reasons": stored_reasons,
-                              "rejected_reasons": _content_reason_codes(stored_reasons)},
-                    diagnostics=[_diagnostic(
-                        "invalid_memory_validation", _content_problem(stored_reasons)
-                        + "; reject the candidate",
-                        recovery_tools=["memory_validate"], recovery_usage="")],
-                    next_tools=["memory_validate"], usage="")
             resolution = mem.resolve_memory_refs(
                 root, evidence=record.get("evidence_refs") or [],
                 targets=record.get("target_refs") or [])
@@ -1752,6 +1848,7 @@ def memory_validate_response(
             untrusted_refs = list(resolution["untrusted"])
 
         rewritten: Optional[dict[str, Any]] = None
+        rewrite_source: Optional[dict[str, Any]] = None
         if verdict == "rewrite":
             # A previous attempt may have created the replacement and then
             # failed while superseding the source. Reuse that exact corrected
@@ -1771,7 +1868,10 @@ def memory_validate_response(
                 and (not rewrite_title or candidate.get("title") == rewrite_title)
             ), None)
             if existing_rewrite is not None:
-                rewritten = _memory_view(existing_rewrite, {})
+                rewrite_source = existing_rewrite
+                rewritten = _withhold_view(
+                    _memory_view(existing_rewrite, {}),
+                    _stored_record_reasons(mem, root, existing_rewrite))
             else:
                 # Wave 1tdl8: the rewrite record inherits the rewritten
                 # candidate's measured grounding cost (the rewrite path applies
@@ -1803,8 +1903,10 @@ def memory_validate_response(
                             "The corrected record was not created; the source candidate is unchanged.",
                             recovery_tools=["memory_validate"], recovery_usage="")],
                         next_tools=["memory_validate"], usage="")
-                rewritten = add["data"]["record"]
-            replacement_id = rewritten["memory_id"]
+                rewrite_source = add["data"]["record"]
+                rewritten = _withhold_view(
+                    rewrite_source, _stored_record_reasons(mem, root, rewrite_source))
+            replacement_id = rewrite_source["memory_id"]
         else:
             replacement_id = ""
 
@@ -1831,11 +1933,15 @@ def memory_validate_response(
                 superseded_by=replacement_id,
             )
         except (OSError, ValueError, FileNotFoundError) as exc:
+            # Change 24885: exception text names the id or path; leave it out
+            # when either matched the stored check.
+            detail = (type(exc).__name__ if stored_reasons.keys() & {"record_memory_id", "record_path"}
+                      else str(exc))
             return server_impl._response(
                 "error", {"validated": False, "rewrite_record": rewritten},
                 diagnostics=[_diagnostic(
                     "memory_validation_write_failed",
-                    f"Validation could not be recorded: {exc}."
+                    f"Validation could not be recorded: {detail}."
                     + (" The corrected record exists; retry the same validation to "
                        "reuse it, or supersede the source manually."
                        if rewritten else ""),
@@ -1845,15 +1951,16 @@ def memory_validate_response(
         finally:
             _memory_finalize(root, fence)
         changed = [path]
-        if rewritten and rewritten.get("path"):
-            changed.append(root / rewritten["path"])
+        if rewrite_source and rewrite_source.get("path"):
+            changed.append(root / rewrite_source["path"])
         server_impl._trigger_background_index_refresh_for_paths(root, changed)
         updated = mem.parse_memory_record(path)
         return server_impl._response(
             "ok",
             {"validated": True, "verdict": verdict,
-             "record": (_withhold_view(_memory_view(updated, {}), stored_reasons)
-                        if updated else {"memory_id": memory_id}),
+             "record": (_withhold_view(_memory_view(updated, {}),
+                                       _stored_record_reasons(mem, root, updated))
+                        if updated else {"memory_id": _withheld_id(memory_id, stored_reasons)}),
              "rewrite_record": rewritten, "untrusted_refs": untrusted_refs,
              **({"withheld_reasons": _content_reason_codes(stored_reasons)}
                 if stored_reasons else {})},
@@ -2006,6 +2113,19 @@ def _memory_query_records(
         return None, retrieval
 
 
+def _revalidation_rank(decay: dict[str, Any]) -> int:
+    """Audit signal rank (change 246to Requirement 5): 0 unresolved, 1 churn,
+    2 not canonical alone, 3 no reason."""
+    reasons = decay.get("revalidation_reasons") or []
+    if "target_unresolved" in reasons:
+        return 0
+    if "target_churn" in reasons:
+        return 1
+    if "target_not_canonical" in reasons:
+        return 2
+    return 3
+
+
 def memory_search_response(
     root: Path,
     query: str = "",
@@ -2089,9 +2209,12 @@ def memory_search_response(
             records = [r for r in records if _text_match(r)]
     ranked = _memory_ranked(root, records)
     if order == MEMORY_ORDER_LEAST_RECENTLY_REVIEWED:
-        # Change 244fh: oldest review first (the ``Updated:`` date a keep
-        # stamp rewrites), then weakest, then id; applied before the cap.
+        # Change 246to: signal rank first (target_unresolved, then
+        # target_churn, then target_not_canonical alone, then none); within a
+        # rank change 244fh's oldest review first (the ``Updated:`` date a
+        # recorded check rewrites), then weakest, then id; before the cap.
         ranked.sort(key=lambda pair: (
+            _revalidation_rank(pair[1]),
             str(pair[0].get("updated_at") or ""),
             float(pair[1].get("effective_confidence") or 0.0),
             pair[0]["memory_id"],
@@ -2254,6 +2377,7 @@ def memory_reconcile_response(
     archive_reason: str = "",
     eligibility_confirmed: bool = False,
     retain_for_history: bool = False,
+    check_note: str = "",
 ) -> dict[str, Any]:
     """Serialize status/archive reconciliation across server processes."""
     import wf_server.server_impl as server_impl
@@ -2266,7 +2390,95 @@ def memory_reconcile_response(
             archive_reason=archive_reason,
             eligibility_confirmed=eligibility_confirmed,
             retain_for_history=retain_for_history,
+            check_note=check_note,
         )
+
+
+def _reconcile_check_refusal(root: Path, mem: Any, memory_id: str, status: str,
+                             check_note: str) -> tuple[Optional[dict[str, Any]], list[str]]:
+    """Change 246to: the recorded-check rules, before any write.
+
+    Returns ``(refusal, check_flags)``. A note must be one line and pass the
+    content check. A keep (``active`` on any record that is not a
+    ``candidate``: the same-status keep and a reactivation of a retired
+    record) needs a note and is refused while a target sets
+    ``target_unresolved``.
+    ``check_flags`` are the record's revalidation reasons just before the
+    check, for the ``Check flags:`` line.
+    """
+    import wf_server.server_impl as server_impl
+    if check_note and not mem.memory_single_line(check_note):
+        return server_impl._response("error", {"updated": False}, diagnostics=[_diagnostic(
+            "invalid_arguments", "check_note must be a single line. Nothing was written.",
+            recovery_tools=["memory_reconcile"], recovery_usage="")],
+            next_tools=["memory_reconcile"], usage=""), []
+    note_reasons = mem.forbidden_content_reasons({"check_note": [check_note]})
+    if note_reasons:
+        return server_impl._response(
+            "error", {"updated": False, "content_reasons": note_reasons,
+                      "rejected_reasons": _content_reason_codes(note_reasons)},
+            diagnostics=[_diagnostic(
+                "invalid_arguments", _content_problem(note_reasons) + ". Nothing was written.",
+                recovery_tools=["memory_reconcile"], recovery_usage="")],
+            next_tools=["memory_reconcile"], usage=""), []
+    if status == "archived":
+        if check_note:
+            return server_impl._response("error", {"updated": False}, diagnostics=[_diagnostic(
+                "invalid_arguments", "check_note does not apply to archival. Nothing was written.",
+                recovery_tools=["memory_reconcile"], recovery_usage="")],
+                next_tools=["memory_reconcile"], usage=""), []
+        return None, []
+    try:
+        record_path = mem._contained_record_path(root, memory_id)
+    except ValueError:
+        return None, []
+    record = mem.parse_memory_record(record_path) if record_path.is_file() else None
+    if record is None:
+        return None, []
+    # A keep is any transition to active from a non-candidate status: the
+    # same-status keep and a reactivation of a retired record. Promoting a
+    # candidate is admission (249as) and needs neither the note nor the check.
+    keep = status == "active" and record.get("status") != "candidate"
+    if keep and not check_note:
+        return server_impl._response("error", {"updated": False}, diagnostics=[_diagnostic(
+            "memory_check_required",
+            "A keep or reactivation of a record is a recorded check: pass a single-line check_note "
+            "saying what you checked. Nothing was written.",
+            recovery_tools=["memory_reconcile"],
+            recovery_usage=f"memory_reconcile(memory_id={memory_id!r}, status='active', "
+                           "check_note='checked <target>; lesson still holds')")],
+            next_tools=["memory_reconcile"], usage=""), []
+    if not check_note:
+        return None, []
+    resolution = mem.resolve_memory_refs(root, targets=record.get("target_refs") or [])
+    if keep:
+        unresolved = mem.revalidation_state(resolution)["unresolved"]
+        if unresolved:
+            # A stored ref that matches the content check is left out of the
+            # response and only counted (the way _anchor_refusal withholds).
+            shown = [entry for entry in unresolved
+                     if not mem.forbidden_content_reasons({"ref": [entry["ref"]]})]
+            hidden = len(unresolved) - len(shown)
+            view = [{key: entry[key] for key in ("ref", "form", "state") if key in entry}
+                    for entry in shown]
+            named = "; ".join(f"target {entry['ref']!r} is {entry['state']}" for entry in shown)
+            if hidden:
+                named += ("; " if named else "") + (
+                    f"{hidden} more withheld because the stored ref matched a forbidden pattern")
+            return server_impl._response(
+                "error", {"updated": False, "unresolved_targets": view,
+                          **({"withheld_target_count": hidden} if hidden else {})},
+                diagnostics=[_diagnostic(
+                    "memory_target_unresolved",
+                    "Refused: a keep needs every target to resolve in the current working tree; "
+                    + named + ". Rewrite the record with the current path or retire it. "
+                    "Nothing was written.",
+                    recovery_tools=["memory_add", "memory_reconcile"],
+                    recovery_usage=f"memory_reconcile(memory_id={memory_id!r}, status='stale', "
+                                   "check_note='<what you found>')")],
+                next_tools=["memory_add", "memory_reconcile"], usage=""), []
+    decay = _memory_ranked(root, [record])[0][1]
+    return None, list(decay.get("revalidation_reasons") or [])
 
 
 def _memory_reconcile_response_locked(
@@ -2277,9 +2489,15 @@ def _memory_reconcile_response_locked(
     archive_reason: str = "",
     eligibility_confirmed: bool = False,
     retain_for_history: bool = False,
+    check_note: str = "",
 ) -> dict[str, Any]:
     import wf_server.server_impl as server_impl
     mem = _memory_mod()
+    check_note = str(check_note or "").strip()
+    refusal, check_flags = _reconcile_check_refusal(
+        root, mem, (memory_id or "").strip(), (status or "").strip(), check_note)
+    if refusal is not None:
+        return refusal
     # Fence BEFORE the status rewrite (delivery-review round 4): refuse if the
     # durable fence cannot be established. Token is writer-owned.
     _fence_token = _memory_fence(root)
@@ -2315,6 +2533,9 @@ def _memory_reconcile_response_locked(
                 path = mem.reconcile_memory_record(
                     root, (memory_id or "").strip(), normalized_status,
                     superseded_by=(superseded_by or "").strip(),
+                    check_note=check_note,
+                    checked_at=mem.check_timestamp() if check_note else "",
+                    check_flags=check_flags,
                 )
         except (FileNotFoundError, ValueError) as exc:
             return server_impl._response(
@@ -2334,7 +2555,7 @@ def _memory_reconcile_response_locked(
         ])
     server_impl._trigger_background_index_refresh_for_paths(root, changed_paths)
     record = mem.parse_memory_record(path)
-    decay = mem.apply_decay(record, index_dir=root / ".wavefoundry" / "index") if record else {}
+    decay = _single_decay(root, record)
     data = {
         "updated": True,
         "record": _memory_view(record, decay) if record else {"memory_id": memory_id},

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-21
+Last verified: 2026-11-24
 
 ## Allowed Dependencies
 
@@ -251,7 +251,7 @@ unchanged. `vocabulary_profile.ARCHIVE_PROFILE` (default `None`, meaning the
 live profile) is a mapping of exactly the twelve field names, validated at
 import; `archive_profile()` returns the effective profile with the same
 attribute names and fragments. Archived records are consulted for lookup in
-five places, after the live roots: `wf_get_change` (by id, results marked
+five places, after the live roots: `wf_get_spec` (by id, results marked
 `archived`), the dashboard document view (with an `X-Wavefoundry-Archived`
 header), the id-collision scan in `lifecycle_id` (names only), memory
 backfill and `memory_propose` (wave 1z8tz, below). The writer
@@ -285,7 +285,7 @@ spec lookup (`_resolve_change_doc_matches`) and the docs-lint and gardener
 corpus walks stay recursive over the roots by design, because they look for
 documents, not for wave folders. A wave id at two paths is
 `ambiguous_wave_id` from docs-lint and from every lifecycle tool that resolves a
-wave (`wf_current_wave`, `wf_list_waves`, `wf_prepare_wave`, `wf_add_change`,
+wave (`wf_current_wave`, `wf_list_waves`, `wf_prepare_wave`, `wf_add_spec`,
 `wf_review_event`, `wf_close_wave`, `wf_pause_wave`, and the rest), and no
 lifecycle mutation proceeds on it. A tool invocation walks at most once:
 `McpRepoCache.list_waves_cached` performs the walk, keys the cache on the

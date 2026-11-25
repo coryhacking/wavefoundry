@@ -16,9 +16,11 @@ import zipfile
 if __name__ == '__main__' or sys.pycache_prefix is None:
     sys.dont_write_bytecode = True
 
-import bytecode_cache
-
 if __name__ == '__main__':
+    # -I omits the script directory. Bootstrap the installed cache policy
+    # here; _staged_import_path removes this directory before scanner imports.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import bytecode_cache
     bytecode_cache.configure()
 
 FRAMEWORK = '.wavefoundry/framework'
@@ -28,6 +30,14 @@ MAX_STAGE_BYTES = 64 * 1024 * 1024
 MAX_MEMBER_BYTES = 8 * 1024 * 1024
 MAX_MEMBERS = 4096
 MAX_ISSUES = 50
+
+
+def _preview_environment():
+    names = ('LANG', 'LC_ALL', 'LC_CTYPE')
+    if os.name == 'nt':
+        # Windows needs SystemRoot to load side-by-side assemblies.
+        names += ('SystemRoot',)
+    return {name: os.environ[name] for name in names if name in os.environ}
 
 
 def _result(status, issues=(), **extra):
@@ -119,9 +129,9 @@ def inspect_project_rules(root: Path, pack: Path | None = None) -> dict:
             local.write_bytes(project)
             from subprocess_util import run_with_tree_kill
             proc = run_with_tree_kill(
-                [sys.executable, '-B', str(Path(__file__).resolve()), '--inspect-root', str(staged)],
+                [sys.executable, '-I', '-B', str(Path(__file__).resolve()), '--inspect-root', str(staged)],
                 cwd=str(staged), capture_output=True, text=True, timeout=120,
-                env={**os.environ, 'PYTHONDONTWRITEBYTECODE': '1'},
+                env=_preview_environment(),
             )
             if proc.returncode != 0 or len(proc.stdout) > 65536:
                 return _result('incomplete', [_issue('$', 'validation_process_failed')])

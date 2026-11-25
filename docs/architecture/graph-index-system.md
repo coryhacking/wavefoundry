@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-24
 
 Architecture reference for Wavefoundry's code and documentation graph index: how it is generated, stored, traversed, clustered, and surfaced through MCP tools.
 
@@ -786,4 +786,4 @@ shape landed with `GRAPH_BUILDER_VERSION` "44".
 
 - `docs/architecture/search-architecture.md` — semantic index layers; how graph and semantic search are separate pipelines
 - `docs/architecture/chunking-and-indexing-pipeline.md` — semantic embedding pipeline that runs alongside graph extraction in `content="all"` mode
-- `docs/specs/mcp-tool-surface.md` — MCP tool surface behavior contract; see "Navigation Tools" section for graph-backed tool descriptions and "Which Code Tool To Use" table for selection guidance
+- `docs/architecture/contracts/mcp-tool-surface.md` — MCP tool surface behavior contract; see "Navigation Tools" section for graph-backed tool descriptions and "Which Code Tool To Use" table for selection guidance

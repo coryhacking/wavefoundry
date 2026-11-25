@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-24
 
 Shortcut: **`Upgrade Wavefoundry`** | Legacy: **`Upgrade wave framework`** / **`Upgrade wave context`**
 
@@ -18,6 +18,32 @@ It is a bounded readiness check, not a complete integrity, freshness or search-q
 On native Windows, first diagnose local `python3` with `powershell -NoProfile -File ".\.wavefoundry\framework\scripts\diagnose_python.ps1"` from the repository root, including when this is an already-seeded checkout on a new machine. It needs no working Python, MCP or unfinished install row. If it fails or policy blocks the script, follow `docs/references/native-windows-support.md` for observed-stage probes, permitted user repair or IT handoff. Keep the canonical `python3` host command and existing config/index data; a working `python.exe` does not establish readiness. Verify `python3 --version`, `python3 .wavefoundry/framework/scripts/server.py --dry-run` and fresh-host MCP startup after repair. On first installation, a successful supported `python3` check permits setup to provision the tool environment before the server dry-run; do not require MCP bootstrap before its dependencies exist. Existing provisioned checkouts need no forced setup or rebuild merely for command repair.
 
 Compare the project review handoff, Explain shortcut and host skills with seed 160’s **Delivery walkthrough reconciliation** during upgrade.
+
+## Behavior contract layout
+
+Inventory the maintained indexes, linked pages and effective TechDocs publication rules before reconciling contract guidance. The fresh-install default is `docs/architecture/contracts/index.md`. An established collection may still use `docs/specs/`. Its `changes/` packages are historical change records outside the contract migration. A curated index may link to authoritative pages elsewhere.
+
+Use the runner's migration preview to inspect proposed paths, link repairs and publication changes. Keep existing exclusions effective before each move, including when the site includes architecture descendants. Defer collisions, uncertain publication rules and unapproved additions with their pages in place. Recheck source, destination, configuration and approved scope before writing or resuming. If the first-hop runner cannot preview the move, finish the framework upgrade with the contracts in place, then use the incoming runner’s reported preview and apply commands. Preserve project-owned navigation, hooks and contract text.
+
+From the target checkout, use `wf upgrade contracts --root .` to preview the installed migration. Inspect the proposed moves, link edits, publication changes and deferred paths. To propose publishing one formerly excluded page, request a new preview with `--publish docs/specs/<page>.md`. Apply or resume with the exact command printed by that preview. If a reviewed file changed, preview again before applying.
+
+### MCP tool names for change specs
+
+Update stock MCP callers to use the following names. Kind-specific creation tools such as `wf_new_bug` and `wf_new_enhancement` keep their names. The generic `wf_new_spec` still creates a record with kind `change`.
+
+| Previous tool | Replacement |
+| --- | --- |
+| `wf_new_change` | `wf_new_spec` |
+| `wf_get_change` | `wf_get_spec` |
+| `wf_add_change` | `wf_add_spec` |
+| `wf_remove_change` | `wf_remove_spec` |
+| `wf_close_change` | `wf_close_spec` |
+
+For example, replace `wf_get_change(change_id="abcde")` with `wf_get_spec(spec_id="abcde")`. Read `spec_id` from the stock replacement tools and pass it to the next operation. Kind-specific creators such as `wf_new_bug` also expose `spec_id`. Use `spec_id` with `wf_mark_ac` and `wf_mark_task`. These two tools still accept the legacy `change_id` argument and reject conflicting values if callers supply both. Read a spec at `wavefoundry://spec/{spec_id}`. Existing `wavefoundry://change/{change_id}` bookmarks still resolve.
+
+New stock specs and new admission entries use `Spec ID:` and `Spec Status:`. Preserve a legacy record’s `Change ID:` and `Change Status:` when updating it. A wave may contain both generations. Use the project’s declared labels for a custom profile. The upgrade preserves existing identifier values, closed history and review evidence. Review exact-name permissions and project-owned scripts during upgrade. A distribution can retain an alias or wrapper with its established schema. Check the served schema before changing those callers.
+
+On an existing installation, check each host’s effective permissions for the old and new tool, including personal and enterprise rules. Transfer any exact-name rules in the layer that owns them. After verifying equivalent effective permissions for a replacement, record that decision for this checkout and restart the MCP host. For example, run `wf upgrade spec-permissions --root . --tool wf_get_spec --confirm-effective-host-rules` from the target checkout. Repeat for each replacement you reviewed. The command records the local decision. An unresolved project rule still withholds the replacement.
 
 ## Setup after a clone or pull
 
@@ -592,7 +618,7 @@ Inventory/drift-detection subagents run read-only. Broad edits to `docs/prompts/
 - **Changed project-owned review carriers.** When seeds `170`, `180`, `190`, `209`, `214`, `221`, or `239` changed, merge their relevant workflow and reviewer-contract clauses into the existing project-owned carriers: `docs/prompts/plan-spec.prompt.md`, `docs/prompts/implement-wave.prompt.md`, `docs/prompts/review-wave.prompt.md`, `docs/prompts/close-wave.prompt.md`, `docs/agents/architecture-reviewer.md`, `docs/agents/code-reviewer.md`, `docs/agents/qa-reviewer.md`, `docs/agents/wave-coordinator.md`, and `docs/contributing/review-and-evals.md`. This reconciliation includes the AC-locality advisory sensor, the landing and external-blocker rules, frozen-tree review briefs and mutation tables, and Review Artifact Discipline. Preserve project-only content and metadata, preserve historical review artifacts, never replace a whole carrier, and stop for operator resolution when the old canonical clause is not unique or local wording conflicts with the new contract.
  - **Changed performance-reviewer guidance.** When seed `212` changed, merge its changed guidance into the existing `docs/agents/performance-reviewer.md` and the optional `docs/prompts/agents/performance-reviewer.prompt.md` when present. Replace inherited Wavefoundry-specific review sections with the target project’s own evidenced hot paths; preserve project additions and metadata. Language-specific sections copied from the seed apply at review time, not generation time. Never replace a whole carrier; if inherited text cannot be identified uniquely or project wording conflicts, present the conflict to the operator.
  - **Changed builder guidance.** When seed `222` changed, merge its changed guidance into the existing `docs/agents/software-engineer.md`, including all-stacks guidance and the blocks for each detected substantial language that has one. When seed `180` changed, merge its changed implementation guidance into the existing `docs/prompts/implement-spec.prompt.md`; the existing review-carrier rule covers implement-wave. These are existing-document merges, not missing-only creation. Preserve project additions and metadata, never replace a whole carrier, and present ambiguous inherited text or local conflicts to the operator. Resolve renamed destinations through the recorded distribution prompt names.
-- **Feature-to-change prompt rename (wave 1zyc5).** Plan and Implement became **Plan change** and **Implement change**, the single-change closure prompt was retired in favor of **Close change** (one change, `wf_close_change`) and **Close wave** (the only wave close), and the planning skill became `wf-plan-change`. This applies to the retired feature-named prompts and skill; the upgrade scan names each file it finds. After `wf render-surfaces`:
+- **Feature-to-change prompt rename (wave 1zyc5).** Plan and Implement became **Plan change** and **Implement change**, the single-change closure prompt was retired in favor of **Close change** (one change, `wf_close_spec`) and **Close wave** (the only wave close), and the planning skill became `wf-plan-change`. This applies to the retired feature-named prompts and skill; the upgrade scan names each file it finds. After `wf render-surfaces`:
    - The plan and implement prompts and their agent bodies have moved byte-for-byte to their current default names (`plan-spec` and `implement-spec`; see **Spec-named lifecycle prompts** below) and the manifest entries are rewritten; the retired skill files are removed and `docs/prompts/close-spec.prompt.md` is materialized missing-only. If both an old and a new prompt exist, or an old path is a symlink, the render stops before writing anything: merge the old prompt's project prose into the new one, remove the old prompt, and rerun. If the installing upgrade ran old renderer code, rerun `wf render-surfaces` to complete the move.
    - Edit the moved prompts' authored prose (titles, shortcut lines, cross-references) to the current names (**Plan spec**, **Implement spec**, **Close spec**); the move never rewrites content.
    - For each retired closure prompt the scan reports by file identity, merge any unique project guidance into `docs/prompts/close-wave.prompt.md` or `docs/prompts/close-spec.prompt.md`, then remove the retired file. Never delete a customized prompt without that merge.

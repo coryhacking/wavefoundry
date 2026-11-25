@@ -1,7 +1,7 @@
-# [Change Title]
+# [Title]
 
-Change ID: `<id-prefix>-<kind> <slug>`
-Change Status: `planned`
+Spec ID: `<id-prefix>-<kind> <slug>`
+Spec Status: `planned`
 Owner: Engineering
 Status: planned
 Last verified: {{generated_at}}
@@ -9,7 +9,9 @@ Wave: TBD
 
 ## Rationale
 
-Why this change is needed. State a specific motivation a reviewer can understand without additional context.
+This change spec plans one delivery. Keep it in the configured plans root until admission moves it into its wave. Link the standing behavior contract for promises that outlive this delivery (see `docs/architecture/contracts/index.md`) and the architecture decision record for a lasting design choice.
+
+Explain why this change is needed. State a specific motivation a reviewer can understand without additional context.
 
 ## Product Intent
 
@@ -54,7 +56,7 @@ For a simple sequence, use a list. If work branches or rejoins, you may add a fe
 (Replace this note with review targets. These examples are fenced so the scaffold declares nothing.)
 
 ```
-- `src/app/handler.py`, `docs/specs/`
+- `src/app/handler.py`, `docs/architecture/contracts/`
 ```
 
 When a target contains a space, use an explicit block; keep examples fenced:

@@ -321,6 +321,23 @@ class DocsConstantsLintTests(unittest.TestCase):
             self._source(root)
             self.assertEqual(len(check_docs_constants(root)), len(_claims()))
 
+    def test_canonical_constants_claim_activates_after_a_deferred_legacy_move(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._source(root)
+            old, new = (root / path for path in ("docs/specs/mcp-tool-surface.md",
+                                                 "docs/architecture/contracts/mcp-tool-surface.md"))
+            for path in (old, new):
+                path.parent.mkdir(parents=True)
+                path.write_text("# Unrelated text", encoding="utf-8")
+            issues = check_docs_constants(root)
+            self.assertEqual(len(issues), 1)
+            self.assertIn(old.relative_to(root).as_posix(), issues[0])
+            old.unlink()
+            issues = check_docs_constants(root)
+            self.assertEqual(len(issues), 1)
+            self.assertIn(new.relative_to(root).as_posix(), issues[0])
+
     def test_real_docs_lint_cli_respects_source_opt_in(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

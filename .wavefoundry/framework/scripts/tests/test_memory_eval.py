@@ -328,12 +328,23 @@ class MemoryEvalTests(unittest.TestCase):
         """The MCP envelope carries metrics/counts/fingerprint, never records."""
         import server_impl as srv
 
+        # Change 246to: a real corpus, so the id check below is not vacuous.
+        mem = srv._memory_mod()
+        golden = evalh.load_fixture()["records"]
+        evalh.build_corpus(self.root, golden, mem)
         report = srv.wf_memory_eval_response(self.root)
         self.assertEqual(report["status"], "ok")
         data = report["data"]
         self.assertIn("available", data)
         self.assertIn("query_set", data)
         self.assertIn("counts_by_kind", data)
+        self.assertEqual(data["maintenance_signals"]["active_records"],
+                         len(mem.load_memory_records(self.root, statuses=["active"])))
+        # No memory id string appears anywhere in the envelope (an id list
+        # such as `coverage_gap_ids` fails here).
+        blob = json.dumps(report)
+        for record in golden:
+            self.assertNotIn(record["memory_id"], blob)
 
         # Structural privacy check: walk the envelope and assert no key that
         # would carry per-record content appears anywhere. Substring matching
@@ -1424,7 +1435,10 @@ class SituationQueryEvalTests(unittest.TestCase):
     # AC-14 ----------------------------------------------------------------
     def test_ac14_hermetic_run_is_unchanged(self):
         """Sorted-JSON digest of run() on the golden fixture, captured from the
-        scripts before wave 245na; the curated changes must not move it."""
+        scripts before wave 245na; the curated changes must not move it.
+        Recaptured for change 246to, which changes the golden fixture's
+        churn histories and cadence case (with its fast-record control) and stops
+        churn attenuation."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "repo"
             (root / "docs" / "agents").mkdir(parents=True)
@@ -1434,7 +1448,250 @@ class SituationQueryEvalTests(unittest.TestCase):
         digest = hashlib.sha256(
             (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")).hexdigest()
         self.assertEqual(
-            digest, "b3997599471a9b372b96c8442ba073059df038c763260b1fd0f4496e17daf02a")
+            digest, "63fca38440bf731333c30b770138cc78cf40c28302c2f5eeafb81b40417b807c")
+
+
+
+# ---------------------------------------------------------------------------
+# Change 246to (wave 249ar): maintenance signals, the uncoverable-record
+# helper and versioned query sets.
+# ---------------------------------------------------------------------------
+
+
+class _NoModelIndex(_ArmIndex):
+    """An index whose semantic layer cannot load (no model)."""
+
+    def _ensure_loaded(self):
+        raise RuntimeError("embedding model unavailable")
+
+
+class MaintenanceSignalTests(unittest.TestCase):
+    def setUp(self):
+        import server_impl as srv
+        self.srv = srv
+        self.mem = srv._memory_mod()
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name) / "repo"
+        (self.root / "docs" / "agents").mkdir(parents=True)
+        (self.root / "docs" / "evals").mkdir(parents=True)
+        _null_read_snapshot(self)
+
+    def _write(self, memory_id, target, *, status="active", lines=(), **fields):
+        content = self.mem.render_memory_record(
+            memory_id=memory_id, kind="failed_attempt", summary=f"Lesson about {memory_id} handling.",
+            evidence=["1abcd"], targets=[target], title=f"Lesson {memory_id}",
+            confidence=0.8, status=status, date="2026-11-01", **fields)
+        if lines:
+            content = content.replace("Updated: 2026-11-01\n",
+                                      "Updated: 2026-11-01\n" + "".join(f"{l}\n" for l in lines))
+        return self.mem.write_memory_record(self.root, content, memory_id)
+
+    def _file(self, rel):
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("value = 1\n", encoding="utf-8")
+
+    def _freeze(self, cases, version=1):
+        set_rel, _lock = evalh.query_set_paths(version)
+        (self.root / set_rel).write_text(
+            json.dumps({"schema_version": 1, "cases": cases}, indent=2), encoding="utf-8")
+        return evalh.freeze_query_set(self.root, embedder=_stub_freeze_embedder(), version=version)
+
+    def _seed(self, histories):
+        index_store = self.srv._load_script("index_state_store")
+        store = index_store.IndexStateStore(self.root / ".wavefoundry" / "index")
+        try:
+            store.apply_freshness(
+                rows={p: {"commit_count": len(ts), "source": "test"} for p, ts in histories.items()},
+                commits=[(p, f"{i:040x}", ts) for p, times in histories.items()
+                         for i, ts in enumerate(times)],
+                fingerprint="test", paths_hash="test")
+        finally:
+            store.close()
+
+    # AC-8 ---------------------------------------------------------------
+    def test_ac8_signals_are_counts_only_and_need_no_model(self):
+        for rel in ("pkg/b.py", "c.py", "d.py"):
+            self._file(rel)
+        self._write("m-unres", "gone.py")
+        self._write("m-bare", "b.py")
+        self._write("m-churn", "c.py")
+        self._write("m-clean", "d.py", lines=("Checked at: 2026-11-01T10:00:00Z",
+                                              "Check note: checked d.py", "Check flags: none"))
+        for memory_id in ("m-old-a", "m-old-b"):
+            self._write(memory_id, "d.py", status="stale", lines=(
+                "Checked at: 2026-11-02T10:00:00Z", "Check note: churned",
+                "Check flags: target_churn"))
+            self.mem.archive_memory_record(self.root, memory_id, reason="retired after a check")
+        start = 1793534400  # 2026-11-02T12:00:00Z
+        self._seed({"c.py": [start + i * 7 * 86400 for i in range(12)]})
+        cases = [_case(f"a-{i}", "answerable", source, [source],
+                       query=f"distinct situation wording number {i} for {source}")
+                 for i, source in enumerate(("m-unres", "m-unres", "m-bare", "m-bare", "m-churn"))]
+        self._freeze(cases + [_case("n-1", "null", "n-1")])
+        expected = {
+            "active_records": 4, "unresolved_target_records": 1,
+            "unresolved_target_fraction": 0.25, "not_canonical_target_records": 1,
+            "churn_flagged_records": 1, "coverage_gap_records": 2,
+            "uncoverable_records": 4,
+            "check_outcomes": {"flagged": {"active": 0, "retired": 2},
+                               "unflagged": {"active": 1, "retired": 0}},
+        }
+        signals = evalh.maintenance_signals(self.root, evalh.load_query_set(self.root))
+        self.assertEqual(signals, expected)
+        report = evalh.run_curated(self.root, index=_NoModelIndex(self.root))
+        self.assertFalse(report["available"])
+        self.assertEqual(report["maintenance_signals"], expected)
+        envelope = self.srv.wf_memory_eval_response(self.root, index=_NoModelIndex(self.root))
+        self.assertEqual(envelope["data"]["maintenance_signals"], expected)
+        blob = json.dumps(envelope)
+        for memory_id in ("m-unres", "m-bare", "m-churn", "m-clean", "m-old-a", "m-old-b"):
+            self.assertNotIn(memory_id, blob)
+        for rel in evalh.query_set_paths(1):
+            (self.root / rel).unlink()
+        self.assertIsNone(evalh.maintenance_signals(
+            self.root, evalh.load_query_set(self.root))["coverage_gap_records"])
+
+    # AC-14 --------------------------------------------------------------
+    def test_ac14_uncoverable_records_are_reproducible_and_kept_out(self):
+        rationale = {"validation_rationale": "The lesson applies when editing the loader."}
+        delta = {"action_delta": "Run the loader test before editing."}
+        for memory_id, fields in (("u1", rationale), ("u2", {}), ("u3", {}),
+                                  ("u4", delta), ("u5", rationale)):
+            self._file(f"src/{memory_id}.py")
+            self._write(memory_id, f"src/{memory_id}.py", **fields)
+        counts = {"u1": 1, "u2": 3, "u3": 0, "u4": 2, "u5": 2}
+        cases = [_case(f"a-{source}-{i}", "answerable", source, [source],
+                       query=f"case {i} wording that describes the {source} situation")
+                 for source, count in counts.items() for i in range(count)]
+        self._freeze(cases)
+        state = evalh.load_query_set(self.root)
+        expected = [{"memory_id": "u1", "reasons": ["coverage_gap"]},
+                    {"memory_id": "u2", "reasons": ["no_rationale"]},
+                    {"memory_id": "u3", "reasons": ["coverage_gap", "no_rationale"]}]
+        # Known bad: a coverage-gap-only rule returns u1 and u3 and misses u2.
+        self.assertEqual(evalh.uncoverable_records(self.root, state), expected)
+        self.assertEqual(evalh.uncoverable_records(self.root, state), expected)
+        import io
+        import contextlib
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = evalh.main(["--uncoverable-records", str(self.root)])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out.getvalue()), expected)
+        self.assertEqual(evalh.maintenance_signals(self.root, state)["uncoverable_records"], 3)
+        envelope = self.srv.wf_memory_eval_response(self.root, index=_NoModelIndex(self.root))
+        self.assertEqual(envelope["data"]["maintenance_signals"]["uncoverable_records"], 3)
+        blob = json.dumps(envelope)
+        for memory_id in counts:
+            self.assertNotIn(f'"{memory_id}"', blob)
+        self.assertEqual(evalh.uncoverable_records(self.root, None),
+                         [{"memory_id": "u2", "reasons": ["no_rationale"]},
+                          {"memory_id": "u3", "reasons": ["no_rationale"]}])
+
+
+class GoldenCadenceInvariantTests(unittest.TestCase):
+    """Delivery fix (qa 1): the cadence case also requires the fast record unflagged."""
+
+    def test_fast_record_must_stay_unflagged(self):
+        case = next(c for c in evalh.load_fixture()["cases"] if c["category"] == "adaptive_cadence")
+        self.assertEqual(case.get("invariant_falsy_id"), "mem-cadence-fast")
+        good = {"data": {"records": [
+            {"memory_id": "mem-cadence-fast", "needs_reverification": False},
+            {"memory_id": "mem-cadence-slow", "needs_reverification": True}]}}
+        self.assertTrue(evalh._invariant_pass(case, good))
+        # Known bad: a fixed halving of 5 flags both records.
+        both = {"data": {"records": [
+            {"memory_id": "mem-cadence-fast", "needs_reverification": True},
+            {"memory_id": "mem-cadence-slow", "needs_reverification": True}]}}
+        self.assertFalse(evalh._invariant_pass(case, both))
+        missing = {"data": {"records": [
+            {"memory_id": "mem-cadence-slow", "needs_reverification": True}]}}
+        self.assertFalse(evalh._invariant_pass(case, missing))
+
+
+class VersionedQuerySetTests(unittest.TestCase):
+    """AC-9: a versioned freeze leaves the version 1 baseline intact."""
+
+    setUp = SituationQueryEvalTests.setUp
+    production_stub = SituationQueryEvalTests.production_stub
+
+    def _v1(self):
+        cases = [_case("a-0001", "answerable", "r1", ["r1"], query="restart after upgrade please"),
+                 _case("a-0002", "answerable", "r2", ["r2"], query="ledger writes look slow today"),
+                 _case("n-0001", "null", "n-0001")]
+        (self.root / evalh.QUERY_SET_PATH).write_text(
+            json.dumps({"schema_version": 1, "cases": cases}, indent=2), encoding="utf-8")
+        evalh.freeze_query_set(self.root, embedder=_stub_freeze_embedder())
+        v2 = [cases[0], cases[2],
+              _case("a-9001", "answerable", "r3", ["r3"], query="nested braces broke the spans")]
+        set_rel, _ = evalh.query_set_paths(2)
+        (self.root / set_rel).write_text(
+            json.dumps({"schema_version": 1, "cases": v2}, indent=2), encoding="utf-8")
+
+    def _freeze_cli(self, version):
+        import io
+        import contextlib
+        err = io.StringIO()
+        with patch.object(evalh, "_default_freeze_embedder",
+                          return_value=_stub_freeze_embedder()), contextlib.redirect_stderr(err), \
+                contextlib.redirect_stdout(io.StringIO()):
+            code = evalh.main(["--freeze-query-set", str(self.root),
+                               "--query-set-version", str(version)])
+        return code, err.getvalue()
+
+    def _run(self, **kwargs):
+        stub, _calls = self.production_stub({})
+        with patch.object(self.mh, "memory_search_response", stub):
+            return evalh.run_curated(self.root, index=_ArmIndex(self.root, ["r1"]), **kwargs)
+
+    def test_ac9_versioned_freeze_and_selection(self):
+        _null_read_snapshot(self)
+        self.assertEqual(evalh.query_set_paths(2), (
+            Path("docs/evals/memory-query-set.v2.json"),
+            Path("docs/evals/memory-query-set.v2.lock.json")))
+        self._v1()
+        v1_bytes = {rel: (self.root / rel).read_bytes() for rel in evalh.query_set_paths(1)}
+        code, _err = self._freeze_cli(2)
+        self.assertEqual(code, 0)
+        v1_lock = json.loads(v1_bytes[evalh.QUERY_SET_LOCK_PATH])
+        lock = json.loads((self.root / evalh.query_set_paths(2)[1]).read_text(encoding="utf-8"))
+        self.assertEqual({key: lock[key] for key in (
+            "version", "parent_version", "parent_query_set_sha256",
+            "added_case_ids", "removed_case_ids")}, {
+            "version": 2, "parent_version": 1,
+            "parent_query_set_sha256": v1_lock["query_set_sha256"],
+            "added_case_ids": ["a-9001"], "removed_case_ids": ["a-0002"]})
+        self.assertEqual({rel: (self.root / rel).read_bytes() for rel in v1_bytes}, v1_bytes)
+
+        default = self._run()
+        self.assertTrue(default["available"], default.get("unavailable_reason"))
+        self.assertEqual(default["query_set"]["version"], 2)
+        self.assertEqual(default["query_set"]["sha256"], lock["query_set_sha256"])
+        pinned = self._run(query_set_version=1)
+        self.assertEqual(pinned["query_set"]["version"], 1)
+        self.assertEqual(pinned["query_set"]["sha256"], v1_lock["query_set_sha256"])
+
+        (self.root / evalh.query_set_paths(2)[1]).unlink()
+        v1_path = self.root / evalh.QUERY_SET_PATH
+        v1_path.write_text(v1_path.read_text(encoding="utf-8").replace(
+            "restart after upgrade please", "restart after the upgrade"), encoding="utf-8")
+        code, err = self._freeze_cli(2)
+        self.assertEqual(code, 2)
+        self.assertIn("parent query set does not match its lock", err)
+        self.assertFalse((self.root / evalh.query_set_paths(2)[1]).exists())
+
+    def test_ac9_no_versioned_file_is_unchanged(self):
+        _null_read_snapshot(self)
+        self._v1()
+        (self.root / evalh.query_set_paths(2)[0]).unlink()
+        report = self._run()
+        self.assertTrue(report["available"], report.get("unavailable_reason"))
+        self.assertEqual(report["query_set"]["version"], 1)
+        self.assertIn("metrics", report)
+        self.assertNotIn("version", json.loads(
+            (self.root / evalh.QUERY_SET_LOCK_PATH).read_text(encoding="utf-8")))
 
 
 if __name__ == "__main__":

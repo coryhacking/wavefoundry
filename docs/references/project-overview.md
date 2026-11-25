@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-24
 
 **For readers of the TechDocs site.** This page is Wavefoundry's orientation document: what the project is, where the code and the docs live, how development moves through the wave lifecycle, and which files configure it. It is written first for the AI agents that read it at session start (it is an agent startup-order surface and the `wavefoundry://overview` MCP resource; [Data and control flow](../architecture/data-and-control-flow.md), Path 6b step 2), so the sections below keep their agent-orientation content in place, and the short reader summaries at the top of some sections translate them for people. Backticked paths such as `AGENTS.md`, `docs/agents/`, and `docs/contributing/` name repository files that sit outside the published site. Start from the [site home](../index.md) for the landing narrative, or read the fuller conceptual overview in [wavefoundry-overview.md](wavefoundry-overview.md).
 
@@ -30,9 +30,9 @@ Wavefoundry is a spec-driven development framework: work is planned in a spec be
 | Term | Meaning |
 | --- | --- |
 | spec | The document that plans one change: rationale, requirements, scope, acceptance criteria and tasks. It lives at `docs/plans/<id>.md` until it is admitted, then in its wave folder. |
-| change | The unit of work a spec describes. It has an id and a status, and a wave delivers changes. Tools, record labels and identifiers are named for the change they track (`wf_add_change`, the default record label `Change ID:`, `change_id`). |
+| change | The unit of work a spec describes. It has an id and a status, and a wave delivers changes. The stock tools use `spec_id` to identify the spec. New stock records use `Spec ID:` and `Spec Status:`. |
 | wave | The reviewed bundle of changes: admitted, readied, implemented, reviewed and closed together. |
-| behavior contract | A durable document under `docs/specs/` that describes implemented, tested behavior. It outlives the specs that changed it. |
+| behavior contract | A durable document in the collection indexed by `docs/architecture/contracts/index.md` that describes implemented, tested behavior. It outlives the specs that changed it. |
 
 The lifecycle phrases follow the first term: **Plan spec**, **Add spec to wave**, **Implement spec** and **Close spec**. The earlier phrases (**Plan change** and its siblings) remain valid aliases.
 

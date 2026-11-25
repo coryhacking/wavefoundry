@@ -338,16 +338,21 @@ def _lifecycle(waves: list, changes: dict) -> dict:
             "progress_note": "Dashboard Progress and checklist counts share all assigned documents: total = done + deferred + open. Not-this-scope criteria and unassigned plans are separate. Lifecycle rows describe record status. Unreadable-document totals cover assigned documents and unassigned plans; Progress coverage covers assigned documents only. Dashboard metric tiles retain their separate active scope."}
 
 
-def _document_count(path: Path, adr_only: bool = False) -> int:
+def _document_paths(path: Path, *, exclude_child: str | None = None) -> set[Path]:
     import os
     if not path.exists():
-        return 0
+        return set()
+
     def fail(error):
         raise error
-    count = 0
-    for _, _, names in os.walk(path, onerror=fail, followlinks=False):
-        count += sum(name.endswith(".md") and (not adr_only or re.match(r"^[0-9a-z]+-adr(?:[ .-]|$)", name) is not None) for name in names)
-    return count
+
+    documents = set()
+    for directory, children, names in os.walk(path, onerror=fail, followlinks=False):
+        if directory == str(path) and exclude_child in children:
+            children.remove(exclude_child)
+        relative = Path(directory).relative_to(path)
+        documents.update(relative / name for name in names if name.endswith(".md"))
+    return documents
 
 
 def _documents(root: Path) -> dict:
@@ -355,8 +360,20 @@ def _documents(root: Path) -> dict:
     roles = dashboard_lib.collect_agents(root)
     manifest = dashboard_lib.read_prompt_manifest(root)
     prompts = manifest.get("public_prompt_surface", [])
-    return {"available": True, "specifications": _document_count(root / "docs/specs"), "architecture": _document_count(root / "docs/architecture"),
-            "decisions": _document_count(root / "docs/architecture/decisions", True), "agents": {"total": len(roles), "by_category": _by(roles, "category")},
+    architecture = _document_paths(root / "docs/architecture")
+    contract_dir = Path("contracts")
+    nested_contracts = {path for path in architecture if path.is_relative_to(contract_dir)}
+    contracts = _document_paths(root / "docs/specs", exclude_child="changes")
+    contracts.update(path.relative_to(contract_dir) for path in nested_contracts)
+    decisions_dir = root / "docs/architecture/decisions"
+    if decisions_dir.is_dir() and not decisions_dir.is_symlink():
+        decisions = (path for path in architecture if path.is_relative_to("decisions"))
+    else:
+        # The original ADR count walks a symlinked decisions root independently.
+        decisions = _document_paths(decisions_dir)
+    decision_count = sum(re.match(r"^[0-9a-z]+-adr(?:[ .-]|$)", path.name) is not None for path in decisions)
+    return {"available": True, "specifications": len(contracts), "architecture": len(architecture) - len(nested_contracts),
+            "decisions": decision_count, "agents": {"total": len(roles), "by_category": _by(roles, "category")},
             "public_prompts": len(prompts) if isinstance(prompts, list) else 0}
 
 

@@ -50,6 +50,10 @@ import provider_policy
 import subprocess_util  # shared subprocess isolation (wave 1p8gu)
 import cli_stdio  # shared UTF-8 stdio reconfigure (wave 1p8gv)
 import workflow_include_prefixes  # stdlib-only workflow prefix reader (change 2038p)
+from trust_bundles import (
+    _GENERIC_CA_ENV_VARS, _HOST_AGENT_CA_ENV_VARS, _certifi_default_bundle,
+    trust_bundle_candidates,
+)
 from contained_files import DEFAULT_MAX_BYTES, read_contained_bytes
 
 # Wave 1p8gv: setup is a direct CLI entry (`wf update-indexes`, setup_wavefoundry step 1) that prints
@@ -1307,62 +1311,13 @@ def _embedding_providers_for_setup() -> list[str]:
     return [provider_policy.CPU_PROVIDER]
 
 
-# 1p7iu: TLS-inspecting corporate proxies put the root CA in the OS trust store but not in the venv's
-# bundled certifi, so model downloads fail CERTIFICATE_VERIFY_FAILED while curl/system tools succeed.
-# These are POSIX paths only — on native Windows this middle "platform" tier is effectively empty
-# (the OS trust store is the registry cert store, not a PEM file). Windows corporate-proxy users
-# therefore rely on the host-agent / operator env tiers (`CODEX_CA_CERTIFICATE` /
-# `CLAUDE_CODE_CERT_STORE` / `NODE_EXTRA_CA_CERTS` / `SSL_CERT_FILE`, wave 1p7s6)
-# and the certifi-default last resort.
-_OS_CA_BUNDLE_CANDIDATES = (
-    "/etc/ssl/certs/ca-certificates.crt",   # Debian/Ubuntu/WSL2
-    "/etc/pki/tls/certs/ca-bundle.crt",     # RHEL/CentOS/Fedora
-    "/etc/ssl/ca-bundle.pem",               # OpenSUSE
-    "/etc/ssl/cert.pem",                    # Alpine / macOS LibreSSL
-)
-
-
-# Wave 1p7s6: host coding agents expose their OWN CA-bundle env vars for corporate-proxy / private-root-CA
-# environments — when set, the host has already declared the authoritative bundle. Codex's
-# CODEX_CA_CERTIFICATE explicitly "takes precedence over SSL_CERT_FILE", so host-agent vars go FIRST.
-_HOST_AGENT_CA_ENV_VARS = ("CODEX_CA_CERTIFICATE", "CLAUDE_CODE_CERT_STORE", "NODE_EXTRA_CA_CERTS")
-_GENERIC_CA_ENV_VARS = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE")
 # Operator-stack CA env vars the fallback may pre-configure (the ones the TLS stack actually reads).
 _STACK_CA_ENV_VARS = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE")
 
 
-def _certifi_default_bundle() -> "str | None":
-    """The certifi default CA bundle path (the TLS baseline), or ``None`` if certifi is unavailable."""
-    try:
-        import certifi
-        path = certifi.where()
-    except Exception:  # noqa: BLE001
-        return None
-    return path if path and os.path.isfile(path) else None
-
-
-def _os_trust_store_candidates() -> "list[str]":
-    """Ordered, de-duplicated list of trusted CA bundles to try, most-authoritative first (wave 1p7s6).
-
-    Order (Req 1 / Req 5): host-agent vars (``CODEX_CA_CERTIFICATE`` → ``CLAUDE_CODE_CERT_STORE`` →
-    ``NODE_EXTRA_CA_CERTS``) → operator vars (``SSL_CERT_FILE`` → ``REQUESTS_CA_BUNDLE``) → platform OS-trust-store locations →
-    **the certifi default as the final fallback** (so a wrong/stale host-agent var can never make
-    recovery worse than today's certifi-first baseline). Only existing files are included. Verification
-    stays ON for every candidate — this only selects WHICH trusted bundle to verify against."""
-    candidates: list[str] = []
-    seen: set[str] = set()
-
-    def _add(path: "str | None") -> None:
-        if path and os.path.isfile(path) and path not in seen:
-            seen.add(path)
-            candidates.append(path)
-
-    for env in (*_HOST_AGENT_CA_ENV_VARS, *_GENERIC_CA_ENV_VARS):
-        _add(os.environ.get(env))
-    for path in _OS_CA_BUNDLE_CANDIDATES:
-        _add(path)
-    _add(_certifi_default_bundle())
-    return candidates
+def _os_trust_store_candidates() -> list[str]:
+    """Setup's compatibility entry point for ordered trust bundle discovery."""
+    return trust_bundle_candidates()
 
 
 def _os_trust_store_bundle() -> "str | None":

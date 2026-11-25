@@ -56,7 +56,6 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ('commit_provenance.py', 'Returns the ordered, de-duplicated wave-id tokens named by the landing'): 'docstring',
     ('context_efficiency.py', 'pending durable generations into the marker-owned ``wave.md`` checkpoint.'): 'docstring',
     ('context_efficiency.py', 'reload, and upgrade boundaries project durable totals into `wave.md`.'): 'docstring',
-    ('dashboard_lib.py', '# Accept both "Change Status: `value`" (canonical) and plain "Status: value" (fallback for'): 'comment',
     ('dashboard_server.py', '(the common ``docs/waves/<id>/<change>.md`` / ``wave.md`` editing pattern). These trees ge'): 'docstring',
     ('gardener_metadata.py', '``Status`` and ``Change Status`` describe workflow progress, not the'): 'docstring',
     ('gardener_metadata.py', '# `Change Status:` and `Status:`, and 794 of 1457 documents in this'): 'comment',

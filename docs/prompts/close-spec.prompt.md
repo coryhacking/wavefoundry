@@ -2,13 +2,13 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-24
 
 Shortcut: **`Close spec`** | Alias: **`Close change`**
 
 ## Purpose
 
-Close ONE admitted change inside an open wave with `wf_close_change`: mark it
+Close ONE admitted change inside an open wave with `wf_close_spec`: mark it
 `complete` and activate the dependents it unblocks. It works the same way
 whether the wave has one change or many, and it never closes the wave.
 **Close wave** remains the only wave close.
@@ -16,7 +16,7 @@ whether the wave has one change or many, and it never closes the wave.
 ## When to run
 
 Run Close spec only after **Review wave** has cleared the change. A completed
-change cannot be reopened, and `wf_close_change` records no review evidence, so
+change cannot be reopened, and `wf_close_spec` records no review evidence, so
 closing a change does not satisfy or replace any review lane. Close spec is
 optional: `wf_close_wave` accepts a change left `implemented`, so use it when a
 change must be `complete` inside the open wave, for example to activate a
@@ -26,13 +26,13 @@ dependent change.
 
 For an operator-selected small change, the spec close checks the current review policy and the approved file contents. If the contents changed, obtain a fresh code-reviewer delivery approval. If the work moved to ordinary review, follow the listed approval requirements. Wave closure remains a separate operator decision.
 
-First, before any gate and with nothing written, `wf_close_change` refuses
+First, before any gate and with nothing written, `wf_close_spec` refuses
 a wave record it cannot read unambiguously (`wave_record_ambiguous`): an id
 in more than one record, a record with more than one status line (fenced or
 not, readable or not), or a fenced example id line that starts a record.
 Move fenced examples out of the record lines and retry.
 
-`wf_close_change` reports every failing gate, in `dry_run` and `create`:
+`wf_close_spec` reports every failing gate, in `dry_run` and `create`:
 
 1. The wave is OPEN (`active` or `implementing`).
 2. The change is admitted to that wave (pass the FULL change id).
@@ -47,9 +47,9 @@ Move fenced examples out of the record lines and retry.
 ## Steps
 
 1. Confirm Review wave has cleared the change.
-2. Run `wf_close_change(wave_id, change_id)`; `dry_run` is the default and
+2. Run `wf_close_spec(wave_id, spec_id)`; `dry_run` is the default and
    writes nothing. Fix every reported gate.
-3. Run `wf_close_change(wave_id, change_id, mode='create')`. It writes
+3. Run `wf_close_spec(wave_id, spec_id, mode='create')`. It writes
    `complete` into the spec and the wave record, and moves each
    `planned` or `blocked` dependent whose dependencies are now all done to
    `ready`.

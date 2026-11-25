@@ -276,7 +276,51 @@ class ProjectStatsTests(unittest.TestCase):
             result = self.section("documents")
         self.assertEqual((result["specifications"], result["architecture"], result["decisions"], result["public_prompts"]), (1, 3, 1, 2))
         self.assertEqual(result["agents"], {"total": 3, "by_category": {"build": 1, "review": 2}})
-        self.assertEqual(stats._document_count(self.root / "absent"), 0)
+
+    def test_document_counts_across_contract_migration(self):
+        legacy = self.root / "docs/specs"
+        canonical = self.root / "docs/architecture/contracts"
+        write(self.root, "docs/plans/change.md", "# Delivery plan\n")
+        write(self.root, "docs/architecture/decisions/abc-adr design.md", "# Decision\n")
+        write(self.root, "docs/architecture/components/contracts/help.md", "# Architecture\n")
+        write(self.root, "docs/architecture/contracts.md", "# Architecture overview\n")
+
+        def assert_counts(contract_count):
+            result = self.section("documents")
+            self.assertEqual(result["specifications"], contract_count)
+            self.assertEqual(result["architecture"], 3)
+            self.assertEqual(result["decisions"], 1)
+
+        assert_counts(0)
+        legacy.mkdir(parents=True)
+        canonical.mkdir(parents=True)
+        assert_counts(0)
+        write(legacy, "changes/archive/change.md", "# Retired change package\n")
+        assert_counts(0)
+        write(legacy, "cli/changes/format.md", "# Change output format\n")
+        api = write(legacy, "api/status.md", "# API status\n")
+        write(legacy, "cli/status.md", "# CLI status\n")
+        assert_counts(3)
+        write(canonical, "api/status.md", api.read_text())
+        write(canonical, "index.md", "[Status](api/status.md)\n")
+        write(canonical, "assets/example.json", "{}")
+        assert_counts(4)
+        api.unlink()
+        (canonical / "cli").mkdir()
+        (legacy / "cli/status.md").rename(canonical / "cli/status.md")
+        (legacy / "cli/changes").rename(canonical / "cli/changes")
+        assert_counts(4)
+
+    def test_documents_symlinked_decisions_keep_independent_count(self):
+        decision = write(self.root, "records/abc-adr choice.md", "# Choice\n")
+        architecture = self.root / "docs/architecture"
+        architecture.mkdir(parents=True)
+        try:
+            (architecture / "decisions").symlink_to(decision.parent, target_is_directory=True)
+        except OSError as error:
+            self.skipTest(f"Directory symlinks unavailable: {error}")
+        result = self.section("documents")
+        self.assertEqual((result["architecture"], result["decisions"]), (0, 1))
 
     def test_memories_archive_bodies_count_once(self):
         import memory_records as memory

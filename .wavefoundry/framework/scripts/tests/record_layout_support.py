@@ -165,8 +165,8 @@ _SHIPPED_VOCABULARY = {
     "RECORD_TITLE": "# Wave Record",
     "SUMMARY_HEADING": "## Wave Summary",
     "MEMBER_HEADING": "## Changes",
-    "MEMBER_ID_LABEL": "Change ID",
-    "MEMBER_STATUS_LABEL": "Change Status",
+    "MEMBER_ID_LABEL": "Spec ID",
+    "MEMBER_STATUS_LABEL": "Spec Status",
     "BACKREF_LABEL": "Wave",
 }
 SHIPPED_DEFAULTS: "dict[str, dict[str, Any]]" = {
@@ -865,6 +865,11 @@ def localize_record_text(text: str, *, vocabulary: "dict[str, Any] | None" = Non
         (shipped.MEMBER_STATUS_LABEL, live.MEMBER_STATUS_LABEL),
     ):
         text = text.replace(old, new)
+    # Many input fixtures intentionally exercise the original stock layout.
+    if live.MEMBER_ID_LABEL != shipped.MEMBER_ID_LABEL:
+        text = text.replace("Change ID", live.MEMBER_ID_LABEL)
+    if live.MEMBER_STATUS_LABEL != shipped.MEMBER_STATUS_LABEL:
+        text = text.replace("Change Status", live.MEMBER_STATUS_LABEL)
     backref = re.compile(rf"(?m)^{re.escape(shipped.BACKREF_LABEL)}:")
     return backref.sub(lambda _m: live.BACKREF_LABEL + ":", text)
 

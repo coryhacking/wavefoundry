@@ -9642,6 +9642,8 @@ class PrimaryPhaseSummaryTests(unittest.TestCase):
 # ── Wave 1u44o: delegated primary-phase summary (post-extract subprocess backstop) ──
 
 _DELEGATE_CHILD_MODULES = (
+    "mcp_tool_roster.py",
+    "spec_tool_permissions.py",
     "upgrade_wavefoundry.py",
     "setup_commands.py",  # pure recovery dependency used by the delegated producer
     "memory_backfill.py",  # 20t73: advisory rows in the delegated summary

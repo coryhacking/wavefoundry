@@ -247,7 +247,7 @@ function FRAMEWORK_FLOW() {
       title: planning.shortcut,
       summary: `Define the outcome and its acceptance criteria in the ${planning.doc}.`,
       flow: ["Idea", "Scope", `Draft ${planning.doc}`],
-      body: `**What you do.** Ask for ${planning.shortcut}. Use this stage to write the ${planning.doc}. Name who benefits, what they should be able to do, and how to demonstrate it; the ${planning.doc} also holds the requirements and ${steps}. An optional plan review walks each open decision with you, one question at a time.\n\n**What runs automatically.** The id is minted (\`wf_new_<kind>\`) and edited docs are linted as you go.\n\n**Councils and reviewers.** None yet. The optional plan review records no approval and gates nothing.\n\n**Gates.** In every repository, no repository code is edited until the ${planning.doc} is admitted and its ${container} is readied.\n\n**What comes next.** Admit the finished ${planning.doc} to a ${container} (\`wf_create_wave\`, then \`wf_add_change\`) and prepare it.`,
+      body: `**What you do.** Ask for ${planning.shortcut}. Use this stage to write the ${planning.doc}. Name who benefits, what they should be able to do, and how to demonstrate it; the ${planning.doc} also holds the requirements and ${steps}. An optional plan review walks each open decision with you, one question at a time.\n\n**What runs automatically.** The id is minted (\`wf_new_<kind>\`) and edited docs are linted as you go.\n\n**Councils and reviewers.** None yet. The optional plan review records no approval and gates nothing.\n\n**Gates.** In every repository, no repository code is edited until the ${planning.doc} is admitted and its ${container} is readied.\n\n**What comes next.** Admit the finished ${planning.doc} to a ${container} (\`wf_create_wave\`, then \`wf_add_spec\`) and prepare it.`,
     },
     {
       id: "prepare",
@@ -255,7 +255,7 @@ function FRAMEWORK_FLOW() {
       title: `Prepare ${title}`,
       summary: `Create the ${container}, add ${planning.docs}, and check readiness.`,
       flow: ["Admit", "Readiness reviewers", "Council", "Ready"],
-      body: `**What you do.** Create the ${container} (\`wf_create_wave\`), add each ${planning.doc} (\`wf_add_change\`), then prepare it (\`wf_prepare_wave\`). You can ready several ${containers} at once.\n\n**What runs automatically.** Docs are validated and gardened, the admitted ${planning.docs} move into the ${container} folder, readiness reviewers are selected from the declared review targets and requested lanes, and the review-policy receipt is recorded.\n\n**Councils and reviewers.** This is when the readiness council runs, before any code. In ordinary review the readiness reviewers record approvals, then the readiness council runs: a red-team primer, the configured fixed seats and one rotating seat, synthesized by the council chair into the \`council-readiness\` approval. A small ${item} the operator selected at admission gets one independent code reviewer instead. A project with review disabled runs no council.\n\n**Gates.** In every repository, implementation refuses until the readiness approval the current receipt requires is recorded. Editing a reviewed section of a ${planning.doc} rotates the receipt and lapses those approvals: record them again and call \`wf_prepare_wave\` again. Project-configured required sensors, when set, must pass. Readying does not open the ${container}, so it never takes the open slot.\n\n**What comes next.** Open the readied ${container} with \`wf_implement_wave\`.`,
+      body: `**What you do.** Create the ${container} (\`wf_create_wave\`), add each ${planning.doc} (\`wf_add_spec\`), then prepare it (\`wf_prepare_wave\`). You can ready several ${containers} at once.\n\n**What runs automatically.** Docs are validated and gardened, the admitted ${planning.docs} move into the ${container} folder, readiness reviewers are selected from the declared review targets and requested lanes, and the review-policy receipt is recorded.\n\n**Councils and reviewers.** This is when the readiness council runs, before any code. In ordinary review the readiness reviewers record approvals, then the readiness council runs: a red-team primer, the configured fixed seats and one rotating seat, synthesized by the council chair into the \`council-readiness\` approval. A small ${item} the operator selected at admission gets one independent code reviewer instead. A project with review disabled runs no council.\n\n**Gates.** In every repository, implementation refuses until the readiness approval the current receipt requires is recorded. Editing a reviewed section of a ${planning.doc} rotates the receipt and lapses those approvals: record them again and call \`wf_prepare_wave\` again. Project-configured required sensors, when set, must pass. Readying does not open the ${container}, so it never takes the open slot.\n\n**What comes next.** Open the readied ${container} with \`wf_implement_wave\`.`,
     },
     {
       id: "implement",
@@ -279,7 +279,7 @@ function FRAMEWORK_FLOW() {
       title: `Close ${title}`,
       summary: `The operator signs off and the ${container} closes.`,
       flow: ["Operator signoff", "Close", "Archive"],
-      body: `**What you do.** Read the evidence, record your operator signoff, and tell the agent to close (\`wf_close_wave\`). Optional: close one reviewed ${planning.doc} first with \`wf_close_change\`; this is a workflow step, not a gate, and it never closes the ${container}. To switch work, pause with \`wf_pause_wave\`: a paused ${container} whose review is complete shows Awaiting closure and can be closed without reopening.\n\n**What runs automatically.** The ${planning.docs} are reconciled, the ${container} folder becomes the permanent record, and memory candidates are validated. The operator commits the result.\n\n**Councils and reviewers.** No new council; the operator signs off.\n\n**Gates.** In every repository, close refuses without operator signoff or a required delivery approval, or with any acceptance criterion or ${step} still unchecked; project-configured required sensors, when set, must pass; and the agent closes only on the operator's explicit instruction. In the framework source repository only, close also needs a current, passing framework test receipt; in a project that consumes the packaged framework, that check does nothing.\n\n**What comes next.** Plan the next ${container}, carrying forward any unfinished work.`,
+      body: `**What you do.** Read the evidence, record your operator signoff, and tell the agent to close (\`wf_close_wave\`). Optional: close one reviewed ${planning.doc} first with \`wf_close_spec\`; this is a workflow step, not a gate, and it never closes the ${container}. To switch work, pause with \`wf_pause_wave\`: a paused ${container} whose review is complete shows Awaiting closure and can be closed without reopening.\n\n**What runs automatically.** The ${planning.docs} are reconciled, the ${container} folder becomes the permanent record, and memory candidates are validated. The operator commits the result.\n\n**Councils and reviewers.** No new council; the operator signs off.\n\n**Gates.** In every repository, close refuses without operator signoff or a required delivery approval, or with any acceptance criterion or ${step} still unchecked; project-configured required sensors, when set, must pass; and the agent closes only on the operator's explicit instruction. In the framework source repository only, close also needs a current, passing framework test receipt; in a project that consumes the packaged framework, that check does nothing.\n\n**What comes next.** Plan the next ${container}, carrying forward any unfinished work.`,
     },
   ];
 }
@@ -537,7 +537,7 @@ function WaveChangeList({ changes, waveId, onChangeClick }) {
             onChangeClick
               ? h("button", {
                   className: "wave-change-id id-link",
-                  onClick: () => onChangeClick({ change_id: c.id, wave_id: waveId, title: c.title }),
+                  onClick: () => onChangeClick({ spec_id: c.spec_id ?? c.id, wave_id: waveId, title: c.title }),
                   title: `View ${tierLabel("change")} document`,
                 }, c.id)
               : h("span", { className: "wave-change-id" }, c.id),
@@ -788,9 +788,9 @@ function ChangesDialog({ snapshot, onClose }) {
     : p(changes.length, `Pending ${tierLabel("change", false, true)}`, `Pending ${tierLabel("change", true, true)}`);
   return h(DialogFrame, { title, onClose },
     changes.length ? changes.map(c =>
-      h("div", { key: c.change_id, className: "metric-dialog-card" },
+      h("div", { key: specId(c), className: "metric-dialog-card" },
         h("div", { className: "metric-dialog-card-header" },
-          h("span", { className: "wave-change-id" }, c.change_id),
+          h("span", { className: "wave-change-id" }, specId(c)),
           c.status ? h("span", { className: badgeClass(c.status) }, c.status) : null,
         ),
         h("div", { className: "metric-dialog-card-title" }, c.title),
@@ -812,9 +812,9 @@ function AcsDialog({ snapshot, onClose }) {
       if (!items.length) return null;
       const wave = c.wave_id ? waveMap[c.wave_id] : null;
       const evidence = wave?.review_evidence || [];
-      return h("div", { key: c.change_id, className: "metric-dialog-card" },
+      return h("div", { key: specId(c), className: "metric-dialog-card" },
         h("div", { className: "metric-dialog-card-header" },
-          h("span", { className: "wave-change-id" }, c.change_id),
+          h("span", { className: "wave-change-id" }, specId(c)),
           evidence.length
             ? h("span", { className: "metric-dialog-review-badge status-badge status-done", title: evidence.map(e => `${e.key}: ${e.value}`).join("\n") }, "reviewed")
             : h("span", { className: "metric-dialog-review-badge status-badge status-neutral" }, "not reviewed"),
@@ -857,9 +857,9 @@ function TasksDialog({ snapshot, onClose }) {
     // Wave 1p31b (1p32k): treat deferred tasks as "not pending" so they sort with done.
     const items = sortPendingFirst(c.tasks_items || [], task => Boolean(task.done) || Boolean(task.deferred));
     if (!items.length) return null;
-    return h("div", { key: c.change_id, className: "metric-dialog-card" },
+    return h("div", { key: specId(c), className: "metric-dialog-card" },
       h("div", { className: "metric-dialog-card-header" },
-        h("span", { className: "wave-change-id" }, c.change_id),
+        h("span", { className: "wave-change-id" }, specId(c)),
       ),
       h("div", { className: "metric-dialog-card-title" }, c.title),
       h("div", { className: "metric-dialog-ac-rows" },
@@ -4051,7 +4051,7 @@ function ChangesTable({ changes, title, onChangeClick }) {
         ),
         h("tbody", null,
           shown.map(c =>
-            h("tr", { key: c.change_id },
+            h("tr", { key: specId(c) },
               h("td", null,
                 h("button", {
                   className: "change-id-cell id-link",
@@ -4059,7 +4059,7 @@ function ChangesTable({ changes, title, onChangeClick }) {
                   title: `View ${tierLabel("change")} document`,
                 },
                   h("div", { className: "wave-change-id" },
-                    c.change_id.split("-").flatMap((part, i) => i === 0 ? [part] : ["-", h("wbr", { key: i }), part]),
+                    specId(c).split("-").flatMap((part, i) => i === 0 ? [part] : ["-", h("wbr", { key: i }), part]),
                   ),
                   h("div", { className: "wave-change-title" }, c.title),
                 ),
@@ -4087,6 +4087,10 @@ function ChangesTable({ changes, title, onChangeClick }) {
 // Mirrors the table view's dash-split <wbr> approach (dashboard.js ~4133); the Activity
 // timeline span is not inside a <td>, so it also needs the scoped `.timeline .wave-change-id`
 // wrap rule in dashboard.css.
+function specId(record) {
+  return record.spec_id ?? record.change_id;
+}
+
 function renderChangeIdParts(id) {
   const safe = String(id == null ? "" : id);
   return safe.split("-").flatMap((part, i) => {
@@ -4125,9 +4129,9 @@ function Activity({ activity, onChangeClick }) {
               tabIndex: clickable ? 0 : undefined,
               role: clickable ? "button" : undefined,
               onKeyDown: clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleClick(); } } : undefined,
-              "aria-label": clickable ? `Open ${tierLabel("change")} ${item.change_id}` : undefined,
+              "aria-label": clickable ? `Open ${tierLabel("change")} ${specId(item)}` : undefined,
             },
-              h("span", { className: "wave-change-id", style: { display: "block", marginBottom: "2px", fontSize: "0.85rem" } }, ...renderChangeIdParts(item.change_id)),
+              h("span", { className: "wave-change-id", style: { display: "block", marginBottom: "2px", fontSize: "0.85rem" } }, ...renderChangeIdParts(specId(item))),
               item.title ? h("div", { className: "wave-change-title", style: { marginBottom: "var(--space-1)" } }, item.title) : null,
               h("div", null, ...renderMarkdownish(item.update || "")),
               item.evidence ? h("div", { className: "muted" }, ...renderMarkdownish(item.evidence)) : null,
@@ -4356,11 +4360,11 @@ function Dashboard({ snapshot, pollIdx, sseConnected, dark, onToggleDark }) {
   }, []);
 
   const openChangeDoc = useCallback((change) => {
-    const base = `/api/doc?type=change&id=${encodeURIComponent(change.change_id)}`;
+    const base = `/api/doc?type=change&id=${encodeURIComponent(specId(change))}`;
     const url = change.path
       ? `${base}&path=${encodeURIComponent(change.path)}`
       : `${base}&wave=${encodeURIComponent(change.wave_id || "")}`;
-    setDocView({ title: change.change_id, subtitle: change.title || "", url });
+    setDocView({ title: specId(change), subtitle: change.title || "", url });
   }, []);
 
   const project    = snapshot.project    || {};

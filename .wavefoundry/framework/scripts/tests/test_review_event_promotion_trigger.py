@@ -12,13 +12,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from upstream_fixture_support import tool_contract_rel
+
 from server_tools_support import SCRIPTS_ROOT, _make_repo, integrity_checks, load_server, load_thin_runner
 import review_evidence
 import test_server_tools_lifecycle as fixtures
 
 REPO_ROOT = SCRIPTS_ROOT.parents[2]
 SEED_209 = SCRIPTS_ROOT.parent / "seeds" / "209-agent-harness-core.prompt.md"
-SPEC = REPO_ROOT / "docs" / "specs" / "mcp-tool-surface.md"
+SPEC = REPO_ROOT / tool_contract_rel(REPO_ROOT)
 FIELD = "promotion_trigger"
 
 

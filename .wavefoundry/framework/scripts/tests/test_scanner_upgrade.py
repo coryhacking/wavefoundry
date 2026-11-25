@@ -2,9 +2,11 @@
 from __future__ import annotations
 import contextlib
 import io
+import os
 from pathlib import Path
 import sys
 import tempfile
+import textwrap
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -50,6 +52,65 @@ class IncomingScannerTests(unittest.TestCase):
         result=preflight.inspect_project_rules(self.root,self.pack)
         self.assertEqual(before,(self.local.read_bytes(),self.installed.read_bytes()))
         return result
+
+    def test_trusted_staged_fixture_observes_isolated_process(self):
+        # The operator-selected pack supplies executable scanner code. These
+        # checks observe only a fixed locale control, synthetic keys and flags.
+        fixture = self.root / 'trusted-fixture.zip'
+        scripts = preflight.FRAMEWORK + '/scripts/wave_lint_lib/'
+        with zipfile.ZipFile(fixture, 'w') as archive:
+            archive.writestr(scripts + '__init__.py', '')
+            archive.writestr(scripts + 'betterleaks_worker.py', 'class WorkerError(Exception): pass\n')
+            archive.writestr(scripts + 'secrets_validators.py', textwrap.dedent("""\
+                import os
+                import sys
+
+                def _load_toml(path):
+                    assert sys.flags.isolated and sys.flags.dont_write_bytecode
+                    assert sys.dont_write_bytecode
+                    assert os.environ.get('LC_ALL') == 'C'
+                    assert 'WF_PREVIEW_TEST_SENTINEL' not in os.environ
+                    assert 'PYTHONPATH' not in os.environ
+                    return {}
+
+                def load_merged_ruleset(root):
+                    return [], {}, []
+
+                def inspect_ruleset_compatibility(rules):
+                    return {'status': 'within_checked_subset'}
+                """))
+        self.local.write_text('')
+        with patch.dict(os.environ, {'LC_ALL': 'C', 'WF_PREVIEW_TEST_SENTINEL': 'fixture',
+                                     'PYTHONPATH': str(self.root)}):
+            result = preflight.inspect_project_rules(self.root, fixture)
+        self.assertEqual(result['status'], 'compatible', result)
+
+    def test_representative_pack_with_conflicting_parent_import_path(self):
+        (self.root / 'json.py').write_text('# harmless module with no JSON API\n')
+        with patch.dict(os.environ, {'PYTHONPATH': str(self.root)}):
+            self.assertEqual(self.inspect('[allowlist]\npaths=["^safe/"]\n')['status'], 'compatible')
+            self.assertEqual(self.inspect('filter="true"\n')['status'], 'unsupported')
+
+    def test_windows_environment_preserves_only_system_root_and_locale(self):
+        parent = {'SystemRoot': r'C:\Windows', 'LC_ALL': 'C', 'WF_PREVIEW_TEST_SENTINEL': 'fixture'}
+        with patch.object(preflight.os, 'name', 'nt'), patch.dict(os.environ, parent, clear=True):
+            self.assertEqual(preflight._preview_environment(), {'SystemRoot': parent['SystemRoot'], 'LC_ALL': 'C'})
+
+    def test_real_worker_exit_keeps_preview_incomplete(self):
+        failed_pack = self.root / 'worker-exits.zip'
+        worker = preflight.FRAMEWORK + '/scripts/wave_lint_lib/betterleaks_worker.py'
+        with zipfile.ZipFile(self.pack) as source, zipfile.ZipFile(failed_pack, 'w') as archive:
+            for name in source.namelist():
+                data = source.read(name)
+                if name == worker:
+                    # Keep the incoming worker client real. Only its child exits.
+                    entry = data.rindex(b'if __name__ == "__main__":')
+                    data = data[:entry] + b'if __name__ == "__main__":\n    raise SystemExit(2)\n'
+                archive.writestr(name, data)
+        self.local.write_text('[allowlist]\npaths=["^safe/"]\n')
+        result = preflight.inspect_project_rules(self.root, failed_pack)
+        self.assertEqual(result['status'], 'incomplete', result)
+        self.assertFalse(result['complete'])
 
     def test_absent_and_allowlist_only_and_valid_custom_are_compatible(self):
         self.assertEqual(preflight.inspect_project_rules(self.root,self.pack)['status'],'not_applicable')

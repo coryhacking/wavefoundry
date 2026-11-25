@@ -98,9 +98,42 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
         )
         for carrier in direct_docs:
             with self.subTest(destination=carrier.destination):
-                self.assertTrue((repo_root / carrier.destination).exists())
+                if carrier.destination in review_policy.TOOL_CONTRACT_PATHS:
+                    self.assertTrue(any((repo_root / rel).is_file() for rel in review_policy.TOOL_CONTRACT_PATHS))
+                else:
+                    self.assertTrue((repo_root / carrier.destination).exists())
                 self.assertTrue(carrier.conditional_existing)
                 self.assertFalse(carrier.create_if_missing)
+
+    def test_tool_contract_policy_follows_the_existing_page_and_defers_on_collision(self):
+        import contextlib
+        import io
+
+        paths = ("docs/architecture/contracts/mcp-tool-surface.md", "docs/specs/mcp-tool-surface.md")
+        skip = frozenset(set(review_policy.REVIEW_POLICY_SURFACE_BLOCKS) - set(paths))
+        for destination in paths:
+            with self.subTest(destination=destination), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                render = lambda: render_agent_surfaces.reconcile_review_policy_surfaces(root, skip_paths=skip)
+                self.assertEqual(render(), [])
+                for path in paths:
+                    self.assertFalse((root / path).exists())
+                page = root / destination
+                page.parent.mkdir(parents=True)
+                page.write_text("# Project-owned contract\n", encoding="utf-8")
+                self.assertEqual(render(), [destination])
+                self.assertIn(review_policy.REVIEW_POLICY_SURFACE_MARKER_BEGIN, page.read_text())
+                self.assertEqual(render(), [])
+                sibling = root / next(path for path in paths if path != destination)
+                self.assertFalse(sibling.exists())
+                sibling.parent.mkdir(parents=True)
+                sibling.write_text("# Independent contract\n", encoding="utf-8")
+                before = [page.read_bytes(), sibling.read_bytes()]
+                error = io.StringIO()
+                with contextlib.redirect_stderr(error):
+                    self.assertEqual(render(), [])
+                self.assertIn("both tool-contract destinations exist", error.getvalue())
+                self.assertEqual([page.read_bytes(), sibling.read_bytes()], before)
 
     def test_direct_doc_policy_baselines_have_marker_owned_renderer_companions(self):
         direct_destinations = {
@@ -116,6 +149,27 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
         }
         self.assertTrue(direct_destinations)
         self.assertTrue(direct_destinations.issubset(renderer_destinations))
+
+    def test_deferred_collision_keeps_obligations_on_the_legacy_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepare = root / vocabulary_profile.prompt_doc("prepare-wave")
+            prepare.parent.mkdir(parents=True)
+            prepare.write_text(review_policy.REVIEW_POLICY_SURFACE_MARKER_BEGIN, encoding="utf-8")
+            for rel in review_policy.TOOL_CONTRACT_PATHS:
+                page = root / rel
+                page.parent.mkdir(parents=True)
+                page.write_text("# Project page", encoding="utf-8")
+            def failures():
+                return [item for item in check_review_policy_carriers(root) if "mcp-tool-surface.md" in item]
+
+            issues = failures()
+            self.assertTrue(issues)
+            self.assertTrue(all(item.startswith("docs/specs/") for item in issues), issues)
+            (root / "docs/specs/mcp-tool-surface.md").unlink()
+            issues = failures()
+            self.assertTrue(issues)
+            self.assertTrue(all(item.startswith("docs/architecture/contracts/") for item in issues), issues)
 
     def test_production_validator_consumes_direct_doc_obligations(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -408,6 +462,9 @@ class ReviewPolicyReconcilerTests(unittest.TestCase):
                 if carrier.owner not in {"lifecycle_reconciler", "direct_docs"}:
                     continue
                 if carrier.destination == "docs/agents":
+                    continue
+                # This historical checkout used the legacy contract location.
+                if carrier.destination == "docs/architecture/contracts/mcp-tool-surface.md":
                     continue
                 # The frozen inventory records the optional document absent in
                 # this revision; unknown or damaged entries fail rather than skip.
@@ -1508,6 +1565,13 @@ class ReviewLoopFrictionPolicyTests(unittest.TestCase):
             requested_lanes=(), project_lanes=(), change_texts=docs
         )
         return lanes
+
+    def test_contract_reviewer_follows_both_contract_roots_in_paths_and_prose(self):
+        for root in ("docs/architecture/contracts/", "docs/specs/", "docs/architecture/contracts-old/"):
+            path = root + "product.md"
+            for doc in (self._PROSE_DOC.format(body=f"- `{path}`"), f"## Scope\n\nUpdates {path}.\n"):
+                with self.subTest(path=path, doc=doc):
+                    self.assertEqual("docs-contract-reviewer" in self._lanes(doc), "contracts-old" not in root)
 
     def test_prose_naming_a_directory_never_confers_adoption(self):
         """Field report: one sentence of prose emptied a required-lane roster.

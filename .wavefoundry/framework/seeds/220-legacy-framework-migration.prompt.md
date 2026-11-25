@@ -23,7 +23,7 @@ Migration tasks:
    - Give it a `Title` that starts with `Legacy`
    - Write everything into `docs/waves/00000 wave-zero-plans-and-specs/wave.md` as a single file — do not create subdirectories inside the wave folder
    - **Physically move** completed plan files from `docs/plans/completed/` into `docs/waves/00000 wave-zero-plans-and-specs/`; `docs/plans/completed/` must be empty after baseline capture; do not merely reference them at their original location
-   - `wave.md` must include: all required wave anchors, a `## Corpus` table indexing each captured plan/change (change ID, file path within the wave folder, kind, title), a `## Wave Summary` recording what was detected, what was seeded, and which active plans were excluded, one `Change ID` per captured plan at `complete` status, explicit review checkpoints with real findings, and a `## Reports` section summarizing archived reports
+   - `wave.md` must include: all required wave anchors, a `## Corpus` table indexing each captured plan/change (change ID, file path within the wave folder, kind, title), a `## Wave Summary` recording what was detected, what was seeded, and which active plans were excluded, one `Spec ID` per captured plan at `complete` status, explicit review checkpoints with real findings, and a `## Reports` section summarizing archived reports
    - Move all reports from `docs/reports/` into `docs/waves/00000 wave-zero-plans-and-specs/` alongside the plan files; `docs/reports/` must be empty after baseline capture; the wave folder is self-contained with all artifacts from the pre-wave period
 5. Backfill missing wave-context-only artifacts:
    - prompt-surface manifest
@@ -41,7 +41,7 @@ Migration tasks:
    - if `docs/performance/` exists as a legacy location for a performance budget doc, check whether `docs/architecture/performance-budget.md` now exists with richer content; if so, remove `docs/performance/` and update any references
    - if legacy lifecycle roots or alternate spec workspaces exist, preserve their contents before retiring them
    - stop and report conflicts rather than overwriting divergent lifecycle artifacts
-   - do not move durable `docs/specs/*.md` behavior contracts — they are canonical reference docs that stay in place
+   - leave standing behavior contracts in place during lifecycle workspace migration. The separate contract migration previews moves from `docs/specs/` to `docs/architecture/contracts/` and accounts for the project’s publication rules
 7. Execute the full baseline wave closure procedure so durable lessons are not left trapped in moved source files:
    - Run applicable agent review lanes (architecture, QA, docs-contract, security, performance) for the change types present in the baseline and document real findings — not pass/fail placeholders — as review checkpoint sections in `wave.md`
    - Capture durable lessons from the moved plans as typed memory records with evidence references; do not use generic placeholder text

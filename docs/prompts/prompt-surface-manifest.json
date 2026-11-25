@@ -86,6 +86,10 @@
       "shortcut": "Review wave"
     },
     {
+      "doc": "docs/prompts/author-behavior-contract.prompt.md",
+      "shortcut": "Author behavior contract"
+    },
+    {
       "doc": "docs/prompts/explain.prompt.md",
       "shortcut": "Explain"
     },

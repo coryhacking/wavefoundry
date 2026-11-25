@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-24
 
 ## Host-neutral orchestration
 
@@ -28,7 +28,7 @@ Wavefoundry uses the standard Wave Framework generic roles. The wave-coordinator
 | `architecture-reviewer` | Changes touching module boundaries, integration contracts, or data flow |
 | `qa-reviewer` | Ordinary review of bug fixes and other changes when project policy requires QA |
 | `security-reviewer` | Changes touching trust boundaries, allowed-roots logic, or guard mechanisms |
-| `docs-contract-reviewer` | Changes touching `docs/specs/*.md` behavioral contracts |
+| `docs-contract-reviewer` | Changes touching `docs/architecture/contracts/` or legacy `docs/specs/*.md` behavioral contracts |
 | `performance-reviewer` | Changes touching indexing, search, or MCP server response paths |
 | `release-reviewer` | Changes touching `build_pack.py`, VERSION stamping, or distribution format |
 

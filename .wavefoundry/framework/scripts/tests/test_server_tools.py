@@ -30,6 +30,8 @@ import types
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+from upstream_fixture_support import tool_contract_rel
 import server_tools_support
 from server_tools_support import (  # noqa: F401 — shared server-test fixtures
     SCRIPTS_ROOT,
@@ -2714,12 +2716,11 @@ class ServerStdioTransportTests(unittest.TestCase):
         self.assertEqual(events, ["configure", "build", ("run", "stdio")])
 
 
-# --- Tool Index in docs/specs/mcp-tool-surface.md (change 237eh) -------------
+# --- Tool Index in the MCP behavior contract (change 237eh) -------------
 # The spec's Tool Index is the enforced inventory of the shipped tool surface.
 # These helpers parse the spec text deterministically; the tests below compare
 # the result with the live base-declaration registration.
 
-TOOL_SPEC_REL_PATH = "docs/specs/mcp-tool-surface.md"
 TOOL_INDEX_HEADING = "Tool Index"
 TOOL_INDEX_PARENT_HEADING = "Current Tool Surface"
 TOOL_INDEX_HEADER = ("Tool", "Tier", "Summary", "Detail")
@@ -3046,7 +3047,7 @@ def tool_spec_index_rows(parsed: dict) -> tuple[list[dict], list[str]]:
 
 def localized_tool_summary(name: str, summary: str) -> str:
     """Translate the source index's planning nouns where registration localizes them."""
-    if name not in {"wf_get_change", "wf_list_plans"} and not name.startswith("wf_new_"):
+    if name not in {"wf_get_spec", "wf_list_plans"} and not name.startswith("wf_new_"):
         return summary
     terms = {"a spec": _V.planning_noun("article"), "specs": _V.planning_noun("docs"),
              "spec": _V.planning_noun(), "a wave": _V.tier_noun("container", article=True)}
@@ -3168,15 +3169,15 @@ class ServerToolRegistrationTests(unittest.TestCase):
             "wf_server_info",
             "wf_map",
             "wf_create_wave",
-            "wf_add_change",
-            "wf_remove_change",
+            "wf_add_spec",
+            "wf_remove_spec",
             "wf_prepare_wave",
             "wf_pause_wave",
             "wf_review_wave",
             "wf_review_event",
             "wf_reopen_wave",
             "wf_close_wave",
-            "wf_close_change",
+            "wf_close_spec",
             "index_build_status",
             "docs_search",
             "code_search",
@@ -3184,7 +3185,7 @@ class ServerToolRegistrationTests(unittest.TestCase):
             "wf_current_wave",
             "wf_list_waves",
             "wf_list_plans",
-            "wf_get_change",
+            "wf_get_spec",
             "wf_get_prompt",
             "wf_open_gate",
             "wf_close_gate",
@@ -3193,7 +3194,7 @@ class ServerToolRegistrationTests(unittest.TestCase):
             "wf_new_bug",
             "wf_new_enhancement",
             "wf_new_refactor",
-            "wf_new_change",
+            "wf_new_spec",
             "wf_new_documentation",
             "wf_new_tech_debt",
             "wf_new_task",
@@ -3253,18 +3254,18 @@ class ServerToolRegistrationTests(unittest.TestCase):
     @staticmethod
     def _tool_spec_text() -> str:
         repo_root = Path(__file__).resolve().parents[4]
-        return repo_root.joinpath(TOOL_SPEC_REL_PATH).read_text(encoding="utf-8")
+        return repo_root.joinpath(tool_contract_rel(repo_root)).read_text(encoding="utf-8")
 
     def test_tool_spec_index_matches_registration(self):
         """The spec's Tool Index is the enforced tool inventory (change 237eh)."""
         registry = self._base_tool_registry()
         problems = tool_spec_problems(self._tool_spec_text(), registry)
-        self.assertEqual(problems, [], "docs/specs/mcp-tool-surface.md Tool Index drifted:\n" + "\n".join(problems))
+        self.assertEqual(problems, [], "the MCP behavior contract Tool Index drifted:\n" + "\n".join(problems))
 
     # Example argument values the lifecycle-ID guard allows. Add an entry only
     # for an example value or a unit token (such as ``100ms``), with a reason.
     TOOL_DESCRIPTION_ID_ALLOWLIST = frozenset({
-        "12ahv",  # wf_get_change's example change-id prefix argument
+        "12ahv",  # wf_get_spec's example change-id prefix argument
     })
 
     def _tool_description_ids(self, descriptions: dict) -> dict:
@@ -3295,7 +3296,7 @@ class ServerToolRegistrationTests(unittest.TestCase):
         # The allowlist holds exactly the justified example value, and that
         # value really is present, so the entry is not stale.
         self.assertEqual(self.TOOL_DESCRIPTION_ID_ALLOWLIST, {"12ahv"})
-        self.assertIn('"12ahv"', descriptions["wf_get_change"])
+        self.assertIn('"12ahv"', descriptions["wf_get_spec"])
 
     def test_tool_spec_index_known_bad_controls(self):
         """Each Tool Index condition fails on a known-bad copy of the spec."""
@@ -3313,7 +3314,7 @@ class ServerToolRegistrationTests(unittest.TestCase):
             return spec.replace(old, new)
 
         status_row = row_of("wf_gate_status")
-        get_change_row = row_of("wf_get_change")
+        get_change_row = row_of("wf_get_spec")
         controls = {
             "missing row": (mutate(status_row + "\n", ""),
                             "index: registered tool wf_gate_status has no row"),
@@ -3324,7 +3325,7 @@ class ServerToolRegistrationTests(unittest.TestCase):
             "summary differs": (mutate(status_row, status_row.replace("Return the current", "Change the current")),
                                 "summary: wf_gate_status row differs"),
             "planning summary differs": (mutate(get_change_row, get_change_row.replace(" by ID", " by title")),
-                                        "summary: wf_get_change row differs"),
+                                        "summary: wf_get_spec row differs"),
             "missing heading": (mutate(status_row, status_row.replace("Framework Operations", "Gate Operations")),
                                 "heading: wf_gate_status names 'Gate Operations', found 0 times"),
             "duplicated heading": (mutate("### Audit\n", "### Audit\n\n### Framework Operations\n"),
@@ -5233,7 +5234,7 @@ class WavePlaceholderRepairTests(unittest.TestCase):
 
 
 class WaveAddChangeSectionPlacementTests(unittest.TestCase):
-    """12as3: wf_add_change inserts blocks inside the ## Changes section."""
+    """12as3: wf_add_spec inserts blocks inside the ## Changes section."""
 
     @classmethod
     def setUpClass(cls):
@@ -5334,7 +5335,7 @@ class WaveAddChangeSectionPlacementTests(unittest.TestCase):
 
 
 class WaveAddChangeBrokenLinksTests(unittest.TestCase):
-    """AC-18: wf_add_change response data includes broken_links list."""
+    """AC-18: wf_add_spec response data includes broken_links list."""
 
     @classmethod
     def setUpClass(cls):
@@ -5438,6 +5439,7 @@ class McpResourceRegistrationTests(unittest.TestCase):
         uri_templates = {t.uriTemplate for t in templates}
         expected = {
             "wavefoundry://change/{change_id}",
+            "wavefoundry://spec/{spec_id}",
             "wavefoundry://wave/{wave_id}",
             "wavefoundry://prompt/{slug}",
             "wavefoundry://seed/{slug}",
@@ -5709,6 +5711,7 @@ class McpResourceTemplateReadTests(unittest.TestCase):
         change_id = result["id"]
         text = self._read_resource(f"wavefoundry://change/{change_id}")
         self.assertIn(_V.MEMBER_ID_LABEL, text)
+        self.assertEqual(self._read_resource(f"wavefoundry://spec/{change_id}"), text)
 
     def test_wave_template_returns_not_found_for_unknown_id(self):
         text = self._read_resource("wavefoundry://wave/zzzzz-unknown")
@@ -6828,7 +6831,7 @@ class WaveUpgradeMcpToolTests(unittest.TestCase):
         ]
         # NOTE the name: allow_rules(include_write=True) returns read UNION write, so this
         # count moves on a READ-tier add too (1vqqi: wf_techdocs_audit took it 89 -> 90).
-        # Wave 1zlu1 added the write-tier wf_close_change (90 -> 91).
+        # Wave 1zlu1 added the write-tier wf_close_spec (90 -> 91).
         self.assertEqual(len(added), 93, "roster size changed; re-measure this test")  # 2347r: read-tier wf_stats; 23q0s: wf_cleanup_work
 
         # Non-vacuity control: the retired dict shape is still over the per-value cap, so this

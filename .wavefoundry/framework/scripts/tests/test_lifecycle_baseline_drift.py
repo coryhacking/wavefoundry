@@ -109,7 +109,7 @@ class BaselineDriftTests(unittest.TestCase):
         expected = {renderer.vocabulary_profile.prompt_doc(key) for key in (
             "create-wave", "implement-wave", "prepare-wave", "review-wave", "close-wave", "close-change")}
         expected.update({"docs/prompts/memory-review.prompt.md", "docs/prompts/review-plan.prompt.md",
-                         "docs/prompts/explain.prompt.md"})
+                         "docs/prompts/explain.prompt.md", "docs/prompts/author-behavior-contract.prompt.md"})
         for destination, template in renderer.LIFECYCLE_PROMPT_BASELINES:
             self.put(destination, "A\n")
             self.put(".wavefoundry/framework/install/lifecycle-prompts/" + template, "A\n")

@@ -385,7 +385,7 @@ def _change_id_invalid_message(record_rel: str, entry: Mapping[str, Any]) -> str
     return (
         f"{record_rel} line {entry['line']} holds a member id that is not a change id "
         f"({entry['reason']}); no path is built from it. Edit that line by hand (no tool "
-        "repairs it, and wf_remove_change refuses an invalid id), then run wf_validate_docs."
+        "repairs it, and wf_remove_spec refuses an invalid id), then run wf_validate_docs."
     )
 
 
@@ -393,7 +393,7 @@ def _change_id_invalid_diagnostics(
     record_rel: str, rejected: Iterable[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
     """One blocking ``change_id_invalid`` diagnostic per rejected member line.
-    The one advisory use (bulk ``wf_get_change``) builds its own, so no flag is
+    The one advisory use (bulk ``wf_get_spec``) builds its own, so no flag is
     forwarded through here."""
     return [
         _diagnostic(
@@ -622,14 +622,14 @@ def _collect_silent_unchecked_items_for_close(
             # 1v0lx: absent is not "nothing to check". The gate cannot verify
             # ACs and tasks it cannot see, so a ghost blocks close exactly as
             # an unreadable document does, under its own item id (the recovery
-            # differs: restore or wf_remove_change, not repair).
+            # differs: restore or wf_remove_spec, not repair).
             findings.append({
                 "change_id": change_id,
                 "item_type": "change document",
                 "item_id": "missing",
                 "item_text": (
                     f"no file at {wave_md.parent.name}/{change_path.name}; "
-                    "restore the document or remove the change via wf_remove_change"
+                    "restore the document or remove the change via wf_remove_spec"
                 ),
             })
             continue
@@ -656,6 +656,10 @@ def _collect_silent_unchecked_items_for_close(
                 })
             continue
 
+        from wave_lint_lib.wave_validators import conflicting_spec_labels
+        if conflicting_spec_labels(change_text):
+            findings.append({"change_id": change_id, "item_type": "change document",
+                             "item_id": "conflicting_spec_fields", "item_text": "conflicting spec header fields"})
         findings.extend(_member_checklist_findings(change_id, change_text))
     return findings
 

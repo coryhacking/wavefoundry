@@ -1,7 +1,7 @@
 """Read-only archive record root (wave 1z8ts, change 1z827).
 
 AC-2: with an archive root holding a wave and a change written under a second
-profile, ``wf_get_change`` finds both by id (marked archived), the dashboard
+profile, ``wf_get_spec`` finds both by id (marked archived), the dashboard
 document view serves the archived change with the archived header, and a new
 id skips an archived prefix. Each read has an archive-unset control.
 AC-3: each of the eleven lifecycle writers given an archived id returns
@@ -219,8 +219,8 @@ class ArchiveWriterRefusalTests(_ArchiveCase):
     def _calls(self):
         srv, root, wave, change = self.srv, self.root, "1a000", ARCHIVED_CHANGE
         return {
-            "wf_add_change (wave)": lambda: srv.wf_add_change_response(root, wave, "1zzzz-feat x", mode="create"),
-            "wf_remove_change": lambda: srv.wf_remove_change_response(root, wave, change, mode="create"),
+            "wf_add_spec (wave)": lambda: srv.wf_add_change_response(root, wave, "1zzzz-feat x", mode="create"),
+            "wf_remove_spec": lambda: srv.wf_remove_change_response(root, wave, change, mode="create"),
             "wf_mark_ac": lambda: srv._mark_change_item_response(
                 root, wave, change, "AC-1", "x", target_section="Acceptance Criteria", mode="create"),
             "wf_mark_task": lambda: srv._mark_change_item_response(
@@ -232,7 +232,7 @@ class ArchiveWriterRefusalTests(_ArchiveCase):
             "wf_review_wave": lambda: srv.wf_review_wave_response(root, wave),
             "wf_implement_wave": lambda: srv.wf_implement_wave_response(root, wave, mode="create"),
             "wf_close_wave": lambda: srv.wf_close_wave_response(root, wave, mode="create"),
-            "wf_close_change": lambda: srv.wf_close_change_response(root, wave, change, mode="create"),
+            "wf_close_spec": lambda: srv.wf_close_change_response(root, wave, change, mode="create"),
             "wf_reopen_wave": lambda: srv.wf_reopen_wave_response(root, wave),
         }
 

@@ -49,11 +49,11 @@ class CoreReadHookTests(unittest.TestCase):
         names = hook['CORE_READ_TOOLS']
         self.assertIn('mcp__wavefoundry__code_read', names)
         self.assertNotIn('mcp__wavefoundry__wf_prepare_wave', names)
-        for name, tier in roster.TOOL_TIERS.items():
+        for name, tier in roster.all_tool_tiers().items():
             with self.subTest(name=name):
                 full = roster.MCP_RULE_PREFIX + name
                 self.assertEqual(self.invoke(hook, full), 0 if tier == roster.TIER_READ else 2)
-        for name in ('mcp__foreign__code_read', 'mcp__wavefoundry__code_write',
+        for name in ('mcp__wavefoundry__wf_get_change', 'mcp__foreign__code_read', 'mcp__wavefoundry__code_write',
                      'mcp__wavefoundry__code_read_alias', 'mcp__wavefoundry__extension_read'):
             self.assertEqual(self.invoke(hook, name), 2)
 

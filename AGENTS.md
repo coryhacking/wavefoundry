@@ -124,11 +124,12 @@ Public Wave Framework commands for Wavefoundry's self-hosted surface. Full detai
 | **Implement spec** / **Implement change** | Single-change docs-first implementation | `docs/prompts/implement-spec.prompt.md` |
 | **Pause wave** | Park session state in handoff artifact | `docs/prompts/pause-wave.prompt.md` |
 | **Review wave** | Run required review lanes | `docs/prompts/review-wave.prompt.md` |
+| **Author behavior contract** | Write or update a behavior contract using the implementation and its tests | `docs/prompts/author-behavior-contract.prompt.md` |
 | **Explain** | Walk through a delivery or one spec with `wf-explain` | `docs/prompts/explain.prompt.md` |
 | **Review memories** / **Memory review** | Review and apply eligible memory consolidation, archival, and purge | `docs/prompts/memory-review.prompt.md` |
 | **Refresh TechDocs** / **Author TechDocs** | Generate the missing-only Backstage catalog and TechDocs baseline (MCP: `wf_techdocs_baseline(mode='run')`; CLI: `wf techdocs-baseline`), then author the published pages with the technical-writer-coordinated collaboration; an explicit read-only request selects the review-only branch, which runs `wf_techdocs_audit` (CLI: `wf techdocs-audit`) and returns findings and proposed edits without writing | `docs/prompts/refresh-techdocs.prompt.md` |
 | **Close wave** | Close and archive the wave | `docs/prompts/close-wave.prompt.md` |
-| **Close spec** / **Close change** | Close one admitted change inside the open wave (`wf_close_change`); optional, after Review wave | `docs/prompts/close-spec.prompt.md` |
+| **Close spec** / **Close change** | Close one admitted change inside the open wave (`wf_close_spec`); optional, after Review wave | `docs/prompts/close-spec.prompt.md` |
 | **Review plan** / **Interrogate this plan** / **Stress-test this plan** | Optionally stress-test a spec, or current-wave fallback, before or after admission and before implementation; no signoff or gate | `docs/prompts/review-plan.prompt.md` |
 | **Evaluate decision** | Structured decision evaluation for ADR-shaped choices | `docs/prompts/evaluate-decision.prompt.md` |
 | **Migrate journals** | One-time retirement of remaining journal files into the memory system | `.wavefoundry/framework/seeds/210-migrate-journals.prompt.md` |
@@ -193,7 +194,7 @@ Or: `python3 -B -m unittest discover -s .wavefoundry/framework/scripts/tests`
 
 ## Spec Tracking (Real-Time)
 
-Mark task and AC checkboxes `[x]` as each item completes; update `Change Status` in the spec and `wave.md` immediately — not at wave end.
+Mark task and AC checkboxes `[x]` as each item completes; update the spec status in the spec and `wave.md` immediately — not at wave end.
 
 Three checkbox states are canonical: `[ ]` (unmet, in scope), `[x]` (done, evidence exists), and `[~]` (**intentionally not met** — requirement reconsidered, removed by operator direction, or genuinely narrowed by scope-discovery during implementation). Every `[~]` AC at required priority must carry an inline status note explaining the rationale; silent `[~]` is a docs-lint error. At `wf_close_wave` every AC and task must be `[x]` or `[~]` (the hard close-time gate); silent `[ ]` blocks close. See `.wavefoundry/framework/seeds/170-plan-spec.prompt.md` *"AC and task checkbox states — the `[~]` marker"* for the canonical convention.
 
@@ -282,7 +283,7 @@ Use the `python3` on PATH after `wf setup`; do not point MCP config at `.wavefou
 
 On native Windows, a fresh install and an already-seeded checkout on a new workstation need the same pre-MCP diagnosis. From the repository root run `powershell -NoProfile -File ".\.wavefoundry\framework\scripts\diagnose_python.ps1"` before trusting `wf.cmd`, MCP or completed install-log rows. If Python or PowerShell policy prevents this, use the manual probes and IT handoff in `docs/references/native-windows-support.md`. Do not bypass execution policy, treat `python.exe` as the MCP command, or reseed/rebuild merely to diagnose a local prerequisite.
 
-**Tools:** the complete, test-enforced tool reference is `docs/specs/mcp-tool-surface.md` § **Tool Index** (every registered tool with its tier, summary and detail section); call `wf_help` for discovery from a session.
+**Tools:** the complete, test-enforced tool reference is `docs/architecture/contracts/mcp-tool-surface.md` § **Tool Index** (every registered tool with its tier, summary and detail section); call `wf_help` for discovery from a session.
 
 
 **Graph index:** `index_build(content='graph', mode='rebuild')` rebuilds only the structural graph (no semantic embedding). Graph query tools operate on the single `project` layer (target-repo code from the whole-repo walk; `indexing.project_include_prefixes` only opts `.wavefoundry/`-nested subpaths back in) — there is no framework or union graph layer. Community detection optionally uses `igraph`+`leidenalg` (installed by `wf setup`) and falls back to a built-in label-propagation pass when they are unavailable.
@@ -293,25 +294,25 @@ On native Windows, a fresh install and an already-seeded checkout on a new works
 
 Existing `feat` ids stay valid; plan a large feature as several changes, possibly across waves.
 
-Tool reference: `docs/specs/mcp-tool-surface.md` **Current Tool Surface**.
+Tool reference: `docs/architecture/contracts/mcp-tool-surface.md` **Current Tool Surface**.
 
 ### Code Navigation
 
-Choose the code tool by what you know: `docs/specs/mcp-tool-surface.md` **Tool Selection Guide**.
+Choose the code tool by what you know: `docs/architecture/contracts/mcp-tool-surface.md` **Tool Selection Guide**.
 
 ### MCP Resources and Resource Templates
 
-Resource catalog: `docs/specs/mcp-tool-surface.md` **MCP Resources**.
+Resource catalog: `docs/architecture/contracts/mcp-tool-surface.md` **MCP Resources**.
 
 **When to use resources vs tools:**
 
 - Use **resources/templates** when you need to attach stable reference material as context (project overview, architecture docs, a specific spec). Resources return raw markdown.
-- Use **tools** (`wf_get_change`, `wf_current_wave`, `seed_get`, etc.) when you need structured envelope responses with `diagnostics`, `next_tools`, and `usage` hints — especially for error-handling, recovery, or actions that return metadata beyond raw text.
+- Use **tools** (`wf_get_spec`, `wf_current_wave`, `seed_get`, etc.) when you need structured envelope responses with `diagnostics`, `next_tools`, and `usage` hints — especially for error-handling, recovery, or actions that return metadata beyond raw text.
 - Missing resources return a clear `# Not Found` markdown message rather than raising an error.
 
 ### Docs validation and gardening (agents)
 
-**Prefer MCP over shell launchers.** Use `**wf_validate_docs`** for docs lint results, `**wf_garden_docs**` for metadata gardening (follow the tool’s `mode` contract), and `**wf_audit**` when you need wave state + validation + index health in one structured response. Treat the no-PATH dispatcher forms as **CLI fallbacks** for hooks, CI, terminals, or any host where MCP is not attached — POSIX `**./.wavefoundry/bin/wf docs-lint**` / `**./.wavefoundry/bin/wf docs-gardener**`, native Windows `**.\\.wavefoundry\\bin\\wf.cmd docs-lint**` / `**.\\.wavefoundry\\bin\\wf.cmd docs-gardener**` — not the default path for agent instructions. More broadly: **before reaching for `ls`, `grep`, or filesystem tools to answer any question about wave state, plans, or specs, check the MCP tool list first** — `wf_list_plans`, `wf_list_waves`, `wf_current_wave`, `wf_get_change`, and related tools return structured answers directly without shell round-trips.
+**Prefer MCP over shell launchers.** Use `**wf_validate_docs`** for docs lint results, `**wf_garden_docs**` for metadata gardening (follow the tool’s `mode` contract), and `**wf_audit**` when you need wave state + validation + index health in one structured response. Treat the no-PATH dispatcher forms as **CLI fallbacks** for hooks, CI, terminals, or any host where MCP is not attached — POSIX `**./.wavefoundry/bin/wf docs-lint**` / `**./.wavefoundry/bin/wf docs-gardener**`, native Windows `**.\\.wavefoundry\\bin\\wf.cmd docs-lint**` / `**.\\.wavefoundry\\bin\\wf.cmd docs-gardener**` — not the default path for agent instructions. More broadly: **before reaching for `ls`, `grep`, or filesystem tools to answer any question about wave state, plans, or specs, check the MCP tool list first** — `wf_list_plans`, `wf_list_waves`, `wf_current_wave`, `wf_get_spec`, and related tools return structured answers directly without shell round-trips.
 
 Incremental changed-set lint is the routine edit-feedback path; workflow-config, manifest, or repo-profile changes automatically escalate it to a full scan. By default `wf_garden_docs` stamps a Git-changed markdown document only when its content differs from `HEAD` outside the `Last verified` line and it changed since its stamp, so use explicit paths for untracked docs that need stamping. Do not treat the automatic incremental result as an integrity-boundary result: use the full tools above for validation, handoff, Prepare, Review, Close, installation, and upgrade.
 

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-07-20
+Last verified: 2026-11-24
 
 ## Context
 
@@ -44,7 +44,7 @@ Scan the diff for each vulnerability class below. Record every candidate finding
 - Tool responses: confirm they do not echo back raw file content beyond what is needed for the cited excerpt.
 
 #### Write-path tool exposure
-- Tools annotated `_READONLY_TOOL` must not call write-path operations. Verify any new tool with `annotations=_READONLY_TOOL` does not invoke `index_build`, `wf_sync_surfaces`, `wf_add_change`, `wf_new_*`, or any file write/edit/create operation — directly or via helper calls.
+- Tools annotated `_READONLY_TOOL` must not call write-path operations. Verify any new tool with `annotations=_READONLY_TOOL` does not invoke `index_build`, `wf_sync_surfaces`, `wf_add_spec`, `wf_new_*`, or any file write/edit/create operation — directly or via helper calls.
 
 ---
 

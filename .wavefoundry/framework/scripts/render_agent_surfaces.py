@@ -44,6 +44,7 @@ import vocabulary_profile  # record vocabulary (wave 1z8mm)
 from review_policy import (
     REVIEW_POLICY_CARRIER_REGISTRY,
     REVIEW_POLICY_SURFACE_BLOCKS,
+    TOOL_CONTRACT_PATHS,
     REVIEW_POLICY_SURFACE_MARKER_BEGIN,
     REVIEW_POLICY_SURFACE_MARKER_END,
 )
@@ -344,6 +345,7 @@ LIFECYCLE_PROMPT_BASELINES: tuple[tuple[str, str], ...] = (
     ("docs/prompts/review-plan.prompt.md", "review-plan.prompt.md"),
     (_vp_doc("close-change"), "close-change.prompt.md"),
     ("docs/prompts/explain.prompt.md", "explain.prompt.md"),
+    ("docs/prompts/author-behavior-contract.prompt.md", "author-behavior-contract.prompt.md"),
 )
 
 def _lifecycle_prompt_baselines():
@@ -838,6 +840,17 @@ WF_COUNCIL_SKILL_BODY = dedent(
     "@CONTAINER@", _vp_wave()).replace("@PLANNING_ARTICLE@", _vp_planning("article"))
 
 def _build_skill_registry() -> tuple[Skill, ...]:
+    plan_tools = (
+        "Select a kind-specific scaffold such as `wf_new_bug` or `wf_new_enhancement`, "
+        "or use `wf_new_spec(slug=...)` for the generic scaffold (stored kind `change`). "
+        f"Pass the returned `data.spec_id` to retrieve the {_vp_planning()} with `wf_get_spec(spec_id=...)` and admit it with "
+        "`wf_add_spec(wave_id=..., spec_id=..., mode='create')`."
+    )
+    close_tool = "To check readiness with `wf_close_spec(wave_id=..., spec_id=..., mode='dry_run')`, run `dry_run` (the default) freely."
+    if mcp_tool_extensions.declared():
+        # A downstream wrapper can change the schema or withhold the stock route.
+        plan_tools = "Use wf_help and the served MCP tool schemas to find the project's authorized creation, retrieval and admission operations and their arguments."
+        close_tool = "Use wf_help and the served MCP tool schema to find the project's authorized single-document close and its dry-run arguments."
     return (
         Skill(
             name=_vp_skill("plan-change"),
@@ -846,7 +859,7 @@ def _build_skill_registry() -> tuple[Skill, ...]:
                 f"Plan {_vp_change(article=True)}",
                 _vp_doc("plan-change"),
                 (
-                    f"The workflow selects the scaffold among the `wf_new_<kind>` MCP creation tools (bug, enhancement, refactor, documentation, tech debt, task, maintenance, operations, change) by {_vp_change()} kind, then admits the doc with `wf_add_change`.",
+                    plan_tools,
                     f"Gate reminder: planning writes docs only; no repository code edits until the stage gate ({_vp_planning()}, {_vp_wave()} admission, recorded readiness) is satisfied.",
                 ),
             ),
@@ -907,12 +920,12 @@ def _build_skill_registry() -> tuple[Skill, ...]:
         ),
         Skill(
             name=_vp_skill("close-change"),
-            description=f"Close one admitted {_vp_change()} inside the open {_vp_wave()} with wf_close_change, marking it complete and activating its dependents; never closes the {_vp_wave()} ({_vp_shortcut('close-wave')} is the only {_vp_wave()} close). The {_vp_shortcut('close-change')} workflow.",
+            description=f"Close one admitted {_vp_change()} inside the open {_vp_wave()}, marking it complete and activating its dependents; never closes the {_vp_wave()} ({_vp_shortcut('close-wave')} is the only {_vp_wave()} close). The {_vp_shortcut('close-change')} workflow.",
             body=_thin_pointer_body(
                 f"Close {_vp_change(article=True)}",
                 _vp_doc("close-change"),
                 (
-                    "Prefer the `wf_close_change` MCP tool; run `dry_run` (the default) freely to validate close readiness.",
+                    close_tool,
                     f'Gate reminder: closure is operator-owned. Call `mode="create"` only when the operator explicitly instructs closing that {_vp_change()} in the current request; closure is never inferred from adjacent actions such as "run the review" or "fix the tests".',
                     "The tool permits closure from `ready` and does not verify review evidence; required review must still be completed before closure.",
                     f"Run it after {_vp_shortcut('review-wave')} has cleared the {_vp_change()}: a completed {_vp_change()} cannot be reopened, and the tool records no review evidence.",
@@ -1061,6 +1074,16 @@ def _build_skill_registry() -> tuple[Skill, ...]:
                 ),
             ),
             requires_doc=_vp_doc("plan-arc"),
+        ),
+        Skill(
+            name="wf-contract",
+            description="Write or update a behavior contract using the implementation and its tests.",
+            body=_thin_pointer_body(
+                "Author behavior contract",
+                "docs/prompts/author-behavior-contract.prompt.md",
+                ("Use the project's maintained contract index to find the authoritative page.",),
+            ),
+            requires_doc="docs/prompts/author-behavior-contract.prompt.md",
         ),
         Skill(
             name="wf-explain",
@@ -4737,7 +4760,8 @@ def preflight_agent_surface_paths(repo_root: Path) -> None:
     )
     root = repo_root.resolve()
     for destination in skill_destinations:
-        if destination.endswith("/agents/openai.yaml") and _skill_path_has_symlink_component(root, root / destination):
+        if _skill_path_has_symlink_component(root, root / destination):
+            _contained_review_carrier_path(repo_root, destination)
             raise RuntimeError(
                 f"skill output path contains a symlink: {_display_name(destination)}"
             )
@@ -5157,9 +5181,8 @@ TECHDOCS_BASELINES: "tuple[tuple[str, str, str], ...]" = (
     ("docs/index.md", "techdocs-index.template.md", f"<!-- {TECHDOCS_BASELINE_MARKER} -->"),
 )
 
-# The generated landing page links exactly these three documents, so the
-# command refuses to run until they exist: no generated tree ever links to
-# an absent document (that keeps every touched tree docs-lint clean).
+# These three links are mandatory. New baselines also link the contract index
+# when the target project has one.
 TECHDOCS_PRECONDITION_TARGETS: "tuple[str, ...]" = (
     "docs/references/project-overview.md",
     "docs/ARCHITECTURE.md",
@@ -5383,6 +5406,33 @@ def _classify_techdocs_destination(repo_root: Path, destination: str) -> "tuple[
     )
 
 
+def _techdocs_contract_navigation(repo_root: Path, absent: tuple[str, ...], entity_name: str) -> bool:
+    """Opt into the contract link on fresh sites and resumes with the exact baseline config."""
+    from path_containment import contained_path
+
+    if "mkdocs.yml" not in absent and "docs/index.md" not in absent:
+        return False
+    index = contained_path(
+        repo_root, "docs/architecture/contracts/index.md", strict=True,
+        refuse_symlink_components=True,
+    )
+    if index is None or not index.is_file():
+        return False
+    if "mkdocs.yml" in absent:
+        return True
+    # A generated-by marker survives project edits. Match the complete
+    # configuration before restoring a missing landing page after interruption.
+    try:
+        template = _resolve_install_asset(repo_root, "mkdocs.template.yml")
+        source = _framework_read_text(template, translate_newlines=True)
+        existing = _read_repo_text(repo_root, repo_root / "mkdocs.yml", translate_newlines=True)
+    except (OSError, RuntimeError, UnicodeDecodeError):
+        return False
+    return "{{if_contract_index}}" in source and existing == (
+        source.replace("{{if_contract_index}}", "").replace("{{entity_name}}", entity_name)
+    )
+
+
 def render_techdocs_baseline(repo_root: Path, *, dry_run: bool = False) -> TechdocsBaselineResult:
     """Materialize the missing members of the Backstage/TechDocs trio.
 
@@ -5440,6 +5490,7 @@ def render_techdocs_baseline(repo_root: Path, *, dry_run: bool = False) -> Techd
             absent_paths=absent,
         )
     entity_name = techdocs_entity_name(repo_root.resolve().name)
+    include_contract_index = _techdocs_contract_navigation(repo_root, absent, entity_name)
     today = time.strftime("%Y-%m-%d")
     written: list[str] = []
     preserved: list[str] = []
@@ -5453,6 +5504,14 @@ def render_techdocs_baseline(repo_root: Path, *, dry_run: bool = False) -> Techd
                 .replace("{{generated_at}}", today)
                 .replace("{{entity_name}}", entity_name)
             )
+            if destination == "mkdocs.yml":
+                include_contract_index = include_contract_index and "{{if_contract_index}}" in content
+            if destination in ("mkdocs.yml", "docs/index.md"):
+                content = "".join(
+                    line.removeprefix("{{if_contract_index}}")
+                    for line in content.splitlines(keepends=True)
+                    if include_contract_index or not line.startswith("{{if_contract_index}}")
+                )
             _write_review_carrier_text(path, content, exclusive=True, root=repo_root)
         except (RuntimeError, OSError, UnicodeDecodeError) as exc:
             # Preflight already passed, so earlier members may be on disk. Carry
@@ -5496,6 +5555,15 @@ def reconcile_review_policy_surfaces(
     """
 
     written: list[str] = []
+    if not all(rel in skip_paths for rel in TOOL_CONTRACT_PATHS) and all(
+        _migration_entry_exists(repo_root, rel) for rel in TOOL_CONTRACT_PATHS
+    ):
+        print(
+            "render_agent_surfaces: WARNING — both tool-contract destinations exist. "
+            f"Resolve the contract location before rendering either page: {', '.join(TOOL_CONTRACT_PATHS)}",
+            file=sys.stderr,
+        )
+        skip_paths = skip_paths.union(TOOL_CONTRACT_PATHS)
     for carrier in REVIEW_POLICY_CARRIER_REGISTRY:
         block = REVIEW_POLICY_SURFACE_BLOCKS.get(carrier.destination)
         if carrier.owner != "renderer" or block is None or carrier.destination in skip_paths:
@@ -5619,12 +5687,14 @@ def render_agent_surfaces(repo_root: Path) -> list[str]:
     # Wave 200xy (200xx): with no readable record, no pass writes, creates or
     # requires a file at a renamed key's prompt paths this render.
     unrecorded = unrecorded_profile_prompt_paths(profile_migration)
-    # Wave 1p6lp: the skill registry renders BEFORE the reconcile passes so a
+    # Materialize missing prompt baselines first so a doc-gated skill can
+    # render on the install or upgrade that introduces its backing prompt.
+    lifecycle_written = reconcile_lifecycle_prompt_baselines(repo_root, skip_paths=unrecorded)
+    # Wave 1p6lp: the skill registry renders BEFORE the policy reconcile passes so a
     # freshly migrated carrier skill (wf-guru on Codex) is reconciled in the
     # same render, and BEFORE the Guru gate because lifecycle skills are not
     # Guru-gated (per-skill gates live in the registry).
     skills_written = render_skills(repo_root, skip_paths=unrecorded)
-    lifecycle_written = reconcile_lifecycle_prompt_baselines(repo_root, skip_paths=unrecorded)
     scaffold_written = reconcile_scaffold_baselines(repo_root)
     # The phase-0c in-process reconciler can still be old code on the upgrade
     # that installs this release. Replay only its shared upgrade-policy marker

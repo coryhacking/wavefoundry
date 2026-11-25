@@ -81,11 +81,14 @@ ARCHIVE_PROTECTED_KINDS = ("decision", "operator_preference", "fragile_file")
 DEFAULT_SURFACED_STATUSES = ("active", "candidate")
 
 # --- Kind-aware decay constants (1p8gy Req 13) ---
-# Churn-decayed kinds: confidence multiplier = 1 / (1 + commits_since_created
-# / CHURN_DECAY_HALVING_COMMITS). At the halving count the record ranks at
-# half strength; it never reaches zero (decay orders, status retires).
+# Change 246to: churn never lowers confidence. Commits on a target's canonical
+# path since the last recorded check that reach the adaptive halving count
+# set the ``target_churn`` revalidation flag, for every kind.
+# CHURN_DECAY_HALVING_COMMITS is the default halving count.
 CHURN_DECAY_HALVING_COMMITS = 10
 CHURN_DECAYED_KINDS = ("failed_attempt", "review_finding", "successful_pattern")
+# Revalidation reasons in their fixed order (change 246to Requirement 1).
+REVALIDATION_REASONS = ("target_unresolved", "target_churn", "target_not_canonical")
 # Adaptive cadence calibration (wave 1tbt5). Seven days is the selected
 # reference interval: a target changed weekly retains the established 10-commit
 # half-life, faster targets receive more commit headroom, and slower targets
@@ -101,10 +104,8 @@ TIME_DECAYED_KINDS = ("environment_gotcha", "dependency_gotcha")
 ADAPTIVE_TIME_CADENCE_MULTIPLIER = 6.0
 ADAPTIVE_TIME_MIN_HALVING_DAYS = 30
 ADAPTIVE_TIME_MAX_HALVING_DAYS = 365
-# Briefing exclusion floor for churn-decayed kinds only (1p8gy AC-13: a
-# heavily-churned failed_attempt can drop OUT of briefings). fragile_file is
-# exempt by council amendment: churn is ambiguous evidence there, so it sets
-# needs_reverification instead and never drops below inclusion.
+# Briefing exclusion floor for time-decayed kinds only. Change 246to removed
+# the tactical churn floor: churn flags a record and never drops it.
 BRIEFING_CONFIDENCE_FLOOR = 0.2
 ACTIVE_MEMORY_CAP = 50
 
@@ -136,6 +137,11 @@ _STATUS_RE = re.compile(r"^Status:\s+(\S+)\s*$", re.MULTILINE)
 _CONFIDENCE_RE = re.compile(r"^Confidence:\s*(\S+)\s*$", re.MULTILINE)
 _CREATED_RE = re.compile(r"^Created:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
 _UPDATED_RE = re.compile(r"^Updated:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
+# Change 246to: the lines a recorded check writes.
+_CHECKED_AT_RE = re.compile(r"^Checked at:[ \t]*(\S+)[ \t]*\r?$", re.MULTILINE)
+_CHECK_NOTE_RE = re.compile(r"^Check note:[ \t]*([^\r\n]*?)[ \t]*\r?$", re.MULTILINE)
+_CHECK_FLAGS_RE = re.compile(r"^Check flags:[ \t]*([^\r\n]*?)[ \t]*\r?$", re.MULTILINE)
+_CHECKED_AT_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 _ARCHIVED_RE = re.compile(r"^Archived:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
 _ARCHIVE_REASON_RE = re.compile(r"^Archive reason:\s*(\S[^\r\n]*)$", re.MULTILINE)
 _ARCHIVE_PATH_RE = re.compile(r"^Archive path:\s*`([^`\r\n]+)`\s*$", re.MULTILINE)
@@ -200,6 +206,42 @@ def _date_ts(value: str) -> Optional[int]:
         return int(time.mktime(time.strptime(value, "%Y-%m-%d")))
     except (ValueError, OverflowError):
         return None
+
+
+def _checked_at_ts(value: str) -> Optional[int]:
+    """Epoch seconds of an ISO 8601 UTC ``Checked at:`` value, or None."""
+    import calendar
+    try:
+        return int(calendar.timegm(time.strptime(str(value or ""), _CHECKED_AT_FORMAT)))
+    except (ValueError, OverflowError):
+        return None
+
+
+def _now() -> float:
+    """The clock a recorded check reads; tests patch this one function."""
+    return time.time()
+
+
+def check_timestamp(now: Optional[float] = None) -> str:
+    """``Checked at:`` value for ``now`` (default: the current time), in UTC."""
+    return time.strftime(_CHECKED_AT_FORMAT, time.gmtime(_now() if now is None else now))
+
+
+def last_check_ts(record: dict[str, Any]) -> Optional[int]:
+    """The instant of a record's last recorded check (change 246to).
+
+    ``Checked at:`` when present and valid; else the ``Updated:`` date; else
+    ``Created:``. Churn counts only commits strictly after this instant.
+    """
+    checked = _checked_at_ts(record.get("checked_at") or "")
+    if checked is not None:
+        return checked
+    for key in ("updated_at", "created_at"):
+        if record.get(key):
+            stamp = _date_ts(str(record[key]))
+            if stamp is not None:
+                return stamp
+    return None
 
 
 def parse_memory_record(path: Path, text: Optional[str] = None) -> Optional[dict[str, Any]]:
@@ -325,6 +367,15 @@ def parse_memory_record(path: Path, text: Optional[str] = None) -> Optional[dict
         ),
         "canonical_overlap": (
             m.group(1) if (m := _CANONICAL_OVERLAP_RE.search(text)) else None
+        ),
+        "checked_at": (
+            m.group(1) if (m := _CHECKED_AT_RE.search(text)) else None
+        ),
+        "check_note": (
+            m.group(1) if (m := _CHECK_NOTE_RE.search(text)) else None
+        ),
+        "check_flags": (
+            m.group(1) if (m := _CHECK_FLAGS_RE.search(text)) else None
         ),
         "summary": summary,
         "evidence_refs": evidence_refs,
@@ -1168,26 +1219,56 @@ def reconcile_memory_record(
     *,
     superseded_by: str = "",
     date: Optional[str] = None,
+    check_note: str = "",
+    checked_at: str = "",
+    check_flags: Iterable[str] = (),
 ) -> Path:
     """Status transition preserving history — never deletes, never rewrites
-    content. A ``superseded`` transition requires ``superseded_by``."""
+    content. A ``superseded`` transition requires ``superseded_by``.
+
+    Change 246to: without ``check_note`` only the ``Status:`` line changes.
+    With one the call is a recorded check: ``Updated:`` is re-stamped with
+    the check's date and ``Checked at:`` (ISO 8601 UTC, ``checked_at`` or
+    now), ``Check note:`` and ``Check flags:`` (``check_flags`` joined by
+    commas, or ``none``) are written. The caller content-checks the note.
+    """
     if new_status not in MEMORY_STATUSES:
         raise ValueError(f"unknown memory status: {new_status!r}")
     if new_status == "superseded" and not superseded_by:
         raise ValueError("a superseded record requires superseded_by")
     if superseded_by:
         superseded_by = validate_memory_id(superseded_by)
+    check_note = str(check_note or "").strip()
+    if check_note and not memory_single_line(check_note):
+        raise ValueError("check_note must be a single line")
+    if check_note:
+        checked_at = str(checked_at or "").strip() or check_timestamp()
+        if _checked_at_ts(checked_at) is None:
+            raise ValueError("checked_at must be an ISO 8601 UTC timestamp (YYYY-MM-DDTHH:MM:SSZ)")
     path = _contained_record_path(root, memory_id)
     if not path.is_file():
         raise FileNotFoundError(f"memory record not found: {memory_id}")
     original = line_endings.read(path)
     text = line_endings.to_lf(original)
-    today = date or time.strftime("%Y-%m-%d")
     text, n = _STATUS_LINE_RE.subn(rf"\g<1>{new_status}", text, count=1)
     if n == 0:
         raise ValueError(f"{memory_id}: no Status line to update")
-    if _UPDATED_LINE_RE.search(text):
-        text = _UPDATED_LINE_RE.sub(rf"\g<1>{today}", text, count=1)
+    if check_note:
+        today = date or checked_at[:10]
+        if _UPDATED_LINE_RE.search(text):
+            text = _UPDATED_LINE_RE.sub(rf"\g<1>{today}", text, count=1)
+        flags = ", ".join(str(flag) for flag in check_flags or ()) or "none"
+        for label, pattern, value in (
+            ("Checked at", _CHECKED_AT_RE, checked_at),
+            ("Check note", _CHECK_NOTE_RE, check_note),
+            ("Check flags", _CHECK_FLAGS_RE, flags),
+        ):
+            # Drop an earlier line, then insert, so the note is written
+            # literally rather than read as a replacement template.
+            header, marker, body = text.partition("\n## Summary")
+            header = re.sub(rf"^{re.escape(label)}:[^\n]*\n", "", header, flags=re.MULTILINE)
+            text = header + marker + body
+            text = _replace_or_insert_metadata(text, pattern, f"{label}: {value}")
     if superseded_by and not _SUPERSEDED_BY_RE.search(text):
         text = text.replace(
             f"Kind: `", f"Superseded by: `{superseded_by}`\nKind: `", 1
@@ -1673,6 +1754,42 @@ def memory_policy_sort_key(
     )
 
 
+def revalidation_state(resolution: Optional[dict[str, Any]]) -> dict[str, Any]:
+    """Resolution flags and canonical churn paths from ``resolve_memory_refs``.
+
+    Change 246to Requirement 1: reads each target ref's ``state``, never
+    ``blocking``. Returns ``{"unresolved": [...], "not_canonical": [...],
+    "canonical_paths": [...]}``: the target entries that set
+    ``target_unresolved`` and ``target_not_canonical``, and the canonical path
+    of every ``resolved`` or ``suffix_only`` file target, in ref order.
+    """
+    unresolved: list[dict[str, Any]] = []
+    not_canonical: list[dict[str, Any]] = []
+    paths: list[str] = []
+    for entry in (resolution or {}).get("refs") or []:
+        if entry.get("role") != "target":
+            continue
+        state, form = entry.get("state"), entry.get("form")
+        if form == "symbol":
+            if state == "unresolved":
+                unresolved.append(entry)
+            continue
+        if form in ("community", "uri"):
+            continue
+        # Every other target is a file target (an over-long ref is
+        # ``unresolved`` with form ``other``).
+        if state in ("unresolved", "ambiguous"):
+            unresolved.append(entry)
+        elif state in ("resolved", "suffix_only"):
+            if state == "suffix_only":
+                not_canonical.append(entry)
+            canonical = entry.get("resolved_path") or entry.get("ref")
+            if canonical and canonical not in paths:
+                paths.append(canonical)
+    return {"unresolved": unresolved, "not_canonical": not_canonical,
+            "canonical_paths": paths}
+
+
 def apply_decay(
     record: dict[str, Any],
     *,
@@ -1680,41 +1797,62 @@ def apply_decay(
     now: Optional[float] = None,
     churn_provider: Optional[Any] = None,
     commit_times_by_path: Optional[dict[str, list[int]]] = None,
+    root: Optional[Path] = None,
+    tree: Optional["MemoryRefTree"] = None,
+    resolution: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
-    """Kind-aware effective confidence (1p8gy Req 13 / AC-13).
+    """Kind-aware effective confidence and the derived revalidation flag.
 
     Returns ``{effective_confidence, decay_basis, needs_reverification,
-    briefing_included}``. Decay never mutates the record — it is a ranking
-    view. ``fragile_file`` never attenuates from churn (council amendment):
-    churn sets ``needs_reverification`` and the record never drops below
-    briefing inclusion from churn alone. Absent stores degrade to no decay.
+    revalidation_reasons, briefing_included, halving_commits}`` and, for
+    time-decayed kinds, ``halving_days``. Nothing is written to the record.
 
-    ``churn_provider`` (optional) is a callable ``(path, since_ts) -> int``
-    that hot-path callers inject so a whole advisory batch's churn is served
-    from ONE store read instead of a per-target store open (delivery-review
-    perf finding). When absent, the standalone per-path store read is used
-    (correct, used by tests and single-record calls).
+    Change 246to: churn never lowers confidence. ``revalidation_reasons``
+    holds, in this order, ``target_unresolved`` (a file target ``unresolved``
+    or ``ambiguous``, or an ``unresolved`` ``symbol:`` target),
+    ``target_churn`` (commits on a target's canonical path strictly after the
+    last recorded check reach ``adaptive_churn_halving_commits``) and
+    ``target_not_canonical`` (a ``suffix_only`` file target).
+    ``needs_reverification`` is true for the first two. Only
+    ``environment_gotcha`` and ``dependency_gotcha`` decay, by age since the
+    last recorded check.
+
+    ``resolution`` is ``resolve_memory_refs`` over the record's targets; with
+    ``root`` instead it is computed here (reusing ``tree``). Without either,
+    no resolution flag is set and the raw file refs are the churn paths.
+    ``churn_provider`` is a callable ``(path, since_ts) -> int`` keyed by
+    canonical path, so a batch reads the store once; without it the
+    standalone per-path store read is used.
     """
     now = now or time.time()
     kind = record["kind"]
     base = float(record.get("confidence") or 0.5)
-    out = {
+    out: dict[str, Any] = {
         "effective_confidence": base,
         "decay_basis": "none",
         "needs_reverification": False,
+        "revalidation_reasons": [],
         "briefing_included": True,
     }
-    created_ts = _date_ts(record.get("created_at") or "") if record.get("created_at") else None
-
-    def _max_target_churn(since_ts: Optional[int]) -> int:
-        file_targets = [
+    if resolution is None and root is not None:
+        resolution = resolve_memory_refs(
+            root, targets=record.get("target_refs") or [], tree=tree)
+    if resolution is not None:
+        state = revalidation_state(resolution)
+        churn_paths = state["canonical_paths"]
+    else:
+        state = {"unresolved": [], "not_canonical": []}
+        churn_paths = [
             ref for ref in (record.get("target_refs") or [])
             if not ref.startswith(("symbol:", "community:"))
         ]
-        if not file_targets:
+    since_ts = last_check_ts(record)
+
+    def _max_target_churn() -> int:
+        if not churn_paths:
             return 0
         if churn_provider is not None:
-            return max((int(churn_provider(ref, since_ts)) for ref in file_targets), default=0)
+            return max((int(churn_provider(ref, since_ts)) for ref in churn_paths), default=0)
         if index_dir is None:
             return 0
         try:
@@ -1722,29 +1860,20 @@ def apply_decay(
         except ImportError:
             return 0
         worst = 0
-        for ref in file_targets:
+        for ref in churn_paths:
             fresh = iss.freshness_for_path(index_dir, ref, since_ts=since_ts)
             if fresh:
                 worst = max(worst, int(fresh.get("commits_since") or 0))
         return worst
 
-    if kind in CHURN_DECAYED_KINDS:
-        churn = _max_target_churn(created_ts)
-        halving = adaptive_churn_halving_commits(
-            record.get("target_refs") or [], commit_times_by_path
-        )
-        out["halving_commits"] = halving
-        if churn:
-            out["effective_confidence"] = base / (1.0 + churn / float(halving))
-            out["decay_basis"] = (
-                f"target_churn:{churn};halving_commits:{halving}"
-            )
-        out["briefing_included"] = out["effective_confidence"] >= BRIEFING_CONFIDENCE_FLOOR
-    elif kind in TIME_DECAYED_KINDS and created_ts:
-        age_days = max(0.0, (now - created_ts) / 86400.0)
-        halving_days = adaptive_time_halving_days(
-            record.get("target_refs") or [], commit_times_by_path
-        )
+    churn = _max_target_churn()
+    halving = adaptive_churn_halving_commits(churn_paths, commit_times_by_path)
+    out["halving_commits"] = halving
+    if churn:
+        out["decay_basis"] = f"target_churn:{churn} (flag only)"
+    if kind in TIME_DECAYED_KINDS and since_ts:
+        age_days = max(0.0, (now - since_ts) / 86400.0)
+        halving_days = adaptive_time_halving_days(churn_paths, commit_times_by_path)
         out["halving_days"] = halving_days
         if age_days > 0:
             out["effective_confidence"] = base / (
@@ -1754,13 +1883,18 @@ def apply_decay(
                 f"age_days:{round(age_days)};halving_days:{halving_days}"
             )
         out["briefing_included"] = out["effective_confidence"] >= BRIEFING_CONFIDENCE_FLOOR
-    elif kind == "fragile_file":
-        churn = _max_target_churn(created_ts)
-        if churn:
-            out["needs_reverification"] = True
-            out["decay_basis"] = f"target_churn:{churn} (flag only)"
-        # briefing_included stays True — only reconciliation retires it.
-    # operator_preference / decision: no decay of any basis.
+    # decision / operator_preference / fragile_file and the tactical kinds:
+    # no confidence change from age or churn.
+    reasons: list[str] = []
+    if state["unresolved"]:
+        reasons.append("target_unresolved")
+    if churn and churn >= halving:
+        reasons.append("target_churn")
+    if state["not_canonical"]:
+        reasons.append("target_not_canonical")
+    out["revalidation_reasons"] = reasons
+    out["needs_reverification"] = any(
+        reason in ("target_unresolved", "target_churn") for reason in reasons)
     return out
 
 
@@ -2007,6 +2141,41 @@ def memory_ref_tree(root: Path) -> MemoryRefTree:
     results are the same with and without a supplied tree.
     """
     return MemoryRefTree(_walk_memory_ref_files(root))
+
+
+class _LazyMemoryRefTree(MemoryRefTree):
+    """A ``MemoryRefTree`` that walks only when a bare-name ref first reads it.
+
+    A batch shares one instance: an all-exact batch never walks, and a batch
+    with bare names walks once. Results equal an eager ``memory_ref_tree``.
+    """
+
+    def __init__(self, root: Path) -> None:  # noqa: D107 - no eager walk
+        self.ids = None
+        self._root = Path(root)
+        self._files: Optional[tuple[str, ...]] = None
+        self._by_name: dict[str, list[str]] = {}
+
+    def _walk(self) -> None:
+        if self._files is None:
+            self._files = tuple(sorted(_walk_memory_ref_files(self._root)))
+            for rel in self._files:
+                self._by_name.setdefault(rel.rsplit("/", 1)[-1], []).append(rel)
+
+    @property
+    def files(self) -> tuple[str, ...]:  # type: ignore[override]
+        self._walk()
+        return self._files or ()
+
+    @property
+    def by_name(self) -> dict[str, list[str]]:  # type: ignore[override]
+        self._walk()
+        return self._by_name
+
+
+def lazy_memory_ref_tree(root: Path) -> MemoryRefTree:
+    """A batch tree for ``resolve_memory_refs`` that walks on first need."""
+    return _LazyMemoryRefTree(root)
 
 
 def memory_ref_untrusted(ref: str) -> bool:

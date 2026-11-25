@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-14
+Last verified: 2026-11-24
 
 Hub index for Wavefoundry architecture documentation. Child docs provide detail; this file provides scope, update triggers, and cross-links.
 
@@ -45,6 +45,7 @@ Wavefoundry is a framework and tooling repository: canonical Wave Framework seed
 | `docs/architecture/search-architecture.md` | Semantic index layers, retrieval, reranking, and `code_ask` behavior | active |
 | `docs/architecture/graph-index-system.md` | Graph schema, generation pipeline, query layer, clustering, and MCP tool integration | active |
 | `docs/architecture/chunking-and-indexing-pipeline.md` | End-to-end file discovery, chunking, embedding, and index storage | active |
+| [Behavior contracts](architecture/contracts/index.md) | Standing promises to callers and operators | active |
 | `docs/architecture/decisions/` | Architecture Decision Records (ADRs) | active |
 
 ## Update Triggers
@@ -61,7 +62,7 @@ Update this hub and relevant child docs when:
 ## Cross-Links
 
 - `docs/repo-index.md` — inventory and architecture handoff
-- `docs/specs/mcp-tool-surface.md`: behavioral contract for the MCP tool surface, the governing contract for follow-on MCP work (repository path outside the published TechDocs site; named in `docs/architecture/current-state.md`, Current Risk Areas)
+- `docs/architecture/contracts/mcp-tool-surface.md`: behavioral contract for the MCP tool surface, the governing contract for follow-on MCP work (repository path outside the published TechDocs site; named in `docs/architecture/current-state.md`, Current Risk Areas)
 - `docs/architecture/decisions/README.md` — ADR index
 - `docs/architecture/decisions/1tsbu-adr review-policy-and-upgrade-protocol.md` — review-policy authority, shared evaluator, lock order, reconciliation, and protocol-2 bridge
 - [Unified SQLite storage ADR](architecture/decisions/1xjmn-adr%20unified-sqlite-vector-storage.md) — proposed docs/code consolidation, database location, migration and cleanup constraints

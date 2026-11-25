@@ -1,6 +1,8 @@
 # 230 - Author Behavior Contract
 
-**Applicable when:** the project has `docs/specs/*.md` behavioral contracts being authored or modified. Universal authoring lane.
+**Applicable when:** the project needs a new or updated standing behavior contract. Universal authoring lane.
+
+Shortcut: **Author behavior contract** or `/wf-contract`. Both use `docs/prompts/author-behavior-contract.prompt.md`.
 
 Intent:
 
@@ -13,7 +15,7 @@ When to use:
 - A new instrumentation module is added and its attribute output contract needs to be declared.
 - An existing component's behavior has been audited and verified in code.
 
-Do NOT use for in-flight change work — that belongs in a consolidated spec (`docs/plans/`). Behavior contracts describe stable boundaries that are already implemented and tested.
+Plan proposed work in a change spec under the configured plans root until admission moves it into a wave. Behavior contracts describe stable boundaries that are already implemented and tested.
 
 ## Prerequisites
 
@@ -21,7 +23,9 @@ Before authoring a behavior contract, verify:
 
 1. The component's behavior is observable in source code (not just comments or design docs).
 2. The component has unit or integration tests that define or confirm the behavior — cross-reference the test file.
-3. No existing behavior contract in `docs/specs/` already covers this component (check `docs/specs/` index or README).
+3. Locate the maintained contract before writing. Start at `docs/architecture/contracts/index.md`, any legacy `docs/specs/` index or README, and their linked sources. Exclude the old `docs/specs/changes/` change packages. If two pages claim authority, report the conflict and preserve both until ownership is resolved.
+
+Identify any missing verification and leave those claims open. Contract authoring preserves the existing publication audience and configuration. A request to publish an excluded page needs its own owner decision.
 
 ## Tasks
 
@@ -49,10 +53,12 @@ Cross-reference the test file (`*Test.java`, `*Spec.groovy`, etc.) to identify b
 
 ### 3. Determine behavior contract type and placement
 
-- Simple utility (validator, serializer, formatter) → single file, `docs/specs/<slug>.md`
+Use the established collection for new pages. The fresh-install default is `docs/architecture/contracts/`. Update an existing canonical page where its owner maintains it.
+
+- Simple utility (validator, serializer, formatter) → single file, e.g. `docs/architecture/contracts/<slug>.md`
 - Multi-class boundary (e.g., a subsystem's public API) → single file describing the boundary, not each class
-- Attribute key contract (span output) → `docs/specs/span-attribute-keys.md` or extend it
-- Configuration contract → `docs/specs/configuration-properties.md` or extend it
+- Attribute key contract (span output) → create or extend `span-attribute-keys.md` in the maintained collection
+- Configuration contract → create or extend `configuration-properties.md` in the maintained collection
 
 Do not create one behavior contract file per class unless the classes represent distinct, independently-consumed contracts.
 
@@ -102,7 +108,7 @@ Behavior contract quality bar:
 
 ### 5. Update the behavior contracts index
 
-After writing the behavior contract, update `docs/specs/README.md` (or create it if absent) to add the new behavior contract to the index table. Each row: title linked to the behavior contract file, component name, one-line summary of coverage. See existing rows in `docs/specs/README.md` for the format.
+Update the maintained index with the component, a one-line coverage summary and a link to the authoritative page. An API reference or another maintained page outside the collection may own the complete promise. Where publication differs from repository access, preserve the intended audience, label repository-only references, and use a verified repository URL when the project provides one.
 
 ### 6. Resolve missing-docs entries
 
@@ -123,8 +129,8 @@ Add links to the new behavior contract where relevant. Do not rewrite those docs
 
 ## Required outputs
 
-- `docs/specs/<slug>.md` — the behavior contract file
-- Updated `docs/specs/README.md` index
+- A verified behavior contract at its maintained location
+- A link from the maintained index (fresh default `docs/architecture/contracts/index.md`)
 - Updated `docs/missing-docs.md` if the component was listed as a gap
 - Cross-reference links added to architecture docs where appropriate
 

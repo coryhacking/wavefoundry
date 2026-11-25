@@ -1,6 +1,6 @@
 """Wave 1zv87 (1zv85): lifecycle tools never build a path from an unchecked change id.
 
-``wf_close_change`` stat'ed and read ``<wave dir>/<change_id>.md`` for any id
+``wf_close_spec`` stat'ed and read ``<wave dir>/<change_id>.md`` for any id
 (an existence and readability oracle), and ``wf_mark_ac`` / ``wf_mark_task``
 rewrote a checkbox there. A malformed id is now refused before any path work,
 the mark path requires admission, and close skips its document gates for an
@@ -347,7 +347,7 @@ class BadLineReaderTests(_BadLineCase):
 
         wid = WAVE_ID[:5]
         calls = {
-            "wf_get_change": lambda: srv.wf_get_change_response(self.root, wave_id=wid),
+            "wf_get_spec": lambda: srv.wf_get_change_response(self.root, wave_id=wid),
             "wf_current_wave": lambda: srv.wf_current_wave_response(self.root),
             "wf_list_waves": lambda: srv.wf_list_waves_response(self.root),
             "_wave_code_footprint": lambda: srv._wave_code_footprint(self.root, self.wave_md),
@@ -525,7 +525,7 @@ class MemberDocContainmentTests(_GuardCase):
         text = lambda: self.wave_md.read_text(encoding="utf-8")  # noqa: E731
         brief = lambda: lgs._build_prepare_council_brief(self.wave_md.parent.name, text(), [A], typed=True)  # noqa: E731
         return {
-            "wf_get_change": lambda: srv.wf_get_change_response(self.root, wave_id=wid),
+            "wf_get_spec": lambda: srv.wf_get_change_response(self.root, wave_id=wid),
             "_mark_change_item_response": lambda: self.mark(A),
             "_prepare_policy_state": lambda: srv._prepare_policy_state(self.root, self.wave_md, text(), [A], brief()),
             "_prepare_council_verdict_locations": lambda: srv._prepare_council_verdict_locations(
@@ -535,7 +535,7 @@ class MemberDocContainmentTests(_GuardCase):
             "_generate_wf_close_wave_summary": lambda: self._summary(text()),
             "_collect_silent_unchecked_items_for_close": lambda: lgs._collect_silent_unchecked_items_for_close(
                 self.wave_md, text(), self.root),
-            "wf_close_change": lambda: self.close(A, mode="dry_run"),
+            "wf_close_spec": lambda: self.close(A, mode="dry_run"),
             "wf_prepare_wave": lambda: srv.wf_prepare_wave_response(self.root, wid, "dry_run"),
             "collect_changes": lambda: dashboard_lib.collect_changes(self.root),
             "member_status_drift": lambda: member_status_drift(text(), self.wave_md.parent, root=self.root),
@@ -672,7 +672,7 @@ class MemberDocContainmentTests(_GuardCase):
 
 
 class BulkExactLookupTests(_GuardCase):
-    """AC-8: bulk ``wf_get_change`` resolves each member by exact name."""
+    """AC-8: bulk ``wf_get_spec`` resolves each member by exact name."""
 
     def test_substring_sibling_staged_member_and_subfolders(self) -> None:
         shorter, longer, staged, nested = "1200c-enh bravo", "1200c-enh bravo-two", "1200s-enh staged", "1200t-enh nested"
@@ -1037,7 +1037,7 @@ class SingleIdChangeLookupTests(_GuardCase):
                 if os.path.lexists(self.entry):
                     self.entry.unlink()
                 self.entry.symlink_to(target)
-                with self.subTest(caller="wf_get_change"):
+                with self.subTest(caller="wf_get_spec"):
                     self._assert_unreadable(self._single(), marker, str(target))
                 with self.subTest(caller="get_change"):
                     self.assertIsNone(srv.get_change(self.root, self._STEM))

@@ -4,7 +4,7 @@ Owner: Engineering
 Status: active
 Role: factor-13-api-first
 Category: factor
-Last verified: 2026-05-20
+Last verified: 2026-11-24
 
 ## What This Factor Covers
 
@@ -14,13 +14,13 @@ API as a first-class integration contract consumed by other systems or services.
 
 The future MCP tool surface (`wave.current`, `wave.validate`, `wave.resolve_seed`, `wave.prompt_surface_audit`, `code.search`, `code.read`) is a first-class integration contract. Tool contracts are defined before implementation per AGENTS.md Initial MCP Tool Surface. MCP clients (Claude Code, Cursor, Copilot) consume these tools as a stable interface.
 
-Evidence: `AGENTS.md` Initial MCP Tool Surface and Later MCP Tool Surface; `docs/missing-docs.md` flags `docs/specs/mcp-tool-surface.md` as needed.
+Evidence: `AGENTS.md` Initial MCP Tool Surface and Later MCP Tool Surface; `docs/missing-docs.md` flags `docs/architecture/contracts/mcp-tool-surface.md` as needed.
 
 ## Review Questions
 
 When evaluating a wave touching MCP tool contracts or server implementation:
 
-1. Is the tool contract specified in `docs/specs/mcp-tool-surface.md` before implementation begins?
+1. Is the tool contract specified in `docs/architecture/contracts/mcp-tool-surface.md` before implementation begins?
 2. Do tool responses use structured JSON with stable field names (not ad-hoc strings)?
 3. Are error responses structured (error code + message) rather than raw exceptions?
 4. Is the input schema for each tool explicit (required vs optional params, types)?
