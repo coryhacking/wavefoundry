@@ -1280,8 +1280,8 @@ from pathlib import Path
 sys.path.insert(0, 'tests')
 from declaration_support import base_declaration
 from server_tools_support import load_server, load_thin_runner
+impl = load_server()
 with base_declaration():
-    impl = load_server()
     server = load_thin_runner().build_server(Path(sys.argv[1]))
     print('REGISTERED=' + ' '.join(sorted(impl._registered_mcp_tool_names(server))))
 """

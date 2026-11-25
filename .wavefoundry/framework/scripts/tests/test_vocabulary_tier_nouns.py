@@ -17,6 +17,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from declaration_support import base_declaration_source
 from record_layout_support import apply_profile, copy_scripts_tree, load_profile, shipped_default_profile
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1]
@@ -98,6 +99,9 @@ def _skills(profile: "dict | None") -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         scripts = copy_scripts_tree(Path(tmp), with_support=False)
         apply_profile(scripts, shipped_default_profile())
+        # This census varies only tier names. Keep the stock tool routes in both copies.
+        with (scripts / "mcp_tool_extensions.py").open("a", encoding="utf-8") as declaration:
+            declaration.write(base_declaration_source())
         if profile is not None:
             apply_profile(scripts, profile)
         out = subprocess.run([sys.executable, "-B", "-c", DUMP, str(scripts)],

@@ -18,7 +18,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from server_tools_support import load_server
-from record_layout_support import RecordTreeBuilder
+from record_layout_support import RecordTreeBuilder, default_profile_only
 import vocabulary_profile as vp
 
 srv = load_server()
@@ -434,7 +434,7 @@ class CloseChangeReviewNeutralityTests(_CloseChangeCase):
         self.assertEqual(self.digest(), before)
         self.assertEqual(events.read_bytes(), events_before)
 
-    @unittest.skipUnless(vp.MEMBER_ID_LABEL == "Spec ID", "stock label transition")
+    @default_profile_only("stock label transition")
     def test_old_and_new_siblings_keep_labels_and_review_currency(self) -> None:
         self.wave([(A, "active"), (B, "planned", None, (A,))])
         def legacy(text):
@@ -451,7 +451,7 @@ class CloseChangeReviewNeutralityTests(_CloseChangeCase):
         self.assertEqual(self.digest(), before)
         self.assertEqual((self.wave_md.parent / "events.jsonl").read_bytes(), ledger)
 
-    @unittest.skipUnless(vp.MEMBER_ID_LABEL == "Spec ID", "stock label transition")
+    @default_profile_only("stock label transition")
     def test_mixed_admission_mark_review_and_legacy_binding(self) -> None:
         self.wave([(A, "active")])
         for path in (self.wave_md, self.doc(A)):
@@ -482,7 +482,7 @@ class CloseChangeReviewNeutralityTests(_CloseChangeCase):
         self.assertEqual(reopened["status"], "ok", reopened)
         self.assertEqual(self.wave_md.read_text().split(vp.MEMBER_HEADING, 1)[1], before_members)
 
-    @unittest.skipUnless(vp.MEMBER_ID_LABEL == "Spec ID", "stock label transition")
+    @default_profile_only("stock label transition")
     def test_conflicting_legacy_id_or_status_refuses_before_write(self) -> None:
         self.wave([(A, "active")])
         original = self.doc(A).read_text()
@@ -493,7 +493,7 @@ class CloseChangeReviewNeutralityTests(_CloseChangeCase):
                 self.assertIn("conflicting_spec_fields", self.codes(self.close()))
                 self.assertEqual(self.snapshot(), before)
 
-    @unittest.skipUnless(vp.MEMBER_ID_LABEL == "Spec ID", "stock label transition")
+    @default_profile_only("stock label transition")
     def test_wave_close_and_prepare_refuse_conflicting_header_before_gardening(self) -> None:
         self.wave([(A, "active")])
         self.doc(A).write_text(self.doc(A).read_text().replace("Owner:", "Change Status: `closed`\nOwner:"))

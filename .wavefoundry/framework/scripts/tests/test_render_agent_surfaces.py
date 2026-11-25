@@ -2746,7 +2746,8 @@ class ChangePromptSkillAndContractTests(unittest.TestCase):
         close_change = next(s for s in ras.SKILL_REGISTRY if s.name == vp.skill_name("close-change"))
         self.assertIsNone(close_change.requires_doc)
         self.assertIn(vp.prompt_doc("close-change"), close_change.body)
-        self.assertIn("dry_run", close_change.body)
+        expected_preview = "dry-run arguments" if ras.mcp_tool_extensions.declared() else "dry_run"
+        self.assertIn(expected_preview, close_change.body)
         assert_clause(self, "only {wave} close", close_change.body)
 
     def _close_change_sources(self) -> dict[str, str]:
@@ -3299,7 +3300,11 @@ class SkillRegistryTests(unittest.TestCase):
                         self.assertIn("perform each only", body)
                     else:
                         self.assertIn('Call `mode="create"` only when', body)
-                        self.assertIn("run `dry_run` (the default) freely", body)
+                        if ras.mcp_tool_extensions.declared():
+                            self.assertIn("served MCP tool schema", body)
+                            self.assertIn("dry-run arguments", body)
+                        else:
+                            self.assertIn("run `dry_run` (the default) freely", body)
                         self.assertIn("closure is never inferred from adjacent actions", body)
                         self.assertIn("The tool permits closure from `ready` and does not verify review evidence; required review must still be completed before closure.", body)
                         self.assertNotIn("then `create` once the dry run is clean", body)

@@ -1358,7 +1358,8 @@ class DefaultRenderIdentityTests(unittest.TestCase):
             # The copied surfaces are stock, even when this suite is running
             # with a distribution declaration that adds its own skills.
             with base_declaration(), contextlib.redirect_stderr(io.StringIO()) as err:
-                written = ras.render_agent_surfaces(root)
+                with mock.patch.object(ras, "SKILL_REGISTRY", ras._build_skill_registry()):
+                    written = ras.render_agent_surfaces(root)
             self.assertEqual(written, [], err.getvalue())
             self.assertEqual(_tree_digest(root), before)
             manifest = json.loads((root / "docs/prompts/prompt-surface-manifest.json").read_text(encoding="utf-8"))

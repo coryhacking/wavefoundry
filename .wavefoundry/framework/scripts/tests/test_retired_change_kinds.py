@@ -288,8 +288,12 @@ class SkillGuidanceTests(unittest.TestCase):
         import render_agent_surfaces
         name = vocabulary_profile.skill_name("plan-change")
         skill = next(s for s in render_agent_surfaces.SKILL_REGISTRY if s.name == name)
-        self.assertIn("`wf_new_enhancement`", skill.body)
-        self.assertIn("wf_new_spec(slug=", skill.body)
+        if render_agent_surfaces.mcp_tool_extensions.declared():
+            self.assertIn("served MCP tool schemas", skill.body)
+            self.assertIn("authorized creation", skill.body)
+        else:
+            self.assertIn("`wf_new_enhancement`", skill.body)
+            self.assertIn("wf_new_spec(slug=", skill.body)
         self.assertNotIn("wf_new_feature", skill.body)
         for kind in vocabulary_profile.RETIRED_CHANGE_KINDS:
             self.assertNotRegex(skill.body, rf"\bwf_new_{kind}\b")
