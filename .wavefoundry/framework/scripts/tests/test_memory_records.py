@@ -7602,7 +7602,7 @@ class RationaleInputTests(_MemoryCase):
         self.assertIn("\nAction delta: applies when editing shared.py\n", text)
         self.assertIn("\nValidation rationale: read both source records\n", text)
 
-    def test_ac8_memory_validate_rewrite_still_accepts_its_own_values(self):
+    def _pending_candidate(self):
         wave = waves_dir(self.root) / "1aaaa demo"
         wave.mkdir(parents=True, exist_ok=True)
         (wave / RECORD).write_text(f"# Wave\n\n{ID_KEY}: `1aaaa demo`\n", encoding="utf-8")
@@ -7613,19 +7613,145 @@ class RationaleInputTests(_MemoryCase):
             source_event="finding:ac8", validation="pending",
         )
         self.mem.write_memory_record(self.root, content, "mem-generated")
-        delta = "applies when parsing\u2028run parity first"
-        result = self.srv.memory_validate_response(
-            self.root, "mem-generated", "rewrite", delta,
-            "Evidence and current target support the lesson.", True, True, "none",
+
+    def _validate(self, verdict, **fields):
+        params = {
+            "action_delta": "Run the parity check.",
+            "rationale": "The current target supports the lesson.",
+            "evidence_verified": True, "current_target_verified": True,
+            "canonical_overlap": "none",
+        }
+        params.update(fields)
+        return self.srv.memory_validate_response(
+            self.root, "mem-generated", verdict, **params,
             rewrite_kind="successful_pattern", rewrite_title="Verify parser parity",
             rewrite_summary="When editing the parser, compare with the reference.",
             rewrite_evidence=["ev-proof", "1aaaa"], rewrite_targets=["src/a.py"],
             rewrite_confidence=0.9,
         )
+
+    def _record_validation(self, **fields):
+        params = {
+            "verdict": "retain", "action_delta": "Run parity.", "rationale": "Checked.",
+            "evidence_verified": True, "current_target_verified": True,
+            "canonical_overlap": "none",
+        }
+        params.update(fields)
+        return self.mem.record_memory_validation(self.root, "mem-generated", **params)
+
+    def test_validate_refuses_line_breaks_before_any_verdict_writes(self):
+        self._pending_candidate()
+        before = self._snapshot()
+        for verdict in ("promote", "retain", "reject", "rewrite"):
+            for field in ("action_delta", "rationale"):
+                for value in self._invalid_validation_lines():
+                    with self.subTest(verdict=verdict, field=field, value=value):
+                        result = self._validate(verdict, **{field: value})
+                        self.assertEqual(result["diagnostics"][0]["code"], "invalid_memory_validation")
+                        self.assertEqual(result["data"]["problems"], [f"{field} must be a non-empty single line"])
+                        self.assertFalse(result["data"]["validated"])
+                        self.assertEqual(self._snapshot(), before)
+
+    @staticmethod
+    def _invalid_validation_lines():
+        return ["x" + sep + "Status: active" for sep in ("\u2028", "\u2029", "\x85", "\v")] + [
+            "one line\n", "   ",
+        ]
+
+    def test_direct_validation_refuses_invalid_lines_without_writing(self):
+        self._pending_candidate()
+        before = self._snapshot()
+        for field in ("action_delta", "rationale", "validated_by"):
+            for value in self._invalid_validation_lines():
+                with self.subTest(field=field, value=value):
+                    with self.assertRaisesRegex(ValueError, f"^{field} must be a non-empty single line$"):
+                        self._record_validation(**{field: value})
+                    self.assertEqual(self._snapshot(), before)
+
+    def test_validation_reports_both_problems_on_a_long_multiline_field(self):
+        self._pending_candidate()
+        before = self._snapshot()
+        value = "first paragraph\n" + "z" * 5000
+        for field in ("action_delta", "rationale"):
+            with self.subTest(field=field):
+                expected = [f"{field} must be a non-empty single line",
+                            f"{field} exceeds 5000 characters"]
+                result = self._validate("rewrite", **{field: value})
+                self.assertEqual(result["diagnostics"][0]["code"], "invalid_memory_validation")
+                self.assertEqual(result["data"]["problems"], expected)
+                self.assertEqual(self._snapshot(), before)
+                with self.assertRaises(ValueError) as raised:
+                    self._record_validation(**{field: value})
+                self.assertEqual(str(raised.exception), "; ".join(expected))
+                self.assertEqual(self._snapshot(), before)
+
+    def _assert_cap_refusals(self, write, rationale_field, code):
+        marker = "LengthCheck"
+        oversized = " " + marker + "é" * (5001 - len(marker)) + " "
+        before = self._snapshot()
+        for field in ("action_delta", rationale_field):
+            with self.subTest(field=field):
+                result = write(**{field: oversized})
+                self.assertEqual(result["diagnostics"][0]["code"], code)
+                self.assertEqual(result["data"]["problems"], [f"{field} exceeds 5000 characters"])
+                self.assertNotIn(marker, json.dumps(result))
+                if code == "invalid_memory_record":
+                    hint = result["diagnostics"][0]["recovery_usage"]
+                    self.assertIn(f"{field}=", hint)
+                    self.assertIn("5000", hint)
+                self.assertEqual(self._snapshot(), before)
+
+    def _assert_boundary_lines(self, path):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        self.assertIn("Action delta: " + "é" * 5000, lines)
+        self.assertIn("Validation rationale: " + "é" * 5000, lines)
+
+    def test_add_rationale_cap(self):
+        self._add("mem-source", "failed_attempt")
+        self._assert_cap_refusals(self._rewrite, "validation_rationale", "invalid_memory_record")
+        padded = " " + "é" * 5000 + " "
+        result = self._rewrite(action_delta=padded, validation_rationale=padded)
         self.assertEqual(result["status"], "ok", result)
-        replacement = result["data"]["rewrite_record"]["memory_id"]
-        text = self._record_path(replacement).read_text(encoding="utf-8")
-        self.assertIn(f"Action delta: {delta}", text)
+        self._assert_boundary_lines(self._record_path(result["data"]["record"]["memory_id"]))
+
+    def test_consolidate_rationale_cap(self):
+        ids = self._consolidation_group()
+
+        def create(**fields):
+            return self.srv.memory_consolidate_response(
+                self.root, mode="create", memory_ids=ids, title="Shared playbook",
+                summary="Apply the shared lessons before editing.", reviewed=True, **fields)
+
+        self._assert_cap_refusals(create, "validation_rationale", "invalid_memory_record")
+        padded = " " + "é" * 5000 + " "
+        result = create(action_delta=padded, validation_rationale=padded)
+        self.assertEqual(result["status"], "ok", result)
+        self._assert_boundary_lines(self._record_path(result["data"]["replacement_id"]))
+
+    def test_validate_rewrite_rationale_cap(self):
+        self._pending_candidate()
+
+        def rewrite(**fields):
+            return self._validate("rewrite", **fields)
+
+        self._assert_cap_refusals(rewrite, "rationale", "invalid_memory_validation")
+        padded = " " + "é" * 5000 + " "
+        result = rewrite(action_delta=padded, rationale=padded)
+        self.assertEqual(result["status"], "ok", result)
+        self._assert_boundary_lines(self._record_path(result["data"]["rewrite_record"]["memory_id"]))
+        self._assert_boundary_lines(self._record_path("mem-generated"))
+
+    def test_direct_validation_rationale_cap(self):
+        self._pending_candidate()
+        before = self._snapshot()
+        for field in ("action_delta", "rationale"):
+            with self.subTest(field=field):
+                with self.assertRaisesRegex(ValueError, f"^{field} exceeds 5000 characters$"):
+                    self._record_validation(**{field: " " + "é" * 5001 + " "})
+                self.assertEqual(self._snapshot(), before)
+        padded = " " + "é" * 5000 + " "
+        path = self._record_validation(action_delta=padded, rationale=padded, validated_by="a" * 5001)
+        self._assert_boundary_lines(path)
 
 
 if __name__ == "__main__":

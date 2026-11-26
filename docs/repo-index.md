@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-24
+Last verified: 2026-11-25
 
 ## Repository Summary
 
@@ -35,30 +35,30 @@ between the markers is machine-maintained; the surrounding narrative is not.
 
 | Area | Path | Kind | Size (nodes) |
 | ---- | ---- | ---- | ------------ |
-| tests | `.wavefoundry/framework/scripts/tests` | code | 24621 |
-| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1324 |
-| wave_validators | `.wavefoundry/framework/scripts` | code | 895 |
-| 1xny3 sqlite-graph-consolidation-evaluation/graph_eval | `.wavefoundry/framework/scripts` | code | 585 |
-| docs/workflow-config | `.wavefoundry/framework/scripts` | code | 489 |
-| upgrade | `.wavefoundry/framework/scripts` | code | 482 |
-| graph | `.wavefoundry/framework/scripts` | code | 423 |
-| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 398 |
-| scripts/scripts/build_pack 1 | `.wavefoundry/framework/scripts` | code | 384 |
-| indexer | `.wavefoundry/framework/scripts` | code | 286 |
-| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 280 |
-| dashboard | `.wavefoundry/framework/dashboard` | code | 239 |
+| tests | `.wavefoundry/framework/scripts/tests` | code | 24649 |
+| wf_server | `.wavefoundry/framework/scripts/wf_server` | code | 1473 |
+| framework/scripts | `.wavefoundry/framework/scripts` | code | 594 |
+| render_agent_surfaces | `.wavefoundry/framework/scripts` | code | 592 |
+| upgrade | `.wavefoundry/framework/scripts` | code | 498 |
+| scripts/scripts/build_pack 1 | `.wavefoundry/framework/scripts` | code | 479 |
+| indexer | `.wavefoundry/framework/scripts` | code | 438 |
+| graph | `.wavefoundry/framework/scripts` | code | 427 |
+| 1xny3 sqlite-graph-consolidation-evaluation | `docs/waves/1xny3 sqlite-graph-consolidation-evaluation` | code | 263 |
+| store | `.wavefoundry/framework/scripts` | code | 255 |
+| framework/dashboard | `.wavefoundry/framework/dashboard` | code | 239 |
+| wave_lint_lib | `.wavefoundry/framework/scripts/wave_lint_lib` | code | 237 |
 | chunker | `.wavefoundry/framework/scripts` | code | 229 |
-| run_tests | `.wavefoundry/framework/scripts` | code | 196 |
-| scripts/retrieval_eval | `.wavefoundry/framework/scripts` | code | 118 |
-| contained_files | `.wavefoundry/framework/scripts` | code | 78 |
-| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 64 |
+| docs_gardener | `.wavefoundry/framework/scripts` | code | 165 |
+| run_tests | `.wavefoundry/framework/scripts` | code | 108 |
+| scripts/retrieval_eval | `.wavefoundry/framework/scripts` | code | 108 |
+| memory_eval | `.wavefoundry/framework/scripts` | code | 98 |
+| tool | `.wavefoundry/framework/scripts` | code | 85 |
+| contained_files | `.wavefoundry/framework/scripts` | code | 76 |
 | oracle | `.wavefoundry/framework/scripts/tests/oracle` | code | 52 |
+| gen_codebase_map | `.wavefoundry/framework/scripts` | code | 50 |
 | graph_cluster | `.wavefoundry/framework/scripts` | code | 47 |
 | graph_di_signals | `.wavefoundry/framework/scripts` | code | 44 |
-| design_token_build | `.wavefoundry/framework/scripts` | code | 25 |
-| ann_reference_eval | `.wavefoundry/framework/scripts` | code | 18 |
-| 1yd24 fixture-fidelity | `docs/waves/1yd24 fixture-fidelity` | code | 7 |
-| configuration | `(root)` | config | 28 |
+| configuration | `(root)` | config | 15 |
 <!-- wave:repo-index-modules end -->
 
 No shipped product implementation sources exist yet. The MCP Python package (`src/wavefoundry/`) is planned but not scaffolded.

@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-18
+Last verified: 2026-11-25
 
 Durable reusable workflow guidance discovered during waves and promoted from journals.
 
@@ -69,7 +69,7 @@ Three durable facts from the 2026-09-02 review-churn-follow-ups wave, all found 
 
 ## SQLite publication measurement (wave 1xny6)
 
-Measure acquired writer time after `BEGIN IMMEDIATE` returns through `COMMIT` return, with acquisition wait separate. Freeze each per-run record before clearing reusable buffers; a pre-execution trace callback cannot prove the held interval. Use both a delayed acquisition and delayed commit as negative controls. See the active [timing evidence memory](../agents/memory/1xoyl-mem%20measure-acquired-writer-intervals-and-freeze-per-run-timing-.md).
+Measure acquired writer time after `BEGIN IMMEDIATE` returns through `COMMIT` return, with acquisition wait separate. Freeze each per-run record before clearing reusable buffers; a pre-execution trace callback cannot prove the held interval. Use both a delayed acquisition and delayed commit as negative controls. See the active [timing evidence memory](../agents/memory/24aqd-mem%20time-a-sqlite-publication-from-begin-immediate-return-to-com.md).
 
 ## Setup readiness producer contracts
 

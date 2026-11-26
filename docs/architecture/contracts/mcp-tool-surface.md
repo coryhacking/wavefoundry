@@ -2326,11 +2326,12 @@ validation_rationale: str = "")`
 - Validation runs before any write and refuses with `invalid_memory_record`: caller-supplied
   `memory_id` and `supersedes` values must match the memory-id grammar, and `title`,
   `summary`, `evidence`, `targets` and `retarget_reason` are scanned for forbidden content.
-  The optional `action_delta` and `validation_rationale` (change 24bij) are stripped of
-  surrounding whitespace, must then be a single line (a trailing newline is accepted, an
-  internal line break or separator is refused with `invalid_memory_record`), and are scanned
-  under their own field names before the lock; a non-empty value is written as
-  `Action delta:` or `Validation rationale:` and is never copied from a superseded record.
+  The tool strips surrounding whitespace from the optional `action_delta` and
+  `validation_rationale`, including a trailing newline. Each stripped value must fit
+  on one line and contain at most 5,000 characters. The tool refuses an internal
+  line separator or a longer value with `invalid_memory_record`. It scans both fields
+  under their own names before the lock. It writes a non-empty value as
+  `Action delta:` or `Validation rationale:` and never copies it from a superseded record.
   The diagnostic and `data.content_reasons` name each offending field with its reason codes
   (`secret`, `model_control_token`, `transcript_or_personal`; `data.rejected_reasons` lists
   the codes) and never echo the rejected text. See **Memory admission floor (change 249aq)**
@@ -2533,7 +2534,8 @@ or hosted model; optional Tensorwell inference uses authenticated local loopback
   not expose or accept a bulk retired-record cleanup list; archive-versus-purge
   remains an individual retention decision.
 - On `create`, the optional `action_delta` and `validation_rationale` (change 24bij)
-  follow the `memory_add` rule and are validated before the locked preflight; a refusal
+  follow the `memory_add` rule. Each stripped value may contain at most 5,000
+  characters. The tool checks both fields before the locked preflight. A refusal
   (`invalid_memory_record`, field and reason codes only) supersedes, archives and writes
   nothing. A non-empty value is written on the replacement. `dry_run` ignores both.
 
@@ -2613,8 +2615,10 @@ or hosted model; optional Tensorwell inference uses authenticated local loopback
 `memory_validate(memory_id, verdict, action_delta, rationale, evidence_verified, current_target_verified, canonical_overlap, rewrite_*=..., retarget_reason="")`
 
 - Captures a focused agent judgment; Python never guesses semantic usefulness.
-- Its required `action_delta` and `rationale` are its own parameters with its own checks;
-  the optional `memory_add` and `memory_consolidate` inputs of change 24bij do not apply here.
+- Both required fields, `action_delta` and `rationale`, must pass `memory_single_line`
+  on the value as given. It recognizes the same separators as `memory_add`.
+  A trailing newline fails here. `memory_add` strips it before that check.
+  Each stripped value must contain 1 to 5,000 characters.
 - `verdict` is `promote`, `retain`, `reject`, or `rewrite`.
 - Promote/retain/rewrite require verified evidence and current target and refuse
   `canonical_overlap=duplicates`. `duplicates` includes a lesson that the code at the

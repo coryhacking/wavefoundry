@@ -574,13 +574,17 @@ def _rationale_inputs_refusal(
     }
     refused = [label for label, value in values.items() if not mem.memory_single_line(value)]
     problems = [f"{label} must be a single line" for label in refused]
+    limit = mem.MEMORY_RATIONALE_MAX_CHARS
+    over_limit = [label for label, value in values.items() if len(value) > limit]
     content_reasons = mem.forbidden_content_reasons(
         {label: [value] for label, value in values.items() if value})
     if content_reasons:
         problems.append(_content_problem(content_reasons))
+    problems.extend(f"{label} exceeds {limit} characters" for label in over_limit)
     if not problems:
         return values["action_delta"], values["validation_rationale"], None
-    field = (refused or list(content_reasons) or ["action_delta"])[0]
+    field = (refused or list(content_reasons) or over_limit)[0]
+    hint = f"<at most {limit} characters>" if not refused and not content_reasons else "<one line>"
     return "", "", server_impl._response(
         "error",
         {"written": False, "problems": problems,
@@ -590,7 +594,7 @@ def _rationale_inputs_refusal(
         diagnostics=[_diagnostic(
             "invalid_memory_record", "; ".join(problems),
             recovery_tools=[recovery_tool],
-            recovery_usage=f"{recovery_tool}(..., {field}='<one line>')",
+            recovery_usage=f"{recovery_tool}(..., {field}='{hint}')",
         )],
         next_tools=[recovery_tool],
         usage="",
@@ -1774,8 +1778,11 @@ def memory_validate_response(
         problems.append("canonical_overlap must be none, supplements, or duplicates")
     for label, value in (("action_delta", action_delta), ("rationale", rationale)):
         value = str(value or "")
-        if not value.strip() or any(c in value for c in ("\r", "\n")):
+        stripped = value.strip()
+        if not stripped or not mem.memory_single_line(value):
             problems.append(f"{label} must be a non-empty single line")
+        if len(stripped) > mem.MEMORY_RATIONALE_MAX_CHARS:
+            problems.append(f"{label} exceeds {mem.MEMORY_RATIONALE_MAX_CHARS} characters")
     if verdict in ("promote", "retain", "rewrite"):
         if not evidence_verified:
             problems.append(f"{verdict} requires evidence_verified=True")

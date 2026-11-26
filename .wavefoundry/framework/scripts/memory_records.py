@@ -1158,8 +1158,14 @@ def record_memory_validation(
         ("rationale", rationale),
         ("validated_by", validated_by),
     ):
-        if not str(value or "").strip() or any(c in str(value) for c in ("\r", "\n")):
-            raise ValueError(f"{label} must be a non-empty single line")
+        stripped = str(value or "").strip()
+        problems = []
+        if not stripped or not memory_single_line(value):
+            problems.append(f"{label} must be a non-empty single line")
+        if label != "validated_by" and len(stripped) > MEMORY_RATIONALE_MAX_CHARS:
+            problems.append(f"{label} exceeds {MEMORY_RATIONALE_MAX_CHARS} characters")
+        if problems:
+            raise ValueError("; ".join(problems))
     path = _contained_record_path(root, memory_id)
     if not path.is_file():
         raise FileNotFoundError(f"memory record not found: {memory_id}")
@@ -2049,6 +2055,7 @@ MEMORY_UNTRUSTED_PREFIXES = (".wavefoundry/work/", ".wavefoundry/cache/")
 # Bounds on one ref (red-team probe: a 40k-character ``:a`` chain). A longer
 # ref is not probed and is ``unresolved``, so padding cannot skip the floor.
 MEMORY_REF_MAX_CHARS = 1024
+MEMORY_RATIONALE_MAX_CHARS = 5000
 MEMORY_REF_MAX_PREFIX_TOKENS = 32
 
 _URI_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")

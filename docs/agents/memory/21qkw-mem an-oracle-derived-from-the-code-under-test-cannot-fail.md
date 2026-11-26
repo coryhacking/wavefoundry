@@ -2,13 +2,16 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-10-27
+Last verified: 2026-11-25
 
 Memory ID: `21qkw-mem an-oracle-derived-from-the-code-under-test-cannot-fail`
 Kind: `failed_attempt`
 Confidence: 0.85
 Created: 2026-10-27
-Updated: 2026-10-27
+Updated: 2026-11-25
+Checked at: 2026-11-25T16:09:22Z
+Check note: checked summary states trigger and action; test_dashboard_server.py:5821 DashboardStaleRuntimeReportingTests test exists; no duplicate active record
+Check flags: none
 
 ## Summary
 

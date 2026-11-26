@@ -6,15 +6,20 @@ Last verified: 2026-11-25
 
 ## Current state
 
-Wave `24bik` closed on 2026-11-25. Spec `24bij` lets `memory_add` and `memory_consolidate(mode="create")` write optional `Action delta:` and `Validation rationale:` lines, and the Review memories prompt asks for them in all three prompt copies. The full default suite passed 13,621 tests. Nothing is committed.
+Wave `24a51` closed after delivering spec `24a50`. The full suite passed 13,627 tests with 13 skips. The three profiles each passed all 336 memory tests. Delivery reviewers verified repair CR-D1. The operator signed off after the walkthrough. Close removed the wave’s work folder.
+
 
 Open questions / deferred decisions:
 
-- Spec `24a50` (align `memory_validate` with the single-line rule; operator DO, 2026-11-25) is planned in `docs/plans/` and not yet in a wave.
+- After five qualifying waves, use existing records to assess the review changes delivered in wave `24c3o`.
 - The retrieval-stack pause holds by operator decision (arc `244cm`); query-set version 2 still awaits the operator's spot-check.
 - The 53 records rewritten before `24bij` still lack the lines; backfilling them is an operator decision.
 
 ## Earlier handoffs
+
+Waves `24c3o` and `24bik` closed and were committed in `917a28d6`. Wave `24c3o` delivered the independent readiness prediction, tradeoff and repair-reversal guidance, host qualification, and read-only contract inspection.
+
+Wave `24bik` closed on 2026-11-25. Spec `24bij` lets `memory_add` and `memory_consolidate(mode="create")` write optional `Action delta:` and `Validation rationale:` lines, and the Review memories prompt asks for them in all three prompt copies. The full default suite passed 13,621 tests.
 
 Wave `24buu` closed on 2026-11-25. The five specs delivered memory revalidation guidance, spec tool permission migration, ZIP startup and prompt fixes, and automatic CLI cleanup. The final repair preserves the primary summary before cleanup. The full default suite passed 13,614 tests with 13 skips. The wave retains the two-hop rehearsal evidence and the unsent Waveforge draft. The operator authorized release 1.53.0 after qualification and kept the tested uv 0.13.6 pin. Arc 244cm item 7, Review memories, remains a separate follow-up.
 

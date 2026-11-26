@@ -118,7 +118,7 @@
       "mcp__wavefoundry__wf_upgrade_status",
       "mcp__wavefoundry__wf_validate_docs",
       "mcp__wavefoundry__wf_stats",
-      "mcp__wavefoundry__wf_get_change"
+      "mcp__wavefoundry__wf_get_spec"
     ]
   },
   "wavefoundryManagedAllow": [
@@ -152,9 +152,9 @@
     "mcp__wavefoundry__wf_audit_install",
     "mcp__wavefoundry__wf_current_wave",
     "mcp__wavefoundry__wf_gate_status",
-    "mcp__wavefoundry__wf_get_change",
     "mcp__wavefoundry__wf_get_handoff",
     "mcp__wavefoundry__wf_get_prompt",
+    "mcp__wavefoundry__wf_get_spec",
     "mcp__wavefoundry__wf_gpu_doctor",
     "mcp__wavefoundry__wf_graph_report",
     "mcp__wavefoundry__wf_help",
