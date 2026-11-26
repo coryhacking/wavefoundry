@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-25
 
 ## Context
 
@@ -14,6 +14,8 @@ You are running **Prepare wave** on Wavefoundry. This is the stage gate for impl
 2. Verify each spec has: Rationale, Requirements, Scope, Acceptance Criteria, Affected architecture docs.
 3. Select review lanes (see `docs/contributing/agent-team-workflow.md`).
 4. For ordinary review, include `qa-reviewer` for bug fixes when project policy requires QA. For an eligible small change, use the independent `code-reviewer` named by Prepare.
+   For readiness, collect one assigned independent reviewer’s prediction before sharing the primer or separate answer-bearing material with that reviewer. Prefer QA when assigned. Use the two exchanges in the council-chair guidance and keep the original prediction in ordinary readiness evidence.
+
 5. When the receipt requires `council-readiness`, run the Wave Council readiness pass: declare a primer depth tier (`lightweight` / `standard` / `full`), run `red-team` in `council-adversarial-primer` mode first, then fixed seats each receiving the primer, then `council-chair` synthesizes; record `council-readiness` in `## Review Evidence`.
 6. Record `## AC priority` on each spec.
 7. Record readiness verdict in wave record `## Review checkpoints`.

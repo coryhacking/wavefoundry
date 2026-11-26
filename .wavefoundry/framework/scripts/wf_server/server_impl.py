@@ -27522,6 +27522,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                         title: str = "", confidence: float = 0.6, status: str = "candidate",
                         supersedes: str = "", memory_id: str = "",
                         abort_if_duplicate: bool = False, retarget_reason: str = "",
+                        action_delta: str = "", validation_rationale: str = "",
                         **kwargs: Any) -> dict[str, Any]:
         """Create an agent memory record (typed, evidence-backed, repo-visible markdown).
 
@@ -27562,6 +27563,13 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
                 record possibly duplicates an existing active/candidate record.
                 Default False: the record is written and a possible_duplicate
                 advisory is attached. Detection only — never auto-supersedes.
+            action_delta: Optional single line stored as ``Action delta:``:
+                when the lesson applies and what the next action does
+                differently. Stripped, content-scanned, never copied from a
+                superseded record; a line break refuses with
+                ``invalid_memory_record``.
+            validation_rationale: Optional single line stored as
+                ``Validation rationale:``: the evidence checked. Same rules.
         """
         bad = _ensure_no_extra_args("memory_add", kwargs)
         if bad is not None:
@@ -27570,6 +27578,7 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
             get_handler().root, kind, summary, evidence, targets, title=title,
             confidence=confidence, status=status, supersedes=supersedes, memory_id=memory_id,
             abort_if_duplicate=abort_if_duplicate, retarget_reason=retarget_reason,
+            action_delta=action_delta, validation_rationale=validation_rationale,
         )
 
     @mcp.tool(annotations=_MUTATING_TOOL)
@@ -27828,7 +27837,9 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
     @mcp.tool(annotations=_MUTATING_TOOL)
     def memory_consolidate(mode: str = "dry_run", memory_ids: Optional[list] = None,
                            title: str = "", summary: str = "", reviewed: bool = False,
-                           eligibility_confirmed: bool = False, limit: int = 10, **kwargs: Any) -> dict[str, Any]:
+                           eligibility_confirmed: bool = False, limit: int = 10,
+                           action_delta: str = "", validation_rationale: str = "",
+                           **kwargs: Any) -> dict[str, Any]:
         """Preview or apply one bounded consolidation of related active memory.
 
         Dry-run groups only records of the same kind with identical canonical
@@ -27836,13 +27847,17 @@ def register_mcp_surface(mcp: Any, get_handler: Any) -> None:
         reviewed replacement title and summary; it preflights every source
         before creating the replacement, then supersedes and archives the
         selected group. Retired records are never bulk archived here.
+        On create, optional single-line ``action_delta`` and
+        ``validation_rationale`` are written on the replacement; they are
+        checked before the preflight, and a refusal changes nothing.
         """
         bad = _ensure_no_extra_args("memory_consolidate", kwargs)
         if bad is not None:
             return bad
         return memory_consolidate_response(get_handler().root, mode=mode,
             memory_ids=memory_ids, title=title, summary=summary,
-            reviewed=reviewed, eligibility_confirmed=eligibility_confirmed, limit=limit)
+            reviewed=reviewed, eligibility_confirmed=eligibility_confirmed, limit=limit,
+            action_delta=action_delta, validation_rationale=validation_rationale)
 
     # --- Code navigation tools ---
 

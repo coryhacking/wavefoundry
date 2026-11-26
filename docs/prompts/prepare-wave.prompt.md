@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-22
+Last verified: 2026-11-25
 
 Shortcut: **`Prepare wave`** | Alias: **`Ready wave`**
 
@@ -21,6 +21,8 @@ In existing readiness and delivery reviews, ask whether meeting Requirements and
 Prepare wave has passed cleanly; declared review-enabled waves in ordinary review require the typed `council-readiness` approval on the current receipt. An eligible operator-selected small change requires current independent code-reviewer readiness approval. Legacy prose-verdict and review-disabled behavior are preserved.
 
 ## Steps
+
+For readiness, collect one assigned independent reviewer’s prediction before sharing the primer or separate answer-bearing material with that reviewer. Prefer QA when assigned. Use the two exchanges in the council-chair guidance and keep the original prediction in ordinary readiness evidence.
 
 1. Validate that every admitted spec already lives in `docs/waves/<wave-id>/`. If an admitted doc is still staged in `docs/plans/`, repair the placement by moving it into the wave folder; if duplicate staged and wave copies exist, stop and resolve the conflict explicitly.
 2. Confirm each spec is complete: Rationale, Requirements, Scope, Acceptance Criteria, Affected architecture docs.
@@ -117,6 +119,8 @@ Repository-wide single-OPEN activation is the default. Distributions may set `re
 Declared compatible Prepare/close overrides may opt in through `EXTENSION_UPGRADE_PREVIEW_TOOLS`. Only supported dry-run modes run during a compatible retained upgrade with current loaded core, launcher, declaration, module and helper provenance. `mcp.upgrade_preview_active()` exposes the inherited no-publication context, including through `core_handler`. Framework publication APIs refuse writes; trusted extension code is responsible for direct I/O. This preview grants no mutation or recovery authority.
 
 ## Readiness decision handoff
+
+At the existing operator handoff after focused readiness verification, compare the next proposed repair with the outcome of the applied repair. If it would undo that outcome, cite the finding or repair evidence for each request, explain exactly what would be lost, and ask which behavior the next repair must preserve. Wait for operator direction. A revision that preserves the earlier outcome needs only the ordinary handoff.
 
 Use `wf_review_wave(phase="prepare")` for `data.review_actions.readiness_decision_packet` and its `focused_rereview` navigation. The compact packet exposes existing canonical finding/approval facts, not a second classifier or approval. Distinguish unresolved required blockers, nonblocking notes, ordinary missing approvals and unavailable/omitted detail; inspect the named full authority when the summary is incomplete. Do not infer readiness from empty actions or a review-round stop from receipt-publication counts.
 

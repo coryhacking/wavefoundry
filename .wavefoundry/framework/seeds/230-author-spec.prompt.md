@@ -1,6 +1,6 @@
 # 230 - Author Behavior Contract
 
-**Applicable when:** the project needs a new or updated standing behavior contract. Universal authoring lane.
+**Applicable when:** the project needs a new or updated standing behavior contract, or a maintainer requests a read-only inspection of an existing boundary.
 
 Shortcut: **Author behavior contract** or `/wf-contract`. Both use `docs/prompts/author-behavior-contract.prompt.md`.
 
@@ -16,6 +16,15 @@ When to use:
 - An existing component's behavior has been audited and verified in code.
 
 Plan proposed work in a change spec under the configured plans root until admission moves it into a wave. Behavior contracts describe stable boundaries that are already implemented and tested.
+
+## Inspect contract drift on request
+
+When the operator asks to inspect or check for drift, use this branch and finish with a report in the response. For ordinary authoring, continue to Prerequisites.
+
+1. Name the selected contract, operations and conditions. Resolve them from the project's configured paths, maintained indexes and existing links. An explicitly selected legacy or unindexed contract is valid. If ownership conflicts or a link is missing or unreadable, identify the affected portion. Keep the inspection within the selected boundary.
+2. Trace each selected promise through the production entry point to an independent test assertion about the same condition and observable outcome. Cite the contract section, source symbol or lines, and test assertion. Mark a conflict **contradicted** and show the opposing evidence. Mark agreement backed by an independent assertion **supported**. Mark missing, unreadable or inconclusive evidence **insufficient evidence** and say what would resolve it. A test that only repeats a production constant cannot establish its promised value.
+3. Read the boundary in the other direction. For an observable interface, invariant or side effect absent from the selected contract, cite the implementation and any assertion and ask whether the owner intends to guarantee it. Omit private implementation choices that preserve what callers observe.
+4. Lead with contradictions, coverage questions and gaps. Summarize supported promises, identify anything unexamined, and limit any clean conclusion to the examined, supported scope. End there. Inspection leaves project files, contracts, navigation, TechDocs, configuration and indexes untouched and triggers no background sweep or lifecycle gate.
 
 ## Prerequisites
 

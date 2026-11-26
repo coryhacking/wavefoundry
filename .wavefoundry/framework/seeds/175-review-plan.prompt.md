@@ -23,6 +23,8 @@ Before reviewing, consult all available project resources to self-answer questio
 - `docs/waves/` — prior wave records, change history, decision logs
 - Any other checked-in project knowledge base artifact
 
+When a decision hinges on two competing outcomes, name both outcomes and the assumption that puts them in conflict. Try one concrete way to satisfy both. Compare its cost, risk and remaining limits with the original options. If the constraint still binds, explain why or identify the missing evidence. Use the ordinary review response or decision log. If the alternatives represent a consequential architectural choice that warrants an ADR, offer the operator the existing Evaluate decision workflow. Let the operator choose whether to start it. Skip this question when the plan presents no consequential tradeoff.
+
 **Compare the draft with its brief:**
 
 Compare Requirements, ACs and Scope with Product Intent (or the wave Objective): would satisfying them establish the intended outcome, and could complexity, runtime cost or operator burden undermine it? Keep this within the existing decision-branch walk; use Rationale for why now and do not reopen resolved choices or expand scope.

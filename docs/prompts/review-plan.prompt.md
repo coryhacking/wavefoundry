@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-21
+Last verified: 2026-11-25
 
 Shortcut: **`Review plan`** | Aliases: **`Interrogate this plan`**, **`Stress-test this plan`**
 
@@ -19,6 +19,8 @@ At the start of this optional review, compare drafted Requirements, Acceptance C
 Read Rationale as reference for the brief, without reopening the whole section or resolved Decision Log entries. New ideas remain proposals, not authorized scope. This comparison adds no document, gate, or signoff; preserve the existing stop condition and one-question-at-a-time flow.
 
 ## Behavior
+
+When a decision hinges on two competing outcomes, name both outcomes and the assumption that puts them in conflict. Try one concrete way to satisfy both. Compare its cost, risk and remaining limits with the original options. If the constraint still binds, explain why or identify the missing evidence. Use the ordinary review response or decision log. If the alternatives represent a consequential architectural choice that warrants an ADR, offer the operator the existing Evaluate decision workflow. Let the operator choose whether to start it. Skip this question when the plan presents no consequential tradeoff.
 
 Given a spec as context, or the current wave record when no change is specified:
 1. Walk every unresolved decision branch one question at a time.

@@ -81,15 +81,23 @@ asks for a read-only review, use the separate read-only procedure and make no mu
    - **supersede:** another active record carries the knowledge at equal or wider scope. Call
      `memory_reconcile(memory_id=..., status="superseded", superseded_by=...)`.
    - **rewrite:** the knowledge is still operational but the record is wrong or outdated. Call
-     `memory_add(..., status="active", supersedes=<original id>)`, keeping the concrete anchor
-     as in step 2; it also marks the original superseded. Only when it reports `supersedes_target_not_updated`, finish with
+     `memory_add(..., status="active", supersedes=<original id>, action_delta=...)`, keeping the
+     concrete anchor as in step 2; it also marks the original superseded. Write `action_delta` as
+     one line: the condition under which the lesson applies and what the next action does
+     differently. Do not restate the summary or title, and write it fresh from the rewritten
+     lesson rather than copying the original's line. `validation_rationale` is optional: one line
+     stating the evidence checked in this review.
+     Only when it reports `supersedes_target_not_updated`, finish with
      `memory_reconcile(memory_id=<original id>, status="superseded", superseded_by=<new id>)`.
      Never send an active record to `memory_validate`.
    - **unresolved:** leave the record unchanged and report it.
 4. Call `memory_consolidate(mode="dry_run")`. If a related group is worth consolidating,
    apply at most one exact returned group with
    `memory_consolidate(mode="create", memory_ids=<one exact groups[].memory_ids>,
-   title=..., summary=..., reviewed=true, eligibility_confirmed=...)`. Set
+   title=..., summary=..., reviewed=true, eligibility_confirmed=..., action_delta=...)`. Write
+   `action_delta` for the merged lesson, not one source: one line stating when it applies and
+   what the next action does differently, written fresh rather than copied from a source record.
+   `validation_rationale` is optional: one line stating the evidence checked in this review. Set
    `eligibility_confirmed=true` only after current protected-kind review. The tool does not
    expose or accept a bulk retired-record cleanup list; disposition retired records individually.
 5. Consolidation creates the replacement before superseding and archiving every selected

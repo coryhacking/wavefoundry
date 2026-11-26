@@ -7427,5 +7427,206 @@ class MemoryMarkupCaseTests(_AdmissionCase):
         self.assertNotIn(sample, failures[0])
 
 
+class RationaleInputTests(_MemoryCase):
+    """Change 24bij: memory_add and memory_consolidate(create) accept
+    optional ``action_delta`` and ``validation_rationale``, checked only at
+    the public entry points."""
+
+    def setUp(self):
+        super().setUp()
+        self.srv = load_server()
+        self.evalh = self.srv._load_script("memory_eval")
+
+    def _record_path(self, memory_id: str) -> Path:
+        return self.root / self.mem.MEMORY_DIR / f"{memory_id}.md"
+
+    def _no_rationale_ids(self) -> set[str]:
+        return {entry["memory_id"] for entry in self.evalh.uncoverable_records(self.root, None)
+                if "no_rationale" in entry["reasons"]}
+
+    def _snapshot(self) -> dict[str, bytes]:
+        return {str(path.relative_to(self.root)): path.read_bytes()
+                for path in (self.root / "docs" / "agents").rglob("*") if path.is_file()}
+
+    def _rewrite(self, **kwargs):
+        return self.srv.memory_add_response(
+            self.root, "failed_attempt",
+            "When editing the loader, run its regression first.",
+            ["`1abcd-bug some-change` — observed"], ["src/a.py"],
+            title="Loader rewrite", status="active", supersedes="mem-source", **kwargs)
+
+    def test_ac1_rewrite_writes_stripped_action_delta_and_leaves_no_rationale(self):
+        self._add("mem-source", "failed_attempt")
+        self._add("mem-control", "failed_attempt", targets=("src/b.py",))
+        result = self._rewrite(action_delta="  applies when X; next action does Y  ")
+        self.assertEqual(result["status"], "ok", result)
+        new_id = result["data"]["record"]["memory_id"]
+        text = self._record_path(new_id).read_text(encoding="utf-8")
+        self.assertIn("\nAction delta: applies when X; next action does Y\n", text)
+        flagged = self._no_rationale_ids()
+        self.assertNotIn(new_id, flagged)
+        self.assertIn("mem-control", flagged)
+
+    def test_ac2_rationale_alone_whitespace_delta_and_trailing_newline(self):
+        self._add("mem-source", "failed_attempt")
+        result = self._rewrite(validation_rationale=" checked the loader test \n",
+                               action_delta="   ")
+        self.assertEqual(result["status"], "ok", result)
+        text = self._record_path(result["data"]["record"]["memory_id"]).read_text(encoding="utf-8")
+        self.assertIn("\nValidation rationale: checked the loader test\n", text)
+        self.assertNotIn("Action delta:", text)
+        self._add("mem-other", "failed_attempt", targets=("src/b.py",))
+        trailing = self.srv.memory_add_response(
+            self.root, "failed_attempt", "Another lesson.",
+            ["`1abcd-bug some-change` — observed"], ["src/b.py"],
+            title="Trailing newline", status="active", supersedes="mem-other",
+            action_delta="applies when editing b\r\n")
+        self.assertEqual(trailing["status"], "ok", trailing)
+        text = self._record_path(trailing["data"]["record"]["memory_id"]).read_text(encoding="utf-8")
+        self.assertIn("\nAction delta: applies when editing b\n", text)
+
+    def test_ac3_line_breaks_and_forbidden_content_are_refused_before_any_write(self):
+        self._add("mem-source", "failed_attempt")
+        secret = "sk-live-rationale-secret-value"
+        cases = {
+            "action_delta": "applies when x\u2028next does y",
+            "validation_rationale": "first line\nsecond line",
+        }
+        for field, value in cases.items():
+            with self.subTest(field=field):
+                before = self._snapshot()
+                refused = self._rewrite(**{field: value})
+                self.assertEqual(refused["status"], "error", refused)
+                self.assertEqual(refused["diagnostics"][0]["code"], "invalid_memory_record")
+                self.assertIn(f"{field} must be a single line", refused["data"]["problems"])
+                self.assertIn(f"{field}=", refused["diagnostics"][0]["recovery_usage"])
+                self.assertEqual(self._snapshot(), before)
+        for field in ("action_delta", "validation_rationale"):
+            with self.subTest(content=field):
+                before = self._snapshot()
+                refused = self._rewrite(**{field: f"set api_key: {secret} in env"})
+                self.assertEqual(refused["status"], "error", refused)
+                self.assertEqual(refused["diagnostics"][0]["code"], "invalid_memory_record")
+                self.assertIn(field, refused["data"]["content_reasons"])
+                self.assertIn("secret", refused["data"]["content_reasons"][field])
+                self.assertIn(f"{field}=", refused["diagnostics"][0]["recovery_usage"])
+                self.assertNotIn(secret, json.dumps(refused))
+                self.assertEqual(self._snapshot(), before)
+
+    def test_ac5_neither_input_inherits_nothing_from_the_source(self):
+        content = self.mem.render_memory_record(
+            memory_id="mem-source", kind="failed_attempt", summary="Old lesson.",
+            evidence=["`1abcd-bug some-change` — observed"], targets=["src/a.py"],
+            title="Old", confidence=0.8, status="active",
+            action_delta="old delta line", validation_rationale="old rationale line",
+        )
+        self.mem.write_memory_record(self.root, content, "mem-source")
+        self.assertIn("Action delta: old delta line", content)
+        result = self._rewrite()
+        self.assertEqual(result["status"], "ok", result)
+        text = self._record_path(result["data"]["record"]["memory_id"]).read_text(encoding="utf-8")
+        self.assertNotIn("Action delta:", text)
+        self.assertNotIn("Validation rationale:", text)
+
+    def _consolidation_group(self):
+        self._add("mem-pair-a", "failed_attempt", targets=("src/shared.py",))
+        self._add("mem-pair-b", "failed_attempt", targets=("src/shared.py",))
+        preview = self.srv.memory_consolidate_response(
+            self.root, mode="dry_run", action_delta="ignored\nin dry run")
+        self.assertEqual(preview["status"], "dry_run", preview)
+        return preview["data"]["groups"][0]["memory_ids"]
+
+    def test_ac7_consolidation_writes_action_delta_and_refusals_change_nothing(self):
+        ids = self._consolidation_group()
+        secret = "sk-live-consolidate-rationale-secret"
+        for field, value in (("action_delta", "line one\u2029line two"),
+                             ("validation_rationale", f"token: {secret}")):
+            with self.subTest(field=field):
+                before = self._snapshot()
+                refused = self.srv.memory_consolidate_response(
+                    self.root, mode="create", memory_ids=ids, title="Shared playbook",
+                    summary="Apply the shared lessons before editing.", reviewed=True,
+                    **{field: value})
+                self.assertEqual(refused["status"], "error", refused)
+                self.assertEqual(refused["diagnostics"][0]["code"], "invalid_memory_record")
+                self.assertNotIn(secret, json.dumps(refused))
+                self.assertEqual(self._snapshot(), before)
+                self.assertFalse((self.root / self.mem.MEMORY_ARCHIVE_DIR).exists())
+        applied = self.srv.memory_consolidate_response(
+            self.root, mode="create", memory_ids=ids, title="Shared playbook",
+            summary="Apply the shared lessons before editing.", reviewed=True,
+            action_delta=" applies when editing shared.py; read both lessons ",
+            validation_rationale=" read both source records ")
+        self.assertEqual(applied["status"], "ok", applied)
+        replacements = [r for r in self.mem.load_memory_records(self.root, statuses=("active",))
+                        if r["memory_id"] not in ids]
+        self.assertEqual(len(replacements), 1)
+        new_id = replacements[0]["memory_id"]
+        text = self._record_path(new_id).read_text(encoding="utf-8")
+        self.assertIn("\nAction delta: applies when editing shared.py; read both lessons\n", text)
+        self.assertIn("\nValidation rationale: read both source records\n", text)
+        self.assertNotIn(new_id, self._no_rationale_ids())
+
+    def test_registered_tools_forward_both_inputs(self):
+        # Delivery review (CR-3, QA-2): exercise the registered MCP wrappers,
+        # not only the handlers, so dropping the forwarding fails a behavior test.
+        from types import SimpleNamespace
+        from declaration_support import RecordingFastMCP
+        handler = SimpleNamespace(root=self.root, cache=None, telemetry=MagicMock(), index=None)
+        surface = RecordingFastMCP()
+        self.srv.register_mcp_surface(surface, lambda: handler)
+        tools = surface._tool_manager._tools
+        self._add("mem-source", "failed_attempt")
+        added = tools["memory_add"].fn(
+            kind="failed_attempt", summary="When editing the loader, run its regression first.",
+            evidence=["`1abcd-bug some-change` — observed"], targets=["src/a.py"],
+            title="Wrapper rewrite", status="active", supersedes="mem-source",
+            action_delta="applies when editing the loader",
+            validation_rationale="checked the loader test")
+        self.assertEqual(added["status"], "ok", added)
+        text = self._record_path(added["data"]["record"]["memory_id"]).read_text(encoding="utf-8")
+        self.assertIn("\nAction delta: applies when editing the loader\n", text)
+        self.assertIn("\nValidation rationale: checked the loader test\n", text)
+        self._add("mem-pair-a", "failed_attempt", targets=("src/shared.py",))
+        self._add("mem-pair-b", "failed_attempt", targets=("src/shared.py",))
+        ids = tools["memory_consolidate"].fn(mode="dry_run")["data"]["groups"][0]["memory_ids"]
+        applied = tools["memory_consolidate"].fn(
+            mode="create", memory_ids=ids, title="Shared playbook",
+            summary="Apply the shared lessons before editing.", reviewed=True,
+            action_delta="applies when editing shared.py",
+            validation_rationale="read both source records")
+        self.assertEqual(applied["status"], "ok", applied)
+        replacement = next(r for r in self.mem.load_memory_records(self.root, statuses=("active",))
+                           if r["memory_id"] not in ids and r["title"] == "Shared playbook")
+        text = self._record_path(replacement["memory_id"]).read_text(encoding="utf-8")
+        self.assertIn("\nAction delta: applies when editing shared.py\n", text)
+        self.assertIn("\nValidation rationale: read both source records\n", text)
+
+    def test_ac8_memory_validate_rewrite_still_accepts_its_own_values(self):
+        wave = waves_dir(self.root) / "1aaaa demo"
+        wave.mkdir(parents=True, exist_ok=True)
+        (wave / RECORD).write_text(f"# Wave\n\n{ID_KEY}: `1aaaa demo`\n", encoding="utf-8")
+        content = self.mem.render_memory_record(
+            memory_id="mem-generated", kind="failed_attempt", title="Candidate",
+            summary="Generated prose that requires semantic validation.",
+            evidence=["ev-proof", "1aaaa"], targets=["src/a.py"],
+            source_event="finding:ac8", validation="pending",
+        )
+        self.mem.write_memory_record(self.root, content, "mem-generated")
+        delta = "applies when parsing\u2028run parity first"
+        result = self.srv.memory_validate_response(
+            self.root, "mem-generated", "rewrite", delta,
+            "Evidence and current target support the lesson.", True, True, "none",
+            rewrite_kind="successful_pattern", rewrite_title="Verify parser parity",
+            rewrite_summary="When editing the parser, compare with the reference.",
+            rewrite_evidence=["ev-proof", "1aaaa"], rewrite_targets=["src/a.py"],
+            rewrite_confidence=0.9,
+        )
+        self.assertEqual(result["status"], "ok", result)
+        replacement = result["data"]["rewrite_record"]["memory_id"]
+        text = self._record_path(replacement).read_text(encoding="utf-8")
+        self.assertIn(f"Action delta: {delta}", text)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -24,6 +24,8 @@ only one wave may be open for implementation.
 
 ## Readiness checks
 
+For readiness, collect one assigned independent reviewer’s prediction before sharing the primer or separate answer-bearing material with that reviewer. Prefer QA when assigned. Use the two exchanges in the council-chair guidance and keep the original prediction in ordinary readiness evidence.
+
 1. Confirm every admitted spec is wave-owned and complete.
 2. Resolve duplicate or staged-only placement drift.
 3. Verify requirements, scope, acceptance criteria, architecture impact, and
@@ -84,6 +86,8 @@ is recorded. The readiness verdict is the single pre-code review decision; it
 confirms admissibility, not delivery approval.
 
 ## Readiness decision handoff
+
+At the existing operator handoff after focused readiness verification, compare the next proposed repair with the outcome of the applied repair. If it would undo that outcome, cite the finding or repair evidence for each request, explain exactly what would be lost, and ask which behavior the next repair must preserve. Wait for operator direction. A revision that preserves the earlier outcome needs only the ordinary handoff.
 
 Use `wf_review_wave(phase="prepare")` for `data.review_actions.readiness_decision_packet` and its `focused_rereview` navigation. The compact packet exposes existing canonical finding/approval facts, not a second classifier or approval. Distinguish unresolved required blockers, nonblocking notes, ordinary missing approvals and unavailable/omitted detail; inspect the named full authority when the summary is incomplete. Do not infer readiness from empty actions or a review-round stop from receipt-publication counts.
 

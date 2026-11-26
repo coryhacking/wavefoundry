@@ -194,6 +194,17 @@ Use the best available model and reasoning effort for each specific task through
 - **Preserve independent review.** Required review uses a fresh independent context, on the same host or another. A different vendor alone is not independence, and relabeling the implementer is not independent review. When no independent context is available, authorized implementation may continue but required review remains pending. Model fit never waives stage gates, required lanes, write ownership or operator authority over closure, commits and releases.
 - **Hand off through existing artifacts.** For review or coordinator handoff, update the existing wave/change record using seed 209's **Briefing Packet**, including the reviewed revision or tree fingerprint, and record the next action. The receiver checks the current tree and evidence independently; a moved tree requires affected evidence to be refreshed. No shared chat transcript, extra Markdown packet, host/session registry or cross-host scheduler is required.
 
+### Qualify a reviewer dispatch mode
+
+When adopting or changing a host integration, check which inputs its reviewer observes. Run the following paired check outside normal wave gates. Each review still requires its own independence attestation.
+
+1. Create a disposable project outside the working repository and its ancestry. Use synthetic data throughout. Put a random sample label in an assigned file. In the host's usual project instruction file, ask the reader to append a different random receipt. Keep a third unique receipt solely in the dispatcher's context, outside the project and ordinary reviewer brief.
+2. Start an ordinary fresh reviewer in that project. Ask it to read the assigned file, return its sample label, and report the synthetic parent receipt if supplied, otherwise return `NONE`. The brief contains no expected value. Retain the actual child input and response outside the project.
+3. Start a second fresh reviewer with the same configuration, files and brief. Append the parent receipt explicitly to this brief. Record the response separately. Compare both responses with the three expected values outside the reviewers.
+4. Record the host, version, platform, date and exact dispatch mode. An exact parent receipt in the ordinary response establishes observed disclosure. Report *no disclosure observed under these conditions* only when both artifact reads match, the control returns the deliberately supplied receipt and the ordinary response reports none. A control-only match is expected. A started reviewer with an unreadable assignment, a missed control or an ambiguous answer leaves the negative result inconclusive. If dispatch cannot start, record the missing capability and failure. Record the project instruction receipt independently for each run.
+
+This samples one configuration and the values its reviewer reports. It cannot establish what other context was present but unreported, or how another host version, fork, resume or dispatch mode behaves.
+
 Wave orchestration contract:
 
 - **Admission:** the coordinator confirms which changes, feature slices, review lanes, and integration lanes are admitted into the current wave

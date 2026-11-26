@@ -6,7 +6,11 @@ Last verified: {{generated_at}}
 
 Shortcut: **Author behavior contract** or `/wf-contract`
 
-Write or update a behavior contract using the implementation and its tests. Use seed 230 in `.wavefoundry/framework/seeds/230-author-spec.prompt.md` for the framework's authoring guidance.
+Write or update a behavior contract using the implementation and its tests. Use seed 230 in `.wavefoundry/framework/seeds/230-author-spec.prompt.md` for the framework's guidance.
+
+For an explicit inspection or drift check, follow **Inspect contract drift on request** in seed 230. Use the project's configured paths and include any selected legacy or unindexed contract. Return contradictions, coverage questions, verification gaps and a concise account of the examined scope in the response. Finish before the authoring steps below and leave project files and indexes untouched.
+
+For ordinary authoring:
 
 1. Trace the observable behavior from its entry point. Read the supporting tests and name the assertions that establish the promise. Identify missing verification explicitly. Route a proposed behavior to the project's planning prompt (Plan spec under the default vocabulary). Leave it out of the standing contract until the implementation and its tests establish it.
 2. Read `docs/architecture/contracts/index.md` and any maintained legacy `docs/specs/` index or README. Follow their links, including links to authoritative pages outside the collection. If existing pages claim competing authority, report the conflict for the owner to resolve.

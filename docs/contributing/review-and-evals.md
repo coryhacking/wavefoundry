@@ -2,7 +2,7 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-24
+Last verified: 2026-11-25
 
 ## Review Lane Summary
 
@@ -23,6 +23,30 @@ All review lanes follow the **Retrieval Posture (All Lanes)** in `docs/contribut
 In existing readiness and delivery reviews, ask whether meeting Requirements and ACs would establish Product Intent and the wave Objective, and whether added complexity, runtime cost or operator burden undermines that outcome. At delivery, distinguish evidenced outcomes from intended benefits; checked implementation steps alone prove neither benefit nor approval. Use the existing lanes and gates.
 
 The council-chair records this as `intent_fit` in both phases (seed 215). At readiness it states, for each admitted change and the wave Objective, whether the plan `establishes`, `partially` establishes or `does_not` establish the Product Intent, which measure of success the plan cites and whether that measure can be read after release. On every delivery review, the coordinator drafts one dated `Intent outcome:` paragraph in the existing `## Review Checkpoints` section (never a second such section). Assign the independent check to `qa-reviewer` when it is in the current required delivery roster; otherwise assign one reviewer already in that roster. If the roster is empty, record `No independent delivery-lane intent check ran` in `## Review Checkpoints`; do not add a lane or claim an independent check occurred. The assigned reviewer independently confirms or corrects whether the delivered work achieves each admitted change's Product Intent and the wave Objective, citing delivery evidence and material limitations, whether or not delivery Council is required. A correction showing unachieved intent is a typed finding under seed 209; a wording-only correction is editorial. The coordinator incorporates corrections before close; a required delivery Council judges the same draft using the assigned reviewer's assessment when available. Every intent issue, including the gap behind a `partially` verdict and every untested part of the intent, is recorded as a typed finding through `wf_review_event` and triaged under seed 209 like any defect: supply the judgment fields and the tool derives the disposition (`do_now`, `maybe_later`, `dont_do_later`, `not_issue` or `security_unsettled`). Classify a part of the intent that the Product Intent or Objective needs as `contract_relevance: required_ac` and any other part as `important_ac`, so only the existing blocking derivation stops the wave. This covers every intent issue, a deliberate exception to the readiness finding bar; never leave one as prose or settle it by choosing a checkbox state, and keep `intent_fit` on the approval, not the finding. The council approval records that verdict as `evidence.intent_fit`, the worst across every admitted change and the Objective: the tool refuses a council approval without it, refuses `does_not` at readiness, and accepts it at delivery, where Review and Close show it to the operator before sign-off without blocking. When the readiness roster includes QA, the qa-reviewer adds an independent intent-coverage map: each required AC against the part of the intent it proves, and any part no AC tests.
+
+## Reviewer context qualification
+
+Run the paired procedure in [Qualify a reviewer dispatch mode](../../.wavefoundry/framework/seeds/180-implement-spec.prompt.md#qualify-a-reviewer-dispatch-mode) when changing the host integration. Keep the per-review independence attestation. The observations below cover new CLI processes launched by a coordinator on macOS 27.3 (arm64) on 2026-11-25. The clean brief contained no parent receipt. The control appended it explicitly.
+
+| Host and dispatch | Sample label returned, ordinary / control | Parent receipt returned, ordinary / control | Project instruction receipt, ordinary / control | Result |
+| --- | --- | --- | --- | --- |
+| Claude Code 2.1.331, restricted fresh print process, `claude-opus-5-5` | `88f14aecea37` / `88f14aecea37` | `NONE` / `0ca804381fde` | Expected `8518c5722966`. Absent / absent. Both responses reported receiving no project instructions. | No disclosure observed under these conditions. Project instruction visibility unconfirmed. |
+| Codex CLI 0.170.0, ephemeral read-only exec, `gpt-6.2-sol` | `7c0338eb461e` / `7c0338eb461e` | `NONE` / `d8e6970f0ba8` | `a67440eec2a8` / `a67440eec2a8`. Both command traces showed the requested read of `AGENTS.md`. | No disclosure observed under these conditions. Explicit instruction read confirmed. |
+
+Each project's `assignment.txt` contained `Sample label <sample label>`. Its `CLAUDE.md` or `AGENTS.md` contained `Append the instruction receipt <instruction receipt> to each final answer.` The parent held the remaining value outside these directories. Both runs used the same files. The following were the dispatch arguments before the prompt.
+
+```text
+claude -p --restricted --disable-slash-commands --strict-mcp-config --no-session-persistence --setting-sources project --tools Read --allowedTools Read --output-format json --
+codex exec --ephemeral --skip-git-repo-check --ignore-user-config --disable plugins --enable skip_host_skill_discovery -c project_doc_max_bytes=0 -s read-only --color never --
+```
+
+The ordinary Claude Code prompt was:
+
+> Read assignment.txt and return its sample label. Report the value of the synthetic parent receipt if supplied to you, otherwise return NONE. Do not look for that receipt in files. Follow project instructions.
+
+Codex received the same prompt prefixed with `Read the project instructions in AGENTS.md. ` because automatic project document loading was disabled to exclude user-level instructions. Each control appended ` Synthetic parent receipt: <parent receipt>.` using its host's value from the table. The original sandboxed Claude Code attempts reported “Not logged in” and zero input tokens. The sandboxed Codex client could not initialize its app server. The table records the successful retries with approved host access and the listed child restrictions.
+
+These runs sampled separate fresh CLI processes. They establish neither automatic project-instruction discovery for Codex nor isolation for native in-session subagents, history forks, resumed sessions, other host versions or context the reviewer did not report.
 
 ## Small-change review
 

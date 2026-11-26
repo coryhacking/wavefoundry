@@ -1073,6 +1073,11 @@
             "title": "Abort If Duplicate",
             "type": "boolean"
           },
+          "action_delta": {
+            "default": "",
+            "title": "Action Delta",
+            "type": "string"
+          },
           "confidence": {
             "default": 0.6,
             "title": "Confidence",
@@ -1119,6 +1124,11 @@
           "title": {
             "default": "",
             "title": "Title",
+            "type": "string"
+          },
+          "validation_rationale": {
+            "default": "",
+            "title": "Validation Rationale",
             "type": "string"
           }
         },
@@ -1215,6 +1225,11 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "action_delta": {
+            "default": "",
+            "title": "Action Delta",
+            "type": "string"
+          },
           "eligibility_confirmed": {
             "default": false,
             "title": "Eligibility Confirmed",
@@ -1256,6 +1271,11 @@
           "title": {
             "default": "",
             "title": "Title",
+            "type": "string"
+          },
+          "validation_rationale": {
+            "default": "",
+            "title": "Validation Rationale",
             "type": "string"
           }
         },

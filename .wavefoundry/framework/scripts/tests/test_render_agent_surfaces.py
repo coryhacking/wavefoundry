@@ -96,7 +96,6 @@ def assert_memory_review_contract(test: unittest.TestCase, text: str) -> None:
         "not only the instance the record came from",
         'memory_reconcile(memory_id=..., status="stale")',
         'status="superseded", superseded_by=...)',
-        'memory_add(..., status="active", supersedes=<original id>)',
         "supersedes_target_not_updated",
         "Never send an active record to `memory_validate`.",
         "do not purge it in this run",
@@ -114,6 +113,24 @@ def assert_memory_review_contract(test: unittest.TestCase, text: str) -> None:
     ]
     positions = [text.index(literal) for literal in ordered]
     test.assertEqual(positions, sorted(positions))
+
+    # Change 24bij: the rewrite and consolidation calls carry action_delta, and
+    # each step says what the line must state. Compared whitespace-collapsed so
+    # a wrapped line still matches; the memory_validate step's
+    # ``action_delta=...`` does not satisfy either check.
+    collapsed = " ".join(text.split())
+    test.assertIn(
+        'memory_add(..., status="active", supersedes=<original id>, action_delta=...)', collapsed)
+    rewrite_step = collapsed.split("**rewrite:**", 1)[1].split("**unresolved:**", 1)[0]
+    test.assertIn("action_delta=...", rewrite_step)
+    test.assertIn("what the next action does differently", rewrite_step)
+    consolidate_step = collapsed.split('memory_consolidate(mode="create",', 1)[1].split(
+        "Set `eligibility_confirmed=true`", 1)[0]
+    test.assertRegex(consolidate_step, r"^[^`]*action_delta=\.\.\.\)`")
+    test.assertIn("what the next action does differently", consolidate_step)
+    for step in (rewrite_step, consolidate_step):
+        test.assertIn("written fresh" if step is consolidate_step else "write it fresh", step)
+        test.assertIn("`validation_rationale` is optional: one line stating the evidence checked", step)
 
     read_only = text.split("## Read-only procedure", 1)[1].split("## Report", 1)[0]
     calls = set(re.findall(r"\b([a-z][a-z0-9_]*)\(", read_only))
@@ -1142,6 +1159,18 @@ class MemoryReviewPromptTests(unittest.TestCase):
             prompt.replace('order="least_recently_reviewed"', 'order="weakest"'),
             prompt.replace("do not purge it in this run", "purge it when unimportant", 1),
             prompt.replace("never decides its outcome", "may decide its outcome", 1),
+            # Change 24bij: each call form and each definition is load-bearing.
+            prompt.replace("supersedes=<original id>, action_delta=...)",
+                           "supersedes=<original id>)", 1),
+            prompt.replace("eligibility_confirmed=..., action_delta=...)",
+                           "eligibility_confirmed=...)", 1),
+            prompt.replace("next action does\n     differently", "next action is", 1),
+            prompt.replace("what the next action does differently,", "why it matters,", 1),
+            prompt.replace("write it fresh from", "write it from", 1),
+            prompt.replace("written fresh rather than copied", "taken", 1),
+            prompt.replace("`validation_rationale` is optional: one line\n     stating", "It may state", 1),
+            prompt.replace("`validation_rationale` is optional: one line stating the evidence checked in this review. Set",
+                           "Set", 1),
         )
         for broken in known_bad:
             with self.subTest():
@@ -3122,7 +3151,10 @@ class SkillRegistryTests(unittest.TestCase):
 
     def test_contract_uses_missing_only_prompt_on_active_hosts(self):
         path = "docs/prompts/author-behavior-contract.prompt.md"
-        description = "Write or update a behavior contract using the implementation and its tests."
+        description = (
+            "Write or update a behavior contract using the implementation and its tests. "
+            "On request, inspect a selected boundary for drift without editing."
+        )
         for hosts in ((".codex", ".claude", ".agents"), (".claude",)):
             with self.subTest(hosts=hosts), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
@@ -3134,14 +3166,20 @@ class SkillRegistryTests(unittest.TestCase):
                 ras.render_agent_surfaces(root)
                 prompt = root / path
                 self.assertIn("**Author behavior contract** or `/wf-contract`", prompt.read_text())
+                # An upgrade retains an operator's writer-only prompt verbatim.
+                retained = b"# Author behavior contract\n\nUse the team's fixtures and update its contract.\n"
+                prompt.write_bytes(retained)
+                self.assertEqual(ras.render_agent_surfaces(root), [])
+                self.assertEqual(prompt.read_bytes(), retained)
                 for host in hosts:
                     skill = (root / host / "skills/wf-contract/SKILL.md").read_text()
                     self.assertIn("description: " + description, skill)
-                    self.assertIn(f"`{path}`", skill)
-                edited = prompt.read_bytes() + b"\nUse the service team's wire fixtures.\n"
-                prompt.write_bytes(edited)
-                self.assertEqual(ras.render_agent_surfaces(root), [])
-                self.assertEqual(prompt.read_bytes(), edited)
+                    self.assertIn(
+                        "For an explicit inspection or drift check, follow **Inspect contract drift on request** "
+                        "in `.wavefoundry/framework/seeds/230-author-spec.prompt.md`", skill,
+                    )
+                    self.assertIn("stop before any authoring steps", skill)
+                    self.assertIn(f"For ordinary authoring, follow `{path}`", skill)
 
     def test_spec_skill_routes_use_served_schemas_for_declared_projects(self):
         for declared in (False, True):

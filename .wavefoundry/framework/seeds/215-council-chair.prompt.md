@@ -40,7 +40,9 @@ Run in this order:
    - `standard` — implementation changes with clear scope; no trust boundary crossing. Three stances, two `primer_questions`.
    - `full` — trust boundary changes, architectural changes, data-path changes, security-relevant changes, or cross-cutting scope. All five stances, three `primer_questions`.
 
-2. **Phase 1 — Red-team adversarial primer.** Run `red-team` in `council-adversarial-primer` mode in isolation at the declared depth. Add the primer output — including `strongest_challenge`, `best_alternative`, `thinking_stances_applied`, `primer_questions` and `efficacy_replay` — to the briefing packet. Every subsequent seat receives it.
+2. **Phase 1 — Red-team adversarial primer.** Run `red-team` in `council-adversarial-primer` mode in isolation at the declared depth. Add the primer output — including `strongest_challenge`, `best_alternative`, `thinking_stances_applied`, `primer_questions` and `efficacy_replay` — to the briefing packet. Every subsequent seat receives it during ordinary primer engagement.
+
+   During readiness, use one already assigned independent reviewer, preferably QA when assigned. For the first exchange, send the spec, its cited contracts and normal project instructions. Withhold the primer, separate author commentary, expected answers and peer verdicts. Ask for one representative input, its predicted observable result and an observation that would disprove it. Retain the first response unedited in ordinary review evidence. In the second exchange, give the same reviewer the ordinary brief, including the primer when applicable. Compare the prediction with the intended behavior and record a finding if plausible interpretations change what ships. Reuse an existing prediction that meets these conditions. If the reviewer already saw the answer, disclose that limit; only a fresh exchange qualifies as independent. Keep the existing seats and approval rules.
 
 3. **Phase 2 — Fixed seats.** Run each fixed seat in isolation, in this exact sequence:
 
@@ -75,6 +77,8 @@ Run in this order:
    **Two-tier identity handling (non-waiver guard).** Anonymization governs only the convergence/agreement assessment. A finding that carries blocking authority from a required specialist lane **retains its lane attribution and blocking status at all times** — anonymization must never be used to merit-weight a blocking required-lane finding below blocking. When in doubt, treat the finding as attributed and blocking.
 
 ### Bounded readiness review
+
+At the existing operator handoff after focused readiness verification, compare the next proposed repair with the outcome of the applied repair. If it would undo that outcome, cite the finding or repair evidence for each request, explain exactly what would be lost, and ask which behavior the next repair must preserve. Wait for operator direction. A revision that preserves the earlier outcome needs only the ordinary handoff.
 
 Run one readiness review using the Council Protocol above at the existing risk-selected primer depth. Narrow work uses the appropriate declared tier; this does not remove any required specialist or Council authority. Readiness verifies plan feasibility against current code and bounded safe controls, not future delivery execution that cannot exist before implementation. Collect findings before repairing, and record blocking findings as typed readiness findings with their originating `source_lanes` and applicable `blocking_required_lanes`.
 

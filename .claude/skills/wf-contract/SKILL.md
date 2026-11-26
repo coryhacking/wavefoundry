@@ -1,10 +1,9 @@
 ---
 name: wf-contract
-description: Write or update a behavior contract using the implementation and its tests.
+description: Write or update a behavior contract using the implementation and its tests. On request, inspect a selected boundary for drift without editing.
 ---
 
 # Author behavior contract (Wavefoundry skill)
 
-This skill is a thin pointer: the workflow lives in `docs/prompts/author-behavior-contract.prompt.md`. Read that document and follow it; do not improvise the steps from this summary.
-
-- Use the project's maintained contract index to find the authoritative page.
+- For an explicit inspection or drift check, follow **Inspect contract drift on request** in `.wavefoundry/framework/seeds/230-author-spec.prompt.md`. Return the report in the response and stop before any authoring steps.
+- For ordinary authoring, follow `docs/prompts/author-behavior-contract.prompt.md`, including the project's own authoring instructions.

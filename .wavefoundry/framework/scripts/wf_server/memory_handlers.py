@@ -554,6 +554,49 @@ def _content_reason_codes(reasons: dict[str, list[str]]) -> list[str]:
     return sorted({code for codes in reasons.values() for code in codes})
 
 
+def _rationale_inputs_refusal(
+    action_delta: str, validation_rationale: str, recovery_tool: str,
+) -> tuple[str, str, Optional[dict[str, Any]]]:
+    """Strip and check the optional public rationale lines (change 24bij).
+
+    Only the public ``memory_add`` and ``memory_consolidate(create)`` entry
+    points call this, before the project-state lock. The private
+    ``_action_delta``/``_validation_rationale`` path that ``memory_validate``
+    reaches is deliberately left unchecked here, so its own rules stay the
+    only rules on that path. Returns the stripped values and, when a value is
+    refused, the ``invalid_memory_record`` error response (nothing written).
+    """
+    import wf_server.server_impl as server_impl
+    mem = _memory_mod()
+    values = {
+        "action_delta": str(action_delta or "").strip(),
+        "validation_rationale": str(validation_rationale or "").strip(),
+    }
+    refused = [label for label, value in values.items() if not mem.memory_single_line(value)]
+    problems = [f"{label} must be a single line" for label in refused]
+    content_reasons = mem.forbidden_content_reasons(
+        {label: [value] for label, value in values.items() if value})
+    if content_reasons:
+        problems.append(_content_problem(content_reasons))
+    if not problems:
+        return values["action_delta"], values["validation_rationale"], None
+    field = (refused or list(content_reasons) or ["action_delta"])[0]
+    return "", "", server_impl._response(
+        "error",
+        {"written": False, "problems": problems,
+         **({"content_reasons": content_reasons,
+             "rejected_reasons": _content_reason_codes(content_reasons)}
+            if content_reasons else {})},
+        diagnostics=[_diagnostic(
+            "invalid_memory_record", "; ".join(problems),
+            recovery_tools=[recovery_tool],
+            recovery_usage=f"{recovery_tool}(..., {field}='<one line>')",
+        )],
+        next_tools=[recovery_tool],
+        usage="",
+    )
+
+
 def _ref_unresolved_response(blocking: list[dict[str, Any]], data: dict[str, Any],
                              recovery_tool: str) -> dict[str, Any]:
     """The ``memory_ref_unresolved`` refusal naming each blocking ref and state."""
@@ -768,13 +811,24 @@ def memory_add_response(
     memory_id: str = "",
     abort_if_duplicate: bool = False,
     retarget_reason: str = "",
+    action_delta: str = "",
+    validation_rationale: str = "",
 ) -> dict[str, Any]:
-    """Validate without mutation, then serialize duplicate scan + write."""
+    """Validate without mutation, then serialize duplicate scan + write.
+
+    ``action_delta`` and ``validation_rationale`` are stripped and checked
+    here, before the lock, then written through the private parameters.
+    """
+    action_delta, validation_rationale, refusal = _rationale_inputs_refusal(
+        action_delta, validation_rationale, "memory_add")
+    if refusal is not None:
+        return refusal
     return _memory_add_response_locked(
         root, kind, summary, evidence, targets, title=title,
         confidence=confidence, status=status, supersedes=supersedes,
         memory_id=memory_id, abort_if_duplicate=abort_if_duplicate,
         retarget_reason=retarget_reason,
+        _action_delta=action_delta, _validation_rationale=validation_rationale,
     )
 
 
@@ -2673,8 +2727,15 @@ def memory_consolidate_response(
     reviewed: bool = False,
     eligibility_confirmed: bool = False,
     limit: int = 10,
+    action_delta: str = "",
+    validation_rationale: str = "",
 ) -> dict[str, Any]:
-    """Preview or apply one small, explicitly reviewed memory consolidation."""
+    """Preview or apply one small, explicitly reviewed memory consolidation.
+
+    ``action_delta`` and ``validation_rationale`` apply only to ``create``:
+    they are checked before the locked preflight and written on the
+    replacement; ``dry_run`` ignores them.
+    """
     import wf_server.server_impl as server_impl
     mem = _memory_mod()
     mode = str(mode or "dry_run").strip().lower()
@@ -2756,6 +2817,10 @@ def memory_consolidate_response(
             "memory_consolidation_requires_review", "Select one previewed group and supply title, summary, and reviewed=true.",
             recovery_tools=["memory_consolidate"], recovery_usage="memory_consolidate(mode='dry_run')")],
             next_tools=["memory_consolidate"], usage="memory_consolidate(mode='dry_run')")
+    action_delta, validation_rationale, refusal = _rationale_inputs_refusal(
+        action_delta, validation_rationale, "memory_consolidate")
+    if refusal is not None:
+        return refusal
     source_snapshots: dict[str, bytes] = {}
     manifest_path = root / mem.MEMORY_ARCHIVE_MANIFEST
     manifest_before: Optional[bytes] = None
@@ -2806,6 +2871,8 @@ def memory_consolidate_response(
                 status="active",
                 supersedes=match["memory_ids"][0],
                 _lock_held=True,
+                _action_delta=action_delta,
+                _validation_rationale=validation_rationale,
                 _defer_index_refresh=True,
             )
             if added.get("status") != "ok":

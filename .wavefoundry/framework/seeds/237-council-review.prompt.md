@@ -40,7 +40,7 @@ The five thinking stances:
 
 Produce: `strongest_challenge`, `best_alternative`, `thinking_stances_applied`, `consequence_of_current_path`, `primer_questions` (count per tier above), `efficacy_replay` (always).
 
-Add the primer output to the briefing packet. Every subsequent seat receives it.
+Add the primer output to the briefing packet. Every subsequent seat receives it. For wave readiness, first collect the designated reviewer’s unedited prediction in the separate exchange described in the council-chair guidance. Then share the primer with that reviewer.
 
 ### Phase 2 — Fixed Seats
 

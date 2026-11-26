@@ -1078,11 +1078,14 @@ def _build_skill_registry() -> tuple[Skill, ...]:
         ),
         Skill(
             name="wf-contract",
-            description="Write or update a behavior contract using the implementation and its tests.",
-            body=_thin_pointer_body(
-                "Author behavior contract",
-                "docs/prompts/author-behavior-contract.prompt.md",
-                ("Use the project's maintained contract index to find the authoritative page.",),
+            description="Write or update a behavior contract using the implementation and its tests. On request, inspect a selected boundary for drift without editing.",
+            body=(
+                "# Author behavior contract (Wavefoundry skill)\n\n"
+                "- For an explicit inspection or drift check, follow **Inspect contract drift on request** "
+                "in `.wavefoundry/framework/seeds/230-author-spec.prompt.md`. Return the report in "
+                "the response and stop before any authoring steps.\n"
+                "- For ordinary authoring, follow `docs/prompts/author-behavior-contract.prompt.md`, "
+                "including the project's own authoring instructions.\n"
             ),
             requires_doc="docs/prompts/author-behavior-contract.prompt.md",
         ),

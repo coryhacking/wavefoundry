@@ -2,13 +2,15 @@
 
 Owner: Engineering
 Status: active
-Last verified: 2026-11-24
+Last verified: 2026-11-25
 
 Maps Wave Framework agent docs, personas, specialists, and factor agents to native agent platform files.
 
 ## Host-neutral orchestration
 
 Follow `.wavefoundry/framework/seeds/180-implement-spec.prompt.md` **Host-neutral orchestration** for task-fit model allocation, bounded delegation and independent handoff throughout Prepare-to-Close. Host choice is per task or wave; native wrappers remain pointers to shared project guidance. Choose model and effort per assignment using exposed host controls; inheritance is a fallback, not a decision. Keep the rationale in existing work notes and distinguish requested settings from observed runtime identity (unknown when unavailable). Check actual worker capabilities rather than assuming inherited tools.
+
+For the tested Claude Code and Codex CLI dispatch modes, see the [reviewer context qualification results](../contributing/review-and-evals.md#reviewer-context-qualification), including the separate project-instruction observations.
 
 ## Auto-Guru routing (code and documentation Q&A)
 

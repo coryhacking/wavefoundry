@@ -6,9 +6,17 @@ Last verified: 2026-11-25
 
 ## Current state
 
-Wave `24buu` closed on 2026-11-25. The five specs delivered memory revalidation guidance, spec tool permission migration, ZIP startup and prompt fixes, and automatic CLI cleanup. The final repair preserves the primary summary before cleanup. The full default suite passed 13,614 tests with 13 skips. The wave retains the two-hop rehearsal evidence and the unsent Waveforge draft. The operator authorized release 1.53.0 after qualification and kept the tested uv 0.13.6 pin. Arc 244cm item 7, Review memories, remains a separate follow-up.
+Wave `24bik` closed on 2026-11-25. Spec `24bij` lets `memory_add` and `memory_consolidate(mode="create")` write optional `Action delta:` and `Validation rationale:` lines, and the Review memories prompt asks for them in all three prompt copies. The full default suite passed 13,621 tests. Nothing is committed.
+
+Open questions / deferred decisions:
+
+- Spec `24a50` (align `memory_validate` with the single-line rule; operator DO, 2026-11-25) is planned in `docs/plans/` and not yet in a wave.
+- The retrieval-stack pause holds by operator decision (arc `244cm`); query-set version 2 still awaits the operator's spot-check.
+- The 53 records rewritten before `24bij` still lack the lines; backfilling them is an operator decision.
 
 ## Earlier handoffs
+
+Wave `24buu` closed on 2026-11-25. The five specs delivered memory revalidation guidance, spec tool permission migration, ZIP startup and prompt fixes, and automatic CLI cleanup. The final repair preserves the primary summary before cleanup. The full default suite passed 13,614 tests with 13 skips. The wave retains the two-hop rehearsal evidence and the unsent Waveforge draft. The operator authorized release 1.53.0 after qualification and kept the tested uv 0.13.6 pin. Arc 244cm item 7, Review memories, remains a separate follow-up.
 
 Wave `248o5` closed on 2026-11-24. It moved standing behavior contracts under `docs/architecture/contracts/` and introduced spec-named MCP tools. The full framework suite passed, and close removed its disposable work folder.
 
