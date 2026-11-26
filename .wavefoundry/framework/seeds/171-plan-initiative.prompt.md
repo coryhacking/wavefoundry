@@ -41,6 +41,8 @@ Use ordinary document metadata (owner, status and last verified) and a `Record I
 
 Adapt headings to the project. Preserve operator edits and unrelated content when revising. Summarize progress from authoritative records rather than copy their task lists or acceptance checks. Supporting files are optional when they help; create no empty folder hierarchy or second tracker. If evidence is missing, name the gap and useful next test.
 
+When no in-scope work remains, compare the result with the arc’s original success criteria. Record what the evidence establishes, what remains unproven, and where to find any deferred work. Link to the wave records that support the conclusion. Mark the arc record complete, update its verification date, and keep it at its existing path.
+
 Apply `.wavefoundry/framework/docs/writing-guide.md`; read the record against its sources and the reader's task. No routine council, independent reader or scoring exercise is part of Plan arc. Return the record path, what changed and the next useful step.
 
 The record grants no readiness, implementation or other lifecycle authority. A separately requested Plan spec or wave action follows its existing workflow and rechecks mutable facts. Do not create, admit, open, close, implement or commit a wave/change merely because the arc recommends it. Leave visions and their review records unchanged. Installing or rendering this workflow never runs it or creates arc records.

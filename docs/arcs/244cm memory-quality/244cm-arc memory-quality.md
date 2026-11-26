@@ -1,8 +1,8 @@
 # Memory quality: written, maintained, indexed and evaluated
 
 Owner: Engineering
-Status: active
-Last verified: 2026-11-25
+Status: complete
+Last verified: 2026-11-26
 
 Record ID: `244cm-arc memory-quality`
 
@@ -90,9 +90,18 @@ Held-out (version 2, 576 probes, 0 fallback, memory vector coverage 154 of 154),
 
 `no_rationale` rose because `memory_add` writes no `Action delta:` or `Validation rationale:` line, so a rewrite through the documented path drops those lines even when the new summary states when it applies. The count cannot fall through Review memories until a rewrite can carry them.
 
+## Closure
+
+Closed November 26, 2026. The five delivery tracks and both follow-up waves are complete. Against the three original success criteria:
+
+1. **Measure each change.** The frozen evaluation established a production baseline. Admission and maintenance used it as a control and measured their effects through admission replay, unmatched briefings and target checks. Upgrade delivery used a two-hop rehearsal with 108 checks. The waves established those outcomes; the two query-set versions do not establish a before-and-after retrieval gain. See the [baseline](../../waves/245na%20memory-eval-production-path/wave.md), [admission replay](../../waves/249as%20memory-admission-hardening/wave.md) and [upgrade rehearsal](../../waves/24buu%20memory-revalidation-upgrade-delivery/wave.md).
+2. **Detect loss of semantic coverage.** The index reports stale and missing memory coverage. During a concurrent index build, all 606 production probes used the relevance model, with zero lexical fallbacks and vector coverage for all 174 active records. [Index freshness wave](../../waves/248lb%20memory-index-freshness/wave.md)
+3. **Keep targets current or flag them for review.** The November 25 review left zero unresolved or noncanonical targets. The audit still flagged 58 records for target churn so reviewers could check whether the lessons remained applicable. [Maintenance wave](../../waves/249ar%20memory-maintenance-by-signal/wave.md)
+
+Whether surfaced memories improve decisions during real engineering work remains unmeasured. The [research assessment](research/agent-memory-systems-assessment.md) describes the downstream paired-task evaluation as a separate follow-up outside this arc.
+
+The arc met its final two closure conditions on November 25. [Wave 24bik](../../waves/24bik%20memory-add-rationale-lines/wave.md) closed after delivering rationale fields for memory creation and consolidation. [Wave 24a51](../../waves/24a51%20memory-validate-single-line/wave.md) closed after aligning validation with those writers. A rationale field records the reviewer's reasoning. Its presence alone does not establish the quality of that reasoning.
+
 ## Next step
 
-1. **Retrieval-stack pause: holds** (operator decision, 2026-11-25). Version 2 held-out numbers on the current tree (re-run 2026-11-25, 576 probes, 0 fallback; recall@5 / precision / false-show): production .755 / .392 / .370, hybrid without rerank .899 / .239 / 1.0, BM25 .822 / .214 / 1.0, dense .831 / .222 / 1.0, grep .504 / .458 / .074, full context `recall_all` 1.0 / .006 / 1.0 with MRR .023 and stale-shown 1.0. Full context shows 249 records per query, which matches the 154 active records plus the 95 archived ones (inferred from the counts), so it finds everything but surfaces every stale record and ranks poorly. Production beats none of grep, BM25 and full context on both recall and precision, so the pause condition is not met.
-2. **`Action delta:` on rewrites: delivered** in wave `24bik memory-add-rationale-lines` (spec `24bij`): `memory_add` and `memory_consolidate(mode="create")` accept `action_delta` and `validation_rationale`, and the Review memories prompt asks for them. Delivery review passed; operator sign-off and close are pending. `no_rationale` checks presence only, so a lower count at the next Review memories pass shows the lines exist, not that they are useful.
-3. **`memory_validate` single-line rule: DO** (operator decision, 2026-11-25). Align `memory_validate` with the `memory_single_line` rule the two tools above now use; planned as its own small change.
-4. The arc closes after wave `24bik` closes and the item 3 change is delivered.
+No arc work remains. The operator's November 25 decision to pause retrieval changes stands. On the frozen version 2 evaluation, production memory search combined BM25 and vector ranks and screened the shortlist for relevance. It achieved .755 recall@5, .392 precision and .370 false-show on the rerun. The unscreened hybrid reached .899 recall@5 and .239 precision and returned a memory for every null query. These results support keeping the relevance screen. Any future retrieval experiment should report what it gains in recall and what it costs in irrelevant memories shown.
